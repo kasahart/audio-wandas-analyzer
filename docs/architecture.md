@@ -32,7 +32,8 @@ flowchart LR
 責務:
 
 - VS Code コマンド `audioWandasAnalyzer.analyzeFile` と `audioWandasAnalyzer.analyzeDebugFile` を登録する
-- 対象音声ファイルを選択または解決する
+- 対象の音声ファイルまたはディレクトリを選択または解決する
+- ディレクトリが渡された場合は、対応音声ファイルのツリーを Webview に表示し、左にツリー、右に解析表示を持つ単一画面で、選択されたファイルだけを解析する
 - 設定値 `pythonCommand`、`defaultPeakCount`、`debugFilePath` を読み込む
 - Python バックエンドを子プロセスとして起動する
 - 標準出力の JSON を `AnalysisResult` として解釈する
@@ -85,6 +86,7 @@ flowchart LR
 責務:
 
 - `AnalysisResult` を HTML とインラインスクリプトへ埋め込む
+- マルチトラック比較に向いた一覧サマリーとトラック別の固定レイアウトを構成する
 - ファイル概要、チャンネル別メトリクス、優勢周波数テーブルを表示する
 - Canvas ベースで波形とスペクトログラムを描画する
 - ズーム、パン、ホバー、カーソル固定などの相互作用を処理する
@@ -94,6 +96,7 @@ flowchart LR
 - Webview と Extension Host 間の追加メッセージ通信は現状使っていない
 - 初回描画に必要なデータは HTML 生成時にまとめて注入している
 - 共有カーソル状態をクライアント側で持ち、全チャンネルの時間位置を同期している
+- 画面は「上部の比較サマリー」と「共有タイムルーラーの下に、左トラックヘッダーと右プロット帯を並べた各トラック行」で構成し、Adobe Audition に近いマルチトラック比較導線を持たせている
 
 ## 実行シーケンス
 
@@ -105,22 +108,35 @@ sequenceDiagram
     participant A as Analyzer
     participant W as Webview
 
-    U->>E: Analyze File / Analyze Debug File
-    E->>E: 設定読込と対象ファイル解決
-    E->>P: 子プロセス起動
-    P->>A: analyze_audio(file, peak_count)
-    A-->>P: 解析結果 dict
-    P-->>E: stdout に JSON 出力
-    E->>E: JSON.parse
-    E->>W: AnalysisPanel.show(result)
-    W-->>U: 波形・スペクトログラムを表示
+    U->>E: Analyze File or Folder / Analyze Debug Path
+    E->>E: 設定読込と対象パス解決
+    alt 単一ファイル
+      E->>P: 子プロセス起動
+      P->>A: analyze_audio(file, peak_count)
+      A-->>P: 解析結果 dict
+      P-->>E: stdout に JSON 出力
+      E->>E: JSON.parse
+      E->>W: AnalysisPanel.show(result)
+    else ディレクトリ
+      E->>E: 対応音声ファイルを再帰列挙
+      E->>W: ディレクトリツリーを表示
+      U->>W: 解析したいファイルを選択
+      W->>E: analyze-file message
+      E->>P: 子プロセス起動
+      P->>A: analyze_audio(file, peak_count)
+      A-->>P: 解析結果 dict
+      P-->>E: stdout に JSON 出力
+      E->>E: JSON.parse
+      E->>W: 左ツリーは維持し、右側の解析表示だけ更新
+    end
+    W-->>U: ディレクトリツリーまたは波形・スペクトログラムを表示
 ```
 
 ## データフロー
 
 ### 入力
 
-- ユーザーが選択した音声ファイルパス、または `debugFilePath`
+- ユーザーが選択した音声ファイルパスまたはディレクトリパス、または `debugFilePath`
 - VS Code 設定値
 
 ### 中間データ
@@ -191,7 +207,7 @@ docs/
 
 - `audioWandasAnalyzer.pythonCommand`: Python 実行コマンド
 - `audioWandasAnalyzer.defaultPeakCount`: チャンネルごとの優勢周波数件数
-- `audioWandasAnalyzer.debugFilePath`: デバッグ用音声ファイルのパス
+- `audioWandasAnalyzer.debugFilePath`: デバッグ用音声ファイルまたはディレクトリのパス
 
 この構成により、実行環境の違いは主に Python コマンド解決へ閉じ込められます。
 
@@ -210,9 +226,9 @@ docs/
 1. Python 側の解析項目追加
    `analyzer.py` の戻り値へ新しいメトリクスを追加し、`AnalysisResult` に追従させる
 2. Webview の可視化追加
-   既存のチャンネルループに新しいセクションを加えるだけで、複数チャンネル対応を維持しやすい
+  既存のチャンネルループに新しいセクションを加えるだけで、マルチトラック比較レイアウトを維持したまま拡張しやすい
 3. コマンド追加
-   `extension.ts` で別の入力導線やバッチ解析導線を定義できる
+  `extension.ts` で別の入力導線やバッチ解析導線を定義できる。現状でも単一ファイルとディレクトリの両方を受け付ける
 
 ## 現状の制約
 

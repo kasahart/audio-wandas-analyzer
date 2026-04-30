@@ -1,13 +1,22 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { AnalysisPanel, type AnalysisResult } from './panels/AnalysisPanel';
+import { AnalysisPanel, type AnalysisResult, type DirectoryTreeNode } from './panels/AnalysisPanel';
+
+const AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.aiff', '.aif', '.snd']);
+
+interface DirectoryBrowserContext {
+    directoryUri: vscode.Uri;
+    tree: DirectoryTreeNode[];
+}
 
 export function activate(context: vscode.ExtensionContext): void {
     const analyzeFileDisposable = vscode.commands.registerCommand('audioWandasAnalyzer.analyzeFile', async () => {
         const selected = await vscode.window.showOpenDialog({
             canSelectMany: false,
-            openLabel: 'Analyze audio file',
+            canSelectFiles: true,
+            canSelectFolders: true,
+            openLabel: 'Analyze audio file or folder',
             filters: {
                 'Audio Files': ['wav', 'flac', 'ogg', 'aiff', 'aif', 'snd'],
             },
@@ -17,31 +26,29 @@ export function activate(context: vscode.ExtensionContext): void {
             return;
         }
 
-        const fileUri = selected[0];
-
-        await analyzeAudioFile(context, fileUri);
+        await analyzeAudioTarget(context, selected[0]);
     });
 
     const analyzeDebugFileDisposable = vscode.commands.registerCommand('audioWandasAnalyzer.analyzeDebugFile', async () => {
-        const debugFileUri = getDebugFileUri(context.extensionUri);
+        const debugTargetUri = getDebugTargetUri(context.extensionUri);
 
-        if (!debugFileUri) {
+        if (!debugTargetUri) {
             void vscode.window.showErrorMessage(
-                'Debug audio file path is not configured. Set audioWandasAnalyzer.debugFilePath to a WAV file.',
+                'Debug audio path is not configured. Set audioWandasAnalyzer.debugFilePath to an audio file or directory.',
             );
             return;
         }
 
         try {
-            await vscode.workspace.fs.stat(debugFileUri);
+            await vscode.workspace.fs.stat(debugTargetUri);
         } catch {
             void vscode.window.showErrorMessage(
-                `Debug audio file was not found: ${debugFileUri.fsPath}. Update audioWandasAnalyzer.debugFilePath or add the file.`,
+                `Debug audio path was not found: ${debugTargetUri.fsPath}. Update audioWandasAnalyzer.debugFilePath or add the file or directory.`,
             );
             return;
         }
 
-        await analyzeAudioFile(context, debugFileUri);
+        await analyzeAudioTarget(context, debugTargetUri);
     });
 
     context.subscriptions.push(analyzeFileDisposable, analyzeDebugFileDisposable);
@@ -49,28 +56,81 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void { }
 
-async function analyzeAudioFile(context: vscode.ExtensionContext, fileUri: vscode.Uri): Promise<void> {
+async function analyzeAudioTarget(context: vscode.ExtensionContext, targetUri: vscode.Uri): Promise<void> {
+    const targetStat = await vscode.workspace.fs.stat(targetUri);
+
+    if ((targetStat.type & vscode.FileType.Directory) !== 0) {
+        const tree = await buildDirectoryTree(targetUri, targetUri);
+
+        if (tree.length === 0) {
+            throw new Error(`No supported audio files were found in ${targetUri.fsPath}`);
+        }
+
+        const browserPanel = AnalysisPanel.showDirectoryBrowser(context.extensionUri, targetUri, tree);
+        const messageDisposable = browserPanel.webview.onDidReceiveMessage(async (message: unknown) => {
+            if (!isAnalyzeFileMessage(message)) {
+                return;
+            }
+
+            await analyzeAudioFile(
+                context,
+                vscode.Uri.file(message.filePath),
+                browserPanel,
+                { directoryUri: targetUri, tree },
+            );
+        });
+
+        context.subscriptions.push(messageDisposable);
+        return;
+    }
+
+    await analyzeAudioFile(context, targetUri);
+}
+
+async function analyzeAudioFile(
+    context: vscode.ExtensionContext,
+    fileUri: vscode.Uri,
+    panel?: vscode.WebviewPanel,
+    directoryContext?: DirectoryBrowserContext,
+): Promise<void> {
     await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
             title: 'Analyzing audio with wandas',
             cancellable: false,
         },
-        async () => {
+        async (progress) => {
+            progress.report({
+                increment: 100,
+                message: path.basename(fileUri.fsPath),
+            });
+
             try {
                 const result = await runAnalysis(context.extensionPath, fileUri);
-                AnalysisPanel.show(context.extensionUri, fileUri, result);
+                if (directoryContext && panel) {
+                    AnalysisPanel.showDirectoryBrowser(
+                        context.extensionUri,
+                        directoryContext.directoryUri,
+                        directoryContext.tree,
+                        fileUri,
+                        result,
+                        panel,
+                    );
+                    return;
+                }
+
+                AnalysisPanel.show(context.extensionUri, fileUri, result, panel);
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                void vscode.window.showErrorMessage(`Audio analysis failed: ${message}`);
+                throw new Error(message);
             }
         },
     );
 }
 
-function getDebugFileUri(extensionUri: vscode.Uri): vscode.Uri | undefined {
+function getDebugTargetUri(extensionUri: vscode.Uri): vscode.Uri | undefined {
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-    const debugFilePath = config.get<string>('debugFilePath', 'media/debug.wav').trim();
+    const debugFilePath = config.get<string>('debugFilePath', 'media/debug').trim();
 
     if (!debugFilePath) {
         return undefined;
@@ -86,6 +146,64 @@ function getDebugFileUri(extensionUri: vscode.Uri): vscode.Uri | undefined {
     }
 
     return vscode.Uri.joinPath(extensionUri, debugFilePath);
+}
+
+async function buildDirectoryTree(rootUri: vscode.Uri, currentUri: vscode.Uri): Promise<DirectoryTreeNode[]> {
+    const entries = await vscode.workspace.fs.readDirectory(currentUri);
+    const sortedEntries = [...entries].sort(([leftName, leftType], [rightName, rightType]) => {
+        const leftIsDirectory = (leftType & vscode.FileType.Directory) !== 0;
+        const rightIsDirectory = (rightType & vscode.FileType.Directory) !== 0;
+
+        if (leftIsDirectory !== rightIsDirectory) {
+            return leftIsDirectory ? -1 : 1;
+        }
+
+        return leftName.localeCompare(rightName);
+    });
+
+    const nodes: DirectoryTreeNode[] = [];
+
+    for (const [name, type] of sortedEntries) {
+        const entryUri = vscode.Uri.joinPath(currentUri, name);
+        const relativePath = path.relative(rootUri.fsPath, entryUri.fsPath).split(path.sep).join('/');
+
+        if ((type & vscode.FileType.Directory) !== 0) {
+            const children = await buildDirectoryTree(rootUri, entryUri);
+            if (children.length > 0) {
+                nodes.push({
+                    type: 'directory',
+                    name,
+                    relativePath,
+                    children,
+                });
+            }
+            continue;
+        }
+
+        if ((type & vscode.FileType.File) !== 0 && isSupportedAudioFile(name)) {
+            nodes.push({
+                type: 'file',
+                name,
+                relativePath,
+                filePath: entryUri.fsPath,
+            });
+        }
+    }
+
+    return nodes;
+}
+
+function isSupportedAudioFile(fileName: string): boolean {
+    return AUDIO_FILE_EXTENSIONS.has(path.extname(fileName).toLowerCase());
+}
+
+function isAnalyzeFileMessage(message: unknown): message is { type: 'analyze-file'; filePath: string } {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+
+    const candidate = message as { type?: unknown; filePath?: unknown };
+    return candidate.type === 'analyze-file' && typeof candidate.filePath === 'string' && candidate.filePath.length > 0;
 }
 
 async function runAnalysis(extensionPath: string, fileUri: vscode.Uri): Promise<AnalysisResult> {

@@ -19,11 +19,11 @@
     "commands": [
       {
         "command": "audioWandasAnalyzer.analyzeFile",
-        "title": "Audio Analyzer: Analyze File"
+        "title": "Audio Analyzer: Analyze File or Folder"
       },
       {
         "command": "audioWandasAnalyzer.analyzeDebugFile",
-        "title": "Audio Analyzer: Analyze Debug File"
+        "title": "Audio Analyzer: Analyze Debug Path"
       }
     ],
     "configuration": {
@@ -43,8 +43,8 @@
         },
         "audioWandasAnalyzer.debugFilePath": {
           "type": "string",
-          "default": "media/debug.wav",
-          "description": "Debug audio file path used by the Analyze Debug File command. Relative paths are resolved from the first workspace folder."
+          "default": "media/debug",
+          "description": "Debug audio file or directory path used by the Analyze Debug Path command. Relative paths are resolved from the first workspace folder."
         }
       }
     }
