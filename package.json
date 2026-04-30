@@ -1,0 +1,62 @@
+{
+  "name": "audio-wandas-analyzer",
+  "displayName": "Audio Wandas Analyzer",
+  "description": "Analyze audio files in VS Code with a TypeScript extension UI and a Python backend powered by wandas.",
+  "version": "0.0.1",
+  "publisher": "kasahart",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:audioWandasAnalyzer.analyzeFile",
+    "onCommand:audioWandasAnalyzer.analyzeDebugFile"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "audioWandasAnalyzer.analyzeFile",
+        "title": "Audio Analyzer: Analyze File"
+      },
+      {
+        "command": "audioWandasAnalyzer.analyzeDebugFile",
+        "title": "Audio Analyzer: Analyze Debug File"
+      }
+    ],
+    "configuration": {
+      "title": "Audio Wandas Analyzer",
+      "properties": {
+        "audioWandasAnalyzer.pythonCommand": {
+          "type": "string",
+          "default": "python3",
+          "description": "Python command used to launch the analysis backend."
+        },
+        "audioWandasAnalyzer.defaultPeakCount": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Number of dominant frequency peaks shown per channel."
+        },
+        "audioWandasAnalyzer.debugFilePath": {
+          "type": "string",
+          "default": "media/debug.wav",
+          "description": "Debug audio file path used by the Analyze Debug File command. Relative paths are resolved from the first workspace folder."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.96.0",
+    "typescript": "^5.7.2"
+  }
+}

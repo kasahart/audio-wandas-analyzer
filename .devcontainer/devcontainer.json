@@ -1,0 +1,30 @@
+{
+  "name": "audio-wandas-analyzer",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "node",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-vscode.extension-test-runner"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "audioWandasAnalyzer.pythonCommand": "${containerWorkspaceFolder}/.venv/bin/python",
+        "files.exclude": {
+          "**/.git": true,
+          "**/.DS_Store": true
+        }
+      }
+    }
+  },
+  "postCreateCommand": "npm install && python3 -m venv .venv && ./.venv/bin/pip install -r python-backend/requirements.txt",
+  "postStartCommand": "npm run compile",
+  "containerEnv": {
+    "PYTHONUNBUFFERED": "1"
+  }
+}
