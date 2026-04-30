@@ -56,7 +56,7 @@ export class AnalysisPanel {
         audioFileUri: vscode.Uri,
         result: AnalysisResult,
         existingPanel?: vscode.WebviewPanel,
-    ): void {
+    ): vscode.WebviewPanel {
         const audioDirectoryUri = vscode.Uri.file(path.dirname(audioFileUri.fsPath));
         const panel = existingPanel ?? vscode.window.createWebviewPanel(
             'audioWandasAnalyzer.analysis',
@@ -76,6 +76,7 @@ export class AnalysisPanel {
         panel.reveal(vscode.ViewColumn.Beside, true);
 
         panel.webview.html = this.getHtml(panel.webview, audioFileUri, result);
+        return panel;
     }
 
     public static showDirectoryBrowser(
@@ -267,6 +268,10 @@ export class AnalysisPanel {
             background: #f7f9fb;
             border: 1px solid var(--panel-line);
             border-radius: 14px;
+        }
+
+        .target-picker-row {
+            margin-top: 16px;
         }
 
         .tile strong {
@@ -1114,6 +1119,9 @@ export class AnalysisPanel {
                     <span class="eyebrow">Audio Plot</span>
                     <h1>${this.escapeHtml(result.fileName)}</h1>
                     <p>${this.escapeHtml(result.filePath)}</p>
+                    <div class="button-row target-picker-row">
+                        ${this.renderTargetPickerButtons('別の対象を開く')}
+                    </div>
                     <div class="summary">
                         <div class="tile">
                             <span>Sample rate</span>
@@ -1214,6 +1222,9 @@ export class AnalysisPanel {
                 <h2>ファイルを選択すると右側に解析結果を表示します</h2>
                 <p>左のディレクトリツリーは維持されます。別ファイルをクリックすると、この右側の表示だけを同じウインドウ内で切り替えます。</p>
             </div>
+            <div class="button-row target-picker-row">
+                ${this.renderTargetPickerButtons('別の対象を選択')}
+            </div>
             <div class="steps">
                 <div class="step">
                     <strong>1. ツリーから WAV / FLAC / OGG / AIFF / AIF / SND を選択</strong>
@@ -1229,7 +1240,21 @@ export class AnalysisPanel {
 
     private static renderDirectoryBrowserScript(): string {
         return `
-        const vscode = acquireVsCodeApi();
+        globalThis.__audioWandasVscode = globalThis.__audioWandasVscode || acquireVsCodeApi();
+        document.querySelectorAll('[data-select-target]').forEach((element) => {
+            element.addEventListener('click', () => {
+                const targetKind = element.getAttribute('data-select-target');
+                if (targetKind !== 'file' && targetKind !== 'directory') {
+                    return;
+                }
+
+                globalThis.__audioWandasVscode.postMessage({
+                    type: 'select-target',
+                    targetKind,
+                });
+            });
+        });
+
         document.querySelectorAll('[data-file-path]').forEach((element) => {
             element.addEventListener('click', () => {
                 const filePath = element.getAttribute('data-file-path');
@@ -1237,7 +1262,7 @@ export class AnalysisPanel {
                     return;
                 }
 
-                vscode.postMessage({
+                globalThis.__audioWandasVscode.postMessage({
                     type: 'analyze-file',
                     filePath,
                 });
@@ -1250,6 +1275,7 @@ export class AnalysisPanel {
         const serializedResult = this.serializeForScript(result);
 
         return `
+        globalThis.__audioWandasVscode = globalThis.__audioWandasVscode || acquireVsCodeApi();
         const analysis = ${serializedResult};
         const audio = document.getElementById('audio-player');
         const playerTime = document.getElementById('player-time');
@@ -1270,6 +1296,20 @@ export class AnalysisPanel {
         const playbackSyncState = {
             animationFrameId: null,
         };
+
+        document.querySelectorAll('[data-select-target]').forEach((element) => {
+            element.addEventListener('click', () => {
+                const targetKind = element.getAttribute('data-select-target');
+                if (targetKind !== 'file' && targetKind !== 'directory') {
+                    return;
+                }
+
+                globalThis.__audioWandasVscode.postMessage({
+                    type: 'select-target',
+                    targetKind,
+                });
+            });
+        });
 
         function clamp(value, min, max) {
             return Math.min(max, Math.max(min, value));
@@ -2205,6 +2245,12 @@ export class AnalysisPanel {
 
     private static renderDirectoryTree(nodes: DirectoryTreeNode[], selectedFilePath?: string): string {
         return nodes.map((node) => this.renderDirectoryTreeNode(node, selectedFilePath)).join('');
+    }
+
+    private static renderTargetPickerButtons(labelPrefix: string): string {
+        return `
+            <button type="button" class="action-button action-button-secondary" data-select-target="file">${this.escapeHtml(labelPrefix)}: ファイル</button>
+            <button type="button" class="action-button action-button-secondary" data-select-target="directory">${this.escapeHtml(labelPrefix)}: ディレクトリ</button>`;
     }
 
     private static renderDirectoryTreeNode(node: DirectoryTreeNode, selectedFilePath?: string): string {

@@ -10,23 +10,19 @@ interface DirectoryBrowserContext {
     tree: DirectoryTreeNode[];
 }
 
+type SelectionTargetKind = 'file' | 'directory';
+
+const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
+
 export function activate(context: vscode.ExtensionContext): void {
     const analyzeFileDisposable = vscode.commands.registerCommand('audioWandasAnalyzer.analyzeFile', async () => {
-        const selected = await vscode.window.showOpenDialog({
-            canSelectMany: false,
-            canSelectFiles: true,
-            canSelectFolders: true,
-            openLabel: 'Analyze audio file or folder',
-            filters: {
-                'Audio Files': ['wav', 'flac', 'ogg', 'aiff', 'aif', 'snd'],
-            },
-        });
+        const selected = await pickAudioTarget();
 
-        if (!selected || selected.length === 0) {
+        if (!selected) {
             return;
         }
 
-        await analyzeAudioTarget(context, selected[0]);
+        await analyzeAudioTarget(context, selected);
     });
 
     const analyzeDebugFileDisposable = vscode.commands.registerCommand('audioWandasAnalyzer.analyzeDebugFile', async () => {
@@ -56,7 +52,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void { }
 
-async function analyzeAudioTarget(context: vscode.ExtensionContext, targetUri: vscode.Uri): Promise<void> {
+async function analyzeAudioTarget(
+    context: vscode.ExtensionContext,
+    targetUri: vscode.Uri,
+    existingPanel?: vscode.WebviewPanel,
+): Promise<void> {
     const targetStat = await vscode.workspace.fs.stat(targetUri);
 
     if ((targetStat.type & vscode.FileType.Directory) !== 0) {
@@ -66,25 +66,19 @@ async function analyzeAudioTarget(context: vscode.ExtensionContext, targetUri: v
             throw new Error(`No supported audio files were found in ${targetUri.fsPath}`);
         }
 
-        const browserPanel = AnalysisPanel.showDirectoryBrowser(context.extensionUri, targetUri, tree);
-        const messageDisposable = browserPanel.webview.onDidReceiveMessage(async (message: unknown) => {
-            if (!isAnalyzeFileMessage(message)) {
-                return;
-            }
-
-            await analyzeAudioFile(
-                context,
-                vscode.Uri.file(message.filePath),
-                browserPanel,
-                { directoryUri: targetUri, tree },
-            );
-        });
-
-        context.subscriptions.push(messageDisposable);
+        const browserPanel = AnalysisPanel.showDirectoryBrowser(
+            context.extensionUri,
+            targetUri,
+            tree,
+            undefined,
+            undefined,
+            existingPanel,
+        );
+        registerPanelMessageHandler(context, browserPanel, { directoryUri: targetUri, tree });
         return;
     }
 
-    await analyzeAudioFile(context, targetUri);
+    await analyzeAudioFile(context, targetUri, existingPanel);
 }
 
 async function analyzeAudioFile(
@@ -108,7 +102,7 @@ async function analyzeAudioFile(
             try {
                 const result = await runAnalysis(context.extensionPath, fileUri);
                 if (directoryContext && panel) {
-                    AnalysisPanel.showDirectoryBrowser(
+                    const browserPanel = AnalysisPanel.showDirectoryBrowser(
                         context.extensionUri,
                         directoryContext.directoryUri,
                         directoryContext.tree,
@@ -116,16 +110,50 @@ async function analyzeAudioFile(
                         result,
                         panel,
                     );
+                    registerPanelMessageHandler(context, browserPanel, directoryContext);
                     return;
                 }
 
-                AnalysisPanel.show(context.extensionUri, fileUri, result, panel);
+                const analysisPanel = AnalysisPanel.show(context.extensionUri, fileUri, result, panel);
+                registerPanelMessageHandler(context, analysisPanel);
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 throw new Error(message);
             }
         },
     );
+}
+
+function registerPanelMessageHandler(
+    context: vscode.ExtensionContext,
+    panel: vscode.WebviewPanel,
+    directoryContext?: DirectoryBrowserContext,
+): void {
+    panelMessageDisposables.get(panel)?.dispose();
+
+    const disposable = panel.webview.onDidReceiveMessage(async (message: unknown) => {
+        try {
+            if (isAnalyzeFileMessage(message)) {
+                await analyzeAudioFile(context, vscode.Uri.file(message.filePath), panel, directoryContext);
+                return;
+            }
+
+            if (isSelectTargetMessage(message)) {
+                const selected = await pickAudioTarget(message.targetKind);
+
+                if (!selected) {
+                    return;
+                }
+
+                await analyzeAudioTarget(context, selected, panel);
+            }
+        } catch (error) {
+            const messageText = error instanceof Error ? error.message : String(error);
+            void vscode.window.showErrorMessage(messageText);
+        }
+    });
+
+    panelMessageDisposables.set(panel, disposable);
 }
 
 function getDebugTargetUri(extensionUri: vscode.Uri): vscode.Uri | undefined {
@@ -204,6 +232,35 @@ function isAnalyzeFileMessage(message: unknown): message is { type: 'analyze-fil
 
     const candidate = message as { type?: unknown; filePath?: unknown };
     return candidate.type === 'analyze-file' && typeof candidate.filePath === 'string' && candidate.filePath.length > 0;
+}
+
+function isSelectTargetMessage(message: unknown): message is { type: 'select-target'; targetKind: SelectionTargetKind } {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+
+    const candidate = message as { type?: unknown; targetKind?: unknown };
+    return candidate.type === 'select-target' && (candidate.targetKind === 'file' || candidate.targetKind === 'directory');
+}
+
+async function pickAudioTarget(targetKind?: SelectionTargetKind): Promise<vscode.Uri | undefined> {
+    const selected = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        canSelectFiles: targetKind !== 'directory',
+        canSelectFolders: targetKind !== 'file',
+        openLabel: targetKind === 'directory'
+            ? 'Select audio directory'
+            : targetKind === 'file'
+                ? 'Select audio file'
+                : 'Analyze audio file or folder',
+        filters: targetKind !== 'directory'
+            ? {
+                'Audio Files': ['wav', 'flac', 'ogg', 'aiff', 'aif', 'snd'],
+            }
+            : undefined,
+    });
+
+    return selected?.[0];
 }
 
 async function runAnalysis(extensionPath: string, fileUri: vscode.Uri): Promise<AnalysisResult> {
