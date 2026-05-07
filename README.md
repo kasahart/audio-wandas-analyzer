@@ -28,6 +28,14 @@ VS Code の Dev Containers 拡張を使う前提なら、ローカルの Python 
 npm install
 ```
 
+### テスト
+
+```bash
+npm test
+```
+
+Testing ビューを使う場合は、この拡張を Extension Development Host で起動してから、別ウインドウ側の Testing ビューを開いてください。現状は src/test 配下の *.test.ts を解析し、describe と test をケース単位で一覧表示します。Run は npm run compile の後に node --test を TAP 出力付きで呼び出し、各ケースの結果を Testing ビューへ反映します。Debug は Testing ビューの Debug アクションから実行でき、単一のファイル、suite、test を対象に Node デバッガーを起動します。
+
 ### 2. Python 環境
 
 ```bash
