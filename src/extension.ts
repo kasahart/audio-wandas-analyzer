@@ -2,19 +2,24 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AnalysisPanel, type AnalysisResult, type DirectoryTreeNode } from './panels/AnalysisPanel';
-
-const AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.aiff', '.aif', '.snd']);
+import { registerWorkspaceTests } from './testing/workspaceTests';
+import {
+    isAnalyzeFileMessage,
+    isSelectTargetMessage,
+    isSupportedAudioFile,
+    type SelectionTargetKind,
+} from './utils/audioTarget';
 
 interface DirectoryBrowserContext {
     directoryUri: vscode.Uri;
     tree: DirectoryTreeNode[];
 }
 
-type SelectionTargetKind = 'file' | 'directory';
-
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 
 export function activate(context: vscode.ExtensionContext): void {
+    registerWorkspaceTests(context);
+
     const analyzeFileDisposable = vscode.commands.registerCommand('audioWandasAnalyzer.analyzeFile', async () => {
         const selected = await pickAudioTarget();
 
@@ -219,28 +224,6 @@ async function buildDirectoryTree(rootUri: vscode.Uri, currentUri: vscode.Uri): 
     }
 
     return nodes;
-}
-
-function isSupportedAudioFile(fileName: string): boolean {
-    return AUDIO_FILE_EXTENSIONS.has(path.extname(fileName).toLowerCase());
-}
-
-function isAnalyzeFileMessage(message: unknown): message is { type: 'analyze-file'; filePath: string } {
-    if (!message || typeof message !== 'object') {
-        return false;
-    }
-
-    const candidate = message as { type?: unknown; filePath?: unknown };
-    return candidate.type === 'analyze-file' && typeof candidate.filePath === 'string' && candidate.filePath.length > 0;
-}
-
-function isSelectTargetMessage(message: unknown): message is { type: 'select-target'; targetKind: SelectionTargetKind } {
-    if (!message || typeof message !== 'object') {
-        return false;
-    }
-
-    const candidate = message as { type?: unknown; targetKind?: unknown };
-    return candidate.type === 'select-target' && (candidate.targetKind === 'file' || candidate.targetKind === 'directory');
 }
 
 async function pickAudioTarget(targetKind?: SelectionTargetKind): Promise<vscode.Uri | undefined> {

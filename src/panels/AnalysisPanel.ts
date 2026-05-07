@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { escapeHtml, serializeForScript } from '../utils/webviewEscaping';
 
 export interface FrequencyPeak {
     frequencyHz: number;
@@ -156,8 +157,8 @@ export class AnalysisPanel {
     <div class="browser-layout">
         <section class="panel tree-panel browser-tree-panel">
             <span class="eyebrow">Directory Tree</span>
-            <h1>${this.escapeHtml(path.basename(directoryUri.fsPath))}</h1>
-            <div class="directory-meta">${this.escapeHtml(directoryUri.fsPath)}</div>
+            <h1>${escapeHtml(path.basename(directoryUri.fsPath))}</h1>
+            <div class="directory-meta">${escapeHtml(directoryUri.fsPath)}</div>
             <ul class="tree-root">
                 ${treeMarkup}
             </ul>
@@ -1117,8 +1118,8 @@ export class AnalysisPanel {
             <div class="hero-grid">
                 <div>
                     <span class="eyebrow">Audio Plot</span>
-                    <h1>${this.escapeHtml(result.fileName)}</h1>
-                    <p>${this.escapeHtml(result.filePath)}</p>
+                    <h1>${escapeHtml(result.fileName)}</h1>
+                    <p>${escapeHtml(result.filePath)}</p>
                     <div class="button-row target-picker-row">
                         ${this.renderTargetPickerButtons('別の対象を開く')}
                     </div>
@@ -1272,7 +1273,7 @@ export class AnalysisPanel {
     }
 
     private static renderAnalysisScript(result: AnalysisResult): string {
-        const serializedResult = this.serializeForScript(result);
+        const serializedResult = serializeForScript(result);
 
         return `
         globalThis.__audioWandasVscode = globalThis.__audioWandasVscode || acquireVsCodeApi();
@@ -2064,7 +2065,7 @@ export class AnalysisPanel {
                 <aside class="track-header">
                     <div class="track-header-title">
                         <strong>Track ${index + 1}</strong>
-                        <span>${this.escapeHtml(channel.label)}</span>
+                        <span>${escapeHtml(channel.label)}</span>
                     </div>
                     <div class="track-header-badges">
                         <span class="stat-chip">RMS <strong>${channel.rms.toFixed(3)}</strong></span>
@@ -2218,7 +2219,7 @@ export class AnalysisPanel {
             <div class="track-overview-row">
                 <div class="track-name">
                     <strong>Track ${index + 1}</strong>
-                    <span>${this.escapeHtml(channel.label)}</span>
+                    <span>${escapeHtml(channel.label)}</span>
                 </div>
                 <div class="track-metric">
                     <strong>${channel.rms.toFixed(3)}</strong>
@@ -2237,7 +2238,7 @@ export class AnalysisPanel {
                     <span>Frequency bins</span>
                 </div>
                 <div class="track-peaks">
-                    <strong>${this.escapeHtml(peakSummary || 'No peaks')}</strong>
+                    <strong>${escapeHtml(peakSummary || 'No peaks')}</strong>
                     <span>Top dominant frequencies</span>
                 </div>
             </div>`;
@@ -2249,8 +2250,8 @@ export class AnalysisPanel {
 
     private static renderTargetPickerButtons(labelPrefix: string): string {
         return `
-            <button type="button" class="action-button action-button-secondary" data-select-target="file">${this.escapeHtml(labelPrefix)}: ファイル</button>
-            <button type="button" class="action-button action-button-secondary" data-select-target="directory">${this.escapeHtml(labelPrefix)}: ディレクトリ</button>`;
+            <button type="button" class="action-button action-button-secondary" data-select-target="file">${escapeHtml(labelPrefix)}: ファイル</button>
+            <button type="button" class="action-button action-button-secondary" data-select-target="directory">${escapeHtml(labelPrefix)}: ディレクトリ</button>`;
     }
 
     private static renderDirectoryTreeNode(node: DirectoryTreeNode, selectedFilePath?: string): string {
@@ -2262,8 +2263,8 @@ export class AnalysisPanel {
                     <div class="tree-folder">
                         <span class="tree-icon">D</span>
                         <div class="tree-label">
-                            <strong>${this.escapeHtml(node.name)}</strong>
-                            <span>${this.escapeHtml(node.relativePath)}</span>
+                            <strong>${escapeHtml(node.name)}</strong>
+                            <span>${escapeHtml(node.relativePath)}</span>
                         </div>
                     </div>
                     <ul class="tree-children">
@@ -2279,33 +2280,15 @@ export class AnalysisPanel {
                 <button
                     type="button"
                     class="file-button tree-file${isActive ? ' is-active' : ''}"
-                    data-file-path="${this.escapeHtml(node.filePath ?? '')}"
+                    data-file-path="${escapeHtml(node.filePath ?? '')}"
                     ${isActive ? 'aria-current="true"' : ''}
                 >
                     <span class="tree-icon">W</span>
                     <span class="tree-label">
-                        <strong>${this.escapeHtml(node.name)}</strong>
-                        <span>${this.escapeHtml(node.relativePath)}</span>
+                        <strong>${escapeHtml(node.name)}</strong>
+                        <span>${escapeHtml(node.relativePath)}</span>
                     </span>
                 </button>
             </li>`;
-    }
-
-    private static serializeForScript(value: unknown): string {
-        return JSON.stringify(value)
-            .replace(/</g, '\\u003c')
-            .replace(/>/g, '\\u003e')
-            .replace(/&/g, '\\u0026')
-            .replace(/\u2028/g, '\\u2028')
-            .replace(/\u2029/g, '\\u2029');
-    }
-
-    private static escapeHtml(value: string): string {
-        return value
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
     }
 }
