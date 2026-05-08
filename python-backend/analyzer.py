@@ -65,20 +65,24 @@ def _build_waveform_envelope(samples: np.ndarray, point_limit: int = WAVEFORM_PO
         return {
             "min": [],
             "max": [],
+            "samples": [],
             "absolutePeak": 0.0,
         }
 
     point_count = min(point_limit, samples.size)
     min_values: list[float] = []
     max_values: list[float] = []
+    sample_values: list[float] = []
 
     for bucket in np.array_split(samples, point_count):
         min_values.append(float(np.min(bucket)))
         max_values.append(float(np.max(bucket)))
+        sample_values.append(float(bucket[len(bucket) // 2]))
 
     return {
         "min": min_values,
         "max": max_values,
+        "samples": sample_values,
         "absolutePeak": float(np.max(np.abs(samples))),
     }
 

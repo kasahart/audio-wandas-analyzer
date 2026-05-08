@@ -10,6 +10,7 @@ export interface FrequencyPeak {
 export interface WaveformEnvelope {
     min: number[];
     max: number[];
+    samples: number[];
     absolutePeak: number;
 }
 

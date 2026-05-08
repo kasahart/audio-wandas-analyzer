@@ -386,13 +386,23 @@ export class ComparisonPanel {
                 if (!ch || !ch.waveform) { return; }
                 const env = ch.waveform;
                 const peak = env.absolutePeak || 1;
-                const n = env.max.length;
+                const samples = env.samples || [];
+                const n = samples.length;
                 const dur = result.durationSeconds || 1;
 
-                ctx.lineWidth = isHighlighted ? 2.5 : 1.5;
-                ctx.strokeStyle = color;
-                ctx.fillStyle = hexToRgba(color, 0.2);
+                if (n === 0) { drawCursorOnCanvas(ctx, W, H); return; }
 
+                // Zero line
+                ctx.strokeStyle = hexToRgba(color, 0.25);
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(0, H / 2);
+                ctx.lineTo(W, H / 2);
+                ctx.stroke();
+
+                // Sample-level line
+                ctx.lineWidth = isHighlighted ? 2 : 1.5;
+                ctx.strokeStyle = color;
                 ctx.beginPath();
                 let started = false;
                 for (let px = 0; px < W; px++) {
@@ -400,19 +410,9 @@ export class ComparisonPanel {
                     const tAdj = tNorm - offsetSeconds / dur;
                     const idx = Math.floor(tAdj * n);
                     if (idx < 0 || idx >= n) { continue; }
-                    const y = H / 2 - (env.max[idx] / peak) * (H * 0.44);
+                    const y = H / 2 - (samples[idx] / peak) * (H * 0.44);
                     if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
                 }
-                for (let px = W - 1; px >= 0; px--) {
-                    const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
-                    const tAdj = tNorm - offsetSeconds / dur;
-                    const idx = Math.floor(tAdj * n);
-                    if (idx < 0 || idx >= n) { continue; }
-                    const y = H / 2 - (env.min[idx] / peak) * (H * 0.44);
-                    ctx.lineTo(px, y);
-                }
-                ctx.closePath();
-                ctx.fill();
                 ctx.stroke();
 
                 drawCursorOnCanvas(ctx, W, H);
@@ -518,10 +518,13 @@ export class ComparisonPanel {
                 if (!ch || !ch.waveform) { return; }
                 const env = ch.waveform;
                 const peak = env.absolutePeak || 1;
-                const n = env.max.length;
+                const samples = env.samples || [];
+                const n = samples.length;
                 const dur = result.durationSeconds || 1;
 
-                ctx.lineWidth = isHighlighted ? 2.5 : 1.5;
+                if (n === 0) { return; }
+
+                ctx.lineWidth = isHighlighted ? 2 : 1.5;
                 ctx.strokeStyle = color;
                 ctx.beginPath();
                 let started = false;
@@ -530,7 +533,7 @@ export class ComparisonPanel {
                     const tAdj = tNorm - offsetSeconds / dur;
                     const idx = Math.floor(tAdj * n);
                     if (idx < 0 || idx >= n) { continue; }
-                    const y = H / 2 - (env.max[idx] / peak) * (H * 0.44);
+                    const y = H / 2 - (samples[idx] / peak) * (H * 0.44);
                     if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
                 }
                 ctx.stroke();
@@ -753,7 +756,7 @@ export class ComparisonPanel {
                 if (!dragState.isDrag) { return; }
                 const maxDur = Math.max.apply(null, state.results.map(function(r) { return r.durationSeconds || 1; }));
                 const secsPerPx = (zoomEnd - zoomStart) * maxDur / dragState.canvasWidth;
-                trackRuntime[dragState.trackIndex].offsetSeconds = dragState.startOffset - dx * secsPerPx;
+                trackRuntime[dragState.trackIndex].offsetSeconds = dragState.startOffset + dx * secsPerPx;
                 updateOffsetDisplays();
                 renderAll();
             }
