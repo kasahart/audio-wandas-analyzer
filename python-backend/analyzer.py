@@ -163,6 +163,31 @@ def _build_spectrogram(
     }
 
 
+def analyze_range(
+    file_path: str | Path,
+    start_norm: float,
+    end_norm: float,
+    point_count: int = 2000,
+) -> dict[str, object]:
+    """Return high-resolution waveform for a normalized time range using soundfile (fast path)."""
+    import soundfile as sf  # noqa: PLC0415
+
+    data, _sr = sf.read(str(file_path), always_2d=True)  # shape: (samples, channels)
+    n_total = len(data)
+    start_idx = max(0, int(start_norm * n_total))
+    end_idx = min(n_total, int(end_norm * n_total))
+
+    if end_idx <= start_idx:
+        return {"startNorm": start_norm, "endNorm": end_norm, "channels": []}
+
+    channels: list[dict[str, object]] = []
+    for ch_idx in range(data.shape[1]):
+        ch_slice = data[start_idx:end_idx, ch_idx].astype(np.float64)
+        channels.append(_build_waveform_envelope(ch_slice, point_count))
+
+    return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
+
+
 def analyze_audio(file_path: str | Path, peak_count: int = 5) -> dict[str, object]:
     target = Path(file_path).expanduser().resolve()
     if not target.exists():

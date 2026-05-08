@@ -187,6 +187,66 @@ export class ComparisonPanel {
                 return { offsetSeconds: 0, hidden: false };
             });
 
+            // ── On-demand range cache ──
+            // Per track: { startNorm, endNorm, channels[] } once a range response arrives
+            const rangeCache = state.results.map(function() { return null; });
+            // Per track: requestId of the in-flight request (null = no pending request)
+            const pendingRequests = state.results.map(function() { return null; });
+            let rangeRequestTimer = null;
+
+            // Receive high-res range data from Extension Host
+            window.addEventListener('message', function(event) {
+                const msg = event.data;
+                if (!msg || msg.type !== 'waveform-range-result') { return; }
+                const i = msg.trackIndex;
+                if (i < 0 || i >= pendingRequests.length) { return; }
+                if (pendingRequests[i] !== msg.requestId) { return; } // stale
+                pendingRequests[i] = null;
+                rangeCache[i] = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
+                renderAll();
+            });
+
+            function scheduleRangeRequests() {
+                if (rangeRequestTimer) { clearTimeout(rangeRequestTimer); }
+                rangeRequestTimer = setTimeout(function() { checkAndRequestRanges(); }, 300);
+            }
+
+            function checkAndRequestRanges() {
+                const OVERVIEW_PTS = 1200;
+                state.results.forEach(function(result, i) {
+                    if (trackRuntime[i].hidden || result.error) { return; }
+                    const canvas = document.getElementById('track-canvas-' + i);
+                    const W = (canvas ? canvas.width : 0) || 800;
+                    const visibleOverview = OVERVIEW_PTS * (zoomEnd - zoomStart);
+                    // Request when overview resolution is insufficient: < 0.5 pts per pixel
+                    if (visibleOverview >= W * 0.5) { return; }
+
+                    const dur = result.durationSeconds || 1;
+                    const offset = trackRuntime[i].offsetSeconds / dur;
+                    const reqStart = Math.max(0, zoomStart + offset - 0.05 * (zoomEnd - zoomStart));
+                    const reqEnd   = Math.min(1, zoomEnd   + offset + 0.05 * (zoomEnd - zoomStart));
+                    const pts = Math.min(W * 2, 8000);
+
+                    // Skip if cached range already covers current view
+                    const c = rangeCache[i];
+                    if (c && c.startNorm <= reqStart && c.endNorm >= reqEnd &&
+                        c.channels && c.channels[0] && c.channels[0].samples &&
+                        c.channels[0].samples.length >= pts * 0.8) { return; }
+
+                    const requestId = i + '-' + Date.now();
+                    pendingRequests[i] = requestId;
+                    vscode.postMessage({
+                        type: 'request-waveform-range',
+                        requestId: requestId,
+                        trackIndex: i,
+                        filePath: result.filePath,
+                        startNorm: reqStart,
+                        endNorm: reqEnd,
+                        points: pts,
+                    });
+                });
+            }
+
             // ── Build DOM ──
             const app = document.getElementById('app');
             app.innerHTML = buildLayout();
@@ -284,6 +344,7 @@ export class ComparisonPanel {
                 }
                 updateVisibility();
                 updateOffsetDisplays();
+                if (contentType === 'waveform') { scheduleRangeRequests(); }
             }
 
             function resizeAllCanvases() {
@@ -369,26 +430,43 @@ export class ComparisonPanel {
                     if (!canvas) { return; }
                     const color = TRACK_COLORS[i % TRACK_COLORS.length];
                     if (contentType === 'waveform') {
-                        drawWaveform(canvas, result, trackRuntime[i].offsetSeconds, color, false);
+                        drawWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color, false);
                     } else {
                         drawSpectrogram(canvas, result, trackRuntime[i].offsetSeconds);
                     }
                 });
             }
 
-            function drawWaveform(canvas, result, offsetSeconds, color, isHighlighted) {
+            function resolveWaveformSource(result, trackIndex, offsetSeconds) {
+                const dur = result.durationSeconds || 1;
+                const offset = offsetSeconds / dur;
+                const c = rangeCache[trackIndex];
+                if (c && c.channels && c.channels[0] && c.channels[0].samples &&
+                    c.startNorm <= zoomStart + offset &&
+                    c.endNorm   >= zoomEnd   + offset) {
+                    return { waveform: c.channels[0], dataStart: c.startNorm, dataEnd: c.endNorm };
+                }
+                const ch = result.channels[0];
+                return ch && ch.waveform
+                    ? { waveform: ch.waveform, dataStart: 0, dataEnd: 1 }
+                    : null;
+            }
+
+            function drawWaveform(canvas, result, trackIndex, offsetSeconds, color, isHighlighted) {
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width;
                 const H = canvas.height;
                 ctx.clearRect(0, 0, W, H);
 
-                const ch = result.channels[0];
-                if (!ch || !ch.waveform) { return; }
-                const env = ch.waveform;
+                const src = resolveWaveformSource(result, trackIndex, offsetSeconds);
+                if (!src) { drawCursorOnCanvas(ctx, W, H); return; }
+
+                const { waveform: env, dataStart, dataEnd } = src;
                 const peak = env.absolutePeak || 1;
                 const samples = env.samples || [];
                 const n = samples.length;
                 const dur = result.durationSeconds || 1;
+                const dataRange = dataEnd - dataStart;
 
                 if (n === 0) { drawCursorOnCanvas(ctx, W, H); return; }
 
@@ -408,7 +486,8 @@ export class ComparisonPanel {
                 for (let px = 0; px < W; px++) {
                     const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
                     const tAdj = tNorm - offsetSeconds / dur;
-                    const idx = Math.floor(tAdj * n);
+                    const tInData = (tAdj - dataStart) / dataRange;
+                    const idx = Math.floor(tInData * n);
                     if (idx < 0 || idx >= n) { continue; }
                     const y = H / 2 - (samples[idx] / peak) * (H * 0.44);
                     if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
@@ -495,7 +574,7 @@ export class ComparisonPanel {
                     const isHl = (i === hoverTrackIndex);
                     ctx.save();
                     ctx.globalAlpha = isHl ? 1.0 : (i === referenceIndex ? 0.9 : 0.7);
-                    drawWaveformOnCtx(ctx, W, H, result, trackRuntime[i].offsetSeconds, color, isHl);
+                    drawWaveformOnCtx(ctx, W, H, result, i, trackRuntime[i].offsetSeconds, color, isHl);
                     ctx.restore();
                 });
 
@@ -513,14 +592,15 @@ export class ComparisonPanel {
                 updateOverlayLegend();
             }
 
-            function drawWaveformOnCtx(ctx, W, H, result, offsetSeconds, color, isHighlighted) {
-                const ch = result.channels[0];
-                if (!ch || !ch.waveform) { return; }
-                const env = ch.waveform;
+            function drawWaveformOnCtx(ctx, W, H, result, trackIndex, offsetSeconds, color, isHighlighted) {
+                const src = resolveWaveformSource(result, trackIndex, offsetSeconds);
+                if (!src) { return; }
+                const { waveform: env, dataStart, dataEnd } = src;
                 const peak = env.absolutePeak || 1;
                 const samples = env.samples || [];
                 const n = samples.length;
                 const dur = result.durationSeconds || 1;
+                const dataRange = dataEnd - dataStart;
 
                 if (n === 0) { return; }
 
@@ -531,7 +611,8 @@ export class ComparisonPanel {
                 for (let px = 0; px < W; px++) {
                     const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
                     const tAdj = tNorm - offsetSeconds / dur;
-                    const idx = Math.floor(tAdj * n);
+                    const tInData = (tAdj - dataStart) / dataRange;
+                    const idx = Math.floor(tInData * n);
                     if (idx < 0 || idx >= n) { continue; }
                     const y = H / 2 - (samples[idx] / peak) * (H * 0.44);
                     if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
@@ -785,7 +866,7 @@ export class ComparisonPanel {
                     if (contentType === 'waveform') {
                         const savedCursor = cursorNorm;
                         cursorNorm = norm;
-                        drawWaveform(canvas, result, trackRuntime[i].offsetSeconds, color, false);
+                        drawWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color, false);
                         cursorNorm = savedCursor;
                     }
                 });
@@ -809,17 +890,20 @@ export class ComparisonPanel {
                 let nearest = -1;
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden || result.error) { return; }
-                    const ch = result.channels[0];
-                    if (!ch || !ch.waveform) { return; }
-                    const env = ch.waveform;
+                    const offsetSeconds = trackRuntime[i].offsetSeconds;
+                    const src = resolveWaveformSource(result, i, offsetSeconds);
+                    if (!src) { return; }
+                    const { waveform: env, dataStart, dataEnd } = src;
                     const peak = env.absolutePeak || 1;
-                    const n = env.max.length;
+                    const samples = env.samples || [];
+                    const n = samples.length;
                     const dur = result.durationSeconds || 1;
                     const tNorm = zoomStart + (mouseX / W) * (zoomEnd - zoomStart);
-                    const tAdj = tNorm - trackRuntime[i].offsetSeconds / dur;
-                    const idx = Math.floor(tAdj * n);
+                    const tAdj = tNorm - offsetSeconds / dur;
+                    const tInData = (tAdj - dataStart) / (dataEnd - dataStart);
+                    const idx = Math.floor(tInData * n);
                     if (idx < 0 || idx >= n) { return; }
-                    const waveY = H / 2 - (env.max[idx] / peak) * (H * 0.44);
+                    const waveY = H / 2 - (samples[idx] / peak) * (H * 0.44);
                     const dist = Math.abs(mouseY - waveY);
                     if (dist < minDist) { minDist = dist; nearest = i; }
                 });

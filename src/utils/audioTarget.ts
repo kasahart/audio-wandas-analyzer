@@ -26,6 +26,32 @@ export function isSelectTargetMessage(message: unknown): message is { type: 'sel
     return candidate.type === 'select-target' && (candidate.targetKind === 'file' || candidate.targetKind === 'directory');
 }
 
+export interface WaveformRangeRequest {
+    type: 'request-waveform-range';
+    requestId: string;
+    trackIndex: number;
+    filePath: string;
+    startNorm: number;
+    endNorm: number;
+    points: number;
+}
+
+export function isRequestWaveformRangeMessage(message: unknown): message is WaveformRangeRequest {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+    const m = message as Record<string, unknown>;
+    return (
+        m['type'] === 'request-waveform-range' &&
+        typeof m['requestId'] === 'string' &&
+        typeof m['trackIndex'] === 'number' &&
+        typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0 &&
+        typeof m['startNorm'] === 'number' &&
+        typeof m['endNorm'] === 'number' &&
+        typeof m['points'] === 'number'
+    );
+}
+
 export function isCompareFilesMessage(message: unknown): message is { type: 'compare-files'; filePaths: string[] } {
     if (!message || typeof message !== 'object') {
         return false;

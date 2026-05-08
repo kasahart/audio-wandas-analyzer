@@ -8,6 +8,7 @@ import {
     isSelectTargetMessage,
     isSupportedAudioFile,
     isCompareFilesMessage,
+    isRequestWaveformRangeMessage,
     type SelectionTargetKind,
 } from './utils/audioTarget';
 import { ComparisonPanel } from './panels/ComparisonPanel';
@@ -157,6 +158,29 @@ function registerPanelMessageHandler(
 
             if (isCompareFilesMessage(message)) {
                 await analyzeMultipleFiles(context, message.filePaths, panel);
+                return;
+            }
+
+            if (isRequestWaveformRangeMessage(message)) {
+                const req = message;
+                runRangeAnalysis(
+                    context.extensionPath,
+                    req.filePath,
+                    req.startNorm,
+                    req.endNorm,
+                    req.points,
+                ).then((result) => {
+                    void panel.webview.postMessage({
+                        type: 'waveform-range-result',
+                        requestId: req.requestId,
+                        trackIndex: req.trackIndex,
+                        startNorm: req.startNorm,
+                        endNorm: req.endNorm,
+                        channels: result.channels,
+                    });
+                }).catch(() => {
+                    // Silently ignore — WebView falls back to overview data
+                });
                 return;
             }
         } catch (error) {
@@ -346,6 +370,39 @@ async function runAnalysis(extensionPath: string, fileUri: vscode.Uri): Promise<
                     ),
                 );
             }
+        });
+    });
+}
+
+async function runRangeAnalysis(
+    extensionPath: string,
+    filePath: string,
+    startNorm: number,
+    endNorm: number,
+    points: number,
+): Promise<{ channels: unknown[] }> {
+    const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
+    const pythonCommand = config.get<string>('pythonCommand', 'python3');
+    const scriptPath = path.join(extensionPath, 'python-backend', 'main.py');
+
+    return new Promise((resolve, reject) => {
+        const proc = spawn(
+            pythonCommand,
+            [scriptPath, '--file', filePath,
+             '--range-start', String(startNorm),
+             '--range-end', String(endNorm),
+             '--range-points', String(points)],
+            { cwd: extensionPath, stdio: ['ignore', 'pipe', 'pipe'] },
+        );
+
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.on('data', (chunk: Buffer | string) => { stdout += chunk.toString(); });
+        proc.stderr.on('data', (chunk: Buffer | string) => { stderr += chunk.toString(); });
+        proc.on('error', reject);
+        proc.on('close', (code: number | null) => {
+            if (code !== 0) { reject(new Error(stderr.trim())); return; }
+            try { resolve(JSON.parse(stdout) as { channels: unknown[] }); } catch (e) { reject(e); }
         });
     });
 }
