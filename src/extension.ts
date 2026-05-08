@@ -12,6 +12,7 @@ import {
     type SelectionTargetKind,
 } from './utils/audioTarget';
 import { ComparisonPanel } from './panels/ComparisonPanel';
+import { WaveformServer } from './waveformServer';
 
 interface DirectoryBrowserContext {
     directoryUri: vscode.Uri;
@@ -20,7 +21,12 @@ interface DirectoryBrowserContext {
 
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 
+let waveformServer: WaveformServer | null = null;
+
 export function activate(context: vscode.ExtensionContext): void {
+    waveformServer = new WaveformServer(context.extensionPath);
+    context.subscriptions.push({ dispose: () => { waveformServer?.dispose(); waveformServer = null; } });
+
     registerWorkspaceTests(context);
 
     const analyzeFileDisposable = vscode.commands.registerCommand('audioWandasAnalyzer.analyzeFile', async () => {
@@ -163,12 +169,12 @@ function registerPanelMessageHandler(
 
             if (isRequestWaveformRangeMessage(message)) {
                 const req = message;
-                runRangeAnalysis(
-                    context.extensionPath,
+                waveformServer?.requestRange(
                     req.filePath,
                     req.startNorm,
                     req.endNorm,
                     req.points,
+                    req.requestId,
                 ).then((result) => {
                     void panel.webview.postMessage({
                         type: 'waveform-range-result',
@@ -317,6 +323,7 @@ async function analyzeMultipleFiles(
                     });
                 }
             }
+            waveformServer?.warmup();
             const comparisonPanel = ComparisonPanel.show(context.extensionUri, results, panel);
             registerPanelMessageHandler(context, comparisonPanel);
         },
@@ -370,39 +377,6 @@ async function runAnalysis(extensionPath: string, fileUri: vscode.Uri): Promise<
                     ),
                 );
             }
-        });
-    });
-}
-
-async function runRangeAnalysis(
-    extensionPath: string,
-    filePath: string,
-    startNorm: number,
-    endNorm: number,
-    points: number,
-): Promise<{ channels: unknown[] }> {
-    const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-    const pythonCommand = config.get<string>('pythonCommand', 'python3');
-    const scriptPath = path.join(extensionPath, 'python-backend', 'main.py');
-
-    return new Promise((resolve, reject) => {
-        const proc = spawn(
-            pythonCommand,
-            [scriptPath, '--file', filePath,
-             '--range-start', String(startNorm),
-             '--range-end', String(endNorm),
-             '--range-points', String(points)],
-            { cwd: extensionPath, stdio: ['ignore', 'pipe', 'pipe'] },
-        );
-
-        let stdout = '';
-        let stderr = '';
-        proc.stdout.on('data', (chunk: Buffer | string) => { stdout += chunk.toString(); });
-        proc.stderr.on('data', (chunk: Buffer | string) => { stderr += chunk.toString(); });
-        proc.on('error', reject);
-        proc.on('close', (code: number | null) => {
-            if (code !== 0) { reject(new Error(stderr.trim())); return; }
-            try { resolve(JSON.parse(stdout) as { channels: unknown[] }); } catch (e) { reject(e); }
         });
     });
 }
