@@ -25,3 +25,17 @@ export function isSelectTargetMessage(message: unknown): message is { type: 'sel
     const candidate = message as { type?: unknown; targetKind?: unknown };
     return candidate.type === 'select-target' && (candidate.targetKind === 'file' || candidate.targetKind === 'directory');
 }
+
+export function isCompareFilesMessage(message: unknown): message is { type: 'compare-files'; filePaths: string[] } {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+
+    const candidate = message as { type?: unknown; filePaths?: unknown };
+    return (
+        candidate.type === 'compare-files' &&
+        Array.isArray(candidate.filePaths) &&
+        candidate.filePaths.length >= 2 &&
+        (candidate.filePaths as unknown[]).every((p) => typeof p === 'string' && p.length > 0)
+    );
+}
