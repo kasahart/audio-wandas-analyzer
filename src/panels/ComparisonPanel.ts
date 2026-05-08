@@ -453,59 +453,67 @@ export class ComparisonPanel {
             }
 
             // Shared waveform rendering: min/max bars when zoomed out, polyline when zoomed in.
+            // Single rendering mode: decimated_index method.
+            // Computes div = visible_data_points / (W * 2).
+            // For each bucket of div points: picks argmin + argmax index in time order.
+            // When div=1 (zoomed in) → all points → accurate polyline.
+            // When div>1 (zoomed out) → min+max per bucket → vertical sweep that preserves peaks.
             function renderWaveformData(ctx, W, H, env, dataStart, dataEnd, offsetSeconds, dur, color, isHighlighted) {
                 const peak = env.absolutePeak || 1;
                 const samples = env.samples || [];
-                const minArr = env.min || [];
-                const maxArr = env.max || [];
                 const n = samples.length;
                 if (n === 0) { return; }
 
                 const dataRange = dataEnd - dataStart;
-                // How many data points fall in one pixel on average
-                const ptsPerPx = (zoomEnd - zoomStart) * dataRange * n / W;
 
-                if (ptsPerPx < 2) {
-                    // ── Zoomed-in: connected polyline through sample values ──
-                    ctx.lineWidth = isHighlighted ? 2 : 1.5;
-                    ctx.strokeStyle = color;
-                    ctx.beginPath();
-                    let started = false;
-                    for (let px = 0; px < W; px++) {
-                        const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
-                        const tAdj = tNorm - offsetSeconds / dur;
-                        const tInData = (tAdj - dataStart) / dataRange;
-                        const idx = Math.floor(tInData * n);
-                        if (idx < 0 || idx >= n) { continue; }
-                        const y = H / 2 - (samples[idx] / peak) * (H * 0.44);
-                        if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
+                // Visible data index range (with 1-point margin for edge continuity)
+                const visStartNorm = (zoomStart - offsetSeconds / dur - dataStart) / dataRange;
+                const visEndNorm   = (zoomEnd   - offsetSeconds / dur - dataStart) / dataRange;
+                const i0 = Math.max(0, Math.floor(visStartNorm * n) - 1);
+                const i1 = Math.min(n - 1, Math.ceil(visEndNorm * n) + 1);
+                if (i1 <= i0) { return; }
+
+                // div = how many data points are squeezed into one screen pixel
+                const visibleCount = i1 - i0 + 1;
+                const div = Math.max(1, Math.floor(visibleCount / (W * 2)));
+
+                // Build index array: argmin + argmax per bucket, in chronological order
+                const indices = [];
+                indices.push(i0);
+                for (let b = i0; b <= i1; b += div) {
+                    const bEnd = Math.min(i1 + 1, b + div);
+                    let minIdx = b, maxIdx = b;
+                    let minVal = samples[b], maxVal = samples[b];
+                    for (let i = b + 1; i < bEnd; i++) {
+                        if (samples[i] < minVal) { minVal = samples[i]; minIdx = i; }
+                        if (samples[i] > maxVal) { maxVal = samples[i]; maxIdx = i; }
                     }
-                    ctx.stroke();
-                } else {
-                    // ── Zoomed-out: per-pixel min/max vertical bar ──
-                    ctx.fillStyle = color;
-                    for (let px = 0; px < W; px++) {
-                        const tAdj0 = (zoomStart + (px / W) * (zoomEnd - zoomStart) - offsetSeconds / dur - dataStart) / dataRange;
-                        const tAdj1 = (zoomStart + ((px + 1) / W) * (zoomEnd - zoomStart) - offsetSeconds / dur - dataStart) / dataRange;
-                        const i0 = Math.max(0, Math.floor(tAdj0 * n));
-                        const i1 = Math.min(n, Math.ceil(tAdj1 * n));
-                        if (i0 >= i1) { continue; }
-
-                        let pxMin = Infinity;
-                        let pxMax = -Infinity;
-                        for (let i = i0; i < i1; i++) {
-                            const lo = (minArr.length > i ? minArr[i] : samples[i]) / peak;
-                            const hi = (maxArr.length > i ? maxArr[i] : samples[i]) / peak;
-                            if (lo < pxMin) { pxMin = lo; }
-                            if (hi > pxMax) { pxMax = hi; }
-                        }
-                        if (!isFinite(pxMin)) { continue; }
-
-                        const yTop = H / 2 - pxMax * (H * 0.44);
-                        const yBot = H / 2 - pxMin * (H * 0.44);
-                        ctx.fillRect(px, yTop, 1, Math.max(1, yBot - yTop));
+                    const last = indices[indices.length - 1];
+                    if (minIdx === maxIdx) {
+                        if (minIdx !== last) { indices.push(minIdx); }
+                    } else if (minIdx < maxIdx) {
+                        if (minIdx !== last) { indices.push(minIdx); }
+                        indices.push(maxIdx);
+                    } else {
+                        if (maxIdx !== last) { indices.push(maxIdx); }
+                        indices.push(minIdx);
                     }
                 }
+                if (indices[indices.length - 1] !== i1) { indices.push(i1); }
+
+                // Draw polyline through selected indices (data-space → screen-space)
+                ctx.lineWidth = isHighlighted ? 2 : 1.5;
+                ctx.strokeStyle = color;
+                ctx.beginPath();
+                let started = false;
+                for (let k = 0; k < indices.length; k++) {
+                    const idx = indices[k];
+                    const tNorm = dataStart + (idx / n) * dataRange + offsetSeconds / dur;
+                    const px = ((tNorm - zoomStart) / (zoomEnd - zoomStart)) * W;
+                    const y = H / 2 - (samples[idx] / peak) * (H * 0.44);
+                    if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
+                }
+                ctx.stroke();
             }
 
             function drawWaveform(canvas, result, trackIndex, offsetSeconds, color, isHighlighted) {
