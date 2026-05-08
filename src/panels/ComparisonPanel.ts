@@ -173,12 +173,6 @@ export class ComparisonPanel {
                 return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
             }
 
-            // 0 at edge0, 1 at edge1, smooth cubic interpolation in between
-            function smoothstep(edge0, edge1, x) {
-                const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
-                return t * t * (3 - 2 * t);
-            }
-
             // ── Runtime state ──
             let viewMode = 'stacked';     // 'stacked' | 'overlay'
             let contentType = 'waveform'; // 'waveform' | 'spectrogram'
@@ -458,6 +452,62 @@ export class ComparisonPanel {
                     : null;
             }
 
+            // Shared waveform rendering: min/max bars when zoomed out, polyline when zoomed in.
+            function renderWaveformData(ctx, W, H, env, dataStart, dataEnd, offsetSeconds, dur, color, isHighlighted) {
+                const peak = env.absolutePeak || 1;
+                const samples = env.samples || [];
+                const minArr = env.min || [];
+                const maxArr = env.max || [];
+                const n = samples.length;
+                if (n === 0) { return; }
+
+                const dataRange = dataEnd - dataStart;
+                // How many data points fall in one pixel on average
+                const ptsPerPx = (zoomEnd - zoomStart) * dataRange * n / W;
+
+                if (ptsPerPx < 2) {
+                    // ── Zoomed-in: connected polyline through sample values ──
+                    ctx.lineWidth = isHighlighted ? 2 : 1.5;
+                    ctx.strokeStyle = color;
+                    ctx.beginPath();
+                    let started = false;
+                    for (let px = 0; px < W; px++) {
+                        const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
+                        const tAdj = tNorm - offsetSeconds / dur;
+                        const tInData = (tAdj - dataStart) / dataRange;
+                        const idx = Math.floor(tInData * n);
+                        if (idx < 0 || idx >= n) { continue; }
+                        const y = H / 2 - (samples[idx] / peak) * (H * 0.44);
+                        if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
+                    }
+                    ctx.stroke();
+                } else {
+                    // ── Zoomed-out: per-pixel min/max vertical bar ──
+                    ctx.fillStyle = color;
+                    for (let px = 0; px < W; px++) {
+                        const tAdj0 = (zoomStart + (px / W) * (zoomEnd - zoomStart) - offsetSeconds / dur - dataStart) / dataRange;
+                        const tAdj1 = (zoomStart + ((px + 1) / W) * (zoomEnd - zoomStart) - offsetSeconds / dur - dataStart) / dataRange;
+                        const i0 = Math.max(0, Math.floor(tAdj0 * n));
+                        const i1 = Math.min(n, Math.ceil(tAdj1 * n));
+                        if (i0 >= i1) { continue; }
+
+                        let pxMin = Infinity;
+                        let pxMax = -Infinity;
+                        for (let i = i0; i < i1; i++) {
+                            const lo = (minArr.length > i ? minArr[i] : samples[i]) / peak;
+                            const hi = (maxArr.length > i ? maxArr[i] : samples[i]) / peak;
+                            if (lo < pxMin) { pxMin = lo; }
+                            if (hi > pxMax) { pxMax = hi; }
+                        }
+                        if (!isFinite(pxMin)) { continue; }
+
+                        const yTop = H / 2 - pxMax * (H * 0.44);
+                        const yBot = H / 2 - pxMin * (H * 0.44);
+                        ctx.fillRect(px, yTop, 1, Math.max(1, yBot - yTop));
+                    }
+                }
+            }
+
             function drawWaveform(canvas, result, trackIndex, offsetSeconds, color, isHighlighted) {
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width;
@@ -468,28 +518,7 @@ export class ComparisonPanel {
                 if (!src) { drawCursorOnCanvas(ctx, W, H); return; }
 
                 const { waveform: env, dataStart, dataEnd } = src;
-                const peak = env.absolutePeak || 1;
-                const n = (env.samples || []).length;
                 const dur = result.durationSeconds || 1;
-                const dataRange = dataEnd - dataStart;
-
-                if (n === 0) { drawCursorOnCanvas(ctx, W, H); return; }
-
-                const visibleFraction = (zoomEnd - zoomStart) / dataRange;
-                const ptsPerPixel = n * visibleFraction / W;
-                // t=0: サンプル折れ線のみ、t=1: エンベロープのみ
-                const t = smoothstep(0.8, 3.0, ptsPerPixel);
-
-                const minArr  = env.min     || [];
-                const maxArr  = env.max     || [];
-                const smpArr  = env.samples || [];
-
-                // 共通のピクセル→インデックス変換
-                function idx(px) {
-                    const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
-                    const tAdj  = tNorm - offsetSeconds / dur;
-                    return Math.floor(((tAdj - dataStart) / dataRange) * n);
-                }
 
                 // Zero line
                 ctx.strokeStyle = hexToRgba(color, 0.25);
@@ -499,58 +528,7 @@ export class ComparisonPanel {
                 ctx.lineTo(W, H / 2);
                 ctx.stroke();
 
-                // ── エンベロープ塗りつぶし（t に応じてフェードイン）──
-                if (t > 0.01) {
-                    ctx.globalAlpha = t;
-                    ctx.fillStyle = hexToRgba(color, 0.35);
-                    ctx.beginPath();
-                    let s = false;
-                    for (let px = 0; px < W; px++) {
-                        const i = idx(px);
-                        if (i < 0 || i >= n) { continue; }
-                        const y = H / 2 - (maxArr[i] / peak) * (H * 0.44);
-                        if (!s) { ctx.moveTo(px, y); s = true; } else { ctx.lineTo(px, y); }
-                    }
-                    for (let px = W - 1; px >= 0; px--) {
-                        const i = idx(px);
-                        if (i < 0 || i >= n) { continue; }
-                        ctx.lineTo(px, H / 2 - (minArr[i] / peak) * (H * 0.44));
-                    }
-                    ctx.closePath();
-                    ctx.fill();
-
-                    // max アウトライン
-                    ctx.strokeStyle = color;
-                    ctx.lineWidth = isHighlighted ? 2 : 1;
-                    ctx.beginPath();
-                    s = false;
-                    for (let px = 0; px < W; px++) {
-                        const i = idx(px);
-                        if (i < 0 || i >= n) { continue; }
-                        const y = H / 2 - (maxArr[i] / peak) * (H * 0.44);
-                        if (!s) { ctx.moveTo(px, y); s = true; } else { ctx.lineTo(px, y); }
-                    }
-                    ctx.stroke();
-                    ctx.globalAlpha = 1;
-                }
-
-                // ── サンプル折れ線（1-t に応じてフェードアウト）──
-                if (t < 0.99) {
-                    ctx.globalAlpha = 1 - t;
-                    ctx.lineWidth = isHighlighted ? 2 : 1.5;
-                    ctx.strokeStyle = color;
-                    ctx.beginPath();
-                    let s = false;
-                    for (let px = 0; px < W; px++) {
-                        const i = idx(px);
-                        if (i < 0 || i >= n) { continue; }
-                        const y = H / 2 - (smpArr[i] / peak) * (H * 0.44);
-                        if (!s) { ctx.moveTo(px, y); s = true; } else { ctx.lineTo(px, y); }
-                    }
-                    ctx.stroke();
-                    ctx.globalAlpha = 1;
-                }
-
+                renderWaveformData(ctx, W, H, env, dataStart, dataEnd, offsetSeconds, dur, color, isHighlighted);
                 drawCursorOnCanvas(ctx, W, H);
             }
 
@@ -653,58 +631,8 @@ export class ComparisonPanel {
                 const src = resolveWaveformSource(result, trackIndex, offsetSeconds);
                 if (!src) { return; }
                 const { waveform: env, dataStart, dataEnd } = src;
-                const peak = env.absolutePeak || 1;
-                const n = (env.samples || []).length;
                 const dur = result.durationSeconds || 1;
-                const dataRange = dataEnd - dataStart;
-
-                if (n === 0) { return; }
-
-                const visibleFraction = (zoomEnd - zoomStart) / dataRange;
-                const ptsPerPixel = n * visibleFraction / W;
-                const t = smoothstep(0.8, 3.0, ptsPerPixel);
-
-                const maxArr = env.max     || [];
-                const smpArr = env.samples || [];
-
-                function idxOf(px) {
-                    const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
-                    const tAdj  = tNorm - offsetSeconds / dur;
-                    return Math.floor(((tAdj - dataStart) / dataRange) * n);
-                }
-
-                ctx.lineWidth = isHighlighted ? 2 : 1.5;
-                ctx.strokeStyle = color;
-
-                // max アウトライン（エンベロープ側、フェードイン）
-                if (t > 0.01) {
-                    ctx.globalAlpha = t;
-                    ctx.beginPath();
-                    let s = false;
-                    for (let px = 0; px < W; px++) {
-                        const i = idxOf(px);
-                        if (i < 0 || i >= n) { continue; }
-                        const y = H / 2 - (maxArr[i] / peak) * (H * 0.44);
-                        if (!s) { ctx.moveTo(px, y); s = true; } else { ctx.lineTo(px, y); }
-                    }
-                    ctx.stroke();
-                    ctx.globalAlpha = 1;
-                }
-
-                // サンプル折れ線（フェードアウト）
-                if (t < 0.99) {
-                    ctx.globalAlpha = 1 - t;
-                    ctx.beginPath();
-                    let s = false;
-                    for (let px = 0; px < W; px++) {
-                        const i = idxOf(px);
-                        if (i < 0 || i >= n) { continue; }
-                        const y = H / 2 - (smpArr[i] / peak) * (H * 0.44);
-                        if (!s) { ctx.moveTo(px, y); s = true; } else { ctx.lineTo(px, y); }
-                    }
-                    ctx.stroke();
-                    ctx.globalAlpha = 1;
-                }
+                renderWaveformData(ctx, W, H, env, dataStart, dataEnd, offsetSeconds, dur, color, isHighlighted);
             }
 
             function updateOverlayLegend() {
