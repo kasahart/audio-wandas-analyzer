@@ -191,7 +191,8 @@ export class ComparisonPanel {
             const app = document.getElementById('app');
             app.innerHTML = buildLayout();
             attachEvents();
-            renderAll();
+            // Defer first render so the browser has time to calculate flex layout
+            requestAnimationFrame(function() { renderAll(); });
 
             function buildLayout() {
                 const tracks = state.results.map(function(result, i) {
@@ -442,9 +443,9 @@ export class ComparisonPanel {
                     for (let py = 0; py < H; py++) {
                         const fIdx = Math.floor((1 - py / H) * fBins);
                         if (fIdx < 0 || fIdx >= fBins) { continue; }
-                        const val = (spec.values[tIdx] && spec.values[tIdx][fIdx] !== undefined)
-                            ? spec.values[tIdx][fIdx] : spec.minDb;
-                        const norm = Math.max(0, Math.min(1, (val - spec.minDb) / (spec.maxDb - spec.minDb)));
+                        // values are already normalized to [0,1] by Python's _normalize_spectrogram_db
+                        const norm = (spec.values[tIdx] && spec.values[tIdx][fIdx] !== undefined)
+                            ? Math.max(0, Math.min(1, spec.values[tIdx][fIdx])) : 0;
                         const off = (py * W + px) * 4;
                         const rgb = dbToRgb(norm);
                         data[off] = rgb[0]; data[off + 1] = rgb[1]; data[off + 2] = rgb[2]; data[off + 3] = 255;
