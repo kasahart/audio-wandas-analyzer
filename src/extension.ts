@@ -7,8 +7,10 @@ import {
     isAnalyzeFileMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
+    isCompareFilesMessage,
     type SelectionTargetKind,
 } from './utils/audioTarget';
+import { ComparisonPanel } from './panels/ComparisonPanel';
 
 interface DirectoryBrowserContext {
     directoryUri: vscode.Uri;
@@ -152,6 +154,11 @@ function registerPanelMessageHandler(
 
                 await analyzeAudioTarget(context, selected, panel);
             }
+
+            if (isCompareFilesMessage(message)) {
+                await analyzeMultipleFiles(context, message.filePaths, panel);
+                return;
+            }
         } catch (error) {
             const messageText = error instanceof Error ? error.message : String(error);
             void vscode.window.showErrorMessage(messageText);
@@ -244,6 +251,52 @@ async function pickAudioTarget(targetKind?: SelectionTargetKind): Promise<vscode
     });
 
     return selected?.[0];
+}
+
+// AnalysisResult にエラー状態を持たせるために拡張した型
+interface AnalysisResultOrError extends AnalysisResult {
+    error?: string;
+}
+
+async function analyzeMultipleFiles(
+    context: vscode.ExtensionContext,
+    filePaths: string[],
+    panel?: vscode.WebviewPanel,
+): Promise<void> {
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: `Analyzing ${filePaths.length} files with wandas`,
+            cancellable: false,
+        },
+        async (progress) => {
+            const results: AnalysisResultOrError[] = [];
+            for (let i = 0; i < filePaths.length; i++) {
+                progress.report({
+                    increment: Math.floor(100 / filePaths.length),
+                    message: `(${i + 1}/${filePaths.length}) ${path.basename(filePaths[i])}`,
+                });
+                try {
+                    const result = await runAnalysis(context.extensionPath, vscode.Uri.file(filePaths[i]));
+                    results.push(result);
+                } catch (err) {
+                    // 1件失敗してもパネルは開く。エラー情報をトラックに載せる
+                    results.push({
+                        filePath: filePaths[i],
+                        fileName: path.basename(filePaths[i]),
+                        sampleRateHz: 0,
+                        durationSeconds: 0,
+                        channelCount: 0,
+                        sampleCount: 0,
+                        channels: [],
+                        error: err instanceof Error ? err.message : String(err),
+                    });
+                }
+            }
+            const comparisonPanel = ComparisonPanel.show(context.extensionUri, results, panel);
+            registerPanelMessageHandler(context, comparisonPanel);
+        },
+    );
 }
 
 async function runAnalysis(extensionPath: string, fileUri: vscode.Uri): Promise<AnalysisResult> {
