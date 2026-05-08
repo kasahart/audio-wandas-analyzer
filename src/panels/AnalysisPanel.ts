@@ -731,6 +731,7 @@ export class AnalysisPanel {
                 compareFilePath: appState.files.find((file) => file.filePath !== appState.currentFilePath)?.filePath ?? appState.files[0]?.filePath,
                 themeMode: 'auto',
                 accent: accentOptions[0],
+                checkedPaths: [],
             };
 
             const glossaryMap = new Map(appState.glossary.map((entry) => [entry.term, entry]));
@@ -964,7 +965,7 @@ export class AnalysisPanel {
                                 ? '比較できる候補がまだありません。'
                                 : '';
                     return '<tr class="table-row' + (isCurrent ? ' is-current' : '') + (isSelected ? ' is-selected' : '') + '" data-file-path="' + escapeHtml(file.filePath) + '">'
-                        + '<td><input type="checkbox" class="file-select-cb" data-file-path="' + escapeHtml(file.filePath) + '"></td>'
+                        + '<td><input type="checkbox" class="file-select-cb" data-file-path="' + escapeHtml(file.filePath) + '"' + (state.checkedPaths.indexOf(file.filePath) >= 0 ? ' checked' : '') + '></td>'
                         + '<td><span class="file-name mono">' + escapeHtml(file.name) + '</span><span class="file-meta">' + escapeHtml(file.relativePath) + '</span></td>'
                         + '<td class="mono">' + escapeHtml(file.durationLabel) + '</td>'
                         + '<td class="mono">' + escapeHtml(file.sampleRateLabel) + '</td>'
@@ -1058,6 +1059,8 @@ export class AnalysisPanel {
             }
 
             function bindEvents() {
+                if (app.dataset.eventsBound) { return; }
+                app.dataset.eventsBound = 'true';
                 app.querySelectorAll('[data-action]').forEach((element) => {
                     element.addEventListener('click', () => {
                         const action = element.getAttribute('data-action');
@@ -1154,6 +1157,14 @@ export class AnalysisPanel {
                 document.addEventListener('change', function(event) {
                     const cb = event.target;
                     if (!cb.classList.contains('file-select-cb')) { return; }
+                    const filePath = cb.getAttribute('data-file-path');
+                    if (cb.checked) {
+                        if (state.checkedPaths.indexOf(filePath) < 0) {
+                            state.checkedPaths.push(filePath);
+                        }
+                    } else {
+                        state.checkedPaths = state.checkedPaths.filter(function(p) { return p !== filePath; });
+                    }
                     updateCompareTray();
                 });
 
