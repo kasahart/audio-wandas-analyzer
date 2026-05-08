@@ -681,11 +681,32 @@ export class ComparisonPanel {
             }
 
             function handleZoomWheel(e) {
-                const delta = e.deltaY > 0 ? 1.15 : 0.85;
-                const center = (zoomStart + zoomEnd) / 2;
-                const half = (zoomEnd - zoomStart) / 2 * delta;
-                zoomStart = Math.max(0, center - half);
-                zoomEnd = Math.min(1, center + half);
+                const scaleFactor = e.deltaY > 0 ? 1.15 : 0.85;
+                const span = (zoomEnd - zoomStart) * scaleFactor;
+
+                // Compute normalized time under cursor, keeping it pinned
+                const wrapper = document.getElementById('tracks-wrapper');
+                let pivotNorm = (zoomStart + zoomEnd) / 2; // fallback: current center
+                if (wrapper) {
+                    const rect = wrapper.getBoundingClientRect();
+                    const plotLeft = rect.left + 130; // 130px track header
+                    const plotWidth = rect.width - 130;
+                    const mouseX = e.clientX - plotLeft;
+                    if (plotWidth > 0 && mouseX >= 0 && mouseX <= plotWidth) {
+                        pivotNorm = zoomStart + (mouseX / plotWidth) * (zoomEnd - zoomStart);
+                    }
+                }
+
+                // Ratio of pivot within current span → keep same ratio after zoom
+                const pivotRatio = (zoomEnd - zoomStart) > 0
+                    ? (pivotNorm - zoomStart) / (zoomEnd - zoomStart)
+                    : 0.5;
+                let newStart = pivotNorm - pivotRatio * span;
+                let newEnd = newStart + span;
+                if (newEnd > 1) { newEnd = 1; newStart = Math.max(0, 1 - span); }
+                if (newStart < 0) { newStart = 0; newEnd = Math.min(1, span); }
+                zoomStart = newStart;
+                zoomEnd = newEnd;
                 renderAll();
             }
 
