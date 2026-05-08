@@ -1,4 +1,3 @@
-import * as path from 'path';
 import * as vscode from 'vscode';
 import { serializeForScript } from '../utils/webviewEscaping';
 import type { AnalysisResult } from './AnalysisPanel';
@@ -853,6 +852,7 @@ export class ComparisonPanel {
             function removeTrack(idx) {
                 const row = document.getElementById('track-row-' + idx);
                 if (row) { row.remove(); }
+                trackRuntime[idx].hidden = true;
                 if (referenceIndex === idx) {
                     const remaining = Array.from(document.querySelectorAll('.track-row'))
                         .map(function(r) { return parseInt(r.getAttribute('data-track-index'), 10); })
