@@ -117,15 +117,6 @@ def _resample_time_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.nd
     return reduced
 
 
-def _normalize_spectrogram_db(spectrogram_db: np.ndarray) -> np.ndarray:
-    peak_db = float(np.max(spectrogram_db))
-    if not np.isfinite(peak_db):
-        return np.zeros_like(spectrogram_db)
-
-    clipped = np.clip(spectrogram_db - peak_db, -SPECTROGRAM_DB_RANGE, 0.0)
-    return (clipped + SPECTROGRAM_DB_RANGE) / SPECTROGRAM_DB_RANGE
-
-
 def _build_spectrogram(
     spectrogram_db: np.ndarray,
     sample_rate_hz: int,
@@ -142,7 +133,7 @@ def _build_spectrogram(
             "windowSize": 0,
             "hopSize": 0,
             "maxFrequencyHz": float(sample_rate_hz / 2),
-            "minDb": -SPECTROGRAM_DB_RANGE,
+            "minDb": 0.0,
             "maxDb": 0.0,
         }
 
@@ -152,17 +143,19 @@ def _build_spectrogram(
 
     spectrogram = _resample_time_bins(spectrogram, time_bin_limit)
     spectrogram = _resample_frequency_bins(spectrogram, frequency_bin_limit)
-    normalized = _normalize_spectrogram_db(spectrogram)
+
+    min_db = float(np.min(spectrogram))
+    max_db = float(np.max(spectrogram))
 
     return {
-        "values": normalized.tolist(),
-        "timeBins": int(normalized.shape[0]),
-        "frequencyBins": int(normalized.shape[1]),
+        "values": spectrogram.tolist(),
+        "timeBins": int(spectrogram.shape[0]),
+        "frequencyBins": int(spectrogram.shape[1]),
         "windowSize": int(window_size),
         "hopSize": int(hop_size),
         "maxFrequencyHz": float(sample_rate_hz / 2),
-        "minDb": -SPECTROGRAM_DB_RANGE,
-        "maxDb": 0.0,
+        "minDb": min_db,
+        "maxDb": max_db,
     }
 
 
