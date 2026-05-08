@@ -3,15 +3,19 @@ import * as vscode from 'vscode';
 import { serializeForScript } from '../utils/webviewEscaping';
 import type { AnalysisResult } from './AnalysisPanel';
 
+interface AnalysisResultWithError extends AnalysisResult {
+    error?: string;
+}
+
 interface ComparisonState {
-    results: AnalysisResult[];
+    results: AnalysisResultWithError[];
     referenceIndex: number;
 }
 
 export class ComparisonPanel {
     public static show(
         extensionUri: vscode.Uri,
-        results: AnalysisResult[],
+        results: AnalysisResultWithError[],
         existingPanel?: vscode.WebviewPanel,
     ): vscode.WebviewPanel {
         const title = `比較: ${results.map((r) => r.fileName).join(', ')}`;
@@ -246,6 +250,7 @@ export class ComparisonPanel {
                     + '  <div class="track-role">' + (isRef ? '📌 基準' : '比較') + '</div>'
                     + '  <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
                     + '  <div class="track-meta">Ch: ' + result.channelCount + ' &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
+                    + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
                     + '    <button class="track-btn" data-action="toggle-mute" data-track-index="' + i + '">M</button>'
                     + '    <button class="track-btn" style="opacity:0.3" disabled title="将来対応">S</button>'
@@ -540,17 +545,21 @@ export class ComparisonPanel {
             }
 
             function updateVisibility() {
-                const emptyState = document.getElementById('empty-state');
-                if (emptyState) {
-                    const allRemoved = document.querySelectorAll('.track-row').length === 0;
-                    emptyState.classList.toggle('is-visible', allRemoved);
-                }
+                // まず各行の display を更新する
                 document.querySelectorAll('.track-row').forEach(function(row) {
                     const idx = parseInt(row.getAttribute('data-track-index'), 10);
                     if (!isNaN(idx) && trackRuntime[idx]) {
                         row.style.display = trackRuntime[idx].hidden ? 'none' : 'flex';
                     }
                 });
+                // 次に空状態を判定する（削除済み or 全非表示）
+                const emptyState = document.getElementById('empty-state');
+                if (emptyState) {
+                    const visibleRows = Array.from(document.querySelectorAll('.track-row')).filter(function(row) {
+                        return row.style.display !== 'none';
+                    });
+                    emptyState.classList.toggle('is-visible', visibleRows.length === 0);
+                }
             }
 
             function updateOffsetDisplays() {
@@ -636,6 +645,14 @@ export class ComparisonPanel {
                     contentType = 'spectrogram';
                     document.querySelector('[data-action="content-waveform"]').classList.remove('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.add('is-active');
+                    // スペクトログラムはオーバーレイ非対応のため縦積みに切替
+                    if (viewMode === 'overlay') {
+                        viewMode = 'stacked';
+                        document.querySelector('[data-action="view-stacked"]').classList.add('is-active');
+                        document.querySelector('[data-action="view-overlay"]').classList.remove('is-active');
+                        document.getElementById('stacked-wrap').style.display = '';
+                        document.getElementById('overlay-wrap').classList.remove('is-visible');
+                    }
                     renderAll();
                 } else if (action === 'zoom-in') {
                     zoomIn();
