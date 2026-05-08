@@ -173,6 +173,12 @@ export class ComparisonPanel {
                 return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
             }
 
+            // 0 at edge0, 1 at edge1, smooth cubic interpolation in between
+            function smoothstep(edge0, edge1, x) {
+                const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+                return t * t * (3 - 2 * t);
+            }
+
             // ── Runtime state ──
             let viewMode = 'stacked';     // 'stacked' | 'overlay'
             let contentType = 'waveform'; // 'waveform' | 'spectrogram'
@@ -469,10 +475,21 @@ export class ComparisonPanel {
 
                 if (n === 0) { drawCursorOnCanvas(ctx, W, H); return; }
 
-                // データ点数 / キャンバス幅 = 1ピクセルあたりのデータ点数
-                // visible range のデータ点数
                 const visibleFraction = (zoomEnd - zoomStart) / dataRange;
                 const ptsPerPixel = n * visibleFraction / W;
+                // t=0: サンプル折れ線のみ、t=1: エンベロープのみ
+                const t = smoothstep(0.8, 3.0, ptsPerPixel);
+
+                const minArr  = env.min     || [];
+                const maxArr  = env.max     || [];
+                const smpArr  = env.samples || [];
+
+                // 共通のピクセル→インデックス変換
+                function idx(px) {
+                    const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
+                    const tAdj  = tNorm - offsetSeconds / dur;
+                    return Math.floor(((tAdj - dataStart) / dataRange) * n);
+                }
 
                 // Zero line
                 ctx.strokeStyle = hexToRgba(color, 0.25);
@@ -482,54 +499,56 @@ export class ComparisonPanel {
                 ctx.lineTo(W, H / 2);
                 ctx.stroke();
 
-                if (ptsPerPixel > 1.5) {
-                    // ── ズームアウト: min/max エンベロープ塗りつぶし ──
-                    // 1ピクセルが複数データ点をカバーするので中心サンプルでは情報欠落が起きる
-                    const minArr = env.min || [];
-                    const maxArr = env.max || [];
+                // ── エンベロープ塗りつぶし（t に応じてフェードイン）──
+                if (t > 0.01) {
+                    ctx.globalAlpha = t;
                     ctx.fillStyle = hexToRgba(color, 0.35);
-                    ctx.strokeStyle = color;
-                    ctx.lineWidth = isHighlighted ? 2 : 1;
                     ctx.beginPath();
-                    let started = false;
+                    let s = false;
                     for (let px = 0; px < W; px++) {
-                        const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
-                        const tAdj = tNorm - offsetSeconds / dur;
-                        const tInData = (tAdj - dataStart) / dataRange;
-                        const idx = Math.floor(tInData * n);
-                        if (idx < 0 || idx >= n) { continue; }
-                        const y = H / 2 - (maxArr[idx] / peak) * (H * 0.44);
-                        if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
+                        const i = idx(px);
+                        if (i < 0 || i >= n) { continue; }
+                        const y = H / 2 - (maxArr[i] / peak) * (H * 0.44);
+                        if (!s) { ctx.moveTo(px, y); s = true; } else { ctx.lineTo(px, y); }
                     }
                     for (let px = W - 1; px >= 0; px--) {
-                        const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
-                        const tAdj = tNorm - offsetSeconds / dur;
-                        const tInData = (tAdj - dataStart) / dataRange;
-                        const idx = Math.floor(tInData * n);
-                        if (idx < 0 || idx >= n) { continue; }
-                        const y = H / 2 - (minArr[idx] / peak) * (H * 0.44);
-                        ctx.lineTo(px, y);
+                        const i = idx(px);
+                        if (i < 0 || i >= n) { continue; }
+                        ctx.lineTo(px, H / 2 - (minArr[i] / peak) * (H * 0.44));
                     }
                     ctx.closePath();
                     ctx.fill();
+
+                    // max アウトライン
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = isHighlighted ? 2 : 1;
+                    ctx.beginPath();
+                    s = false;
+                    for (let px = 0; px < W; px++) {
+                        const i = idx(px);
+                        if (i < 0 || i >= n) { continue; }
+                        const y = H / 2 - (maxArr[i] / peak) * (H * 0.44);
+                        if (!s) { ctx.moveTo(px, y); s = true; } else { ctx.lineTo(px, y); }
+                    }
                     ctx.stroke();
-                } else {
-                    // ── ズームイン: 実サンプル折れ線 ──
-                    const sampleArr = env.samples || [];
+                    ctx.globalAlpha = 1;
+                }
+
+                // ── サンプル折れ線（1-t に応じてフェードアウト）──
+                if (t < 0.99) {
+                    ctx.globalAlpha = 1 - t;
                     ctx.lineWidth = isHighlighted ? 2 : 1.5;
                     ctx.strokeStyle = color;
                     ctx.beginPath();
-                    let started = false;
+                    let s = false;
                     for (let px = 0; px < W; px++) {
-                        const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
-                        const tAdj = tNorm - offsetSeconds / dur;
-                        const tInData = (tAdj - dataStart) / dataRange;
-                        const idx = Math.floor(tInData * n);
-                        if (idx < 0 || idx >= n) { continue; }
-                        const y = H / 2 - (sampleArr[idx] / peak) * (H * 0.44);
-                        if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
+                        const i = idx(px);
+                        if (i < 0 || i >= n) { continue; }
+                        const y = H / 2 - (smpArr[i] / peak) * (H * 0.44);
+                        if (!s) { ctx.moveTo(px, y); s = true; } else { ctx.lineTo(px, y); }
                     }
                     ctx.stroke();
+                    ctx.globalAlpha = 1;
                 }
 
                 drawCursorOnCanvas(ctx, W, H);
@@ -643,23 +662,49 @@ export class ComparisonPanel {
 
                 const visibleFraction = (zoomEnd - zoomStart) / dataRange;
                 const ptsPerPixel = n * visibleFraction / W;
+                const t = smoothstep(0.8, 3.0, ptsPerPixel);
+
+                const maxArr = env.max     || [];
+                const smpArr = env.samples || [];
+
+                function idxOf(px) {
+                    const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
+                    const tAdj  = tNorm - offsetSeconds / dur;
+                    return Math.floor(((tAdj - dataStart) / dataRange) * n);
+                }
 
                 ctx.lineWidth = isHighlighted ? 2 : 1.5;
                 ctx.strokeStyle = color;
-                ctx.beginPath();
-                let started = false;
 
-                const useArr = ptsPerPixel > 1.5 ? (env.max || []) : (env.samples || []);
-                for (let px = 0; px < W; px++) {
-                    const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
-                    const tAdj = tNorm - offsetSeconds / dur;
-                    const tInData = (tAdj - dataStart) / dataRange;
-                    const idx = Math.floor(tInData * n);
-                    if (idx < 0 || idx >= n) { continue; }
-                    const y = H / 2 - (useArr[idx] / peak) * (H * 0.44);
-                    if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
+                // max アウトライン（エンベロープ側、フェードイン）
+                if (t > 0.01) {
+                    ctx.globalAlpha = t;
+                    ctx.beginPath();
+                    let s = false;
+                    for (let px = 0; px < W; px++) {
+                        const i = idxOf(px);
+                        if (i < 0 || i >= n) { continue; }
+                        const y = H / 2 - (maxArr[i] / peak) * (H * 0.44);
+                        if (!s) { ctx.moveTo(px, y); s = true; } else { ctx.lineTo(px, y); }
+                    }
+                    ctx.stroke();
+                    ctx.globalAlpha = 1;
                 }
-                ctx.stroke();
+
+                // サンプル折れ線（フェードアウト）
+                if (t < 0.99) {
+                    ctx.globalAlpha = 1 - t;
+                    ctx.beginPath();
+                    let s = false;
+                    for (let px = 0; px < W; px++) {
+                        const i = idxOf(px);
+                        if (i < 0 || i >= n) { continue; }
+                        const y = H / 2 - (smpArr[i] / peak) * (H * 0.44);
+                        if (!s) { ctx.moveTo(px, y); s = true; } else { ctx.lineTo(px, y); }
+                    }
+                    ctx.stroke();
+                    ctx.globalAlpha = 1;
+                }
             }
 
             function updateOverlayLegend() {
