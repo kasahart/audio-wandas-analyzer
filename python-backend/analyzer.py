@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 import wandas as wd
 
+from decimator import decimated_waveform
+
 
 WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
@@ -60,31 +62,15 @@ def _dominant_frequencies(
     ]
 
 
-def _build_waveform_envelope(samples: np.ndarray, point_limit: int = WAVEFORM_POINT_LIMIT) -> dict[str, object]:
-    if samples.size == 0:
-        return {
-            "min": [],
-            "max": [],
-            "samples": [],
-            "absolutePeak": 0.0,
-        }
-
-    point_count = min(point_limit, samples.size)
-    min_values: list[float] = []
-    max_values: list[float] = []
-    sample_values: list[float] = []
-
-    for bucket in np.array_split(samples, point_count):
-        min_values.append(float(np.min(bucket)))
-        max_values.append(float(np.max(bucket)))
-        sample_values.append(float(bucket[len(bucket) // 2]))
-
-    return {
-        "min": min_values,
-        "max": max_values,
-        "samples": sample_values,
-        "absolutePeak": float(np.max(np.abs(samples))),
-    }
+def _build_waveform_envelope(
+    samples: np.ndarray,
+    point_limit: int = WAVEFORM_POINT_LIMIT,
+    start_sample: int = 0,
+    total_samples: int | None = None,
+) -> dict[str, object]:
+    if total_samples is None:
+        total_samples = len(samples)
+    return decimated_waveform(samples, point_limit, start_sample, total_samples)
 
 
 def _pick_window_size(sample_count: int) -> int:
@@ -220,7 +206,12 @@ def analyze_audio(file_path: str | Path, peak_count: int = 5) -> dict[str, objec
                 "rms": float(rms_values[index]),
                 "peakAbsolute": float(np.max(np.abs(samples))),
                 "dominantFrequencies": _dominant_frequencies(fft_magnitudes[index], fft_freqs, peak_count),
-                "waveform": _build_waveform_envelope(samples),
+                "waveform": _build_waveform_envelope(
+                    samples,
+                    WAVEFORM_POINT_LIMIT,
+                    start_sample=0,
+                    total_samples=sample_count,
+                ),
                 "spectrogram": _build_spectrogram(spectrogram_db, sample_rate_hz, window_size, hop_size),
             }
         )

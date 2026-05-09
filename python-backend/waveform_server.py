@@ -47,7 +47,14 @@ def handle_range(cmd: dict) -> dict:
     channels: list[dict] = []
     if end_idx > start_idx:
         for ch_data in data:
-            channels.append(_build_waveform_envelope(ch_data[start_idx:end_idx], point_count))
+            channels.append(
+                _build_waveform_envelope(
+                    ch_data[start_idx:end_idx],
+                    point_count,
+                    start_sample=start_idx,
+                    total_samples=n_total,
+                )
+            )
 
     return {
         'requestId': cmd['requestId'],
