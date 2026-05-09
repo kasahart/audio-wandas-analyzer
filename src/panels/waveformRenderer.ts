@@ -57,6 +57,35 @@ export function computeDiv(visibleCount: number, W: number): number {
     return Math.max(1, Math.floor(visibleCount / (W * 2)));
 }
 
+/**
+ * renderWaveformData の最初の path 点として使うアンカーの x 座標を返す。
+ * i0 番目のバケット境界がキャンバス左端以前（x ≤ 0）なら、その x 座標を返す。
+ * x > 0 の場合は null を返し、アンカーを注入しないことを示す。
+ *
+ * @param i0 - 描画開始バケットインデックス
+ * @param n  - データ点数
+ * @param dataStart - データ範囲の開始（全ファイル正規化）
+ * @param dataRange - データ範囲の幅
+ * @param offsetNorm - offsetSeconds / durationSeconds
+ * @param zoomStart - ズーム開始位置
+ * @param zoomEnd   - ズーム終了位置
+ * @param W - キャンバス幅 px
+ */
+export function computeAnchorX(
+    i0: number,
+    n: number,
+    dataStart: number,
+    dataRange: number,
+    offsetNorm: number,
+    zoomStart: number,
+    zoomEnd: number,
+    W: number,
+): number | null {
+    const anchorT = dataStart + (i0 / n) * dataRange;
+    const anchorX = ((anchorT + offsetNorm - zoomStart) / (zoomEnd - zoomStart)) * W;
+    return anchorX <= 0 ? anchorX : null;
+}
+
 interface CanvasCtx {
     lineWidth: number;
     strokeStyle: string;

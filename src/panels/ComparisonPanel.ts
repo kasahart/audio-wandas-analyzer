@@ -544,6 +544,14 @@ export class ComparisonPanel {
                     if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
                 }
 
+                // Anchor the path at the left boundary of the first bucket so that
+                // the waveform always starts at or before x=0, preventing a visible
+                // gap at the canvas left edge when the first minT/maxT falls inside
+                // the bucket rather than at its start.
+                const anchorT = dataStart + (i0 / n) * dataRange;
+                const anchorX = xOfT(anchorT);
+                if (anchorX <= 0) { ctx.moveTo(anchorX, H / 2); started = true; }
+
                 for (let b = i0; b <= i1; b += div) {
                     const bEnd = Math.min(i1 + 1, b + div);
                     let minIdx = b, maxIdx = b;
@@ -1032,6 +1040,8 @@ export class ComparisonPanel {
                     const { waveform: env, dataStart, dataEnd } = src;
                     const peak = env.absolutePeak || 1;
                     const samples = env.samples || [];
+                    const minArr = env.min || [];
+                    const maxArr = env.max || [];
                     const n = samples.length;
                     const dur = result.durationSeconds || 1;
                     const tNorm = zoomStart + (mouseX / W) * (zoomEnd - zoomStart);
