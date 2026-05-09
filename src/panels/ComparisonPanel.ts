@@ -229,7 +229,7 @@ export class ComparisonPanel {
 
             function scheduleRangeRequests() {
                 if (rangeRequestTimer) { clearTimeout(rangeRequestTimer); }
-                rangeRequestTimer = setTimeout(function() { checkAndRequestRanges(); }, 300);
+                rangeRequestTimer = setTimeout(function() { checkAndRequestRanges(); }, 80);
             }
 
             function checkAndRequestRanges() {
@@ -248,11 +248,18 @@ export class ComparisonPanel {
                     const reqEnd   = Math.min(1, zoomEnd   + offset + 0.05 * (zoomEnd - zoomStart));
                     const pts = Math.min(W * 2, 8000);
 
-                    // Skip if cached range already covers current view
+                    // Skip if cached range covers current view with sufficient density
                     const c = rangeCache[i];
                     if (c && c.startNorm <= reqStart && c.endNorm >= reqEnd &&
-                        c.channels && c.channels[0] && c.channels[0].samples &&
-                        c.channels[0].samples.length >= pts * 0.8) { return; }
+                        c.channels && c.channels[0]) {
+                        const ch0 = c.channels[0];
+                        const nPts = (ch0.min && ch0.min.length) || (ch0.samples && ch0.samples.length) || 0;
+                        if (nPts >= pts * 0.8) {
+                            const cacheDataRange = Math.max(c.endNorm - c.startNorm, 1e-9);
+                            const ptsVisible = nPts * ((zoomEnd - zoomStart) / cacheDataRange);
+                            if (ptsVisible >= W * 0.5) { return; }
+                        }
+                    }
 
                     const requestId = i + '-' + Date.now();
                     pendingRequests[i] = requestId;
