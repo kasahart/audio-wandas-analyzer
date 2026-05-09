@@ -177,6 +177,18 @@ export class ComparisonPanel {
             let viewMode = 'stacked';     // 'stacked' | 'overlay'
             let rafPending = false;
             const canvasWidthCache = {};
+            const offscreenCanvases = {};
+            const waveformDirtyFlags = {};
+            let playbackEl = null;
+            let playbackRafId = null;
+
+            function markWaveformDirty(trackIndex) {
+                if (trackIndex === undefined) {
+                    state.results.forEach(function(_, i) { waveformDirtyFlags[i] = true; });
+                } else {
+                    waveformDirtyFlags[trackIndex] = true;
+                }
+            }
 
             function scheduleRender() {
                 if (rafPending) { return; }
@@ -211,6 +223,7 @@ export class ComparisonPanel {
                 if (pendingRequests[i] !== msg.requestId) { return; } // stale
                 pendingRequests[i] = null;
                 rangeCache[i] = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
+                markWaveformDirty(i);
                 renderAll();
             });
 
@@ -542,27 +555,56 @@ export class ComparisonPanel {
                 ctx.stroke();
             }
 
-            function drawWaveform(canvas, result, trackIndex, offsetSeconds, color, isHighlighted) {
-                const ctx = canvas.getContext('2d');
-                const W = canvas.width;
-                const H = canvas.height;
-                ctx.clearRect(0, 0, W, H);
+            function getOrCreateOffscreen(trackIndex, W, H) {
+                const key = trackIndex + '-' + W + '-' + H;
+                if (!offscreenCanvases[key]) {
+                    if (typeof OffscreenCanvas !== 'undefined') {
+                        offscreenCanvases[key] = new OffscreenCanvas(W, H);
+                    } else {
+                        const c = document.createElement('canvas');
+                        c.width = W; c.height = H;
+                        offscreenCanvases[key] = c;
+                    }
+                }
+                return offscreenCanvases[key];
+            }
 
+            function commitWaveformLayer(trackIndex) {
+                const canvas = document.getElementById('track-canvas-' + trackIndex);
+                if (!canvas) { return; }
+                const W = canvas.width, H = canvas.height;
+                const offscreen = getOrCreateOffscreen(trackIndex, W, H);
+                const offCtx = offscreen.getContext('2d');
+                offCtx.clearRect(0, 0, W, H);
+                const result = state.results[trackIndex];
+                if (result && !result.error) {
+                    const color = TRACK_COLORS[trackIndex % TRACK_COLORS.length];
+                    offCtx.strokeStyle = hexToRgba(color, 0.25);
+                    offCtx.lineWidth = 0.5;
+                    offCtx.beginPath(); offCtx.moveTo(0, H / 2); offCtx.lineTo(W, H / 2); offCtx.stroke();
+                    drawWaveformOnCtxRaw(offCtx, W, H, result, trackIndex,
+                        trackRuntime[trackIndex].offsetSeconds, color, false);
+                }
+                waveformDirtyFlags[trackIndex] = false;
+            }
+
+            function drawWaveformOnCtxRaw(ctx, W, H, result, trackIndex, offsetSeconds, color, isHighlighted) {
                 const src = resolveWaveformSource(result, trackIndex, offsetSeconds);
-                if (!src) { drawCursorOnCanvas(ctx, W, H); return; }
-
+                if (!src) { return; }
                 const { waveform: env, dataStart, dataEnd } = src;
                 const dur = result.durationSeconds || 1;
-
-                // Zero line
-                ctx.strokeStyle = hexToRgba(color, 0.25);
-                ctx.lineWidth = 0.5;
-                ctx.beginPath();
-                ctx.moveTo(0, H / 2);
-                ctx.lineTo(W, H / 2);
-                ctx.stroke();
-
                 renderWaveformData(ctx, W, H, env, dataStart, dataEnd, offsetSeconds, dur, color, isHighlighted);
+            }
+
+            function drawWaveform(canvas, result, trackIndex, offsetSeconds, color, isHighlighted) {
+                const ctx = canvas.getContext('2d');
+                const W = canvas.width, H = canvas.height;
+                ctx.clearRect(0, 0, W, H);
+
+                if (waveformDirtyFlags[trackIndex] !== false) { commitWaveformLayer(trackIndex); }
+                const offscreen = getOrCreateOffscreen(trackIndex, W, H);
+                if (offscreen) { ctx.drawImage(offscreen, 0, 0); }
+
                 drawCursorOnCanvas(ctx, W, H);
             }
 
@@ -707,6 +749,34 @@ export class ComparisonPanel {
                 });
             }
 
+            function startPlaybackLoop() {
+                if (playbackRafId !== null) { return; }
+                function tick() {
+                    if (playbackEl && !playbackEl.paused) {
+                        const tNorm = playbackEl.currentTime / (playbackEl.duration || 1);
+                        if (cursorNorm !== tNorm) {
+                            cursorNorm = tNorm;
+                            state.results.forEach(function(result, i) {
+                                if (trackRuntime[i].hidden || result.error) { return; }
+                                const canvas = document.getElementById('track-canvas-' + i);
+                                if (canvas) {
+                                    drawWaveform(canvas, result, i,
+                                        trackRuntime[i].offsetSeconds,
+                                        TRACK_COLORS[i % TRACK_COLORS.length], false);
+                                }
+                            });
+                            updateCursorDisplay(tNorm);
+                        }
+                    }
+                    playbackRafId = requestAnimationFrame(tick);
+                }
+                playbackRafId = requestAnimationFrame(tick);
+            }
+
+            function stopPlaybackLoop() {
+                if (playbackRafId !== null) { cancelAnimationFrame(playbackRafId); playbackRafId = null; }
+            }
+
             // ── Events ──
             function attachEvents() {
                 document.getElementById('toolbar').addEventListener('click', function(e) {
@@ -798,6 +868,7 @@ export class ComparisonPanel {
             }
 
             function zoomIn() {
+                markWaveformDirty();
                 const center = (zoomStart + zoomEnd) / 2;
                 const half = (zoomEnd - zoomStart) / 2 * 0.7;
                 zoomStart = Math.max(0, center - half);
@@ -806,6 +877,7 @@ export class ComparisonPanel {
             }
 
             function zoomOut() {
+                markWaveformDirty();
                 const center = (zoomStart + zoomEnd) / 2;
                 const half = (zoomEnd - zoomStart) / 2 * (1 / 0.7);
                 zoomStart = Math.max(0, center - half);
@@ -814,6 +886,7 @@ export class ComparisonPanel {
             }
 
             function handleZoomWheel(e) {
+                markWaveformDirty();
                 const scaleFactor = e.deltaY > 0 ? 1.15 : 0.85;
                 const span = (zoomEnd - zoomStart) * scaleFactor;
 
@@ -844,6 +917,7 @@ export class ComparisonPanel {
             }
 
             function handlePanWheel(e) {
+                markWaveformDirty();
                 const shift = (zoomEnd - zoomStart) * 0.1 * (e.deltaY > 0 ? 1 : -1);
                 if (zoomStart + shift < 0) { zoomEnd -= zoomStart; zoomStart = 0; }
                 else if (zoomEnd + shift > 1) { zoomStart += 1 - zoomEnd; zoomEnd = 1; }
