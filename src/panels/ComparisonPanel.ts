@@ -458,9 +458,18 @@ export class ComparisonPanel {
             // For each bucket of div points: picks argmin + argmax index in time order.
             // When div=1 (zoomed in) → all points → accurate polyline.
             // When div>1 (zoomed out) → min+max per bucket → vertical sweep that preserves peaks.
+            // Single rendering mode: decimated_index with min[]/max[] for amplitude.
+            //
+            // samples[] holds only the CENTER sample of each Python-side bucket.
+            // min[]/max[] hold the actual trough/peak within each bucket.
+            // Using samples[] alone for argmin/argmax gives narrower amplitude than truth.
+            // Fix: compare min[i]/max[i] to find extremes, use those values for Y.
+            // This ensures peaks are preserved at every zoom level with one drawing mode.
             function renderWaveformData(ctx, W, H, env, dataStart, dataEnd, offsetSeconds, dur, color, isHighlighted) {
                 const peak = env.absolutePeak || 1;
                 const samples = env.samples || [];
+                const minArr = env.min || [];
+                const maxArr = env.max || [];
                 const n = samples.length;
                 if (n === 0) { return; }
 
@@ -473,35 +482,45 @@ export class ComparisonPanel {
                 const i1 = Math.min(n - 1, Math.ceil(visEndNorm * n) + 1);
                 if (i1 <= i0) { return; }
 
-                // div = how many data points are squeezed into one screen pixel
+                // div = data points per screen pixel
                 const visibleCount = i1 - i0 + 1;
                 const div = Math.max(1, Math.floor(visibleCount / (W * 2)));
 
-                // Build index array: argmin + argmax per bucket, in chronological order
-                const indices = [];
-                indices.push(i0);
+                // Helper: true low/high value at index i (prefer min[]/max[] over center sample)
+                function lo(i) { return minArr.length > i ? minArr[i] : samples[i]; }
+                function hi(i) { return maxArr.length > i ? maxArr[i] : samples[i]; }
+
+                // Build (index, yValue) pairs: argmin of lo + argmax of hi per bucket
+                const indices  = [];
+                const yValues  = [];
+                function push(idx, val) {
+                    const last = indices[indices.length - 1];
+                    if (idx !== last) { indices.push(idx); yValues.push(val); }
+                }
+
+                push(i0, samples[i0]);
                 for (let b = i0; b <= i1; b += div) {
                     const bEnd = Math.min(i1 + 1, b + div);
                     let minIdx = b, maxIdx = b;
-                    let minVal = samples[b], maxVal = samples[b];
+                    let minVal = lo(b), maxVal = hi(b);
                     for (let i = b + 1; i < bEnd; i++) {
-                        if (samples[i] < minVal) { minVal = samples[i]; minIdx = i; }
-                        if (samples[i] > maxVal) { maxVal = samples[i]; maxIdx = i; }
+                        const l = lo(i), h = hi(i);
+                        if (l < minVal) { minVal = l; minIdx = i; }
+                        if (h > maxVal) { maxVal = h; maxIdx = i; }
                     }
-                    const last = indices[indices.length - 1];
                     if (minIdx === maxIdx) {
-                        if (minIdx !== last) { indices.push(minIdx); }
+                        push(minIdx, minVal < 0 ? minVal : maxVal);
                     } else if (minIdx < maxIdx) {
-                        if (minIdx !== last) { indices.push(minIdx); }
-                        indices.push(maxIdx);
+                        push(minIdx, minVal);
+                        push(maxIdx, maxVal);
                     } else {
-                        if (maxIdx !== last) { indices.push(maxIdx); }
-                        indices.push(minIdx);
+                        push(maxIdx, maxVal);
+                        push(minIdx, minVal);
                     }
                 }
-                if (indices[indices.length - 1] !== i1) { indices.push(i1); }
+                if (indices[indices.length - 1] !== i1) { push(i1, samples[i1]); }
 
-                // Draw polyline through selected indices (data-space → screen-space)
+                // Draw polyline through selected (index, yValue) pairs
                 ctx.lineWidth = isHighlighted ? 2 : 1.5;
                 ctx.strokeStyle = color;
                 ctx.beginPath();
@@ -510,7 +529,7 @@ export class ComparisonPanel {
                     const idx = indices[k];
                     const tNorm = dataStart + (idx / n) * dataRange + offsetSeconds / dur;
                     const px = ((tNorm - zoomStart) / (zoomEnd - zoomStart)) * W;
-                    const y = H / 2 - (samples[idx] / peak) * (H * 0.44);
+                    const y = H / 2 - (yValues[k] / peak) * (H * 0.44);
                     if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
                 }
                 ctx.stroke();
