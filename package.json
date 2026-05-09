@@ -57,8 +57,10 @@
     "test": "npm run compile && node --test dist/test/**/*.test.js"
   },
   "devDependencies": {
+    "@types/jsdom": "^28.0.1",
     "@types/node": "^22.10.2",
     "@types/vscode": "^1.96.0",
+    "jsdom": "^29.1.1",
     "typescript": "^5.7.2"
   }
 }
