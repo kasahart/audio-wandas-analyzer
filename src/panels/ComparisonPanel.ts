@@ -227,7 +227,7 @@ export class ComparisonPanel {
                     const W = (canvas ? canvas.width : 0) || 800;
                     const visibleOverview = OVERVIEW_PTS * (zoomEnd - zoomStart);
                     // Request when overview resolution is insufficient: < 0.5 pts per pixel
-                    if (visibleOverview >= W * 0.5) { return; }
+                    if (visibleOverview >= W * 1.0) { return; }
 
                     const dur = result.durationSeconds || 1;
                     const offset = trackRuntime[i].offsetSeconds / dur;
@@ -500,9 +500,14 @@ export class ComparisonPanel {
 
                 function lo(i) { return minArr.length > i ? minArr[i] : samples[i]; }
                 function hi(i) { return maxArr.length > i ? maxArr[i] : samples[i]; }
-                function xOf(idx) {
-                    const tNorm = dataStart + (idx / n) * dataRange + offsetSeconds / dur;
-                    return ((tNorm - zoomStart) / (zoomEnd - zoomStart)) * W;
+                function tOfMin(idx) {
+                    return (env.minT && env.minT.length > idx) ? env.minT[idx] : dataStart + (idx / n) * dataRange;
+                }
+                function tOfMax(idx) {
+                    return (env.maxT && env.maxT.length > idx) ? env.maxT[idx] : dataStart + (idx / n) * dataRange;
+                }
+                function xOfT(tNorm) {
+                    return ((tNorm + offsetSeconds / dur - zoomStart) / (zoomEnd - zoomStart)) * W;
                 }
 
                 ctx.lineWidth = isHighlighted ? 2 : 1.5;
@@ -524,12 +529,14 @@ export class ComparisonPanel {
                     }
                     // Always emit both trough and peak in chronological order.
                     // When minIdx===maxIdx (div=1), same X yields a vertical stroke.
-                    if (minIdx <= maxIdx) {
-                        pt(xOf(minIdx), H / 2 - (minVal / peak) * (H * 0.44));
-                        pt(xOf(maxIdx), H / 2 - (maxVal / peak) * (H * 0.44));
+                    const tMin = tOfMin(minIdx);
+                    const tMax = tOfMax(maxIdx);
+                    if (tMin <= tMax) {
+                        pt(xOfT(tMin), H / 2 - (minVal / peak) * (H * 0.44));
+                        pt(xOfT(tMax), H / 2 - (maxVal / peak) * (H * 0.44));
                     } else {
-                        pt(xOf(maxIdx), H / 2 - (maxVal / peak) * (H * 0.44));
-                        pt(xOf(minIdx), H / 2 - (minVal / peak) * (H * 0.44));
+                        pt(xOfT(tMax), H / 2 - (maxVal / peak) * (H * 0.44));
+                        pt(xOfT(tMin), H / 2 - (minVal / peak) * (H * 0.44));
                     }
                 }
                 ctx.stroke();
@@ -945,7 +952,10 @@ export class ComparisonPanel {
                     const tInData = (tAdj - dataStart) / (dataEnd - dataStart);
                     const idx = Math.floor(tInData * n);
                     if (idx < 0 || idx >= n) { return; }
-                    const waveY = H / 2 - (samples[idx] / peak) * (H * 0.44);
+                    const absMin = minArr.length > idx ? Math.abs(minArr[idx]) : 0;
+                    const absMax = maxArr.length > idx ? Math.abs(maxArr[idx]) : 0;
+                    const repVal = absMax >= absMin ? (maxArr[idx] ?? 0) : (minArr[idx] ?? 0);
+                    const waveY = H / 2 - (repVal / peak) * (H * 0.44);
                     const dist = Math.abs(mouseY - waveY);
                     if (dist < minDist) { minDist = dist; nearest = i; }
                 });
