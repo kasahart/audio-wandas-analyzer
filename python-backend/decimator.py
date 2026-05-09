@@ -18,6 +18,9 @@ def decimated_waveform(
                 "samples": [], "absolutePeak": 0.0}
 
     point_count = min(point_limit, n)
+    if point_count <= 0:
+        return {"min": [], "max": [], "minT": [], "maxT": [],
+                "samples": [], "absolutePeak": float(np.max(np.abs(samples)))}
     denom = max(1, total_samples - 1)
     indices = np.arange(n)
     buckets = np.array_split(indices, point_count)
@@ -37,8 +40,8 @@ def decimated_waveform(
 
         min_values.append(float(data[local_min]))
         max_values.append(float(data[local_max]))
-        min_t.append(float((start_sample + int(bucket[local_min])) / denom))
-        max_t.append(float((start_sample + int(bucket[local_max])) / denom))
+        min_t.append(min(1.0, float((start_sample + int(bucket[local_min])) / denom)))
+        max_t.append(min(1.0, float((start_sample + int(bucket[local_max])) / denom)))
         sample_values.append(float(data[len(data) // 2]))
 
     return {

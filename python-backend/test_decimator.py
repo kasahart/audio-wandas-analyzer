@@ -46,3 +46,17 @@ def test_absolute_peak():
     samples = np.array([0.3, -0.9, 0.5], dtype=np.float64)
     result = decimated_waveform(samples, 3, 0, 3)
     assert result["absolutePeak"] == pytest.approx(0.9)
+
+
+def test_point_limit_zero_returns_empty():
+    result = decimated_waveform(np.array([1.0, 2.0, 3.0]), 0, 0, 3)
+    assert result["min"] == []
+    assert result["maxT"] == []
+
+
+def test_minT_within_0_1_with_offset():
+    rng = np.random.default_rng(0)
+    samples = rng.uniform(-1, 1, 500)
+    result = decimated_waveform(samples, 50, start_sample=500, total_samples=1000)
+    assert all(0.0 <= t <= 1.0 for t in result["minT"])
+    assert all(0.0 <= t <= 1.0 for t in result["maxT"])
