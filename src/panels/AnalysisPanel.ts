@@ -715,6 +715,8 @@ export class AnalysisPanel {
             color: var(--muted);
             font-size: 13px;
         }
+
+        .waveform-canvas { display: block; width: 100%; height: 140px; border-radius: 8px; background: var(--surface-alt); }
         `;
     }
 
@@ -872,26 +874,62 @@ export class AnalysisPanel {
                 };
             }
 
-            function renderWaveSvg(points, label) {
-                const width = 680;
-                const height = 220;
-                const step = width / Math.max(points.length - 1, 1);
-                const topPath = points.map((point, index) => {
-                    const x = index * step;
-                    const y = height / 2 - point.max * (height * 0.34);
-                    return (index === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
-                }).join(' ');
-                const bottomPath = points.slice().reverse().map((point, index) => {
-                    const sourceIndex = points.length - 1 - index;
-                    const x = sourceIndex * step;
-                    const y = height / 2 - point.min * (height * 0.34);
-                    return 'L' + x.toFixed(1) + ',' + y.toFixed(1);
-                }).join(' ');
-                const grid = [0.2, 0.4, 0.6, 0.8].map((ratio) => {
-                    const y = (height * ratio).toFixed(1);
-                    return '<line x1="0" y1="' + y + '" x2="' + width + '" y2="' + y + '" stroke="var(--chart-grid)" stroke-width="1" />';
-                }).join('');
-                return '<svg viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="' + escapeHtml(label) + '">' + grid + '<path d="' + topPath + ' ' + bottomPath + ' Z" fill="var(--chart-fill)" stroke="var(--accent)" stroke-width="1.5" /></svg>';
+            function renderWaveCanvas(env, canvasId, label) {
+                return '<canvas class="waveform-canvas" id="' + escapeHtml(canvasId) + '" aria-label="' + escapeHtml(label) + '"></canvas>';
+            }
+
+            function drawWaveformOnCanvas(canvasId, env) {
+                const canvas = document.getElementById(canvasId);
+                if (!canvas) { return; }
+                const wrap = canvas.parentElement;
+                canvas.width = (wrap ? wrap.clientWidth : 680) || 680;
+                canvas.height = 140;
+                const ctx = canvas.getContext('2d');
+                const W = canvas.width;
+                const H = canvas.height;
+                ctx.clearRect(0, 0, W, H);
+
+                const peak = (env && env.absolutePeak) ? env.absolutePeak : 1;
+                const minArr = (env && env.min) ? env.min : [];
+                const maxArr = (env && env.max) ? env.max : [];
+                const minT = (env && env.minT) ? env.minT : null;
+                const maxT = (env && env.maxT) ? env.maxT : null;
+                const n = minArr.length;
+                if (n === 0) { return; }
+
+                ctx.strokeStyle = 'var(--chart-grid)';
+                ctx.lineWidth = 1;
+                [0.2, 0.4, 0.6, 0.8].forEach(function(r) {
+                    ctx.beginPath(); ctx.moveTo(0, H * r); ctx.lineTo(W, H * r); ctx.stroke();
+                });
+
+                const div = Math.max(1, Math.floor(n / (W * 2)));
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = 'var(--accent)';
+                ctx.beginPath();
+                let started = false;
+                function tOfMinI(i) { return minT ? minT[i] : i / n; }
+                function tOfMaxI(i) { return maxT ? maxT[i] : i / n; }
+                function xOfT(t) { return t * W; }
+                function toY(v) { return H / 2 - (v / peak) * (H * 0.44); }
+                for (let b = 0; b < n; b += div) {
+                    const bEnd = Math.min(n, b + div);
+                    let minIdx = b, maxIdx = b;
+                    let minVal = minArr[b], maxVal = maxArr[b];
+                    for (let i = b + 1; i < bEnd; i++) {
+                        if (minArr[i] < minVal) { minVal = minArr[i]; minIdx = i; }
+                        if (maxArr[i] > maxVal) { maxVal = maxArr[i]; maxIdx = i; }
+                    }
+                    const tMin = tOfMinI(minIdx), tMax = tOfMaxI(maxIdx);
+                    const pairs = tMin <= tMax
+                        ? [[tMin, minVal], [tMax, maxVal]]
+                        : [[tMax, maxVal], [tMin, minVal]];
+                    pairs.forEach(function(p) {
+                        const x = xOfT(p[0]), y = toY(p[1]);
+                        if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+                    });
+                }
+                ctx.stroke();
             }
 
             function renderSpectrumSvg(bars, label) {
@@ -948,7 +986,7 @@ export class AnalysisPanel {
                 }
 
                 const metrics = deriveMetrics(file);
-                return '<div class="preview-box"><div class="preview-label">選択中のプレビュー / Preview</div><h2 class="preview-title mono">' + escapeHtml(file.name) + '</h2><p class="preview-caption">まずはここで候補を絞り、見るで詳細へ進みます。</p><div class="preview-grid"><div><div class="chart-frame">' + renderWaveSvg(metrics.waveform, 'Waveform preview') + '</div></div><div><div class="chart-frame">' + renderSpectrumSvg(metrics.bars, 'Spectrum preview') + '</div></div></div><div class="preview-grid"><div class="metric-card"><p class="metric-label">Folder</p><p class="preview-value mono">' + escapeHtml(file.folderLabel) + '</p></div><div class="metric-card"><p class="metric-label">SNR</p><p class="preview-value mono">' + escapeHtml(metrics.snr) + '</p></div></div></div>';
+                return '<div class="preview-box"><div class="preview-label">選択中のプレビュー / Preview</div><h2 class="preview-title mono">' + escapeHtml(file.name) + '</h2><p class="preview-caption">まずはここで候補を絞り、見るで詳細へ進みます。</p><div class="preview-grid"><div><div class="chart-frame">' + renderWaveCanvas(metrics.waveform, 'waveform-canvas-preview', 'Waveform preview') + '</div></div><div><div class="chart-frame">' + renderSpectrumSvg(metrics.bars, 'Spectrum preview') + '</div></div></div><div class="preview-grid"><div class="metric-card"><p class="metric-label">Folder</p><p class="preview-value mono">' + escapeHtml(file.folderLabel) + '</p></div><div class="metric-card"><p class="metric-label">SNR</p><p class="preview-value mono">' + escapeHtml(metrics.snr) + '</p></div></div></div>';
             }
 
             function renderListScreen() {
@@ -1005,12 +1043,12 @@ export class AnalysisPanel {
                 return '<section class="screen' + (state.route === 'detail' ? ' is-active' : '') + '" data-screen="detail">'
                     + '<div class="panel section-heading"><div><div class="section-kicker">Detail</div><h1 class="screen-title">1ファイル表示 / Single file detail</h1><p class="section-copy">波形と周波数だけを大きく見せます。数値は比較に必要なものだけ残しています。</p></div><div class="detail-actions"><button type="button" data-action="goto-list">一覧へ戻る / Back to list</button><button class="primary-button" type="button" data-action="goto-compare"' + (canCompare() ? '' : ' disabled') + '>比較へ進む / Go compare</button></div></div>'
                     + renderNote('detail')
-                    + '<div class="detail-layout"><div class="main-stack"><div class="chart-card"><p class="chart-label">Waveform</p><div class="chart-frame">' + renderWaveSvg(metrics.waveform, 'Waveform of ' + file.name) + '</div><div class="chart-legend"><div class="legend-item"><span>Amplitude</span><span class="mono">Peak ' + escapeHtml(metrics.peak) + '</span></div><div class="legend-item"><span>Timeline</span><span class="mono">' + escapeHtml(file.durationLabel) + '</span></div></div></div><div class="chart-card"><p class="chart-label"><span class="term" tabindex="0" data-tooltip="' + escapeHtml(glossaryMap.get('fft').description) + '">FFT</span> / Frequency</p><div class="chart-frame">' + renderSpectrumSvg(metrics.bars, 'Frequency chart of ' + file.name) + '</div><div class="chart-legend"><div class="legend-item"><span>Dominant band</span><span class="mono">' + escapeHtml(metrics.dominant) + '</span></div><div class="legend-item"><span>Sample rate</span><span class="mono">' + escapeHtml(file.sampleRateLabel) + '</span></div></div></div></div><aside class="main-stack"><div class="panel"><div class="section-kicker">Current file</div><h2 class="preview-title mono">' + escapeHtml(file.name) + '</h2><p class="preview-caption">' + escapeHtml(file.relativePath) + '</p></div><div class="metrics-grid">' + formatMetric(file.rmsLabel, 'rms') + formatMetric(file.fftLabel, 'fft') + formatMetric(metrics.snr, 'snr') + '</div><div class="panel"><div class="section-kicker">Listen</div>' + audioMarkup + '</div></aside></div>'
+                    + '<div class="detail-layout"><div class="main-stack"><div class="chart-card"><p class="chart-label">Waveform</p><div class="chart-frame">' + renderWaveCanvas(metrics.waveform, 'waveform-canvas-detail', 'Waveform of ' + file.name) + '</div><div class="chart-legend"><div class="legend-item"><span>Amplitude</span><span class="mono">Peak ' + escapeHtml(metrics.peak) + '</span></div><div class="legend-item"><span>Timeline</span><span class="mono">' + escapeHtml(file.durationLabel) + '</span></div></div></div><div class="chart-card"><p class="chart-label"><span class="term" tabindex="0" data-tooltip="' + escapeHtml(glossaryMap.get('fft').description) + '">FFT</span> / Frequency</p><div class="chart-frame">' + renderSpectrumSvg(metrics.bars, 'Frequency chart of ' + file.name) + '</div><div class="chart-legend"><div class="legend-item"><span>Dominant band</span><span class="mono">' + escapeHtml(metrics.dominant) + '</span></div><div class="legend-item"><span>Sample rate</span><span class="mono">' + escapeHtml(file.sampleRateLabel) + '</span></div></div></div></div><aside class="main-stack"><div class="panel"><div class="section-kicker">Current file</div><h2 class="preview-title mono">' + escapeHtml(file.name) + '</h2><p class="preview-caption">' + escapeHtml(file.relativePath) + '</p></div><div class="metrics-grid">' + formatMetric(file.rmsLabel, 'rms') + formatMetric(file.fftLabel, 'fft') + formatMetric(metrics.snr, 'snr') + '</div><div class="panel"><div class="section-kicker">Listen</div>' + audioMarkup + '</div></aside></div>'
                     + '</section>';
             }
 
-            function renderCompareCard(label, file, metrics) {
-                return '<article class="compare-card"><div class="compare-header"><div><p class="compare-label">' + escapeHtml(label) + '</p><h2 class="compare-title mono">' + escapeHtml(file.name) + '</h2><p class="preview-caption">' + escapeHtml(file.relativePath) + '</p></div><div class="status-box"><div class="status-label">SNR</div><div class="status-text mono">' + escapeHtml(metrics.snr) + '</div></div></div><div class="chart-card"><p class="chart-label">Waveform</p><div class="chart-frame">' + renderWaveSvg(metrics.waveform, 'Compare waveform ' + file.name) + '</div></div><div class="chart-card"><p class="chart-label">Frequency</p><div class="chart-frame">' + renderSpectrumSvg(metrics.bars, 'Compare spectrum ' + file.name) + '</div></div><div class="compare-stats"><div class="compare-stat-row"><span><span class="term" tabindex="0" data-tooltip="' + escapeHtml(glossaryMap.get('rms').description) + '">RMS</span></span><span class="mono">' + escapeHtml(metrics.rms) + '</span></div><div class="compare-stat-row"><span>Peak</span><span class="mono">' + escapeHtml(metrics.peak) + '</span></div><div class="compare-stat-row"><span><span class="term" tabindex="0" data-tooltip="' + escapeHtml(glossaryMap.get('fft').description) + '">FFT peak</span></span><span class="mono">' + escapeHtml(metrics.dominant) + '</span></div></div></article>';
+            function renderCompareCard(label, file, metrics, cardId) {
+                return '<article class="compare-card"><div class="compare-header"><div><p class="compare-label">' + escapeHtml(label) + '</p><h2 class="compare-title mono">' + escapeHtml(file.name) + '</h2><p class="preview-caption">' + escapeHtml(file.relativePath) + '</p></div><div class="status-box"><div class="status-label">SNR</div><div class="status-text mono">' + escapeHtml(metrics.snr) + '</div></div></div><div class="chart-card"><p class="chart-label">Waveform</p><div class="chart-frame">' + renderWaveCanvas(metrics.waveform, cardId, 'Compare waveform ' + file.name) + '</div></div><div class="chart-card"><p class="chart-label">Frequency</p><div class="chart-frame">' + renderSpectrumSvg(metrics.bars, 'Compare spectrum ' + file.name) + '</div></div><div class="compare-stats"><div class="compare-stat-row"><span><span class="term" tabindex="0" data-tooltip="' + escapeHtml(glossaryMap.get('rms').description) + '">RMS</span></span><span class="mono">' + escapeHtml(metrics.rms) + '</span></div><div class="compare-stat-row"><span>Peak</span><span class="mono">' + escapeHtml(metrics.peak) + '</span></div><div class="compare-stat-row"><span><span class="term" tabindex="0" data-tooltip="' + escapeHtml(glossaryMap.get('fft').description) + '">FFT peak</span></span><span class="mono">' + escapeHtml(metrics.dominant) + '</span></div></div></article>';
             }
 
             function renderCompareScreen() {
@@ -1032,7 +1070,7 @@ export class AnalysisPanel {
                 return '<section class="screen' + (state.route === 'compare' ? ' is-active' : '') + '" data-screen="compare">'
                     + '<div class="panel section-heading"><div><div class="section-kicker">Compare</div><h1 class="screen-title">2ファイル比較 / Two-file compare</h1><p class="section-copy">左右に絞って差分だけ読み取ります。基準は固定し、候補だけ切り替えられます。</p></div><div class="compare-controls"><label>候補 / Candidate <select id="compare-file-select">' + options + '</select></label><button type="button" data-action="goto-detail">詳細へ戻る / Back to detail</button></div></div>'
                     + renderNote('compare')
-                    + '<div class="compare-layout">' + renderCompareCard('Baseline / 基準', baseline, baselineMetrics) + renderCompareCard('Candidate / 候補', candidate, candidateMetrics) + '</div>'
+                    + '<div class="compare-layout">' + renderCompareCard('Baseline / 基準', baseline, baselineMetrics, 'waveform-canvas-compare-0') + renderCompareCard('Candidate / 候補', candidate, candidateMetrics, 'waveform-canvas-compare-1') + '</div>'
                     + '</section>';
             }
 
@@ -1057,6 +1095,17 @@ export class AnalysisPanel {
                 });
                 applyTheme();
                 bindEvents();
+                requestAnimationFrame(function() {
+                    const result = appState.analysisResult;
+                    const ch = result && result.channels[0];
+                    if (ch && ch.waveform) {
+                        drawWaveformOnCanvas('waveform-canvas-detail', ch.waveform);
+                        drawWaveformOnCanvas('waveform-canvas-preview', ch.waveform);
+                        ['waveform-canvas-compare-0', 'waveform-canvas-compare-1'].forEach(function(id) {
+                            drawWaveformOnCanvas(id, ch.waveform);
+                        });
+                    }
+                });
             }
 
             function bindEvents() {
