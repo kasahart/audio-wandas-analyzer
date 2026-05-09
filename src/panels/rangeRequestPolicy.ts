@@ -1,3 +1,21 @@
+/**
+ * checkAndRequestRanges で使うリクエスト範囲を計算する。
+ * offset = offsetSeconds / durationSeconds（正なら波形が視覚上右にずれる）。
+ * 視覚位置 v に対応するファイル位置は v - offset なので、
+ * リクエスト範囲は [zoomStart - offset, zoomEnd - offset] ± padding。
+ */
+export function computeReqBounds(
+    zoomStart: number,
+    zoomEnd: number,
+    offset: number,
+): { reqStart: number; reqEnd: number } {
+    const padding = 0.05 * (zoomEnd - zoomStart);
+    return {
+        reqStart: Math.max(0, zoomStart - offset - padding),
+        reqEnd:   Math.min(1, zoomEnd   - offset + padding),
+    };
+}
+
 export interface RangeCacheEntry {
     startNorm: number;
     endNorm: number;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isCacheSufficient } from '../panels/rangeRequestPolicy';
+import { isCacheSufficient, computeReqBounds } from '../panels/rangeRequestPolicy';
 
 const W = 800;
 const minPts = 1280; // pts(=1600) * 0.8
@@ -91,4 +91,53 @@ test('samples フィールドだけでも nPts が計算される', () => {
     // view = [0.0, 1.0]: ptsVisible = 1600 * (1.0/1.0) = 1600 >= 400 → true
     const { reqStart, reqEnd } = reqBounds(0.0, 1.0);
     assert.equal(isCacheSufficient(c, reqStart, reqEnd, minPts, W, 0.0, 1.0), true);
+});
+
+// ── computeReqBounds のテスト ──────────────────────────────────
+
+test('[回帰] 正オフセット時のリクエスト範囲は zoom - offset にシフトする', () => {
+    // offset=0.05: 視野[0.3,0.5]に対し、ファイル[0.25,0.45]のデータが必要
+    const { reqStart, reqEnd } = computeReqBounds(0.3, 0.5, 0.05);
+    // reqStart = 0.3 - 0.05 - padding(=0.01) = 0.24
+    assert.ok(reqStart < 0.30, `reqStart(${reqStart}) should be < 0.30 (shifted left)`);
+    assert.ok(reqEnd   < 0.50, `reqEnd(${reqEnd}) should be < 0.50 (shifted left)`);
+    assert.ok(reqStart < reqEnd, 'reqStart < reqEnd');
+});
+
+test('[回帰] 負オフセット時のリクエスト範囲は zoom + |offset| にシフトする', () => {
+    // offset=-0.05: 視野[0.3,0.5]に対し、ファイル[0.35,0.55]のデータが必要
+    const { reqStart, reqEnd } = computeReqBounds(0.3, 0.5, -0.05);
+    assert.ok(reqStart > 0.30, `reqStart(${reqStart}) should be > 0.30 (shifted right)`);
+    assert.ok(reqEnd   > 0.50, `reqEnd(${reqEnd}) should be > 0.50 (shifted right)`);
+});
+
+test('オフセット 0 では zoom ± padding と一致する', () => {
+    const { reqStart, reqEnd } = computeReqBounds(0.3, 0.5, 0);
+    // padding = 0.05 * 0.2 = 0.01
+    assert.ok(Math.abs(reqStart - 0.29) < 1e-9, `reqStart=${reqStart}`);
+    assert.ok(Math.abs(reqEnd   - 0.51) < 1e-9, `reqEnd=${reqEnd}`);
+});
+
+test('[回帰] 正オフセット: 正しい範囲のキャッシュは sufficient', () => {
+    // offset=0.05, zoom=[0.3,0.5] → file range needed: [0.25,0.45]
+    // cache [0.24, 0.46] with 1600pts covers it with good density
+    const c = makeCache(0.24, 0.46, 1600);
+    const { reqStart, reqEnd } = computeReqBounds(0.3, 0.5, 0.05);
+    assert.equal(
+        isCacheSufficient(c, reqStart, reqEnd, minPts, W, 0.3, 0.5),
+        true,
+        '正しい範囲のキャッシュは sufficient',
+    );
+});
+
+test('[回帰] 正オフセット: 誤方向 (+offset) キャッシュは insufficient', () => {
+    // 誤実装でリクエストされた範囲 [0.34, 0.56] のキャッシュ
+    // → file [0.29,0.45] をカバーしない (startNorm=0.34 > reqStart=0.24)
+    const c = makeCache(0.34, 0.56, 1600);
+    const { reqStart, reqEnd } = computeReqBounds(0.3, 0.5, 0.05);
+    assert.equal(
+        isCacheSufficient(c, reqStart, reqEnd, minPts, W, 0.3, 0.5),
+        false,
+        '誤方向のキャッシュは insufficient',
+    );
 });

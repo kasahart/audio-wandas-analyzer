@@ -244,8 +244,8 @@ export class ComparisonPanel {
 
                     const dur = result.durationSeconds || 1;
                     const offset = trackRuntime[i].offsetSeconds / dur;
-                    const reqStart = Math.max(0, zoomStart + offset - 0.05 * (zoomEnd - zoomStart));
-                    const reqEnd   = Math.min(1, zoomEnd   + offset + 0.05 * (zoomEnd - zoomStart));
+                    const reqStart = Math.max(0, zoomStart - offset - 0.05 * (zoomEnd - zoomStart));
+                    const reqEnd   = Math.min(1, zoomEnd   - offset + 0.05 * (zoomEnd - zoomStart));
                     const pts = Math.min(W * 2, 8000);
 
                     // Skip if cached range covers current view with sufficient density
@@ -482,8 +482,8 @@ export class ComparisonPanel {
                 const offset = offsetSeconds / dur;
                 const c = rangeCache[trackIndex];
                 if (c && c.channels && c.channels[0] && c.channels[0].samples &&
-                    c.startNorm <= zoomStart + offset &&
-                    c.endNorm   >= zoomEnd   + offset) {
+                    c.startNorm <= zoomStart - offset &&
+                    c.endNorm   >= zoomEnd   - offset) {
                     return { waveform: c.channels[0], dataStart: c.startNorm, dataEnd: c.endNorm };
                 }
                 const ch = result.channels[0];
