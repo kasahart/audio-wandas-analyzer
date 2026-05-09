@@ -458,13 +458,13 @@ export class ComparisonPanel {
             // For each bucket of div points: picks argmin + argmax index in time order.
             // When div=1 (zoomed in) → all points → accurate polyline.
             // When div>1 (zoomed out) → min+max per bucket → vertical sweep that preserves peaks.
-            // Single rendering mode: decimated_index with min[]/max[] for amplitude.
+            // Single rendering mode: decimated min/max polyline.
             //
-            // samples[] holds only the CENTER sample of each Python-side bucket.
-            // min[]/max[] hold the actual trough/peak within each bucket.
-            // Using samples[] alone for argmin/argmax gives narrower amplitude than truth.
-            // Fix: compare min[i]/max[i] to find extremes, use those values for Y.
-            // This ensures peaks are preserved at every zoom level with one drawing mode.
+            // For each bucket of div data points, add (xOf(minIdx), lo(minIdx)) and
+            // (xOf(maxIdx), hi(maxIdx)) in chronological order.
+            // When minIdx===maxIdx (div=1 case), both points share the same X → vertical
+            // stroke that shows the full amplitude range at that position.
+            // This one path handles all zoom levels without mode switching.
             function renderWaveformData(ctx, W, H, env, dataStart, dataEnd, offsetSeconds, dur, color, isHighlighted) {
                 const peak = env.absolutePeak || 1;
                 const samples = env.samples || [];
@@ -475,30 +475,30 @@ export class ComparisonPanel {
 
                 const dataRange = dataEnd - dataStart;
 
-                // Visible data index range (with 1-point margin for edge continuity)
                 const visStartNorm = (zoomStart - offsetSeconds / dur - dataStart) / dataRange;
                 const visEndNorm   = (zoomEnd   - offsetSeconds / dur - dataStart) / dataRange;
                 const i0 = Math.max(0, Math.floor(visStartNorm * n) - 1);
                 const i1 = Math.min(n - 1, Math.ceil(visEndNorm * n) + 1);
                 if (i1 <= i0) { return; }
 
-                // div = data points per screen pixel
                 const visibleCount = i1 - i0 + 1;
                 const div = Math.max(1, Math.floor(visibleCount / (W * 2)));
 
-                // Helper: true low/high value at index i (prefer min[]/max[] over center sample)
                 function lo(i) { return minArr.length > i ? minArr[i] : samples[i]; }
                 function hi(i) { return maxArr.length > i ? maxArr[i] : samples[i]; }
-
-                // Build (index, yValue) pairs: argmin of lo + argmax of hi per bucket
-                const indices  = [];
-                const yValues  = [];
-                function push(idx, val) {
-                    const last = indices[indices.length - 1];
-                    if (idx !== last) { indices.push(idx); yValues.push(val); }
+                function xOf(idx) {
+                    const tNorm = dataStart + (idx / n) * dataRange + offsetSeconds / dur;
+                    return ((tNorm - zoomStart) / (zoomEnd - zoomStart)) * W;
                 }
 
-                push(i0, samples[i0]);
+                ctx.lineWidth = isHighlighted ? 2 : 1.5;
+                ctx.strokeStyle = color;
+                ctx.beginPath();
+                let started = false;
+                function pt(x, y) {
+                    if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+                }
+
                 for (let b = i0; b <= i1; b += div) {
                     const bEnd = Math.min(i1 + 1, b + div);
                     let minIdx = b, maxIdx = b;
@@ -508,29 +508,15 @@ export class ComparisonPanel {
                         if (l < minVal) { minVal = l; minIdx = i; }
                         if (h > maxVal) { maxVal = h; maxIdx = i; }
                     }
-                    if (minIdx === maxIdx) {
-                        push(minIdx, minVal < 0 ? minVal : maxVal);
-                    } else if (minIdx < maxIdx) {
-                        push(minIdx, minVal);
-                        push(maxIdx, maxVal);
+                    // Always emit both trough and peak in chronological order.
+                    // When minIdx===maxIdx (div=1), same X yields a vertical stroke.
+                    if (minIdx <= maxIdx) {
+                        pt(xOf(minIdx), H / 2 - (minVal / peak) * (H * 0.44));
+                        pt(xOf(maxIdx), H / 2 - (maxVal / peak) * (H * 0.44));
                     } else {
-                        push(maxIdx, maxVal);
-                        push(minIdx, minVal);
+                        pt(xOf(maxIdx), H / 2 - (maxVal / peak) * (H * 0.44));
+                        pt(xOf(minIdx), H / 2 - (minVal / peak) * (H * 0.44));
                     }
-                }
-                if (indices[indices.length - 1] !== i1) { push(i1, samples[i1]); }
-
-                // Draw polyline through selected (index, yValue) pairs
-                ctx.lineWidth = isHighlighted ? 2 : 1.5;
-                ctx.strokeStyle = color;
-                ctx.beginPath();
-                let started = false;
-                for (let k = 0; k < indices.length; k++) {
-                    const idx = indices[k];
-                    const tNorm = dataStart + (idx / n) * dataRange + offsetSeconds / dur;
-                    const px = ((tNorm - zoomStart) / (zoomEnd - zoomStart)) * W;
-                    const y = H / 2 - (yValues[k] / peak) * (H * 0.44);
-                    if (!started) { ctx.moveTo(px, y); started = true; } else { ctx.lineTo(px, y); }
                 }
                 ctx.stroke();
             }
@@ -747,7 +733,10 @@ export class ComparisonPanel {
                     else if (e.shiftKey) { handlePanWheel(e); }
                 }, { passive: false });
 
-                window.addEventListener('resize', function() { renderAll(); });
+                window.addEventListener('resize', function() {
+                    // Defer until after browser reflow so clientWidth is up-to-date
+                    requestAnimationFrame(function() { renderAll(); });
+                });
             }
 
             function handleToolbarAction(action) {
