@@ -175,6 +175,14 @@ export class ComparisonPanel {
 
             // ── Runtime state ──
             let viewMode = 'stacked';     // 'stacked' | 'overlay'
+            let rafPending = false;
+            const canvasWidthCache = {};
+
+            function scheduleRender() {
+                if (rafPending) { return; }
+                rafPending = true;
+                requestAnimationFrame(function() { rafPending = false; renderAll(); });
+            }
             let contentType = 'waveform'; // 'waveform' | 'spectrogram'
             let zoomStart = 0;
             let zoomEnd = 1;
@@ -352,17 +360,23 @@ export class ComparisonPanel {
                     const canvas = document.getElementById('track-canvas-' + i);
                     if (!canvas) { return; }
                     const wrap = document.getElementById('track-canvas-wrap-' + i);
-                    if (wrap) {
-                        canvas.width = wrap.clientWidth || 800;
-                        canvas.height = 80;
-                    }
+                    if (!wrap) { return; }
+                    const newW = wrap.clientWidth || 800;
+                    if (canvasWidthCache[i] === newW) { return; }
+                    canvasWidthCache[i] = newW;
+                    canvas.width = newW;
+                    canvas.height = 80;
                 });
                 const overlayCanvas = document.getElementById('overlay-canvas');
                 if (overlayCanvas) {
                     const wrap = document.getElementById('overlay-canvas-wrap');
                     if (wrap) {
-                        overlayCanvas.width = wrap.clientWidth || 800;
-                        overlayCanvas.height = 160;
+                        const newW = wrap.clientWidth || 800;
+                        if (canvasWidthCache['overlay'] !== newW) {
+                            canvasWidthCache['overlay'] = newW;
+                            overlayCanvas.width = newW;
+                            overlayCanvas.height = 160;
+                        }
                     }
                 }
                 const rulerCanvas = document.getElementById('ruler-canvas');
@@ -707,7 +721,7 @@ export class ComparisonPanel {
                 document.getElementById('tracks-wrapper').addEventListener('dblclick', function(e) {
                     if (e.target.classList.contains('track-offset-val')) {
                         const idx = parseInt(e.target.getAttribute('data-track-index'), 10);
-                        if (!isNaN(idx)) { trackRuntime[idx].offsetSeconds = 0; updateOffsetDisplays(); renderAll(); }
+                        if (!isNaN(idx)) { trackRuntime[idx].offsetSeconds = 0; updateOffsetDisplays(); scheduleRender(); }
                     }
                 });
 
@@ -733,10 +747,7 @@ export class ComparisonPanel {
                     else if (e.shiftKey) { handlePanWheel(e); }
                 }, { passive: false });
 
-                window.addEventListener('resize', function() {
-                    // Defer until after browser reflow so clientWidth is up-to-date
-                    requestAnimationFrame(function() { renderAll(); });
-                });
+                window.addEventListener('resize', function() { scheduleRender(); });
             }
 
             function handleToolbarAction(action) {
@@ -746,19 +757,19 @@ export class ComparisonPanel {
                     document.querySelector('[data-action="view-overlay"]').classList.remove('is-active');
                     document.getElementById('stacked-wrap').style.display = '';
                     document.getElementById('overlay-wrap').classList.remove('is-visible');
-                    renderAll();
+                    scheduleRender();
                 } else if (action === 'view-overlay') {
                     viewMode = 'overlay';
                     document.querySelector('[data-action="view-stacked"]').classList.remove('is-active');
                     document.querySelector('[data-action="view-overlay"]').classList.add('is-active');
                     document.getElementById('stacked-wrap').style.display = 'none';
                     document.getElementById('overlay-wrap').classList.add('is-visible');
-                    renderAll();
+                    scheduleRender();
                 } else if (action === 'content-waveform') {
                     contentType = 'waveform';
                     document.querySelector('[data-action="content-waveform"]').classList.add('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.remove('is-active');
-                    renderAll();
+                    scheduleRender();
                 } else if (action === 'content-spectrogram') {
                     contentType = 'spectrogram';
                     document.querySelector('[data-action="content-waveform"]').classList.remove('is-active');
@@ -771,7 +782,7 @@ export class ComparisonPanel {
                         document.getElementById('stacked-wrap').style.display = '';
                         document.getElementById('overlay-wrap').classList.remove('is-visible');
                     }
-                    renderAll();
+                    scheduleRender();
                 } else if (action === 'zoom-in') {
                     zoomIn();
                 } else if (action === 'zoom-out') {
@@ -784,7 +795,7 @@ export class ComparisonPanel {
                 const half = (zoomEnd - zoomStart) / 2 * 0.7;
                 zoomStart = Math.max(0, center - half);
                 zoomEnd = Math.min(1, center + half);
-                renderAll();
+                scheduleRender();
             }
 
             function zoomOut() {
@@ -792,7 +803,7 @@ export class ComparisonPanel {
                 const half = (zoomEnd - zoomStart) / 2 * (1 / 0.7);
                 zoomStart = Math.max(0, center - half);
                 zoomEnd = Math.min(1, center + half);
-                renderAll();
+                scheduleRender();
             }
 
             function handleZoomWheel(e) {
@@ -822,7 +833,7 @@ export class ComparisonPanel {
                 if (newStart < 0) { newStart = 0; newEnd = Math.min(1, span); }
                 zoomStart = newStart;
                 zoomEnd = newEnd;
-                renderAll();
+                scheduleRender();
             }
 
             function handlePanWheel(e) {
@@ -830,7 +841,7 @@ export class ComparisonPanel {
                 if (zoomStart + shift < 0) { zoomEnd -= zoomStart; zoomStart = 0; }
                 else if (zoomEnd + shift > 1) { zoomStart += 1 - zoomEnd; zoomEnd = 1; }
                 else { zoomStart += shift; zoomEnd += shift; }
-                renderAll();
+                scheduleRender();
             }
 
             function handleCanvasMouseMove(e) {
@@ -870,7 +881,7 @@ export class ComparisonPanel {
                 const secsPerPx = (zoomEnd - zoomStart) * maxDur / dragState.canvasWidth;
                 trackRuntime[dragState.trackIndex].offsetSeconds = dragState.startOffset + dx * secsPerPx;
                 updateOffsetDisplays();
-                renderAll();
+                scheduleRender();
             }
 
             function handleDocMouseUp(e) {
@@ -882,7 +893,7 @@ export class ComparisonPanel {
                         const x = e.clientX - rect.left;
                         const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
                         cursorNorm = (cursorNorm !== null) ? null : norm;
-                        renderAll();
+                        scheduleRender();
                     }
                 }
                 dragState = null;
@@ -979,7 +990,7 @@ export class ComparisonPanel {
                         const x = e.clientX - rect.left;
                         const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
                         cursorNorm = (cursorNorm !== null) ? null : norm;
-                        renderAll();
+                        scheduleRender();
                     }
                 }
             }
@@ -989,7 +1000,7 @@ export class ComparisonPanel {
                 const btn = document.querySelector('[data-action="toggle-mute"][data-track-index="' + idx + '"]');
                 if (btn) { btn.classList.toggle('is-muted', trackRuntime[idx].hidden); }
                 updateVisibility();
-                renderAll();
+                scheduleRender();
             }
 
             function removeTrack(idx) {
@@ -1003,7 +1014,7 @@ export class ComparisonPanel {
                     if (remaining.length > 0) { setReference(remaining[0]); }
                 }
                 updateVisibility();
-                renderAll();
+                scheduleRender();
             }
 
             function setReference(idx) {
@@ -1025,13 +1036,13 @@ export class ComparisonPanel {
                         }
                     }
                 });
-                renderAll();
+                scheduleRender();
             }
 
             function adjustOffset(idx, deltaSeconds) {
                 trackRuntime[idx].offsetSeconds += deltaSeconds;
                 updateOffsetDisplays();
-                renderAll();
+                scheduleRender();
             }
         })();
         `;
