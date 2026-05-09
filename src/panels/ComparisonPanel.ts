@@ -376,9 +376,14 @@ export class ComparisonPanel {
                     if (!wrap) { return; }
                     const newW = wrap.clientWidth || 800;
                     if (canvasWidthCache[i] === newW) { return; }
+                    const oldW = canvasWidthCache[i];
+                    if (oldW !== undefined) {
+                        delete offscreenCanvases[i + '-' + oldW + '-80'];
+                    }
                     canvasWidthCache[i] = newW;
                     canvas.width = newW;
                     canvas.height = 80;
+                    markWaveformDirty(i);
                 });
                 const overlayCanvas = document.getElementById('overlay-canvas');
                 if (overlayCanvas) {
@@ -389,6 +394,7 @@ export class ComparisonPanel {
                             canvasWidthCache['overlay'] = newW;
                             overlayCanvas.width = newW;
                             overlayCanvas.height = 160;
+                            markWaveformDirty();
                         }
                     }
                 }
