@@ -23,31 +23,41 @@ export class ComparisonPanel {
             'audioWandasAnalyzer.comparison',
             title,
             vscode.ViewColumn.Beside,
-            { enableScripts: true },
+            {
+                enableScripts: true,
+                localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+            },
         );
 
         panel.title = title;
-        panel.webview.options = { enableScripts: true };
+        panel.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+        };
         panel.reveal(vscode.ViewColumn.Beside, true);
 
         const state: ComparisonState = { results, referenceIndex: 0 };
-        panel.webview.html = ComparisonPanel.renderHtml(panel.webview, state);
+        panel.webview.html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
         return panel;
     }
 
-    private static renderHtml(webview: vscode.Webview, state: ComparisonState): string {
+    private static renderHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri): string {
         const nonce = Date.now().toString();
+        const waveformScriptUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(extensionUri, 'media', 'comparisonWaveform.js'),
+        );
         return `<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource};">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>比較パネル</title>
     <style>${ComparisonPanel.renderStyles()}</style>
 </head>
 <body>
     <div id="app"></div>
+    <script src="${waveformScriptUri}"></script>
     <script nonce="${nonce}">
         const __APP_STATE__ = ${serializeForScript(state)};
         ${ComparisonPanel.renderScript()}
@@ -177,18 +187,8 @@ export class ComparisonPanel {
             let viewMode = 'stacked';     // 'stacked' | 'overlay'
             let rafPending = false;
             const canvasWidthCache = {};
-            const offscreenCanvases = {};
-            const waveformDirtyFlags = {};
             let playbackEl = null;
             let playbackRafId = null;
-
-            function markWaveformDirty(trackIndex) {
-                if (trackIndex === undefined) {
-                    state.results.forEach(function(_, i) { waveformDirtyFlags[i] = true; });
-                } else {
-                    waveformDirtyFlags[trackIndex] = true;
-                }
-            }
 
             function scheduleRender() {
                 if (rafPending) { return; }
@@ -223,7 +223,6 @@ export class ComparisonPanel {
                 if (pendingRequests[i] !== msg.requestId) { return; } // stale
                 pendingRequests[i] = null;
                 rangeCache[i] = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
-                markWaveformDirty(i);
                 renderAll();
             });
 
@@ -383,14 +382,9 @@ export class ComparisonPanel {
                     if (!wrap) { return; }
                     const newW = wrap.clientWidth || 800;
                     if (canvasWidthCache[i] === newW) { return; }
-                    const oldW = canvasWidthCache[i];
-                    if (oldW !== undefined) {
-                        delete offscreenCanvases[i + '-' + oldW + '-80'];
-                    }
                     canvasWidthCache[i] = newW;
                     canvas.width = newW;
                     canvas.height = 80;
-                    markWaveformDirty(i);
                 });
                 const overlayCanvas = document.getElementById('overlay-canvas');
                 if (overlayCanvas) {
@@ -401,7 +395,6 @@ export class ComparisonPanel {
                             canvasWidthCache['overlay'] = newW;
                             overlayCanvas.width = newW;
                             overlayCanvas.height = 160;
-                            markWaveformDirty();
                         }
                     }
                 }
@@ -470,7 +463,7 @@ export class ComparisonPanel {
                     if (!canvas) { return; }
                     const color = TRACK_COLORS[i % TRACK_COLORS.length];
                     if (contentType === 'waveform') {
-                        drawWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color, false);
+                        drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     } else {
                         drawSpectrogram(canvas, result, trackRuntime[i].offsetSeconds);
                     }
@@ -492,139 +485,28 @@ export class ComparisonPanel {
                     : null;
             }
 
-            // Shared waveform rendering: min/max bars when zoomed out, polyline when zoomed in.
-            // Single rendering mode: decimated_index method.
-            // Computes div = visible_data_points / (W * 2).
-            // For each bucket of div points: picks argmin + argmax index in time order.
-            // When div=1 (zoomed in) → all points → accurate polyline.
-            // When div>1 (zoomed out) → min+max per bucket → vertical sweep that preserves peaks.
-            // Single rendering mode: decimated min/max polyline.
-            //
-            // For each bucket of div data points, add (xOf(minIdx), lo(minIdx)) and
-            // (xOf(maxIdx), hi(maxIdx)) in chronological order.
-            // When minIdx===maxIdx (div=1 case), both points share the same X → vertical
-            // stroke that shows the full amplitude range at that position.
-            // This one path handles all zoom levels without mode switching.
-            function renderWaveformData(ctx, W, H, env, dataStart, dataEnd, offsetSeconds, dur, color, isHighlighted) {
-                const peak = env.absolutePeak || 1;
-                const samples = env.samples || [];
-                const minArr = env.min || [];
-                const maxArr = env.max || [];
-                const n = samples.length;
-                if (n === 0) { return; }
-
-                const dataRange = dataEnd - dataStart;
-
-                const visStartNorm = (zoomStart - offsetSeconds / dur - dataStart) / dataRange;
-                const visEndNorm   = (zoomEnd   - offsetSeconds / dur - dataStart) / dataRange;
-
-                // Extend rendering by one full view-span before and after the visible
-                // area. Canvas clips the off-screen portions, so the path is already
-                // in motion when it reaches x=0 — no gap, no fake anchor needed.
-                const extSpan = (zoomEnd - zoomStart) / dataRange;
-                const i0 = Math.max(0, Math.floor((visStartNorm - extSpan) * n));
-                const i1 = Math.min(n - 1, Math.ceil((visEndNorm + extSpan) * n));
-                if (i1 <= i0) { return; }
-
-                // div is computed from the visible range so that per-pixel resolution
-                // in the visible area is unaffected by the extended rendering range.
-                const visI0 = Math.max(0, Math.floor(visStartNorm * n) - 1);
-                const visI1 = Math.min(n - 1, Math.ceil(visEndNorm * n) + 1);
-                const div = Math.max(1, Math.floor(Math.max(1, visI1 - visI0 + 1) / (W * 2)));
-
-                function lo(i) { return minArr.length > i ? minArr[i] : samples[i]; }
-                function hi(i) { return maxArr.length > i ? maxArr[i] : samples[i]; }
-                function tOfMin(idx) {
-                    return (env.minT && env.minT.length > idx) ? env.minT[idx] : dataStart + (idx / n) * dataRange;
-                }
-                function tOfMax(idx) {
-                    return (env.maxT && env.maxT.length > idx) ? env.maxT[idx] : dataStart + (idx / n) * dataRange;
-                }
-                function xOfT(tNorm) {
-                    return ((tNorm + offsetSeconds / dur - zoomStart) / (zoomEnd - zoomStart)) * W;
-                }
-
-                ctx.lineWidth = isHighlighted ? 2 : 1.5;
-                ctx.strokeStyle = color;
-                ctx.beginPath();
-                let started = false;
-                function pt(x, y) {
-                    if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
-                }
-
-                for (let b = i0; b <= i1; b += div) {
-                    const bEnd = Math.min(i1 + 1, b + div);
-                    let minIdx = b, maxIdx = b;
-                    let minVal = lo(b), maxVal = hi(b);
-                    for (let i = b + 1; i < bEnd; i++) {
-                        const l = lo(i), h = hi(i);
-                        if (l < minVal) { minVal = l; minIdx = i; }
-                        if (h > maxVal) { maxVal = h; maxIdx = i; }
-                    }
-                    // Always emit both trough and peak in chronological order.
-                    // When minIdx===maxIdx (div=1), same X yields a vertical stroke.
-                    const tMin = tOfMin(minIdx);
-                    const tMax = tOfMax(maxIdx);
-                    if (tMin <= tMax) {
-                        pt(xOfT(tMin), H / 2 - (minVal / peak) * (H * 0.44));
-                        pt(xOfT(tMax), H / 2 - (maxVal / peak) * (H * 0.44));
-                    } else {
-                        pt(xOfT(tMax), H / 2 - (maxVal / peak) * (H * 0.44));
-                        pt(xOfT(tMin), H / 2 - (minVal / peak) * (H * 0.44));
-                    }
-                }
-                ctx.stroke();
-            }
-
-            function getOrCreateOffscreen(trackIndex, W, H) {
-                const key = trackIndex + '-' + W + '-' + H;
-                if (!offscreenCanvases[key]) {
-                    if (typeof OffscreenCanvas !== 'undefined') {
-                        offscreenCanvases[key] = new OffscreenCanvas(W, H);
-                    } else {
-                        const c = document.createElement('canvas');
-                        c.width = W; c.height = H;
-                        offscreenCanvases[key] = c;
-                    }
-                }
-                return offscreenCanvases[key];
-            }
-
-            function commitWaveformLayer(trackIndex) {
-                const canvas = document.getElementById('track-canvas-' + trackIndex);
-                if (!canvas) { return; }
-                const W = canvas.width, H = canvas.height;
-                const offscreen = getOrCreateOffscreen(trackIndex, W, H);
-                const offCtx = offscreen.getContext('2d');
-                offCtx.clearRect(0, 0, W, H);
-                const result = state.results[trackIndex];
-                if (result && !result.error) {
-                    const color = TRACK_COLORS[trackIndex % TRACK_COLORS.length];
-                    offCtx.strokeStyle = hexToRgba(color, 0.25);
-                    offCtx.lineWidth = 0.5;
-                    offCtx.beginPath(); offCtx.moveTo(0, H / 2); offCtx.lineTo(W, H / 2); offCtx.stroke();
-                    drawWaveformOnCtxRaw(offCtx, W, H, result, trackIndex,
-                        trackRuntime[trackIndex].offsetSeconds, color, false);
-                }
-                waveformDirtyFlags[trackIndex] = false;
-            }
-
-            function drawWaveformOnCtxRaw(ctx, W, H, result, trackIndex, offsetSeconds, color, isHighlighted) {
-                const src = resolveWaveformSource(result, trackIndex, offsetSeconds);
-                if (!src) { return; }
-                const { waveform: env, dataStart, dataEnd } = src;
-                const dur = result.durationSeconds || 1;
-                renderWaveformData(ctx, W, H, env, dataStart, dataEnd, offsetSeconds, dur, color, isHighlighted);
-            }
-
-            function drawWaveform(canvas, result, trackIndex, offsetSeconds, color, isHighlighted) {
+            function drawTrackWaveform(canvas, result, trackIndex, offsetSeconds, color) {
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width, H = canvas.height;
                 ctx.clearRect(0, 0, W, H);
 
-                if (waveformDirtyFlags[trackIndex] !== false) { commitWaveformLayer(trackIndex); }
-                const offscreen = getOrCreateOffscreen(trackIndex, W, H);
-                if (offscreen) { ctx.drawImage(offscreen, 0, 0); }
+                // ゼロライン
+                ctx.strokeStyle = hexToRgba(color, 0.25);
+                ctx.lineWidth = 0.5;
+                ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+
+                const src = resolveWaveformSource(result, trackIndex, offsetSeconds);
+                if (src && window.renderWaveformPipeline) {
+                    const dur = result.durationSeconds || 1;
+                    window.renderWaveformPipeline(ctx, W, H, src.waveform, {
+                        zoomStart,
+                        zoomEnd,
+                        offsetNorm: offsetSeconds / dur,
+                        dataStart: src.dataStart,
+                        dataEnd: src.dataEnd,
+                        color,
+                    });
+                }
 
                 drawCursorOnCanvas(ctx, W, H);
             }
@@ -706,7 +588,7 @@ export class ComparisonPanel {
                     const isHl = (i === hoverTrackIndex);
                     ctx.save();
                     ctx.globalAlpha = isHl ? 1.0 : (i === referenceIndex ? 0.9 : 0.7);
-                    drawWaveformOnCtx(ctx, W, H, result, i, trackRuntime[i].offsetSeconds, color, isHl);
+                    drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     ctx.restore();
                 });
 
@@ -722,14 +604,6 @@ export class ComparisonPanel {
                 }
 
                 updateOverlayLegend();
-            }
-
-            function drawWaveformOnCtx(ctx, W, H, result, trackIndex, offsetSeconds, color, isHighlighted) {
-                const src = resolveWaveformSource(result, trackIndex, offsetSeconds);
-                if (!src) { return; }
-                const { waveform: env, dataStart, dataEnd } = src;
-                const dur = result.durationSeconds || 1;
-                renderWaveformData(ctx, W, H, env, dataStart, dataEnd, offsetSeconds, dur, color, isHighlighted);
             }
 
             function updateOverlayLegend() {
@@ -781,9 +655,9 @@ export class ComparisonPanel {
                                 if (trackRuntime[i].hidden || result.error) { return; }
                                 const canvas = document.getElementById('track-canvas-' + i);
                                 if (canvas) {
-                                    drawWaveform(canvas, result, i,
+                                    drawTrackWaveform(canvas, result, i,
                                         trackRuntime[i].offsetSeconds,
-                                        TRACK_COLORS[i % TRACK_COLORS.length], false);
+                                        TRACK_COLORS[i % TRACK_COLORS.length]);
                                 }
                             });
                             updateCursorDisplay(tNorm);
@@ -889,7 +763,6 @@ export class ComparisonPanel {
             }
 
             function zoomIn() {
-                markWaveformDirty();
                 const center = (zoomStart + zoomEnd) / 2;
                 const half = (zoomEnd - zoomStart) / 2 * 0.7;
                 zoomStart = Math.max(0, center - half);
@@ -898,7 +771,6 @@ export class ComparisonPanel {
             }
 
             function zoomOut() {
-                markWaveformDirty();
                 const center = (zoomStart + zoomEnd) / 2;
                 const half = (zoomEnd - zoomStart) / 2 * (1 / 0.7);
                 zoomStart = Math.max(0, center - half);
@@ -907,7 +779,6 @@ export class ComparisonPanel {
             }
 
             function handleZoomWheel(e) {
-                markWaveformDirty();
                 const scaleFactor = e.deltaY > 0 ? 1.15 : 0.85;
                 const span = (zoomEnd - zoomStart) * scaleFactor;
 
@@ -938,7 +809,6 @@ export class ComparisonPanel {
             }
 
             function handlePanWheel(e) {
-                markWaveformDirty();
                 const shift = (zoomEnd - zoomStart) * 0.1 * (e.deltaY > 0 ? 1 : -1);
                 if (zoomStart + shift < 0) { zoomEnd -= zoomStart; zoomStart = 0; }
                 else if (zoomEnd + shift > 1) { zoomStart += 1 - zoomEnd; zoomEnd = 1; }
@@ -982,7 +852,6 @@ export class ComparisonPanel {
                 const maxDur = Math.max.apply(null, state.results.map(function(r) { return r.durationSeconds || 1; }));
                 const secsPerPx = (zoomEnd - zoomStart) * maxDur / dragState.canvasWidth;
                 trackRuntime[dragState.trackIndex].offsetSeconds = dragState.startOffset + dx * secsPerPx;
-                markWaveformDirty(dragState.trackIndex);
                 updateOffsetDisplays();
                 scheduleRender();
             }
@@ -1011,7 +880,7 @@ export class ComparisonPanel {
                     if (contentType === 'waveform') {
                         const savedCursor = cursorNorm;
                         cursorNorm = norm;
-                        drawWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color, false);
+                        drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                         cursorNorm = savedCursor;
                     }
                 });

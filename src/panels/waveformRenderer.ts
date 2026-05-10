@@ -86,7 +86,7 @@ export function computeAnchorX(
     return anchorX <= 0 ? anchorX : null;
 }
 
-interface CanvasCtx {
+export interface CanvasCtx {
     lineWidth: number;
     strokeStyle: string;
     beginPath(): void;
@@ -95,6 +95,166 @@ interface CanvasCtx {
     stroke(): void;
 }
 
+// ── Layer 1: CoordTransform ───────────────────────────────────
+
+export interface CoordTransform {
+    /** ファイル正規化時刻 tNorm → canvas x (px) */
+    toX(tNorm: number): number;
+    /** 振幅値 v → canvas y (px) */
+    toY(v: number): number;
+}
+
+/**
+ * 座標変換オブジェクトを生成する。
+ * offsetNorm = offsetSeconds / durationSeconds（呼び元が計算する）。
+ */
+export function makeCoordTransform(
+    zoomStart: number,
+    zoomEnd: number,
+    offsetNorm: number,
+    W: number,
+    H: number,
+    peak: number,
+): CoordTransform {
+    const span = Math.max(zoomEnd - zoomStart, 1e-9);
+    return {
+        toX(tNorm: number): number {
+            const raw = ((tNorm + offsetNorm - zoomStart) / span) * W;
+            return Math.round(raw * 1e10) / 1e10;
+        },
+        toY(v: number): number {
+            return H / 2 - (v / (peak || 1)) * (H * 0.44);
+        },
+    };
+}
+
+// ── Layer 2: Decimation ───────────────────────────────────────
+
+/** 1 バケットを代表する点ペア（座標変換前）。 */
+export interface DecimatedPoint {
+    tNorm: number;
+    value: number;
+}
+
+/** 描画対象インデックス範囲とデシメーション率。 */
+export interface ViewRange {
+    i0: number;
+    i1: number;
+    div: number;
+}
+
+/**
+ * 可視範囲に基づく描画インデックス範囲を算出する。
+ * i0/i1 はビュースパン 1 つ分前後に拡張し、Canvas クリップで左右端を自然に処理する。
+ * div は可視バケット数から算出し、拡張分が解像度に影響しないようにする。
+ */
+export function computeViewRange(
+    env: WaveformEnv,
+    dataStart: number,
+    dataEnd: number,
+    offsetNorm: number,
+    zoomStart: number,
+    zoomEnd: number,
+    W: number,
+): ViewRange {
+    const n = (env.min && env.min.length) || (env.samples && env.samples.length) || 0;
+    if (n === 0) { return { i0: 0, i1: -1, div: 1 }; }
+
+    const dataRange = Math.max(dataEnd - dataStart, 1e-9);
+    const visStartNorm = (zoomStart - offsetNorm - dataStart) / dataRange;
+    const visEndNorm   = (zoomEnd   - offsetNorm - dataStart) / dataRange;
+
+    // ビュースパン 1 つ分前後に拡張して描画（off-canvas 部分は Canvas がクリップ）
+    const extSpan = (zoomEnd - zoomStart) / dataRange;
+    const i0 = Math.max(0, Math.floor((visStartNorm - extSpan) * n));
+    const i1 = Math.min(n - 1, Math.ceil((visEndNorm + extSpan) * n));
+
+    // div は可視バケット数のみで計算
+    const visI0 = Math.max(0, Math.floor(visStartNorm * n) - 1);
+    const visI1 = Math.min(n - 1, Math.ceil(visEndNorm * n) + 1);
+    const div = Math.max(1, Math.floor(Math.max(1, visI1 - visI0 + 1) / (W * 2)));
+
+    return { i0, i1, div };
+}
+
+/**
+ * バケットごとに argmin/argmax を選択し、時系列順ペアで返す。
+ * 座標変換は行わない（Canvas に依存しない純粋関数）。
+ */
+export function decimateBuckets(
+    env: WaveformEnv,
+    range: ViewRange,
+    dataStart: number,
+    dataEnd: number,
+): Array<[DecimatedPoint, DecimatedPoint]> {
+    const { i0, i1, div } = range;
+    if (i1 < i0) { return []; }
+
+    const minArr = env.min || [];
+    const maxArr = env.max || [];
+    const samplesArr = env.samples ?? [];
+    const n = minArr.length || samplesArr.length;
+    const dataRange = Math.max(dataEnd - dataStart, 1e-9);
+
+    function lo(i: number): number { return minArr.length > i ? minArr[i] : (samplesArr[i] ?? 0); }
+    function hi(i: number): number { return maxArr.length > i ? maxArr[i] : (samplesArr[i] ?? 0); }
+    function tOfMin(idx: number): number {
+        return env.minT && env.minT.length > idx ? env.minT[idx] : dataStart + (idx / n) * dataRange;
+    }
+    function tOfMax(idx: number): number {
+        return env.maxT && env.maxT.length > idx ? env.maxT[idx] : dataStart + (idx / n) * dataRange;
+    }
+
+    const result: Array<[DecimatedPoint, DecimatedPoint]> = [];
+
+    for (let b = i0; b <= i1; b += div) {
+        const bEnd = Math.min(i1 + 1, b + div);
+        let minIdx = b, maxIdx = b;
+        let minVal = lo(b), maxVal = hi(b);
+        for (let i = b + 1; i < bEnd; i++) {
+            const l = lo(i), h = hi(i);
+            if (l < minVal) { minVal = l; minIdx = i; }
+            if (h > maxVal) { maxVal = h; maxIdx = i; }
+        }
+        const tMin = tOfMin(minIdx);
+        const tMax = tOfMax(maxIdx);
+        const a: DecimatedPoint = { tNorm: tMin, value: minVal };
+        const b2: DecimatedPoint = { tNorm: tMax, value: maxVal };
+        result.push(tMin <= tMax ? [a, b2] : [b2, a]);
+    }
+
+    return result;
+}
+
+// ── Layer 3: Painting ─────────────────────────────────────────
+
+/**
+ * DecimatedPoint ペア列を Canvas に描画する。
+ * Canvas API を触るのはこの関数だけ。
+ */
+export function paintDecimatedPoints(
+    ctx: CanvasCtx,
+    points: Array<[DecimatedPoint, DecimatedPoint]>,
+    transform: CoordTransform,
+    color: string,
+    lineWidth: number,
+): void {
+    if (points.length === 0) { return; }
+    ctx.lineWidth = lineWidth;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    let started = false;
+
+    for (const [first, second] of points) {
+        const x0 = transform.toX(first.tNorm),  y0 = transform.toY(first.value);
+        const x1 = transform.toX(second.tNorm), y1 = transform.toY(second.value);
+        if (!started) { ctx.moveTo(x0, y0); started = true; } else { ctx.lineTo(x0, y0); }
+        ctx.lineTo(x1, y1);
+    }
+    ctx.stroke();
+}
+
+/** 後方互換ファサード。内部は 3 層パイプラインを使用する。 */
 export function renderWaveform(
     ctx: CanvasCtx,
     W: number,
@@ -110,55 +270,12 @@ export function renderWaveform(
     lineWidth: number = 1.5,
 ): void {
     const peak = env.absolutePeak || 1;
-    const n = env.min.length;
-    if (n === 0) { return; }
+    const offsetNorm = offsetSeconds / (durationSeconds || 1);
 
-    const dataRange = dataEnd - dataStart;
-    const dur = durationSeconds || 1;
-    const offsetNorm = offsetSeconds / dur;
+    const range = computeViewRange(env, dataStart, dataEnd, offsetNorm, zoomStart, zoomEnd, W);
+    if (range.i1 < range.i0) { return; }
 
-    const visStartNorm = (zoomStart - offsetNorm - dataStart) / dataRange;
-    const visEndNorm = (zoomEnd - offsetNorm - dataStart) / dataRange;
-    const i0 = Math.max(0, Math.floor(visStartNorm * n) - 1);
-    const i1 = Math.min(n - 1, Math.ceil(visEndNorm * n) + 1);
-    if (i1 <= i0) { return; }
-
-    const div = computeDiv(i1 - i0 + 1, W);
-
-    function lo(i: number): number { return (env.min.length > i ? env.min[i] : (env.samples?.[i] ?? 0)); }
-    function hi(i: number): number { return (env.max.length > i ? env.max[i] : (env.samples?.[i] ?? 0)); }
-    function toX(tNorm: number): number {
-        return xOfNorm(tNorm + offsetNorm, zoomStart, zoomEnd, W);
-    }
-    function toY(v: number): number { return H / 2 - (v / peak) * (H * 0.44); }
-
-    ctx.lineWidth = lineWidth;
-    ctx.strokeStyle = color;
-    ctx.beginPath();
-    let started = false;
-
-    for (let b = i0; b <= i1; b += div) {
-        const bEnd = Math.min(i1 + 1, b + div);
-        let minIdx = b, maxIdx = b;
-        let minVal = lo(b), maxVal = hi(b);
-        for (let i = b + 1; i < bEnd; i++) {
-            const l = lo(i), h = hi(i);
-            if (l < minVal) { minVal = l; minIdx = i; }
-            if (h > maxVal) { maxVal = h; maxIdx = i; }
-        }
-
-        const tMinIdx = env.minT ? (env.minT[minIdx] ?? minIdx / n) : dataStart + (minIdx / n) * dataRange;
-        const tMaxIdx = env.maxT ? (env.maxT[maxIdx] ?? maxIdx / n) : dataStart + (maxIdx / n) * dataRange;
-
-        const [first, second] = tMinIdx <= tMaxIdx
-            ? [{ t: tMinIdx, v: minVal }, { t: tMaxIdx, v: maxVal }]
-            : [{ t: tMaxIdx, v: maxVal }, { t: tMinIdx, v: minVal }];
-
-        const x0 = toX(first.t), y0 = toY(first.v);
-        const x1 = toX(second.t), y1 = toY(second.v);
-
-        if (!started) { ctx.moveTo(x0, y0); started = true; } else { ctx.lineTo(x0, y0); }
-        ctx.lineTo(x1, y1);
-    }
-    ctx.stroke();
+    const points = decimateBuckets(env, range, dataStart, dataEnd);
+    const transform = makeCoordTransform(zoomStart, zoomEnd, offsetNorm, W, H, peak);
+    paintDecimatedPoints(ctx, points, transform, color, lineWidth);
 }
