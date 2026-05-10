@@ -544,13 +544,17 @@ export class ComparisonPanel {
                     if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
                 }
 
-                // Anchor the path at the left boundary of the first bucket so that
-                // the waveform always starts at or before x=0, preventing a visible
-                // gap at the canvas left edge when the first minT/maxT falls inside
-                // the bucket rather than at its start.
+                // Anchor the path at the left boundary of bucket i0 to prevent a
+                // visible gap when minT/maxT fall inside the bucket rather than at
+                // its start. Use samples[i0] as the amplitude at the bucket boundary
+                // so the path enters from the correct waveform level, not from zero.
                 const anchorT = dataStart + (i0 / n) * dataRange;
                 const anchorX = xOfT(anchorT);
-                if (anchorX < 0) { ctx.moveTo(anchorX, H / 2); started = true; }
+                if (anchorX <= 0) {
+                    const anchorAmp = samples.length > i0 ? samples[i0] : 0;
+                    ctx.moveTo(anchorX, H / 2 - (anchorAmp / peak) * (H * 0.44));
+                    started = true;
+                }
 
                 for (let b = i0; b <= i1; b += div) {
                     const bEnd = Math.min(i1 + 1, b + div);

@@ -54,12 +54,12 @@ test('buildBucketPoints falls back to uniform spacing when minT/maxT absent', ()
 
 // ── computeAnchorX ──────────────────────────────────────────
 
-test('[回帰] overview 左端ズーム: anchorX=0 のときはアンカー注入しない', () => {
+test('[回帰] overview 左端ズーム: anchorX=0 のときもアンカーを注入する', () => {
     // overview: dataStart=0, n=1200, zoomStart=0, zoomEnd=0.1
-    // anchorT = 0 → anchorX = 0 → 厳密に負ではないので null
-    // (anchorX=0 を注入すると moveTo(0,H/2)+lineTo で直線バグが発生するため)
+    // anchorT = 0 → anchorX = 0 → <= 0 なので注入（samples[i0] の振幅で）
     const x = computeAnchorX(0, 1200, 0, 1, 0, 0, 0.1, 800);
-    assert.equal(x, null, 'anchorX=0 のときはアンカー注入しない（直線バグ防止）');
+    assert.ok(x !== null, 'anchorX=0 のときもアンカーを注入すべき');
+    assert.ok((x as number) <= 0, `anchorX=${x} は 0 以下であること`);
 });
 
 test('[回帰] overview 中央ズーム: i0>0 のアンカーは負の x を返す', () => {
