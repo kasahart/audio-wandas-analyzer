@@ -83,7 +83,7 @@ export function computeAnchorX(
 ): number | null {
     const anchorT = dataStart + (i0 / n) * dataRange;
     const anchorX = ((anchorT + offsetNorm - zoomStart) / (zoomEnd - zoomStart)) * W;
-    return anchorX <= 0 ? anchorX : null;
+    return anchorX < 0 ? anchorX : null;
 }
 
 interface CanvasCtx {

@@ -550,7 +550,7 @@ export class ComparisonPanel {
                 // the bucket rather than at its start.
                 const anchorT = dataStart + (i0 / n) * dataRange;
                 const anchorX = xOfT(anchorT);
-                if (anchorX <= 0) { ctx.moveTo(anchorX, H / 2); started = true; }
+                if (anchorX < 0) { ctx.moveTo(anchorX, H / 2); started = true; }
 
                 for (let b = i0; b <= i1; b += div) {
                     const bEnd = Math.min(i1 + 1, b + div);
