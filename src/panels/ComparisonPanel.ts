@@ -982,6 +982,7 @@ export class ComparisonPanel {
                 const maxDur = Math.max.apply(null, state.results.map(function(r) { return r.durationSeconds || 1; }));
                 const secsPerPx = (zoomEnd - zoomStart) * maxDur / dragState.canvasWidth;
                 trackRuntime[dragState.trackIndex].offsetSeconds = dragState.startOffset + dx * secsPerPx;
+                markWaveformDirty(dragState.trackIndex);
                 updateOffsetDisplays();
                 scheduleRender();
             }
