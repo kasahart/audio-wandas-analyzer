@@ -207,6 +207,20 @@ export class ComparisonPanel {
                 return { offsetSeconds: 0, hidden: false };
             });
 
+            function computeGlobalSpan() {
+                let startSec = Infinity, endSec = -Infinity;
+                state.results.forEach(function(result, i) {
+                    if (trackRuntime[i].hidden || result.error) { return; }
+                    const off = trackRuntime[i].offsetSeconds;
+                    const dur = result.durationSeconds || 0;
+                    if (off < startSec) { startSec = off; }
+                    if (off + dur > endSec) { endSec = off + dur; }
+                });
+                if (!isFinite(startSec)) { startSec = 0; }
+                if (!isFinite(endSec) || endSec <= startSec) { endSec = startSec + 1; }
+                return { startSec, endSec, spanSec: endSec - startSec };
+            }
+
             // ── On-demand range cache ──
             // Per track: { startNorm, endNorm, channels[] } once a range response arrives
             const rangeCache = state.results.map(function() { return null; });
@@ -242,9 +256,14 @@ export class ComparisonPanel {
                     if (visibleOverview >= W * 1.0) { return; }
 
                     const dur = result.durationSeconds || 1;
-                    const offset = trackRuntime[i].offsetSeconds / dur;
-                    const reqStart = Math.max(0, zoomStart - offset - 0.05 * (zoomEnd - zoomStart));
-                    const reqEnd   = Math.min(1, zoomEnd   - offset + 0.05 * (zoomEnd - zoomStart));
+                    const gs = computeGlobalSpan();
+                    const trackStart = (trackRuntime[i].offsetSeconds - gs.startSec) / gs.spanSec;
+                    const trackDurRatio = dur / gs.spanSec;
+                    const fileAtZoomStart = (zoomStart - trackStart) / trackDurRatio;
+                    const fileAtZoomEnd   = (zoomEnd   - trackStart) / trackDurRatio;
+                    const fileSpan = fileAtZoomEnd - fileAtZoomStart;
+                    const reqStart = Math.max(0, fileAtZoomStart - 0.05 * fileSpan);
+                    const reqEnd   = Math.min(1, fileAtZoomEnd   + 0.05 * fileSpan);
                     const pts = Math.min(W * 2, 8000);
 
                     // Skip if cached range covers current view with sufficient density
@@ -255,7 +274,7 @@ export class ComparisonPanel {
                         const nPts = (ch0.min && ch0.min.length) || (ch0.samples && ch0.samples.length) || 0;
                         if (nPts >= pts * 0.8) {
                             const cacheDataRange = Math.max(c.endNorm - c.startNorm, 1e-9);
-                            const ptsVisible = nPts * ((zoomEnd - zoomStart) / cacheDataRange);
+                            const ptsVisible = nPts * ((fileAtZoomEnd - fileAtZoomStart) / cacheDataRange);
                             if (ptsVisible >= W * 0.5) { return; }
                         }
                     }
@@ -413,10 +432,9 @@ export class ComparisonPanel {
                 const W = canvas.width;
                 const H = canvas.height;
                 ctx.clearRect(0, 0, W, H);
-                const maxDur = Math.max.apply(null, state.results.map(function(r) { return r.durationSeconds || 0; }));
-                if (maxDur <= 0) { return; }
-                const visStart = zoomStart * maxDur;
-                const visEnd = zoomEnd * maxDur;
+                const gs = computeGlobalSpan();
+                const visStart = gs.startSec + zoomStart * gs.spanSec;
+                const visEnd   = gs.startSec + zoomEnd   * gs.spanSec;
                 const visDur = visEnd - visStart;
                 ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                 ctx.font = '9px monospace';
@@ -472,11 +490,15 @@ export class ComparisonPanel {
 
             function resolveWaveformSource(result, trackIndex, offsetSeconds) {
                 const dur = result.durationSeconds || 1;
-                const offset = offsetSeconds / dur;
+                const gs = computeGlobalSpan();
+                const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
+                const trackDurRatio = dur / gs.spanSec;
+                const fileAtZoomStart = (zoomStart - trackStart) / trackDurRatio;
+                const fileAtZoomEnd   = (zoomEnd   - trackStart) / trackDurRatio;
                 const c = rangeCache[trackIndex];
                 if (c && c.channels && c.channels[0] && c.channels[0].samples &&
-                    c.startNorm <= Math.max(0, zoomStart - offset) &&
-                    c.endNorm   >= Math.min(1, zoomEnd   - offset)) {
+                    c.startNorm <= Math.max(0, fileAtZoomStart) &&
+                    c.endNorm   >= Math.min(1, fileAtZoomEnd)) {
                     return { waveform: c.channels[0], dataStart: c.startNorm, dataEnd: c.endNorm };
                 }
                 const ch = result.channels[0];
@@ -498,10 +520,14 @@ export class ComparisonPanel {
                 const src = resolveWaveformSource(result, trackIndex, offsetSeconds);
                 if (src && window.renderWaveformPipeline) {
                     const dur = result.durationSeconds || 1;
+                    const gs = computeGlobalSpan();
+                    const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
+                    const trackDurRatio = dur / gs.spanSec;
                     window.renderWaveformPipeline(ctx, W, H, src.waveform, {
                         zoomStart,
                         zoomEnd,
-                        offsetNorm: offsetSeconds / dur,
+                        offsetNorm: trackStart,
+                        trackDurRatio,
                         dataStart: src.dataStart,
                         dataEnd: src.dataEnd,
                         color,
@@ -523,13 +549,16 @@ export class ComparisonPanel {
                 const tBins = spec.timeBins;
                 const fBins = spec.frequencyBins;
                 const dur = result.durationSeconds || 1;
+                const gs = computeGlobalSpan();
+                const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
+                const trackDurRatio = dur / gs.spanSec;
 
                 const imageData = ctx.createImageData(W, H);
                 const data = imageData.data;
 
                 for (let px = 0; px < W; px++) {
                     const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
-                    const tAdj = tNorm - offsetSeconds / dur;
+                    const tAdj = (tNorm - trackStart) / trackDurRatio;
                     const tIdx = Math.floor(tAdj * tBins);
                     if (tIdx < 0 || tIdx >= tBins) { continue; }
 
@@ -849,8 +878,8 @@ export class ComparisonPanel {
                 const dx = e.clientX - dragState.startClientX;
                 if (Math.abs(dx) > 3) { dragState.isDrag = true; }
                 if (!dragState.isDrag) { return; }
-                const maxDur = Math.max.apply(null, state.results.map(function(r) { return r.durationSeconds || 1; }));
-                const secsPerPx = (zoomEnd - zoomStart) * maxDur / dragState.canvasWidth;
+                const gs = computeGlobalSpan();
+                const secsPerPx = (zoomEnd - zoomStart) * gs.spanSec / dragState.canvasWidth;
                 trackRuntime[dragState.trackIndex].offsetSeconds = dragState.startOffset + dx * secsPerPx;
                 updateOffsetDisplays();
                 scheduleRender();
@@ -888,8 +917,8 @@ export class ComparisonPanel {
             }
 
             function updateCursorDisplay(norm) {
-                const maxDur = Math.max.apply(null, state.results.map(function(r) { return r.durationSeconds || 0; }));
-                const t = norm * maxDur;
+                const gs = computeGlobalSpan();
+                const t = gs.startSec + norm * gs.spanSec;
                 const el = document.getElementById('cursor-display');
                 if (el) { el.textContent = formatTime(t); }
             }
@@ -914,9 +943,12 @@ export class ComparisonPanel {
                     const maxArr = env.max || [];
                     const n = samples.length;
                     const dur = result.durationSeconds || 1;
+                    const gs = computeGlobalSpan();
+                    const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
+                    const trackDurRatio = dur / gs.spanSec;
                     const tNorm = zoomStart + (mouseX / W) * (zoomEnd - zoomStart);
-                    const tAdj = tNorm - offsetSeconds / dur;
-                    const tInData = (tAdj - dataStart) / (dataEnd - dataStart);
+                    const filePos = (tNorm - trackStart) / trackDurRatio;
+                    const tInData = (filePos - dataStart) / (dataEnd - dataStart);
                     const idx = Math.floor(tInData * n);
                     if (idx < 0 || idx >= n) { return; }
                     const absMin = minArr.length > idx ? Math.abs(minArr[idx]) : 0;
