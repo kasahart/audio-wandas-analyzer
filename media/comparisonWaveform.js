@@ -14,6 +14,7 @@
      */
     function renderWaveformPipeline(ctx, W, H, env, params) {
         const { zoomStart, zoomEnd, offsetNorm, dataStart, dataEnd, color } = params;
+        const trackDurRatio = params.trackDurRatio ?? 1;
         const lineWidth = params.lineWidth ?? 1.5;
         const peak = env.absolutePeak || 1;
         const minArr = env.min || [];
@@ -26,11 +27,13 @@
         const span = Math.max(zoomEnd - zoomStart, 1e-9);
 
         // ── Layer 2: computeViewRange ──
-        const visStartNorm = (zoomStart - offsetNorm - dataStart) / dataRange;
-        const visEndNorm   = (zoomEnd   - offsetNorm - dataStart) / dataRange;
-        const clampedVisStart = Math.max(0, visStartNorm);
-        const clampedVisEnd   = Math.min(1, visEndNorm);
-        const extSpan = Math.max(clampedVisEnd - clampedVisStart, 1 / n);
+        const fileAtZoomStart = (zoomStart - offsetNorm) / trackDurRatio;
+        const fileAtZoomEnd   = (zoomEnd   - offsetNorm) / trackDurRatio;
+        const visStartNorm = (fileAtZoomStart - dataStart) / dataRange;
+        const visEndNorm   = (fileAtZoomEnd   - dataStart) / dataRange;
+        const globalFileEnd = offsetNorm + trackDurRatio * dataEnd;
+        const globalOvershootEnd = Math.max(0, zoomEnd - globalFileEnd);
+        const extSpan = Math.max(globalOvershootEnd * trackDurRatio / dataRange, 1 / n);
         const i0 = Math.max(0, Math.floor((visStartNorm - extSpan) * n));
         const i1 = Math.min(n - 1, Math.ceil((visEndNorm + extSpan) * n));
         if (i1 < i0) { return; }
@@ -49,7 +52,7 @@
         }
 
         // ── Layer 1: CoordTransform ──
-        function toX(t) { return ((t + offsetNorm - zoomStart) / span) * W; }
+        function toX(t) { return ((offsetNorm + t * trackDurRatio - zoomStart) / span) * W; }
         function toY(v) { return H / 2 - (v / peak) * (H * 0.44); }
 
         // ── Layer 3: paintDecimatedPoints ──

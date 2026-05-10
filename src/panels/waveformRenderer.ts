@@ -107,6 +107,7 @@ export interface CoordTransform {
 /**
  * 座標変換オブジェクトを生成する。
  * offsetNorm = offsetSeconds / durationSeconds（呼び元が計算する）。
+ * trackDurRatio = durationSeconds / globalSpanSec（マルチトラック時に使用、デフォルト=1）。
  */
 export function makeCoordTransform(
     zoomStart: number,
@@ -115,11 +116,12 @@ export function makeCoordTransform(
     W: number,
     H: number,
     peak: number,
+    trackDurRatio: number = 1,
 ): CoordTransform {
     const span = Math.max(zoomEnd - zoomStart, 1e-9);
     return {
         toX(tNorm: number): number {
-            const raw = ((tNorm + offsetNorm - zoomStart) / span) * W;
+            const raw = ((offsetNorm + tNorm * trackDurRatio - zoomStart) / span) * W;
             return Math.round(raw * 1e10) / 1e10;
         },
         toY(v: number): number {
@@ -147,6 +149,7 @@ export interface ViewRange {
  * 可視範囲に基づく描画インデックス範囲を算出する。
  * i0/i1 はビュースパン 1 つ分前後に拡張し、Canvas クリップで左右端を自然に処理する。
  * div は可視バケット数から算出し、拡張分が解像度に影響しないようにする。
+ * trackDurRatio = durationSeconds / globalSpanSec（マルチトラック時に使用、デフォルト=1）。
  */
 export function computeViewRange(
     env: WaveformEnv,
@@ -156,20 +159,23 @@ export function computeViewRange(
     zoomStart: number,
     zoomEnd: number,
     W: number,
+    trackDurRatio: number = 1,
 ): ViewRange {
     const n = (env.min && env.min.length) || (env.samples && env.samples.length) || 0;
     if (n === 0) { return { i0: 0, i1: -1, div: 1 }; }
 
     const dataRange = Math.max(dataEnd - dataStart, 1e-9);
-    const visStartNorm = (zoomStart - offsetNorm - dataStart) / dataRange;
-    const visEndNorm   = (zoomEnd   - offsetNorm - dataStart) / dataRange;
+    const fileAtZoomStart = (zoomStart - offsetNorm) / trackDurRatio;
+    const fileAtZoomEnd   = (zoomEnd   - offsetNorm) / trackDurRatio;
+    const visStartNorm = (fileAtZoomStart - dataStart) / dataRange;
+    const visEndNorm   = (fileAtZoomEnd   - dataStart) / dataRange;
 
     // 可視ファイル範囲を 1 つ分前後に拡張して描画（off-canvas は Canvas がクリップ）。
-    // extSpan を表示スパン全体ではなく可視ファイル範囲に基づいて計算することで、
-    // 大きなオフセット時に描画範囲が不必要に広がるのを防ぐ。
-    const clampedVisStart = Math.max(0, visStartNorm);
-    const clampedVisEnd   = Math.min(1, visEndNorm);
-    const extSpan = Math.max(clampedVisEnd - clampedVisStart, 1 / n);
+    // ズームがファイル末尾（グローバル座標）を超える量に基づいて extSpan を計算することで、
+    // 大きなオフセットや小さな trackDurRatio 時に描画範囲が不必要に広がるのを防ぐ。
+    const globalFileEnd = offsetNorm + trackDurRatio * dataEnd;
+    const globalOvershootEnd = Math.max(0, zoomEnd - globalFileEnd);
+    const extSpan = Math.max(globalOvershootEnd * trackDurRatio / dataRange, 1 / n);
     const i0 = Math.max(0, Math.floor((visStartNorm - extSpan) * n));
     const i1 = Math.min(n - 1, Math.ceil((visEndNorm + extSpan) * n));
 
