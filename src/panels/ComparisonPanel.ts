@@ -517,12 +517,20 @@ export class ComparisonPanel {
 
                 const visStartNorm = (zoomStart - offsetSeconds / dur - dataStart) / dataRange;
                 const visEndNorm   = (zoomEnd   - offsetSeconds / dur - dataStart) / dataRange;
-                const i0 = Math.max(0, Math.floor(visStartNorm * n) - 1);
-                const i1 = Math.min(n - 1, Math.ceil(visEndNorm * n) + 1);
+
+                // Extend rendering by one full view-span before and after the visible
+                // area. Canvas clips the off-screen portions, so the path is already
+                // in motion when it reaches x=0 — no gap, no fake anchor needed.
+                const extSpan = (zoomEnd - zoomStart) / dataRange;
+                const i0 = Math.max(0, Math.floor((visStartNorm - extSpan) * n));
+                const i1 = Math.min(n - 1, Math.ceil((visEndNorm + extSpan) * n));
                 if (i1 <= i0) { return; }
 
-                const visibleCount = i1 - i0 + 1;
-                const div = Math.max(1, Math.floor(visibleCount / (W * 2)));
+                // div is computed from the visible range so that per-pixel resolution
+                // in the visible area is unaffected by the extended rendering range.
+                const visI0 = Math.max(0, Math.floor(visStartNorm * n) - 1);
+                const visI1 = Math.min(n - 1, Math.ceil(visEndNorm * n) + 1);
+                const div = Math.max(1, Math.floor(Math.max(1, visI1 - visI0 + 1) / (W * 2)));
 
                 function lo(i) { return minArr.length > i ? minArr[i] : samples[i]; }
                 function hi(i) { return maxArr.length > i ? maxArr[i] : samples[i]; }
@@ -542,18 +550,6 @@ export class ComparisonPanel {
                 let started = false;
                 function pt(x, y) {
                     if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
-                }
-
-                // Anchor the path at the left boundary of bucket i0 to prevent a
-                // visible gap when minT/maxT fall inside the bucket rather than at
-                // its start. Use samples[i0] as the amplitude at the bucket boundary
-                // so the path enters from the correct waveform level, not from zero.
-                const anchorT = dataStart + (i0 / n) * dataRange;
-                const anchorX = xOfT(anchorT);
-                if (anchorX <= 0) {
-                    const anchorAmp = samples.length > i0 ? samples[i0] : 0;
-                    ctx.moveTo(anchorX, H / 2 - (anchorAmp / peak) * (H * 0.44));
-                    started = true;
                 }
 
                 for (let b = i0; b <= i1; b += div) {
