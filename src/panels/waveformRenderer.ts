@@ -164,8 +164,12 @@ export function computeViewRange(
     const visStartNorm = (zoomStart - offsetNorm - dataStart) / dataRange;
     const visEndNorm   = (zoomEnd   - offsetNorm - dataStart) / dataRange;
 
-    // ビュースパン 1 つ分前後に拡張して描画（off-canvas 部分は Canvas がクリップ）
-    const extSpan = (zoomEnd - zoomStart) / dataRange;
+    // 可視ファイル範囲を 1 つ分前後に拡張して描画（off-canvas は Canvas がクリップ）。
+    // extSpan を表示スパン全体ではなく可視ファイル範囲に基づいて計算することで、
+    // 大きなオフセット時に描画範囲が不必要に広がるのを防ぐ。
+    const clampedVisStart = Math.max(0, visStartNorm);
+    const clampedVisEnd   = Math.min(1, visEndNorm);
+    const extSpan = Math.max(clampedVisEnd - clampedVisStart, 1 / n);
     const i0 = Math.max(0, Math.floor((visStartNorm - extSpan) * n));
     const i1 = Math.min(n - 1, Math.ceil((visEndNorm + extSpan) * n));
 

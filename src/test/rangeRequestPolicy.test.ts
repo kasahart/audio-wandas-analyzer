@@ -141,3 +141,34 @@ test('[回帰] 正オフセット: 誤方向 (+offset) キャッシュは insuff
         '誤方向のキャッシュは insufficient',
     );
 });
+
+// ── resolveWaveformSource 境界クランプ相当のテスト ────────────
+// checkAndRequestRanges は reqStart = max(0, zoomStart-offset-padding) を使うため
+// 「ファイル範囲外の比較値をクランプしてから isCacheSufficient に渡す」パターンを検証
+
+test('[回帰] 正オフセットで zoomStart-offset<0: reqStart=0 のキャッシュ startNorm=0 は sufficient', () => {
+    // zoomStart=0, offsetNorm=0.3 → zoomStart-offset=-0.3 → reqStart=max(0,-0.3-padding)=0
+    // キャッシュ [0, 0.225] で reqStart=0, reqEnd=0.2（padding≈0.01）
+    // isCacheSufficient は reqStart=0 で比較するため startNorm=0 は 0<=0 で sufficient になるはず
+    const c = makeCache(0, 0.225, 1600);
+    const { reqStart, reqEnd } = computeReqBounds(0, 0.5, 0.3);
+    // reqStart = max(0, 0-0.3-0.025) = 0, reqEnd = min(1, 0.5-0.3+0.025) = 0.225
+    assert.equal(
+        isCacheSufficient(c, reqStart, reqEnd, minPts, W, 0, 0.5),
+        true,
+        '正オフセットでファイル先頭が視野外でも、クランプ後の reqStart=0 に対して startNorm=0 は sufficient',
+    );
+});
+
+test('[回帰] 負オフセットで zoomEnd-offset>1: reqEnd=1 のキャッシュ endNorm=1 は sufficient', () => {
+    // zoomEnd=1.0, offsetNorm=-0.3 → zoomEnd-offset=1.3 → reqEnd=min(1,1.3+padding)=1.0
+    // キャッシュ [0.775, 1.0] で reqStart=0.775, reqEnd=1.0
+    const c = makeCache(0.775, 1.0, 1600);
+    const { reqStart, reqEnd } = computeReqBounds(0.5, 1.0, -0.3);
+    // reqStart = max(0, 0.5+0.3-0.025) = 0.775, reqEnd = min(1, 1.0+0.3+0.025) = 1.0
+    assert.equal(
+        isCacheSufficient(c, reqStart, reqEnd, minPts, W, 0.5, 1.0),
+        true,
+        '負オフセットでファイル末端が視野外でも、クランプ後の reqEnd=1.0 に対して endNorm=1.0 は sufficient',
+    );
+});

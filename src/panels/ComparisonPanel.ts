@@ -475,8 +475,8 @@ export class ComparisonPanel {
                 const offset = offsetSeconds / dur;
                 const c = rangeCache[trackIndex];
                 if (c && c.channels && c.channels[0] && c.channels[0].samples &&
-                    c.startNorm <= zoomStart - offset &&
-                    c.endNorm   >= zoomEnd   - offset) {
+                    c.startNorm <= Math.max(0, zoomStart - offset) &&
+                    c.endNorm   >= Math.min(1, zoomEnd   - offset)) {
                     return { waveform: c.channels[0], dataStart: c.startNorm, dataEnd: c.endNorm };
                 }
                 const ch = result.channels[0];

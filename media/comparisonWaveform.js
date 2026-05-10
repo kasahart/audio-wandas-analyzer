@@ -28,7 +28,9 @@
         // ── Layer 2: computeViewRange ──
         const visStartNorm = (zoomStart - offsetNorm - dataStart) / dataRange;
         const visEndNorm   = (zoomEnd   - offsetNorm - dataStart) / dataRange;
-        const extSpan = span / dataRange;
+        const clampedVisStart = Math.max(0, visStartNorm);
+        const clampedVisEnd   = Math.min(1, visEndNorm);
+        const extSpan = Math.max(clampedVisEnd - clampedVisStart, 1 / n);
         const i0 = Math.max(0, Math.floor((visStartNorm - extSpan) * n));
         const i1 = Math.min(n - 1, Math.ceil((visEndNorm + extSpan) * n));
         if (i1 < i0) { return; }
