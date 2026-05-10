@@ -14,9 +14,16 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 // vscode モックを先に設定してから ComparisonPanel をロードするヘルパー
 import { getRenderScript } from './helpers/comparisonScriptLoader';
 import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
+
+const WAVEFORM_PIPELINE_JS = readFileSync(
+    join(__dirname, '..', '..', 'media', 'comparisonWaveform.js'),
+    'utf8',
+);
 
 /** テスト用の最小 AnalysisResult JSON */
 const DUMMY_APP_STATE = JSON.stringify({
@@ -70,6 +77,8 @@ const DUMMY_APP_STATE = JSON.stringify({
 function setupEnv() {
     const script = getRenderScript();
     const { dom, postedMessages, offscreenInstances } = createWebviewEnv(DUMMY_APP_STATE);
+    // comparisonWaveform.js を先に eval して window.renderWaveformPipeline を登録する
+    evalScript(dom, WAVEFORM_PIPELINE_JS);
     evalScript(dom, script);
     return { dom, postedMessages, offscreenInstances };
 }
@@ -113,6 +122,40 @@ test('acquireVsCodeApi().postMessage が postedMessages を記録する', () => 
     win.acquireVsCodeApi().postMessage({ type: 'test' });
     assert.equal(postedMessages.length, 1);
     assert.deepEqual((postedMessages[0] as any).type, 'test');
+});
+
+test('comparisonWaveform.js が window.renderWaveformPipeline を登録する', () => {
+    const { dom } = setupEnv();
+    const win = dom.window as any;
+    assert.equal(typeof win.renderWaveformPipeline, 'function',
+        'window.renderWaveformPipeline が関数として登録されていること');
+});
+
+test('renderWaveformPipeline が ctx.stroke() を呼び出す', () => {
+    const { dom } = setupEnv();
+    const win = dom.window as any;
+    const calls: string[] = [];
+    const mockCtx = {
+        lineWidth: 1.5,
+        strokeStyle: '',
+        beginPath() { calls.push('beginPath'); },
+        moveTo() { calls.push('moveTo'); },
+        lineTo() { calls.push('lineTo'); },
+        stroke() { calls.push('stroke'); },
+    };
+    const env = {
+        min: [-0.5, -0.3, -0.4],
+        max: [0.8, 0.6, 0.7],
+        minT: [0.1, 0.4, 0.7],
+        maxT: [0.2, 0.5, 0.8],
+        absolutePeak: 0.8,
+    };
+    win.renderWaveformPipeline(mockCtx, 800, 80, env, {
+        zoomStart: 0, zoomEnd: 1, offsetNorm: 0,
+        dataStart: 0, dataEnd: 1, color: '#4ec994',
+    });
+    assert.ok(calls.includes('stroke'), 'stroke() が呼ばれること');
+    assert.ok(calls.includes('beginPath'), 'beginPath() が呼ばれること');
 });
 
 test('waveform-range-result メッセージを受信しても例外が起きない', () => {
