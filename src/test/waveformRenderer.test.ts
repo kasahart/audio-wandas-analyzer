@@ -284,6 +284,84 @@ test('[回帰] 負オフセット: extSpan が可視ファイル幅に基づき 
         `i0(${r.i0}) は extSpan=0.2 で 720 のはず（extSpan=0.5 の誤実装なら 360 になる）`);
 });
 
+// ── trackDurRatio tests ──────────────────────────────────────
+
+test('trackDurRatio: toX scales file position by trackDurRatio=0.5', () => {
+    // Track occupies half of global span, starts at 0.1 in global space
+    // trackDurRatio=0.5, offsetNorm=0.1, zoomStart=0, zoomEnd=1, W=1000
+    // tNorm=0 → global pos = 0.1 + 0*0.5 = 0.1 → x = 100
+    // tNorm=1 → global pos = 0.1 + 1*0.5 = 0.6 → x = 600
+    // tNorm=0.5 → global pos = 0.1 + 0.5*0.5 = 0.35 → x = 350
+    const t = makeCoordTransform(0, 1, 0.1, 1000, 80, 1.0, 0.5);
+    assert.equal(t.toX(0), 100,  'tNorm=0 → x=100');
+    assert.equal(t.toX(1), 600,  'tNorm=1 → x=600');
+    assert.equal(t.toX(0.5), 350, 'tNorm=0.5 → x=350');
+});
+
+test('trackDurRatio: toX backward compat (trackDurRatio=1, default)', () => {
+    // With trackDurRatio=1 (default), behavior must match current formula
+    // offsetNorm=0.3, zoomStart=0, zoomEnd=1, W=1000
+    // tNorm=0 → x = (0 + 0.3 - 0) / 1 * 1000 = 300
+    // tNorm=1 → x = (1 + 0.3 - 0) / 1 * 1000 = 1300
+    const tDefault = makeCoordTransform(0, 1, 0.3, 1000, 80, 1.0);
+    const tExplicit = makeCoordTransform(0, 1, 0.3, 1000, 80, 1.0, 1);
+    assert.equal(tDefault.toX(0), 300,   'default: tNorm=0 → x=300');
+    assert.equal(tDefault.toX(1), 1300,  'default: tNorm=1 → x=1300 (off canvas)');
+    assert.equal(tExplicit.toX(0), 300,  'explicit trackDurRatio=1: tNorm=0 → x=300');
+    assert.equal(tExplicit.toX(1), 1300, 'explicit trackDurRatio=1: tNorm=1 → x=1300');
+});
+
+test('trackDurRatio: computeViewRange with trackDurRatio — visible file range', () => {
+    // Track: durationSec=5, globalSpanSec=10, trackDurRatio=0.5
+    // offsetNorm=0 (track starts at global pos 0)
+    // dataStart=0, dataEnd=1, n=1000 buckets
+    // zoomStart=0.2, zoomEnd=0.6 → view shows 2~6s in 10s global span
+    // fileAtZoomStart = (0.2 - 0) / 0.5 = 0.4  (40% into 5s file = 2s)
+    // fileAtZoomEnd   = (0.6 - 0) / 0.5 = 1.2  (beyond file end, clamped to 1.0)
+    // visStartNorm = 0.4, visEndNorm = 1.2 → clamped visEnd = 1.0
+    // i0 should be around floor(0.4 * 1000) = 400, i.e. > 300
+    // i1 = 999 (clamped to n-1)
+    const env = makeEnv(1000);
+    const r = computeViewRange(env, 0, 1, 0, 0.2, 0.6, 800, 0.5);
+    assert.ok(r.i0 > 300, `i0=${r.i0} should be > 300 (view starts at 40% into file, not at file start)`);
+    assert.equal(r.i1, 999, 'i1 should be clamped to n-1=999 since view extends past file end');
+});
+
+test('trackDurRatio: computeViewRange backward compat (trackDurRatio=1 explicit)', () => {
+    // Same as existing 'computeViewRange: i0 >= 0 かつ i1 <= n-1' test,
+    // but with trackDurRatio=1 passed explicitly — results must match
+    const env = makeEnv(1200);
+    const rImplicit = computeViewRange(env, 0, 1, 0, 0.3, 0.5, 800);
+    const rExplicit = computeViewRange(env, 0, 1, 0, 0.3, 0.5, 800, 1);
+    assert.equal(rExplicit.i0, rImplicit.i0, 'i0 must match with trackDurRatio=1 explicit');
+    assert.equal(rExplicit.i1, rImplicit.i1, 'i1 must match with trackDurRatio=1 explicit');
+    assert.equal(rExplicit.div, rImplicit.div, 'div must match with trackDurRatio=1 explicit');
+});
+
+test('trackDurRatio: two-track global span — negative offset track positioning', () => {
+    // Two tracks, each 5s duration, Track B starts at offset=-3s
+    // Global: start=-3s, end=5s (0+5), span=8s
+    // Track A: offsetSec=0,  trackStart=(0-(-3))/8=3/8, trackDurRatio=5/8
+    // Track B: offsetSec=-3, trackStart=(−3−(−3))/8=0,  trackDurRatio=5/8
+    const W = 1000;
+    const trackDurRatio = 5 / 8;
+
+    // Track B: offsetNorm=0, zoomStart=0, zoomEnd=1
+    const tB = makeCoordTransform(0, 1, 0, W, 80, 1.0, trackDurRatio);
+    // tNorm=0 → x = (0 + 0*5/8 - 0) / 1 * W = 0
+    // tNorm=1 → x = (0 + 1*5/8 - 0) / 1 * W = 625
+    assert.equal(tB.toX(0), 0,   'Track B tNorm=0 → x=0 (starts at canvas left)');
+    assert.equal(tB.toX(1), 625, 'Track B tNorm=1 → x=625 (5 out of 8 seconds)');
+
+    // Track A: offsetNorm=3/8, zoomStart=0, zoomEnd=1
+    const offsetA = 3 / 8;
+    const tA = makeCoordTransform(0, 1, offsetA, W, 80, 1.0, trackDurRatio);
+    // tNorm=0 → x = (3/8 + 0*5/8 - 0) / 1 * W = 375
+    // tNorm=1 → x = (3/8 + 1*5/8 - 0) / 1 * W = 1000
+    assert.ok(Math.abs(tA.toX(0) - 375) < 0.001, `Track A tNorm=0 → x≈375, got ${tA.toX(0)}`);
+    assert.ok(Math.abs(tA.toX(1) - 1000) < 0.001, `Track A tNorm=1 → x≈1000, got ${tA.toX(1)}`);
+});
+
 // ── decimateBuckets ───────────────────────────────────────────
 
 test('decimateBuckets: div=1 で各バケットが1ペア', () => {
