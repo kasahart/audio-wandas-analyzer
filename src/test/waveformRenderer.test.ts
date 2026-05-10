@@ -154,6 +154,78 @@ test('computeViewRange: n=0 で i1 < i0（データなし）', () => {
     assert.ok(r.i1 < r.i0, '空データは i1 < i0 を返すべき');
 });
 
+// ── computeViewRange: オフセット付きテスト ────────────────────
+
+test('computeViewRange: 正オフセットで visStartNorm が小さくなる（ファイル位置が前にシフト）', () => {
+    // offsetNorm=0.1: 視野 [0.4, 0.6] に対応するファイル位置は [0.3, 0.5]
+    // visStartNorm = (0.4 - 0.1 - 0) / 1.0 = 0.3
+    // offsetNorm=0 の場合: visStartNorm = 0.4
+    // → 正オフセットで i0 が小さくなる（より前のバケットから描画）
+    const env = makeEnv(1200);
+    const rNoOffset  = computeViewRange(env, 0, 1, 0,   0.4, 0.6, 800);
+    const rWithOffset = computeViewRange(env, 0, 1, 0.1, 0.4, 0.6, 800);
+    assert.ok(
+        rWithOffset.i0 <= rNoOffset.i0,
+        `正オフセット時 i0(${rWithOffset.i0}) <= オフセットなし i0(${rNoOffset.i0}) であること`,
+    );
+});
+
+test('computeViewRange: 負オフセットで visStartNorm が大きくなる（ファイル位置が後にシフト）', () => {
+    // offsetNorm=-0.1: 視野 [0.3, 0.5] に対応するファイル位置は [0.4, 0.6]
+    // visStartNorm = (0.3 - (-0.1) - 0) / 1.0 = 0.4
+    // offsetNorm=0 の場合: visStartNorm = 0.3
+    // → 負オフセットで i0 が大きくなる（より後ろのバケットから描画）
+    const env = makeEnv(1200);
+    const rNoOffset  = computeViewRange(env, 0, 1,  0,   0.3, 0.5, 800);
+    const rNegOffset = computeViewRange(env, 0, 1, -0.1, 0.3, 0.5, 800);
+    assert.ok(
+        rNegOffset.i0 >= rNoOffset.i0,
+        `負オフセット時 i0(${rNegOffset.i0}) >= オフセットなし i0(${rNoOffset.i0}) であること`,
+    );
+});
+
+test('computeViewRange + makeCoordTransform: 正オフセット時も i0 のバケット境界が x<=0', () => {
+    // offsetNorm=0.1, zoom=[0.4, 0.6], overview
+    // 視野のファイル位置: [0.3, 0.5]
+    // i0 バケット境界を CoordTransform(offset=0.1) で変換すると x<=0 になるはず
+    const env = makeEnv(1200);
+    const offsetNorm = 0.1;
+    const zoomStart = 0.4, zoomEnd = 0.6;
+    const r = computeViewRange(env, 0, 1, offsetNorm, zoomStart, zoomEnd, 800);
+    const tI0 = 0 + (r.i0 / 1200) * 1; // バケット境界時刻
+    const t = makeCoordTransform(zoomStart, zoomEnd, offsetNorm, 800, 80, 1.0);
+    assert.ok(
+        t.toX(tI0) <= 0,
+        `正オフセット時も i0 バケット境界 x=${t.toX(tI0).toFixed(1)} は 0 以下（off-canvas）`,
+    );
+});
+
+test('computeViewRange + makeCoordTransform: 負オフセット時も i0 のバケット境界が x<=0', () => {
+    const env = makeEnv(1200);
+    const offsetNorm = -0.1;
+    const zoomStart = 0.3, zoomEnd = 0.5;
+    const r = computeViewRange(env, 0, 1, offsetNorm, zoomStart, zoomEnd, 800);
+    const tI0 = 0 + (r.i0 / 1200) * 1;
+    const t = makeCoordTransform(zoomStart, zoomEnd, offsetNorm, 800, 80, 1.0);
+    assert.ok(
+        t.toX(tI0) <= 0,
+        `負オフセット時も i0 バケット境界 x=${t.toX(tI0).toFixed(1)} は 0 以下（off-canvas）`,
+    );
+});
+
+test('computeViewRange: range データとオフセットの組合せで正しい範囲を返す', () => {
+    // range cache: [0.25, 0.45] (10x zoom 用に取得されたデータ)
+    // offsetNorm=0.05, zoom=[0.3, 0.4]
+    // 視野のファイル位置: [0.25, 0.35]
+    // dataStart=0.25 を基準にした visStartNorm = (0.3 - 0.05 - 0.25) / 0.20 = 0
+    const env = makeEnv(1600);
+    const r = computeViewRange(env, 0.25, 0.45, 0.05, 0.3, 0.4, 800);
+    assert.ok(r.i0 >= 0, `i0=${r.i0}`);
+    assert.ok(r.i1 <= 1599, `i1=${r.i1}`);
+    // 可視開始がデータ先頭(visStartNorm≈0)なので i0 は 0 付近
+    assert.ok(r.i0 < 100, `i0(${r.i0}) はデータ先頭付近のはず（extSpan 拡張で 0 になる）`);
+});
+
 // ── decimateBuckets ───────────────────────────────────────────
 
 test('decimateBuckets: div=1 で各バケットが1ペア', () => {
