@@ -1,10 +1,6 @@
 import * as vscode from 'vscode';
 import { serializeForScript } from '../utils/webviewEscaping';
-import type { AnalysisResult } from './AnalysisPanel';
-
-interface AnalysisResultWithError extends AnalysisResult {
-    error?: string;
-}
+import type { AnalysisResultWithError } from './analysisTypes';
 
 interface ComparisonState {
     results: AnalysisResultWithError[];
@@ -17,12 +13,14 @@ export class ComparisonPanel {
         results: AnalysisResultWithError[],
         existingPanel?: vscode.WebviewPanel,
     ): vscode.WebviewPanel {
-        const title = `比較: ${results.map((r) => r.fileName).join(', ')}`;
+        const title = results.length === 1
+            ? `Audio Analyzer: ${results[0].fileName}`
+            : `Audio Compare: ${results.map((r) => r.fileName).join(', ')}`;
 
         const panel = existingPanel ?? vscode.window.createWebviewPanel(
             'audioWandasAnalyzer.comparison',
             title,
-            vscode.ViewColumn.Beside,
+            vscode.ViewColumn.One,
             {
                 enableScripts: true,
                 localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
@@ -34,7 +32,7 @@ export class ComparisonPanel {
             enableScripts: true,
             localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
         };
-        panel.reveal(vscode.ViewColumn.Beside, true);
+        panel.reveal(vscode.ViewColumn.One, true);
 
         const state: ComparisonState = { results, referenceIndex: 0 };
         panel.webview.html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
@@ -328,7 +326,10 @@ export class ComparisonPanel {
             }
 
             function buildToolbar() {
-                return '<span style="font-weight:700;font-size:12px;color:var(--accent)">⚡ 比較</span>'
+                return '<span style="font-weight:700;font-size:12px;color:var(--accent)">⚡ メイン</span>'
+                    + '<div class="tb-sep"></div>'
+                    + '<button class="tb-btn" data-action="open-file">ファイルを開く</button>'
+                    + '<button class="tb-btn" data-action="open-folder">フォルダを開く</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span class="tb-label">表示:</span>'
                     + '<button class="tb-btn is-active" data-action="view-stacked">縦積み</button>'
@@ -752,7 +753,11 @@ export class ComparisonPanel {
             }
 
             function handleToolbarAction(action) {
-                if (action === 'view-stacked') {
+                if (action === 'open-file') {
+                    vscode.postMessage({ type: 'select-target', targetKind: 'file' });
+                } else if (action === 'open-folder') {
+                    vscode.postMessage({ type: 'select-target', targetKind: 'directory' });
+                } else if (action === 'view-stacked') {
                     viewMode = 'stacked';
                     document.querySelector('[data-action="view-stacked"]').classList.add('is-active');
                     document.querySelector('[data-action="view-overlay"]').classList.remove('is-active');

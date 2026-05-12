@@ -1,10 +1,9 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { AnalysisPanel, type AnalysisResult, type DirectoryTreeNode } from './panels/AnalysisPanel';
+import type { AnalysisResult, AnalysisResultWithError, DirectoryTreeNode } from './panels/analysisTypes';
 import { registerWorkspaceTests } from './testing/workspaceTests';
 import {
-    isAnalyzeFileMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
     isCompareFilesMessage,
@@ -13,11 +12,6 @@ import {
 } from './utils/audioTarget';
 import { ComparisonPanel } from './panels/ComparisonPanel';
 import { WaveformServer } from './waveformServer';
-
-interface DirectoryBrowserContext {
-    directoryUri: vscode.Uri;
-    tree: DirectoryTreeNode[];
-}
 
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 
@@ -75,83 +69,27 @@ async function analyzeAudioTarget(
 
     if ((targetStat.type & vscode.FileType.Directory) !== 0) {
         const tree = await buildDirectoryTree(targetUri, targetUri);
+        const filePaths = collectAudioFilePaths(tree);
 
-        if (tree.length === 0) {
+        if (filePaths.length === 0) {
             throw new Error(`No supported audio files were found in ${targetUri.fsPath}`);
         }
 
-        const browserPanel = AnalysisPanel.showDirectoryBrowser(
-            context.extensionUri,
-            targetUri,
-            tree,
-            undefined,
-            undefined,
-            existingPanel,
-        );
-        registerPanelMessageHandler(context, browserPanel, { directoryUri: targetUri, tree });
+        await analyzeMultipleFiles(context, filePaths, existingPanel);
         return;
     }
 
-    await analyzeAudioFile(context, targetUri, existingPanel);
-}
-
-async function analyzeAudioFile(
-    context: vscode.ExtensionContext,
-    fileUri: vscode.Uri,
-    panel?: vscode.WebviewPanel,
-    directoryContext?: DirectoryBrowserContext,
-): Promise<void> {
-    await vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Analyzing audio with wandas',
-            cancellable: false,
-        },
-        async (progress) => {
-            progress.report({
-                increment: 100,
-                message: path.basename(fileUri.fsPath),
-            });
-
-            try {
-                const result = await runAnalysis(context.extensionPath, fileUri);
-                if (directoryContext && panel) {
-                    const browserPanel = AnalysisPanel.showDirectoryBrowser(
-                        context.extensionUri,
-                        directoryContext.directoryUri,
-                        directoryContext.tree,
-                        fileUri,
-                        result,
-                        panel,
-                    );
-                    registerPanelMessageHandler(context, browserPanel, directoryContext);
-                    return;
-                }
-
-                const analysisPanel = AnalysisPanel.show(context.extensionUri, fileUri, result, panel);
-                registerPanelMessageHandler(context, analysisPanel);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                throw new Error(message);
-            }
-        },
-    );
+    await analyzeMultipleFiles(context, [targetUri.fsPath], existingPanel);
 }
 
 function registerPanelMessageHandler(
     context: vscode.ExtensionContext,
     panel: vscode.WebviewPanel,
-    directoryContext?: DirectoryBrowserContext,
 ): void {
     panelMessageDisposables.get(panel)?.dispose();
 
     const disposable = panel.webview.onDidReceiveMessage(async (message: unknown) => {
         try {
-            if (isAnalyzeFileMessage(message)) {
-                await analyzeAudioFile(context, vscode.Uri.file(message.filePath), panel, directoryContext);
-                return;
-            }
-
             if (isSelectTargetMessage(message)) {
                 const selected = await pickAudioTarget(message.targetKind);
 
@@ -160,6 +98,7 @@ function registerPanelMessageHandler(
                 }
 
                 await analyzeAudioTarget(context, selected, panel);
+                return;
             }
 
             if (isCompareFilesMessage(message)) {
@@ -263,6 +202,23 @@ async function buildDirectoryTree(rootUri: vscode.Uri, currentUri: vscode.Uri): 
     return nodes;
 }
 
+function collectAudioFilePaths(tree: DirectoryTreeNode[]): string[] {
+    const filePaths: string[] = [];
+
+    for (const node of tree) {
+        if (node.type === 'file' && node.filePath) {
+            filePaths.push(node.filePath);
+            continue;
+        }
+
+        if (node.type === 'directory' && node.children) {
+            filePaths.push(...collectAudioFilePaths(node.children));
+        }
+    }
+
+    return filePaths;
+}
+
 async function pickAudioTarget(targetKind?: SelectionTargetKind): Promise<vscode.Uri | undefined> {
     const selected = await vscode.window.showOpenDialog({
         canSelectMany: false,
@@ -283,11 +239,6 @@ async function pickAudioTarget(targetKind?: SelectionTargetKind): Promise<vscode
     return selected?.[0];
 }
 
-// AnalysisResult にエラー状態を持たせるために拡張した型
-interface AnalysisResultOrError extends AnalysisResult {
-    error?: string;
-}
-
 async function analyzeMultipleFiles(
     context: vscode.ExtensionContext,
     filePaths: string[],
@@ -300,7 +251,7 @@ async function analyzeMultipleFiles(
             cancellable: false,
         },
         async (progress) => {
-            const results: AnalysisResultOrError[] = [];
+            const results: AnalysisResultWithError[] = [];
             for (let i = 0; i < filePaths.length; i++) {
                 progress.report({
                     increment: Math.floor(100 / filePaths.length),

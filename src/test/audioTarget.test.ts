@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    isAnalyzeFileMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
     isCompareFilesMessage,
@@ -14,19 +13,11 @@ test('isSupportedAudioFile accepts supported extensions case-insensitively', () 
     assert.equal(isSupportedAudioFile('no-extension'), false);
 });
 
-test('isAnalyzeFileMessage validates required shape', () => {
-    assert.equal(isAnalyzeFileMessage({ type: 'analyze-file', filePath: '/tmp/take.wav' }), true);
-    assert.equal(isAnalyzeFileMessage({ type: 'analyze-file', filePath: '' }), false);
-    assert.equal(isAnalyzeFileMessage({ type: 'analyze-file' }), false);
-    assert.equal(isAnalyzeFileMessage({ type: 'select-target', filePath: '/tmp/take.wav' }), false);
-    assert.equal(isAnalyzeFileMessage(null), false);
-});
-
 test('isSelectTargetMessage only accepts supported target kinds', () => {
     assert.equal(isSelectTargetMessage({ type: 'select-target', targetKind: 'file' }), true);
     assert.equal(isSelectTargetMessage({ type: 'select-target', targetKind: 'directory' }), true);
     assert.equal(isSelectTargetMessage({ type: 'select-target', targetKind: 'folder' }), false);
-    assert.equal(isSelectTargetMessage({ type: 'analyze-file', targetKind: 'file' }), false);
+    assert.equal(isSelectTargetMessage({ type: 'compare-files', targetKind: 'file' }), false);
     assert.equal(isSelectTargetMessage(undefined), false);
 });
 
@@ -36,6 +27,6 @@ test('isCompareFilesMessage validates required shape', () => {
     assert.equal(isCompareFilesMessage({ type: 'compare-files', filePaths: [] }), false, '0件はNG');
     assert.equal(isCompareFilesMessage({ type: 'compare-files', filePaths: ['/a.wav', ''] }), false, '空文字はNG');
     assert.equal(isCompareFilesMessage({ type: 'compare-files' }), false, 'filePaths欠如');
-    assert.equal(isCompareFilesMessage({ type: 'analyze-file', filePaths: ['/a.wav', '/b.wav'] }), false, '型違い');
+    assert.equal(isCompareFilesMessage({ type: 'select-target', filePaths: ['/a.wav', '/b.wav'] }), false, '型違い');
     assert.equal(isCompareFilesMessage(null), false);
 });

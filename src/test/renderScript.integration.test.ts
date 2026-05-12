@@ -110,6 +110,14 @@ test('toolbar が生成される', () => {
     assert.ok(toolbar, '#toolbar が存在すること');
 });
 
+test('toolbar にファイルとフォルダを開く導線がある', () => {
+    const { dom } = setupEnv();
+    const openFileButton = dom.window.document.querySelector('[data-action="open-file"]');
+    const openFolderButton = dom.window.document.querySelector('[data-action="open-folder"]');
+    assert.ok(openFileButton, 'open-file ボタンが存在すること');
+    assert.ok(openFolderButton, 'open-folder ボタンが存在すること');
+});
+
 test('ruler-canvas が生成される', () => {
     const { dom } = setupEnv();
     const ruler = dom.window.document.getElementById('ruler-canvas');
@@ -122,6 +130,26 @@ test('acquireVsCodeApi().postMessage が postedMessages を記録する', () => 
     win.acquireVsCodeApi().postMessage({ type: 'test' });
     assert.equal(postedMessages.length, 1);
     assert.deepEqual((postedMessages[0] as any).type, 'test');
+});
+
+test('open-file ボタンが select-target(file) を送信する', () => {
+    const { dom, postedMessages } = setupEnv();
+    const button = dom.window.document.querySelector('[data-action="open-file"]');
+    assert.ok(button instanceof dom.window.HTMLButtonElement);
+    button.click();
+    const message = postedMessages[0] as { type?: string; targetKind?: string };
+    assert.equal(message.type, 'select-target');
+    assert.equal(message.targetKind, 'file');
+});
+
+test('open-folder ボタンが select-target(directory) を送信する', () => {
+    const { dom, postedMessages } = setupEnv();
+    const button = dom.window.document.querySelector('[data-action="open-folder"]');
+    assert.ok(button instanceof dom.window.HTMLButtonElement);
+    button.click();
+    const message = postedMessages[0] as { type?: string; targetKind?: string };
+    assert.equal(message.type, 'select-target');
+    assert.equal(message.targetKind, 'directory');
 });
 
 test('comparisonWaveform.js が window.renderWaveformPipeline を登録する', () => {

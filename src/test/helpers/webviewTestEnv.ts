@@ -25,7 +25,7 @@ export interface WebviewEnv {
 }
 
 /**
- * ComparisonPanel / AnalysisPanel の renderScript() を実行するための
+ * ComparisonPanel の renderScript() を実行するための
  * 軽量 jsdom 環境を構築する。
  *
  * - acquireVsCodeApi() をスタブ化（postMessage はキャプチャ）
@@ -48,7 +48,7 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
     win.acquireVsCodeApi = () => ({
         postMessage: (msg: unknown) => { postedMessages.push(msg); },
         getState: () => null,
-        setState: () => {},
+        setState: () => { },
     });
 
     // OffscreenCanvas スパイ
@@ -69,50 +69,45 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
             return {
                 clearRect() { ctx.clearRectCalls++; },
                 beginPath() { ctx.beginPathCalls++; },
-                moveTo() {},
-                lineTo() {},
+                moveTo() { },
+                lineTo() { },
                 stroke() { ctx.strokeCalls++; },
                 drawImage(src: unknown) { ctx.drawImageCalls.push({ src }); },
                 get lineWidth() { return 1; },
-                set lineWidth(_v: number) {},
+                set lineWidth(_v: number) { },
                 get strokeStyle() { return ''; },
-                set strokeStyle(_v: string) {},
+                set strokeStyle(_v: string) { },
             };
         }
     };
 
     // HTMLCanvasElement.getContext スタブ（DOM canvas 用）
-    const origCreateElement = dom.window.document.createElement.bind(dom.window.document);
-    dom.window.document.createElement = function(tag: string, ...args: any[]) {
-        const el = origCreateElement(tag, ...args);
-        if (tag.toLowerCase() === 'canvas') {
-            (el as any).getContext = (_type: string) => ({
-                clearRect() {},
-                beginPath() {},
-                moveTo() {},
-                lineTo() {},
-                stroke() {},
-                drawImage() {},
-                fillText() {},
-                get lineWidth() { return 1; },
-                set lineWidth(_v: number) {},
-                get strokeStyle() { return ''; },
-                set strokeStyle(_v: string) {},
-                get fillStyle() { return ''; },
-                set fillStyle(_v: string) {},
-                get font() { return ''; },
-                set font(_v: string) {},
-                get textAlign() { return 'left'; },
-                set textAlign(_v: string) {},
-                setLineDash() {},
-                save() {},
-                restore() {},
-                get globalAlpha() { return 1; },
-                set globalAlpha(_v: number) {},
-            });
-        }
-        return el;
-    } as any;
+    win.HTMLCanvasElement.prototype.getContext = function (_type: string) {
+        return {
+            clearRect() { },
+            beginPath() { },
+            moveTo() { },
+            lineTo() { },
+            stroke() { },
+            drawImage() { },
+            fillText() { },
+            get lineWidth() { return 1; },
+            set lineWidth(_v: number) { },
+            get strokeStyle() { return ''; },
+            set strokeStyle(_v: string) { },
+            get fillStyle() { return ''; },
+            set fillStyle(_v: string) { },
+            get font() { return ''; },
+            set font(_v: string) { },
+            get textAlign() { return 'left'; },
+            set textAlign(_v: string) { },
+            setLineDash() { },
+            save() { },
+            restore() { },
+            get globalAlpha() { return 1; },
+            set globalAlpha(_v: number) { },
+        };
+    };
 
     win.__APP_STATE__ = JSON.parse(appStateJson);
 

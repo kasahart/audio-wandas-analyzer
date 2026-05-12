@@ -14,7 +14,7 @@ NodeModule._load = function (id: string, ...rest: unknown[]) {
     if (id === 'vscode') {
         return {
             window: {},
-            ViewColumn: { Beside: 2, Active: 1 },
+            ViewColumn: { One: 1, Active: 1, Beside: 2 },
             Uri: { joinPath: (..._args: unknown[]) => ({ fsPath: '' }) },
             workspace: { getConfiguration: () => ({ get: (_k: string, d: unknown) => d }) },
         };
