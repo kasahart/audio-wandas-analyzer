@@ -31,7 +31,7 @@ This is a VS Code extension that analyzes audio files. A TypeScript extension ho
 User picks audio file
   → extension.ts (command handler)
   → spawns python-backend/main.py as child process (stdout JSON)
-  → AnalysisPanel.ts or ComparisonPanel.ts renders Webview
+  → ComparisonPanel.ts renders Webview
 ```
 
 For on-demand high-resolution waveform data during zoom:
@@ -50,8 +50,8 @@ Webview JS postMessage("request-waveform-range")
 |------|------|
 | `src/extension.ts` | Command registration, file picking, Python process spawning, message routing |
 | `src/waveformServer.ts` | Persistent Python child process for range requests; newline-JSON IPC |
-| `src/panels/AnalysisPanel.ts` | Single-file analysis Webview (HTML, CSS, JS inline) |
 | `src/panels/ComparisonPanel.ts` | Multi-track comparison Webview; contains `renderScript()` (large inline JS) and `getWebviewContent()` |
+| `src/panels/analysisTypes.ts` | Shared `AnalysisResult` / `DirectoryTreeNode` contracts used by the extension and Webview |
 | `src/panels/waveformRenderer.ts` | Pure TypeScript waveform rendering pipeline (3 layers, no Canvas dependency) |
 | `src/panels/rangeRequestPolicy.ts` | `isCacheSufficient` / `computeReqBounds` — decides when to fetch higher-res data |
 | `media/comparisonWaveform.js` | Plain-JS mirror of `waveformRenderer.ts` loaded in the Webview via `localResourceRoots`; exposes `window.renderWaveformPipeline` |

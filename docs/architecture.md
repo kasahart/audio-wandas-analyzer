@@ -2,11 +2,14 @@
 
 ## 概要
 
-このプロジェクトは、VS Code 拡張機能のフロントエンドと Python 製の解析バックエンドを分離した三層構成です。
+このプロジェクトは、VS Code 拡張機能のフロントエンドと Python 製の解析バックエンドを分離した三層構成です。現在のユーザー導線は次の 2 系統に分かれています。
+
+- 単一ファイル解析: ファイルを 1 件選択して即座に解析し、1 トラック状態の ComparisonPanel で確認する
+- 比較ビュー: 複数ファイルを対象に順次解析し、複数トラック状態の ComparisonPanel で比較する
 
 - Extension Host 層: コマンド登録、設定取得、ファイル選択、Python プロセス起動を担当
 - Python Backend 層: 音声解析、数値計算、JSON 形式の結果生成を担当
-- Webview UI 層: 解析結果の描画、ズームやホバーなどのインタラクションを担当
+- Webview UI 層: 比較パネル描画、ズームやホバーなどのインタラクションを担当
 
 設計上の主眼は、VS Code 固有処理と信号処理ロジックを切り離し、UI と解析処理を疎結合に保つことです。
 
@@ -14,14 +17,34 @@
 
 ```mermaid
 flowchart LR
-    User[User] --> Command[VS Code Command]
-    Command --> Extension[Extension Host\nsrc/extension.ts]
-    Extension -->|spawn python| BackendCLI[Python CLI\npython-backend/main.py]
-    BackendCLI --> Analyzer[Audio Analyzer\npython-backend/analyzer.py]
-    Analyzer -->|JSON stdout| Extension
-    Extension --> Panel[Webview Panel\nsrc/panels/AnalysisPanel.ts]
-    Panel --> User
+  User[User] --> Command[VS Code Command]
+  Command --> Extension[Extension Host\nsrc/extension.ts]
+
+  Extension -->|1 file| Single[単一ファイル解析導線]
+  Extension -->|2+ files| Compare[比較ビュー導線]
+
+  Single -->|spawn python| BackendCLI[Python CLI\npython-backend/main.py]
+  Compare -->|spawn python per file| BackendCLI
+  BackendCLI --> Analyzer[Audio Analyzer\npython-backend/analyzer.py]
+  Analyzer -->|JSON stdout| Extension
+  Extension --> Panel[ComparisonPanel\nsrc/panels/ComparisonPanel.ts]
+  Panel --> User
 ```
+
+## ユーザーフロー
+
+### 1. 単一ファイル解析
+
+1 件の音声ファイルを選択し、その場で解析して表示する最短導線です。内部では `runAnalysis()` を 1 回だけ呼び、返ってきた `AnalysisResult` を `AnalysisResultWithError[]` の 1 要素配列として `ComparisonPanel.show()` に渡します。したがって UI 上は比較パネルでも、実際には単一トラックの詳細閲覧として振る舞います。
+
+### 2. 比較ビュー
+
+複数ファイルを対象に解析して、共通タイムライン上で比較する導線です。開始点は 2 通りあります。
+
+- フォルダを選択し、配下の対応音声ファイル群を一括対象にする
+- Webview 上でファイル選択後に `compare-files` メッセージを送る
+
+内部では `runAnalysis()` をファイルごとに繰り返し、成功トラックと失敗トラックを含む `AnalysisResultWithError[]` を `ComparisonPanel.show()` に渡します。比較対象が 2 件以上のとき、ComparisonPanel は基準トラック、オフセット調整、ズーム同期を伴う比較ビューとして動作します。
 
 ## コンポーネント責務
 
@@ -33,16 +56,18 @@ flowchart LR
 
 - VS Code コマンド `audioWandasAnalyzer.analyzeFile` と `audioWandasAnalyzer.analyzeDebugFile` を登録する
 - 対象の音声ファイルまたはディレクトリを選択または解決する
-- ディレクトリが渡された場合は、対応音声ファイルのツリーを Webview に表示し、左にツリー、右に解析表示を持つ単一画面で、選択されたファイルだけを解析する
+- 受け取った対象を単一ファイル解析導線または比較ビュー導線へ振り分ける
+- Webview から `select-target`、`compare-files`、`request-waveform-range` を受け取る
 - 設定値 `pythonCommand`、`defaultPeakCount`、`debugFilePath` を読み込む
 - Python バックエンドを子プロセスとして起動する
-- 標準出力の JSON を `AnalysisResult` として解釈する
-- 成功時は Webview を開き、失敗時は VS Code 通知にエラーを表示する
+- 標準出力の JSON を `AnalysisResult` として解釈し、失敗時は `error` 付きの結果へ変換して `AnalysisResultWithError[]` に蓄積する
+- 成功時は `ComparisonPanel` を開き、失敗時は VS Code 通知にエラーを表示する
 
 特徴:
 
 - バックエンドとの境界はプロセス実行と JSON 入出力だけに限定されている
 - 解析ロジックを TypeScript 側に持たないため、UI 修正と数値処理修正を独立して進めやすい
+- 単一ファイルと複数ファイルの差は主に入力本数だけで、描画面は共通化されている
 
 ### 2. Python CLI Entry Point
 
@@ -79,26 +104,41 @@ flowchart LR
 - 数値データを可視化用に事前整形することで、Webview 側は描画ロジックに集中できる
 - チャンネルごとに独立した要約を返すため、多チャンネル音声でも同一描画パターンを再利用できる
 
-### 4. Webview UI
+### 4. ComparisonPanel
 
-対象: [src/panels/AnalysisPanel.ts](/workspaces/audio-wandas-analyzer/src/panels/AnalysisPanel.ts)
+対象: [src/panels/ComparisonPanel.ts](/workspaces/audio-wandas-analyzer/src/panels/ComparisonPanel.ts)
 
 責務:
 
-- `AnalysisResult` を HTML とインラインスクリプトへ埋め込む
-- マルチトラック比較に向いた一覧サマリーとトラック別の固定レイアウトを構成する
-- ファイル概要、チャンネル別メトリクス、優勢周波数テーブルを表示する
-- Canvas ベースで波形とスペクトログラムを描画する
-- ズーム、パン、ホバー、カーソル固定などの相互作用を処理する
+- `AnalysisResultWithError[]` を HTML とインラインスクリプトへ埋め込む
+- 1 件のときは単一トラック解析ビュー、2 件以上のときは比較ビューとして描画する
+- 共通タイムルーラー、ズーム、パン、カーソル同期、基準トラック管理を処理する
+- オンデマンド波形取得のために `request-waveform-range` メッセージを送る
+- 解析失敗トラックをエラー表示のまま比較対象に残す
 
 設計上のポイント:
 
-- Webview と Extension Host 間の追加メッセージ通信は現状使っていない
-- 初回描画に必要なデータは HTML 生成時にまとめて注入している
-- 共有カーソル状態をクライアント側で持ち、全チャンネルの時間位置を同期している
-- 画面は「上部の比較サマリー」と「共有タイムルーラーの下に、左トラックヘッダーと右プロット帯を並べた各トラック行」で構成し、Adobe Audition に近いマルチトラック比較導線を持たせている
+- 現在の主表示経路は単一ファイルでも複数ファイルでも `ComparisonPanel` に統一されている
+- 比較件数に応じてタイトルとレイアウト密度だけが変わり、基本的な描画パイプラインは共通である
+- 波形描画ロジックは [media/comparisonWaveform.js](/workspaces/audio-wandas-analyzer/media/comparisonWaveform.js) と協調している
+
+### 5. Shared Analysis Types
+
+対象: [src/panels/analysisTypes.ts](/workspaces/audio-wandas-analyzer/src/panels/analysisTypes.ts)
+
+責務:
+
+- `AnalysisResult`、`AnalysisResultWithError`、`DirectoryTreeNode` など、Extension Host と Webview の境界で共有する型を定義する
+- Python バックエンドの JSON 契約と TypeScript 側のデータ構造を同期させる
+
+設計上のポイント:
+
+- UI 実装から型定義を分離し、表示層の入れ替えや削除が型契約へ波及しないようにしている
+- `extension.ts` と `ComparisonPanel.ts` の両方が同じ型を参照することで、単一ファイル解析と比較ビューのデータモデルを統一している
 
 ## 実行シーケンス
+
+### 単一ファイル解析
 
 ```mermaid
 sequenceDiagram
@@ -106,30 +146,39 @@ sequenceDiagram
     participant E as Extension Host
     participant P as Python CLI
     participant A as Analyzer
-    participant W as Webview
+    participant C as ComparisonPanel
 
-    U->>E: Analyze File or Folder / Analyze Debug Path
+    U->>E: Analyze File / Analyze Debug Path
     E->>E: 設定読込と対象パス解決
-    alt 単一ファイル
-      E->>P: 子プロセス起動
-      P->>A: analyze_audio(file, peak_count)
-      A-->>P: 解析結果 dict
-      P-->>E: stdout に JSON 出力
-      E->>E: JSON.parse
-      E->>W: AnalysisPanel.show(result)
-    else ディレクトリ
-      E->>E: 対応音声ファイルを再帰列挙
-      E->>W: ディレクトリツリーを表示
-      U->>W: 解析したいファイルを選択
-      W->>E: analyze-file message
-      E->>P: 子プロセス起動
-      P->>A: analyze_audio(file, peak_count)
-      A-->>P: 解析結果 dict
-      P-->>E: stdout に JSON 出力
-      E->>E: JSON.parse
-      E->>W: 左ツリーは維持し、右側の解析表示だけ更新
+    E->>P: 子プロセス起動
+    P->>A: analyze_audio(file, peak_count)
+    A-->>P: 解析結果 dict
+    P-->>E: stdout に JSON 出力
+    E->>E: JSON.parse / AnalysisResultWithError[] を構築
+    E->>C: ComparisonPanel.show([result])
+    C-->>U: 1 トラック状態の解析ビューを表示
+```
+
+### 比較ビュー
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant C as ComparisonPanel
+    participant E as Extension Host
+    participant P as Python CLI
+    participant A as Analyzer
+    U->>C: 比較対象を選択して compare-files
+    C->>E: compare-files message
+    loop filePaths
+        E->>P: 子プロセス起動
+        P->>A: analyze_audio(file, peak_count)
+        A-->>P: 解析結果 dict
+        P-->>E: stdout に JSON 出力
+        E->>E: JSON.parse / AnalysisResultWithError[] へ追加
     end
-    W-->>U: ディレクトリツリーまたは波形・スペクトログラムを表示
+    E->>C: ComparisonPanel.show(results, existingPanel)
+    C-->>U: 複数トラック比較ビューを表示
 ```
 
 ## データフロー
@@ -147,7 +196,9 @@ sequenceDiagram
 
 ### 出力
 
-TypeScript 側で期待する `AnalysisResult` は概ね以下の構造です。
+Python 側の正常系レスポンスは `AnalysisResult` として解釈し、Extension Host 側では失敗時の `error` を含めて `AnalysisResultWithError[]` に正規化して扱います。
+
+正常系の `AnalysisResult` は概ね以下の構造です。
 
 ```ts
 interface AnalysisResult {
@@ -172,13 +223,24 @@ interface AnalysisResult {
 
 この構造により、バックエンドと UI の依存関係は明確で、互いの内部実装を知らなくても境界契約だけで接続できます。
 
+失敗を含む UI 側の結果モデルは以下です。
+
+```ts
+interface AnalysisResultWithError extends AnalysisResult {
+  error?: string;
+}
+```
+
+この形により、比較対象の一部だけが解析失敗しても、パネル全体は閉じずに他トラックを表示し続けられます。
+
 ## ディレクトリ構成
 
 ```text
 src/
   extension.ts              VS Code 拡張のエントリポイント
   panels/
-    AnalysisPanel.ts        Webview UI と描画ロジック
+    ComparisonPanel.ts      単一ファイル表示と比較表示の Webview UI
+    analysisTypes.ts        共有型定義
 python-backend/
   main.py                   Python CLI エントリポイント
   analyzer.py               音声解析ロジック
