@@ -15,7 +15,7 @@
 | `src/extension.ts` | 入力解決、逐次解析、Webview メッセージルーティング |
 | `src/panels/ComparisonPanel.ts` | 単一ファイル表示と比較表示の UI |
 | `src/panels/analysisTypes.ts` | `AnalysisResult` / `AnalysisResultWithError` / `DirectoryTreeNode` |
-| `src/utils/audioTarget.ts` | `select-target` / `compare-files` / `request-waveform-range` の型ガード |
+| `src/utils/audioTarget.ts` | `select-target` / `request-waveform-range` の型ガード |
 | `src/waveformServer.ts` | 範囲波形要求のバックエンド中継 |
 | `src/test/renderScript.integration.test.ts` | ComparisonPanel の jsdom 統合テスト |
 
@@ -45,7 +45,7 @@
 実装ポイント:
 
 - `analyzeAudioTarget()` はファイルなら 1 件、フォルダなら複数件を `analyzeMultipleFiles()` に渡す
-- `registerPanelMessageHandler()` は `select-target`、`compare-files`、`request-waveform-range` を処理する
+- `registerPanelMessageHandler()` は `select-target` と `request-waveform-range` を処理する
 - 失敗ファイルは空チャンネルと `error` 付きで結果配列に残す
 
 完了条件:
@@ -63,7 +63,7 @@
 実装ポイント:
 
 - 1 件時は単一トラックとして描画し、タイトルを解析ビュー向けにする
-- 2 件以上では基準トラック、オフセット、縦積み / オーバーレイを有効にする
+- 2 件以上ではオフセット、縦積み / オーバーレイ、トラックごとの再生操作を有効にする
 - `comparisonWaveform.js` と `waveformRenderer.ts` のアルゴリズム整合を保つ
 
 完了条件:
@@ -109,6 +109,6 @@
 
 - 表示 UI は `src/panels/ComparisonPanel.ts` に統一されている
 - 共有型は `src/panels/analysisTypes.ts` に集約されている
-- Webview メッセージは `select-target` / `compare-files` / `request-waveform-range` に整理されている
+- Webview メッセージは `select-target` / `request-waveform-range` に整理されている
 - 単一ファイル表示と複数ファイル比較は同じ描画パイプラインを共有している
 - jsdom テスト用の canvas スタブが整備され、統合テストが安定している

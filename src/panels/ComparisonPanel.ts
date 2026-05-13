@@ -1,10 +1,14 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { serializeForScript } from '../utils/webviewEscaping';
 import type { AnalysisResultWithError } from './analysisTypes';
 
+interface ComparisonTrackState extends AnalysisResultWithError {
+    audioSource?: string;
+}
+
 interface ComparisonState {
-    results: AnalysisResultWithError[];
-    referenceIndex: number;
+    results: ComparisonTrackState[];
 }
 
 export class ComparisonPanel {
@@ -17,26 +21,48 @@ export class ComparisonPanel {
             ? `Audio Analyzer: ${results[0].fileName}`
             : `Audio Compare: ${results.map((r) => r.fileName).join(', ')}`;
 
+        const localResourceRoots = ComparisonPanel.buildLocalResourceRoots(extensionUri, results);
         const panel = existingPanel ?? vscode.window.createWebviewPanel(
             'audioWandasAnalyzer.comparison',
             title,
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+                localResourceRoots,
             },
         );
 
         panel.title = title;
         panel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+            localResourceRoots,
         };
         panel.reveal(vscode.ViewColumn.One, true);
 
-        const state: ComparisonState = { results, referenceIndex: 0 };
+        const state: ComparisonState = {
+            results: results.map((result) => ({
+                ...result,
+                audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
+            })),
+        };
         panel.webview.html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
         return panel;
+    }
+
+    private static buildLocalResourceRoots(
+        extensionUri: vscode.Uri,
+        results: AnalysisResultWithError[],
+    ): vscode.Uri[] {
+        const roots = new Map<string, vscode.Uri>();
+        const mediaRoot = vscode.Uri.joinPath(extensionUri, 'media');
+        roots.set(mediaRoot.toString(), mediaRoot);
+
+        results.forEach((result) => {
+            const audioDir = vscode.Uri.file(path.dirname(result.filePath));
+            roots.set(audioDir.toString(), audioDir);
+        });
+
+        return Array.from(roots.values());
     }
 
     private static renderHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri): string {
@@ -48,7 +74,7 @@ export class ComparisonPanel {
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource};">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource}; media-src ${webview.cspSource};">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>比較パネル</title>
     <style>${ComparisonPanel.renderStyles()}</style>
@@ -115,7 +141,6 @@ export class ComparisonPanel {
             width: 130px; flex-shrink: 0; border-right: 1px solid var(--line);
             padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 9px;
         }
-        .track-role { color: var(--muted); }
         .track-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
         .track-meta { color: var(--muted); }
         .track-btns { display: flex; gap: 3px; margin-top: 2px; align-items: center; }
@@ -124,11 +149,8 @@ export class ComparisonPanel {
             border: 1px solid var(--line); background: var(--surface);
             color: var(--muted); cursor: pointer;
         }
+        .track-btn.is-playing { background: var(--accent); color: #fff; border-color: var(--accent); }
         .track-btn.is-muted { background: #555; color: #fff; }
-        .track-ref-badge {
-            font-size: 8px; padding: 1px 4px; border-radius: 2px;
-            margin-left: auto;
-        }
         .track-offset { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .track-offset-val {
             font-size: 9px; font-family: var(--font-mono);
@@ -163,6 +185,7 @@ export class ComparisonPanel {
             flex-direction: column; gap: 12px; color: var(--muted); font-size: 14px;
         }
         #empty-state.is-visible { display: flex; }
+        #audio-host { display: none; }
         `;
     }
 
@@ -187,6 +210,7 @@ export class ComparisonPanel {
             const canvasWidthCache = {};
             let playbackEl = null;
             let playbackRafId = null;
+            let playbackTrackIndex = null;
 
             function scheduleRender() {
                 if (rafPending) { return; }
@@ -197,7 +221,6 @@ export class ComparisonPanel {
             let zoomStart = 0;
             let zoomEnd = 1;
             let cursorNorm = null;        // null = free, number = fixed
-            let referenceIndex = state.referenceIndex;
             let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag }
             let hoverTrackIndex = -1;     // overlay hit-test highlight
 
@@ -322,7 +345,15 @@ export class ComparisonPanel {
                     + '  </div>'
                     + '  <div id="empty-state"><p>すべてのトラックが除外されています</p></div>'
                     + '</div>'
+                    + '<div id="audio-host">' + buildAudioElements() + '</div>'
                     + '<div id="metrics-bar">' + metrics + '</div>';
+            }
+
+            function buildAudioElements() {
+                return state.results.map(function(result, i) {
+                    if (!result.audioSource) { return ''; }
+                    return '<audio id="track-audio-' + i + '" preload="metadata" src="' + escHtml(result.audioSource) + '"></audio>';
+                }).join('');
             }
 
             function buildToolbar() {
@@ -347,22 +378,16 @@ export class ComparisonPanel {
             }
 
             function buildTrackRow(result, i) {
-                const color = TRACK_COLORS[i % TRACK_COLORS.length];
-                const isRef = i === referenceIndex;
-                const refBadge = isRef
-                    ? '<span class="track-ref-badge" style="background:' + color + ';color:#000">基準</span>'
-                    : '<button class="track-btn" data-action="set-ref" data-track-index="' + i + '" title="基準にする">基準に</button>';
                 return '<div class="track-row" id="track-row-' + i + '" data-track-index="' + i + '">'
                     + '<div class="track-header">'
-                    + '  <div class="track-role">' + (isRef ? '📌 基準' : '比較') + '</div>'
                     + '  <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
                     + '  <div class="track-meta">Ch: ' + result.channelCount + ' &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
                     + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
                     + '    <button class="track-btn" data-action="toggle-mute" data-track-index="' + i + '">M</button>'
-                    + '    <button class="track-btn" style="opacity:0.3" disabled title="将来対応">S</button>'
+                    + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="再生 / 一時停止"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
+                    + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="停止"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
                     + '    <button class="track-btn" data-action="remove-track" data-track-index="' + i + '">✕</button>'
-                    + '    ' + refBadge
                     + '  </div>'
                     + '  <div class="track-offset">'
                     + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-index="' + i + '" title="ダブルクリックでリセット">+0.000s</span>'
@@ -508,10 +533,14 @@ export class ComparisonPanel {
                     : null;
             }
 
-            function drawTrackWaveform(canvas, result, trackIndex, offsetSeconds, color) {
+            function drawTrackWaveform(canvas, result, trackIndex, offsetSeconds, color, options) {
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width, H = canvas.height;
-                ctx.clearRect(0, 0, W, H);
+                const shouldClear = !options || options.clear !== false;
+                const shouldDrawCursor = !options || options.drawCursor !== false;
+                if (shouldClear) {
+                    ctx.clearRect(0, 0, W, H);
+                }
 
                 // ゼロライン
                 ctx.strokeStyle = hexToRgba(color, 0.25);
@@ -535,7 +564,9 @@ export class ComparisonPanel {
                     });
                 }
 
-                drawCursorOnCanvas(ctx, W, H);
+                if (shouldDrawCursor) {
+                    drawCursorOnCanvas(ctx, W, H);
+                }
             }
 
             function drawSpectrogram(canvas, result, offsetSeconds) {
@@ -617,8 +648,11 @@ export class ComparisonPanel {
                     const color = TRACK_COLORS[i % TRACK_COLORS.length];
                     const isHl = (i === hoverTrackIndex);
                     ctx.save();
-                    ctx.globalAlpha = isHl ? 1.0 : (i === referenceIndex ? 0.9 : 0.7);
-                    drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
+                    ctx.globalAlpha = isHl ? 1.0 : 0.7;
+                    drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color, {
+                        clear: false,
+                        drawCursor: false,
+                    });
                     ctx.restore();
                 });
 
@@ -643,7 +677,7 @@ export class ComparisonPanel {
                     if (trackRuntime[i].hidden) { return ''; }
                     const color = TRACK_COLORS[i % TRACK_COLORS.length];
                     return '<div class="overlay-legend-item"><div class="overlay-swatch" style="background:' + color + '"></div>'
-                        + '<span>' + escHtml(result.fileName) + (i === referenceIndex ? ' 📌' : '') + '</span></div>';
+                        + '<span>' + escHtml(result.fileName) + '</span></div>';
                 }).join('');
             }
 
@@ -674,23 +708,72 @@ export class ComparisonPanel {
                 });
             }
 
+            function getTrackAudio(idx) {
+                return document.getElementById('track-audio-' + idx);
+            }
+
+            function getTrackTimeMapping(idx) {
+                const result = state.results[idx];
+                if (!result) { return null; }
+                const durationSeconds = result.durationSeconds || 0;
+                if (durationSeconds <= 0) { return null; }
+                const gs = computeGlobalSpan();
+                const trackStart = (trackRuntime[idx].offsetSeconds - gs.startSec) / gs.spanSec;
+                const trackDurRatio = durationSeconds / gs.spanSec;
+                return { durationSeconds, trackStart, trackDurRatio };
+            }
+
+            function globalNormFromTrackTime(idx, timeSeconds) {
+                const mapping = getTrackTimeMapping(idx);
+                if (!mapping) { return null; }
+                return mapping.trackStart + (timeSeconds / mapping.durationSeconds) * mapping.trackDurRatio;
+            }
+
+            function trackTimeFromGlobalNorm(idx, norm) {
+                const mapping = getTrackTimeMapping(idx);
+                if (!mapping) { return null; }
+                const fileNorm = (norm - mapping.trackStart) / mapping.trackDurRatio;
+                const clampedNorm = Math.max(0, Math.min(1, fileNorm));
+                return clampedNorm * mapping.durationSeconds;
+            }
+
+            function trackStartNorm(idx) {
+                const mapping = getTrackTimeMapping(idx);
+                return mapping ? mapping.trackStart : 0;
+            }
+
+            function updatePlaybackButtons() {
+                state.results.forEach(function(_, i) {
+                    const playBtn = document.querySelector('[data-action="toggle-playback"][data-track-index="' + i + '"]');
+                    const stopBtn = document.querySelector('[data-action="stop-playback"][data-track-index="' + i + '"]');
+                    const isActive = playbackTrackIndex === i && playbackEl;
+                    const isPlaying = isActive && !playbackEl.paused;
+                    if (playBtn) {
+                        playBtn.textContent = isPlaying ? '⏸' : '▶';
+                        playBtn.classList.toggle('is-playing', !!isPlaying);
+                    }
+                    if (stopBtn) {
+                        stopBtn.disabled = !isActive;
+                    }
+                });
+            }
+
+            function clearPlaybackState() {
+                playbackEl = null;
+                playbackTrackIndex = null;
+                stopPlaybackLoop();
+                updatePlaybackButtons();
+            }
+
             function startPlaybackLoop() {
                 if (playbackRafId !== null) { return; }
                 function tick() {
-                    if (playbackEl && !playbackEl.paused) {
-                        const tNorm = playbackEl.currentTime / (playbackEl.duration || 1);
-                        if (cursorNorm !== tNorm) {
-                            cursorNorm = tNorm;
-                            state.results.forEach(function(result, i) {
-                                if (trackRuntime[i].hidden || result.error) { return; }
-                                const canvas = document.getElementById('track-canvas-' + i);
-                                if (canvas) {
-                                    drawTrackWaveform(canvas, result, i,
-                                        trackRuntime[i].offsetSeconds,
-                                        TRACK_COLORS[i % TRACK_COLORS.length]);
-                                }
-                            });
-                            updateCursorDisplay(tNorm);
+                    if (playbackEl && playbackTrackIndex !== null && !playbackEl.paused) {
+                        const nextCursor = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
+                        if (nextCursor !== null) {
+                            cursorNorm = nextCursor;
+                            updateCursorDisplay(nextCursor);
+                            scheduleRender();
                         }
                     }
                     playbackRafId = requestAnimationFrame(tick);
@@ -700,6 +783,104 @@ export class ComparisonPanel {
 
             function stopPlaybackLoop() {
                 if (playbackRafId !== null) { cancelAnimationFrame(playbackRafId); playbackRafId = null; }
+            }
+
+            function stopPlayback(idx, options) {
+                const audio = idx === null || idx === undefined ? playbackEl : getTrackAudio(idx);
+                if (audio) {
+                    audio.pause();
+                    try { audio.currentTime = 0; } catch (_err) { }
+                }
+                if (idx === playbackTrackIndex) {
+                    if (!options || options.keepCursor !== true) {
+                        cursorNorm = idx === null || idx === undefined ? null : trackStartNorm(idx);
+                        if (cursorNorm !== null) { updateCursorDisplay(cursorNorm); }
+                    }
+                    clearPlaybackState();
+                    scheduleRender();
+                    return;
+                }
+                updatePlaybackButtons();
+            }
+
+            function togglePlayback(idx) {
+                const audio = getTrackAudio(idx);
+                if (!audio) { return; }
+
+                if (playbackTrackIndex === idx && playbackEl === audio && !audio.paused) {
+                    audio.pause();
+                    updatePlaybackButtons();
+                    stopPlaybackLoop();
+                    return;
+                }
+
+                if (playbackTrackIndex !== null && playbackTrackIndex !== idx) {
+                    stopPlayback(playbackTrackIndex, { keepCursor: true });
+                }
+
+                playbackTrackIndex = idx;
+                playbackEl = audio;
+
+                const durationSeconds = audio.duration || state.results[idx].durationSeconds || 0;
+                let startTime = trackTimeFromGlobalNorm(idx, cursorNorm !== null ? cursorNorm : trackStartNorm(idx));
+                if (startTime === null) { startTime = 0; }
+                if (durationSeconds > 0 && startTime >= Math.max(0, durationSeconds - 0.05)) {
+                    startTime = 0;
+                }
+                try { audio.currentTime = startTime; } catch (_err) { }
+
+                const playPromise = audio.play();
+                if (playPromise && typeof playPromise.catch === 'function') {
+                    playPromise.catch(function() {
+                        clearPlaybackState();
+                    });
+                }
+
+                const nextCursor = globalNormFromTrackTime(idx, audio.currentTime);
+                if (nextCursor !== null) {
+                    cursorNorm = nextCursor;
+                    updateCursorDisplay(nextCursor);
+                }
+                updatePlaybackButtons();
+                startPlaybackLoop();
+                scheduleRender();
+            }
+
+            function attachAudioEvents() {
+                state.results.forEach(function(_, i) {
+                    const audio = getTrackAudio(i);
+                    if (!audio) { return; }
+                    audio.addEventListener('play', function() {
+                        playbackEl = audio;
+                        playbackTrackIndex = i;
+                        updatePlaybackButtons();
+                        startPlaybackLoop();
+                    });
+                    audio.addEventListener('pause', function() {
+                        if (playbackTrackIndex === i) {
+                            updatePlaybackButtons();
+                            if (audio.ended) {
+                                stopPlayback(i, { keepCursor: true });
+                            }
+                        }
+                    });
+                    audio.addEventListener('ended', function() {
+                        if (playbackTrackIndex === i) {
+                            const endNorm = globalNormFromTrackTime(i, state.results[i].durationSeconds || 0);
+                            if (endNorm !== null) {
+                                cursorNorm = endNorm;
+                                updateCursorDisplay(endNorm);
+                            }
+                            clearPlaybackState();
+                            scheduleRender();
+                        }
+                    });
+                    audio.addEventListener('error', function() {
+                        if (playbackTrackIndex === i) {
+                            clearPlaybackState();
+                        }
+                    });
+                });
             }
 
             // ── Events ──
@@ -714,8 +895,9 @@ export class ComparisonPanel {
                     const action = e.target.getAttribute('data-action');
                     const idx = parseInt(e.target.getAttribute('data-track-index'), 10);
                     if (action === 'toggle-mute' && !isNaN(idx)) { toggleMute(idx); }
+                    if (action === 'toggle-playback' && !isNaN(idx)) { togglePlayback(idx); }
+                    if (action === 'stop-playback' && !isNaN(idx)) { stopPlayback(idx); }
                     if (action === 'remove-track' && !isNaN(idx)) { removeTrack(idx); }
-                    if (action === 'set-ref' && !isNaN(idx)) { setReference(idx); }
                     if (action === 'offset-up' && !isNaN(idx)) { adjustOffset(idx, 0.01); }
                     if (action === 'offset-down' && !isNaN(idx)) { adjustOffset(idx, -0.01); }
                 });
@@ -750,6 +932,8 @@ export class ComparisonPanel {
                 }, { passive: false });
 
                 window.addEventListener('resize', function() { scheduleRender(); });
+                attachAudioEvents();
+                updatePlaybackButtons();
             }
 
             function handleToolbarAction(action) {
@@ -1010,6 +1194,7 @@ export class ComparisonPanel {
             }
 
             function toggleMute(idx) {
+                if (idx === playbackTrackIndex) { stopPlayback(idx); }
                 trackRuntime[idx].hidden = !trackRuntime[idx].hidden;
                 const btn = document.querySelector('[data-action="toggle-mute"][data-track-index="' + idx + '"]');
                 if (btn) { btn.classList.toggle('is-muted', trackRuntime[idx].hidden); }
@@ -1018,38 +1203,13 @@ export class ComparisonPanel {
             }
 
             function removeTrack(idx) {
+                if (idx === playbackTrackIndex) { stopPlayback(idx); }
                 const row = document.getElementById('track-row-' + idx);
                 if (row) { row.remove(); }
+                const audio = getTrackAudio(idx);
+                if (audio) { audio.remove(); }
                 trackRuntime[idx].hidden = true;
-                if (referenceIndex === idx) {
-                    const remaining = Array.from(document.querySelectorAll('.track-row'))
-                        .map(function(r) { return parseInt(r.getAttribute('data-track-index'), 10); })
-                        .filter(function(i) { return !isNaN(i); });
-                    if (remaining.length > 0) { setReference(remaining[0]); }
-                }
                 updateVisibility();
-                scheduleRender();
-            }
-
-            function setReference(idx) {
-                referenceIndex = idx;
-                document.querySelectorAll('.track-row').forEach(function(row) {
-                    const i = parseInt(row.getAttribute('data-track-index'), 10);
-                    const roleEl = row.querySelector('.track-role');
-                    if (roleEl) { roleEl.textContent = i === idx ? '📌 基準' : '比較'; }
-                    const badge = row.querySelector('.track-ref-badge');
-                    const setRefBtn = row.querySelector('[data-action="set-ref"]');
-                    const color = TRACK_COLORS[i % TRACK_COLORS.length];
-                    if (i === idx) {
-                        if (setRefBtn) {
-                            setRefBtn.outerHTML = '<span class="track-ref-badge" style="background:' + color + ';color:#000">基準</span>';
-                        }
-                    } else {
-                        if (badge) {
-                            badge.outerHTML = '<button class="track-btn" data-action="set-ref" data-track-index="' + i + '" title="基準にする">基準に</button>';
-                        }
-                    }
-                });
                 scheduleRender();
             }
 

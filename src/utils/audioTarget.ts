@@ -42,17 +42,3 @@ export function isRequestWaveformRangeMessage(message: unknown): message is Wave
         typeof m['points'] === 'number'
     );
 }
-
-export function isCompareFilesMessage(message: unknown): message is { type: 'compare-files'; filePaths: string[] } {
-    if (!message || typeof message !== 'object') {
-        return false;
-    }
-
-    const candidate = message as { type?: unknown; filePaths?: unknown };
-    return (
-        candidate.type === 'compare-files' &&
-        Array.isArray(candidate.filePaths) &&
-        candidate.filePaths.length >= 2 &&
-        (candidate.filePaths as unknown[]).every((p) => typeof p === 'string' && p.length > 0)
-    );
-}

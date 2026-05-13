@@ -17,11 +17,17 @@ export interface SpyOffscreenCanvas {
     ctx: CanvasSpyCtx;
 }
 
+export interface DomCanvasSpyCtx extends CanvasSpyCtx {
+    saveCalls: number;
+    restoreCalls: number;
+}
+
 export interface WebviewEnv {
     dom: JSDOM;
     postedMessages: unknown[];
     /** インデックス順に作られた OffscreenCanvas スパイ */
     offscreenInstances: SpyOffscreenCanvas[];
+    domCanvasContexts: Map<string, DomCanvasSpyCtx>;
 }
 
 /**
@@ -37,6 +43,7 @@ export interface WebviewEnv {
 export function createWebviewEnv(appStateJson: string): WebviewEnv {
     const postedMessages: unknown[] = [];
     const offscreenInstances: SpyOffscreenCanvas[] = [];
+    const domCanvasContexts = new Map<string, DomCanvasSpyCtx>();
 
     const dom = new JSDOM(
         `<!DOCTYPE html><body><div id="app"></div></body>`,
@@ -83,13 +90,26 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
 
     // HTMLCanvasElement.getContext スタブ（DOM canvas 用）
     win.HTMLCanvasElement.prototype.getContext = function (_type: string) {
+        const id = this.id || '__anonymous__';
+        let spy = domCanvasContexts.get(id);
+        if (!spy) {
+            spy = {
+                clearRectCalls: 0,
+                drawImageCalls: [],
+                beginPathCalls: 0,
+                strokeCalls: 0,
+                saveCalls: 0,
+                restoreCalls: 0,
+            };
+            domCanvasContexts.set(id, spy);
+        }
         return {
-            clearRect() { },
-            beginPath() { },
+            clearRect() { spy.clearRectCalls++; },
+            beginPath() { spy.beginPathCalls++; },
             moveTo() { },
             lineTo() { },
-            stroke() { },
-            drawImage() { },
+            stroke() { spy.strokeCalls++; },
+            drawImage(src: unknown) { spy.drawImageCalls.push({ src }); },
             fillText() { },
             get lineWidth() { return 1; },
             set lineWidth(_v: number) { },
@@ -102,16 +122,50 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
             get textAlign() { return 'left'; },
             set textAlign(_v: string) { },
             setLineDash() { },
-            save() { },
-            restore() { },
+            save() { spy.saveCalls++; },
+            restore() { spy.restoreCalls++; },
             get globalAlpha() { return 1; },
             set globalAlpha(_v: number) { },
         };
     };
 
+    Object.defineProperty(win.HTMLMediaElement.prototype, 'paused', {
+        configurable: true,
+        get() { return this.__paused !== false; },
+        set(value: boolean) { this.__paused = value; },
+    });
+    Object.defineProperty(win.HTMLMediaElement.prototype, 'currentTime', {
+        configurable: true,
+        get() { return this.__currentTime || 0; },
+        set(value: number) { this.__currentTime = value; },
+    });
+    Object.defineProperty(win.HTMLMediaElement.prototype, 'duration', {
+        configurable: true,
+        get() { return this.__duration || 1; },
+        set(value: number) { this.__duration = value; },
+    });
+    Object.defineProperty(win.HTMLMediaElement.prototype, 'ended', {
+        configurable: true,
+        get() { return !!this.__ended; },
+        set(value: boolean) { this.__ended = value; },
+    });
+    win.HTMLMediaElement.prototype.play = function () {
+        this.paused = false;
+        this.ended = false;
+        this.dispatchEvent(new win.Event('play'));
+        return Promise.resolve();
+    };
+    win.HTMLMediaElement.prototype.pause = function () {
+        const wasPaused = this.paused;
+        this.paused = true;
+        if (!wasPaused) {
+            this.dispatchEvent(new win.Event('pause'));
+        }
+    };
+
     win.__APP_STATE__ = JSON.parse(appStateJson);
 
-    return { dom, postedMessages, offscreenInstances };
+    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
 }
 
 /**

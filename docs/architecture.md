@@ -42,9 +42,9 @@ flowchart LR
 複数ファイルを対象に解析して、共通タイムライン上で比較する導線です。開始点は 2 通りあります。
 
 - フォルダを選択し、配下の対応音声ファイル群を一括対象にする
-- Webview 上でファイル選択後に `compare-files` メッセージを送る
+- 単一ファイルを開いたあと、ツールバーから別のファイルまたはフォルダを開いて同じパネルを再利用する
 
-内部では `runAnalysis()` をファイルごとに繰り返し、成功トラックと失敗トラックを含む `AnalysisResultWithError[]` を `ComparisonPanel.show()` に渡します。比較対象が 2 件以上のとき、ComparisonPanel は基準トラック、オフセット調整、ズーム同期を伴う比較ビューとして動作します。
+内部では `runAnalysis()` をファイルごとに繰り返し、成功トラックと失敗トラックを含む `AnalysisResultWithError[]` を `ComparisonPanel.show()` に渡します。比較対象が 2 件以上のとき、ComparisonPanel はオフセット調整、ズーム同期、再生操作を伴う比較ビューとして動作します。
 
 ## コンポーネント責務
 
@@ -57,7 +57,7 @@ flowchart LR
 - VS Code コマンド `audioWandasAnalyzer.analyzeFile` と `audioWandasAnalyzer.analyzeDebugFile` を登録する
 - 対象の音声ファイルまたはディレクトリを選択または解決する
 - 受け取った対象を単一ファイル解析導線または比較ビュー導線へ振り分ける
-- Webview から `select-target`、`compare-files`、`request-waveform-range` を受け取る
+- Webview から `select-target` と `request-waveform-range` を受け取る
 - 設定値 `pythonCommand`、`defaultPeakCount`、`debugFilePath` を読み込む
 - Python バックエンドを子プロセスとして起動する
 - 標準出力の JSON を `AnalysisResult` として解釈し、失敗時は `error` 付きの結果へ変換して `AnalysisResultWithError[]` に蓄積する
@@ -112,7 +112,7 @@ flowchart LR
 
 - `AnalysisResultWithError[]` を HTML とインラインスクリプトへ埋め込む
 - 1 件のときは単一トラック解析ビュー、2 件以上のときは比較ビューとして描画する
-- 共通タイムルーラー、ズーム、パン、カーソル同期、基準トラック管理を処理する
+- 共通タイムルーラー、ズーム、パン、カーソル同期、トラックごとの再生操作を処理する
 - オンデマンド波形取得のために `request-waveform-range` メッセージを送る
 - 解析失敗トラックをエラー表示のまま比較対象に残す
 
@@ -164,12 +164,12 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant C as ComparisonPanel
+  participant V as VS Code
     participant E as Extension Host
     participant P as Python CLI
     participant A as Analyzer
-    U->>C: 比較対象を選択して compare-files
-    C->>E: compare-files message
+  U->>V: フォルダを開く、または既存パネルで再度開く
+  V->>E: analyzeFile command / select-target message
     loop filePaths
         E->>P: 子プロセス起動
         P->>A: analyze_audio(file, peak_count)

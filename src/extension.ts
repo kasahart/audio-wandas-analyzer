@@ -6,7 +6,6 @@ import { registerWorkspaceTests } from './testing/workspaceTests';
 import {
     isSelectTargetMessage,
     isSupportedAudioFile,
-    isCompareFilesMessage,
     isRequestWaveformRangeMessage,
     type SelectionTargetKind,
 } from './utils/audioTarget';
@@ -98,11 +97,6 @@ function registerPanelMessageHandler(
                 }
 
                 await analyzeAudioTarget(context, selected, panel);
-                return;
-            }
-
-            if (isCompareFilesMessage(message)) {
-                await analyzeMultipleFiles(context, message.filePaths, panel);
                 return;
             }
 
