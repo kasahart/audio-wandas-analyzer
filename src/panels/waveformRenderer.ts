@@ -171,11 +171,10 @@ export function computeViewRange(
     const visEndNorm   = (fileAtZoomEnd   - dataStart) / dataRange;
 
     // 可視ファイル範囲を 1 つ分前後に拡張して描画（off-canvas は Canvas がクリップ）。
-    // ズームがファイル末尾（グローバル座標）を超える量に基づいて extSpan を計算することで、
-    // 大きなオフセットや小さな trackDurRatio 時に描画範囲が不必要に広がるのを防ぐ。
-    const globalFileEnd = offsetNorm + trackDurRatio * dataEnd;
-    const globalOvershootEnd = Math.max(0, zoomEnd - globalFileEnd);
-    const extSpan = Math.max(globalOvershootEnd * trackDurRatio / dataRange, 1 / n);
+    // extSpan は「今見えているファイル区間の幅」を使い、左右対称に拡張する。
+    const clampedVisStartNorm = Math.max(0, visStartNorm);
+    const clampedVisEndNorm = Math.min(1, visEndNorm);
+    const extSpan = Math.max(clampedVisEndNorm - clampedVisStartNorm, 1 / n);
     const i0 = Math.max(0, Math.floor((visStartNorm - extSpan) * n));
     const i1 = Math.min(n - 1, Math.ceil((visEndNorm + extSpan) * n));
 

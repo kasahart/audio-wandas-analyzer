@@ -17,6 +17,9 @@ npm test
 # Run a single test file
 npm run compile && node --test dist/test/waveformRenderer.test.js
 
+# Run VS Code E2E smoke tests
+npm run test:e2e:vscode
+
 # Python backend tests
 cd python-backend && python -m pytest test_decimator.py -v
 ```
@@ -87,10 +90,13 @@ The Python `decimated_waveform()` returns `minT`/`maxT` as positions normalized 
 
 Tests are plain Node.js `node:test` modules compiled to `dist/test/`. They run without VS Code.
 
+For VS Code-hosted UI smoke tests, use `npm run test:e2e:vscode`. This launches the compiled extension in a VS Code test host, runs the `Audio Analyzer: Analyze Debug Path` flow against the workspace debug audio, and verifies the ComparisonPanel UI state. In headless Linux environments, the script uses `xvfb-run` automatically when available.
+
 - `src/test/waveformRenderer.test.ts` — unit tests for all 3 rendering layers including `trackDurRatio` and offset scenarios
 - `src/test/rangeRequestPolicy.test.ts` — cache sufficiency and request bound logic
 - `src/test/renderScript.integration.test.ts` — runs `ComparisonPanel.renderScript()` inside jsdom to verify the Webview JS executes without errors
 - `src/test/helpers/comparisonScriptLoader.ts` — stubs the `vscode` module so `ComparisonPanel` can be imported in Node.js tests
 - `src/test/helpers/webviewTestEnv.ts` — jsdom environment setup for Webview script integration tests
+- `src/e2e/suite/index.ts` — VS Code E2E smoke scenarios for debug-path analysis, toolbar and track visibility, zoom behavior, view switching, and offset-visible-range checks
 
 `media/comparisonWaveform.js` must stay in sync with `waveformRenderer.ts`. When changing rendering logic, update both files and run `npm test` to catch divergence via `renderScript.integration.test.ts`.

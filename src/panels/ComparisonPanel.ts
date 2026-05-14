@@ -11,7 +11,78 @@ interface ComparisonState {
     results: ComparisonTrackState[];
 }
 
+interface ComparisonPanelTestSnapshot {
+    title: string;
+    html: string;
+    fileNames: string[];
+    resultCount: number;
+    lastActionId?: string;
+    renderedUi?: {
+        hasToolbar: boolean;
+        toolbarActions: string[];
+        trackRowCount: number;
+        audioElementCount: number;
+        hasRulerCanvas: boolean;
+        hasOverlayCanvas: boolean;
+        viewMode: 'stacked' | 'overlay';
+        stackedWrapVisible: boolean;
+        overlayWrapVisible: boolean;
+        zoomStart: number;
+        zoomEnd: number;
+        tracks: Array<{
+            trackIndex: number;
+            offsetSeconds: number;
+            visibleFileStartNorm: number;
+            visibleFileEndNorm: number;
+            waveformFullyVisible: boolean;
+            waveformCoversViewportLeft: boolean;
+            waveformCoversViewportRight: boolean;
+            waveformMinDrawX: number | null;
+            waveformMaxDrawX: number | null;
+        }>;
+    };
+}
+
+interface ComparisonPanelRenderedUiMessage {
+    type: 'comparison-panel-test-snapshot';
+    renderedUi: {
+        hasToolbar: boolean;
+        toolbarActions: string[];
+        trackRowCount: number;
+        audioElementCount: number;
+        hasRulerCanvas: boolean;
+        hasOverlayCanvas: boolean;
+        viewMode: 'stacked' | 'overlay';
+        stackedWrapVisible: boolean;
+        overlayWrapVisible: boolean;
+        zoomStart: number;
+        zoomEnd: number;
+        tracks: Array<{
+            trackIndex: number;
+            offsetSeconds: number;
+            visibleFileStartNorm: number;
+            visibleFileEndNorm: number;
+            waveformFullyVisible: boolean;
+            waveformCoversViewportLeft: boolean;
+            waveformCoversViewportRight: boolean;
+            waveformMinDrawX: number | null;
+            waveformMaxDrawX: number | null;
+        }>;
+    };
+    actionId?: string;
+}
+
+interface ComparisonPanelTestActionMessage {
+    type: 'comparison-panel-test-action';
+    actionId: string;
+    actions: Array<string | { action: string; trackIndex?: number }>;
+}
+
 export class ComparisonPanel {
+    private static testSnapshot: ComparisonPanelTestSnapshot | undefined;
+    private static activePanel: vscode.WebviewPanel | undefined;
+    private static testMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
+
     public static show(
         extensionUri: vscode.Uri,
         results: AnalysisResultWithError[],
@@ -38,6 +109,29 @@ export class ComparisonPanel {
             localResourceRoots,
         };
         panel.reveal(vscode.ViewColumn.One, true);
+        ComparisonPanel.activePanel = panel;
+        panel.onDidDispose(() => {
+            if (ComparisonPanel.activePanel === panel) {
+                ComparisonPanel.activePanel = undefined;
+            }
+        });
+        ComparisonPanel.testMessageDisposables.get(panel)?.dispose();
+        const testMessageDisposable = panel.webview.onDidReceiveMessage((message: unknown) => {
+            if (!ComparisonPanel.isRenderedUiMessage(message)) {
+                return;
+            }
+
+            if (!ComparisonPanel.testSnapshot) {
+                return;
+            }
+
+            ComparisonPanel.testSnapshot = {
+                ...ComparisonPanel.testSnapshot,
+                lastActionId: message.actionId,
+                renderedUi: message.renderedUi,
+            };
+        });
+        ComparisonPanel.testMessageDisposables.set(panel, testMessageDisposable);
 
         const state: ComparisonState = {
             results: results.map((result) => ({
@@ -45,8 +139,54 @@ export class ComparisonPanel {
                 audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
             })),
         };
-        panel.webview.html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
+        const html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
+        panel.webview.html = html;
+        ComparisonPanel.testSnapshot = {
+            title,
+            html,
+            fileNames: state.results.map((result) => result.fileName),
+            resultCount: state.results.length,
+        };
         return panel;
+    }
+
+    public static getTestSnapshot(): ComparisonPanelTestSnapshot | undefined {
+        return ComparisonPanel.testSnapshot;
+    }
+
+    public static clearTestSnapshot(): void {
+        ComparisonPanel.testSnapshot = undefined;
+    }
+
+    public static async postTestActions(
+        actionId: string,
+        actions: Array<string | { action: string; trackIndex?: number }>,
+    ): Promise<void> {
+        if (!ComparisonPanel.activePanel) {
+            throw new Error('No active ComparisonPanel is available for test actions');
+        }
+
+        const delivered = await ComparisonPanel.activePanel.webview.postMessage({
+            type: 'comparison-panel-test-action',
+            actionId,
+            actions,
+        } satisfies ComparisonPanelTestActionMessage);
+
+        if (!delivered) {
+            throw new Error('ComparisonPanel test actions could not be delivered to the webview');
+        }
+    }
+
+    private static isRenderedUiMessage(message: unknown): message is ComparisonPanelRenderedUiMessage {
+        if (!message || typeof message !== 'object') {
+            return false;
+        }
+
+        const candidate = message as Partial<ComparisonPanelRenderedUiMessage>;
+        return candidate.type === 'comparison-panel-test-snapshot'
+            && !!candidate.renderedUi
+            && Array.isArray(candidate.renderedUi.toolbarActions)
+            && typeof candidate.renderedUi.trackRowCount === 'number';
     }
 
     private static buildLocalResourceRoots(
@@ -223,6 +363,7 @@ export class ComparisonPanel {
             let cursorNorm = null;        // null = free, number = fixed
             let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag }
             let hoverTrackIndex = -1;     // overlay hit-test highlight
+            const lastWaveformCoverage = state.results.map(function() { return null; });
 
             const trackRuntime = state.results.map(function() {
                 return { offsetSeconds: 0, hidden: false };
@@ -260,6 +401,32 @@ export class ComparisonPanel {
                 rangeCache[i] = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
                 renderAll();
             });
+
+            window.addEventListener('message', function(event) {
+                const msg = event.data;
+                if (!msg || msg.type !== 'comparison-panel-test-action' || !Array.isArray(msg.actions)) { return; }
+                msg.actions.forEach(function(entry) {
+                    handleTestAction(entry);
+                });
+                requestAnimationFrame(function() {
+                    publishTestSnapshot(msg.actionId);
+                });
+            });
+
+            function handleTestAction(entry) {
+                if (typeof entry === 'string') {
+                    handleToolbarAction(entry);
+                    return;
+                }
+                if (!entry || typeof entry !== 'object' || typeof entry.action !== 'string') {
+                    return;
+                }
+                const idx = typeof entry.trackIndex === 'number' ? entry.trackIndex : -1;
+                if (entry.action === 'offset-up' && idx >= 0) { adjustOffset(idx, 0.01); }
+                if (entry.action === 'offset-down' && idx >= 0) { adjustOffset(idx, -0.01); }
+                if (entry.action === 'toggle-mute' && idx >= 0) { toggleMute(idx); }
+                if (entry.action === 'remove-track' && idx >= 0) { removeTrack(idx); }
+            }
 
             function scheduleRangeRequests() {
                 if (rangeRequestTimer) { clearTimeout(rangeRequestTimer); }
@@ -319,7 +486,57 @@ export class ComparisonPanel {
             app.innerHTML = buildLayout();
             attachEvents();
             // Defer first render so the browser has time to calculate flex layout
-            requestAnimationFrame(function() { renderAll(); });
+            requestAnimationFrame(function() {
+                renderAll();
+                publishTestSnapshot();
+            });
+
+            function publishTestSnapshot(actionId) {
+                const toolbar = document.getElementById('toolbar');
+                const stackedWrap = document.getElementById('stacked-wrap');
+                const overlayWrap = document.getElementById('overlay-wrap');
+                vscode.postMessage({
+                    type: 'comparison-panel-test-snapshot',
+                    actionId: actionId,
+                    renderedUi: {
+                        hasToolbar: !!toolbar,
+                        toolbarActions: Array.from(document.querySelectorAll('#toolbar [data-action]')).map(function(el) {
+                            return el.getAttribute('data-action');
+                        }).filter(function(action) {
+                            return !!action;
+                        }),
+                        trackRowCount: document.querySelectorAll('.track-row').length,
+                        audioElementCount: document.querySelectorAll('#audio-host audio').length,
+                        hasRulerCanvas: !!document.getElementById('ruler-canvas'),
+                        hasOverlayCanvas: !!document.getElementById('overlay-canvas'),
+                        viewMode: viewMode,
+                        stackedWrapVisible: !!stackedWrap && stackedWrap.style.display !== 'none',
+                        overlayWrapVisible: !!overlayWrap && overlayWrap.classList.contains('is-visible'),
+                        zoomStart: zoomStart,
+                        zoomEnd: zoomEnd,
+                        tracks: state.results.map(function(result, trackIndex) {
+                            const dur = result.durationSeconds || 1;
+                            const gs = computeGlobalSpan();
+                            const trackStart = (trackRuntime[trackIndex].offsetSeconds - gs.startSec) / gs.spanSec;
+                            const trackDurRatio = dur / gs.spanSec;
+                            const visibleFileStartNorm = Math.max(0, (zoomStart - trackStart) / trackDurRatio);
+                            const visibleFileEndNorm = Math.min(1, (zoomEnd - trackStart) / trackDurRatio);
+                            const coverage = lastWaveformCoverage[trackIndex];
+                            return {
+                                trackIndex: trackIndex,
+                                offsetSeconds: trackRuntime[trackIndex].offsetSeconds,
+                                visibleFileStartNorm: visibleFileStartNorm,
+                                visibleFileEndNorm: visibleFileEndNorm,
+                                waveformFullyVisible: visibleFileStartNorm <= 0 && visibleFileEndNorm >= 1,
+                                waveformCoversViewportLeft: !!coverage && coverage.coversLeft,
+                                waveformCoversViewportRight: !!coverage && coverage.coversRight,
+                                waveformMinDrawX: coverage ? coverage.minX : null,
+                                waveformMaxDrawX: coverage ? coverage.maxX : null,
+                            };
+                        }),
+                    },
+                });
+            }
 
             function buildLayout() {
                 const tracks = state.results.map(function(result, i) {
@@ -553,15 +770,48 @@ export class ComparisonPanel {
                     const gs = computeGlobalSpan();
                     const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
                     const trackDurRatio = dur / gs.spanSec;
-                    window.renderWaveformPipeline(ctx, W, H, src.waveform, {
-                        zoomStart,
-                        zoomEnd,
-                        offsetNorm: trackStart,
-                        trackDurRatio,
-                        dataStart: src.dataStart,
-                        dataEnd: src.dataEnd,
-                        color,
-                    });
+                    const originalMoveTo = ctx.moveTo.bind(ctx);
+                    const originalLineTo = ctx.lineTo.bind(ctx);
+                    let minX = Number.POSITIVE_INFINITY;
+                    let maxX = Number.NEGATIVE_INFINITY;
+                    ctx.moveTo = function(x, y) {
+                        if (Number.isFinite(x)) {
+                            minX = Math.min(minX, x);
+                            maxX = Math.max(maxX, x);
+                        }
+                        return originalMoveTo(x, y);
+                    };
+                    ctx.lineTo = function(x, y) {
+                        if (Number.isFinite(x)) {
+                            minX = Math.min(minX, x);
+                            maxX = Math.max(maxX, x);
+                        }
+                        return originalLineTo(x, y);
+                    };
+                    try {
+                        window.renderWaveformPipeline(ctx, W, H, src.waveform, {
+                            zoomStart,
+                            zoomEnd,
+                            offsetNorm: trackStart,
+                            trackDurRatio,
+                            dataStart: src.dataStart,
+                            dataEnd: src.dataEnd,
+                            color,
+                        });
+                    } finally {
+                        ctx.moveTo = originalMoveTo;
+                        ctx.lineTo = originalLineTo;
+                    }
+                    lastWaveformCoverage[trackIndex] = Number.isFinite(minX) && Number.isFinite(maxX)
+                        ? {
+                            minX: minX,
+                            maxX: maxX,
+                            coversLeft: minX <= 1,
+                            coversRight: maxX >= W - 1,
+                        }
+                        : null;
+                } else {
+                    lastWaveformCoverage[trackIndex] = null;
                 }
 
                 if (shouldDrawCursor) {

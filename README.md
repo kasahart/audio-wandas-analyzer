@@ -35,6 +35,15 @@ npm install
 npm test
 ```
 
+VS Code 実環境で debug command から ComparisonPanel が開く最小スモークを回す場合は、次を使います。
+
+```bash
+npm run test:e2e:vscode
+```
+
+この E2E はワークスペース内の `.venv/bin/python` と `media/debug/sine-440.wav` を使って、`Audio Analyzer: Analyze Debug Path` の経路を実際に起動します。
+Linux のヘッドレス環境では、`xvfb-run` が利用可能なら自動で仮想ディスプレイ付きで実行します。
+
 Testing ビューを使う場合は、この拡張を Extension Development Host で起動してから、別ウインドウ側の Testing ビューを開いてください。現状は src/test 配下の *.test.ts を解析し、describe と test をケース単位で一覧表示します。Run は npm run compile の後に node --test を TAP 出力付きで呼び出し、各ケースの結果を Testing ビューへ反映します。Debug は Testing ビューの Debug アクションから実行でき、単一のファイル、suite、test を対象に Node デバッガーを起動します。
 
 ### 2. Python 環境

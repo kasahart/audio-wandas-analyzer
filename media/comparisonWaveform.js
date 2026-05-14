@@ -31,9 +31,9 @@
         const fileAtZoomEnd   = (zoomEnd   - offsetNorm) / trackDurRatio;
         const visStartNorm = (fileAtZoomStart - dataStart) / dataRange;
         const visEndNorm   = (fileAtZoomEnd   - dataStart) / dataRange;
-        const globalFileEnd = offsetNorm + trackDurRatio * dataEnd;
-        const globalOvershootEnd = Math.max(0, zoomEnd - globalFileEnd);
-        const extSpan = Math.max(globalOvershootEnd * trackDurRatio / dataRange, 1 / n);
+        const clampedVisStartNorm = Math.max(0, visStartNorm);
+        const clampedVisEndNorm = Math.min(1, visEndNorm);
+        const extSpan = Math.max(clampedVisEndNorm - clampedVisStartNorm, 1 / n);
         const i0 = Math.max(0, Math.floor((visStartNorm - extSpan) * n));
         const i1 = Math.min(n - 1, Math.ceil((visEndNorm + extSpan) * n));
         if (i1 < i0) { return; }
