@@ -162,7 +162,7 @@ test('computeViewRange: 正オフセットで visStartNorm が小さくなる（
     // offsetNorm=0 の場合: visStartNorm = 0.4
     // → 正オフセットで i0 が小さくなる（より前のバケットから描画）
     const env = makeEnv(1200);
-    const rNoOffset  = computeViewRange(env, 0, 1, 0,   0.4, 0.6, 800);
+    const rNoOffset = computeViewRange(env, 0, 1, 0, 0.4, 0.6, 800);
     const rWithOffset = computeViewRange(env, 0, 1, 0.1, 0.4, 0.6, 800);
     assert.ok(
         rWithOffset.i0 <= rNoOffset.i0,
@@ -176,7 +176,7 @@ test('computeViewRange: 負オフセットで visStartNorm が大きくなる（
     // offsetNorm=0 の場合: visStartNorm = 0.3
     // → 負オフセットで i0 が大きくなる（より後ろのバケットから描画）
     const env = makeEnv(1200);
-    const rNoOffset  = computeViewRange(env, 0, 1,  0,   0.3, 0.5, 800);
+    const rNoOffset = computeViewRange(env, 0, 1, 0, 0.3, 0.5, 800);
     const rNegOffset = computeViewRange(env, 0, 1, -0.1, 0.3, 0.5, 800);
     assert.ok(
         rNegOffset.i0 >= rNoOffset.i0,
@@ -293,8 +293,8 @@ test('trackDurRatio: toX scales file position by trackDurRatio=0.5', () => {
     // tNorm=1 → global pos = 0.1 + 1*0.5 = 0.6 → x = 600
     // tNorm=0.5 → global pos = 0.1 + 0.5*0.5 = 0.35 → x = 350
     const t = makeCoordTransform(0, 1, 0.1, 1000, 80, 1.0, 0.5);
-    assert.equal(t.toX(0), 100,  'tNorm=0 → x=100');
-    assert.equal(t.toX(1), 600,  'tNorm=1 → x=600');
+    assert.equal(t.toX(0), 100, 'tNorm=0 → x=100');
+    assert.equal(t.toX(1), 600, 'tNorm=1 → x=600');
     assert.equal(t.toX(0.5), 350, 'tNorm=0.5 → x=350');
 });
 
@@ -305,9 +305,9 @@ test('trackDurRatio: toX backward compat (trackDurRatio=1, default)', () => {
     // tNorm=1 → x = (1 + 0.3 - 0) / 1 * 1000 = 1300
     const tDefault = makeCoordTransform(0, 1, 0.3, 1000, 80, 1.0);
     const tExplicit = makeCoordTransform(0, 1, 0.3, 1000, 80, 1.0, 1);
-    assert.equal(tDefault.toX(0), 300,   'default: tNorm=0 → x=300');
-    assert.equal(tDefault.toX(1), 1300,  'default: tNorm=1 → x=1300 (off canvas)');
-    assert.equal(tExplicit.toX(0), 300,  'explicit trackDurRatio=1: tNorm=0 → x=300');
+    assert.equal(tDefault.toX(0), 300, 'default: tNorm=0 → x=300');
+    assert.equal(tDefault.toX(1), 1300, 'default: tNorm=1 → x=1300 (off canvas)');
+    assert.equal(tExplicit.toX(0), 300, 'explicit trackDurRatio=1: tNorm=0 → x=300');
     assert.equal(tExplicit.toX(1), 1300, 'explicit trackDurRatio=1: tNorm=1 → x=1300');
 });
 
@@ -318,12 +318,12 @@ test('trackDurRatio: computeViewRange with trackDurRatio — visible file range'
     // zoomStart=0.2, zoomEnd=0.6 → view shows 2~6s in 10s global span
     // fileAtZoomStart = (0.2 - 0) / 0.5 = 0.4  (40% into 5s file = 2s)
     // fileAtZoomEnd   = (0.6 - 0) / 0.5 = 1.2  (beyond file end, clamped to 1.0)
-    // visStartNorm = 0.4, visEndNorm = 1.2 → clamped visEnd = 1.0
-    // i0 should be around floor(0.4 * 1000) = 400, i.e. > 300
-    // i1 = 999 (clamped to n-1)
+    // visStartNorm = 0.4, visEndNorm = 1.2 → clamped visible span = 1.0 - 0.4 = 0.6
+    // extSpan is that clamped visible span, so the symmetric expansion reaches back to file start:
+    // i0 = floor((0.4 - 0.6) * 1000) = 0, i1 = 999.
     const env = makeEnv(1000);
     const r = computeViewRange(env, 0, 1, 0, 0.2, 0.6, 800, 0.5);
-    assert.ok(r.i0 > 300, `i0=${r.i0} should be > 300 (view starts at 40% into file, not at file start)`);
+    assert.equal(r.i0, 0, 'i0 should extend back to the file start under symmetric expansion');
     assert.equal(r.i1, 999, 'i1 should be clamped to n-1=999 since view extends past file end');
 });
 
@@ -350,7 +350,7 @@ test('trackDurRatio: two-track global span — negative offset track positioning
     const tB = makeCoordTransform(0, 1, 0, W, 80, 1.0, trackDurRatio);
     // tNorm=0 → x = (0 + 0*5/8 - 0) / 1 * W = 0
     // tNorm=1 → x = (0 + 1*5/8 - 0) / 1 * W = 625
-    assert.equal(tB.toX(0), 0,   'Track B tNorm=0 → x=0 (starts at canvas left)');
+    assert.equal(tB.toX(0), 0, 'Track B tNorm=0 → x=0 (starts at canvas left)');
     assert.equal(tB.toX(1), 625, 'Track B tNorm=1 → x=625 (5 out of 8 seconds)');
 
     // Track A: offsetNorm=3/8, zoomStart=0, zoomEnd=1
