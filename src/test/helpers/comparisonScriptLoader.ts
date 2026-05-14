@@ -33,3 +33,9 @@ export function getRenderScript(): string {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     return (ComparisonPanel as { renderScript(): string }).renderScript();
 }
+
+/** ComparisonPanel.renderStyles() が返す CSS 文字列を取得する */
+export function getRenderStyles(): string {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    return (ComparisonPanel as { renderStyles(): string }).renderStyles();
+}

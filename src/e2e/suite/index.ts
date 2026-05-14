@@ -112,7 +112,7 @@ export async function run(): Promise<void> {
         assert.equal(spectrogramSnapshot.renderedUi.stackedWrapVisible, true);
         assert.equal(spectrogramSnapshot.renderedUi.overlayWrapVisible, false);
 
-        const multiTrackSnapshot = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
+        const multiTrackSnapshot = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
         assert.equal(multiTrackSnapshot.resultCount, 3);
         assert.ok(multiTrackSnapshot.renderedUi, 'Rendered UI snapshot should exist for multi-track analysis');
         assert.equal(multiTrackSnapshot.renderedUi.trackRowCount, 3);
@@ -133,11 +133,28 @@ export async function run(): Promise<void> {
     }
 }
 
-async function analyzeDebugPath(debugPath: string): Promise<TestSnapshot> {
+async function analyzeDebugPath(
+    debugPath: string,
+    options?: { selectAllDirectoryFiles?: boolean },
+): Promise<TestSnapshot> {
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
     await config.update('debugFilePath', debugPath, vscode.ConfigurationTarget.Global);
     ComparisonPanel.clearTestSnapshot();
     await vscode.commands.executeCommand('audioWandasAnalyzer.analyzeDebugFile');
+
+    if (options?.selectAllDirectoryFiles) {
+        await waitForSnapshot();
+        const actionId = `selection-select-all-${Date.now()}`;
+        await ComparisonPanel.postTestActions(actionId, ['selection-select-all']);
+        await waitForSnapshot(actionId);
+        return waitForSnapshotWhere((snapshot) => {
+            return snapshot.resultCount > 0
+                && !!snapshot.renderedUi
+                && snapshot.renderedUi.trackRowCount > 0
+                && snapshot.lastActionId !== actionId;
+        });
+    }
+
     return waitForSnapshot();
 }
 
@@ -183,11 +200,17 @@ async function runMultiTrackOffsetScenario(): Promise<TestSnapshot> {
 }
 
 async function waitForSnapshot(expectedActionId?: string): Promise<TestSnapshot> {
+    return waitForSnapshotWhere((snapshot) => {
+        return !!snapshot.renderedUi && (!expectedActionId || snapshot.lastActionId === expectedActionId);
+    });
+}
+
+async function waitForSnapshotWhere(predicate: (snapshot: TestSnapshot) => boolean): Promise<TestSnapshot> {
     const deadline = Date.now() + COMMAND_TIMEOUT_MS;
 
     while (Date.now() < deadline) {
         const snapshot = ComparisonPanel.getTestSnapshot();
-        if (snapshot?.renderedUi && (!expectedActionId || snapshot.lastActionId === expectedActionId)) {
+        if (snapshot && predicate(snapshot)) {
             return snapshot;
         }
         await delay(250);

@@ -1,15 +1,27 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { serializeForScript } from '../utils/webviewEscaping';
-import type { AnalysisResultWithError } from './analysisTypes';
+import type { AnalysisResultWithError, DirectoryTreeNode } from './analysisTypes';
 
 interface ComparisonTrackState extends AnalysisResultWithError {
     audioSource?: string;
 }
 
-interface ComparisonState {
+interface ComparisonResultsState {
+    mode: 'results';
     results: ComparisonTrackState[];
 }
+
+interface DirectorySelectionState {
+    mode: 'directory-selection';
+    results: ComparisonTrackState[];
+    rootPath: string;
+    directoryTree: DirectoryTreeNode[];
+    allFilePaths: string[];
+    selectedFilePaths: string[];
+}
+
+type ComparisonState = ComparisonResultsState | DirectorySelectionState;
 
 interface ComparisonPanelTestSnapshot {
     title: string;
@@ -133,11 +145,84 @@ export class ComparisonPanel {
         });
         ComparisonPanel.testMessageDisposables.set(panel, testMessageDisposable);
 
-        const state: ComparisonState = {
+        const state: ComparisonResultsState = {
+            mode: 'results',
             results: results.map((result) => ({
                 ...result,
                 audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
             })),
+        };
+        const html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
+        panel.webview.html = html;
+        ComparisonPanel.testSnapshot = {
+            title,
+            html,
+            fileNames: state.results.map((result) => result.fileName),
+            resultCount: state.results.length,
+        };
+        return panel;
+    }
+
+    public static showDirectorySelection(
+        extensionUri: vscode.Uri,
+        rootPath: string,
+        directoryTree: DirectoryTreeNode[],
+        allFilePaths: string[],
+        selectedFilePaths: string[],
+        results: AnalysisResultWithError[],
+        existingPanel?: vscode.WebviewPanel,
+    ): vscode.WebviewPanel {
+        const title = `Audio Analyzer: ${path.basename(rootPath) || rootPath}`;
+        const panel = existingPanel ?? vscode.window.createWebviewPanel(
+            'audioWandasAnalyzer.comparison',
+            title,
+            vscode.ViewColumn.One,
+            {
+                enableScripts: true,
+                localResourceRoots: ComparisonPanel.buildLocalResourceRoots(extensionUri, results),
+            },
+        );
+
+        panel.title = title;
+        panel.webview.options = {
+            enableScripts: true,
+            localResourceRoots: ComparisonPanel.buildLocalResourceRoots(extensionUri, results),
+        };
+        panel.reveal(vscode.ViewColumn.One, true);
+        ComparisonPanel.activePanel = panel;
+        panel.onDidDispose(() => {
+            if (ComparisonPanel.activePanel === panel) {
+                ComparisonPanel.activePanel = undefined;
+            }
+        });
+        ComparisonPanel.testMessageDisposables.get(panel)?.dispose();
+        const testMessageDisposable = panel.webview.onDidReceiveMessage((message: unknown) => {
+            if (!ComparisonPanel.isRenderedUiMessage(message)) {
+                return;
+            }
+
+            if (!ComparisonPanel.testSnapshot) {
+                return;
+            }
+
+            ComparisonPanel.testSnapshot = {
+                ...ComparisonPanel.testSnapshot,
+                lastActionId: message.actionId,
+                renderedUi: message.renderedUi,
+            };
+        });
+        ComparisonPanel.testMessageDisposables.set(panel, testMessageDisposable);
+
+        const state: DirectorySelectionState = {
+            mode: 'directory-selection',
+            results: results.map((result) => ({
+                ...result,
+                audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
+            })),
+            rootPath,
+            directoryTree,
+            allFilePaths,
+            selectedFilePaths,
         };
         const html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
         panel.webview.html = html;
@@ -191,7 +276,7 @@ export class ComparisonPanel {
 
     private static buildLocalResourceRoots(
         extensionUri: vscode.Uri,
-        results: AnalysisResultWithError[],
+        results: AnalysisResultWithError[] = [],
     ): vscode.Uri[] {
         const roots = new Map<string, vscode.Uri>();
         const mediaRoot = vscode.Uri.joinPath(extensionUri, 'media');
@@ -236,12 +321,14 @@ export class ComparisonPanel {
             color-scheme: light dark;
             --font-ui: "Aptos", "Segoe UI", sans-serif;
             --font-mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
-            --surface: #fbfbf8;
-            --panel: #ffffff;
-            --line: #d4d1c7;
-            --text: #161616;
-            --muted: #5e5a53;
+            --surface: #16181c;
+            --panel: #1d2025;
+            --line: #343942;
+            --text: #d9dde3;
+            --muted: #8f98a3;
             --accent: #0f7b6c;
+            --track-bg: #090b0f;
+            --track-header-bg: #14171c;
         }
         body.vscode-dark, body[data-theme-kind="dark"] {
             --surface: #1e1e1e;
@@ -249,6 +336,17 @@ export class ComparisonPanel {
             --line: #3c3c3c;
             --text: #cccccc;
             --muted: #888888;
+            --track-bg: #0b0d10;
+            --track-header-bg: #171a1f;
+        }
+        body.vscode-light, body[data-theme-kind="light"] {
+            --surface: #16181c;
+            --panel: #1d2025;
+            --line: #343942;
+            --text: #d9dde3;
+            --muted: #8f98a3;
+            --track-bg: #090b0f;
+            --track-header-bg: #14171c;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--surface); color: var(--text); font-family: var(--font-ui); overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
@@ -271,15 +369,15 @@ export class ComparisonPanel {
         #cursor-display { font-size: 11px; font-family: var(--font-mono); color: var(--muted); min-width: 80px; }
 
         /* ── Track layout ── */
-        #tracks-wrapper { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; }
+        #tracks-wrapper { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; background: var(--track-bg); }
         #ruler-row { display: flex; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-        #ruler-spacer { width: 130px; flex-shrink: 0; border-right: 1px solid var(--line); }
+        #ruler-spacer { width: 130px; flex-shrink: 0; border-right: 1px solid var(--line); background: var(--track-header-bg); }
         #ruler-canvas { flex: 1; height: 20px; display: block; }
 
         .track-row { display: flex; border-bottom: 1px solid var(--line); flex-shrink: 0; }
         .track-header {
             width: 130px; flex-shrink: 0; border-right: 1px solid var(--line);
-            padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 9px;
+            padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 9px; background: var(--track-header-bg);
         }
         .track-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
         .track-meta { color: var(--muted); }
@@ -299,7 +397,7 @@ export class ComparisonPanel {
             cursor: text;
         }
         .track-offset-step { font-size: 9px; padding: 1px 3px; border-radius: 2px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; }
-        .track-canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+        .track-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: var(--track-bg); }
         .track-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
 
         /* ── Overlay mode ── */
@@ -308,7 +406,7 @@ export class ComparisonPanel {
         #overlay-legend { display: flex; gap: 12px; padding: 4px 10px; font-size: 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
         .overlay-legend-item { display: flex; align-items: center; gap: 4px; }
         .overlay-swatch { width: 12px; height: 2px; border-radius: 1px; }
-        #overlay-canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+        #overlay-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: var(--track-bg); }
         #overlay-canvas { display: block; width: 100%; cursor: crosshair; }
 
         /* ── Metrics bar ── */
@@ -326,6 +424,121 @@ export class ComparisonPanel {
         }
         #empty-state.is-visible { display: flex; }
         #audio-host { display: none; }
+
+        /* ── Directory selection ── */
+        #directory-selection-layout {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        #selection-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--line);
+            background: var(--panel);
+            flex-wrap: wrap;
+        }
+        #selection-body {
+            display: grid;
+            grid-template-columns: minmax(280px, 420px) 1fr;
+            gap: 0;
+            flex: 1;
+            min-height: 0;
+        }
+        #selection-sidebar {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            border-right: 1px solid var(--line);
+            background: var(--panel);
+        }
+        #selection-summary {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .selection-path {
+            font-size: 11px;
+            color: var(--muted);
+            word-break: break-all;
+        }
+        .selection-count {
+            font-size: 18px;
+            font-weight: 700;
+        }
+        #selection-tree {
+            flex: 1;
+            overflow: auto;
+            padding: 8px 10px 16px;
+            font-size: 12px;
+        }
+        .selection-tree-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding-left: 16px;
+        }
+        .selection-tree-list.is-root {
+            padding-left: 0;
+        }
+        .selection-tree-directory {
+            font-weight: 600;
+            color: var(--text);
+            padding: 4px 0 2px;
+        }
+        .selection-file-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 2px 0;
+        }
+        .selection-file-checkbox {
+            width: 14px;
+            height: 14px;
+            accent-color: var(--accent);
+        }
+        .selection-file-label {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            cursor: pointer;
+        }
+        .selection-file-name {
+            color: var(--text);
+        }
+        .selection-file-path {
+            font-size: 10px;
+            color: var(--muted);
+        }
+        #selection-actions {
+            display: flex;
+            gap: 8px;
+            padding: 10px;
+            border-top: 1px solid var(--line);
+            flex-wrap: wrap;
+        }
+        #selection-results-pane {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            background:
+                radial-gradient(circle at top right, rgba(15,123,108,0.14), transparent 34%),
+                linear-gradient(160deg, rgba(255,255,255,0.6), rgba(15,123,108,0.05));
+        }
+        @media (max-width: 900px) {
+            #selection-body {
+                grid-template-columns: 1fr;
+            }
+            #selection-sidebar {
+                border-right: none;
+                border-bottom: 1px solid var(--line);
+            }
+        }
         `;
     }
 
@@ -334,6 +547,10 @@ export class ComparisonPanel {
         (function() {
             const vscode = acquireVsCodeApi();
             const state = __APP_STATE__;
+            const isSelectionMode = state.mode === 'directory-selection';
+            const selectedFilePaths = new Set(Array.isArray(state.selectedFilePaths) ? state.selectedFilePaths : []);
+            const allSelectableFilePaths = Array.isArray(state.allFilePaths) ? state.allFilePaths.slice() : [];
+            let selectionMessageSeq = 0;
 
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc'];
 
@@ -415,6 +632,9 @@ export class ComparisonPanel {
 
             function handleTestAction(entry) {
                 if (typeof entry === 'string') {
+                    if (handleSelectionAction(entry)) {
+                        return;
+                    }
                     handleToolbarAction(entry);
                     return;
                 }
@@ -539,6 +759,40 @@ export class ComparisonPanel {
             }
 
             function buildLayout() {
+                if (isSelectionMode) {
+                    return buildDirectorySelectionLayout();
+                }
+                return buildResultsPane('すべてのトラックが除外されています');
+            }
+
+            function buildDirectorySelectionLayout() {
+                return '<div id="directory-selection-layout">'
+                    + '  <div id="selection-toolbar">'
+                    + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">選択して解析</span>'
+                    + '    <div class="tb-sep"></div>'
+                    + '    <button class="tb-btn" data-action="open-file">ファイルを開く</button>'
+                    + '    <button class="tb-btn" data-action="open-folder">別のフォルダを開く</button>'
+                    + '  </div>'
+                    + '  <div id="selection-body">'
+                    + '    <div id="selection-sidebar">'
+                    + '      <div id="selection-summary">'
+                    + '        <div class="selection-count" id="selection-count"></div>'
+                    + '        <div class="selection-path">' + escHtml(state.rootPath || '') + '</div>'
+                    + '      </div>'
+                    + '      <div id="selection-tree">' + buildSelectionTree(state.directoryTree || [], true) + '</div>'
+                    + '      <div id="selection-actions">'
+                    + '        <button class="tb-btn" data-action="selection-select-all">すべて選択</button>'
+                    + '        <button class="tb-btn" data-action="selection-clear-all">クリア</button>'
+                    + '      </div>'
+                    + '    </div>'
+                    + '    <div id="selection-results-pane">'
+                    + buildResultsPane('左のツリーでチェックしたファイルがここにトラックとして表示されます')
+                    + '    </div>'
+                    + '  </div>'
+                    + '</div>';
+            }
+
+            function buildResultsPane(emptyMessage) {
                 const tracks = state.results.map(function(result, i) {
                     return buildTrackRow(result, i);
                 }).join('');
@@ -560,10 +814,38 @@ export class ComparisonPanel {
                     + '    <div id="overlay-legend"></div>'
                     + '    <div id="overlay-canvas-wrap"><canvas id="overlay-canvas"></canvas></div>'
                     + '  </div>'
-                    + '  <div id="empty-state"><p>すべてのトラックが除外されています</p></div>'
+                    + '  <div id="empty-state"><p>' + escHtml(emptyMessage) + '</p></div>'
                     + '</div>'
                     + '<div id="audio-host">' + buildAudioElements() + '</div>'
                     + '<div id="metrics-bar">' + metrics + '</div>';
+            }
+
+            function buildSelectionTree(nodes, isRoot) {
+                if (!Array.isArray(nodes) || nodes.length === 0) {
+                    return '<div class="selection-path">対応する音声ファイルは見つかりませんでした。</div>';
+                }
+                return '<ul class="selection-tree-list' + (isRoot ? ' is-root' : '') + '">'
+                    + nodes.map(function(node) {
+                        if (node.type === 'directory') {
+                            return '<li>'
+                                + '<div class="selection-tree-directory">' + escHtml(node.name) + '</div>'
+                                + buildSelectionTree(node.children || [], false)
+                                + '</li>';
+                        }
+
+                        const filePath = node.filePath || '';
+                        const checked = selectedFilePaths.has(filePath) ? ' checked' : '';
+                        return '<li>'
+                            + '<label class="selection-file-row">'
+                            + '  <input class="selection-file-checkbox" type="checkbox" data-file-path="' + escHtml(filePath) + '"' + checked + '>'
+                            + '  <span class="selection-file-label">'
+                            + '    <span class="selection-file-name">' + escHtml(node.name) + '</span>'
+                            + '    <span class="selection-file-path">' + escHtml(node.relativePath) + '</span>'
+                            + '  </span>'
+                            + '</label>'
+                            + '</li>';
+                    }).join('')
+                    + '</ul>';
             }
 
             function buildAudioElements() {
@@ -1135,6 +1417,10 @@ export class ComparisonPanel {
 
             // ── Events ──
             function attachEvents() {
+                if (isSelectionMode) {
+                    attachDirectorySelectionEvents();
+                }
+
                 document.getElementById('toolbar').addEventListener('click', function(e) {
                     const action = e.target.getAttribute('data-action');
                     if (!action) { return; }
@@ -1184,6 +1470,92 @@ export class ComparisonPanel {
                 window.addEventListener('resize', function() { scheduleRender(); });
                 attachAudioEvents();
                 updatePlaybackButtons();
+            }
+
+            function attachDirectorySelectionEvents() {
+                const layout = document.getElementById('directory-selection-layout');
+                if (!layout) { return; }
+
+                layout.addEventListener('click', function(e) {
+                    const target = e.target;
+                    if (!target || typeof target.getAttribute !== 'function') { return; }
+                    const action = target.getAttribute('data-action');
+                    if (!action) { return; }
+
+                    if (handleSelectionAction(action)) {
+                        return;
+                    }
+                });
+
+                layout.addEventListener('change', function(e) {
+                    const target = e.target;
+                    if (!target || !target.classList || !target.classList.contains('selection-file-checkbox')) { return; }
+                    const filePath = target.getAttribute('data-file-path');
+                    if (!filePath) { return; }
+                    if (target.checked) {
+                        selectedFilePaths.add(filePath);
+                    } else {
+                        selectedFilePaths.delete(filePath);
+                    }
+                    syncSelectionSummary();
+                    postSelectedFiles();
+                });
+
+                syncSelectionSummary();
+            }
+
+            function handleSelectionAction(action) {
+                if (action === 'open-file' || action === 'open-folder') {
+                    handleToolbarAction(action);
+                    return true;
+                }
+                if (action === 'selection-select-all') {
+                    selectedFilePaths.clear();
+                    allSelectableFilePaths.forEach(function(filePath) { selectedFilePaths.add(filePath); });
+                    syncSelectionCheckboxes();
+                    syncSelectionSummary();
+                    postSelectedFiles();
+                    return true;
+                }
+                if (action === 'selection-clear-all') {
+                    selectedFilePaths.clear();
+                    syncSelectionCheckboxes();
+                    syncSelectionSummary();
+                    postSelectedFiles();
+                    return true;
+                }
+                if (action === 'selection-submit') {
+                    postSelectedFiles();
+                    return true;
+                }
+                return false;
+            }
+
+            function syncSelectionCheckboxes() {
+                document.querySelectorAll('.selection-file-checkbox').forEach(function(input) {
+                    const filePath = input.getAttribute('data-file-path');
+                    input.checked = !!filePath && selectedFilePaths.has(filePath);
+                });
+            }
+
+            function syncSelectionSummary() {
+                const countEl = document.getElementById('selection-count');
+                const count = selectedFilePaths.size;
+                if (countEl) {
+                    countEl.textContent = count + ' / ' + allSelectableFilePaths.length + ' 件を選択中';
+                }
+            }
+
+            function postSelectedFiles() {
+                const orderedSelection = allSelectableFilePaths.filter(function(filePath) {
+                    return selectedFilePaths.has(filePath);
+                });
+                selectionMessageSeq += 1;
+                vscode.postMessage({
+                    type: 'analyze-selected-files',
+                    requestId: 'selection-' + selectionMessageSeq,
+                    filePaths: orderedSelection,
+                });
             }
 
             function handleToolbarAction(action) {

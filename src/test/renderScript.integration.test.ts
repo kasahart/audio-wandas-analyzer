@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 // vscode モックを先に設定してから ComparisonPanel をロードするヘルパー
-import { getRenderScript } from './helpers/comparisonScriptLoader';
+import { getRenderScript, getRenderStyles } from './helpers/comparisonScriptLoader';
 import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
 
 const WAVEFORM_PIPELINE_JS = readFileSync(
@@ -27,6 +27,7 @@ const WAVEFORM_PIPELINE_JS = readFileSync(
 
 /** テスト用の最小 AnalysisResult JSON */
 const DUMMY_APP_STATE = JSON.stringify({
+    mode: 'results',
     results: [
         {
             filePath: '/tmp/a.wav',
@@ -75,10 +76,107 @@ const DUMMY_APP_STATE = JSON.stringify({
     ],
 });
 
+const DUMMY_SELECTION_STATE = JSON.stringify({
+    mode: 'directory-selection',
+    results: [],
+    rootPath: '/tmp/session',
+    allFilePaths: ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'],
+    selectedFilePaths: [],
+    directoryTree: [
+        {
+            type: 'file',
+            name: 'a.wav',
+            relativePath: 'a.wav',
+            filePath: '/tmp/session/a.wav',
+        },
+        {
+            type: 'directory',
+            name: 'sub',
+            relativePath: 'sub',
+            children: [
+                {
+                    type: 'file',
+                    name: 'b.flac',
+                    relativePath: 'sub/b.flac',
+                    filePath: '/tmp/session/sub/b.flac',
+                },
+            ],
+        },
+    ],
+});
+
+const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
+    mode: 'directory-selection',
+    rootPath: '/tmp/session',
+    allFilePaths: ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'],
+    selectedFilePaths: ['/tmp/session/a.wav'],
+    results: [
+        {
+            filePath: '/tmp/session/a.wav',
+            fileName: 'a.wav',
+            audioSource: 'vscode-resource:/tmp/session/a.wav',
+            sampleRateHz: 44100,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 44100,
+            error: undefined,
+            channels: [{
+                label: 'L',
+                rms: 0.1,
+                peakAbsolute: 0.5,
+                dominantFrequencies: [],
+                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
+                spectrogram: {
+                    values: [[0]], timeBins: 1, frequencyBins: 1,
+                    windowSize: 512, hopSize: 256,
+                    maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+                },
+            }],
+        },
+    ],
+    directoryTree: [
+        {
+            type: 'file',
+            name: 'a.wav',
+            relativePath: 'a.wav',
+            filePath: '/tmp/session/a.wav',
+        },
+        {
+            type: 'directory',
+            name: 'sub',
+            relativePath: 'sub',
+            children: [
+                {
+                    type: 'file',
+                    name: 'b.flac',
+                    relativePath: 'sub/b.flac',
+                    filePath: '/tmp/session/sub/b.flac',
+                },
+            ],
+        },
+    ],
+});
+
 function setupEnv() {
     const script = getRenderScript();
     const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_APP_STATE);
     // comparisonWaveform.js を先に eval して window.renderWaveformPipeline を登録する
+    evalScript(dom, WAVEFORM_PIPELINE_JS);
+    evalScript(dom, script);
+    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+}
+
+function setupSelectionEnv() {
+    const script = getRenderScript();
+    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_SELECTION_STATE);
+    evalScript(dom, WAVEFORM_PIPELINE_JS);
+    evalScript(dom, script);
+    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+}
+
+function setupSelectionResultsEnv() {
+    const script = getRenderScript();
+    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_SELECTION_WITH_RESULTS_STATE);
     evalScript(dom, WAVEFORM_PIPELINE_JS);
     evalScript(dom, script);
     return { dom, postedMessages, offscreenInstances, domCanvasContexts };
@@ -89,6 +187,22 @@ function nextAnimationFrame(dom: ReturnType<typeof setupEnv>['dom']): Promise<vo
         dom.window.requestAnimationFrame(() => resolve());
     });
 }
+
+test('renderStyles() defaults the panel palette to dark tones', () => {
+    const styles = getRenderStyles();
+
+    assert.match(styles, /--surface:\s*#1[0-9a-f]{5}/i);
+    assert.match(styles, /--panel:\s*#1[0-9a-f]{5}/i);
+    assert.doesNotMatch(styles, /--surface:\s*#fbfbf8/i);
+    assert.doesNotMatch(styles, /--panel:\s*#ffffff/i);
+});
+
+test('renderStyles() applies an explicit dark background to track areas', () => {
+    const styles = getRenderStyles();
+
+    assert.match(styles, /#tracks-wrapper\s*\{[^}]*background:\s*var\(--track-bg\)/i);
+    assert.match(styles, /\.track-canvas-wrap\s*\{[^}]*background:\s*var\(--track-bg\)/i);
+});
 
 test('renderScript() が jsdom で例外なく実行できる', () => {
     assert.doesNotThrow(() => {
@@ -167,6 +281,86 @@ test('open-folder ボタンが select-target(directory) を送信する', () => 
     const message = postedMessages[0] as { type?: string; targetKind?: string };
     assert.equal(message.type, 'select-target');
     assert.equal(message.targetKind, 'directory');
+});
+
+test('directory selection mode renders file tree checkboxes for audio files', () => {
+    const { dom } = setupSelectionEnv();
+    const checkboxes = dom.window.document.querySelectorAll('.selection-file-checkbox');
+    const directoryLabels = dom.window.document.querySelectorAll('.selection-tree-directory');
+    const checked = dom.window.document.querySelectorAll('.selection-file-checkbox:checked');
+
+    assert.equal(checkboxes.length, 2);
+    assert.equal(checked.length, 0);
+    assert.equal(directoryLabels.length, 1);
+    assert.match(dom.window.document.body.textContent || '', /a\.wav/);
+    assert.match(dom.window.document.body.textContent || '', /b\.flac/);
+});
+
+test('directory selection mode posts analyze-selected-files immediately when a checkbox is checked', () => {
+    const { dom, postedMessages } = setupSelectionEnv();
+    const firstCheckbox = dom.window.document.querySelector('[data-file-path="/tmp/session/a.wav"]');
+
+    assert.ok(firstCheckbox instanceof dom.window.HTMLInputElement);
+
+    firstCheckbox.checked = true;
+    firstCheckbox.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+    const message = postedMessages.at(-1) as { type?: string; requestId?: string; filePaths?: string[] } | undefined;
+
+    assert.ok(message, 'analyze-selected-files message should be posted');
+    assert.equal(message?.type, 'analyze-selected-files');
+    assert.match(message?.requestId || '', /^selection-/);
+    assert.deepEqual(message?.filePaths, ['/tmp/session/a.wav']);
+});
+
+test('directory selection mode keeps the tree visible while rendering selected tracks', () => {
+    const { dom } = setupSelectionResultsEnv();
+    const checkboxes = dom.window.document.querySelectorAll('.selection-file-checkbox');
+    const trackCanvas = dom.window.document.getElementById('track-canvas-0');
+    const toolbar = dom.window.document.getElementById('toolbar');
+
+    assert.equal(checkboxes.length, 2);
+    assert.ok(trackCanvas, 'selected track canvas should remain visible next to the tree');
+    assert.ok(toolbar, 'comparison toolbar should be visible in selection mode');
+});
+
+test('directory selection mode posts an empty selection when a checked file is unchecked', () => {
+    const { dom, postedMessages } = setupSelectionResultsEnv();
+    const firstCheckbox = dom.window.document.querySelector('[data-file-path="/tmp/session/a.wav"]');
+
+    assert.ok(firstCheckbox instanceof dom.window.HTMLInputElement);
+
+    firstCheckbox.checked = false;
+    firstCheckbox.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+    const message = postedMessages.at(-1) as { type?: string; requestId?: string; filePaths?: string[] } | undefined;
+
+    assert.ok(message, 'analyze-selected-files message should be posted when removing the last track');
+    assert.equal(message?.type, 'analyze-selected-files');
+    assert.match(message?.requestId || '', /^selection-/);
+    assert.deepEqual(message?.filePaths, []);
+});
+
+test('directory selection mode select-all test action sends the full selection immediately', () => {
+    const { dom, postedMessages } = setupSelectionEnv();
+
+    dom.window.dispatchEvent(
+        new dom.window.MessageEvent('message', {
+            data: {
+                type: 'comparison-panel-test-action',
+                actionId: 'selection-select-all-action',
+                actions: ['selection-select-all'],
+            },
+        }),
+    );
+
+    const message = postedMessages.find((entry) => {
+        return typeof entry === 'object' && entry !== null && (entry as { type?: string }).type === 'analyze-selected-files';
+    }) as { type?: string; requestId?: string; filePaths?: string[] } | undefined;
+
+    assert.ok(message, 'selection-select-all test action should post analyze-selected-files');
+    assert.match(message?.requestId || '', /^selection-/);
+    assert.deepEqual(message?.filePaths, ['/tmp/session/a.wav', '/tmp/session/sub/b.flac']);
 });
 
 test('comparisonWaveform.js が window.renderWaveformPipeline を登録する', () => {

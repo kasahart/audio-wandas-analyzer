@@ -17,6 +17,24 @@ export function isSelectTargetMessage(message: unknown): message is { type: 'sel
     return candidate.type === 'select-target' && (candidate.targetKind === 'file' || candidate.targetKind === 'directory');
 }
 
+export interface AnalyzeSelectedFilesMessage {
+    type: 'analyze-selected-files';
+    requestId: string;
+    filePaths: string[];
+}
+
+export function isAnalyzeSelectedFilesMessage(message: unknown): message is AnalyzeSelectedFilesMessage {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+
+    const candidate = message as { type?: unknown; requestId?: unknown; filePaths?: unknown };
+    return candidate.type === 'analyze-selected-files'
+        && typeof candidate.requestId === 'string'
+        && Array.isArray(candidate.filePaths)
+        && candidate.filePaths.every((filePath) => typeof filePath === 'string');
+}
+
 export interface WaveformRangeRequest {
     type: 'request-waveform-range';
     requestId: string;
