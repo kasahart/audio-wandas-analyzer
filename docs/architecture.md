@@ -5,7 +5,7 @@
 このプロジェクトは、VS Code 拡張機能のフロントエンドと Python 製の解析バックエンドを分離した三層構成です。現在のユーザー導線は次の 2 系統に分かれています。
 
 - 単一ファイル解析: ファイルを 1 件選択して即座に解析し、1 トラック状態の ComparisonPanel で確認する
-- 比較ビュー: 複数ファイルを対象に順次解析し、複数トラック状態の ComparisonPanel で比較する
+- 比較ビュー: ディレクトリ選択または複数ファイル再選択のあと、対象を絞り込んで順次解析し、複数トラック状態の ComparisonPanel で比較する
 
 - Extension Host 層: コマンド登録、設定取得、ファイル選択、Python プロセス起動を担当
 - Python Backend 層: 音声解析、数値計算、JSON 形式の結果生成を担当
@@ -21,7 +21,7 @@ flowchart LR
   Command --> Extension[Extension Host\nsrc/extension.ts]
 
   Extension -->|1 file| Single[単一ファイル解析導線]
-  Extension -->|2+ files| Compare[比較ビュー導線]
+  Extension -->|directory or 2+ files| Compare[比較ビュー導線]
 
   Single -->|spawn python| BackendCLI[Python CLI\npython-backend/main.py]
   Compare -->|spawn python per file| BackendCLI
@@ -41,10 +41,12 @@ flowchart LR
 
 複数ファイルを対象に解析して、共通タイムライン上で比較する導線です。開始点は 2 通りあります。
 
-- フォルダを選択し、配下の対応音声ファイル群を一括対象にする
+- フォルダを選択し、配下の対応音声ファイル群をツリーから選択して対象を確定する
+- フォルダを選択し、配下の対応音声ファイル群をツリーから逐次チェックして比較対象を増減させる
 - 単一ファイルを開いたあと、ツールバーから別のファイルまたはフォルダを開いて同じパネルを再利用する
 
-内部では `runAnalysis()` をファイルごとに繰り返し、成功トラックと失敗トラックを含む `AnalysisResultWithError[]` を `ComparisonPanel.show()` に渡します。比較対象が 2 件以上のとき、ComparisonPanel はオフセット調整、ズーム同期、再生操作を伴う比較ビューとして動作します。
+ディレクトリ入力では、まず extension 側が `DirectoryTreeNode[]` を構築し、ComparisonPanel を選択モードで開きます。Webview から返った選択済みファイル一覧を extension 側で再検証したあとに `runAnalysis()` をファイルごとに繰り返し、成功トラックと失敗トラックを含む `AnalysisResultWithError[]` を `ComparisonPanel.show()` に渡します。比較対象が 2 件以上のとき、ComparisonPanel はオフセット調整、ズーム同期、再生操作を伴う比較ビューとして動作します。
+ディレクトリ入力では、まず extension 側が `DirectoryTreeNode[]` を構築し、ComparisonPanel を選択モードで開きます。初期状態ではトラックは空です。Webview から返った選択済みファイル一覧を extension 側で再検証したあとに `runAnalysis()` をファイルごとに繰り返し、成功トラックと失敗トラックを含む `AnalysisResultWithError[]` を同じ選択モード panel に再注入します。これによりツリーを閉じずに、右側の比較トラックだけを即時更新できます。
 
 ## コンポーネント責務
 
@@ -57,11 +59,13 @@ flowchart LR
 - VS Code コマンド `audioWandasAnalyzer.analyzeFile` と `audioWandasAnalyzer.analyzeDebugFile` を登録する
 - 対象の音声ファイルまたはディレクトリを選択または解決する
 - 受け取った対象を単一ファイル解析導線または比較ビュー導線へ振り分ける
-- Webview から `select-target` と `request-waveform-range` を受け取る
+- Webview から `select-target`、`analyze-selected-files`、`request-waveform-range` を受け取る
 - 設定値 `pythonCommand`、`defaultPeakCount`、`debugFilePath` を読み込む
 - Python バックエンドを子プロセスとして起動する
 - 標準出力の JSON を `AnalysisResult` として解釈し、失敗時は `error` 付きの結果へ変換して `AnalysisResultWithError[]` に蓄積する
-- 成功時は `ComparisonPanel` を開き、失敗時は VS Code 通知にエラーを表示する
+- ディレクトリ指定時は `ComparisonPanel` を選択モードで開き、選択確定後に解析結果の `ComparisonPanel` へ切り替える
+- ディレクトリ指定時は `ComparisonPanel` を選択モードで開き、チェック変更のたびに同じ panel 内のトラック表示を更新する
+- 失敗時は VS Code 通知にエラーを表示する
 
 特徴:
 
@@ -118,7 +122,7 @@ flowchart LR
 
 設計上のポイント:
 
-- 現在の主表示経路は単一ファイルでも複数ファイルでも `ComparisonPanel` に統一されている
+- 現在の主表示経路は単一ファイル、ディレクトリ選択、複数ファイル比較のすべてで `ComparisonPanel` に統一されている
 - 比較件数に応じてタイトルとレイアウト密度だけが変わり、基本的な描画パイプラインは共通である
 - 波形描画ロジックは [media/comparisonWaveform.js](/workspaces/audio-wandas-analyzer/media/comparisonWaveform.js) と協調している
 
@@ -170,22 +174,25 @@ sequenceDiagram
     participant A as Analyzer
   U->>V: フォルダを開く、または既存パネルで再度開く
   V->>E: analyzeFile command / select-target message
-    loop filePaths
+  E->>C: ディレクトリツリーを選択モードで表示
+  E->>C: ディレクトリツリーを選択モードで表示
+  C->>E: analyze-selected-files
+    loop selected filePaths
         E->>P: 子プロセス起動
         P->>A: analyze_audio(file, peak_count)
         A-->>P: 解析結果 dict
         P-->>E: stdout に JSON 出力
         E->>E: JSON.parse / AnalysisResultWithError[] へ追加
     end
-    E->>C: ComparisonPanel.show(results, existingPanel)
-    C-->>U: 複数トラック比較ビューを表示
+    E->>C: ComparisonPanel.showDirectorySelection(..., selectedFilePaths, results)
+    C-->>U: ツリーを残したまま比較トラックを更新
 ```
 
 ## データフロー
 
 ### 入力
 
-- ユーザーが選択した音声ファイルパスまたはディレクトリパス、または `debugFilePath`
+- ユーザーが選択した音声ファイルパス、またはディレクトリ選択 UI で確定した音声ファイルパス群、または `debugFilePath`
 - VS Code 設定値
 
 ### 中間データ

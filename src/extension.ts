@@ -4,17 +4,37 @@ import * as vscode from 'vscode';
 import type { AnalysisResult, AnalysisResultWithError, DirectoryTreeNode } from './panels/analysisTypes';
 import { registerWorkspaceTests } from './testing/workspaceTests';
 import {
+    isAnalyzeSelectedFilesMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
     isRequestWaveformRangeMessage,
     type SelectionTargetKind,
 } from './utils/audioTarget';
+import {
+    collectAudioFilePaths,
+    collectSelectedResults,
+    diffSelectedAudioFilePaths,
+    sanitizeSelectedAudioFilePaths,
+} from './utils/directorySelection';
+import { getDebugStartupBehavior } from './utils/startupDebug';
 import { ComparisonPanel } from './panels/ComparisonPanel';
 import { WaveformServer } from './waveformServer';
 
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
+const panelDirectorySelections = new WeakMap<vscode.WebviewPanel, {
+    rootPath: string;
+    tree: DirectoryTreeNode[];
+    allFilePaths: string[];
+    selectedFilePaths: string[];
+    cachedResultsByFilePath: Map<string, AnalysisResultWithError>;
+    latestRequestId?: string;
+}>();
 
 let waveformServer: WaveformServer | null = null;
+
+interface AnalyzeTargetOptions {
+    autoSelectAllDirectoryFiles?: boolean;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
     waveformServer = new WaveformServer(context.extensionPath);
@@ -55,6 +75,15 @@ export function activate(context: vscode.ExtensionContext): void {
     });
 
     context.subscriptions.push(analyzeFileDisposable, analyzeDebugFileDisposable);
+
+    const startupBehavior = getDebugStartupBehavior(process.env);
+    if (startupBehavior.closePanelOnStartup) {
+        void vscode.commands.executeCommand('workbench.action.closePanel');
+    }
+
+    if (startupBehavior.autoOpenDebugTarget) {
+        void autoOpenDebugTargetOnStartup(context, startupBehavior.autoSelectAllDirectoryFiles);
+    }
 }
 
 export function deactivate(): void { }
@@ -63,6 +92,7 @@ async function analyzeAudioTarget(
     context: vscode.ExtensionContext,
     targetUri: vscode.Uri,
     existingPanel?: vscode.WebviewPanel,
+    options: AnalyzeTargetOptions = {},
 ): Promise<void> {
     const targetStat = await vscode.workspace.fs.stat(targetUri);
 
@@ -74,11 +104,55 @@ async function analyzeAudioTarget(
             throw new Error(`No supported audio files were found in ${targetUri.fsPath}`);
         }
 
-        await analyzeMultipleFiles(context, filePaths, existingPanel);
+        if (options.autoSelectAllDirectoryFiles) {
+            await analyzeMultipleFiles(context, filePaths, existingPanel);
+            return;
+        }
+
+        const comparisonPanel = ComparisonPanel.showDirectorySelection(
+            context.extensionUri,
+            targetUri.fsPath,
+            tree,
+            filePaths,
+            [],
+            [],
+            existingPanel,
+        );
+        panelDirectorySelections.set(comparisonPanel, {
+            rootPath: targetUri.fsPath,
+            tree,
+            allFilePaths: filePaths,
+            selectedFilePaths: [],
+            cachedResultsByFilePath: new Map(),
+        });
+        registerPanelMessageHandler(context, comparisonPanel);
         return;
     }
 
+    if (existingPanel) {
+        panelDirectorySelections.delete(existingPanel);
+    }
     await analyzeMultipleFiles(context, [targetUri.fsPath], existingPanel);
+}
+
+async function autoOpenDebugTargetOnStartup(
+    context: vscode.ExtensionContext,
+    autoSelectAllDirectoryFiles: boolean,
+): Promise<void> {
+    await Promise.resolve();
+
+    const debugTargetUri = getDebugTargetUri(context.extensionUri);
+    if (!debugTargetUri) {
+        return;
+    }
+
+    try {
+        await vscode.workspace.fs.stat(debugTargetUri);
+        await analyzeAudioTarget(context, debugTargetUri, undefined, { autoSelectAllDirectoryFiles });
+    } catch (error) {
+        const messageText = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(messageText);
+    }
 }
 
 function registerPanelMessageHandler(
@@ -89,6 +163,77 @@ function registerPanelMessageHandler(
 
     const disposable = panel.webview.onDidReceiveMessage(async (message: unknown) => {
         try {
+            if (isAnalyzeSelectedFilesMessage(message)) {
+                const selection = panelDirectorySelections.get(panel);
+                if (!selection) {
+                    return;
+                }
+
+                const selectedFilePaths = sanitizeSelectedAudioFilePaths(selection.tree, message.filePaths);
+                const selectionDelta = diffSelectedAudioFilePaths(selection.selectedFilePaths, selectedFilePaths);
+                selection.latestRequestId = message.requestId;
+                selection.selectedFilePaths = selectedFilePaths;
+                panelDirectorySelections.set(panel, selection);
+
+                if (selectedFilePaths.length === 0) {
+                    ComparisonPanel.showDirectorySelection(
+                        context.extensionUri,
+                        selection.rootPath,
+                        selection.tree,
+                        selection.allFilePaths,
+                        selectedFilePaths,
+                        [],
+                        panel,
+                    );
+                    return;
+                }
+
+                const newlyAddedFilePathSet = new Set(selectionDelta.addedFilePaths);
+                const uncachedSelectedFilePaths = [
+                    ...selectionDelta.addedFilePaths.filter((filePath) => !selection.cachedResultsByFilePath.has(filePath)),
+                    ...selectedFilePaths.filter((filePath) => {
+                        return !newlyAddedFilePathSet.has(filePath)
+                            && !selection.cachedResultsByFilePath.has(filePath);
+                    }),
+                ];
+
+                if (uncachedSelectedFilePaths.length > 0) {
+                    const newResults = await analyzeFilesWithProgress(context, uncachedSelectedFilePaths);
+                    const currentSelectionAfterLoad = panelDirectorySelections.get(panel);
+                    if (!currentSelectionAfterLoad) {
+                        return;
+                    }
+
+                    for (const result of newResults) {
+                        currentSelectionAfterLoad.cachedResultsByFilePath.set(result.filePath, result);
+                    }
+
+                    panelDirectorySelections.set(panel, currentSelectionAfterLoad);
+                }
+
+                const currentSelection = panelDirectorySelections.get(panel);
+                if (!currentSelection || currentSelection.latestRequestId !== message.requestId) {
+                    return;
+                }
+
+                const results = collectSelectedResults(
+                    currentSelection.selectedFilePaths,
+                    currentSelection.cachedResultsByFilePath,
+                );
+
+                waveformServer?.warmup();
+                ComparisonPanel.showDirectorySelection(
+                    context.extensionUri,
+                    currentSelection.rootPath,
+                    currentSelection.tree,
+                    currentSelection.allFilePaths,
+                    currentSelection.selectedFilePaths,
+                    results,
+                    panel,
+                );
+                return;
+            }
+
             if (isSelectTargetMessage(message)) {
                 const selected = await pickAudioTarget(message.targetKind);
 
@@ -196,23 +341,6 @@ async function buildDirectoryTree(rootUri: vscode.Uri, currentUri: vscode.Uri): 
     return nodes;
 }
 
-function collectAudioFilePaths(tree: DirectoryTreeNode[]): string[] {
-    const filePaths: string[] = [];
-
-    for (const node of tree) {
-        if (node.type === 'file' && node.filePath) {
-            filePaths.push(node.filePath);
-            continue;
-        }
-
-        if (node.type === 'directory' && node.children) {
-            filePaths.push(...collectAudioFilePaths(node.children));
-        }
-    }
-
-    return filePaths;
-}
-
 async function pickAudioTarget(targetKind?: SelectionTargetKind): Promise<vscode.Uri | undefined> {
     const selected = await vscode.window.showOpenDialog({
         canSelectMany: false,
@@ -238,7 +366,17 @@ async function analyzeMultipleFiles(
     filePaths: string[],
     panel?: vscode.WebviewPanel,
 ): Promise<void> {
-    await vscode.window.withProgress(
+    const results = await analyzeFilesWithProgress(context, filePaths);
+    waveformServer?.warmup();
+    const comparisonPanel = ComparisonPanel.show(context.extensionUri, results, panel);
+    registerPanelMessageHandler(context, comparisonPanel);
+}
+
+async function analyzeFilesWithProgress(
+    context: vscode.ExtensionContext,
+    filePaths: string[],
+): Promise<AnalysisResultWithError[]> {
+    return vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
             title: `Analyzing ${filePaths.length} files with wandas`,
@@ -255,7 +393,6 @@ async function analyzeMultipleFiles(
                     const result = await runAnalysis(context.extensionPath, vscode.Uri.file(filePaths[i]));
                     results.push(result);
                 } catch (err) {
-                    // 1件失敗してもパネルは開く。エラー情報をトラックに載せる
                     results.push({
                         filePath: filePaths[i],
                         fileName: path.basename(filePaths[i]),
@@ -268,9 +405,8 @@ async function analyzeMultipleFiles(
                     });
                 }
             }
-            waveformServer?.warmup();
-            const comparisonPanel = ComparisonPanel.show(context.extensionUri, results, panel);
-            registerPanelMessageHandler(context, comparisonPanel);
+
+            return results;
         },
     );
 }

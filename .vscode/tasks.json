@@ -2,13 +2,19 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "npm: compile",
+      "label": "compile extension (hidden)",
       "type": "shell",
       "command": "npm",
       "args": [
         "run",
         "compile"
       ],
+      "presentation": {
+        "reveal": "never",
+        "focus": false,
+        "panel": "shared",
+        "close": true
+      },
       "group": "build",
       "problemMatcher": [
         "$tsc"
