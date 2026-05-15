@@ -95,6 +95,23 @@ export interface CanvasCtx {
     stroke(): void;
 }
 
+export interface LoopRegionCtx {
+    fillStyle: string;
+    strokeStyle: string;
+    lineWidth: number;
+    globalAlpha: number;
+    save(): void;
+    restore(): void;
+    setLineDash(segments: number[]): void;
+    fillRect(x: number, y: number, w: number, h: number): void;
+    beginPath(): void;
+    moveTo(x: number, y: number): void;
+    lineTo(x: number, y: number): void;
+    closePath(): void;
+    stroke(): void;
+    fill(): void;
+}
+
 // ── Layer 1: CoordTransform ───────────────────────────────────
 
 export interface CoordTransform {
@@ -261,6 +278,66 @@ export function paintDecimatedPoints(
         ctx.lineTo(x1, y1);
     }
     ctx.stroke();
+}
+
+export function paintLoopRegion(
+    ctx: LoopRegionCtx,
+    W: number,
+    H: number,
+    loopStart: number,
+    loopEnd: number,
+    zoomStart: number,
+    zoomEnd: number,
+): void {
+    if (loopStart >= loopEnd) { return; }
+    const span = zoomEnd - zoomStart;
+    if (span <= 0) { return; }
+    const toX = (norm: number) => (norm - zoomStart) / span * W;
+    const x0 = toX(loopStart);
+    const x1 = toX(loopEnd);
+    const left = Math.max(0, x0);
+    const right = Math.min(W, x1);
+    if (right <= left) { return; }
+
+    ctx.save();
+    ctx.setLineDash([]);
+
+    // 区間外を暗く
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.fillRect(0, 0, left, H);
+    ctx.fillRect(right, 0, W - right, H);
+
+    // 区間内を青くハイライト
+    ctx.fillStyle = 'rgba(100, 160, 255, 0.15)';
+    ctx.fillRect(left, 0, right - left, H);
+
+    // グリップハンドル（縦線）
+    ctx.strokeStyle = 'rgba(100, 160, 255, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(left, 0);
+    ctx.lineTo(left, H);
+    ctx.moveTo(right, 0);
+    ctx.lineTo(right, H);
+    ctx.stroke();
+
+    // 三角マーカー
+    const TH = 8;
+    ctx.fillStyle = 'rgba(100, 160, 255, 0.9)';
+    ctx.beginPath();
+    ctx.moveTo(left, 0);
+    ctx.lineTo(left + TH, 0);
+    ctx.lineTo(left, TH);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(right, 0);
+    ctx.lineTo(right - TH, 0);
+    ctx.lineTo(right, TH);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
 }
 
 /** 後方互換ファサード。内部は 3 層パイプラインを使用する。 */

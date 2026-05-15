@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     xOfNorm, buildBucketPoints, computeAnchorX,
     makeCoordTransform, computeViewRange, decimateBuckets, paintDecimatedPoints,
+    paintLoopRegion,
 } from '../panels/waveformRenderer';
 
 test('xOfNorm maps zoomStart to 0', () => {
@@ -438,4 +439,61 @@ test('paintDecimatedPoints: 空の点列は何も描画しない', () => {
     const t = makeCoordTransform(0, 1, 0, 800, 80, 1.0);
     paintDecimatedPoints(ctx, [], t, '#fff', 1.5);
     assert.ok(!ctx.calls.includes('stroke'), '空の場合 stroke を呼ばない');
+});
+
+// ── paintLoopRegion ───────────────────────────────────────────
+
+function makePaintCtx() {
+    const fillRects: Array<{ x: number; y: number; w: number; h: number }> = [];
+    const ctx = {
+        lineWidth: 0,
+        strokeStyle: '',
+        fillStyle: '',
+        globalAlpha: 1,
+        savedCount: 0,
+        beginPath() {},
+        moveTo() {},
+        lineTo() {},
+        closePath() {},
+        stroke() {},
+        fill() {},
+        fillRect(x: number, y: number, w: number, h: number) { fillRects.push({ x, y, w, h }); },
+        save() { this.savedCount++; },
+        restore() { this.savedCount--; },
+        setLineDash() {},
+        _fillRects: fillRects,
+    };
+    return ctx;
+}
+
+test('paintLoopRegion: 3つの fillRect を描画する（左暗・中青・右暗）', () => {
+    const ctx = makePaintCtx();
+    paintLoopRegion(ctx, 800, 100, 0.2, 0.6, 0, 1);
+    assert.equal(ctx._fillRects.length, 3);
+    // 左暗: x=0 から始まる
+    assert.equal(ctx._fillRects[0].x, 0);
+    // 右暗: W で終わる
+    assert.equal(ctx._fillRects[1].x + ctx._fillRects[1].w, 800);
+    // 中央: 左と右の間
+    assert.ok(ctx._fillRects[2].x > 0);
+    assert.ok(ctx._fillRects[2].x < ctx._fillRects[1].x);
+});
+
+test('paintLoopRegion: start >= end のとき何も描画しない', () => {
+    const ctx = makePaintCtx();
+    paintLoopRegion(ctx, 800, 100, 0.6, 0.2, 0, 1);
+    assert.equal(ctx._fillRects.length, 0);
+});
+
+test('paintLoopRegion: ズーム範囲外のループは left >= right になり何も描画しない', () => {
+    const ctx = makePaintCtx();
+    // ループ区間 [0.8, 0.9]、ズーム [0, 0.5] → 全部画面外
+    paintLoopRegion(ctx, 800, 100, 0.8, 0.9, 0, 0.5);
+    assert.equal(ctx._fillRects.length, 0);
+});
+
+test('paintLoopRegion: save/restore がペアで呼ばれる', () => {
+    const ctx = makePaintCtx();
+    paintLoopRegion(ctx, 800, 100, 0.2, 0.6, 0, 1);
+    assert.equal(ctx.savedCount, 0); // save と restore がペア
 });
