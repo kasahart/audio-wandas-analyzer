@@ -15,7 +15,7 @@
     "onCommand:audioWandasAnalyzer.analyzeFile",
     "onCommand:audioWandasAnalyzer.analyzeDebugFile"
   ],
-  "main": "./dist/extension.js",
+  "main": "./dist/extension/index.js",
   "contributes": {
     "commands": [
       {
