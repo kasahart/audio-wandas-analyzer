@@ -876,7 +876,8 @@ export class ComparisonPanel {
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in">＋</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<span id="cursor-display">—</span>';
+                    + '<span id="cursor-display">—</span>'
+                    + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">🔁 ループ再生中</span>';
             }
 
             function buildTrackRow(result, i) {
@@ -1100,6 +1101,7 @@ export class ComparisonPanel {
                 }
 
                 if (shouldDrawCursor) {
+                    drawLoopRegionOnCanvas(ctx, W, H);
                     drawCursorOnCanvas(ctx, W, H);
                     drawHoverLineOnCanvas(ctx, W, H);
                 }
@@ -1145,6 +1147,7 @@ export class ComparisonPanel {
                     }
                 }
                 ctx.putImageData(imageData, 0, 0);
+                drawLoopRegionOnCanvas(ctx, W, H);
                 drawCursorOnCanvas(ctx, W, H);
                 drawHoverLineOnCanvas(ctx, W, H);
             }
@@ -1187,6 +1190,13 @@ export class ComparisonPanel {
                 ctx.restore();
             }
 
+            function drawLoopRegionOnCanvas(ctx, W, H) {
+                if (!loopRegion) { return; }
+                if (typeof window.paintLoopRegion === 'function') {
+                    window.paintLoopRegion(ctx, W, H, loopRegion.start, loopRegion.end, zoomStart, zoomEnd);
+                }
+            }
+
             function renderOverlay() {
                 const canvas = document.getElementById('overlay-canvas');
                 if (!canvas) { return; }
@@ -1207,6 +1217,8 @@ export class ComparisonPanel {
                     });
                     ctx.restore();
                 });
+
+                drawLoopRegionOnCanvas(ctx, W, H);
 
                 const x = (cursorNorm - zoomStart) / (zoomEnd - zoomStart) * W;
                 ctx.save();

@@ -82,6 +82,36 @@
         ctx.stroke();
     }
 
+    function paintLoopRegion(ctx, W, H, loopStart, loopEnd, zoomStart, zoomEnd) {
+        if (loopStart >= loopEnd) { return; }
+        const span = zoomEnd - zoomStart;
+        if (span <= 0) { return; }
+        const x0 = (loopStart - zoomStart) / span * W;
+        const x1 = (loopEnd - zoomStart) / span * W;
+        const left = Math.max(0, x0);
+        const right = Math.min(W, x1);
+        if (right <= left) { return; }
+        ctx.save();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+        ctx.fillRect(0, 0, left, H);
+        ctx.fillRect(right, 0, W - right, H);
+        ctx.fillStyle = 'rgba(100, 160, 255, 0.15)';
+        ctx.fillRect(left, 0, right - left, H);
+        ctx.strokeStyle = 'rgba(100, 160, 255, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(left, 0); ctx.lineTo(left, H);
+        ctx.moveTo(right, 0); ctx.lineTo(right, H);
+        ctx.stroke();
+        const TH = 8;
+        ctx.fillStyle = 'rgba(100, 160, 255, 0.9)';
+        ctx.beginPath(); ctx.moveTo(left, 0); ctx.lineTo(left + TH, 0); ctx.lineTo(left, TH); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(right, 0); ctx.lineTo(right - TH, 0); ctx.lineTo(right, TH); ctx.closePath(); ctx.fill();
+        ctx.restore();
+    }
+    window.paintLoopRegion = paintLoopRegion;
+
     // グローバルに公開
     window.renderWaveformPipeline = renderWaveformPipeline;
 })();
