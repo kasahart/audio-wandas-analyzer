@@ -604,18 +604,18 @@ export class ComparisonPanel {
                 return { offsetSeconds: 0, hidden: false };
             });
 
-            const _tooltip = document.getElementById('canvas-tooltip');
-
             function showTooltip(e, text) {
-                if (!_tooltip) { return; }
-                _tooltip.textContent = text;
-                _tooltip.style.display = 'block';
-                _tooltip.style.left = (e.clientX + 14) + 'px';
-                _tooltip.style.top = (e.clientY + 14) + 'px';
+                const el = document.getElementById('canvas-tooltip');
+                if (!el) { return; }
+                el.textContent = text;
+                el.style.display = 'block';
+                el.style.left = (e.clientX + 14) + 'px';
+                el.style.top = (e.clientY + 14) + 'px';
             }
 
             function hideTooltip() {
-                if (_tooltip) { _tooltip.style.display = 'none'; }
+                const el = document.getElementById('canvas-tooltip');
+                if (el) { el.style.display = 'none'; }
             }
 
             function computeGlobalSpan() {
