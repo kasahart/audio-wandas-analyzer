@@ -20,10 +20,6 @@ interface TestSnapshot {
         trackRowCount: number;
         audioElementCount: number;
         hasRulerCanvas: boolean;
-        hasOverlayCanvas: boolean;
-        viewMode: 'stacked' | 'overlay';
-        stackedWrapVisible: boolean;
-        overlayWrapVisible: boolean;
         zoomStart: number;
         zoomEnd: number;
         tracks: Array<{
@@ -66,12 +62,9 @@ export async function run(): Promise<void> {
         assert.equal(snapshot.renderedUi.trackRowCount, 1);
         assert.equal(snapshot.renderedUi.audioElementCount, 1);
         assert.equal(snapshot.renderedUi.hasRulerCanvas, true);
-        assert.equal(snapshot.renderedUi.hasOverlayCanvas, true);
         assert.deepEqual(snapshot.renderedUi.toolbarActions, [
             'open-file',
             'open-folder',
-            'view-stacked',
-            'view-overlay',
             'content-waveform',
             'content-spectrogram',
             'zoom-out',
@@ -100,17 +93,8 @@ export async function run(): Promise<void> {
         assert.equal(zoomInEdgeCoverageUi.tracks[0].waveformCoversViewportLeft, true);
         assert.equal(zoomInEdgeCoverageUi.tracks[0].waveformCoversViewportRight, true);
 
-        const overlaySnapshot = await runViewModeScenario(['view-overlay']);
-        assert.ok(overlaySnapshot.renderedUi, 'Rendered UI snapshot should exist after overlay switch');
-        assert.equal(overlaySnapshot.renderedUi.viewMode, 'overlay');
-        assert.equal(overlaySnapshot.renderedUi.stackedWrapVisible, false);
-        assert.equal(overlaySnapshot.renderedUi.overlayWrapVisible, true);
-
         const spectrogramSnapshot = await runViewModeScenario(['content-spectrogram']);
         assert.ok(spectrogramSnapshot.renderedUi, 'Rendered UI snapshot should exist after spectrogram switch');
-        assert.equal(spectrogramSnapshot.renderedUi.viewMode, 'stacked');
-        assert.equal(spectrogramSnapshot.renderedUi.stackedWrapVisible, true);
-        assert.equal(spectrogramSnapshot.renderedUi.overlayWrapVisible, false);
 
         const multiTrackSnapshot = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
         assert.equal(multiTrackSnapshot.resultCount, 3);

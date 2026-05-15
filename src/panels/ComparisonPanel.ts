@@ -35,10 +35,6 @@ interface ComparisonPanelTestSnapshot {
         trackRowCount: number;
         audioElementCount: number;
         hasRulerCanvas: boolean;
-        hasOverlayCanvas: boolean;
-        viewMode: 'stacked' | 'overlay';
-        stackedWrapVisible: boolean;
-        overlayWrapVisible: boolean;
         zoomStart: number;
         zoomEnd: number;
         tracks: Array<{
@@ -63,10 +59,6 @@ interface ComparisonPanelRenderedUiMessage {
         trackRowCount: number;
         audioElementCount: number;
         hasRulerCanvas: boolean;
-        hasOverlayCanvas: boolean;
-        viewMode: 'stacked' | 'overlay';
-        stackedWrapVisible: boolean;
-        overlayWrapVisible: boolean;
         zoomStart: number;
         zoomEnd: number;
         tracks: Array<{
@@ -415,15 +407,6 @@ export class ComparisonPanel {
         .track-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: var(--track-bg); }
         .track-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
 
-        /* ── Overlay mode ── */
-        #overlay-wrap { flex: 1; display: none; flex-direction: column; }
-        #overlay-wrap.is-visible { display: flex; }
-        #overlay-legend { display: flex; gap: 12px; padding: 4px 10px; font-size: 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-        .overlay-legend-item { display: flex; align-items: center; gap: 4px; }
-        .overlay-swatch { width: 12px; height: 2px; border-radius: 1px; }
-        #overlay-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: var(--track-bg); }
-        #overlay-canvas { display: block; width: 100%; cursor: crosshair; }
-
         /* ── Metrics bar ── */
         #metrics-bar {
             display: flex; gap: 16px; padding: 5px 10px; font-size: 10px;
@@ -577,7 +560,6 @@ export class ComparisonPanel {
             }
 
             // ── Runtime state ──
-            let viewMode = 'stacked';     // 'stacked' | 'overlay'
             let rafPending = false;
             const canvasWidthCache = {};
             let playbackEl = null;
@@ -597,7 +579,6 @@ export class ComparisonPanel {
             let playbackStartNorm = 0;    // 再生開始位置の記憶
             let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag, isShift, startNorm, dragType }
             let loopRegion = null;        // null or { start: number, end: number }（正規化グローバル時間）
-            let hoverTrackIndex = -1;     // overlay hit-test highlight
             const lastWaveformCoverage = state.results.map(function() { return null; });
 
             const trackRuntime = state.results.map(function() {
@@ -745,8 +726,6 @@ export class ComparisonPanel {
 
             function publishTestSnapshot(actionId) {
                 const toolbar = document.getElementById('toolbar');
-                const stackedWrap = document.getElementById('stacked-wrap');
-                const overlayWrap = document.getElementById('overlay-wrap');
                 vscode.postMessage({
                     type: 'comparison-panel-test-snapshot',
                     actionId: actionId,
@@ -760,10 +739,6 @@ export class ComparisonPanel {
                         trackRowCount: document.querySelectorAll('.track-row').length,
                         audioElementCount: document.querySelectorAll('#audio-host audio').length,
                         hasRulerCanvas: !!document.getElementById('ruler-canvas'),
-                        hasOverlayCanvas: !!document.getElementById('overlay-canvas'),
-                        viewMode: viewMode,
-                        stackedWrapVisible: !!stackedWrap && stackedWrap.style.display !== 'none',
-                        overlayWrapVisible: !!overlayWrap && overlayWrap.classList.contains('is-visible'),
                         zoomStart: zoomStart,
                         zoomEnd: zoomEnd,
                         tracks: state.results.map(function(result, trackIndex) {
@@ -842,10 +817,6 @@ export class ComparisonPanel {
                     + '<div id="tracks-wrapper">'
                     + '  <div id="ruler-row"><div id="ruler-spacer"></div><canvas id="ruler-canvas"></canvas></div>'
                     + '  <div id="stacked-wrap">' + tracks + '</div>'
-                    + '  <div id="overlay-wrap">'
-                    + '    <div id="overlay-legend"></div>'
-                    + '    <div id="overlay-canvas-wrap"><canvas id="overlay-canvas"></canvas></div>'
-                    + '  </div>'
                     + '  <div id="empty-state"><p>' + escHtml(emptyMessage) + '</p></div>'
                     + '</div>'
                     + '<div id="audio-host">' + buildAudioElements() + '</div>'
@@ -893,10 +864,6 @@ export class ComparisonPanel {
                     + '<button class="tb-btn" data-action="open-file">ファイルを開く</button>'
                     + '<button class="tb-btn" data-action="open-folder">フォルダを開く</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<span class="tb-label">表示:</span>'
-                    + '<button class="tb-btn is-active" data-action="view-stacked">縦積み</button>'
-                    + '<button class="tb-btn" data-action="view-overlay">オーバーレイ</button>'
-                    + '<div class="tb-sep"></div>'
                     + '<span class="tb-label">トラック:</span>'
                     + '<button class="tb-btn is-active" data-action="content-waveform">波形</button>'
                     + '<button class="tb-btn" data-action="content-spectrogram">スペクトログラム</button>'
@@ -941,11 +908,7 @@ export class ComparisonPanel {
             function renderAll() {
                 resizeAllCanvases();
                 renderRuler();
-                if (viewMode === 'stacked') {
-                    renderStackedTracks();
-                } else {
-                    renderOverlay();
-                }
+                renderStackedTracks();
                 updateVisibility();
                 updateOffsetDisplays();
                 if (contentType === 'waveform') { scheduleRangeRequests(); }
@@ -963,18 +926,6 @@ export class ComparisonPanel {
                     canvas.width = newW;
                     canvas.height = 80;
                 });
-                const overlayCanvas = document.getElementById('overlay-canvas');
-                if (overlayCanvas) {
-                    const wrap = document.getElementById('overlay-canvas-wrap');
-                    if (wrap) {
-                        const newW = wrap.clientWidth || 800;
-                        if (canvasWidthCache['overlay'] !== newW) {
-                            canvasWidthCache['overlay'] = newW;
-                            overlayCanvas.width = newW;
-                            overlayCanvas.height = 160;
-                        }
-                    }
-                }
                 const rulerCanvas = document.getElementById('ruler-canvas');
                 if (rulerCanvas) {
                     const row = document.getElementById('ruler-row');
@@ -1226,53 +1177,6 @@ export class ComparisonPanel {
                 }
             }
 
-            function renderOverlay() {
-                const canvas = document.getElementById('overlay-canvas');
-                if (!canvas) { return; }
-                const ctx = canvas.getContext('2d');
-                const W = canvas.width;
-                const H = canvas.height;
-                ctx.clearRect(0, 0, W, H);
-
-                state.results.forEach(function(result, i) {
-                    if (trackRuntime[i].hidden || result.error) { return; }
-                    const color = TRACK_COLORS[i % TRACK_COLORS.length];
-                    const isHl = (i === hoverTrackIndex);
-                    ctx.save();
-                    ctx.globalAlpha = isHl ? 1.0 : 0.7;
-                    drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color, {
-                        clear: false,
-                        drawCursor: false,
-                    });
-                    ctx.restore();
-                });
-
-                drawLoopRegionOnCanvas(ctx, W, H);
-
-                const x = (cursorNorm - zoomStart) / (zoomEnd - zoomStart) * W;
-                ctx.save();
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 1;
-                ctx.setLineDash([4, 4]);
-                ctx.globalAlpha = 0.7;
-                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-                ctx.restore();
-
-                drawHoverLineOnCanvas(ctx, W, H);
-
-                updateOverlayLegend();
-            }
-
-            function updateOverlayLegend() {
-                const legend = document.getElementById('overlay-legend');
-                if (!legend) { return; }
-                legend.innerHTML = state.results.map(function(result, i) {
-                    if (trackRuntime[i].hidden) { return ''; }
-                    const color = TRACK_COLORS[i % TRACK_COLORS.length];
-                    return '<div class="overlay-legend-item"><div class="overlay-swatch" style="background:' + color + '"></div>'
-                        + '<span>' + escHtml(result.fileName) + '</span></div>';
-                }).join('');
-            }
 
             function updateVisibility() {
                 // まず各行の display を更新する
@@ -1538,14 +1442,6 @@ export class ComparisonPanel {
                 document.addEventListener('mousemove', function(e) { handleDocMouseMove(e); });
                 document.addEventListener('mouseup', function(e) { handleDocMouseUp(e); });
 
-                const overlayCanvas = document.getElementById('overlay-canvas');
-                if (overlayCanvas) {
-                    overlayCanvas.addEventListener('mousemove', function(e) { handleOverlayMouseMove(e); });
-                    overlayCanvas.addEventListener('mouseleave', clearHover);
-                    overlayCanvas.addEventListener('mousedown', function(e) { handleOverlayMouseDown(e); });
-                    overlayCanvas.addEventListener('click', function(e) { handleOverlayClick(e); });
-                }
-
                 document.getElementById('tracks-wrapper').addEventListener('wheel', function(e) {
                     e.preventDefault();
                     if (e.ctrlKey) { handleZoomWheel(e); }
@@ -1696,20 +1592,6 @@ export class ComparisonPanel {
                     vscode.postMessage({ type: 'select-target', targetKind: 'file' });
                 } else if (action === 'open-folder') {
                     vscode.postMessage({ type: 'select-target', targetKind: 'directory' });
-                } else if (action === 'view-stacked') {
-                    viewMode = 'stacked';
-                    document.querySelector('[data-action="view-stacked"]').classList.add('is-active');
-                    document.querySelector('[data-action="view-overlay"]').classList.remove('is-active');
-                    document.getElementById('stacked-wrap').style.display = '';
-                    document.getElementById('overlay-wrap').classList.remove('is-visible');
-                    scheduleRender();
-                } else if (action === 'view-overlay') {
-                    viewMode = 'overlay';
-                    document.querySelector('[data-action="view-stacked"]').classList.remove('is-active');
-                    document.querySelector('[data-action="view-overlay"]').classList.add('is-active');
-                    document.getElementById('stacked-wrap').style.display = 'none';
-                    document.getElementById('overlay-wrap').classList.add('is-visible');
-                    scheduleRender();
                 } else if (action === 'content-waveform') {
                     contentType = 'waveform';
                     document.querySelector('[data-action="content-waveform"]').classList.add('is-active');
@@ -1719,14 +1601,6 @@ export class ComparisonPanel {
                     contentType = 'spectrogram';
                     document.querySelector('[data-action="content-waveform"]').classList.remove('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.add('is-active');
-                    // スペクトログラムはオーバーレイ非対応のため縦積みに切替
-                    if (viewMode === 'overlay') {
-                        viewMode = 'stacked';
-                        document.querySelector('[data-action="view-stacked"]').classList.add('is-active');
-                        document.querySelector('[data-action="view-overlay"]').classList.remove('is-active');
-                        document.getElementById('stacked-wrap').style.display = '';
-                        document.getElementById('overlay-wrap').classList.remove('is-visible');
-                    }
                     scheduleRender();
                 } else if (action === 'zoom-in') {
                     zoomIn();
@@ -1887,7 +1761,7 @@ export class ComparisonPanel {
             function handleDocMouseUp(e) {
                 if (dragState && !dragState.isDrag) {
                     // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
-                    const canvasId = viewMode === 'overlay' ? 'overlay-canvas' : 'track-canvas-' + dragState.trackIndex;
+                    const canvasId = 'track-canvas-' + dragState.trackIndex;
                     const canvas = document.getElementById(canvasId);
                     if (canvas) {
                         const rect = canvas.getBoundingClientRect();
@@ -1923,86 +1797,6 @@ export class ComparisonPanel {
                 if (el) { el.textContent = formatTime(t); }
             }
 
-            function hitTestOverlay(canvas, clientX, clientY) {
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = clientX - rect.left;
-                const mouseY = clientY - rect.top;
-                const W = canvas.width;
-                const H = canvas.height;
-                let minDist = Infinity;
-                let nearest = -1;
-                state.results.forEach(function(result, i) {
-                    if (trackRuntime[i].hidden || result.error) { return; }
-                    const offsetSeconds = trackRuntime[i].offsetSeconds;
-                    const src = resolveWaveformSource(result, i, offsetSeconds);
-                    if (!src) { return; }
-                    const { waveform: env, dataStart, dataEnd } = src;
-                    const peak = env.absolutePeak || 1;
-                    const samples = env.samples || [];
-                    const minArr = env.min || [];
-                    const maxArr = env.max || [];
-                    const n = samples.length;
-                    const dur = result.durationSeconds || 1;
-                    const gs = computeGlobalSpan();
-                    const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
-                    const trackDurRatio = dur / gs.spanSec;
-                    const tNorm = zoomStart + (mouseX / W) * (zoomEnd - zoomStart);
-                    const filePos = (tNorm - trackStart) / trackDurRatio;
-                    const tInData = (filePos - dataStart) / (dataEnd - dataStart);
-                    const idx = Math.floor(tInData * n);
-                    if (idx < 0 || idx >= n) { return; }
-                    const absMin = minArr.length > idx ? Math.abs(minArr[idx]) : 0;
-                    const absMax = maxArr.length > idx ? Math.abs(maxArr[idx]) : 0;
-                    const repVal = absMax >= absMin ? (maxArr[idx] ?? 0) : (minArr[idx] ?? 0);
-                    const waveY = H / 2 - (repVal / peak) * (H * 0.44);
-                    const dist = Math.abs(mouseY - waveY);
-                    if (dist < minDist) { minDist = dist; nearest = i; }
-                });
-                return minDist <= 20 ? nearest : -1;
-            }
-
-            function handleOverlayMouseMove(e) {
-                const canvas = document.getElementById('overlay-canvas');
-                if (!canvas || dragState) { return; }
-                const newHover = hitTestOverlay(canvas, e.clientX, e.clientY);
-                if (newHover !== hoverTrackIndex) {
-                    hoverTrackIndex = newHover;
-                    canvas.style.cursor = newHover >= 0 ? 'ew-resize' : 'crosshair';
-                    renderOverlay();
-                }
-                const rect = canvas.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
-                renderWithHoverAt(norm);
-            }
-
-            function handleOverlayMouseDown(e) {
-                const canvas = document.getElementById('overlay-canvas');
-                if (!canvas) { return; }
-                const idx = hitTestOverlay(canvas, e.clientX, e.clientY);
-                if (idx >= 0) {
-                    dragState = {
-                        trackIndex: idx,
-                        startClientX: e.clientX,
-                        startOffset: trackRuntime[idx].offsetSeconds,
-                        canvasWidth: canvas.width,
-                        isDrag: false,
-                        dragType: 'offset',
-                    };
-                }
-            }
-
-            function handleOverlayClick(e) {
-                const canvas = document.getElementById('overlay-canvas');
-                if (!canvas) { return; }
-                const rect = canvas.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
-                cursorNorm = Math.max(0, Math.min(1, norm));
-                loopRegion = null;
-                updateCursorDisplay(cursorNorm);
-                scheduleRender();
-            }
 
             function toggleMute(idx) {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }

@@ -463,24 +463,3 @@ test('renderScript: cursorNorm initializes as number (not null)', () => {
         'cursorNorm=0 のとき cursor-display は "0:00.00" を表示すること');
 });
 
-test('overlay 表示ではキャンバス全体の clearRect は 1 回だけで各トラックが積み重なる', async () => {
-    const { dom, domCanvasContexts } = setupEnv();
-    await nextAnimationFrame(dom);
-
-    const overlayButton = dom.window.document.querySelector('[data-action="view-overlay"]');
-    assert.ok(overlayButton instanceof dom.window.HTMLButtonElement);
-
-    overlayButton.click();
-    await nextAnimationFrame(dom);
-
-    const overlayCtx = domCanvasContexts.get('overlay-canvas');
-    assert.ok(overlayCtx, 'overlay-canvas のコンテキストが作成されること');
-    overlayCtx.clearRectCalls = 0;
-    overlayCtx.strokeCalls = 0;
-
-    overlayButton.click();
-    await nextAnimationFrame(dom);
-
-    assert.equal(overlayCtx.clearRectCalls, 1, 'オーバーレイ描画は先頭で 1 回だけ clearRect すること');
-    assert.ok(overlayCtx.strokeCalls >= 4, '2 トラック分のゼロラインと波形 stroke が積み重なって描画されること');
-});
