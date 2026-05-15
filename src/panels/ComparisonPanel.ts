@@ -311,6 +311,7 @@ export class ComparisonPanel {
         const __APP_STATE__ = ${serializeForScript(state)};
         ${ComparisonPanel.renderScript()}
     </script>
+    <div id="canvas-tooltip"></div>
 </body>
 </html>`;
     }
@@ -367,6 +368,20 @@ export class ComparisonPanel {
         .tb-btn:disabled { opacity: 0.4; cursor: default; }
         .tb-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
         #cursor-display { font-size: 11px; font-family: var(--font-mono); color: var(--muted); min-width: 80px; }
+
+        #canvas-tooltip {
+            position: fixed;
+            background: rgba(30, 30, 30, 0.92);
+            color: #ccc;
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+            white-space: pre;
+            line-height: 1.6;
+        }
 
         /* ── Track layout ── */
         #tracks-wrapper { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; background: var(--track-bg); }
@@ -588,6 +603,20 @@ export class ComparisonPanel {
             const trackRuntime = state.results.map(function() {
                 return { offsetSeconds: 0, hidden: false };
             });
+
+            const _tooltip = document.getElementById('canvas-tooltip');
+
+            function showTooltip(e, text) {
+                if (!_tooltip) { return; }
+                _tooltip.textContent = text;
+                _tooltip.style.display = 'block';
+                _tooltip.style.left = (e.clientX + 14) + 'px';
+                _tooltip.style.top = (e.clientY + 14) + 'px';
+            }
+
+            function hideTooltip() {
+                if (_tooltip) { _tooltip.style.display = 'none'; }
+            }
 
             function computeGlobalSpan() {
                 let startSec = Infinity, endSec = -Infinity;
@@ -876,7 +905,7 @@ export class ComparisonPanel {
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in">＋</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<span id="cursor-display">—</span>'
+                    + '<span id="cursor-display" title="← →キーで微調整できます">—</span>'
                     + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">🔁 ループ再生中</span>';
             }
 
@@ -1713,12 +1742,26 @@ export class ComparisonPanel {
             }
 
             function handleCanvasMouseMove(e) {
+                if (dragState && dragState.isDrag) {
+                    hideTooltip();
+                    return;
+                }
                 const canvas = e.target;
                 if (!canvas.classList.contains('track-canvas')) { return; }
                 if (dragState) { return; }
                 const rect = canvas.getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
+
+                const gripType = getGripType(norm);
+                if (gripType) {
+                    showTooltip(e, 'ドラッグでループ区間をリサイズ');
+                } else if (loopRegion && norm >= loopRegion.start && norm <= loopRegion.end) {
+                    showTooltip(e, 'クリックでループ解除');
+                } else {
+                    showTooltip(e, 'ドラッグ: ループ区間を設定\\nShift+ドラッグ: トラックの時間をずらす');
+                }
+
                 renderWithHoverAt(norm);
             }
 
@@ -1819,6 +1862,7 @@ export class ComparisonPanel {
             function clearHover() {
                 if (hoverNorm === null) { return; }
                 hoverNorm = null;
+                hideTooltip();
                 scheduleRender();
                 updateCursorDisplay(cursorNorm);
             }
