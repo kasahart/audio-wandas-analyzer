@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, serializeForScript } from '../utils/webviewEscaping';
+import { escapeHtml, serializeForScript } from '../shared/utils/webviewEscaping';
 
 test('escapeHtml escapes HTML significant characters', () => {
     assert.equal(

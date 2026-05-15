@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { ComparisonPanel } from '../../panels/ComparisonPanel';
+import { ComparisonPanel } from '../../webview/panels/ComparisonPanel';
 
 const EXTENSION_ID = 'kasahart.audio-wandas-analyzer';
 const SINGLE_TRACK_DEBUG_AUDIO_PATH = 'media/debug/sine-440.wav';

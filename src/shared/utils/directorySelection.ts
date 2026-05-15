@@ -1,4 +1,4 @@
-import type { AnalysisResultWithError, DirectoryTreeNode } from '../panels/analysisTypes';
+import type { AnalysisResultWithError, DirectoryTreeNode } from '../analysis/analysisTypes';
 
 export interface SelectedAudioFilePathDelta {
     addedFilePaths: string[];
