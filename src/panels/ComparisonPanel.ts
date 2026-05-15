@@ -1850,6 +1850,7 @@ export class ComparisonPanel {
                 const dx = e.clientX - dragState.startClientX;
                 if (Math.abs(dx) > 3) { dragState.isDrag = true; }
                 if (!dragState.isDrag) { return; }
+                hideTooltip();
 
                 if (dragState.dragType === 'offset') {
                     const gs = computeGlobalSpan();
@@ -1986,6 +1987,7 @@ export class ComparisonPanel {
                         startOffset: trackRuntime[idx].offsetSeconds,
                         canvasWidth: canvas.width,
                         isDrag: false,
+                        dragType: 'offset',
                     };
                 }
             }
