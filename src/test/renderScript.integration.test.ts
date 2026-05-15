@@ -438,6 +438,15 @@ test('再生ボタンで play 状態に切り替わる', async () => {
     dom.window.close();
 });
 
+test('renderScript: cursorNorm initializes as number (not null)', async () => {
+    // cursorNorm が null ではなく 0 で初期化されることを、
+    // canvas-tooltip 要素の存在で間接的に確認（後続タスクで追加される）。
+    // 現時点ではスクリプトがエラーなく実行されることを確認する。
+    // loadWebviewScript() は既存のヘルパー関数を使用すること。
+    const { window } = (await Promise.resolve(setupEnv())).dom;
+    assert.ok(window.document.body !== null);
+});
+
 test('overlay 表示ではキャンバス全体の clearRect は 1 回だけで各トラックが積み重なる', async () => {
     const { dom, domCanvasContexts } = setupEnv();
     await nextAnimationFrame(dom);

@@ -577,7 +577,9 @@ export class ComparisonPanel {
             let contentType = 'waveform'; // 'waveform' | 'spectrogram'
             let zoomStart = 0;
             let zoomEnd = 1;
-            let cursorNorm = null;        // null = free, number = fixed
+            let cursorNorm = 0;           // グローバルカーソル（常に number）
+            let hoverNorm = null;         // ホバープレビュー位置（null = 非表示）
+            let playbackStartNorm = 0;    // 再生開始位置の記憶
             let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag }
             let hoverTrackIndex = -1;     // overlay hit-test highlight
             const lastWaveformCoverage = state.results.map(function() { return null; });
@@ -1098,6 +1100,7 @@ export class ComparisonPanel {
 
                 if (shouldDrawCursor) {
                     drawCursorOnCanvas(ctx, W, H);
+                    drawHoverLineOnCanvas(ctx, W, H);
                 }
             }
 
@@ -1142,6 +1145,7 @@ export class ComparisonPanel {
                 }
                 ctx.putImageData(imageData, 0, 0);
                 drawCursorOnCanvas(ctx, W, H);
+                drawHoverLineOnCanvas(ctx, W, H);
             }
 
             function dbToRgb(norm) {
@@ -1152,7 +1156,6 @@ export class ComparisonPanel {
             }
 
             function drawCursorOnCanvas(ctx, W, H) {
-                if (cursorNorm === null) { return; }
                 const x = (cursorNorm - zoomStart) / (zoomEnd - zoomStart) * W;
                 if (x < 0 || x > W) { return; }
                 ctx.save();
@@ -1160,6 +1163,22 @@ export class ComparisonPanel {
                 ctx.lineWidth = 1;
                 ctx.setLineDash([4, 4]);
                 ctx.globalAlpha = 0.7;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, H);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            function drawHoverLineOnCanvas(ctx, W, H) {
+                if (hoverNorm === null) { return; }
+                const x = (hoverNorm - zoomStart) / (zoomEnd - zoomStart) * W;
+                if (x < 0 || x > W) { return; }
+                ctx.save();
+                ctx.strokeStyle = '#aaaaaa';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.globalAlpha = 0.4;
                 ctx.beginPath();
                 ctx.moveTo(x, 0);
                 ctx.lineTo(x, H);
@@ -1188,16 +1207,14 @@ export class ComparisonPanel {
                     ctx.restore();
                 });
 
-                if (cursorNorm !== null) {
-                    const x = (cursorNorm - zoomStart) / (zoomEnd - zoomStart) * W;
-                    ctx.save();
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 1;
-                    ctx.setLineDash([4, 4]);
-                    ctx.globalAlpha = 0.7;
-                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-                    ctx.restore();
-                }
+                const x = (cursorNorm - zoomStart) / (zoomEnd - zoomStart) * W;
+                ctx.save();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.globalAlpha = 0.7;
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+                ctx.restore();
 
                 updateOverlayLegend();
             }
@@ -1325,8 +1342,8 @@ export class ComparisonPanel {
                 }
                 if (idx === playbackTrackIndex) {
                     if (!options || options.keepCursor !== true) {
-                        cursorNorm = idx === null || idx === undefined ? null : trackStartNorm(idx);
-                        if (cursorNorm !== null) { updateCursorDisplay(cursorNorm); }
+                        const startNorm = idx === null || idx === undefined ? null : trackStartNorm(idx);
+                        if (startNorm !== null) { cursorNorm = startNorm; updateCursorDisplay(cursorNorm); }
                     }
                     clearPlaybackState();
                     scheduleRender();
@@ -1354,7 +1371,7 @@ export class ComparisonPanel {
                 playbackEl = audio;
 
                 const durationSeconds = audio.duration || state.results[idx].durationSeconds || 0;
-                let startTime = trackTimeFromGlobalNorm(idx, cursorNorm !== null ? cursorNorm : trackStartNorm(idx));
+                let startTime = trackTimeFromGlobalNorm(idx, cursorNorm);
                 if (startTime === null) { startTime = 0; }
                 if (durationSeconds > 0 && startTime >= Math.max(0, durationSeconds - 0.05)) {
                     startTime = 0;
@@ -1448,6 +1465,7 @@ export class ComparisonPanel {
                 document.getElementById('tracks-wrapper').addEventListener('mousemove', function(e) {
                     handleCanvasMouseMove(e);
                 });
+                document.getElementById('tracks-wrapper').addEventListener('mouseleave', clearHover);
                 document.getElementById('tracks-wrapper').addEventListener('mousedown', function(e) {
                     handleCanvasMouseDown(e);
                 });
@@ -1457,6 +1475,7 @@ export class ComparisonPanel {
                 const overlayCanvas = document.getElementById('overlay-canvas');
                 if (overlayCanvas) {
                     overlayCanvas.addEventListener('mousemove', function(e) { handleOverlayMouseMove(e); });
+                    overlayCanvas.addEventListener('mouseleave', clearHover);
                     overlayCanvas.addEventListener('mousedown', function(e) { handleOverlayMouseDown(e); });
                     overlayCanvas.addEventListener('click', function(e) { handleOverlayClick(e); });
                 }
@@ -1663,9 +1682,7 @@ export class ComparisonPanel {
                 const rect = canvas.getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
-                if (cursorNorm === null) {
-                    renderWithCursorAt(norm);
-                }
+                renderWithHoverAt(norm);
             }
 
             function handleCanvasMouseDown(e) {
@@ -1711,20 +1728,17 @@ export class ComparisonPanel {
                 dragState = null;
             }
 
-            function renderWithCursorAt(norm) {
-                state.results.forEach(function(result, i) {
-                    if (trackRuntime[i].hidden || result.error) { return; }
-                    const canvas = document.getElementById('track-canvas-' + i);
-                    if (!canvas) { return; }
-                    const color = TRACK_COLORS[i % TRACK_COLORS.length];
-                    if (contentType === 'waveform') {
-                        const savedCursor = cursorNorm;
-                        cursorNorm = norm;
-                        drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
-                        cursorNorm = savedCursor;
-                    }
-                });
+            function renderWithHoverAt(norm) {
+                hoverNorm = norm;
+                scheduleRender();
                 updateCursorDisplay(norm);
+            }
+
+            function clearHover() {
+                if (hoverNorm === null) { return; }
+                hoverNorm = null;
+                scheduleRender();
+                updateCursorDisplay(cursorNorm);
             }
 
             function updateCursorDisplay(norm) {
