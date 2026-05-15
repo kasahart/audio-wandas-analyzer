@@ -1344,8 +1344,8 @@ export class ComparisonPanel {
                 }
                 if (idx === playbackTrackIndex) {
                     if (!options || options.keepCursor !== true) {
-                        const startNorm = idx === null || idx === undefined ? null : trackStartNorm(idx);
-                        if (startNorm !== null) { cursorNorm = startNorm; updateCursorDisplay(cursorNorm); }
+                        cursorNorm = playbackStartNorm;
+                        updateCursorDisplay(cursorNorm);
                     }
                     clearPlaybackState();
                     scheduleRender();
@@ -1366,6 +1366,9 @@ export class ComparisonPanel {
                 }
 
                 if (playbackTrackIndex !== null && playbackTrackIndex !== idx) {
+                    // 再生開始位置にカーソルを戻してからトラックを切り替え
+                    cursorNorm = playbackStartNorm;
+                    updateCursorDisplay(cursorNorm);
                     stopPlayback(playbackTrackIndex, { keepCursor: true });
                 }
 
@@ -1379,6 +1382,7 @@ export class ComparisonPanel {
                     startTime = 0;
                 }
                 try { audio.currentTime = startTime; } catch (_err) { }
+                playbackStartNorm = cursorNorm;
 
                 const playPromise = audio.play();
                 if (playPromise && typeof playPromise.catch === 'function') {
