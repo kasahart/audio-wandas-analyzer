@@ -580,7 +580,8 @@ export class ComparisonPanel {
             let cursorNorm = 0;           // グローバルカーソル（常に number）
             let hoverNorm = null;         // ホバープレビュー位置（null = 非表示）
             let playbackStartNorm = 0;    // 再生開始位置の記憶
-            let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag }
+            let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag, isShift, startNorm, dragType }
+            let loopRegion = null;        // null or { start: number, end: number }（正規化グローバル時間）
             let hoverTrackIndex = -1;     // overlay hit-test highlight
             const lastWaveformCoverage = state.results.map(function() { return null; });
 
@@ -1691,19 +1692,35 @@ export class ComparisonPanel {
                 renderWithHoverAt(norm);
             }
 
+            function getGripType(norm) {
+                if (!loopRegion) { return null; }
+                const GRIP_THRESH = (zoomEnd - zoomStart) * 0.015;
+                if (Math.abs(norm - loopRegion.start) < GRIP_THRESH) { return 'gripStart'; }
+                if (Math.abs(norm - loopRegion.end) < GRIP_THRESH) { return 'gripEnd'; }
+                return null;
+            }
+
             function handleCanvasMouseDown(e) {
                 const canvas = e.target;
                 if (!canvas.classList.contains('track-canvas')) { return; }
                 const idx = parseInt(canvas.getAttribute('data-track-index'), 10);
                 if (isNaN(idx)) { return; }
                 if (e.button === 0) {
+                    const rect = canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
+                    const gripType = getGripType(norm);
                     dragState = {
                         trackIndex: idx,
                         startClientX: e.clientX,
                         startOffset: trackRuntime[idx].offsetSeconds,
                         canvasWidth: canvas.width,
                         isDrag: false,
+                        isShift: e.shiftKey,
+                        startNorm: norm,
+                        dragType: gripType || (e.shiftKey ? 'offset' : 'loop'),
                     };
+                    canvas.focus();
                 }
             }
 
@@ -1712,22 +1729,51 @@ export class ComparisonPanel {
                 const dx = e.clientX - dragState.startClientX;
                 if (Math.abs(dx) > 3) { dragState.isDrag = true; }
                 if (!dragState.isDrag) { return; }
-                const gs = computeGlobalSpan();
-                const secsPerPx = (zoomEnd - zoomStart) * gs.spanSec / dragState.canvasWidth;
-                trackRuntime[dragState.trackIndex].offsetSeconds = dragState.startOffset + dx * secsPerPx;
-                updateOffsetDisplays();
+
+                if (dragState.dragType === 'offset') {
+                    const gs = computeGlobalSpan();
+                    const secsPerPx = (zoomEnd - zoomStart) * gs.spanSec / dragState.canvasWidth;
+                    trackRuntime[dragState.trackIndex].offsetSeconds = dragState.startOffset + dx * secsPerPx;
+                    updateOffsetDisplays();
+                } else if (dragState.dragType === 'loop') {
+                    const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
+                    if (!canvasEl) { scheduleRender(); return; }
+                    const rect = canvasEl.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const norm = Math.max(0, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
+                    const s = Math.min(dragState.startNorm, norm);
+                    const end = Math.max(dragState.startNorm, norm);
+                    if (end > s) { loopRegion = { start: s, end: end }; }
+                } else if (dragState.dragType === 'gripStart') {
+                    const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
+                    if (!canvasEl || !loopRegion) { scheduleRender(); return; }
+                    const rect = canvasEl.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const norm = Math.max(0, Math.min(loopRegion.end - 0.001, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
+                    loopRegion = { start: norm, end: loopRegion.end };
+                } else if (dragState.dragType === 'gripEnd') {
+                    const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
+                    if (!canvasEl || !loopRegion) { scheduleRender(); return; }
+                    const rect = canvasEl.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const norm = Math.max(loopRegion.start + 0.001, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
+                    loopRegion = { start: loopRegion.start, end: norm };
+                }
                 scheduleRender();
             }
 
             function handleDocMouseUp(e) {
                 if (dragState && !dragState.isDrag) {
+                    // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
                     const canvasId = viewMode === 'overlay' ? 'overlay-canvas' : 'track-canvas-' + dragState.trackIndex;
                     const canvas = document.getElementById(canvasId);
                     if (canvas) {
                         const rect = canvas.getBoundingClientRect();
                         const x = e.clientX - rect.left;
                         const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
-                        cursorNorm = (cursorNorm !== null) ? null : norm;
+                        cursorNorm = Math.max(0, Math.min(1, norm));
+                        loopRegion = null;
+                        updateCursorDisplay(cursorNorm);
                         scheduleRender();
                     }
                 }
@@ -1823,16 +1869,13 @@ export class ComparisonPanel {
             }
 
             function handleOverlayClick(e) {
-                if (dragState && !dragState.isDrag) {
-                    const canvas = document.getElementById('overlay-canvas');
-                    if (canvas) {
-                        const rect = canvas.getBoundingClientRect();
-                        const x = e.clientX - rect.left;
-                        const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
-                        cursorNorm = (cursorNorm !== null) ? null : norm;
-                        scheduleRender();
-                    }
-                }
+                const rect = overlayCanvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const norm = zoomStart + (x / overlayCanvas.width) * (zoomEnd - zoomStart);
+                cursorNorm = Math.max(0, Math.min(1, norm));
+                loopRegion = null;
+                updateCursorDisplay(cursorNorm);
+                scheduleRender();
             }
 
             function toggleMute(idx) {
