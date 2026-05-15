@@ -26,7 +26,7 @@ NodeModule._load = function (id: string, ...rest: unknown[]) {
 // vscode スタブが有効な状態で ComparisonPanel をロード
 // (require は Module._load 差し替え後に実行されるので安全)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { ComparisonPanel } = require('../../panels/ComparisonPanel');
+const { ComparisonPanel } = require('../../webview/panels/ComparisonPanel');
 
 /** ComparisonPanel.renderScript() が返す JavaScript 文字列を取得する */
 export function getRenderScript(): string {

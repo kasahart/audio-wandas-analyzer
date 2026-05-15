@@ -1,23 +1,23 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { AnalysisResult, AnalysisResultWithError, DirectoryTreeNode } from './panels/analysisTypes';
-import { registerWorkspaceTests } from './testing/workspaceTests';
+import type { AnalysisResult, AnalysisResultWithError, DirectoryTreeNode } from '../shared/analysis/analysisTypes';
+import { registerWorkspaceTests } from '../testing/workspaceTests';
 import {
     isAnalyzeSelectedFilesMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
     isRequestWaveformRangeMessage,
     type SelectionTargetKind,
-} from './utils/audioTarget';
+} from '../shared/utils/audioTarget';
 import {
     collectAudioFilePaths,
     collectSelectedResults,
     diffSelectedAudioFilePaths,
     sanitizeSelectedAudioFilePaths,
-} from './utils/directorySelection';
-import { getDebugStartupBehavior } from './utils/startupDebug';
-import { ComparisonPanel } from './panels/ComparisonPanel';
+} from '../shared/utils/directorySelection';
+import { getDebugStartupBehavior } from '../shared/utils/startupDebug';
+import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import { WaveformServer } from './waveformServer';
 
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();

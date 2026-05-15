@@ -4,7 +4,7 @@ import {
     xOfNorm, buildBucketPoints, computeAnchorX,
     makeCoordTransform, computeViewRange, decimateBuckets, paintDecimatedPoints,
     paintLoopRegion,
-} from '../panels/waveformRenderer';
+} from '../webview/waveform/waveformRenderer';
 
 test('xOfNorm maps zoomStart to 0', () => {
     assert.equal(xOfNorm(0.2, 0.2, 0.8, 800), 0);

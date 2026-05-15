@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isCacheSufficient, computeReqBounds } from '../panels/rangeRequestPolicy';
+import { isCacheSufficient, computeReqBounds } from '../webview/waveform/rangeRequestPolicy';
 
 const W = 800;
 const minPts = 1280; // pts(=1600) * 0.8

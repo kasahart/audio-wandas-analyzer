@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { serializeForScript } from '../utils/webviewEscaping';
-import type { AnalysisResultWithError, DirectoryTreeNode } from './analysisTypes';
+import { serializeForScript } from '../../shared/utils/webviewEscaping';
+import type { AnalysisResultWithError, DirectoryTreeNode } from '../../shared/analysis/analysisTypes';
 
 interface ComparisonTrackState extends AnalysisResultWithError {
     audioSource?: string;

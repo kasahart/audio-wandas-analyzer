@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { AnalysisResultWithError, DirectoryTreeNode } from '../panels/analysisTypes';
+import type { AnalysisResultWithError, DirectoryTreeNode } from '../shared/analysis/analysisTypes';
 import {
     collectAudioFilePaths,
     collectSelectedResults,
     diffSelectedAudioFilePaths,
     sanitizeSelectedAudioFilePaths,
-} from '../utils/directorySelection';
+} from '../shared/utils/directorySelection';
 
 const TREE: DirectoryTreeNode[] = [
     {

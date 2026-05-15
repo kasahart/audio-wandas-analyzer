@@ -4,7 +4,7 @@ import {
     isAnalyzeSelectedFilesMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
-} from '../utils/audioTarget';
+} from '../shared/utils/audioTarget';
 
 test('isSupportedAudioFile accepts supported extensions case-insensitively', () => {
     assert.equal(isSupportedAudioFile('mixdown.WAV'), true);

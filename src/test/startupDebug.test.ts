@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
     getDebugStartupBehavior,
     isEnabledEnvFlag,
-} from '../utils/startupDebug';
+} from '../shared/utils/startupDebug';
 
 test('isEnabledEnvFlag only accepts explicit truthy flags', () => {
     assert.equal(isEnabledEnvFlag(undefined), false);

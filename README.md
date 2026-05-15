@@ -4,9 +4,9 @@ VS Code 拡張として音声ファイルを解析し、TypeScript 製の UI か
 
 ## 構成
 
-- `src/extension.ts`: コマンド登録、ファイル選択、Python 実行
-- `src/panels/ComparisonPanel.ts`: 単一ファイル表示と比較表示を担う Webview UI
-- `src/panels/analysisTypes.ts`: Extension と Webview 間で共有する解析結果の型
+- `src/extension/index.ts`: コマンド登録、ファイル選択、Python 実行
+- `src/webview/panels/ComparisonPanel.ts`: 単一ファイル表示と比較表示を担う Webview UI
+- `src/shared/analysis/analysisTypes.ts`: Extension と Webview 間で共有する解析結果の型
 - `python-backend/main.py`: CLI エントリポイント
 - `python-backend/analyzer.py`: `wandas` を使った音声解析本体
 
