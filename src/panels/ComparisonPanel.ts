@@ -1216,6 +1216,8 @@ export class ComparisonPanel {
                 ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
                 ctx.restore();
 
+                drawHoverLineOnCanvas(ctx, W, H);
+
                 updateOverlayLegend();
             }
 
@@ -1798,7 +1800,7 @@ export class ComparisonPanel {
                 const rect = canvas.getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
-                updateCursorDisplay(norm);
+                renderWithHoverAt(norm);
             }
 
             function handleOverlayMouseDown(e) {
