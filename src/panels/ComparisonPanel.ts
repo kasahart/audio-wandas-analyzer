@@ -1869,9 +1869,11 @@ export class ComparisonPanel {
             }
 
             function handleOverlayClick(e) {
-                const rect = overlayCanvas.getBoundingClientRect();
+                const canvas = document.getElementById('overlay-canvas');
+                if (!canvas) { return; }
+                const rect = canvas.getBoundingClientRect();
                 const x = e.clientX - rect.left;
-                const norm = zoomStart + (x / overlayCanvas.width) * (zoomEnd - zoomStart);
+                const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
                 cursorNorm = Math.max(0, Math.min(1, norm));
                 loopRegion = null;
                 updateCursorDisplay(cursorNorm);
