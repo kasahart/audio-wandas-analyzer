@@ -32,31 +32,31 @@ This is a VS Code extension that analyzes audio files. A TypeScript extension ho
 
 ```
 User picks audio file
-  → extension.ts (command handler)
+  → src/extension/index.ts (command handler)
   → spawns python-backend/main.py as child process (stdout JSON)
-  → ComparisonPanel.ts renders Webview
+  → src/webview/panels/ComparisonPanel.ts renders Webview
 ```
 
 For on-demand high-resolution waveform data during zoom:
 
 ```
 Webview JS postMessage("request-waveform-range")
-  → extension.ts forwards to WaveformServer
+  → src/extension/index.ts forwards to WaveformServer
   → WaveformServer (TypeScript) keeps python-backend/waveform_server.py alive
   → waveform_server.py responds with newline-delimited JSON via stdin/stdout
-  → extension.ts postMessage("waveform-range-result") back to Webview
+  → src/extension/index.ts postMessage("waveform-range-result") back to Webview
 ```
 
 ### Key files
 
 | File | Role |
 |------|------|
-| `src/extension.ts` | Command registration, file picking, Python process spawning, message routing |
-| `src/waveformServer.ts` | Persistent Python child process for range requests; newline-JSON IPC |
-| `src/panels/ComparisonPanel.ts` | Multi-track comparison Webview; contains `renderScript()` (large inline JS) and `getWebviewContent()` |
-| `src/panels/analysisTypes.ts` | Shared `AnalysisResult` / `DirectoryTreeNode` contracts used by the extension and Webview |
-| `src/panels/waveformRenderer.ts` | Pure TypeScript waveform rendering pipeline (3 layers, no Canvas dependency) |
-| `src/panels/rangeRequestPolicy.ts` | `isCacheSufficient` / `computeReqBounds` — decides when to fetch higher-res data |
+| `src/extension/index.ts` | Command registration, file picking, Python process spawning, message routing |
+| `src/extension/waveformServer.ts` | Persistent Python child process for range requests; newline-JSON IPC |
+| `src/webview/panels/ComparisonPanel.ts` | Multi-track comparison Webview; contains `renderScript()` (large inline JS) and `getWebviewContent()` |
+| `src/shared/analysis/analysisTypes.ts` | Shared `AnalysisResult` / `DirectoryTreeNode` contracts used by the extension and Webview |
+| `src/webview/waveform/waveformRenderer.ts` | Pure TypeScript waveform rendering pipeline (3 layers, no Canvas dependency) |
+| `src/webview/waveform/rangeRequestPolicy.ts` | `isCacheSufficient` / `computeReqBounds` — decides when to fetch higher-res data |
 | `media/comparisonWaveform.js` | Plain-JS mirror of `waveformRenderer.ts` loaded in the Webview via `localResourceRoots`; exposes `window.renderWaveformPipeline` |
 | `python-backend/analyzer.py` | `analyze_audio()` — full-file analysis using wandas |
 | `python-backend/decimator.py` | `decimated_waveform()` — bucket-level argmin/argmax with normalized timestamps |
@@ -65,7 +65,7 @@ Webview JS postMessage("request-waveform-range")
 
 ### Waveform rendering pipeline (3 layers)
 
-`waveformRenderer.ts` and `media/comparisonWaveform.js` implement the same algorithm:
+`src/webview/waveform/waveformRenderer.ts` and `media/comparisonWaveform.js` implement the same algorithm:
 
 - **Layer 1 — CoordTransform** (`makeCoordTransform`): converts file-normalized time `tNorm ∈ [0,1]` to canvas x using `offsetNorm` (global start of track) and `trackDurRatio` (track duration / global span). Pure function, no Canvas.
 - **Layer 2 — Decimation** (`computeViewRange` + `decimateBuckets`): selects the bucket index range to draw and applies argmin/argmax decimation. Pure function, no Canvas.
@@ -99,4 +99,4 @@ For VS Code-hosted UI smoke tests, use `npm run test:e2e:vscode`. This launches 
 - `src/test/helpers/webviewTestEnv.ts` — jsdom environment setup for Webview script integration tests
 - `src/e2e/suite/index.ts` — VS Code E2E smoke scenarios for debug-path analysis, toolbar and track visibility, zoom behavior, view switching, and offset-visible-range checks
 
-`media/comparisonWaveform.js` must stay in sync with `waveformRenderer.ts`. When changing rendering logic, update both files and run `npm test` to catch divergence via `renderScript.integration.test.ts`.
+`media/comparisonWaveform.js` must stay in sync with `src/webview/waveform/waveformRenderer.ts`. When changing rendering logic, update both files and run `npm test` to catch divergence via `renderScript.integration.test.ts`.

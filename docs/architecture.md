@@ -18,7 +18,7 @@
 ```mermaid
 flowchart LR
   User[User] --> Command[VS Code Command]
-  Command --> Extension[Extension Host\nsrc/extension.ts]
+  Command --> Extension[Extension Host\nsrc/extension/index.ts]
 
   Extension -->|1 file| Single[単一ファイル解析導線]
   Extension -->|directory or 2+ files| Compare[比較ビュー導線]
@@ -27,7 +27,7 @@ flowchart LR
   Compare -->|spawn python per file| BackendCLI
   BackendCLI --> Analyzer[Audio Analyzer\npython-backend/analyzer.py]
   Analyzer -->|JSON stdout| Extension
-  Extension --> Panel[ComparisonPanel\nsrc/panels/ComparisonPanel.ts]
+  Extension --> Panel[ComparisonPanel\nsrc/webview/panels/ComparisonPanel.ts]
   Panel --> User
 ```
 
@@ -52,7 +52,7 @@ flowchart LR
 
 ### 1. Extension Host
 
-対象: [src/extension.ts](/workspaces/audio-wandas-analyzer/src/extension.ts)
+対象: [src/extension/index.ts](../src/extension/index.ts)
 
 責務:
 
@@ -75,7 +75,7 @@ flowchart LR
 
 ### 2. Python CLI Entry Point
 
-対象: [python-backend/main.py](/workspaces/audio-wandas-analyzer/python-backend/main.py)
+対象: [python-backend/main.py](../python-backend/main.py)
 
 責務:
 
@@ -91,7 +91,7 @@ flowchart LR
 
 ### 3. Audio Analyzer
 
-対象: [python-backend/analyzer.py](/workspaces/audio-wandas-analyzer/python-backend/analyzer.py)
+対象: [python-backend/analyzer.py](../python-backend/analyzer.py)
 
 責務:
 
@@ -110,7 +110,7 @@ flowchart LR
 
 ### 4. ComparisonPanel
 
-対象: [src/panels/ComparisonPanel.ts](/workspaces/audio-wandas-analyzer/src/panels/ComparisonPanel.ts)
+対象: [src/webview/panels/ComparisonPanel.ts](../src/webview/panels/ComparisonPanel.ts)
 
 責務:
 
@@ -124,11 +124,11 @@ flowchart LR
 
 - 現在の主表示経路は単一ファイル、ディレクトリ選択、複数ファイル比較のすべてで `ComparisonPanel` に統一されている
 - 比較件数に応じてタイトルとレイアウト密度だけが変わり、基本的な描画パイプラインは共通である
-- 波形描画ロジックは [media/comparisonWaveform.js](/workspaces/audio-wandas-analyzer/media/comparisonWaveform.js) と協調している
+- 波形描画ロジックは [media/comparisonWaveform.js](../media/comparisonWaveform.js) と協調している
 
 ### 5. Shared Analysis Types
 
-対象: [src/panels/analysisTypes.ts](/workspaces/audio-wandas-analyzer/src/panels/analysisTypes.ts)
+対象: [src/shared/analysis/analysisTypes.ts](../src/shared/analysis/analysisTypes.ts)
 
 責務:
 
@@ -138,7 +138,7 @@ flowchart LR
 設計上のポイント:
 
 - UI 実装から型定義を分離し、表示層の入れ替えや削除が型契約へ波及しないようにしている
-- `extension.ts` と `ComparisonPanel.ts` の両方が同じ型を参照することで、単一ファイル解析と比較ビューのデータモデルを統一している
+- `src/extension/index.ts` と `src/webview/panels/ComparisonPanel.ts` の両方が同じ型を参照することで、単一ファイル解析と比較ビューのデータモデルを統一している
 
 ## 実行シーケンス
 
@@ -244,10 +244,18 @@ interface AnalysisResultWithError extends AnalysisResult {
 
 ```text
 src/
-  extension.ts              VS Code 拡張のエントリポイント
-  panels/
-    ComparisonPanel.ts      単一ファイル表示と比較表示の Webview UI
-    analysisTypes.ts        共有型定義
+  extension/
+    index.ts                VS Code 拡張のエントリポイント
+    waveformServer.ts       波形レンジ要求用の永続 Python 子プロセス
+  shared/
+    analysis/
+      analysisTypes.ts      共有型定義
+  webview/
+    panels/
+      ComparisonPanel.ts    単一ファイル表示と比較表示の Webview UI
+    waveform/
+      waveformRenderer.ts   波形描画パイプライン
+      rangeRequestPolicy.ts 波形レンジ取得ポリシー
 python-backend/
   main.py                   Python CLI エントリポイント
   analyzer.py               音声解析ロジック
@@ -297,7 +305,7 @@ docs/
 2. Webview の可視化追加
   既存のチャンネルループに新しいセクションを加えるだけで、マルチトラック比較レイアウトを維持したまま拡張しやすい
 3. コマンド追加
-  `extension.ts` で別の入力導線やバッチ解析導線を定義できる。現状でも単一ファイルとディレクトリの両方を受け付ける
+   `src/extension/index.ts` で別の入力導線やバッチ解析導線を定義できる。現状でも単一ファイルとディレクトリの両方を受け付ける
 
 ## 現状の制約
 
