@@ -1322,17 +1322,33 @@ export class ComparisonPanel {
                 });
             }
 
+            function updateLoopBadge() {
+                const badge = document.getElementById('loop-badge');
+                if (!badge) { return; }
+                badge.style.display = (loopRegion && playbackEl && !playbackEl.paused) ? 'inline' : 'none';
+            }
+
             function clearPlaybackState() {
                 playbackEl = null;
                 playbackTrackIndex = null;
                 stopPlaybackLoop();
                 updatePlaybackButtons();
+                updateLoopBadge();
             }
 
             function startPlaybackLoop() {
                 if (playbackRafId !== null) { return; }
                 function tick() {
                     if (playbackEl && playbackTrackIndex !== null && !playbackEl.paused) {
+                        if (loopRegion) {
+                            const currentGlobalNorm = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
+                            if (currentGlobalNorm !== null && currentGlobalNorm >= loopRegion.end) {
+                                const loopStartTime = trackTimeFromGlobalNorm(playbackTrackIndex, loopRegion.start);
+                                if (loopStartTime !== null) {
+                                    try { playbackEl.currentTime = loopStartTime; } catch (_err) { }
+                                }
+                            }
+                        }
                         const nextCursor = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
                         if (nextCursor !== null) {
                             cursorNorm = nextCursor;
@@ -1340,6 +1356,7 @@ export class ComparisonPanel {
                             scheduleRender();
                         }
                     }
+                    updateLoopBadge();
                     playbackRafId = requestAnimationFrame(tick);
                 }
                 playbackRafId = requestAnimationFrame(tick);
@@ -1389,13 +1406,14 @@ export class ComparisonPanel {
                 playbackEl = audio;
 
                 const durationSeconds = audio.duration || state.results[idx].durationSeconds || 0;
-                let startTime = trackTimeFromGlobalNorm(idx, cursorNorm);
+                const startNorm = loopRegion ? loopRegion.start : cursorNorm;
+                let startTime = trackTimeFromGlobalNorm(idx, startNorm);
                 if (startTime === null) { startTime = 0; }
                 if (durationSeconds > 0 && startTime >= Math.max(0, durationSeconds - 0.05)) {
                     startTime = 0;
                 }
                 try { audio.currentTime = startTime; } catch (_err) { }
-                playbackStartNorm = cursorNorm;
+                playbackStartNorm = loopRegion ? loopRegion.start : cursorNorm;
 
                 const playPromise = audio.play();
                 if (playPromise && typeof playPromise.catch === 'function') {
