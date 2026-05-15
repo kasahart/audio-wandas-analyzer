@@ -928,7 +928,7 @@ export class ComparisonPanel {
                     + '  </div>'
                     + '</div>'
                     + '<div class="track-canvas-wrap" id="track-canvas-wrap-' + i + '">'
-                    + '  <canvas class="track-canvas" id="track-canvas-' + i + '" data-track-index="' + i + '"></canvas>'
+                    + '  <canvas class="track-canvas" id="track-canvas-' + i + '" data-track-index="' + i + '" tabindex="0" style="outline:none"></canvas>'
                     + '</div>'
                     + '</div>';
             }
@@ -1555,6 +1555,54 @@ export class ComparisonPanel {
                 window.addEventListener('resize', function() { scheduleRender(); });
                 attachAudioEvents();
                 updatePlaybackButtons();
+
+                state.results.forEach(function(_, i) {
+                    const canvas = document.getElementById('track-canvas-' + i);
+                    if (!canvas) { return; }
+                    canvas.addEventListener('focus', function() {
+                        const el = document.getElementById('canvas-tooltip');
+                        if (el) {
+                            const rect = canvas.getBoundingClientRect();
+                            el.textContent = '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止';
+                            el.style.display = 'block';
+                            el.style.left = (rect.left + 8) + 'px';
+                            el.style.top = (rect.bottom - 36) + 'px';
+                        }
+                        canvas.style.outline = '1px solid rgba(100, 160, 255, 0.4)';
+                    });
+                    canvas.addEventListener('blur', function() {
+                        hideTooltip();
+                        canvas.style.outline = 'none';
+                    });
+                });
+
+                document.addEventListener('keydown', function(e) {
+                    const active = document.activeElement;
+                    if (!active || !active.classList.contains('track-canvas')) { return; }
+
+                    if (e.code === 'Space') {
+                        e.preventDefault();
+                        const idx = parseInt(active.getAttribute('data-track-index'), 10);
+                        if (!isNaN(idx)) { togglePlayback(idx); }
+                        return;
+                    }
+
+                    if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+                        e.preventDefault();
+                        const W = active.width || 800;
+                        let delta;
+                        if (e.shiftKey) {
+                            const gs = computeGlobalSpan();
+                            delta = gs.spanSec > 0 ? (0.1 / gs.spanSec) : 0.001;
+                        } else {
+                            delta = (zoomEnd - zoomStart) / W;
+                        }
+                        if (e.code === 'ArrowLeft') { delta = -delta; }
+                        cursorNorm = Math.max(0, Math.min(1, cursorNorm + delta));
+                        updateCursorDisplay(cursorNorm);
+                        scheduleRender();
+                    }
+                });
             }
 
             function attachDirectorySelectionEvents() {
