@@ -438,13 +438,29 @@ test('再生ボタンで play 状態に切り替わる', async () => {
     dom.window.close();
 });
 
-test('renderScript: cursorNorm initializes as number (not null)', async () => {
-    // cursorNorm が null ではなく 0 で初期化されることを、
-    // canvas-tooltip 要素の存在で間接的に確認（後続タスクで追加される）。
-    // 現時点ではスクリプトがエラーなく実行されることを確認する。
-    // loadWebviewScript() は既存のヘルパー関数を使用すること。
-    const { window } = (await Promise.resolve(setupEnv())).dom;
-    assert.ok(window.document.body !== null);
+test('renderScript: cursorNorm initializes as number (not null)', () => {
+    // cursorNorm は 0（number）で初期化される。
+    // clearHover() は updateCursorDisplay(cursorNorm) を呼ぶため、
+    // まず mousemove で hoverNorm をセットし、次に mouseleave で clearHover を発火させる。
+    // #cursor-display が formatTime(0) = '0:00.00' を表示すれば cursorNorm が number であると確認できる。
+    const { dom } = setupEnv();
+    const canvas = dom.window.document.getElementById('track-canvas-0') as HTMLElement | null;
+    assert.ok(canvas, 'track-canvas-0 が存在すること');
+
+    // mousemove on the canvas (bubbles to tracks-wrapper) → hoverNorm が設定される
+    canvas.dispatchEvent(new dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 0, clientY: 0 }));
+
+    const tracksWrapper = dom.window.document.getElementById('tracks-wrapper');
+    assert.ok(tracksWrapper, 'tracks-wrapper が存在すること');
+
+    // mouseleave on tracks-wrapper → clearHover() → updateCursorDisplay(cursorNorm=0)
+    tracksWrapper.dispatchEvent(new dom.window.MouseEvent('mouseleave', { bubbles: false }));
+
+    const cursorDisplay = dom.window.document.getElementById('cursor-display');
+    assert.ok(cursorDisplay, '#cursor-display が存在すること');
+    // formatTime(0) = '0:00.00' — NaN にならず数値フォーマットで表示されること
+    assert.equal(cursorDisplay.textContent, '0:00.00',
+        'cursorNorm=0 のとき cursor-display は "0:00.00" を表示すること');
 });
 
 test('overlay 表示ではキャンバス全体の clearRect は 1 回だけで各トラックが積み重なる', async () => {
