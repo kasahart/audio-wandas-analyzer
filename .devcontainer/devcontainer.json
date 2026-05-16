@@ -26,7 +26,7 @@
       }
     }
   },
-  "postCreateCommand": "npm install && python3 -m venv .venv && ./.venv/bin/pip install -r python-backend/requirements.txt",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends libsndfile1 && npm install && python3 -m venv .venv && ./.venv/bin/pip install -r python-backend/requirements.txt",
   "postStartCommand": "npm run compile",
   "containerEnv": {
     "PYTHONUNBUFFERED": "1"

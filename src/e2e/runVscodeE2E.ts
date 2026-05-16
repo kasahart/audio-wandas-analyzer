@@ -3,7 +3,24 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
 
-const VSCODE_VERSION = '1.96.0';
+const VSCODE_VERSION = 'stable';
+const DEVCONTAINER_EXTENSION_HOST_ENV_KEYS = [
+    'ELECTRON_RUN_AS_NODE',
+    'VSCODE_ESM_ENTRYPOINT',
+    'VSCODE_IPC_HOOK_CLI',
+    'VSCODE_HANDLES_UNCAUGHT_ERRORS',
+    'VSCODE_HANDLES_SIGPIPE',
+    'VSCODE_CWD',
+];
+
+function resolveNlsMessagesFile(vscodeExecutablePath: string): string | undefined {
+    const candidatePaths = [
+        path.join(path.dirname(vscodeExecutablePath), 'resources', 'app', 'out', 'nls.messages.json'),
+        path.resolve(vscodeExecutablePath, '..', '..', 'Resources', 'app', 'out', 'nls.messages.json'),
+    ];
+
+    return candidatePaths.find((candidatePath) => existsSync(candidatePath));
+}
 
 async function main(): Promise<void> {
     const extensionDevelopmentPath = path.resolve(__dirname, '..', '..');
@@ -11,24 +28,15 @@ async function main(): Promise<void> {
     const userDataDir = mkdtempSync(path.join(os.tmpdir(), 'audio-wandas-analyzer-vscode-e2e-'));
 
     const vscodeExecutablePath = await downloadAndUnzipVSCode(VSCODE_VERSION);
-    const vscodeDir = path.dirname(vscodeExecutablePath);
-    const nlsMessagesFile = path.join(vscodeDir, 'resources', 'app', 'out', 'nls.messages.json');
-    const nlsConfig = existsSync(nlsMessagesFile)
+    const nlsMessagesFile = resolveNlsMessagesFile(vscodeExecutablePath);
+    const nlsConfig = nlsMessagesFile
         ? JSON.stringify({ defaultMessagesFile: nlsMessagesFile, resolvedLanguage: 'en', userLocale: 'en', osLocale: 'en' })
         : undefined;
-    if (nlsConfig) {
-        process.env['VSCODE_NLS_CONFIG'] = nlsConfig;
-    }
+    const previousDevcontainerEnv = new Map<string, string | undefined>();
     // Remove devcontainer extension host vars that cause VS Code to run as Node.js
     // instead of launching the full Electron desktop app.
-    for (const key of [
-        'ELECTRON_RUN_AS_NODE',
-        'VSCODE_ESM_ENTRYPOINT',
-        'VSCODE_IPC_HOOK_CLI',
-        'VSCODE_HANDLES_UNCAUGHT_ERRORS',
-        'VSCODE_HANDLES_SIGPIPE',
-        'VSCODE_CWD',
-    ]) {
+    for (const key of DEVCONTAINER_EXTENSION_HOST_ENV_KEYS) {
+        previousDevcontainerEnv.set(key, process.env[key]);
         delete process.env[key];
     }
 
@@ -51,6 +59,14 @@ async function main(): Promise<void> {
             },
         });
     } finally {
+        for (const [key, value] of previousDevcontainerEnv) {
+            if (value === undefined) {
+                delete process.env[key];
+                continue;
+            }
+
+            process.env[key] = value;
+        }
         rmSync(userDataDir, { recursive: true, force: true });
     }
 }
