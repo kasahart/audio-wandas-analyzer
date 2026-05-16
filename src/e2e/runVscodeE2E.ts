@@ -4,6 +4,10 @@ import * as path from 'node:path';
 import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
 
 const VSCODE_VERSION = 'stable';
+const SUPPRESSED_STDERR_PATTERNS = [
+    /ERROR:dbus\/bus\.cc:408/u,
+    /ERROR:dbus\/object_proxy\.cc:573/u,
+];
 const DEVCONTAINER_EXTENSION_HOST_ENV_KEYS = [
     'ELECTRON_RUN_AS_NODE',
     'VSCODE_ESM_ENTRYPOINT',
@@ -20,6 +24,30 @@ function resolveNlsMessagesFile(vscodeExecutablePath: string): string | undefine
     ];
 
     return candidatePaths.find((candidatePath) => existsSync(candidatePath));
+}
+
+function withFilteredStderr<T>(action: () => Promise<T>): Promise<T> {
+    const originalWrite = process.stderr.write.bind(process.stderr);
+
+    process.stderr.write = ((chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void): boolean => {
+        const text = typeof chunk === 'string'
+            ? chunk
+            : Buffer.from(chunk).toString(typeof encoding === 'string' ? encoding : undefined);
+        if (SUPPRESSED_STDERR_PATTERNS.some((pattern) => pattern.test(text))) {
+            if (typeof encoding === 'function') {
+                encoding();
+            } else {
+                callback?.();
+            }
+            return true;
+        }
+
+        return originalWrite(chunk, encoding as BufferEncoding, callback);
+    }) as typeof process.stderr.write;
+
+    return action().finally(() => {
+        process.stderr.write = originalWrite;
+    });
 }
 
 async function main(): Promise<void> {
@@ -41,7 +69,8 @@ async function main(): Promise<void> {
     }
 
     try {
-        await runTests({
+        console.log('Running VS Code E2E tests...');
+        await withFilteredStderr(() => runTests({
             vscodeExecutablePath,
             extensionDevelopmentPath,
             extensionTestsPath,
@@ -57,7 +86,8 @@ async function main(): Promise<void> {
                 AUDIO_WANDAS_E2E: '1',
                 ...(nlsConfig ? { VSCODE_NLS_CONFIG: nlsConfig } : {}),
             },
-        });
+        }));
+        console.log('VS Code E2E tests passed.');
     } finally {
         for (const [key, value] of previousDevcontainerEnv) {
             if (value === undefined) {
