@@ -18,9 +18,7 @@ test('activate keeps analyze commands available when workspace test registration
             },
             executeCommand: () => Promise.resolve(),
         },
-        window: {
-            showWarningMessage: () => Promise.resolve(undefined),
-        },
+        window: {},
         workspace: {
             getConfiguration: () => ({
                 get: <T>(_key: string, defaultValue: T) => defaultValue,

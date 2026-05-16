@@ -77,11 +77,10 @@ export function activate(context: vscode.ExtensionContext): void {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { registerWorkspaceTests } = require('../testing/workspaceTests') as typeof import('../testing/workspaceTests');
         registerWorkspaceTests(context);
-    } catch (error) {
-        console.error('[audioWandasAnalyzer] Failed to register workspace tests', error);
-        void vscode.window.showWarningMessage(
-            'Audio Wandas Analyzer workspace tests are unavailable. Analyze commands remain available.',
-        );
+    } catch {
+        // workspace test discovery requires the typescript compiler API which is
+        // not bundled in the VSIX. This is a dev-only feature; silence the error
+        // for end-users.
     }
 
     const startupBehavior = getDebugStartupBehavior(process.env);
