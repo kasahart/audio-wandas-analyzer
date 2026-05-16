@@ -6,4 +6,6 @@ __pycache__/
 *.pyc
 .superpowers/
 plot_helper/
+docs/superpowers/
+.pytest_cache/
 .worktrees/

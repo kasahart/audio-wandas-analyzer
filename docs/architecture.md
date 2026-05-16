@@ -7,6 +7,8 @@
 - 単一ファイル解析: ファイルを 1 件選択して即座に解析し、1 トラック状態の ComparisonPanel で確認する
 - 比較ビュー: ディレクトリ選択または複数ファイル再選択のあと、対象を絞り込んで順次解析し、複数トラック状態の ComparisonPanel で比較する
 
+各層の役割:
+
 - Extension Host 層: コマンド登録、設定取得、ファイル選択、Python プロセス起動を担当
 - Python Backend 層: 音声解析、数値計算、JSON 形式の結果生成を担当
 - Webview UI 層: 比較パネル描画、ズームやホバーなどのインタラクションを担当
@@ -29,6 +31,11 @@ flowchart LR
   Analyzer -->|JSON stdout| Extension
   Extension --> Panel[ComparisonPanel\nsrc/webview/panels/ComparisonPanel.ts]
   Panel --> User
+
+  Panel -->|request-waveform-range| Extension
+  Extension --> WS[WaveformServer\nsrc/waveformServer.ts]
+  WS -->|stdin/stdout JSON| WSPy[waveform_server.py]
+  WSPy -->|waveform-range-result| Panel
 ```
 
 ## ユーザーフロー
@@ -45,7 +52,6 @@ flowchart LR
 - フォルダを選択し、配下の対応音声ファイル群をツリーから逐次チェックして比較対象を増減させる
 - 単一ファイルを開いたあと、ツールバーから別のファイルまたはフォルダを開いて同じパネルを再利用する
 
-ディレクトリ入力では、まず extension 側が `DirectoryTreeNode[]` を構築し、ComparisonPanel を選択モードで開きます。Webview から返った選択済みファイル一覧を extension 側で再検証したあとに `runAnalysis()` をファイルごとに繰り返し、成功トラックと失敗トラックを含む `AnalysisResultWithError[]` を `ComparisonPanel.show()` に渡します。比較対象が 2 件以上のとき、ComparisonPanel はオフセット調整、ズーム同期、再生操作を伴う比較ビューとして動作します。
 ディレクトリ入力では、まず extension 側が `DirectoryTreeNode[]` を構築し、ComparisonPanel を選択モードで開きます。初期状態ではトラックは空です。Webview から返った選択済みファイル一覧を extension 側で再検証したあとに `runAnalysis()` をファイルごとに繰り返し、成功トラックと失敗トラックを含む `AnalysisResultWithError[]` を同じ選択モード panel に再注入します。これによりツリーを閉じずに、右側の比較トラックだけを即時更新できます。
 
 ## コンポーネント責務
@@ -63,7 +69,6 @@ flowchart LR
 - 設定値 `pythonCommand`、`defaultPeakCount`、`debugFilePath` を読み込む
 - Python バックエンドを子プロセスとして起動する
 - 標準出力の JSON を `AnalysisResult` として解釈し、失敗時は `error` 付きの結果へ変換して `AnalysisResultWithError[]` に蓄積する
-- ディレクトリ指定時は `ComparisonPanel` を選択モードで開き、選択確定後に解析結果の `ComparisonPanel` へ切り替える
 - ディレクトリ指定時は `ComparisonPanel` を選択モードで開き、チェック変更のたびに同じ panel 内のトラック表示を更新する
 - 失敗時は VS Code 通知にエラーを表示する
 
@@ -73,7 +78,22 @@ flowchart LR
 - 解析ロジックを TypeScript 側に持たないため、UI 修正と数値処理修正を独立して進めやすい
 - 単一ファイルと複数ファイルの差は主に入力本数だけで、描画面は共通化されている
 
-### 2. Python CLI Entry Point
+### 2. WaveformServer
+
+対象: [src/waveformServer.ts](/workspaces/audio-wandas-analyzer/src/waveformServer.ts)
+
+責務:
+
+- `python-backend/waveform_server.py` を常駐子プロセスとして起動・管理する
+- 改行区切り JSON の IPC (stdin/stdout) でズーム範囲の高解像度波形をオンデマンドに取得する
+- ファイルキャッシュを持つサーバープロセスへのリクエストを多重化する
+
+設計上のポイント:
+
+- 初回解析時の全データ取得と分離することで、ズーム時の高解像度取得を低レイテンシで実現している
+- サーバープロセスはファイルを `_file_cache` に保持するため、同一ファイルへの連続リクエストで再読み込みが発生しない
+
+### 3. Python CLI Entry Point
 
 対象: [python-backend/main.py](../python-backend/main.py)
 
@@ -89,7 +109,7 @@ flowchart LR
 - CLI を薄く保つことで、解析本体のテストや再利用をしやすくしている
 - VS Code 拡張以外の呼び出し元を将来的に追加する場合も、この境界を流用しやすい
 
-### 3. Audio Analyzer
+### 4. Audio Analyzer
 
 対象: [python-backend/analyzer.py](../python-backend/analyzer.py)
 
@@ -98,7 +118,7 @@ flowchart LR
 - `wandas.read_wav()` による音声データ読み込み
 - チャンネル向きの正規化
 - RMS、ピーク値、優勢周波数の算出
-- 波形エンベロープ生成
+- 波形エンベロープ生成（`decimator.py` 経由）
 - スペクトログラム生成と可視化向けの縮約
 - UI が扱いやすい辞書構造への整形
 
@@ -108,7 +128,29 @@ flowchart LR
 - 数値データを可視化用に事前整形することで、Webview 側は描画ロジックに集中できる
 - チャンネルごとに独立した要約を返すため、多チャンネル音声でも同一描画パターンを再利用できる
 
-### 4. ComparisonPanel
+### 5. Decimator
+
+対象: [python-backend/decimator.py](/workspaces/audio-wandas-analyzer/python-backend/decimator.py)
+
+責務:
+
+- バケット単位の argmin/argmax で波形エンベロープを生成する
+- タイムスタンプをファイル全体に対して正規化した `minT`/`maxT` として返す
+
+設計上のポイント:
+
+- 正規化済みタイムスタンプは Webview 側の `[0, 1]` ファイル座標系に直接マッピングされる
+
+### 6. Range Analyzer / Waveform Server (Python)
+
+対象: [python-backend/range_analyzer.py](/workspaces/audio-wandas-analyzer/python-backend/range_analyzer.py) / [python-backend/waveform_server.py](/workspaces/audio-wandas-analyzer/python-backend/waveform_server.py)
+
+責務:
+
+- `range_analyzer.py`: 指定範囲のみ `soundfile` で読み込み、高解像度波形を返す
+- `waveform_server.py`: 常駐ループで stdin の JSON リクエストを受け、`analyze_range()` を呼んで結果を stdout に返す。読み込み済みファイルを `_file_cache` に保持する
+
+### 7. ComparisonPanel
 
 対象: [src/webview/panels/ComparisonPanel.ts](../src/webview/panels/ComparisonPanel.ts)
 
@@ -116,17 +158,48 @@ flowchart LR
 
 - `AnalysisResultWithError[]` を HTML とインラインスクリプトへ埋め込む
 - 1 件のときは単一トラック解析ビュー、2 件以上のときは比較ビューとして描画する
+- 表示モードは縦積み（stacked）のみ
 - 共通タイムルーラー、ズーム、パン、カーソル同期、トラックごとの再生操作を処理する
-- オンデマンド波形取得のために `request-waveform-range` メッセージを送る
+- ズーム時に `request-waveform-range` を WaveformServer 経由で送り、高解像度波形をオンデマンドに取得する
 - 解析失敗トラックをエラー表示のまま比較対象に残す
 
 設計上のポイント:
 
-- 現在の主表示経路は単一ファイル、ディレクトリ選択、複数ファイル比較のすべてで `ComparisonPanel` に統一されている
+- 単一ファイル、ディレクトリ選択、複数ファイル比較のすべてで `ComparisonPanel` に統一されている
 - 比較件数に応じてタイトルとレイアウト密度だけが変わり、基本的な描画パイプラインは共通である
-- 波形描画ロジックは [media/comparisonWaveform.js](../media/comparisonWaveform.js) と協調している
+- 波形描画は `media/comparisonWaveform.js`（Webview 内）と `src/webview/waveform/waveformRenderer.ts`（TypeScript 単体テスト用）が同一アルゴリズムを実装しており、常に同期を保つ
 
-### 5. Shared Analysis Types
+### 8. Waveform Renderer
+
+対象: [src/panels/waveformRenderer.ts](/workspaces/audio-wandas-analyzer/src/panels/waveformRenderer.ts) / [media/comparisonWaveform.js](/workspaces/audio-wandas-analyzer/media/comparisonWaveform.js)
+
+責務:
+
+3 層の純粋関数パイプラインで波形を描画する:
+
+1. **CoordTransform** (`makeCoordTransform`): ファイル正規化時刻 `tNorm ∈ [0,1]` をキャンバス X 座標へ変換
+2. **Decimation** (`computeViewRange` + `decimateBuckets`): 表示範囲のバケットを選択し argmin/argmax 間引きを行う
+3. **Painting** (`paintDecimatedPoints`): Canvas API を呼び出す唯一の層
+
+設計上のポイント:
+
+- Canvas 依存を Painting 層のみに閉じることで、TypeScript 単体テストが Canvas なしで実行できる
+- `waveformRenderer.ts` と `media/comparisonWaveform.js` は同じアルゴリズムを持つ。描画ロジック変更時は両方を更新し `npm test` で乖離を検出する
+
+### 9. Range Request Policy
+
+対象: [src/panels/rangeRequestPolicy.ts](/workspaces/audio-wandas-analyzer/src/panels/rangeRequestPolicy.ts)
+
+責務:
+
+- `isCacheSufficient`: 現在のキャッシュデータでズーム表示に十分かを判定する
+- `computeReqBounds`: リクエストすべき範囲を計算する
+
+設計上のポイント:
+
+- リクエスト判定ロジックを ComparisonPanel から分離し、単独でテスト可能にしている
+
+### 10. Shared Analysis Types
 
 対象: [src/shared/analysis/analysisTypes.ts](../src/shared/analysis/analysisTypes.ts)
 
@@ -141,6 +214,25 @@ flowchart LR
 - `src/extension/index.ts` と `src/webview/panels/ComparisonPanel.ts` の両方が同じ型を参照することで、単一ファイル解析と比較ビューのデータモデルを統一している
 
 ## 実行シーケンス
+
+### オンデマンド高解像度波形取得（ズーム時）
+
+```mermaid
+sequenceDiagram
+    participant W as Webview JS
+    participant E as Extension Host
+    participant WS as WaveformServer
+    participant P as waveform_server.py
+
+    W->>E: postMessage("request-waveform-range", {file, zoomStart, zoomEnd})
+    E->>WS: requestRange(file, start, end)
+    WS->>P: JSON request via stdin
+    P->>P: analyze_range() / _file_cache 参照
+    P-->>WS: JSON response via stdout
+    WS-->>E: resolve promise
+    E->>W: postMessage("waveform-range-result", waveformData)
+    W->>W: renderWaveformPipeline() で再描画
+```
 
 ### 単一ファイル解析
 
@@ -168,15 +260,14 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant U as User
-  participant V as VS Code
     participant E as Extension Host
+    participant C as ComparisonPanel
     participant P as Python CLI
     participant A as Analyzer
-  U->>V: フォルダを開く、または既存パネルで再度開く
-  V->>E: analyzeFile command / select-target message
-  E->>C: ディレクトリツリーを選択モードで表示
-  E->>C: ディレクトリツリーを選択モードで表示
-  C->>E: analyze-selected-files
+
+    U->>E: フォルダを開く、または既存パネルで再度開く
+    E->>C: ディレクトリツリーを選択モードで表示
+    C->>E: analyze-selected-files
     loop selected filePaths
         E->>P: 子プロセス起動
         P->>A: analyze_audio(file, peak_count)
@@ -250,19 +341,39 @@ src/
   shared/
     analysis/
       analysisTypes.ts      共有型定義
+    utils/
+      audioTarget.ts        Webview メッセージ判定・音声拡張子判定
+      directorySelection.ts ディレクトリ選択の純粋関数
+      startupDebug.ts       起動時デバッグ挙動の判定
+      webviewEscaping.ts    Webview 埋め込み文字列のエスケープ
   webview/
     panels/
       ComparisonPanel.ts    単一ファイル表示と比較表示の Webview UI
     waveform/
-      waveformRenderer.ts   波形描画パイプライン
+      waveformRenderer.ts   波形描画パイプライン（Canvas 非依存・TypeScript）
       rangeRequestPolicy.ts 波形レンジ取得ポリシー
+  test/
+    waveformRenderer.test.ts
+    rangeRequestPolicy.test.ts
+    renderScript.integration.test.ts
+  e2e/
+    suite/index.ts          VS Code E2E スモークテスト
 python-backend/
   main.py                   Python CLI エントリポイント
-  analyzer.py               音声解析ロジック
+  analyzer.py               全ファイル解析ロジック
+  decimator.py              バケット argmin/argmax 波形エンベロープ生成
+  range_analyzer.py         範囲指定高解像度波形取得
+  waveform_server.py        常駐サーバーループ（_file_cache 付き）
 media/
-  debug.wav                 デバッグ用の既定音声ファイル
+  comparisonWaveform.js     waveformRenderer.ts の Webview 用 JS 実装
+  debug/
+    sine-440.wav            デバッグ用の単一音声ファイル
+    (複数 wav)              マルチトラックテスト用
 docs/
   architecture.md           本資料
+  superpowers/
+    specs/                  設計仕様書
+    plans/                  実装計画書
 ```
 
 ## 依存関係
