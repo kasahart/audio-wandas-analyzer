@@ -10,3 +10,4 @@ docs/superpowers/
 .pytest_cache/
 .worktrees/
 *.vsix
+.claude/settings.local.json
