@@ -42,6 +42,9 @@ function withFilteredStderr<T>(action: () => Promise<T>): Promise<T> {
             return true;
         }
 
+        if (typeof encoding === 'function') {
+            return originalWrite(chunk, encoding);
+        }
         return originalWrite(chunk, encoding as BufferEncoding, callback);
     }) as typeof process.stderr.write;
 
@@ -66,6 +69,11 @@ async function main(): Promise<void> {
     for (const key of DEVCONTAINER_EXTENSION_HOST_ENV_KEYS) {
         previousDevcontainerEnv.set(key, process.env[key]);
         delete process.env[key];
+    }
+    // Set on parent process.env so the Electron main process sees it at startup.
+    const previousNlsConfig = process.env['VSCODE_NLS_CONFIG'];
+    if (nlsConfig) {
+        process.env['VSCODE_NLS_CONFIG'] = nlsConfig;
     }
 
     try {
@@ -96,6 +104,11 @@ async function main(): Promise<void> {
             }
 
             process.env[key] = value;
+        }
+        if (previousNlsConfig === undefined) {
+            delete process.env['VSCODE_NLS_CONFIG'];
+        } else {
+            process.env['VSCODE_NLS_CONFIG'] = previousNlsConfig;
         }
         rmSync(userDataDir, { recursive: true, force: true });
     }
