@@ -59,7 +59,7 @@
         "vscode:prepublish": "npm run compile",
         "package:vsix": "vsce package --no-yarn --allow-missing-repository --skip-license",
         "test": "npm run compile && node --test dist/test/**/*.test.js",
-        "test:e2e:vscode": "npm run compile && unset VSCODE_IPC_HOOK_CLI && if command -v xvfb-run >/dev/null 2>&1; then xvfb-run -a node dist/e2e/runVscodeE2E.js; else node dist/e2e/runVscodeE2E.js; fi"
+        "test:e2e:vscode": "npm run compile && if command -v xvfb-run >/dev/null 2>&1; then xvfb-run -a node dist/e2e/runVscodeE2E.js; else node dist/e2e/runVscodeE2E.js; fi"
     },
     "devDependencies": {
         "@vscode/vsce": "^3.6.2",
