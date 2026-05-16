@@ -1,73 +1,75 @@
 {
-  "name": "audio-wandas-analyzer",
-  "displayName": "Audio Wandas Analyzer",
-  "description": "Analyze audio files in VS Code with a TypeScript extension UI and a Python backend powered by wandas.",
-  "version": "0.0.1",
-  "publisher": "audio-wandas-analyzer",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/kasahart/audio-wandas-analyzer"
-  },
-  "engines": {
-    "vscode": "^1.96.0"
-  },
-  "categories": [
-    "Other"
-  ],
-  "activationEvents": [
-    "onStartupFinished"
-  ],
-  "main": "./dist/extension/index.js",
-  "contributes": {
-    "commands": [
-      {
-        "command": "audioWandasAnalyzer.analyzeFile",
-        "title": "Audio Analyzer: Analyze File or Folder"
-      },
-      {
-        "command": "audioWandasAnalyzer.analyzeDebugFile",
-        "title": "Audio Analyzer: Analyze Debug Path"
-      }
+    "name": "audio-wandas-analyzer",
+    "displayName": "Audio Wandas Analyzer",
+    "description": "Analyze audio files in VS Code with a TypeScript extension UI and a Python backend powered by wandas.",
+    "version": "0.0.3",
+    "publisher": "audio-wandas-analyzer",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/kasahart/audio-wandas-analyzer"
+    },
+    "engines": {
+        "vscode": "^1.96.0"
+    },
+    "categories": [
+        "Other"
     ],
-    "configuration": {
-      "title": "Audio Wandas Analyzer",
-      "properties": {
-        "audioWandasAnalyzer.pythonCommand": {
-          "type": "string",
-          "default": "python3",
-          "description": "Python command used to launch the analysis backend."
-        },
-        "audioWandasAnalyzer.defaultPeakCount": {
-          "type": "number",
-          "default": 5,
-          "minimum": 1,
-          "maximum": 20,
-          "description": "Number of dominant frequency peaks shown per channel."
-        },
-        "audioWandasAnalyzer.debugFilePath": {
-          "type": "string",
-          "default": "media/debug",
-          "description": "Debug audio file or directory path used by the Analyze Debug Path command. Relative paths are resolved from the first workspace folder."
+    "activationEvents": [
+        "onStartupFinished",
+        "onCommand:audioWandasAnalyzer.analyzeFile",
+        "onCommand:audioWandasAnalyzer.analyzeDebugFile"
+    ],
+    "main": "./dist/extension/index.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "audioWandasAnalyzer.analyzeFile",
+                "title": "Audio Analyzer: Analyze File or Folder"
+            },
+            {
+                "command": "audioWandasAnalyzer.analyzeDebugFile",
+                "title": "Audio Analyzer: Analyze Debug Path"
+            }
+        ],
+        "configuration": {
+            "title": "Audio Wandas Analyzer",
+            "properties": {
+                "audioWandasAnalyzer.pythonCommand": {
+                    "type": "string",
+                    "default": "python3",
+                    "description": "Python command used to launch the analysis backend."
+                },
+                "audioWandasAnalyzer.defaultPeakCount": {
+                    "type": "number",
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": 20,
+                    "description": "Number of dominant frequency peaks shown per channel."
+                },
+                "audioWandasAnalyzer.debugFilePath": {
+                    "type": "string",
+                    "default": "media/debug",
+                    "description": "Debug audio file or directory path used by the Analyze Debug Path command. Relative paths are resolved from the first workspace folder."
+                }
+            }
         }
-      }
+    },
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "package": "npm run compile",
+        "vscode:prepublish": "npm run compile",
+        "package:vsix": "vsce package --no-yarn --allow-missing-repository --skip-license",
+        "test": "npm run compile && node --test dist/test/**/*.test.js",
+        "test:e2e:vscode": "npm run compile && if command -v xvfb-run >/dev/null 2>&1; then xvfb-run -a node dist/e2e/runVscodeE2E.js; else node dist/e2e/runVscodeE2E.js; fi"
+    },
+    "devDependencies": {
+        "@vscode/vsce": "^3.6.2",
+        "@vscode/test-electron": "^2.5.2",
+        "@types/jsdom": "^28.0.1",
+        "@types/node": "^22.10.2",
+        "@types/vscode": "^1.96.0",
+        "jsdom": "^29.1.1",
+        "typescript": "^5.7.2"
     }
-  },
-  "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "package": "npm run compile",
-    "vscode:prepublish": "npm run compile",
-    "package:vsix": "vsce package --no-yarn --allow-missing-repository --skip-license",
-    "test": "npm run compile && node --test dist/test/**/*.test.js",
-    "test:e2e:vscode": "npm run compile && if command -v xvfb-run >/dev/null 2>&1; then xvfb-run -a node dist/e2e/runVscodeE2E.js; else node dist/e2e/runVscodeE2E.js; fi"
-  },
-  "devDependencies": {
-    "@vscode/vsce": "^3.6.2",
-    "@vscode/test-electron": "^2.5.2",
-    "@types/jsdom": "^28.0.1",
-    "@types/node": "^22.10.2",
-    "@types/vscode": "^1.96.0",
-    "jsdom": "^29.1.1",
-    "typescript": "^5.7.2"
-  }
 }

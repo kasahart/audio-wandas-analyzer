@@ -1,0 +1,104 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+test('activate keeps analyze commands available when workspace test registration fails', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const NodeModule = require('node:module') as {
+        _load: (request: string, parent: unknown, isMain: boolean) => unknown;
+    };
+    const originalLoad = NodeModule._load;
+    const originalConsoleError = console.error;
+    const registeredCommandIds: string[] = [];
+
+    const vscodeStub = {
+        commands: {
+            registerCommand: (commandId: string) => {
+                registeredCommandIds.push(commandId);
+                return { dispose() {} };
+            },
+            executeCommand: () => Promise.resolve(),
+        },
+        window: {
+            showWarningMessage: () => Promise.resolve(undefined),
+        },
+        workspace: {
+            getConfiguration: () => ({
+                get: <T>(_key: string, defaultValue: T) => defaultValue,
+            }),
+        },
+    };
+
+    NodeModule._load = function patchedLoad(request: string, parent: unknown, isMain: boolean): unknown {
+        if (request === 'vscode') {
+            return vscodeStub;
+        }
+
+        if (request === '../testing/workspaceTests') {
+            return {
+                registerWorkspaceTests: () => {
+                    throw new Error('workspace tests unavailable');
+                },
+            };
+        }
+
+        if (request === '../shared/utils/startupDebug') {
+            return {
+                getDebugStartupBehavior: () => ({
+                    closePanelOnStartup: false,
+                    autoOpenDebugTarget: false,
+                    autoSelectAllDirectoryFiles: false,
+                }),
+            };
+        }
+
+        if (request === '../webview/panels/ComparisonPanel') {
+            return {
+                ComparisonPanel: {},
+            };
+        }
+
+        if (request === './waveformServer') {
+            return {
+                WaveformServer: class {
+                    dispose(): void {}
+                },
+            };
+        }
+
+        if (request === '../shared/utils/audioTarget' || request === '../shared/utils/directorySelection') {
+            return {};
+        }
+
+        return originalLoad.call(this, request, parent, isMain);
+    };
+
+    try {
+        console.error = () => {};
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const extensionModule = require('../extension/index') as {
+            activate(context: {
+                extensionPath: string;
+                extensionUri: { fsPath: string };
+                subscriptions: Array<{ dispose(): void }>;
+            }): void;
+        };
+
+        assert.doesNotThrow(() => {
+            extensionModule.activate({
+                extensionPath: '/tmp/audio-wandas-analyzer',
+                extensionUri: { fsPath: '/tmp/audio-wandas-analyzer' },
+                subscriptions: [],
+            });
+        });
+
+        assert.deepEqual(registeredCommandIds, [
+            'audioWandasAnalyzer.analyzeFile',
+            'audioWandasAnalyzer.analyzeDebugFile',
+        ]);
+    } finally {
+        console.error = originalConsoleError;
+        NodeModule._load = originalLoad;
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        delete require.cache[require.resolve('../extension/index')];
+    }
+});

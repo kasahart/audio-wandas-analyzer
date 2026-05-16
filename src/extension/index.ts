@@ -2,7 +2,6 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AnalysisResult, AnalysisResultWithError, DirectoryTreeNode } from '../shared/analysis/analysisTypes';
-import { registerWorkspaceTests } from '../testing/workspaceTests';
 import {
     isAnalyzeSelectedFilesMessage,
     isSelectTargetMessage,
@@ -40,8 +39,6 @@ export function activate(context: vscode.ExtensionContext): void {
     waveformServer = new WaveformServer(context.extensionPath);
     context.subscriptions.push({ dispose: () => { waveformServer?.dispose(); waveformServer = null; } });
 
-    registerWorkspaceTests(context);
-
     const analyzeFileDisposable = vscode.commands.registerCommand('audioWandasAnalyzer.analyzeFile', async () => {
         const selected = await pickAudioTarget();
 
@@ -75,6 +72,17 @@ export function activate(context: vscode.ExtensionContext): void {
     });
 
     context.subscriptions.push(analyzeFileDisposable, analyzeDebugFileDisposable);
+
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { registerWorkspaceTests } = require('../testing/workspaceTests') as typeof import('../testing/workspaceTests');
+        registerWorkspaceTests(context);
+    } catch (error) {
+        console.error('[audioWandasAnalyzer] Failed to register workspace tests', error);
+        void vscode.window.showWarningMessage(
+            'Audio Wandas Analyzer workspace tests are unavailable. Analyze commands remain available.',
+        );
+    }
 
     const startupBehavior = getDebugStartupBehavior(process.env);
     if (startupBehavior.closePanelOnStartup) {

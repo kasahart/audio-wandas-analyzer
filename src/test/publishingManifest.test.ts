@@ -20,6 +20,13 @@ test('package.json defines publish and packaging scripts for VS Code releases', 
     assert.equal(manifest.scripts?.['package:vsix'], 'vsce package --no-yarn --allow-missing-repository --skip-license');
 });
 
+test('package.json activates on analyze commands so installed extensions can register handlers on demand', () => {
+    const manifest = readJson<{ activationEvents?: string[] }>('package.json');
+
+    assert.ok(manifest.activationEvents?.includes('onCommand:audioWandasAnalyzer.analyzeFile'));
+    assert.ok(manifest.activationEvents?.includes('onCommand:audioWandasAnalyzer.analyzeDebugFile'));
+});
+
 test('README avoids relative markdown links that break Marketplace packaging', () => {
     const readme = readText('README.md');
     const relativeMarkdownLinks = readme.match(/\]\((?!https?:\/\/|mailto:|#)[^)]+\)/g) ?? [];
