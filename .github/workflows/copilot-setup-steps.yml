@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libasound2 \
+            libasound2t64 \
             libatk-bridge2.0-0 \
             libatk1.0-0 \
             libcups2 \
