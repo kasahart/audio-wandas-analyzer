@@ -1,14 +1,14 @@
 {
   "name": "audio-wandas-analyzer",
-  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
-    "ghcr.io/devcontainers/features/node:2": {
-      "version": "22"
-    },
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "remoteUser": "vscode",
+  "remoteUser": "node",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -26,7 +26,7 @@
       }
     }
   },
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends libsndfile1 && npm install && python3 -m venv .venv && ./.venv/bin/pip install -r python-backend/requirements.txt",
+  "postCreateCommand": "npm install && /usr/bin/python3 -m venv .venv && ./.venv/bin/pip install -r python-backend/requirements.txt",
   "postStartCommand": "npm run compile",
   "containerEnv": {
     "PYTHONUNBUFFERED": "1"
