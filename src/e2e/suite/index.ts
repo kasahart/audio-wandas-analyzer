@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ComparisonPanel } from '../../webview/panels/ComparisonPanel';
 
-const EXTENSION_ID = 'kasahart.audio-wandas-analyzer';
+const EXTENSION_ID = 'audio-wandas-analyzer.audio-wandas-analyzer';
 const SINGLE_TRACK_DEBUG_AUDIO_PATH = 'media/debug/sine-440.wav';
 const MULTI_TRACK_DEBUG_AUDIO_PATH = 'media/debug';
 const COMMAND_TIMEOUT_MS = 30000;

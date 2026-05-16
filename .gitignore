@@ -9,3 +9,4 @@ plot_helper/
 docs/superpowers/
 .pytest_cache/
 .worktrees/
+*.vsix
