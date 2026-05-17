@@ -7,7 +7,10 @@ insert_final_newline = true
 trim_trailing_whitespace = true
 indent_style = space
 
-[*.{ts,js,json,jsonc,yml,yaml,md}]
+[*.{ts,js}]
+indent_size = 4
+
+[*.{json,jsonc,yml,yaml,md}]
 indent_size = 2
 
 [*.py]

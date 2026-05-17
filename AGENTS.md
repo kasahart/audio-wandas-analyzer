@@ -126,7 +126,7 @@ trackDurRatio  = durationSeconds / globalSpanSec
 
 ### Cross-language invariant
 
-`media/comparisonWaveform.js` mirrors `src/webview/waveform/waveformRenderer.ts`. **When you change one, change the other.** `src/test/renderScript.integration.test.ts` catches divergence at runtime via jsdom.
+`media/comparisonWaveform.js` mirrors `src/webview/waveform/waveformRenderer.ts`. **When you change one, change the other.** There is no automated parity check — `src/test/renderScript.integration.test.ts` only smoke-tests that `comparisonWaveform.js` loads and runs in jsdom; `src/test/waveformRenderer.test.ts` covers the TypeScript renderer in isolation. Diff between the two files visually before committing.
 
 ---
 

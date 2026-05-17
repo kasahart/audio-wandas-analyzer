@@ -27,7 +27,7 @@ Never suggest edits to these directories — they are generated, vendored, or en
 
 `media/comparisonWaveform.js` is a plain-JavaScript mirror of `src/webview/waveform/waveformRenderer.ts`. They implement the same 3-layer rendering algorithm and **must stay in lockstep**.
 
-If you propose a change to one, propose the matching change to the other in the same commit. `src/test/renderScript.integration.test.ts` (run via `npm test`) catches divergence at runtime.
+If you propose a change to one, propose the matching change to the other in the same commit. There is no automated parity check between the two files — `src/test/renderScript.integration.test.ts` only smoke-tests that `comparisonWaveform.js` loads in jsdom, and `src/test/waveformRenderer.test.ts` covers the TypeScript renderer in isolation. The author is responsible for keeping them in lockstep.
 
 ## Python style
 
