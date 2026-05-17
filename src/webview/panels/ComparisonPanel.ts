@@ -48,6 +48,7 @@ interface ComparisonPanelTestSnapshot {
             waveformMinDrawX: number | null;
             waveformMaxDrawX: number | null;
             waveformCanvasWidth: number | null;
+            waveformCoverageReason: string;
         }>;
     };
 }
@@ -73,6 +74,7 @@ interface ComparisonPanelRenderedUiMessage {
             waveformMinDrawX: number | null;
             waveformMaxDrawX: number | null;
             waveformCanvasWidth: number | null;
+            waveformCoverageReason: string;
         }>;
     };
     actionId?: string;
@@ -762,6 +764,7 @@ export class ComparisonPanel {
                                 waveformMinDrawX: coverage ? coverage.minX : null,
                                 waveformMaxDrawX: coverage ? coverage.maxX : null,
                                 waveformCanvasWidth: coverage ? coverage.canvasWidth : null,
+                                waveformCoverageReason: coverage ? coverage.reason : 'never-painted',
                             };
                         }),
                     },
@@ -1034,7 +1037,9 @@ export class ComparisonPanel {
                 ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
 
                 const src = resolveWaveformSource(result, trackIndex, offsetSeconds);
-                if (src && window.renderWaveformPipeline) {
+                const hasPipeline = !!window.renderWaveformPipeline;
+                const hasResultWaveform = !!(result.channels && result.channels[0] && result.channels[0].waveform);
+                if (src && hasPipeline) {
                     const dur = result.durationSeconds || 1;
                     const gs = computeGlobalSpan();
                     const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
@@ -1078,10 +1083,18 @@ export class ComparisonPanel {
                             canvasWidth: W,
                             coversLeft: minX <= 1,
                             coversRight: maxX >= W - 1,
+                            reason: 'painted',
                         }
-                        : null;
+                        : { minX: null, maxX: null, canvasWidth: W, coversLeft: false, coversRight: false, reason: 'no-draw-calls' };
                 } else {
-                    lastWaveformCoverage[trackIndex] = null;
+                    lastWaveformCoverage[trackIndex] = {
+                        minX: null,
+                        maxX: null,
+                        canvasWidth: W,
+                        coversLeft: false,
+                        coversRight: false,
+                        reason: !src ? (hasResultWaveform ? 'src-null-but-result-has-waveform' : 'src-null-no-waveform') : 'pipeline-missing',
+                    };
                 }
 
                 if (shouldDrawCursor) {
