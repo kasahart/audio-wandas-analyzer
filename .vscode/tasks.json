@@ -47,6 +47,18 @@
         "kind": "test",
         "isDefault": true
       }
+    },
+    {
+      "label": "npm: test:e2e:vscode",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "run",
+        "test:e2e:vscode"
+      ],
+      "problemMatcher": [],
+      "group": "test",
+      "dependsOn": "compile extension (hidden)"
     }
   ]
 }

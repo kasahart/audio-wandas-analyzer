@@ -4,6 +4,10 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
   "remoteUser": "node",
   "customizations": {
     "vscode": {
@@ -22,7 +26,7 @@
       }
     }
   },
-  "postCreateCommand": "npm install && python3 -m venv .venv && ./.venv/bin/pip install -r python-backend/requirements.txt",
+  "postCreateCommand": "npm install && /usr/bin/python3 -m venv .venv && ./.venv/bin/pip install -r python-backend/requirements.txt",
   "postStartCommand": "npm run compile",
   "containerEnv": {
     "PYTHONUNBUFFERED": "1"

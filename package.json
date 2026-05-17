@@ -15,9 +15,7 @@
         "Other"
     ],
     "activationEvents": [
-        "onStartupFinished",
-        "onCommand:audioWandasAnalyzer.analyzeFile",
-        "onCommand:audioWandasAnalyzer.analyzeDebugFile"
+        "onStartupFinished"
     ],
     "main": "./dist/extension/index.js",
     "contributes": {
