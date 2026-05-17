@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm test *)",
+      "Bash(npm ci)",
+      "Bash(npm install *)",
+      "Bash(npm list *)",
+      "Bash(npx tsc *)",
+      "Bash(node --test *)",
+      "Bash(node dist/*)",
+      "Bash(bash scripts/verify.sh)",
+      "Bash(ruff check *)",
+      "Bash(ruff format *)",
+      "Bash(python -m pytest *)",
+      "Bash(python3 -m pytest *)",
+      "Bash(.venv/bin/python -m pytest *)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(pip install -e *)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git branch *)",
+      "Skill(wandas-getting-started)",
+      "Skill(wandas-signal-processing)",
+      "Skill(wandas-spectral-analysis)",
+      "Skill(wandas-visualization)",
+      "Skill(wandas-analyst)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/waveform-mirror-reminder.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

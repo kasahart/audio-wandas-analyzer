@@ -11,3 +11,4 @@ docs/superpowers/
 .worktrees/
 *.vsix
 .claude/settings.local.json
+*.egg-info/

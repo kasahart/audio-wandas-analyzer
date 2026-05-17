@@ -7,7 +7,6 @@ import wandas as wd
 
 from decimator import decimated_waveform
 
-
 WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
 SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
