@@ -18,11 +18,25 @@ test('activate keeps analyze commands available when workspace test registration
             },
             executeCommand: () => Promise.resolve(),
         },
-        window: {},
+        window: {
+            createStatusBarItem: () => ({
+                command: undefined as string | undefined,
+                text: '',
+                tooltip: undefined as string | undefined,
+                backgroundColor: undefined,
+                show() {},
+                hide() {},
+                dispose() {},
+            }),
+        },
         workspace: {
             getConfiguration: () => ({
                 get: <T>(_key: string, defaultValue: T) => defaultValue,
             }),
+            onDidChangeConfiguration: () => ({ dispose() {} }),
+        },
+        StatusBarAlignment: {
+            Left: 1,
         },
     };
 
@@ -63,6 +77,14 @@ test('activate keeps analyze commands available when workspace test registration
             };
         }
 
+        if (request === './pythonEnvironment') {
+            return {
+                selectPythonEnvironment: async () => {},
+                checkAndPromptInstallDependencies: async () => {},
+                setStatusBarNormal: () => {},
+            };
+        }
+
         if (request === '../shared/utils/audioTarget' || request === '../shared/utils/directorySelection') {
             return {};
         }
@@ -92,6 +114,7 @@ test('activate keeps analyze commands available when workspace test registration
         assert.deepEqual(registeredCommandIds, [
             'audioWandasAnalyzer.analyzeFile',
             'audioWandasAnalyzer.analyzeDebugFile',
+            'audioWandasAnalyzer.selectPythonEnvironment',
         ]);
     } finally {
         console.error = originalConsoleError;

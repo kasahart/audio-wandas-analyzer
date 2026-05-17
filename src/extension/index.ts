@@ -17,6 +17,7 @@ import {
 } from '../shared/utils/directorySelection';
 import { getDebugStartupBehavior } from '../shared/utils/startupDebug';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
+import { checkAndPromptInstallDependencies, selectPythonEnvironment, setStatusBarNormal } from './pythonEnvironment';
 import { WaveformServer } from './waveformServer';
 
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
@@ -38,6 +39,12 @@ interface AnalyzeTargetOptions {
 export function activate(context: vscode.ExtensionContext): void {
     waveformServer = new WaveformServer(context.extensionPath);
     context.subscriptions.push({ dispose: () => { waveformServer?.dispose(); waveformServer = null; } });
+    const pythonStatusBarItem = vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Left,
+        10,
+    );
+    pythonStatusBarItem.command = 'audioWandasAnalyzer.selectPythonEnvironment';
+    context.subscriptions.push(pythonStatusBarItem);
 
     const analyzeFileDisposable = vscode.commands.registerCommand('audioWandasAnalyzer.analyzeFile', async () => {
         const selected = await pickAudioTarget();
@@ -72,6 +79,21 @@ export function activate(context: vscode.ExtensionContext): void {
     });
 
     context.subscriptions.push(analyzeFileDisposable, analyzeDebugFileDisposable);
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'audioWandasAnalyzer.selectPythonEnvironment',
+            () => selectPythonEnvironment(pythonStatusBarItem),
+        ),
+    );
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (event.affectsConfiguration('audioWandasAnalyzer.pythonCommand')) {
+                const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
+                const pythonCommand = config.get<string>('pythonCommand', 'python3');
+                void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
+            }
+        }),
+    );
 
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -91,6 +113,11 @@ export function activate(context: vscode.ExtensionContext): void {
     if (startupBehavior.autoOpenDebugTarget) {
         void autoOpenDebugTargetOnStartup(context, startupBehavior.autoSelectAllDirectoryFiles);
     }
+
+    const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
+    const pythonCommand = config.get<string>('pythonCommand', 'python3');
+    setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+    void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
 }
 
 export function deactivate(): void { }

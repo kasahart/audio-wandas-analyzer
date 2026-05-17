@@ -27,6 +27,10 @@
             {
                 "command": "audioWandasAnalyzer.analyzeDebugFile",
                 "title": "Audio Analyzer: Analyze Debug Path"
+            },
+            {
+                "command": "audioWandasAnalyzer.selectPythonEnvironment",
+                "title": "Audio Analyzer: Select Python Environment"
             }
         ],
         "configuration": {
