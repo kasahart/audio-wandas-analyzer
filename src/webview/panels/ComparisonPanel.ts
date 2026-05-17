@@ -48,11 +48,7 @@ interface ComparisonPanelTestSnapshot {
             waveformMinDrawX: number | null;
             waveformMaxDrawX: number | null;
             waveformCanvasWidth: number | null;
-            waveformCoverageReason: string;
-            drawWaveformCallCount: number;
-            lastRenderStackedSkipReason: string;
-            lastContentTypeAtRender: string;
-            contentTypeNow: string;
+            resultError: string | null;
         }>;
     };
 }
@@ -78,11 +74,7 @@ interface ComparisonPanelRenderedUiMessage {
             waveformMinDrawX: number | null;
             waveformMaxDrawX: number | null;
             waveformCanvasWidth: number | null;
-            waveformCoverageReason: string;
-            drawWaveformCallCount: number;
-            lastRenderStackedSkipReason: string;
-            lastContentTypeAtRender: string;
-            contentTypeNow: string;
+            resultError: string | null;
         }>;
     };
     actionId?: string;
@@ -592,9 +584,6 @@ export class ComparisonPanel {
             let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag, isShift, startNorm, dragType }
             let loopRegion = null;        // null or { start: number, end: number }（正規化グローバル時間）
             const lastWaveformCoverage = state.results.map(function() { return null; });
-            const drawWaveformCallCount = state.results.map(function() { return 0; });
-            let lastRenderStackedSkipReason = 'no-render-yet';
-            let lastContentTypeAtRender = '';
 
             const trackRuntime = state.results.map(function() {
                 return { offsetSeconds: 0, hidden: false };
@@ -775,11 +764,7 @@ export class ComparisonPanel {
                                 waveformMinDrawX: coverage ? coverage.minX : null,
                                 waveformMaxDrawX: coverage ? coverage.maxX : null,
                                 waveformCanvasWidth: coverage ? coverage.canvasWidth : null,
-                                waveformCoverageReason: coverage ? coverage.reason : 'never-painted',
-                                drawWaveformCallCount: drawWaveformCallCount[trackIndex] || 0,
-                                lastRenderStackedSkipReason: lastRenderStackedSkipReason,
-                                lastContentTypeAtRender: lastContentTypeAtRender,
-                                contentTypeNow: contentType,
+                                resultError: result.error || null,
                             };
                         }),
                     },
@@ -993,12 +978,9 @@ export class ComparisonPanel {
             }
 
             function renderStackedTracks() {
-                lastContentTypeAtRender = contentType;
-                lastRenderStackedSkipReason = 'iterated';
                 state.results.forEach(function(result, i) {
-                    if (trackRuntime[i].hidden) { lastRenderStackedSkipReason = 'hidden'; return; }
+                    if (trackRuntime[i].hidden) { return; }
                     if (result.error) {
-                        lastRenderStackedSkipReason = 'result-error';
                         const canvas = document.getElementById('track-canvas-' + i);
                         if (canvas) {
                             const ctx = canvas.getContext('2d');
@@ -1010,13 +992,11 @@ export class ComparisonPanel {
                         return;
                     }
                     const canvas = document.getElementById('track-canvas-' + i);
-                    if (!canvas) { lastRenderStackedSkipReason = 'canvas-missing'; return; }
+                    if (!canvas) { return; }
                     const color = TRACK_COLORS[i % TRACK_COLORS.length];
                     if (contentType === 'waveform') {
-                        drawWaveformCallCount[i] = (drawWaveformCallCount[i] || 0) + 1;
                         drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     } else {
-                        lastRenderStackedSkipReason = 'spectrogram-mode';
                         drawSpectrogram(canvas, result, trackRuntime[i].offsetSeconds);
                     }
                 });
@@ -1056,9 +1036,7 @@ export class ComparisonPanel {
                 ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
 
                 const src = resolveWaveformSource(result, trackIndex, offsetSeconds);
-                const hasPipeline = !!window.renderWaveformPipeline;
-                const hasResultWaveform = !!(result.channels && result.channels[0] && result.channels[0].waveform);
-                if (src && hasPipeline) {
+                if (src && window.renderWaveformPipeline) {
                     const dur = result.durationSeconds || 1;
                     const gs = computeGlobalSpan();
                     const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
@@ -1102,18 +1080,10 @@ export class ComparisonPanel {
                             canvasWidth: W,
                             coversLeft: minX <= 1,
                             coversRight: maxX >= W - 1,
-                            reason: 'painted',
                         }
-                        : { minX: null, maxX: null, canvasWidth: W, coversLeft: false, coversRight: false, reason: 'no-draw-calls' };
+                        : null;
                 } else {
-                    lastWaveformCoverage[trackIndex] = {
-                        minX: null,
-                        maxX: null,
-                        canvasWidth: W,
-                        coversLeft: false,
-                        coversRight: false,
-                        reason: !src ? (hasResultWaveform ? 'src-null-but-result-has-waveform' : 'src-null-no-waveform') : 'pipeline-missing',
-                    };
+                    lastWaveformCoverage[trackIndex] = null;
                 }
 
                 if (shouldDrawCursor) {
