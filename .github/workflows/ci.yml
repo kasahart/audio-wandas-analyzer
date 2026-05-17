@@ -12,7 +12,7 @@ concurrency:
 jobs:
   verify:
     name: verify (compile + node:test + ruff + pytest)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +46,7 @@ jobs:
 
   e2e:
     name: e2e (VS Code extension host)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: verify
     timeout-minutes: 30
     steps:
