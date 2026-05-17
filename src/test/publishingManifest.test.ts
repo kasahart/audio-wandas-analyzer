@@ -20,6 +20,42 @@ test('package.json defines publish and packaging scripts for VS Code releases', 
     assert.equal(manifest.scripts?.['package:vsix'], 'vsce package --no-yarn --allow-missing-repository --skip-license');
 });
 
+test('package.json contributes GUI entry points for analysis', () => {
+    const manifest = readJson<{
+        contributes?: {
+            commands?: Array<{ command: string; title: string }>;
+            menus?: { 'explorer/context'?: Array<{ command: string; when?: string }> };
+            viewsContainers?: { activitybar?: Array<{ id: string; title: string; icon: string }> };
+            views?: Record<string, Array<{ id: string; name: string }>>;
+            viewsWelcome?: Array<{ view: string; contents: string }>;
+        };
+    }>('package.json');
+
+    assert.match(
+        JSON.stringify(manifest.contributes?.commands ?? []),
+        /"command":"audioWandasAnalyzer\.analyzeThisTarget"/,
+    );
+    assert.deepEqual(
+        manifest.contributes?.menus?.['explorer/context']?.map((item) => item.command),
+        ['audioWandasAnalyzer.analyzeThisTarget', 'audioWandasAnalyzer.analyzeThisTarget'],
+    );
+    assert.deepEqual(manifest.contributes?.viewsContainers?.activitybar, [
+        {
+            id: 'audioWandasAnalyzer',
+            title: 'Audio Analyzer',
+            icon: 'media/icon.svg',
+        },
+    ]);
+    assert.deepEqual(manifest.contributes?.views?.audioWandasAnalyzer, [
+        {
+            id: 'audioWandasAnalyzer.welcomeView',
+            name: 'Audio Analyzer',
+        },
+    ]);
+    assert.equal(manifest.contributes?.viewsWelcome?.[0]?.view, 'audioWandasAnalyzer.welcomeView');
+    assert.match(manifest.contributes?.viewsWelcome?.[0]?.contents ?? '', /Analyze with Audio Analyzer/);
+});
+
 test('README avoids relative markdown links that break Marketplace packaging', () => {
     const readme = readText('README.md');
     const relativeMarkdownLinks = readme.match(/\]\((?!https?:\/\/|mailto:|#)[^)]+\)/g) ?? [];

@@ -55,6 +55,47 @@ export function activate(context: vscode.ExtensionContext): void {
     pythonStatusBarItem.command = 'audioWandasAnalyzer.selectPythonEnvironment';
     context.subscriptions.push(pythonStatusBarItem);
 
+    const welcomeViewProvider: vscode.TreeDataProvider<vscode.TreeItem> = {
+        getTreeItem: (element) => element,
+        getChildren: () => [],
+    };
+    const welcomeView = vscode.window.createTreeView('audioWandasAnalyzer.welcomeView', {
+        treeDataProvider: welcomeViewProvider,
+        dragAndDropController: {
+            dropMimeTypes: ['text/uri-list', 'application/vnd.code.tree.workbenchExplorerFiles'],
+            dragMimeTypes: [],
+            async handleDrop(_target, dataTransfer) {
+                const uriList = await dataTransfer.get('text/uri-list')?.asString() ?? '';
+                const uris = uriList
+                    .split(/\r?\n/)
+                    .filter((value) => value.trim() && !value.startsWith('#'))
+                    .map((value) => vscode.Uri.parse(value.trim()));
+
+                if (uris.length === 0) {
+                    return;
+                }
+
+                if (uris.length === 1) {
+                    const droppedUri = uris[0];
+                    const droppedStat = await vscode.workspace.fs.stat(droppedUri);
+                    const isDirectory = (droppedStat.type & vscode.FileType.Directory) !== 0;
+                    if (isDirectory || isSupportedAudioFile(path.basename(droppedUri.fsPath))) {
+                        await analyzeAudioTarget(context, droppedUri);
+                    }
+                    return;
+                }
+
+                const filePaths = uris
+                    .map((uri) => uri.fsPath)
+                    .filter((filePath) => isSupportedAudioFile(path.basename(filePath)));
+
+                if (filePaths.length > 0) {
+                    await analyzeMultipleFiles(context, filePaths);
+                }
+            },
+        },
+    });
+
     const analyzeFileDisposable = vscode.commands.registerCommand('audioWandasAnalyzer.analyzeFile', async () => {
         const selected = await pickAudioTarget();
 
@@ -87,7 +128,25 @@ export function activate(context: vscode.ExtensionContext): void {
         await analyzeAudioTarget(context, debugTargetUri);
     });
 
-    context.subscriptions.push(analyzeFileDisposable, analyzeDebugFileDisposable);
+    const analyzeThisTargetDisposable = vscode.commands.registerCommand(
+        'audioWandasAnalyzer.analyzeThisTarget',
+        async (contextUri?: vscode.Uri) => {
+            const selected = contextUri ?? await pickAudioTarget();
+
+            if (!selected) {
+                return;
+            }
+
+            await analyzeAudioTarget(context, selected);
+        },
+    );
+
+    context.subscriptions.push(
+        welcomeView,
+        analyzeFileDisposable,
+        analyzeThisTargetDisposable,
+        analyzeDebugFileDisposable,
+    );
     context.subscriptions.push(
         vscode.commands.registerCommand(
             'audioWandasAnalyzer.selectPythonEnvironment',
