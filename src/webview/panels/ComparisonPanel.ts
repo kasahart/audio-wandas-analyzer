@@ -49,6 +49,10 @@ interface ComparisonPanelTestSnapshot {
             waveformMaxDrawX: number | null;
             waveformCanvasWidth: number | null;
             waveformCoverageReason: string;
+            drawWaveformCallCount: number;
+            lastRenderStackedSkipReason: string;
+            lastContentTypeAtRender: string;
+            contentTypeNow: string;
         }>;
     };
 }
@@ -75,6 +79,10 @@ interface ComparisonPanelRenderedUiMessage {
             waveformMaxDrawX: number | null;
             waveformCanvasWidth: number | null;
             waveformCoverageReason: string;
+            drawWaveformCallCount: number;
+            lastRenderStackedSkipReason: string;
+            lastContentTypeAtRender: string;
+            contentTypeNow: string;
         }>;
     };
     actionId?: string;
@@ -584,6 +592,9 @@ export class ComparisonPanel {
             let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag, isShift, startNorm, dragType }
             let loopRegion = null;        // null or { start: number, end: number }（正規化グローバル時間）
             const lastWaveformCoverage = state.results.map(function() { return null; });
+            const drawWaveformCallCount = state.results.map(function() { return 0; });
+            let lastRenderStackedSkipReason = 'no-render-yet';
+            let lastContentTypeAtRender = '';
 
             const trackRuntime = state.results.map(function() {
                 return { offsetSeconds: 0, hidden: false };
@@ -765,6 +776,10 @@ export class ComparisonPanel {
                                 waveformMaxDrawX: coverage ? coverage.maxX : null,
                                 waveformCanvasWidth: coverage ? coverage.canvasWidth : null,
                                 waveformCoverageReason: coverage ? coverage.reason : 'never-painted',
+                                drawWaveformCallCount: drawWaveformCallCount[trackIndex] || 0,
+                                lastRenderStackedSkipReason: lastRenderStackedSkipReason,
+                                lastContentTypeAtRender: lastContentTypeAtRender,
+                                contentTypeNow: contentType,
                             };
                         }),
                     },
@@ -978,10 +993,12 @@ export class ComparisonPanel {
             }
 
             function renderStackedTracks() {
+                lastContentTypeAtRender = contentType;
+                lastRenderStackedSkipReason = 'iterated';
                 state.results.forEach(function(result, i) {
-                    if (trackRuntime[i].hidden) { return; }
-                    // エラートラックはキャンバスにエラーメッセージを描画
+                    if (trackRuntime[i].hidden) { lastRenderStackedSkipReason = 'hidden'; return; }
                     if (result.error) {
+                        lastRenderStackedSkipReason = 'result-error';
                         const canvas = document.getElementById('track-canvas-' + i);
                         if (canvas) {
                             const ctx = canvas.getContext('2d');
@@ -993,11 +1010,13 @@ export class ComparisonPanel {
                         return;
                     }
                     const canvas = document.getElementById('track-canvas-' + i);
-                    if (!canvas) { return; }
+                    if (!canvas) { lastRenderStackedSkipReason = 'canvas-missing'; return; }
                     const color = TRACK_COLORS[i % TRACK_COLORS.length];
                     if (contentType === 'waveform') {
+                        drawWaveformCallCount[i] = (drawWaveformCallCount[i] || 0) + 1;
                         drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     } else {
+                        lastRenderStackedSkipReason = 'spectrogram-mode';
                         drawSpectrogram(canvas, result, trackRuntime[i].offsetSeconds);
                     }
                 });

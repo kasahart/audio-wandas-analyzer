@@ -34,6 +34,10 @@ interface TestSnapshot {
             waveformMaxDrawX: number | null;
             waveformCanvasWidth: number | null;
             waveformCoverageReason: string;
+            drawWaveformCallCount: number;
+            lastRenderStackedSkipReason: string;
+            lastContentTypeAtRender: string;
+            contentTypeNow: string;
         }>;
     };
 }
@@ -110,7 +114,7 @@ export async function run(): Promise<void> {
                 assert.ok(zoomInEdgeCoverageUi.tracks[0].visibleFileStartNorm > 0, 'Visible file start should move inside the track');
                 assert.ok(zoomInEdgeCoverageUi.tracks[0].visibleFileEndNorm < 1, 'Visible file end should move inside the track');
                 const edgeTrack = zoomInEdgeCoverageUi.tracks[0];
-                const edgeDiag = `reason=${edgeTrack.waveformCoverageReason} minX=${edgeTrack.waveformMinDrawX} maxX=${edgeTrack.waveformMaxDrawX} W=${edgeTrack.waveformCanvasWidth} visStart=${edgeTrack.visibleFileStartNorm} visEnd=${edgeTrack.visibleFileEndNorm} zoom=[${zoomInEdgeCoverageUi.zoomStart},${zoomInEdgeCoverageUi.zoomEnd}]`;
+                const edgeDiag = `reason=${edgeTrack.waveformCoverageReason} drawCalls=${edgeTrack.drawWaveformCallCount} skip=${edgeTrack.lastRenderStackedSkipReason} ctAtRender=${edgeTrack.lastContentTypeAtRender} ctNow=${edgeTrack.contentTypeNow} minX=${edgeTrack.waveformMinDrawX} maxX=${edgeTrack.waveformMaxDrawX} W=${edgeTrack.waveformCanvasWidth} visStart=${edgeTrack.visibleFileStartNorm} visEnd=${edgeTrack.visibleFileEndNorm} zoom=[${zoomInEdgeCoverageUi.zoomStart},${zoomInEdgeCoverageUi.zoomEnd}]`;
                 assert.equal(edgeTrack.waveformCoversViewportLeft, true, `Left edge not covered: ${edgeDiag}`);
                 assert.equal(edgeTrack.waveformCoversViewportRight, true, `Right edge not covered: ${edgeDiag}`);
             },
