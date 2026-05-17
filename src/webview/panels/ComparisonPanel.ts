@@ -47,6 +47,7 @@ interface ComparisonPanelTestSnapshot {
             waveformCoversViewportRight: boolean;
             waveformMinDrawX: number | null;
             waveformMaxDrawX: number | null;
+            waveformCanvasWidth: number | null;
         }>;
     };
 }
@@ -71,6 +72,7 @@ interface ComparisonPanelRenderedUiMessage {
             waveformCoversViewportRight: boolean;
             waveformMinDrawX: number | null;
             waveformMaxDrawX: number | null;
+            waveformCanvasWidth: number | null;
         }>;
     };
     actionId?: string;
@@ -759,6 +761,7 @@ export class ComparisonPanel {
                                 waveformCoversViewportRight: !!coverage && coverage.coversRight,
                                 waveformMinDrawX: coverage ? coverage.minX : null,
                                 waveformMaxDrawX: coverage ? coverage.maxX : null,
+                                waveformCanvasWidth: coverage ? coverage.canvasWidth : null,
                             };
                         }),
                     },
@@ -1072,6 +1075,7 @@ export class ComparisonPanel {
                         ? {
                             minX: minX,
                             maxX: maxX,
+                            canvasWidth: W,
                             coversLeft: minX <= 1,
                             coversRight: maxX >= W - 1,
                         }

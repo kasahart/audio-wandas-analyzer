@@ -32,6 +32,7 @@ interface TestSnapshot {
             waveformCoversViewportRight: boolean;
             waveformMinDrawX: number | null;
             waveformMaxDrawX: number | null;
+            waveformCanvasWidth: number | null;
         }>;
     };
 }
@@ -107,8 +108,10 @@ export async function run(): Promise<void> {
                 assert.ok(zoomInEdgeCoverageUi.zoomEnd < 1, 'zoomEnd should move backward after repeated zoom-in');
                 assert.ok(zoomInEdgeCoverageUi.tracks[0].visibleFileStartNorm > 0, 'Visible file start should move inside the track');
                 assert.ok(zoomInEdgeCoverageUi.tracks[0].visibleFileEndNorm < 1, 'Visible file end should move inside the track');
-                assert.equal(zoomInEdgeCoverageUi.tracks[0].waveformCoversViewportLeft, true);
-                assert.equal(zoomInEdgeCoverageUi.tracks[0].waveformCoversViewportRight, true);
+                const edgeTrack = zoomInEdgeCoverageUi.tracks[0];
+                const edgeDiag = `minX=${edgeTrack.waveformMinDrawX} maxX=${edgeTrack.waveformMaxDrawX} W=${edgeTrack.waveformCanvasWidth} visStart=${edgeTrack.visibleFileStartNorm} visEnd=${edgeTrack.visibleFileEndNorm} zoom=[${zoomInEdgeCoverageUi.zoomStart},${zoomInEdgeCoverageUi.zoomEnd}]`;
+                assert.equal(edgeTrack.waveformCoversViewportLeft, true, `Left edge not covered: ${edgeDiag}`);
+                assert.equal(edgeTrack.waveformCoversViewportRight, true, `Right edge not covered: ${edgeDiag}`);
             },
         },
         {
