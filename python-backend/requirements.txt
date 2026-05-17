@@ -1,2 +1,6 @@
+# Runtime-only dependency list, kept for the devcontainer postCreate step.
+# For development install, prefer `pip install -e ".[dev]"` from the repo root
+# (uses pyproject.toml to also pull in ruff + pytest).
 numpy>=1.26
 wandas>=0.1.0
+soundfile>=0.12

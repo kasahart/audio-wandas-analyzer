@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import numpy as np
 
 
@@ -14,13 +15,18 @@ def decimated_waveform(
     """
     n = len(samples)
     if n == 0:
-        return {"min": [], "max": [], "minT": [], "maxT": [],
-                "samples": [], "absolutePeak": 0.0}
+        return {"min": [], "max": [], "minT": [], "maxT": [], "samples": [], "absolutePeak": 0.0}
 
     point_count = min(point_limit, n)
     if point_count <= 0:
-        return {"min": [], "max": [], "minT": [], "maxT": [],
-                "samples": [], "absolutePeak": float(np.max(np.abs(samples)))}
+        return {
+            "min": [],
+            "max": [],
+            "minT": [],
+            "maxT": [],
+            "samples": [],
+            "absolutePeak": float(np.max(np.abs(samples))),
+        }
     denom = max(1, total_samples - 1)
     indices = np.arange(n)
     buckets = np.array_split(indices, point_count)

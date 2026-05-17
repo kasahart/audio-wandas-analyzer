@@ -52,8 +52,10 @@ jobs:
       - name: Create Python virtual environment
         run: python -m venv .venv
 
-      - name: Install Python dependencies
-        run: ./.venv/bin/pip install -r python-backend/requirements.txt
+      - name: Install Python dependencies (runtime + dev tools required by `npm run verify`)
+        run: |
+          ./.venv/bin/pip install --upgrade pip
+          ./.venv/bin/pip install -e ".[dev]"
 
       - name: Expose workspace virtualenv
         run: |
