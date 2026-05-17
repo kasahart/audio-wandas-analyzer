@@ -9,6 +9,7 @@ test('activate keeps analyze commands available when workspace test registration
     const originalLoad = NodeModule._load;
     const originalConsoleError = console.error;
     const registeredCommandIds: string[] = [];
+    const createdTreeViewIds: string[] = [];
 
     const vscodeStub = {
         commands: {
@@ -28,6 +29,10 @@ test('activate keeps analyze commands available when workspace test registration
                 hide() {},
                 dispose() {},
             }),
+            createTreeView: (viewId: string) => {
+                createdTreeViewIds.push(viewId);
+                return { dispose() {} };
+            },
         },
         workspace: {
             getConfiguration: () => ({
@@ -37,6 +42,12 @@ test('activate keeps analyze commands available when workspace test registration
         },
         StatusBarAlignment: {
             Left: 1,
+        },
+        Uri: {
+            parse: (value: string) => ({ fsPath: value }),
+        },
+        FileType: {
+            Directory: 2,
         },
     };
 
@@ -120,8 +131,10 @@ test('activate keeps analyze commands available when workspace test registration
         assert.deepEqual(registeredCommandIds, [
             'audioWandasAnalyzer.analyzeFile',
             'audioWandasAnalyzer.analyzeDebugFile',
+            'audioWandasAnalyzer.analyzeThisTarget',
             'audioWandasAnalyzer.selectPythonEnvironment',
         ]);
+        assert.deepEqual(createdTreeViewIds, ['audioWandasAnalyzer.welcomeView']);
     } finally {
         console.error = originalConsoleError;
         NodeModule._load = originalLoad;

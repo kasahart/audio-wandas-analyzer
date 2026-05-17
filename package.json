@@ -25,12 +25,53 @@
                 "title": "Audio Analyzer: Analyze File or Folder"
             },
             {
+                "command": "audioWandasAnalyzer.analyzeThisTarget",
+                "title": "Analyze with Audio Analyzer"
+            },
+            {
                 "command": "audioWandasAnalyzer.analyzeDebugFile",
                 "title": "Audio Analyzer: Analyze Debug Path"
             },
             {
                 "command": "audioWandasAnalyzer.selectPythonEnvironment",
                 "title": "Audio Analyzer: Select Python Environment"
+            }
+        ],
+        "menus": {
+            "explorer/context": [
+                {
+                    "command": "audioWandasAnalyzer.analyzeThisTarget",
+                    "when": "resourceExtname =~ /\\.(wav|flac|ogg|aiff|aif|snd)$/i",
+                    "group": "2_workspace"
+                },
+                {
+                    "command": "audioWandasAnalyzer.analyzeThisTarget",
+                    "when": "explorerResourceIsFolder",
+                    "group": "2_workspace"
+                }
+            ]
+        },
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "audioWandasAnalyzer",
+                    "title": "Audio Analyzer",
+                    "icon": "media/icon.svg"
+                }
+            ]
+        },
+        "views": {
+            "audioWandasAnalyzer": [
+                {
+                    "id": "audioWandasAnalyzer.welcomeView",
+                    "name": "Audio Analyzer"
+                }
+            ]
+        },
+        "viewsWelcome": [
+            {
+                "view": "audioWandasAnalyzer.welcomeView",
+                "contents": "音声ファイルまたはフォルダを解析します。\n\n[ファイル・フォルダを選択して解析](command:audioWandasAnalyzer.analyzeFile)\n\nエクスプローラーで音声ファイルまたはフォルダを右クリックして「Analyze with Audio Analyzer」を選択することもできます。"
             }
         ],
         "configuration": {
