@@ -3,6 +3,10 @@ import * as vscode from 'vscode';
 
 const REQUIRED_PACKAGES: readonly string[] = ['numpy', 'wandas'];
 const BROWSE_LABEL = '$(folder) Browse...';
+const MISSING_DEPENDENCIES_TOOLTIP = 'Python dependencies are missing. Click to select or install.';
+const MISSING_INTERPRETER_TOOLTIP = 'Python interpreter was not found. Click to select another interpreter.';
+const PIP_UNAVAILABLE_TOOLTIP = 'pip is not available in this interpreter. Click to select another interpreter.';
+const CHECK_FAILED_TOOLTIP = 'Python environment check failed. Click to select another interpreter.';
 
 class PythonNotFoundError extends Error {
     constructor(pythonCommand: string, cause?: string) {
@@ -29,9 +33,13 @@ export function setStatusBarNormal(item: vscode.StatusBarItem, pythonCommand: st
     item.show();
 }
 
-export function setStatusBarWarning(item: vscode.StatusBarItem, pythonCommand: string): void {
+export function setStatusBarWarning(
+    item: vscode.StatusBarItem,
+    pythonCommand: string,
+    tooltip: string = MISSING_DEPENDENCIES_TOOLTIP,
+): void {
     item.text = `Python: ${pythonCommand} $(warning)`;
-    item.tooltip = 'Python dependencies are missing. Click to select or install.';
+    item.tooltip = tooltip;
     item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
     item.show();
 }
@@ -68,11 +76,15 @@ export async function selectPythonEnvironment(statusBarItem: vscode.StatusBarIte
     }
 
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
+    const currentPythonCommand = config.get<string>('pythonCommand', 'python3');
+    if (chosen === currentPythonCommand) {
+        await checkAndPromptInstallDependencies(chosen, statusBarItem);
+        return;
+    }
     const target = vscode.workspace.workspaceFolders?.length
         ? vscode.ConfigurationTarget.Workspace
         : vscode.ConfigurationTarget.Global;
     await config.update('pythonCommand', chosen, target);
-    await checkAndPromptInstallDependencies(chosen, statusBarItem);
 }
 
 export async function checkAndPromptInstallDependencies(
@@ -89,13 +101,22 @@ export async function checkAndPromptInstallDependencies(
         setStatusBarWarning(statusBarItem, pythonCommand);
         await promptAndInstallDependencies(pythonCommand, missingPackages, statusBarItem);
     } catch (error) {
-        if (error instanceof PythonNotFoundError || error instanceof PipNotAvailableError) {
-            setStatusBarWarning(statusBarItem, pythonCommand);
+        if (error instanceof PythonNotFoundError) {
+            setStatusBarWarning(statusBarItem, pythonCommand, MISSING_INTERPRETER_TOOLTIP);
             void vscode.window.showWarningMessage(error.message);
             return;
         }
 
-        throw error;
+        if (error instanceof PipNotAvailableError) {
+            setStatusBarWarning(statusBarItem, pythonCommand, PIP_UNAVAILABLE_TOOLTIP);
+            void vscode.window.showWarningMessage(error.message);
+            return;
+        }
+
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Failed to check Python dependencies for ${pythonCommand}: ${message}`);
+        setStatusBarWarning(statusBarItem, pythonCommand, CHECK_FAILED_TOOLTIP);
+        void vscode.window.showErrorMessage(`Failed to check Python dependencies: ${message}`);
     }
 }
 
