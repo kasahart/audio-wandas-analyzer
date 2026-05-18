@@ -39,6 +39,10 @@ test('package.json contributes GUI entry points for analysis', () => {
         manifest.contributes?.menus?.['explorer/context']?.map((item) => item.command),
         ['audioWandasAnalyzer.analyzeThisTarget', 'audioWandasAnalyzer.analyzeThisTarget'],
     );
+    assert.equal(
+        manifest.contributes?.menus?.['explorer/context']?.[0]?.when,
+        'resourceExtname =~ /^\\.(wav|flac|ogg|aiff|aif|snd)$/i',
+    );
     assert.deepEqual(manifest.contributes?.viewsContainers?.activitybar, [
         {
             id: 'audioWandasAnalyzer',
