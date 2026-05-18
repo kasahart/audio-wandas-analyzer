@@ -46,6 +46,13 @@ interface AnalyzeTargetOptions {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+    const welcomeDropTarget = new vscode.TreeItem('Drop audio files or folders here');
+    welcomeDropTarget.description = 'Click to choose a file or folder';
+    welcomeDropTarget.command = {
+        command: 'audioWandasAnalyzer.analyzeFile',
+        title: 'Analyze File or Folder',
+    };
+    welcomeDropTarget.iconPath = new vscode.ThemeIcon('new-file');
     waveformServer = new WaveformServer(context.extensionPath);
     context.subscriptions.push({ dispose: () => { waveformServer?.dispose(); waveformServer = null; } });
     const pythonStatusBarItem = vscode.window.createStatusBarItem(
@@ -57,7 +64,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     const welcomeViewProvider: vscode.TreeDataProvider<vscode.TreeItem> = {
         getTreeItem: (element) => element,
-        getChildren: () => [],
+        getChildren: () => [welcomeDropTarget],
     };
     const welcomeView = vscode.window.createTreeView('audioWandasAnalyzer.welcomeView', {
         treeDataProvider: welcomeViewProvider,

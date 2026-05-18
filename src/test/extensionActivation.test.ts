@@ -10,6 +10,10 @@ test('activate keeps analyze commands available when workspace test registration
     const originalConsoleError = console.error;
     const registeredCommandIds: string[] = [];
     const createdTreeViewIds: string[] = [];
+    let createdTreeViewOptions: {
+        treeDataProvider?: { getChildren(): unknown[]; getTreeItem(element: unknown): unknown };
+        dragAndDropController?: unknown;
+    } | undefined;
 
     const vscodeStub = {
         commands: {
@@ -29,8 +33,9 @@ test('activate keeps analyze commands available when workspace test registration
                 hide() {},
                 dispose() {},
             }),
-            createTreeView: (viewId: string) => {
+            createTreeView: (viewId: string, options?: typeof createdTreeViewOptions) => {
                 createdTreeViewIds.push(viewId);
+                createdTreeViewOptions = options;
                 return { dispose() {} };
             },
         },
@@ -48,6 +53,23 @@ test('activate keeps analyze commands available when workspace test registration
         },
         FileType: {
             Directory: 2,
+        },
+        TreeItem: class {
+            label: string;
+            description?: string;
+            command?: { command: string; title: string };
+            iconPath?: unknown;
+
+            constructor(label: string) {
+                this.label = label;
+            }
+        },
+        ThemeIcon: class {
+            id: string;
+
+            constructor(id: string) {
+                this.id = id;
+            }
         },
     };
 
@@ -135,6 +157,20 @@ test('activate keeps analyze commands available when workspace test registration
             'audioWandasAnalyzer.selectPythonEnvironment',
         ]);
         assert.deepEqual(createdTreeViewIds, ['audioWandasAnalyzer.welcomeView']);
+        const welcomeItems = createdTreeViewOptions?.treeDataProvider?.getChildren() as Array<{
+            label: string;
+            description?: string;
+            command?: { command: string; title: string };
+            iconPath?: { id: string };
+        }>;
+        assert.equal(welcomeItems.length, 1);
+        assert.equal(welcomeItems[0].label, 'Drop audio files or folders here');
+        assert.equal(welcomeItems[0].description, 'Click to choose a file or folder');
+        assert.deepEqual(welcomeItems[0].command, {
+            command: 'audioWandasAnalyzer.analyzeFile',
+            title: 'Analyze File or Folder',
+        });
+        assert.equal(welcomeItems[0].iconPath?.id, 'new-file');
     } finally {
         console.error = originalConsoleError;
         NodeModule._load = originalLoad;
