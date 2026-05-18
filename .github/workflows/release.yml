@@ -24,6 +24,16 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Validate tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          pkg_version="$(node -p "require('./package.json').version")"
+          expected_tag="v${pkg_version}"
+          if [ "$tag" != "$expected_tag" ]; then
+            echo "Tag $tag does not match package.json version $pkg_version (expected $expected_tag)." >&2
+            exit 1
+          fi
+
       - name: Run verify checks
         run: npm run verify
 
