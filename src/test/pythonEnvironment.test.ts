@@ -461,6 +461,65 @@ test('checkAndPromptInstallDependencies treats unexpected pip show exit as check
     }
 });
 
+test('checkAndPromptInstallDependencies ignores stale results from older requests', async () => {
+    let oldProc: (EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }) | undefined;
+    let newProc: (EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }) | undefined;
+    const { pythonEnvironment, warningMessages, restore } = loadPythonEnvironmentModule({
+        spawnImpl: (pythonCommand?: unknown) => {
+            const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+            proc.stdout = new EventEmitter();
+            proc.stderr = new EventEmitter();
+
+            if (pythonCommand === 'python-old') {
+                oldProc = proc;
+            } else if (pythonCommand === 'python-new') {
+                newProc = proc;
+            }
+
+            return proc;
+        },
+    });
+    const item = {
+        text: '',
+        tooltip: '',
+        backgroundColor: undefined as unknown,
+        show() {},
+    };
+    const emittedStates: Array<{ pythonCommand: string; status: string; tooltip: string }> = [];
+    const disposable = pythonEnvironment.onDidChangePythonEnvironmentState((state) => {
+        emittedStates.push(state);
+    });
+
+    try {
+        const oldCheck = pythonEnvironment.checkAndPromptInstallDependencies('python-old', item as never);
+        const newCheck = pythonEnvironment.checkAndPromptInstallDependencies('python-new', item as never);
+
+        assert.ok(oldProc);
+        assert.ok(newProc);
+
+        newProc.stdout.emit('data', Buffer.from('Name: numpy\nName: wandas\n'));
+        newProc.emit('close', 0);
+
+        oldProc.stdout.emit('data', Buffer.from('Name: numpy\n'));
+        oldProc.stderr.emit('data', Buffer.from('WARNING: Package(s) not found: wandas\n'));
+        oldProc.emit('close', 1);
+
+        await Promise.all([oldCheck, newCheck]);
+
+        assert.equal(item.text, 'Python: python-new');
+        assert.equal(item.tooltip, 'Click to select Python interpreter');
+        assert.equal(warningMessages.length, 0);
+        assert.deepEqual(emittedStates, [{
+            pythonCommand: 'python-new',
+            status: 'normal',
+            tooltip: 'Click to select Python interpreter',
+        }]);
+    } finally {
+        disposable.dispose();
+        restore();
+    }
+});
+
 test('checkAndPromptInstallDependencies swallows unexpected errors and shows an error message', async () => {
     const { pythonEnvironment, errorMessages, restore } = loadPythonEnvironmentModule({
         spawnImpl: () => {

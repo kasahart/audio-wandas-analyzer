@@ -21,6 +21,7 @@ let currentPythonEnvironmentState: PythonEnvironmentState = {
     status: 'normal',
     tooltip: SELECT_PYTHON_INTERPRETER_TOOLTIP,
 };
+let latestDependencyCheckRequestId = 0;
 
 export const onDidChangePythonEnvironmentState = pythonEnvironmentStateEmitter.event;
 
@@ -133,16 +134,27 @@ export async function checkAndPromptInstallDependencies(
     pythonCommand: string,
     statusBarItem: vscode.StatusBarItem,
 ): Promise<void> {
+    const requestId = ++latestDependencyCheckRequestId;
+    const isLatestRequest = () => requestId === latestDependencyCheckRequestId;
+
     try {
         const { missingPackages } = await checkMissingDependencies(pythonCommand);
+        if (!isLatestRequest()) {
+            return;
+        }
+
         if (missingPackages.length === 0) {
             setStatusBarNormal(statusBarItem, pythonCommand);
             return;
         }
 
         setStatusBarWarning(statusBarItem, pythonCommand);
-        await promptAndInstallDependencies(pythonCommand, missingPackages, statusBarItem);
+        await promptAndInstallDependencies(pythonCommand, missingPackages, statusBarItem, isLatestRequest);
     } catch (error) {
+        if (!isLatestRequest()) {
+            return;
+        }
+
         if (error instanceof PythonNotFoundError) {
             setStatusBarWarning(statusBarItem, pythonCommand, MISSING_INTERPRETER_TOOLTIP);
             void vscode.window.showWarningMessage(error.message);
@@ -224,12 +236,17 @@ async function promptAndInstallDependencies(
     pythonCommand: string,
     missingPackages: string[],
     statusBarItem: vscode.StatusBarItem,
+    isLatestRequest: () => boolean,
 ): Promise<void> {
     const answer = await vscode.window.showWarningMessage(
         `Audio Wandas Analyzer requires missing Python packages: ${missingPackages.join(', ')}. Install them now?`,
         'Install',
         'Dismiss',
     );
+
+    if (!isLatestRequest()) {
+        return;
+    }
 
     if (answer !== 'Install') {
         return;
@@ -243,9 +260,17 @@ async function promptAndInstallDependencies(
             },
             async () => installPackages(pythonCommand, missingPackages),
         );
+        if (!isLatestRequest()) {
+            return;
+        }
+
         setStatusBarNormal(statusBarItem, pythonCommand);
         void vscode.window.showInformationMessage('Packages installed successfully.');
     } catch (error) {
+        if (!isLatestRequest()) {
+            return;
+        }
+
         const message = error instanceof Error ? error.message : String(error);
         void vscode.window.showErrorMessage(`Failed to install packages: ${message}`);
     }
