@@ -306,6 +306,7 @@ test('checkMissingDependencies reports packages not present in pip show output',
             proc.stderr = new EventEmitter();
             process.nextTick(() => {
                 proc.stdout.emit('data', Buffer.from('Name: numpy\nVersion: 1.0\n'));
+                proc.stderr.emit('data', Buffer.from('WARNING: Package(s) not found: wandas\n'));
                 proc.emit('close', 1);
             });
             return proc;
@@ -315,6 +316,53 @@ test('checkMissingDependencies reports packages not present in pip show output',
     try {
         const result = await pythonEnvironment.checkMissingDependencies('python3');
         assert.deepEqual(result, { missingPackages: ['wandas'] });
+    } finally {
+        restore();
+    }
+});
+
+test('checkMissingDependencies rejects unexpected pip show stderr on non-zero exit', async () => {
+    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({
+        spawnImpl: () => {
+            const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+            proc.stdout = new EventEmitter();
+            proc.stderr = new EventEmitter();
+            process.nextTick(() => {
+                proc.stderr.emit('data', Buffer.from('ERROR: network down\n'));
+                proc.emit('close', 2);
+            });
+            return proc;
+        },
+    });
+
+    try {
+        await assert.rejects(
+            () => pythonEnvironment.checkMissingDependencies('python3'),
+            /ERROR: network down/u,
+        );
+    } finally {
+        restore();
+    }
+});
+
+test('checkMissingDependencies rejects when pip show is terminated by signal', async () => {
+    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({
+        spawnImpl: () => {
+            const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+            proc.stdout = new EventEmitter();
+            proc.stderr = new EventEmitter();
+            process.nextTick(() => {
+                proc.emit('close', null, 'SIGTERM');
+            });
+            return proc;
+        },
+    });
+
+    try {
+        await assert.rejects(
+            () => pythonEnvironment.checkMissingDependencies('python3'),
+            /terminated by signal SIGTERM/u,
+        );
     } finally {
         restore();
     }
@@ -377,6 +425,38 @@ test('checkAndPromptInstallDependencies shows pip-specific warning state', async
         assert.equal(item.tooltip, 'pip is not available in this interpreter. Click to select another interpreter.');
         assert.deepEqual(warningMessages, ['pip is not available in python3']);
     } finally {
+        restore();
+    }
+});
+
+test('checkAndPromptInstallDependencies treats unexpected pip show exit as check failure', async () => {
+    const { pythonEnvironment, errorMessages, restore } = loadPythonEnvironmentModule({
+        spawnImpl: () => {
+            const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+            proc.stdout = new EventEmitter();
+            proc.stderr = new EventEmitter();
+            process.nextTick(() => {
+                proc.stderr.emit('data', Buffer.from('ERROR: internal pip failure\n'));
+                proc.emit('close', 2);
+            });
+            return proc;
+        },
+    });
+    const item = {
+        text: '',
+        tooltip: '',
+        backgroundColor: undefined as unknown,
+        show() {},
+    };
+    const originalConsoleError = console.error;
+    console.error = () => {};
+
+    try {
+        await assert.doesNotReject(() => pythonEnvironment.checkAndPromptInstallDependencies('python3', item as never));
+        assert.equal(item.tooltip, 'Python environment check failed. Click to select another interpreter.');
+        assert.deepEqual(errorMessages, ['Failed to check Python dependencies: ERROR: internal pip failure']);
+    } finally {
+        console.error = originalConsoleError;
         restore();
     }
 });

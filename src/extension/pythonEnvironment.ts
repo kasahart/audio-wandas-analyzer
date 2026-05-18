@@ -42,6 +42,16 @@ class PipNotAvailableError extends Error {
     }
 }
 
+function isOnlyPackageNotFoundWarnings(stderr: string): boolean {
+    const lines = stderr
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+    return lines.length > 0
+        && lines.every((line) => /^WARNING:\s+Package\(s\)\s+not\s+found:/u.test(line));
+}
+
 interface PythonQuickPickItem extends vscode.QuickPickItem {
     pythonCommand?: string;
 }
@@ -183,9 +193,20 @@ export async function checkMissingDependencies(
             reject(error);
         });
 
-        process.on('close', () => {
+        process.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
             if (stderr.includes('No module named pip')) {
                 reject(new PipNotAvailableError(pythonCommand));
+                return;
+            }
+
+            const stderrTrimmed = stderr.trim();
+            if (signal) {
+                reject(new Error(`pip show was terminated by signal ${signal}`));
+                return;
+            }
+
+            if (code !== 0 && !(code === 1 && (stderrTrimmed.length === 0 || isOnlyPackageNotFoundWarnings(stderrTrimmed)))) {
+                reject(new Error(stderrTrimmed || stdout.trim() || `pip show exited with code ${code}`));
                 return;
             }
 
