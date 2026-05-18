@@ -24,6 +24,9 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Run verify checks
+        run: npm run verify
+
       - name: Build VSIX
         run: npm run package:vsix
 
