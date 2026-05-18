@@ -21,6 +21,24 @@ function loadPythonEnvironmentModule(options: {
     const warningMessages: string[] = [];
     const errorMessages: string[] = [];
     const themeColors: string[] = [];
+    class EventEmitter<T> {
+        private listeners: Array<(event: T) => void> = [];
+
+        event = (listener: (event: T) => void) => {
+            this.listeners.push(listener);
+            return {
+                dispose: () => {
+                    this.listeners = this.listeners.filter((entry) => entry !== listener);
+                },
+            };
+        };
+
+        fire(data: T) {
+            this.listeners.forEach((listener) => {
+                listener(data);
+            });
+        }
+    }
 
     const vscodeStub = {
         window: {
@@ -56,6 +74,7 @@ function loadPythonEnvironmentModule(options: {
                 themeColors.push(id);
             }
         },
+        EventEmitter,
         ConfigurationTarget: {
             Global: 'global',
             Workspace: 'workspace',
@@ -123,6 +142,36 @@ test('setStatusBarNormal clears warning state and shows the item', () => {
     }
 });
 
+test('setStatusBarNormal updates the shared Python environment state', () => {
+    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({});
+    const emittedStates: Array<{ pythonCommand: string; status: string; tooltip: string }> = [];
+    const disposable = pythonEnvironment.onDidChangePythonEnvironmentState((state) => {
+        emittedStates.push(state);
+    });
+
+    try {
+        pythonEnvironment.setStatusBarNormal({
+            text: '',
+            tooltip: '',
+            backgroundColor: 'warning',
+            show() {},
+        } as never, '.venv/bin/python');
+        assert.deepEqual(pythonEnvironment.getCurrentPythonEnvironmentState(), {
+            pythonCommand: '.venv/bin/python',
+            status: 'normal',
+            tooltip: 'Click to select Python interpreter',
+        });
+        assert.deepEqual(emittedStates, [{
+            pythonCommand: '.venv/bin/python',
+            status: 'normal',
+            tooltip: 'Click to select Python interpreter',
+        }]);
+    } finally {
+        disposable.dispose();
+        restore();
+    }
+});
+
 test('setStatusBarWarning applies warning styling, icon, and tooltip', () => {
     const { pythonEnvironment, themeColors, restore } = loadPythonEnvironmentModule({});
     const item = {
@@ -143,6 +192,36 @@ test('setStatusBarWarning applies warning styling, icon, and tooltip', () => {
         assert.equal(item.showCalls, 1);
         assert.ok(item.backgroundColor);
     } finally {
+        restore();
+    }
+});
+
+test('setStatusBarWarning updates the shared Python environment state', () => {
+    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({});
+    const emittedStates: Array<{ pythonCommand: string; status: string; tooltip: string }> = [];
+    const disposable = pythonEnvironment.onDidChangePythonEnvironmentState((state) => {
+        emittedStates.push(state);
+    });
+
+    try {
+        pythonEnvironment.setStatusBarWarning({
+            text: '',
+            tooltip: '',
+            backgroundColor: undefined,
+            show() {},
+        } as never, 'python3', 'Interpreter missing');
+        assert.deepEqual(pythonEnvironment.getCurrentPythonEnvironmentState(), {
+            pythonCommand: 'python3',
+            status: 'warning',
+            tooltip: 'Interpreter missing',
+        });
+        assert.deepEqual(emittedStates, [{
+            pythonCommand: 'python3',
+            status: 'warning',
+            tooltip: 'Interpreter missing',
+        }]);
+    } finally {
+        disposable.dispose();
         restore();
     }
 });

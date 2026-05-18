@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import type { AnalysisResult, AnalysisResultWithError, DirectoryTreeNode } from '../shared/analysis/analysisTypes';
 import {
     isAnalyzeSelectedFilesMessage,
+    isSelectPythonEnvironmentMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
     isRequestWaveformRangeMessage,
@@ -17,10 +18,18 @@ import {
 } from '../shared/utils/directorySelection';
 import { getDebugStartupBehavior } from '../shared/utils/startupDebug';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
-import { checkAndPromptInstallDependencies, selectPythonEnvironment, setStatusBarNormal } from './pythonEnvironment';
+import {
+    checkAndPromptInstallDependencies,
+    getCurrentPythonEnvironmentState,
+    onDidChangePythonEnvironmentState,
+    selectPythonEnvironment,
+    setStatusBarNormal,
+    type PythonEnvironmentState,
+} from './pythonEnvironment';
 import { WaveformServer } from './waveformServer';
 
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
+const panelPythonEnvironmentDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 const panelDirectorySelections = new WeakMap<vscode.WebviewPanel, {
     rootPath: string;
     tree: DirectoryTreeNode[];
@@ -90,6 +99,7 @@ export function activate(context: vscode.ExtensionContext): void {
             if (event.affectsConfiguration('audioWandasAnalyzer.pythonCommand')) {
                 const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
                 const pythonCommand = config.get<string>('pythonCommand', 'python3');
+                setStatusBarNormal(pythonStatusBarItem, pythonCommand);
                 void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
             }
         }),
@@ -143,7 +153,7 @@ async function analyzeAudioTarget(
             return;
         }
 
-        const comparisonPanel = ComparisonPanel.showDirectorySelection(
+        const comparisonPanel = showDirectorySelectionPanel(
             context.extensionUri,
             targetUri.fsPath,
             tree,
@@ -210,7 +220,7 @@ function registerPanelMessageHandler(
                 panelDirectorySelections.set(panel, selection);
 
                 if (selectedFilePaths.length === 0) {
-                    ComparisonPanel.showDirectorySelection(
+                    showDirectorySelectionPanel(
                         context.extensionUri,
                         selection.rootPath,
                         selection.tree,
@@ -256,7 +266,7 @@ function registerPanelMessageHandler(
                 );
 
                 waveformServer?.warmup();
-                ComparisonPanel.showDirectorySelection(
+                showDirectorySelectionPanel(
                     context.extensionUri,
                     currentSelection.rootPath,
                     currentSelection.tree,
@@ -265,6 +275,11 @@ function registerPanelMessageHandler(
                     results,
                     panel,
                 );
+                return;
+            }
+
+            if (isSelectPythonEnvironmentMessage(message)) {
+                await vscode.commands.executeCommand('audioWandasAnalyzer.selectPythonEnvironment');
                 return;
             }
 
@@ -308,6 +323,53 @@ function registerPanelMessageHandler(
     });
 
     panelMessageDisposables.set(panel, disposable);
+}
+
+function showDirectorySelectionPanel(
+    extensionUri: vscode.Uri,
+    rootPath: string,
+    directoryTree: DirectoryTreeNode[],
+    allFilePaths: string[],
+    selectedFilePaths: string[],
+    results: AnalysisResultWithError[],
+    existingPanel?: vscode.WebviewPanel,
+): vscode.WebviewPanel {
+    const panel = ComparisonPanel.showDirectorySelection(
+        extensionUri,
+        rootPath,
+        directoryTree,
+        allFilePaths,
+        selectedFilePaths,
+        results,
+        getCurrentPythonEnvironmentState(),
+        existingPanel,
+    );
+    ensurePythonEnvironmentStateSync(panel);
+    return panel;
+}
+
+function ensurePythonEnvironmentStateSync(panel: vscode.WebviewPanel): void {
+    if (!panelPythonEnvironmentDisposables.has(panel)) {
+        const disposable = onDidChangePythonEnvironmentState((state) => {
+            postPythonEnvironmentState(panel, state);
+        });
+        panelPythonEnvironmentDisposables.set(panel, disposable);
+        panel.onDidDispose(() => {
+            panelPythonEnvironmentDisposables.get(panel)?.dispose();
+            panelPythonEnvironmentDisposables.delete(panel);
+        });
+    }
+
+    postPythonEnvironmentState(panel, getCurrentPythonEnvironmentState());
+}
+
+function postPythonEnvironmentState(panel: vscode.WebviewPanel, state: PythonEnvironmentState): void {
+    void panel.webview.postMessage({
+        type: 'python-environment-state',
+        pythonCommand: state.pythonCommand,
+        status: state.status,
+        tooltip: state.tooltip,
+    });
 }
 
 function getDebugTargetUri(extensionUri: vscode.Uri): vscode.Uri | undefined {

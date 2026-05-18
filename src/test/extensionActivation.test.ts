@@ -81,6 +81,12 @@ test('activate keeps analyze commands available when workspace test registration
             return {
                 selectPythonEnvironment: async () => {},
                 checkAndPromptInstallDependencies: async () => {},
+                getCurrentPythonEnvironmentState: () => ({
+                    pythonCommand: 'python3',
+                    status: 'normal',
+                    tooltip: 'Click to select Python interpreter',
+                }),
+                onDidChangePythonEnvironmentState: () => ({ dispose() {} }),
                 setStatusBarNormal: () => {},
             };
         }

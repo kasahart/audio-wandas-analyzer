@@ -3,10 +3,30 @@ import * as vscode from 'vscode';
 
 const REQUIRED_PACKAGES: readonly string[] = ['numpy', 'wandas'];
 const BROWSE_LABEL = '$(folder) Browse...';
-const MISSING_DEPENDENCIES_TOOLTIP = 'Python dependencies are missing. Click to select or install.';
-const MISSING_INTERPRETER_TOOLTIP = 'Python interpreter was not found. Click to select another interpreter.';
-const PIP_UNAVAILABLE_TOOLTIP = 'pip is not available in this interpreter. Click to select another interpreter.';
-const CHECK_FAILED_TOOLTIP = 'Python environment check failed. Click to select another interpreter.';
+export const SELECT_PYTHON_INTERPRETER_TOOLTIP = 'Click to select Python interpreter';
+export const MISSING_DEPENDENCIES_TOOLTIP = 'Python dependencies are missing. Click to select or install.';
+export const MISSING_INTERPRETER_TOOLTIP = 'Python interpreter was not found. Click to select another interpreter.';
+export const PIP_UNAVAILABLE_TOOLTIP = 'pip is not available in this interpreter. Click to select another interpreter.';
+export const CHECK_FAILED_TOOLTIP = 'Python environment check failed. Click to select another interpreter.';
+
+export interface PythonEnvironmentState {
+    pythonCommand: string;
+    status: 'normal' | 'warning';
+    tooltip: string;
+}
+
+const pythonEnvironmentStateEmitter = new vscode.EventEmitter<PythonEnvironmentState>();
+let currentPythonEnvironmentState: PythonEnvironmentState = {
+    pythonCommand: 'python3',
+    status: 'normal',
+    tooltip: SELECT_PYTHON_INTERPRETER_TOOLTIP,
+};
+
+export const onDidChangePythonEnvironmentState = pythonEnvironmentStateEmitter.event;
+
+export function getCurrentPythonEnvironmentState(): PythonEnvironmentState {
+    return { ...currentPythonEnvironmentState };
+}
 
 class PythonNotFoundError extends Error {
     constructor(pythonCommand: string, cause?: string) {
@@ -28,9 +48,15 @@ interface PythonQuickPickItem extends vscode.QuickPickItem {
 
 export function setStatusBarNormal(item: vscode.StatusBarItem, pythonCommand: string): void {
     item.text = `Python: ${pythonCommand}`;
-    item.tooltip = 'Click to select Python interpreter';
+    item.tooltip = SELECT_PYTHON_INTERPRETER_TOOLTIP;
     item.backgroundColor = undefined;
     item.show();
+    currentPythonEnvironmentState = {
+        pythonCommand,
+        status: 'normal',
+        tooltip: SELECT_PYTHON_INTERPRETER_TOOLTIP,
+    };
+    pythonEnvironmentStateEmitter.fire(currentPythonEnvironmentState);
 }
 
 export function setStatusBarWarning(
@@ -42,6 +68,12 @@ export function setStatusBarWarning(
     item.tooltip = tooltip;
     item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
     item.show();
+    currentPythonEnvironmentState = {
+        pythonCommand,
+        status: 'warning',
+        tooltip,
+    };
+    pythonEnvironmentStateEmitter.fire(currentPythonEnvironmentState);
 }
 
 export async function selectPythonEnvironment(statusBarItem: vscode.StatusBarItem): Promise<void> {
