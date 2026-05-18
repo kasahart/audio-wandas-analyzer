@@ -10,6 +10,7 @@ Response format:
     {"requestId":"...","startNorm":0.2,"endNorm":0.4,"channels":[...]}
     {"requestId":"...","error":"message"}  # on failure
 """
+
 from __future__ import annotations
 
 import json
@@ -35,10 +36,10 @@ def _load_file(file_path: str) -> tuple[np.ndarray, int]:
 
 
 def handle_range(cmd: dict) -> dict:
-    file_path = str(cmd['filePath'])
-    start_norm = float(cmd['startNorm'])
-    end_norm = float(cmd['endNorm'])
-    point_count = int(cmd.get('points', 2000))
+    file_path = str(cmd["filePath"])
+    start_norm = float(cmd["startNorm"])
+    end_norm = float(cmd["endNorm"])
+    point_count = int(cmd.get("points", 2000))
 
     data, n_total = _load_file(file_path)
     start_idx = max(0, int(start_norm * n_total))
@@ -57,32 +58,32 @@ def handle_range(cmd: dict) -> dict:
             )
 
     return {
-        'requestId': cmd['requestId'],
-        'startNorm': start_norm,
-        'endNorm': end_norm,
-        'channels': channels,
+        "requestId": cmd["requestId"],
+        "startNorm": start_norm,
+        "endNorm": end_norm,
+        "channels": channels,
     }
 
 
 def main() -> None:
     # Signal that wandas is fully loaded and server is ready
-    print(json.dumps({'type': 'ready'}), flush=True)
+    print(json.dumps({"type": "ready"}), flush=True)
 
     for raw_line in sys.stdin:
         line = raw_line.strip()
         if not line:
             continue
 
-        request_id = ''
+        request_id = ""
         try:
             cmd = json.loads(line)
-            request_id = str(cmd.get('requestId', ''))
-            if cmd.get('cmd') == 'range':
+            request_id = str(cmd.get("requestId", ""))
+            if cmd.get("cmd") == "range":
                 result = handle_range(cmd)
                 print(json.dumps(result), flush=True)
         except Exception as exc:
-            print(json.dumps({'requestId': request_id, 'error': str(exc)}), flush=True)
+            print(json.dumps({"requestId": request_id, "error": str(exc)}), flush=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

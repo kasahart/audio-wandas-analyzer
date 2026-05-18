@@ -52,6 +52,8 @@ interface ComparisonPanelTestSnapshot {
             waveformCoversViewportRight: boolean;
             waveformMinDrawX: number | null;
             waveformMaxDrawX: number | null;
+            waveformCanvasWidth: number | null;
+            resultError: string | null;
         }>;
     };
 }
@@ -76,6 +78,8 @@ interface ComparisonPanelRenderedUiMessage {
             waveformCoversViewportRight: boolean;
             waveformMinDrawX: number | null;
             waveformMaxDrawX: number | null;
+            waveformCanvasWidth: number | null;
+            resultError: string | null;
         }>;
     };
     actionId?: string;
@@ -795,6 +799,8 @@ export class ComparisonPanel {
                                 waveformCoversViewportRight: !!coverage && coverage.coversRight,
                                 waveformMinDrawX: coverage ? coverage.minX : null,
                                 waveformMaxDrawX: coverage ? coverage.maxX : null,
+                                waveformCanvasWidth: coverage ? coverage.canvasWidth : null,
+                                resultError: result.error || null,
                             };
                         }),
                     },
@@ -1013,7 +1019,6 @@ export class ComparisonPanel {
             function renderStackedTracks() {
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden) { return; }
-                    // エラートラックはキャンバスにエラーメッセージを描画
                     if (result.error) {
                         const canvas = document.getElementById('track-canvas-' + i);
                         if (canvas) {
@@ -1111,6 +1116,7 @@ export class ComparisonPanel {
                         ? {
                             minX: minX,
                             maxX: maxX,
+                            canvasWidth: W,
                             coversLeft: minX <= 1,
                             coversRight: maxX >= W - 1,
                         }

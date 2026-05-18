@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from decimator import decimated_waveform
 
 
@@ -20,7 +21,7 @@ def test_fewer_samples_than_buckets_returns_all():
 
 
 def test_min_max_values_are_correct():
-    samples = np.array([0.1, 0.9, -0.8, 0.2,  0.3, -0.1, 0.5, -0.4], dtype=np.float64)
+    samples = np.array([0.1, 0.9, -0.8, 0.2, 0.3, -0.1, 0.5, -0.4], dtype=np.float64)
     result = decimated_waveform(samples, 2, 0, 8)
     assert result["max"][0] == pytest.approx(0.9)
     assert result["min"][0] == pytest.approx(-0.8)

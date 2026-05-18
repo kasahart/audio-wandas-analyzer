@@ -1,0 +1,38 @@
+[project]
+name = "audio-wandas-analyzer-backend"
+version = "0.0.0"
+description = "Python backend for the audio-wandas-analyzer VS Code extension."
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "wandas>=0.1.0",
+    "soundfile>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6",
+    "pytest>=8.0",
+]
+
+[tool.setuptools]
+# The backend is run as scripts under python-backend/; no importable package is shipped.
+py-modules = []
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["python-backend"]
+extend-exclude = [".venv", "dist", "node_modules", ".vscode-test", ".worktrees"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["python-backend"]
+python_files = "test_*.py"
+addopts = "-q"

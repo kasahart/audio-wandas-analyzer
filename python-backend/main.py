@@ -21,11 +21,16 @@ def main() -> int:
     try:
         if args.range_start is not None and args.range_end is not None:
             from range_analyzer import analyze_range  # noqa: PLC0415 — skip wandas import
+
             result: object = analyze_range(
-                args.file, args.range_start, args.range_end, args.range_points,
+                args.file,
+                args.range_start,
+                args.range_end,
+                args.range_points,
             )
         else:
             from analyzer import analyze_audio  # noqa: PLC0415
+
             result = analyze_audio(args.file, peak_count=args.peaks)
     except Exception as error:
         print(str(error), file=sys.stderr)
@@ -35,5 +40,5 @@ def main() -> int:
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

@@ -1,0 +1,162 @@
+# AGENTS.md
+
+Canonical project guide for any AI coding agent (Claude Code, GitHub Copilot, Cursor, Codex, etc.) working in this repository. Human contributors should also read this first.
+
+> Agent-specific addenda live in:
+> - [CLAUDE.md](CLAUDE.md) — Claude Code only (skills, hooks, permissions)
+> - [.github/copilot-instructions.md](.github/copilot-instructions.md) — GitHub Copilot only
+
+---
+
+## 1. Project overview
+
+VS Code extension that analyzes audio files. The extension host is TypeScript; the heavy DSP runs in a Python child process powered by [wandas](https://github.com/kasahart/wandas).
+
+```
+User picks audio file
+  → src/extension/index.ts (command handler)
+  → spawns python-backend/main.py as child process (stdout JSON)
+  → src/webview/panels/ComparisonPanel.ts renders Webview
+```
+
+On-demand high-resolution waveform data during zoom:
+
+```
+Webview postMessage("request-waveform-range")
+  → src/extension/index.ts → WaveformServer (TS)
+  → python-backend/waveform_server.py (persistent, newline-JSON IPC)
+  → postMessage("waveform-range-result") back to Webview
+```
+
+See [docs/architecture.md](docs/architecture.md) for full detail.
+
+---
+
+## 2. Setup
+
+The repository ships with a working devcontainer. Use it whenever possible.
+
+**Fresh local setup**
+
+```bash
+npm install
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"      # installs ruff + pytest + runtime deps via pyproject.toml
+```
+
+Node 22 and Python 3.11 are the supported versions (matches `.devcontainer/Dockerfile` and CI).
+
+---
+
+## 3. Canonical commands — the completion bar
+
+**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness.
+
+```bash
+npm run verify        # compile + node:test + ruff check + ruff format --check + pytest
+npm run verify:e2e    # VS Code extension-host E2E (uses xvfb-run on Linux)
+```
+
+Other useful commands:
+
+```bash
+npm run compile       # tsc → dist/
+npm run watch         # tsc --watch
+npm test              # node:test only (subset of verify)
+ruff check python-backend
+ruff format python-backend
+python -m pytest python-backend -q
+```
+
+Do **not** invent ad-hoc verification recipes. If a check is worth running, add it to `scripts/verify.sh`.
+
+---
+
+## 4. Architecture — key files
+
+| File | Role |
+|------|------|
+| `src/extension/index.ts` | Command registration, file picking, Python spawn, message routing |
+| `src/extension/waveformServer.ts` | Persistent Python child process for range requests; newline-JSON IPC |
+| `src/webview/panels/ComparisonPanel.ts` | Multi-track comparison Webview; `renderScript()` returns the inline JS |
+| `src/shared/analysis/analysisTypes.ts` | Shared `AnalysisResult` / `DirectoryTreeNode` contracts |
+| `src/webview/waveform/waveformRenderer.ts` | Pure TS waveform rendering pipeline (3 layers, no Canvas dependency) |
+| `src/webview/waveform/rangeRequestPolicy.ts` | `isCacheSufficient` / `computeReqBounds` |
+| `media/comparisonWaveform.js` | Plain-JS mirror of `waveformRenderer.ts`, loaded by the Webview |
+| `python-backend/analyzer.py` | `analyze_audio()` — full-file analysis via wandas |
+| `python-backend/decimator.py` | `decimated_waveform()` — bucket-level argmin/argmax |
+| `python-backend/range_analyzer.py` | `analyze_range()` — range-only high-res waveform via soundfile |
+| `python-backend/waveform_server.py` | Persistent server loop; caches loaded files |
+
+### Waveform rendering pipeline
+
+`waveformRenderer.ts` and `media/comparisonWaveform.js` implement the **same algorithm in two languages**. Three pure layers:
+
+1. **CoordTransform** (`makeCoordTransform`) — file-normalized time `tNorm ∈ [0,1]` → canvas x, using `offsetNorm` and `trackDurRatio`.
+2. **Decimation** (`computeViewRange` + `decimateBuckets`) — choose bucket range and apply argmin/argmax.
+3. **Painting** (`paintDecimatedPoints`) — the only layer that touches Canvas.
+
+Multi-track global span:
+
+```
+globalStartSec = min(offsetSeconds[i])
+globalEndSec   = max(offsetSeconds[i] + durationSeconds[i])
+trackStart     = (offsetSec - globalStartSec) / globalSpanSec   → offsetNorm
+trackDurRatio  = durationSeconds / globalSpanSec
+```
+
+`zoomStart/zoomEnd ∈ [0,1]` refer to the global span. Python's `decimated_waveform()` returns `minT`/`maxT` normalized to the **full file**, not the requested range.
+
+---
+
+## 5. Conventions
+
+### TypeScript
+
+- `tsconfig` strict mode. No `any` unless interfacing with untyped third-party code.
+- Comments only when *why* is non-obvious; never restate *what*.
+- Edit existing files in preference to creating new ones.
+- Tests live in `src/test/` and `src/e2e/` and use `node:test` (no Jest, no Mocha).
+
+### Python
+
+- Lint/format: **Ruff** (config in `pyproject.toml`). Run `ruff format` before committing.
+- Prefer wandas APIs over reimplementing DSP. See `python-backend/analyzer.py` for the canonical entry point.
+- Tests use `pytest` and live alongside the module they test (`python-backend/test_*.py`).
+
+### Cross-language invariant
+
+`media/comparisonWaveform.js` mirrors `src/webview/waveform/waveformRenderer.ts`. **When you change one, change the other.** There is no automated parity check — `src/test/renderScript.integration.test.ts` only smoke-tests that `comparisonWaveform.js` loads and runs in jsdom; `src/test/waveformRenderer.test.ts` covers the TypeScript renderer in isolation. Diff between the two files visually before committing.
+
+---
+
+## 6. Testing strategy
+
+| Layer | Runner | Files |
+|-------|--------|-------|
+| TS unit | `node:test` (compiled to `dist/test/`) | `src/test/*.test.ts` |
+| TS webview-script integration | `node:test` + jsdom | `src/test/renderScript.integration.test.ts` |
+| Python unit | `pytest` | `python-backend/test_*.py` |
+| VS Code E2E | `@vscode/test-electron` (xvfb on Linux) | `src/e2e/suite/index.ts` |
+
+`npm run verify` runs the first three. E2E is separate (`npm run verify:e2e`) because it needs a display and is slower; CI runs it as a second job.
+
+---
+
+## 7. Agent guardrails (applies to every agent)
+
+1. **Read this file before any non-trivial change.**
+2. **Don't create new files** unless the task genuinely requires it. Prefer editing existing files. No new markdown docs unless the user asks.
+3. **Read-only paths**: `dist/`, `.venv/`, `node_modules/`, `.vscode-test/`, `.worktrees/`. Never edit or stage them.
+4. **Sync waveform mirrors**: editing `waveformRenderer.ts` requires the matching edit in `media/comparisonWaveform.js` (and vice versa).
+5. **Completion bar**: `npm run verify` must pass before claiming the task is done. If you can't run it, say so explicitly — don't claim success.
+6. **No comments restating what the code does.** No multi-paragraph docstrings. No "added for issue #X" notes.
+7. **Don't add fallback/error handling for impossible cases.** Validate at boundaries (user input, IPC payloads), trust internal code.
+8. **Don't bypass quality gates**: never use `--no-verify`, `--no-gpg-sign`, `git push --force` to main, or `pytest --noconftest` to silence a failure. Diagnose the root cause.
+
+---
+
+## 8. Agent-specific notes
+
+- **Claude Code**: also read [CLAUDE.md](CLAUDE.md). It documents the available `wandas-*` skills, `.claude/settings.json` permissions, and the PostToolUse hook that warns when only one waveform mirror is edited.
+- **GitHub Copilot**: also read [.github/copilot-instructions.md](.github/copilot-instructions.md). It restates the completion bar and the waveform-mirror invariant in a form Copilot picks up automatically.
