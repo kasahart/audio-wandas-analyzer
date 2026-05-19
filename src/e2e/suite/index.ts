@@ -22,6 +22,10 @@ interface TestSnapshot {
         hasRulerCanvas: boolean;
         zoomStart: number;
         zoomEnd: number;
+        cursorNorm: number;
+        spectrumOverlayPresent: boolean;
+        spectrumTrackCanvasCount: number;
+        visibleSpectrumTrackCount: number;
         tracks: Array<{
             trackIndex: number;
             offsetSeconds: number;
@@ -34,6 +38,8 @@ interface TestSnapshot {
             waveformMaxDrawX: number | null;
             waveformCanvasWidth: number | null;
             resultError: string | null;
+            spectrumCanvasPresent: boolean;
+            spectrumSlicePresent: boolean;
         }>;
     };
 }
@@ -131,6 +137,44 @@ export async function run(): Promise<void> {
                 assert.equal(multiTrackSnapshot.resultCount, 3);
                 assert.ok(multiTrackSnapshot.renderedUi, 'Rendered UI snapshot should exist for multi-track analysis');
                 assert.equal(multiTrackSnapshot.renderedUi.trackRowCount, 3);
+            },
+        },
+        {
+            name: 'cursor power spectrum section is rendered for each track',
+            run: async () => {
+                const snapshot = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
+                assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist');
+                const ui = snapshot.renderedUi;
+                assert.equal(ui.spectrumOverlayPresent, true, 'overlay spectrum canvas should be rendered');
+                assert.equal(ui.spectrumTrackCanvasCount, ui.trackRowCount,
+                    'each visible track row should have a spectrum canvas');
+                assert.ok(ui.visibleSpectrumTrackCount >= 1,
+                    'at least one track should contribute a spectrum slice at the default cursor');
+                ui.tracks.forEach((t) => {
+                    assert.equal(t.spectrumCanvasPresent, true,
+                        `track ${t.trackIndex} should have its per-track spectrum canvas`);
+                });
+            },
+        },
+        {
+            name: 'muting a track removes it from the cursor spectrum overlay',
+            run: async () => {
+                const baseline = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
+                assert.ok(baseline.renderedUi);
+                const baselineVisible = baseline.renderedUi.visibleSpectrumTrackCount;
+                assert.ok(baselineVisible >= 1, 'baseline should have at least one visible spectrum slice');
+
+                const muteActionId = `spectrum-mute-${Date.now()}`;
+                await ComparisonPanel.postTestActions(muteActionId, [
+                    { action: 'toggle-mute', trackIndex: 0 },
+                ]);
+                const muted = await waitForSnapshot(muteActionId);
+                assert.ok(muted.renderedUi);
+                assert.equal(
+                    muted.renderedUi.visibleSpectrumTrackCount,
+                    Math.max(0, baselineVisible - 1),
+                    'muting one track should drop the overlay slice count by one',
+                );
             },
         },
         {
