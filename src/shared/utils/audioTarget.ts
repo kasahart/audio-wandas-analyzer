@@ -17,6 +17,19 @@ export function isSelectTargetMessage(message: unknown): message is { type: 'sel
     return candidate.type === 'select-target' && (candidate.targetKind === 'file' || candidate.targetKind === 'directory');
 }
 
+export interface SelectPythonEnvironmentMessage {
+    type: 'select-python-environment';
+}
+
+export function isSelectPythonEnvironmentMessage(message: unknown): message is SelectPythonEnvironmentMessage {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+
+    const candidate = message as { type?: unknown };
+    return candidate.type === 'select-python-environment';
+}
+
 export interface AnalyzeSelectedFilesMessage {
     type: 'analyze-selected-files';
     requestId: string;
