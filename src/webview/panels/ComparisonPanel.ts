@@ -34,54 +34,41 @@ interface ComparisonPanelTestSnapshot {
     fileNames: string[];
     resultCount: number;
     lastActionId?: string;
-    renderedUi?: {
-        hasToolbar: boolean;
-        toolbarActions: string[];
-        trackRowCount: number;
-        audioElementCount: number;
-        hasRulerCanvas: boolean;
-        zoomStart: number;
-        zoomEnd: number;
-        tracks: Array<{
-            trackIndex: number;
-            offsetSeconds: number;
-            visibleFileStartNorm: number;
-            visibleFileEndNorm: number;
-            waveformFullyVisible: boolean;
-            waveformCoversViewportLeft: boolean;
-            waveformCoversViewportRight: boolean;
-            waveformMinDrawX: number | null;
-            waveformMaxDrawX: number | null;
-            waveformCanvasWidth: number | null;
-            resultError: string | null;
-        }>;
-    };
+    renderedUi?: ComparisonPanelRenderedUi;
+}
+
+interface ComparisonPanelRenderedUi {
+    hasToolbar: boolean;
+    toolbarActions: string[];
+    trackRowCount: number;
+    audioElementCount: number;
+    hasRulerCanvas: boolean;
+    zoomStart: number;
+    zoomEnd: number;
+    cursorNorm: number;
+    spectrumOverlayPresent: boolean;
+    spectrumTrackCanvasCount: number;
+    visibleSpectrumTrackCount: number;
+    tracks: Array<{
+        trackIndex: number;
+        offsetSeconds: number;
+        visibleFileStartNorm: number;
+        visibleFileEndNorm: number;
+        waveformFullyVisible: boolean;
+        waveformCoversViewportLeft: boolean;
+        waveformCoversViewportRight: boolean;
+        waveformMinDrawX: number | null;
+        waveformMaxDrawX: number | null;
+        waveformCanvasWidth: number | null;
+        resultError: string | null;
+        spectrumCanvasPresent: boolean;
+        spectrumSlicePresent: boolean;
+    }>;
 }
 
 interface ComparisonPanelRenderedUiMessage {
     type: 'comparison-panel-test-snapshot';
-    renderedUi: {
-        hasToolbar: boolean;
-        toolbarActions: string[];
-        trackRowCount: number;
-        audioElementCount: number;
-        hasRulerCanvas: boolean;
-        zoomStart: number;
-        zoomEnd: number;
-        tracks: Array<{
-            trackIndex: number;
-            offsetSeconds: number;
-            visibleFileStartNorm: number;
-            visibleFileEndNorm: number;
-            waveformFullyVisible: boolean;
-            waveformCoversViewportLeft: boolean;
-            waveformCoversViewportRight: boolean;
-            waveformMinDrawX: number | null;
-            waveformMaxDrawX: number | null;
-            waveformCanvasWidth: number | null;
-            resultError: string | null;
-        }>;
-    };
+    renderedUi: ComparisonPanelRenderedUi;
     actionId?: string;
 }
 
@@ -422,6 +409,20 @@ export class ComparisonPanel {
         .track-offset-step { font-size: 9px; padding: 1px 3px; border-radius: 2px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; }
         .track-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: var(--track-bg); }
         .track-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
+        .track-spectrum-wrap { width: 180px; flex-shrink: 0; border-left: 1px solid var(--line); background: var(--track-bg); }
+        .track-spectrum-canvas { display: block; width: 100%; height: 80px; }
+
+        /* ── Cursor power spectrum section ── */
+        #spectrum-section {
+            border-top: 1px solid var(--line); background: var(--panel);
+            display: flex; flex-direction: column; flex-shrink: 0;
+        }
+        #spectrum-section-header {
+            display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+            font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line);
+        }
+        #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); }
+        #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; }
 
         /* ── Metrics bar ── */
         #metrics-bar {
@@ -761,11 +762,43 @@ export class ComparisonPanel {
             // Defer first render so the browser has time to calculate flex layout
             requestAnimationFrame(function() {
                 renderAll();
+                refreshSpectrumViews();
                 publishTestSnapshot();
             });
 
             function publishTestSnapshot(actionId) {
                 const toolbar = document.getElementById('toolbar');
+                const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
+                let visibleSpectrumTrackCount = 0;
+                const trackInfo = state.results.map(function(result, trackIndex) {
+                    const dur = result.durationSeconds || 1;
+                    const gs = computeGlobalSpan();
+                    const trackStart = (trackRuntime[trackIndex].offsetSeconds - gs.startSec) / gs.spanSec;
+                    const trackDurRatio = dur / gs.spanSec;
+                    const visibleFileStartNorm = Math.max(0, (zoomStart - trackStart) / trackDurRatio);
+                    const visibleFileEndNorm = Math.min(1, (zoomEnd - trackStart) / trackDurRatio);
+                    const coverage = lastWaveformCoverage[trackIndex];
+                    const spectrumCanvas = document.getElementById('track-spectrum-' + trackIndex);
+                    const slice = trackRuntime[trackIndex].hidden
+                        ? null
+                        : extractSpectrumAtCursor(result, trackRuntime[trackIndex].offsetSeconds, cursorNorm);
+                    if (slice) { visibleSpectrumTrackCount++; }
+                    return {
+                        trackIndex: trackIndex,
+                        offsetSeconds: trackRuntime[trackIndex].offsetSeconds,
+                        visibleFileStartNorm: visibleFileStartNorm,
+                        visibleFileEndNorm: visibleFileEndNorm,
+                        waveformFullyVisible: visibleFileStartNorm <= 0 && visibleFileEndNorm >= 1,
+                        waveformCoversViewportLeft: !!coverage && coverage.coversLeft,
+                        waveformCoversViewportRight: !!coverage && coverage.coversRight,
+                        waveformMinDrawX: coverage ? coverage.minX : null,
+                        waveformMaxDrawX: coverage ? coverage.maxX : null,
+                        waveformCanvasWidth: coverage ? coverage.canvasWidth : null,
+                        resultError: result.error || null,
+                        spectrumCanvasPresent: !!spectrumCanvas,
+                        spectrumSlicePresent: !!slice,
+                    };
+                });
                 vscode.postMessage({
                     type: 'comparison-panel-test-snapshot',
                     actionId: actionId,
@@ -781,28 +814,11 @@ export class ComparisonPanel {
                         hasRulerCanvas: !!document.getElementById('ruler-canvas'),
                         zoomStart: zoomStart,
                         zoomEnd: zoomEnd,
-                        tracks: state.results.map(function(result, trackIndex) {
-                            const dur = result.durationSeconds || 1;
-                            const gs = computeGlobalSpan();
-                            const trackStart = (trackRuntime[trackIndex].offsetSeconds - gs.startSec) / gs.spanSec;
-                            const trackDurRatio = dur / gs.spanSec;
-                            const visibleFileStartNorm = Math.max(0, (zoomStart - trackStart) / trackDurRatio);
-                            const visibleFileEndNorm = Math.min(1, (zoomEnd - trackStart) / trackDurRatio);
-                            const coverage = lastWaveformCoverage[trackIndex];
-                            return {
-                                trackIndex: trackIndex,
-                                offsetSeconds: trackRuntime[trackIndex].offsetSeconds,
-                                visibleFileStartNorm: visibleFileStartNorm,
-                                visibleFileEndNorm: visibleFileEndNorm,
-                                waveformFullyVisible: visibleFileStartNorm <= 0 && visibleFileEndNorm >= 1,
-                                waveformCoversViewportLeft: !!coverage && coverage.coversLeft,
-                                waveformCoversViewportRight: !!coverage && coverage.coversRight,
-                                waveformMinDrawX: coverage ? coverage.minX : null,
-                                waveformMaxDrawX: coverage ? coverage.maxX : null,
-                                waveformCanvasWidth: coverage ? coverage.canvasWidth : null,
-                                resultError: result.error || null,
-                            };
-                        }),
+                        cursorNorm: cursorNorm,
+                        spectrumOverlayPresent: !!overlayCanvas,
+                        spectrumTrackCanvasCount: document.querySelectorAll('.track-spectrum-canvas').length,
+                        visibleSpectrumTrackCount: visibleSpectrumTrackCount,
+                        tracks: trackInfo,
                     },
                 });
             }
@@ -863,6 +879,10 @@ export class ComparisonPanel {
                     + '  <div id="ruler-row"><div id="ruler-spacer"></div><canvas id="ruler-canvas"></canvas></div>'
                     + '  <div id="stacked-wrap">' + tracks + '</div>'
                     + '  <div id="empty-state"><p>' + escHtml(emptyMessage) + '</p></div>'
+                    + '</div>'
+                    + '<div id="spectrum-section">'
+                    + '  <div id="spectrum-section-header"><span>カーソル時刻のパワースペクトル（全トラック重ね合わせ）</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span></div>'
+                    + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas"></canvas></div>'
                     + '</div>'
                     + '<div id="audio-host">' + buildAudioElements() + '</div>'
                     + '<div id="metrics-bar">' + metrics + '</div>';
@@ -941,6 +961,9 @@ export class ComparisonPanel {
                     + '</div>'
                     + '<div class="track-canvas-wrap" id="track-canvas-wrap-' + i + '">'
                     + '  <canvas class="track-canvas" id="track-canvas-' + i + '" data-track-index="' + i + '" tabindex="0" style="outline:none"></canvas>'
+                    + '</div>'
+                    + '<div class="track-spectrum-wrap" id="track-spectrum-wrap-' + i + '" title="メインカーソル時刻のパワースペクトル">'
+                    + '  <canvas class="track-spectrum-canvas" id="track-spectrum-' + i + '" data-track-index="' + i + '"></canvas>'
                     + '</div>'
                     + '</div>';
             }
@@ -1544,6 +1567,12 @@ export class ComparisonPanel {
                         scheduleRender();
                     }
                 });
+
+                document.addEventListener('keyup', function(e) {
+                    if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+                        refreshSpectrumViews();
+                    }
+                });
             }
 
             function attachDirectorySelectionEvents() {
@@ -1820,6 +1849,7 @@ export class ComparisonPanel {
             }
 
             function handleDocMouseUp(e) {
+                const hadDrag = !!dragState;
                 if (dragState && !dragState.isDrag) {
                     // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
                     const canvasId = 'track-canvas-' + dragState.trackIndex;
@@ -1835,6 +1865,7 @@ export class ComparisonPanel {
                     }
                 }
                 dragState = null;
+                if (hadDrag) { refreshSpectrumViews(); }
             }
 
             function renderWithHoverAt(norm) {
@@ -1858,6 +1889,176 @@ export class ComparisonPanel {
                 if (el) { el.textContent = formatTime(t); }
             }
 
+            function extractSpectrumAtCursor(result, offsetSeconds, cursorNormValue) {
+                if (!result || result.error) { return null; }
+                const ch = result.channels && result.channels[0];
+                const spec = ch && ch.spectrogram;
+                if (!spec || !spec.values || spec.timeBins <= 0 || spec.frequencyBins <= 0) { return null; }
+                const dur = result.durationSeconds || 0;
+                if (dur <= 0) { return null; }
+                const gs = computeGlobalSpan();
+                const cursorSec = gs.startSec + cursorNormValue * gs.spanSec;
+                const trackLocalSec = cursorSec - offsetSeconds;
+                if (trackLocalSec < 0 || trackLocalSec > dur) { return null; }
+                let tIdx = Math.floor((trackLocalSec / dur) * spec.timeBins);
+                if (tIdx < 0) { tIdx = 0; }
+                if (tIdx >= spec.timeBins) { tIdx = spec.timeBins - 1; }
+                const slice = spec.values[tIdx];
+                if (!slice || slice.length === 0) { return null; }
+                return {
+                    values: slice,
+                    frequencyBins: spec.frequencyBins,
+                    maxFrequencyHz: spec.maxFrequencyHz,
+                    minDb: spec.minDb,
+                    maxDb: spec.maxDb,
+                };
+            }
+
+            function drawSpectrumLine(ctx, W, H, slice, color, opts) {
+                const fBins = slice.frequencyBins;
+                const range = slice.maxDb - slice.minDb;
+                if (range <= 0) { return; }
+                const padL = (opts && opts.padL) || 0;
+                const padR = (opts && opts.padR) || 0;
+                const padT = (opts && opts.padT) || 0;
+                const padB = (opts && opts.padB) || 0;
+                const plotW = W - padL - padR;
+                const plotH = H - padT - padB;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
+                ctx.beginPath();
+                for (let i = 0; i < fBins; i++) {
+                    const x = padL + (i / Math.max(fBins - 1, 1)) * plotW;
+                    const v = slice.values[i];
+                    const norm = Math.max(0, Math.min(1, (v - slice.minDb) / range));
+                    const y = padT + (1 - norm) * plotH;
+                    if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+                }
+                ctx.stroke();
+            }
+
+            function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB) {
+                const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
+                const lineColor = getComputedStyle(document.body).getPropertyValue('--line').trim() || '#444';
+                ctx.strokeStyle = lineColor;
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(padL, padT); ctx.lineTo(padL, H - padB);
+                ctx.moveTo(padL, H - padB); ctx.lineTo(W - padR, H - padB);
+                ctx.stroke();
+                ctx.fillStyle = mutedColor;
+                ctx.font = '9px monospace';
+                ctx.textAlign = 'right';
+                ctx.fillText(slice.maxDb.toFixed(0) + 'dB', padL - 2, padT + 8);
+                ctx.fillText(slice.minDb.toFixed(0) + 'dB', padL - 2, H - padB);
+                ctx.textAlign = 'center';
+                const kHz = slice.maxFrequencyHz / 1000;
+                ctx.fillText('0', padL, H - 2);
+                ctx.fillText(kHz.toFixed(1) + 'k', W - padR, H - 2);
+            }
+
+            function renderTrackSpectra() {
+                state.results.forEach(function(result, i) {
+                    const canvas = document.getElementById('track-spectrum-' + i);
+                    if (!canvas) { return; }
+                    const wrap = document.getElementById('track-spectrum-wrap-' + i);
+                    const w = (wrap && wrap.clientWidth) || 180;
+                    if (canvas.width !== w) { canvas.width = w; canvas.height = 80; }
+                    const ctx = canvas.getContext('2d');
+                    const W = canvas.width, H = canvas.height;
+                    ctx.clearRect(0, 0, W, H);
+                    if (trackRuntime[i].hidden) { return; }
+                    const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
+                    if (!slice) {
+                        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
+                        ctx.font = '9px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('範囲外', W / 2, H / 2);
+                        return;
+                    }
+                    const color = TRACK_COLORS[i % TRACK_COLORS.length];
+                    drawSpectrumAxes(ctx, W, H, slice, 22, 4, 4, 12);
+                    drawSpectrumLine(ctx, W, H, slice, color, { padL: 22, padR: 4, padT: 4, padB: 12 });
+                });
+            }
+
+            function renderOverlaySpectrum() {
+                const canvas = document.getElementById('spectrum-overlay-canvas');
+                if (!canvas) { return; }
+                const wrap = document.getElementById('spectrum-overlay-wrap');
+                const w = (wrap && wrap.clientWidth) || 800;
+                if (canvas.width !== w) { canvas.width = w; canvas.height = 140; }
+                const ctx = canvas.getContext('2d');
+                const W = canvas.width, H = canvas.height;
+                ctx.clearRect(0, 0, W, H);
+
+                const slices = [];
+                state.results.forEach(function(result, i) {
+                    if (trackRuntime[i].hidden) { return; }
+                    const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
+                    if (slice) { slices.push({ slice: slice, color: TRACK_COLORS[i % TRACK_COLORS.length], index: i, name: result.fileName }); }
+                });
+
+                if (slices.length === 0) {
+                    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
+                    ctx.font = '11px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('カーソル位置にデータがあるトラックがありません', W / 2, H / 2);
+                    return;
+                }
+
+                let minDb = Infinity, maxDb = -Infinity, maxF = 0;
+                slices.forEach(function(s) {
+                    if (s.slice.minDb < minDb) { minDb = s.slice.minDb; }
+                    if (s.slice.maxDb > maxDb) { maxDb = s.slice.maxDb; }
+                    if (s.slice.maxFrequencyHz > maxF) { maxF = s.slice.maxFrequencyHz; }
+                });
+                const padL = 36, padR = 8, padT = 8, padB = 18;
+                const sharedAxis = { values: [], frequencyBins: 1, maxFrequencyHz: maxF, minDb: minDb, maxDb: maxDb };
+                drawSpectrumAxes(ctx, W, H, sharedAxis, padL, padR, padT, padB);
+
+                const plotW = W - padL - padR;
+                const plotH = H - padT - padB;
+                const range = maxDb - minDb;
+                slices.forEach(function(s) {
+                    if (range <= 0) { return; }
+                    ctx.strokeStyle = s.color;
+                    ctx.lineWidth = 1.4;
+                    ctx.beginPath();
+                    const fBins = s.slice.frequencyBins;
+                    for (let i = 0; i < fBins; i++) {
+                        const fHz = (i / Math.max(fBins - 1, 1)) * s.slice.maxFrequencyHz;
+                        const x = padL + (fHz / maxF) * plotW;
+                        const v = s.slice.values[i];
+                        const norm = Math.max(0, Math.min(1, (v - minDb) / range));
+                        const y = padT + (1 - norm) * plotH;
+                        if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+                    }
+                    ctx.stroke();
+                });
+
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'left';
+                let legendY = padT + 4;
+                slices.forEach(function(s) {
+                    ctx.fillStyle = s.color;
+                    ctx.fillRect(padL + 6, legendY, 10, 2);
+                    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#ddd';
+                    ctx.fillText(s.name, padL + 20, legendY + 6);
+                    legendY += 12;
+                });
+            }
+
+            function refreshSpectrumViews() {
+                renderTrackSpectra();
+                renderOverlaySpectrum();
+                const el = document.getElementById('spectrum-cursor-time');
+                if (el) {
+                    const gs = computeGlobalSpan();
+                    el.textContent = '@ ' + formatTime(gs.startSec + cursorNorm * gs.spanSec);
+                }
+            }
+
 
             function toggleMute(idx) {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }
@@ -1866,6 +2067,7 @@ export class ComparisonPanel {
                 if (btn) { btn.classList.toggle('is-muted', trackRuntime[idx].hidden); }
                 updateVisibility();
                 scheduleRender();
+                refreshSpectrumViews();
             }
 
             function removeTrack(idx) {
@@ -1877,12 +2079,14 @@ export class ComparisonPanel {
                 trackRuntime[idx].hidden = true;
                 updateVisibility();
                 scheduleRender();
+                refreshSpectrumViews();
             }
 
             function adjustOffset(idx, deltaSeconds) {
                 trackRuntime[idx].offsetSeconds += deltaSeconds;
                 updateOffsetDisplays();
                 scheduleRender();
+                refreshSpectrumViews();
             }
         })();
         `;

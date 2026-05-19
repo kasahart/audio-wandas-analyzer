@@ -514,3 +514,98 @@ test('renderScript: cursorNorm initializes as number (not null)', () => {
     assert.equal(cursorDisplay.textContent, '0:00.00',
         'cursorNorm=0 のとき cursor-display は "0:00.00" を表示すること');
 });
+
+const SPECTRUM_APP_STATE = JSON.stringify({
+    mode: 'results',
+    results: [0, 1].map((idx) => ({
+        filePath: `/tmp/spec-${idx}.wav`,
+        fileName: `spec-${idx}.wav`,
+        audioSource: `vscode-resource:/tmp/spec-${idx}.wav`,
+        sampleRateHz: 44100,
+        durationSeconds: 1.0,
+        channelCount: 1,
+        sampleCount: 44100,
+        error: undefined,
+        channels: [{
+            label: 'L',
+            rms: 0.1,
+            peakAbsolute: 0.5,
+            dominantFrequencies: [],
+            waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
+            spectrogram: {
+                values: [
+                    [-80, -60, -40, -20],
+                    [-70, -50, -30, -10],
+                    [-60, -40, -20, 0],
+                    [-50, -30, -10, -5],
+                ],
+                timeBins: 4,
+                frequencyBins: 4,
+                windowSize: 512,
+                hopSize: 256,
+                maxFrequencyHz: 22050,
+                minDb: -90,
+                maxDb: 0,
+            },
+        }],
+    })),
+});
+
+function setupSpectrumEnv() {
+    const script = getRenderScript();
+    const env = createWebviewEnv(SPECTRUM_APP_STATE);
+    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, script);
+    return env;
+}
+
+test('renderScript: each track row contains a per-track spectrum canvas', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const c0 = env.dom.window.document.getElementById('track-spectrum-0');
+    const c1 = env.dom.window.document.getElementById('track-spectrum-1');
+    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas');
+    assert.ok(c0, 'track-spectrum-0 が存在すること');
+    assert.ok(c1, 'track-spectrum-1 が存在すること');
+    assert.ok(overlay, '#spectrum-overlay-canvas が存在すること');
+    env.dom.window.close();
+});
+
+test('renderScript: overlay spectrum canvas is drawn on initial render', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
+    assert.ok(overlaySpy!.strokeCalls > 0,
+        '初期描画で重ね合わせスペクトルが少なくとも1本描かれること');
+    env.dom.window.close();
+});
+
+test('renderScript: per-track spectrum is drawn on initial render', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const t0 = env.domCanvasContexts.get('track-spectrum-0');
+    const t1 = env.domCanvasContexts.get('track-spectrum-1');
+    assert.ok(t0 && t0.strokeCalls > 0, 'track-0 のスペクトルが描画されること');
+    assert.ok(t1 && t1.strokeCalls > 0, 'track-1 のスペクトルが描画されること');
+    env.dom.window.close();
+});
+
+test('renderScript: mouseup click commits cursor and re-draws spectrum', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    assert.ok(overlaySpy);
+    const before = overlaySpy!.strokeCalls;
+
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLElement | null;
+    assert.ok(canvas);
+    // mousedown + mouseup (no movement) -> click branch in handleDocMouseUp
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
+
+    assert.ok(overlaySpy!.strokeCalls > before,
+        'クリック確定後に overlay canvas が再描画されること');
+    env.dom.window.close();
+});
+
