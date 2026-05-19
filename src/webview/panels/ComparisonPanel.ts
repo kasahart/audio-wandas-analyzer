@@ -19,6 +19,11 @@ interface DirectorySelectionState {
     directoryTree: DirectoryTreeNode[];
     allFilePaths: string[];
     selectedFilePaths: string[];
+    pythonEnvironmentState: {
+        pythonCommand: string;
+        status: 'normal' | 'warning';
+        tooltip: string;
+    };
 }
 
 type ComparisonState = ComparisonResultsState | DirectorySelectionState;
@@ -153,6 +158,7 @@ export class ComparisonPanel {
         allFilePaths: string[],
         selectedFilePaths: string[],
         results: AnalysisResultWithError[],
+        pythonEnvironmentState: DirectorySelectionState['pythonEnvironmentState'],
         existingPanel?: vscode.WebviewPanel,
     ): vscode.WebviewPanel {
         const title = `Audio Analyzer: ${path.basename(rootPath) || rootPath}`;
@@ -206,6 +212,7 @@ export class ComparisonPanel {
             directoryTree,
             allFilePaths,
             selectedFilePaths,
+            pythonEnvironmentState,
         };
         const html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
         panel.webview.html = html;
@@ -347,6 +354,11 @@ export class ComparisonPanel {
             border: 1px solid var(--line); background: var(--surface);
             color: var(--text); cursor: pointer;
         }
+        .tb-btn.is-warning {
+            background: var(--vscode-statusBarItem-warningBackground, #b89500);
+            color: var(--vscode-statusBarItem-warningForeground, #111111);
+            border-color: transparent;
+        }
         .tb-btn.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
         .tb-btn:disabled { opacity: 0.4; cursor: default; }
         .tb-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
@@ -442,6 +454,13 @@ export class ComparisonPanel {
             border-bottom: 1px solid var(--line);
             background: var(--panel);
             flex-wrap: wrap;
+        }
+        #selection-python-environment {
+            margin-left: auto;
+            max-width: min(360px, 45vw);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         #selection-body {
             display: grid;
@@ -554,6 +573,11 @@ export class ComparisonPanel {
             const selectedFilePaths = new Set(Array.isArray(state.selectedFilePaths) ? state.selectedFilePaths : []);
             const allSelectableFilePaths = Array.isArray(state.allFilePaths) ? state.allFilePaths.slice() : [];
             let selectionMessageSeq = 0;
+            let pythonEnvironmentState = state.pythonEnvironmentState || {
+                pythonCommand: 'python3',
+                status: 'normal',
+                tooltip: 'Click to select Python interpreter',
+            };
 
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc'];
 
@@ -635,6 +659,17 @@ export class ComparisonPanel {
                 pendingRequests[i] = null;
                 rangeCache[i] = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
                 renderAll();
+            });
+
+            window.addEventListener('message', function(event) {
+                const msg = event.data;
+                if (!msg || msg.type !== 'python-environment-state') { return; }
+                pythonEnvironmentState = {
+                    pythonCommand: typeof msg.pythonCommand === 'string' ? msg.pythonCommand : 'python3',
+                    status: msg.status === 'warning' ? 'warning' : 'normal',
+                    tooltip: typeof msg.tooltip === 'string' ? msg.tooltip : 'Click to select Python interpreter',
+                };
+                syncPythonEnvironmentButton();
             });
 
             window.addEventListener('message', function(event) {
@@ -722,6 +757,7 @@ export class ComparisonPanel {
             // ── Build DOM ──
             const app = document.getElementById('app');
             app.innerHTML = buildLayout();
+            syncPythonEnvironmentButton();
             attachEvents();
             // Defer first render so the browser has time to calculate flex layout
             requestAnimationFrame(function() {
@@ -795,12 +831,15 @@ export class ComparisonPanel {
             }
 
             function buildDirectorySelectionLayout() {
+                const pythonButtonText = 'Python: ' + (pythonEnvironmentState.pythonCommand || 'python3') + (pythonEnvironmentState.status === 'warning' ? ' ⚠' : '');
+                const pythonButtonClass = 'tb-btn' + (pythonEnvironmentState.status === 'warning' ? ' is-warning' : '');
                 return '<div id="directory-selection-layout">'
                     + '  <div id="selection-toolbar">'
                     + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">選択して解析</span>'
                     + '    <div class="tb-sep"></div>'
                     + '    <button class="tb-btn" data-action="open-file">ファイルを開く</button>'
                     + '    <button class="tb-btn" data-action="open-folder">別のフォルダを開く</button>'
+                    + '    <button class="' + pythonButtonClass + '" id="selection-python-environment" data-action="select-python-environment" title="' + escHtml(pythonEnvironmentState.tooltip || '') + '">' + escHtml(pythonButtonText) + '</button>'
                     + '  </div>'
                     + '  <div id="selection-body">'
                     + '    <div id="selection-sidebar">'
@@ -1569,7 +1608,7 @@ export class ComparisonPanel {
             }
 
             function handleSelectionAction(action) {
-                if (action === 'open-file' || action === 'open-folder') {
+                if (action === 'open-file' || action === 'open-folder' || action === 'select-python-environment') {
                     handleToolbarAction(action);
                     return true;
                 }
@@ -1610,6 +1649,20 @@ export class ComparisonPanel {
                 }
             }
 
+            function syncPythonEnvironmentButton() {
+                const button = document.getElementById('selection-python-environment');
+                if (!button) { return; }
+                const pythonCommand = pythonEnvironmentState && typeof pythonEnvironmentState.pythonCommand === 'string'
+                    ? pythonEnvironmentState.pythonCommand
+                    : 'python3';
+                const isWarning = pythonEnvironmentState && pythonEnvironmentState.status === 'warning';
+                button.textContent = 'Python: ' + pythonCommand + (isWarning ? ' ⚠' : '');
+                button.title = pythonEnvironmentState && typeof pythonEnvironmentState.tooltip === 'string'
+                    ? pythonEnvironmentState.tooltip
+                    : 'Click to select Python interpreter';
+                button.classList.toggle('is-warning', !!isWarning);
+            }
+
             function postSelectedFiles() {
                 const orderedSelection = allSelectableFilePaths.filter(function(filePath) {
                     return selectedFilePaths.has(filePath);
@@ -1627,6 +1680,8 @@ export class ComparisonPanel {
                     vscode.postMessage({ type: 'select-target', targetKind: 'file' });
                 } else if (action === 'open-folder') {
                     vscode.postMessage({ type: 'select-target', targetKind: 'directory' });
+                } else if (action === 'select-python-environment') {
+                    vscode.postMessage({ type: 'select-python-environment' });
                 } else if (action === 'content-waveform') {
                     contentType = 'waveform';
                     document.querySelector('[data-action="content-waveform"]').classList.add('is-active');

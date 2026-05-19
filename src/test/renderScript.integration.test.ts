@@ -82,6 +82,11 @@ const DUMMY_SELECTION_STATE = JSON.stringify({
     rootPath: '/tmp/session',
     allFilePaths: ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'],
     selectedFilePaths: [],
+    pythonEnvironmentState: {
+        pythonCommand: 'python3',
+        status: 'normal',
+        tooltip: 'Click to select Python interpreter',
+    },
     directoryTree: [
         {
             type: 'file',
@@ -110,6 +115,11 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
     rootPath: '/tmp/session',
     allFilePaths: ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'],
     selectedFilePaths: ['/tmp/session/a.wav'],
+    pythonEnvironmentState: {
+        pythonCommand: '.venv/bin/python',
+        status: 'normal',
+        tooltip: 'Click to select Python interpreter',
+    },
     results: [
         {
             filePath: '/tmp/session/a.wav',
@@ -294,6 +304,48 @@ test('directory selection mode renders file tree checkboxes for audio files', ()
     assert.equal(directoryLabels.length, 1);
     assert.match(dom.window.document.body.textContent || '', /a\.wav/);
     assert.match(dom.window.document.body.textContent || '', /b\.flac/);
+});
+
+test('directory selection mode renders a Python environment button in the selection toolbar only', () => {
+    const { dom } = setupSelectionEnv();
+    const selectionButton = dom.window.document.getElementById('selection-python-environment');
+    const mainToolbarButton = dom.window.document.querySelector('#toolbar [data-action="select-python-environment"]');
+
+    assert.ok(selectionButton instanceof dom.window.HTMLButtonElement);
+    assert.equal(selectionButton.textContent, 'Python: python3');
+    assert.equal(selectionButton.title, 'Click to select Python interpreter');
+    assert.equal(mainToolbarButton, null);
+});
+
+test('selection Python button posts select-python-environment when clicked', () => {
+    const { dom, postedMessages } = setupSelectionEnv();
+    const button = dom.window.document.getElementById('selection-python-environment');
+
+    assert.ok(button instanceof dom.window.HTMLButtonElement);
+    button.click();
+
+    const message = postedMessages.at(-1) as { type?: string } | undefined;
+    assert.equal(message?.type, 'select-python-environment');
+});
+
+test('python-environment-state message updates the selection toolbar button state', () => {
+    const { dom } = setupSelectionEnv();
+    const button = dom.window.document.getElementById('selection-python-environment');
+
+    assert.ok(button instanceof dom.window.HTMLButtonElement);
+
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
+        data: {
+            type: 'python-environment-state',
+            pythonCommand: '/tmp/missing-python',
+            status: 'warning',
+            tooltip: 'Python interpreter was not found. Click to select another interpreter.',
+        },
+    }));
+
+    assert.equal(button.textContent, 'Python: /tmp/missing-python ⚠');
+    assert.equal(button.title, 'Python interpreter was not found. Click to select another interpreter.');
+    assert.equal(button.classList.contains('is-warning'), true);
 });
 
 test('directory selection mode posts analyze-selected-files immediately when a checkbox is checked', () => {

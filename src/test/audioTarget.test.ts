@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     isAnalyzeSelectedFilesMessage,
+    isSelectPythonEnvironmentMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
 } from '../shared/utils/audioTarget';
@@ -28,4 +29,10 @@ test('isAnalyzeSelectedFilesMessage only accepts string file path arrays', () =>
     assert.equal(isAnalyzeSelectedFilesMessage({ type: 'analyze-selected-files', requestId: 'req-3', filePaths: ['/tmp/a.wav', 42] }), false);
     assert.equal(isAnalyzeSelectedFilesMessage({ type: 'select-target', filePaths: ['/tmp/a.wav'] }), false);
     assert.equal(isAnalyzeSelectedFilesMessage(undefined), false);
+});
+
+test('isSelectPythonEnvironmentMessage only accepts the dedicated message type', () => {
+    assert.equal(isSelectPythonEnvironmentMessage({ type: 'select-python-environment' }), true);
+    assert.equal(isSelectPythonEnvironmentMessage({ type: 'select-target', targetKind: 'file' }), false);
+    assert.equal(isSelectPythonEnvironmentMessage(undefined), false);
 });
