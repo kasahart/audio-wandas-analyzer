@@ -93,3 +93,16 @@ test('extractSpectrumAtCursor: respects globalSpan.startSec offset', () => {
     const slice = extractSpectrumAtCursor(makeSource(), 10, 0, { startSec: 10, spanSec: 1 });
     assert.deepEqual(slice!.values, [-80, -60, -40, -20]);
 });
+
+test('extractSpectrumAtCursor: sweeping cursor during playback yields distinct slices', () => {
+    // 再生中はカーソルが進むに従ってスペクトルが切り替わる必要がある。
+    // 再生ループが各フレームで extractSpectrumAtCursor を呼ぶ前提なので、
+    // 異なる再生位置で異なるスライスが返ることを契約として明示する。
+    const source = makeSource();
+    const cursors = [0.0, 0.3, 0.6, 0.9];
+    const slices = cursors.map((c) => extractSpectrumAtCursor(source, 0, c, { startSec: 0, spanSec: 1 }));
+    const valuesSeen = slices.map((s) => JSON.stringify(s!.values));
+    const uniqueValues = new Set(valuesSeen);
+    assert.equal(uniqueValues.size, cursors.length,
+        '再生位置ごとに異なる時間ビンが選ばれること');
+});

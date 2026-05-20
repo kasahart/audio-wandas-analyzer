@@ -1355,6 +1355,7 @@ export class ComparisonPanel {
                             cursorNorm = nextCursor;
                             updateCursorDisplay(nextCursor);
                             scheduleRender();
+                            refreshSpectrumViews();
                         }
                     }
                     updateLoopBadge();

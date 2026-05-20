@@ -609,3 +609,47 @@ test('renderScript: mouseup click commits cursor and re-draws spectrum', async (
     env.dom.window.close();
 });
 
+test('renderScript: spectrum canvases are redrawn during playback as cursor advances', async () => {
+    // 回帰テスト: 再生中、カーソル位置が進むたびにスペクトル表示が更新されることを保証する。
+    // 修正前は再生ループ tick で refreshSpectrumViews() が呼ばれず、
+    // overlay / per-track のスペクトル canvas が再生中ずっと初期描画のままだった。
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
+    assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
+    assert.ok(trackSpy, 'track-spectrum-0 のスパイが取得できること');
+
+    const overlayBefore = overlaySpy!.strokeCalls;
+    const trackBefore = trackSpy!.strokeCalls;
+
+    const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
+    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
+    assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
+    assert.ok(stopButton instanceof env.dom.window.HTMLButtonElement);
+
+    (audio as HTMLAudioElement & { duration: number }).duration = 1;
+    playButton!.click();
+    await Promise.resolve();
+    assert.equal(audio!.paused, false, '再生状態に切り替わっていること');
+
+    // 再生位置を進めてから rAF tick を消化する。
+    // tick は paused=false の間 refreshSpectrumViews() を呼び、各スペクトル canvas を再描画する。
+    (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.5;
+    await nextAnimationFrame(env.dom);
+
+    // すぐに停止してループを止める（rAF はループ内で再スケジュールされ続けるため）。
+    stopButton!.click();
+
+    assert.ok(overlaySpy!.strokeCalls > overlayBefore,
+        '再生中の tick で overlay spectrum が再描画されること '
+        + '(before=' + overlayBefore + ', after=' + overlaySpy!.strokeCalls + ')');
+    assert.ok(trackSpy!.strokeCalls > trackBefore,
+        '再生中の tick で per-track spectrum が再描画されること '
+        + '(before=' + trackBefore + ', after=' + trackSpy!.strokeCalls + ')');
+    env.dom.window.close();
+});
+
