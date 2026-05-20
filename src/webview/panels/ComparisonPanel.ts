@@ -56,6 +56,13 @@ interface ComparisonPanelRenderedUi {
     spectrumOverlayPresent: boolean;
     spectrumTrackCanvasCount: number;
     visibleSpectrumTrackCount: number;
+    latestSpectrogram?: {
+        windowSize: number;
+        hopSize: number;
+        dbMinApplied: number | null;
+        dbMaxApplied: number | null;
+        maxFrequencyHzApplied: number | null;
+    };
     axisLabels: {
         spectrumOverlay: string[];
         spectrogramPerTrack: string[][];
@@ -88,7 +95,7 @@ interface ComparisonPanelRenderedUiMessage {
 interface ComparisonPanelTestActionMessage {
     type: 'comparison-panel-test-action';
     actionId: string;
-    actions: Array<string | { action: string; trackIndex?: number }>;
+    actions: Array<string | { action: string; trackIndex?: number; payload?: Record<string, unknown> }>;
 }
 
 export class ComparisonPanel {
@@ -252,7 +259,7 @@ export class ComparisonPanel {
 
     public static async postTestActions(
         actionId: string,
-        actions: Array<string | { action: string; trackIndex?: number }>,
+        actions: Array<string | { action: string; trackIndex?: number; payload?: Record<string, unknown> }>,
     ): Promise<void> {
         if (!ComparisonPanel.activePanel) {
             throw new Error('No active ComparisonPanel is available for test actions');
@@ -716,6 +723,32 @@ export class ComparisonPanel {
                 if (entry.action === 'offset-down' && idx >= 0) { adjustOffset(idx, -0.01); }
                 if (entry.action === 'toggle-mute' && idx >= 0) { toggleMute(idx); }
                 if (entry.action === 'remove-track' && idx >= 0) { removeTrack(idx); }
+                if (entry.action === 'open-spectrogram-settings') {
+                    const gear = document.querySelector('[data-action="spectrogram-settings"]');
+                    if (gear) { gear.click(); }
+                }
+                if (entry.action === 'apply-spectrogram-settings' && entry.payload) {
+                    const p = entry.payload;
+                    if (__specPopover && __specPopover.hidden) { __openSpecPopover(); }
+                    document.getElementById('spec-auto').checked = !!p.auto;
+                    if (p.nFft != null) { document.getElementById('spec-nfft').value = String(p.nFft); }
+                    if (p.hopSize != null) { document.getElementById('spec-hop').value = String(p.hopSize); }
+                    if (p.window != null) { document.getElementById('spec-window').value = String(p.window); }
+                    __applySpecAutoState();
+                    document.getElementById('spec-apply').click();
+                }
+                if (entry.action === 'set-spectrogram-display' && entry.payload) {
+                    const p = entry.payload;
+                    if (__specPopover && __specPopover.hidden) { __openSpecPopover(); }
+                    function __setN(id, v) {
+                        const el = document.getElementById(id);
+                        el.value = (v == null) ? '' : String(v);
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    __setN('spec-dbmin', p.dbMin);
+                    __setN('spec-dbmax', p.dbMax);
+                    __setN('spec-maxfreq', p.maxFrequencyHz);
+                }
             }
 
             function scheduleRangeRequests() {
@@ -838,6 +871,26 @@ export class ComparisonPanel {
                         spectrumSlicePresent: !!slice,
                     };
                 });
+                let latestSpectrogram;
+                try {
+                    const firstSpec = state.results
+                        && state.results[0]
+                        && state.results[0].channels
+                        && state.results[0].channels[0]
+                        && state.results[0].channels[0].spectrogram;
+                    if (firstSpec) {
+                        const disp = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display)
+                            ? __spectrogramSettings.display
+                            : { dbMin: null, dbMax: null, maxFrequencyHz: null };
+                        latestSpectrogram = {
+                            windowSize: firstSpec.windowSize,
+                            hopSize: firstSpec.hopSize,
+                            dbMinApplied: disp.dbMin == null ? null : Number(disp.dbMin),
+                            dbMaxApplied: disp.dbMax == null ? null : Number(disp.dbMax),
+                            maxFrequencyHzApplied: disp.maxFrequencyHz == null ? null : Number(disp.maxFrequencyHz),
+                        };
+                    }
+                } catch (e) { /* ignore */ }
                 vscode.postMessage({
                     type: 'comparison-panel-test-snapshot',
                     actionId: actionId,
@@ -857,6 +910,7 @@ export class ComparisonPanel {
                         spectrumOverlayPresent: !!overlayCanvas,
                         spectrumTrackCanvasCount: document.querySelectorAll('.track-spectrum-canvas').length,
                         visibleSpectrumTrackCount: visibleSpectrumTrackCount,
+                        latestSpectrogram: latestSpectrogram,
                         axisLabels: {
                             spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayMinDb)
                                 ? [overlayMaxDb.toFixed(0) + ' dB',
@@ -2337,6 +2391,7 @@ export class ComparisonPanel {
                     __spectrogramSettings.display = __readDisplayFromForm();
                     vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
                     scheduleRender();
+                    requestAnimationFrame(function() { publishTestSnapshot(); });
                 });
             });
 
@@ -2383,6 +2438,7 @@ export class ComparisonPanel {
                 });
                 scheduleRender();
                 refreshSpectrumViews();
+                requestAnimationFrame(function() { publishTestSnapshot(); });
             });
 
             __updateSpecGearVisibility();

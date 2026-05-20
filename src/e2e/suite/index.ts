@@ -26,6 +26,13 @@ interface TestSnapshot {
         spectrumOverlayPresent: boolean;
         spectrumTrackCanvasCount: number;
         visibleSpectrumTrackCount: number;
+        latestSpectrogram?: {
+            windowSize: number;
+            hopSize: number;
+            dbMinApplied: number | null;
+            dbMaxApplied: number | null;
+            maxFrequencyHzApplied: number | null;
+        };
         axisLabels: {
             spectrumOverlay: string[];
             spectrogramPerTrack: string[][];
@@ -92,6 +99,7 @@ export async function run(): Promise<void> {
                     'open-folder',
                     'content-waveform',
                     'content-spectrogram',
+                    'spectrogram-settings',
                     'zoom-out',
                     'zoom-in',
                 ]);
@@ -134,6 +142,52 @@ export async function run(): Promise<void> {
             run: async () => {
                 const spectrogramSnapshot = await runViewModeScenario(['content-spectrogram']);
                 assert.ok(spectrogramSnapshot.renderedUi, 'Rendered UI snapshot should exist after spectrogram switch');
+            },
+        },
+        {
+            name: 'spectrogram settings popover roundtrip',
+            run: async () => {
+                await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+                await runViewModeScenario(['content-spectrogram']);
+
+                const openId = `spec-open-${Date.now()}`;
+                await ComparisonPanel.postTestActions(openId, ['open-spectrogram-settings']);
+                await waitForSnapshot(openId);
+
+                const applyId = `spec-apply-${Date.now()}`;
+                await ComparisonPanel.postTestActions(applyId, [
+                    {
+                        action: 'apply-spectrogram-settings',
+                        payload: { auto: false, nFft: 512, hopSize: 128, window: 'hamming' },
+                    },
+                ]);
+                const applied = await waitForSnapshotWhere((snapshot) => {
+                    return !!snapshot.renderedUi?.latestSpectrogram
+                        && snapshot.renderedUi.latestSpectrogram.windowSize === 512
+                        && snapshot.renderedUi.latestSpectrogram.hopSize === 128;
+                });
+                assert.equal(applied.renderedUi?.latestSpectrogram?.windowSize, 512);
+                assert.equal(applied.renderedUi?.latestSpectrogram?.hopSize, 128);
+
+                const displayId = `spec-display-${Date.now()}`;
+                await ComparisonPanel.postTestActions(displayId, [
+                    {
+                        action: 'set-spectrogram-display',
+                        payload: { dbMin: -60, dbMax: 0, maxFrequencyHz: null },
+                    },
+                ]);
+                const displayed = await waitForSnapshotWhere((snapshot) => {
+                    return snapshot.renderedUi?.latestSpectrogram?.dbMinApplied === -60
+                        && snapshot.renderedUi?.latestSpectrogram?.dbMaxApplied === 0;
+                });
+                assert.equal(displayed.renderedUi?.latestSpectrogram?.dbMinApplied, -60);
+                assert.equal(displayed.renderedUi?.latestSpectrogram?.dbMaxApplied, 0);
+                assert.equal(displayed.renderedUi?.latestSpectrogram?.maxFrequencyHzApplied, null);
+                assert.equal(
+                    displayed.renderedUi?.latestSpectrogram?.windowSize,
+                    512,
+                    'changing display range should not re-analyze STFT',
+                );
             },
         },
         {
