@@ -20,6 +20,9 @@ export interface SpyOffscreenCanvas {
 export interface DomCanvasSpyCtx extends CanvasSpyCtx {
     saveCalls: number;
     restoreCalls: number;
+    fillTextCalls: string[];
+    fillRectCalls: number;
+    putImageDataCalls: number;
 }
 
 export interface WebviewEnv {
@@ -100,6 +103,9 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
                 strokeCalls: 0,
                 saveCalls: 0,
                 restoreCalls: 0,
+                fillTextCalls: [],
+                fillRectCalls: 0,
+                putImageDataCalls: 0,
             };
             domCanvasContexts.set(id, spy);
         }
@@ -110,7 +116,17 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
             lineTo() { },
             stroke() { spy.strokeCalls++; },
             drawImage(src: unknown) { spy.drawImageCalls.push({ src }); },
-            fillText() { },
+            fillText(text: string) { spy.fillTextCalls.push(String(text)); },
+            fillRect() { spy.fillRectCalls++; },
+            rect() { },
+            clip() { },
+            translate() { },
+            rotate() { },
+            scale() { },
+            createImageData(w: number, h: number) {
+                return { width: w, height: h, data: new Uint8ClampedArray(Math.max(0, w) * Math.max(0, h) * 4) };
+            },
+            putImageData() { spy.putImageDataCalls++; },
             get lineWidth() { return 1; },
             set lineWidth(_v: number) { },
             get strokeStyle() { return ''; },
@@ -121,6 +137,8 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
             set font(_v: string) { },
             get textAlign() { return 'left'; },
             set textAlign(_v: string) { },
+            get textBaseline() { return 'alphabetic'; },
+            set textBaseline(_v: string) { },
             setLineDash() { },
             save() { spy.saveCalls++; },
             restore() { spy.restoreCalls++; },

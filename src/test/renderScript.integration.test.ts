@@ -609,6 +609,67 @@ test('renderScript: mouseup click commits cursor and re-draws spectrum', async (
     env.dom.window.close();
 });
 
+test('axes: 波形キャンバスに振幅軸ラベル (+1.0 / 0 / -1.0 と Amp 単位) が描かれる', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const spy = env.domCanvasContexts.get('track-canvas-0');
+    assert.ok(spy, 'track-canvas-0 のスパイが取得できること');
+    const labels = spy!.fillTextCalls;
+    assert.ok(labels.includes('+1.0'), '+1.0 ラベルが描かれること: ' + JSON.stringify(labels));
+    assert.ok(labels.includes('-1.0'), '-1.0 ラベルが描かれること');
+    assert.ok(labels.includes('0'), '0 ラベルが描かれること');
+    assert.ok(labels.some((s) => s.includes('Amp')), '振幅軸タイトル (Amp) が描かれること');
+    assert.ok(spy!.fillRectCalls > 0, 'ラベル用の半透明バックプレートが描かれること');
+    env.dom.window.close();
+});
+
+test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバー (dB) が描かれる', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const win = env.dom.window as any;
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn, 'スペクトログラム切替ボタンが存在すること');
+    spectrogramBtn.click();
+    await nextAnimationFrame(env.dom);
+    // フレーム駆動の再描画を待つ
+    await new Promise((r) => win.setTimeout(r, 0));
+
+    const spy = env.domCanvasContexts.get('track-canvas-0');
+    assert.ok(spy, 'track-canvas-0 のスパイが取得できること');
+    const labels = spy!.fillTextCalls;
+    assert.ok(labels.includes('0 Hz'), '0 Hz ラベルが描かれること: ' + JSON.stringify(labels));
+    assert.ok(
+        labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)),
+        'Hz または kHz の周波数ラベルが描かれること',
+    );
+    assert.ok(labels.some((s) => /\d+\s*dB$/.test(s)), 'カラーバーの dB ラベルが描かれること');
+    assert.ok(spy!.putImageDataCalls >= 2,
+        'プロット領域とカラーバーで putImageData が複数回呼ばれること');
+    env.dom.window.close();
+});
+
+test('axes: スペクトル (per-track / overlay) に Hz と dB のラベルが描かれる', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
+    assert.ok(trackSpy, 'track-spectrum-0 のスパイが取得できること');
+    const trackLabels = trackSpy!.fillTextCalls;
+    assert.ok(trackLabels.includes('0 Hz'), 'per-track: 0 Hz ラベルが描かれること');
+    assert.ok(trackLabels.some((s) => /dB$/.test(s)), 'per-track: dB ラベルが描かれること');
+
+    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
+    const overlayLabels = overlaySpy!.fillTextCalls;
+    assert.ok(overlayLabels.includes('0 Hz'), 'overlay: 0 Hz ラベルが描かれること');
+    assert.ok(overlayLabels.some((s) => /dB$/.test(s)), 'overlay: dB ラベルが描かれること');
+    assert.ok(
+        overlayLabels.some((s) => s !== '0 Hz' && (/kHz$/.test(s) || /Hz$/.test(s))),
+        'overlay: 0 以外の周波数ラベル (Hz/kHz) が描かれること: ' + JSON.stringify(overlayLabels),
+    );
+    env.dom.window.close();
+});
+
 test('renderScript: spectrum canvases are redrawn during playback as cursor advances', async () => {
     // 回帰テスト: 再生中、カーソル位置が進むたびにスペクトル表示が更新されることを保証する。
     // 修正前は再生ループ tick で refreshSpectrumViews() が呼ばれず、
