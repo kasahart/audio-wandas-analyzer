@@ -1,7 +1,12 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { serializeForScript } from '../../shared/utils/webviewEscaping';
-import type { AnalysisResultWithError, DirectoryTreeNode } from '../../shared/analysis/analysisTypes';
+import {
+    DEFAULT_SPECTROGRAM_SETTINGS,
+    type AnalysisResultWithError,
+    type DirectoryTreeNode,
+    type SpectrogramSettings,
+} from '../../shared/analysis/analysisTypes';
 
 interface ComparisonTrackState extends AnalysisResultWithError {
     audioSource?: string;
@@ -10,6 +15,7 @@ interface ComparisonTrackState extends AnalysisResultWithError {
 interface ComparisonResultsState {
     mode: 'results';
     results: ComparisonTrackState[];
+    spectrogramSettings: SpectrogramSettings;
 }
 
 interface DirectorySelectionState {
@@ -24,6 +30,7 @@ interface DirectorySelectionState {
         status: 'normal' | 'warning';
         tooltip: string;
     };
+    spectrogramSettings: SpectrogramSettings;
 }
 
 type ComparisonState = ComparisonResultsState | DirectorySelectionState;
@@ -93,6 +100,7 @@ export class ComparisonPanel {
         extensionUri: vscode.Uri,
         results: AnalysisResultWithError[],
         existingPanel?: vscode.WebviewPanel,
+        spectrogramSettings: SpectrogramSettings = DEFAULT_SPECTROGRAM_SETTINGS,
     ): vscode.WebviewPanel {
         const title = results.length === 1
             ? `Audio Analyzer: ${results[0].fileName}`
@@ -145,6 +153,7 @@ export class ComparisonPanel {
                 ...result,
                 audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
             })),
+            spectrogramSettings,
         };
         const html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
         panel.webview.html = html;
@@ -166,6 +175,7 @@ export class ComparisonPanel {
         results: AnalysisResultWithError[],
         pythonEnvironmentState: DirectorySelectionState['pythonEnvironmentState'],
         existingPanel?: vscode.WebviewPanel,
+        spectrogramSettings: SpectrogramSettings = DEFAULT_SPECTROGRAM_SETTINGS,
     ): vscode.WebviewPanel {
         const title = `Audio Analyzer: ${path.basename(rootPath) || rootPath}`;
         const panel = existingPanel ?? vscode.window.createWebviewPanel(
@@ -219,6 +229,7 @@ export class ComparisonPanel {
             allFilePaths,
             selectedFilePaths,
             pythonEnvironmentState,
+            spectrogramSettings,
         };
         const html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
         panel.webview.html = html;
