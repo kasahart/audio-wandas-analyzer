@@ -845,9 +845,13 @@ export class ComparisonPanel {
                     waveformPerTrack.push(['+1.0', '0', '-1.0', 'Amp (FS)']);
                     const ch0 = result.channels && result.channels[0];
                     const spec = ch0 && ch0.spectrogram;
+                    const dispCfg2 = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display) || {};
+                    const specDbLo = spec ? ((dispCfg2.dbMin != null) ? dispCfg2.dbMin : spec.minDb) : 0;
+                    const specDbHi = spec ? ((dispCfg2.dbMax != null) ? dispCfg2.dbMax : spec.maxDb) : 0;
+                    const specMaxF = spec ? ((dispCfg2.maxFrequencyHz != null) ? Math.min(dispCfg2.maxFrequencyHz, spec.maxFrequencyHz) : spec.maxFrequencyHz) : 0;
                     spectrogramPerTrack.push(spec
-                        ? ['0 Hz', formatHz(spec.maxFrequencyHz / 2), formatHz(spec.maxFrequencyHz),
-                           spec.minDb.toFixed(0) + ' dB', spec.maxDb.toFixed(0) + ' dB', 'Freq']
+                        ? ['0 Hz', formatHz(specMaxF / 2), formatHz(specMaxF),
+                           specDbLo.toFixed(0) + ' dB', specDbHi.toFixed(0) + ' dB', 'Freq']
                         : []);
                     spectrumPerTrack.push(slice
                         ? [slice.maxDb.toFixed(0) + ' dB',
@@ -1338,7 +1342,7 @@ export class ComparisonPanel {
                     }
                 }
                 ctx.putImageData(imageData, 0, 0);
-                drawSpectrogramAxes(ctx, W, H, spec);
+                drawSpectrogramAxes(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi, maxFreq: maxFreq });
                 drawLoopRegionOnCanvas(ctx, W, H);
                 drawCursorOnCanvas(ctx, W, H);
                 drawHoverLineOnCanvas(ctx, W, H);
@@ -1346,12 +1350,15 @@ export class ComparisonPanel {
 
             // 軸とカラーバーは半透明オーバーレイとして全幅キャンバスの上に描画する。
             // これによりカーソル/ループ/ホバー線とマウス入力は従来通り canvas.width 基準のままで済む。
-            function drawSpectrogramAxes(ctx, W, H, spec) {
+            function drawSpectrogramAxes(ctx, W, H, spec, opts) {
                 const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                 const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
                 const labelW = 36;
                 const cbStripW = 50;
-                const maxHz = spec.maxFrequencyHz;
+                const o = opts || {};
+                const maxHz = (o.maxFreq != null) ? o.maxFreq : spec.maxFrequencyHz;
+                const dbLo = (o.dbLo != null) ? o.dbLo : spec.minDb;
+                const dbHi = (o.dbHi != null) ? o.dbHi : spec.maxDb;
 
                 ctx.save();
                 ctx.fillStyle = bgColor;
@@ -1393,9 +1400,9 @@ export class ComparisonPanel {
                 ctx.fillStyle = mutedColor;
                 ctx.textAlign = 'left';
                 ctx.textBaseline = 'top';
-                ctx.fillText(spec.maxDb.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
+                ctx.fillText(dbHi.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
                 ctx.textBaseline = 'bottom';
-                ctx.fillText(spec.minDb.toFixed(0) + ' dB', cbX + cbW + 2, cbY + cbH);
+                ctx.fillText(dbLo.toFixed(0) + ' dB', cbX + cbW + 2, cbY + cbH);
                 ctx.restore();
             }
 
@@ -2412,9 +2419,35 @@ export class ComparisonPanel {
                     },
                     display: __readDisplayFromForm()
                 };
+                __setReanalyzeBusy(true, 'STFT を再計算中…');
                 vscode.postMessage({ type: 'request-reanalyze', settings: __spectrogramSettings });
                 __closeSpecPopover();
             });
+
+            // 再解析中のオーバーレイ
+            (function __buildReanalyzeOverlay() {
+                document.body.insertAdjacentHTML('beforeend',
+                    '<div id="reanalyze-overlay" hidden style="position:fixed;top:0;left:0;right:0;z-index:60;background:var(--panel);color:var(--text);'
+                    + 'padding:8px 14px;border-bottom:1px solid var(--line);font-family:var(--font-ui);font-size:12px;'
+                    + 'display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'
+                    + '<span class="spinner" style="width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></span>'
+                    + '<span id="reanalyze-overlay-msg">再計算中…</span>'
+                    + '</div>'
+                    + '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>');
+            })();
+
+            function __setReanalyzeBusy(busy, msg) {
+                const overlay = document.getElementById('reanalyze-overlay');
+                if (!overlay) { return; }
+                if (busy) {
+                    document.getElementById('reanalyze-overlay-msg').textContent = msg || '再計算中…';
+                    overlay.hidden = false;
+                } else {
+                    overlay.hidden = true;
+                }
+                const applyBtn = document.getElementById('spec-apply');
+                if (applyBtn) { applyBtn.disabled = !!busy; }
+            }
 
             document.addEventListener('click', function(ev) {
                 const target = ev.target;
@@ -2431,14 +2464,26 @@ export class ComparisonPanel {
 
             window.addEventListener('message', function(event) {
                 const msg = event.data;
-                if (!msg || msg.type !== 'analysis-update' || !Array.isArray(msg.results)) { return; }
-                state.results = msg.results.map(function(r, i) {
-                    const old = state.results[i];
-                    return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
-                });
-                scheduleRender();
-                refreshSpectrumViews();
-                requestAnimationFrame(function() { publishTestSnapshot(); });
+                if (!msg) { return; }
+                if (msg.type === 'reanalyze-start') {
+                    const cnt = typeof msg.count === 'number' ? msg.count : 0;
+                    __setReanalyzeBusy(true, 'STFT を再計算中… (' + cnt + ' ファイル)');
+                    return;
+                }
+                if (msg.type === 'reanalyze-end') {
+                    __setReanalyzeBusy(false);
+                    return;
+                }
+                if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
+                    state.results = msg.results.map(function(r, i) {
+                        const old = state.results[i];
+                        return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
+                    });
+                    scheduleRender();
+                    refreshSpectrumViews();
+                    requestAnimationFrame(function() { publishTestSnapshot(); });
+                    return;
+                }
             });
 
             __updateSpecGearVisibility();

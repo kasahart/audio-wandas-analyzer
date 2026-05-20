@@ -387,24 +387,18 @@ function registerPanelMessageHandler(
                 await context.workspaceState.update(SPECTROGRAM_SETTINGS_KEY, message.settings);
                 const filePaths = getActiveFilePathsForPanel(panel);
                 const stftOptions = message.settings.auto ? undefined : message.settings.stft;
-                const results: AnalysisResultWithError[] = [];
-                for (const filePath of filePaths) {
-                    try {
-                        results.push(await runAnalysis(context.extensionPath, vscode.Uri.file(filePath), stftOptions));
-                    } catch (err) {
-                        results.push({
-                            filePath,
-                            fileName: path.basename(filePath),
-                            sampleRateHz: 0,
-                            durationSeconds: 0,
-                            channelCount: 0,
-                            sampleCount: 0,
-                            channels: [],
-                            error: err instanceof Error ? err.message : String(err),
-                        });
-                    }
+                await panel.webview.postMessage({ type: 'reanalyze-start', count: filePaths.length });
+                try {
+                    const results = await analyzeFilesWithProgress(
+                        context,
+                        filePaths,
+                        stftOptions,
+                        `Recomputing spectrogram (${filePaths.length} file${filePaths.length === 1 ? '' : 's'})`,
+                    );
+                    await panel.webview.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
+                } finally {
+                    await panel.webview.postMessage({ type: 'reanalyze-end' });
                 }
-                await panel.webview.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
                 return;
             }
 
@@ -610,11 +604,13 @@ async function analyzeMultipleFiles(
 async function analyzeFilesWithProgress(
     context: vscode.ExtensionContext,
     filePaths: string[],
+    stftOptions?: StftOptions,
+    titleOverride?: string,
 ): Promise<AnalysisResultWithError[]> {
     return vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
-            title: `Analyzing ${filePaths.length} files with wandas`,
+            title: titleOverride ?? `Analyzing ${filePaths.length} files with wandas`,
             cancellable: false,
         },
         async (progress) => {
@@ -625,7 +621,7 @@ async function analyzeFilesWithProgress(
                     message: `(${i + 1}/${filePaths.length}) ${path.basename(filePaths[i])}`,
                 });
                 try {
-                    const result = await runAnalysis(context.extensionPath, vscode.Uri.file(filePaths[i]));
+                    const result = await runAnalysis(context.extensionPath, vscode.Uri.file(filePaths[i]), stftOptions);
                     results.push(result);
                 } catch (err) {
                     results.push({
