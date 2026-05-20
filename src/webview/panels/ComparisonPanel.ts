@@ -49,6 +49,12 @@ interface ComparisonPanelRenderedUi {
     spectrumOverlayPresent: boolean;
     spectrumTrackCanvasCount: number;
     visibleSpectrumTrackCount: number;
+    axisLabels: {
+        spectrumOverlay: string[];
+        spectrogramPerTrack: string[][];
+        spectrumPerTrack: string[][];
+        waveformPerTrack: string[][];
+    };
     tracks: Array<{
         trackIndex: number;
         offsetSeconds: number;
@@ -770,6 +776,10 @@ export class ComparisonPanel {
                 const toolbar = document.getElementById('toolbar');
                 const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
                 let visibleSpectrumTrackCount = 0;
+                const spectrogramPerTrack = [];
+                const spectrumPerTrack = [];
+                const waveformPerTrack = [];
+                let overlayMinDb = Infinity, overlayMaxDb = -Infinity, overlayMaxF = 0;
                 const trackInfo = state.results.map(function(result, trackIndex) {
                     const dur = result.durationSeconds || 1;
                     const gs = computeGlobalSpan();
@@ -782,7 +792,25 @@ export class ComparisonPanel {
                     const slice = trackRuntime[trackIndex].hidden
                         ? null
                         : extractSpectrumAtCursor(result, trackRuntime[trackIndex].offsetSeconds, cursorNorm);
-                    if (slice) { visibleSpectrumTrackCount++; }
+                    if (slice) {
+                        visibleSpectrumTrackCount++;
+                        if (slice.minDb < overlayMinDb) { overlayMinDb = slice.minDb; }
+                        if (slice.maxDb > overlayMaxDb) { overlayMaxDb = slice.maxDb; }
+                        if (slice.maxFrequencyHz > overlayMaxF) { overlayMaxF = slice.maxFrequencyHz; }
+                    }
+                    waveformPerTrack.push(['+1.0', '0', '-1.0', 'Amp (FS)']);
+                    const ch0 = result.channels && result.channels[0];
+                    const spec = ch0 && ch0.spectrogram;
+                    spectrogramPerTrack.push(spec
+                        ? ['0 Hz', formatHz(spec.maxFrequencyHz / 2), formatHz(spec.maxFrequencyHz),
+                           spec.minDb.toFixed(0) + ' dB', spec.maxDb.toFixed(0) + ' dB', 'Freq']
+                        : []);
+                    spectrumPerTrack.push(slice
+                        ? [slice.maxDb.toFixed(0) + ' dB',
+                           ((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' dB',
+                           slice.minDb.toFixed(0) + ' dB',
+                           '0 Hz', formatHz(slice.maxFrequencyHz / 2), formatHz(slice.maxFrequencyHz)]
+                        : []);
                     return {
                         trackIndex: trackIndex,
                         offsetSeconds: trackRuntime[trackIndex].offsetSeconds,
@@ -818,6 +846,17 @@ export class ComparisonPanel {
                         spectrumOverlayPresent: !!overlayCanvas,
                         spectrumTrackCanvasCount: document.querySelectorAll('.track-spectrum-canvas').length,
                         visibleSpectrumTrackCount: visibleSpectrumTrackCount,
+                        axisLabels: {
+                            spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayMinDb)
+                                ? [overlayMaxDb.toFixed(0) + ' dB',
+                                   ((overlayMaxDb + overlayMinDb) / 2).toFixed(0) + ' dB',
+                                   overlayMinDb.toFixed(0) + ' dB',
+                                   '0 Hz', formatHz(overlayMaxF / 2), formatHz(overlayMaxF)]
+                                : [],
+                            spectrogramPerTrack: spectrogramPerTrack,
+                            spectrumPerTrack: spectrumPerTrack,
+                            waveformPerTrack: waveformPerTrack,
+                        },
                         tracks: trackInfo,
                     },
                 });
@@ -1153,6 +1192,36 @@ export class ComparisonPanel {
                     drawCursorOnCanvas(ctx, W, H);
                     drawHoverLineOnCanvas(ctx, W, H);
                 }
+
+                drawWaveformAmplitudeAxis(ctx, W, H);
+            }
+
+            function drawWaveformAmplitudeAxis(ctx, W, H) {
+                const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
+                const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
+                const labelW = 30;
+                ctx.save();
+                ctx.fillStyle = bgColor;
+                ctx.globalAlpha = 0.7;
+                ctx.fillRect(0, 0, labelW, H);
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = mutedColor;
+                ctx.font = '9px monospace';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                ctx.fillText('+1.0', labelW - 2, 1);
+                ctx.textBaseline = 'middle';
+                ctx.fillText('0', labelW - 2, H / 2);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('-1.0', labelW - 2, H - 1);
+                ctx.save();
+                ctx.translate(8, H / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('Amp (FS)', 0, 0);
+                ctx.restore();
+                ctx.restore();
             }
 
             function drawSpectrogram(canvas, result, offsetSeconds) {
@@ -1195,9 +1264,70 @@ export class ComparisonPanel {
                     }
                 }
                 ctx.putImageData(imageData, 0, 0);
+                drawSpectrogramAxes(ctx, W, H, spec);
                 drawLoopRegionOnCanvas(ctx, W, H);
                 drawCursorOnCanvas(ctx, W, H);
                 drawHoverLineOnCanvas(ctx, W, H);
+            }
+
+            // 軸とカラーバーは半透明オーバーレイとして全幅キャンバスの上に描画する。
+            // これによりカーソル/ループ/ホバー線とマウス入力は従来通り canvas.width 基準のままで済む。
+            function drawSpectrogramAxes(ctx, W, H, spec) {
+                const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
+                const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
+                const labelW = 36;
+                const cbStripW = 50;
+                const maxHz = spec.maxFrequencyHz;
+
+                ctx.save();
+                ctx.fillStyle = bgColor;
+                ctx.globalAlpha = 0.7;
+                ctx.fillRect(0, 0, labelW, H);
+                ctx.fillRect(W - cbStripW, 0, cbStripW, H);
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = mutedColor;
+                ctx.font = '9px monospace';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                ctx.fillText(formatHz(maxHz), labelW - 2, 1);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(formatHz(maxHz / 2), labelW - 2, H / 2);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('0 Hz', labelW - 2, H - 1);
+                ctx.save();
+                ctx.translate(9, H / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('Freq', 0, 0);
+                ctx.restore();
+
+                const cbW = 10;
+                const cbX = W - cbStripW + 6;
+                const cbY = 2;
+                const cbH = Math.max(1, H - 4);
+                const grad = ctx.createImageData(cbW, cbH);
+                for (let y = 0; y < cbH; y++) {
+                    const norm = 1 - y / Math.max(cbH - 1, 1);
+                    const rgb = dbToRgb(norm);
+                    for (let x = 0; x < cbW; x++) {
+                        const off = (y * cbW + x) * 4;
+                        grad.data[off] = rgb[0]; grad.data[off + 1] = rgb[1]; grad.data[off + 2] = rgb[2]; grad.data[off + 3] = 255;
+                    }
+                }
+                ctx.putImageData(grad, cbX, cbY);
+                ctx.fillStyle = mutedColor;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillText(spec.maxDb.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(spec.minDb.toFixed(0) + ' dB', cbX + cbW + 2, cbY + cbH);
+                ctx.restore();
+            }
+
+            function formatHz(hz) {
+                if (hz >= 1000) { return (hz / 1000).toFixed(hz >= 10000 ? 0 : 1) + ' kHz'; }
+                return Math.round(hz) + ' Hz';
             }
 
             function dbToRgb(norm) {
@@ -1941,6 +2071,8 @@ export class ComparisonPanel {
             function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB) {
                 const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                 const lineColor = getComputedStyle(document.body).getPropertyValue('--line').trim() || '#444';
+                const plotW = W - padL - padR;
+                const plotH = H - padT - padB;
                 ctx.strokeStyle = lineColor;
                 ctx.lineWidth = 0.5;
                 ctx.beginPath();
@@ -1950,12 +2082,17 @@ export class ComparisonPanel {
                 ctx.fillStyle = mutedColor;
                 ctx.font = '9px monospace';
                 ctx.textAlign = 'right';
-                ctx.fillText(slice.maxDb.toFixed(0) + 'dB', padL - 2, padT + 8);
-                ctx.fillText(slice.minDb.toFixed(0) + 'dB', padL - 2, H - padB);
+                ctx.textBaseline = 'top';
+                ctx.fillText(slice.maxDb.toFixed(0) + ' dB', padL - 2, padT);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' dB', padL - 2, padT + plotH / 2);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(slice.minDb.toFixed(0) + ' dB', padL - 2, H - padB);
                 ctx.textAlign = 'center';
-                const kHz = slice.maxFrequencyHz / 1000;
-                ctx.fillText('0', padL, H - 2);
-                ctx.fillText(kHz.toFixed(1) + 'k', W - padR, H - 2);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('0 Hz', padL, H - 1);
+                ctx.fillText(formatHz(slice.maxFrequencyHz / 2), padL + plotW / 2, H - 1);
+                ctx.fillText(formatHz(slice.maxFrequencyHz), W - padR, H - 1);
             }
 
             function renderTrackSpectra() {
@@ -1978,8 +2115,8 @@ export class ComparisonPanel {
                         return;
                     }
                     const color = TRACK_COLORS[i % TRACK_COLORS.length];
-                    drawSpectrumAxes(ctx, W, H, slice, 22, 4, 4, 12);
-                    drawSpectrumLine(ctx, W, H, slice, color, { padL: 22, padR: 4, padT: 4, padB: 12 });
+                    drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14);
+                    drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 });
                 });
             }
 

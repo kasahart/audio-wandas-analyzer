@@ -26,6 +26,12 @@ interface TestSnapshot {
         spectrumOverlayPresent: boolean;
         spectrumTrackCanvasCount: number;
         visibleSpectrumTrackCount: number;
+        axisLabels: {
+            spectrumOverlay: string[];
+            spectrogramPerTrack: string[][];
+            spectrumPerTrack: string[][];
+            waveformPerTrack: string[][];
+        };
         tracks: Array<{
             trackIndex: number;
             offsetSeconds: number;
@@ -190,6 +196,41 @@ export async function run(): Promise<void> {
                 assert.ok(offsetTrack.offsetSeconds > baselineTrack.offsetSeconds, 'Track offset should increase after offset-up actions');
                 assert.ok(offsetTrack.visibleFileStartNorm < baselineTrack.visibleFileStartNorm, 'Visible range should shift after offset increase');
                 assert.ok(offsetTrack.visibleFileEndNorm < baselineTrack.visibleFileEndNorm, 'Visible range end should also shift after offset increase');
+            },
+        },
+        {
+            name: 'axis labels with units are emitted for waveform / spectrogram / spectrum',
+            run: async () => {
+                const snapshot = await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+                assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist');
+                const axes = snapshot.renderedUi.axisLabels;
+                assert.ok(axes, 'axisLabels must be present in snapshot');
+
+                const wf = axes.waveformPerTrack[0] ?? [];
+                assert.ok(wf.includes('+1.0') && wf.includes('-1.0') && wf.includes('0'),
+                    `waveform axis labels missing: ${JSON.stringify(wf)}`);
+                assert.ok(wf.some((s) => s.includes('Amp')),
+                    `waveform axis title (Amp) missing: ${JSON.stringify(wf)}`);
+
+                const sg = axes.spectrogramPerTrack[0] ?? [];
+                assert.ok(sg.includes('0 Hz'),
+                    `spectrogram should include "0 Hz": ${JSON.stringify(sg)}`);
+                assert.ok(sg.some((s) => /Hz$/.test(s) && s !== '0 Hz'),
+                    `spectrogram should include a non-zero frequency label: ${JSON.stringify(sg)}`);
+                assert.ok(sg.some((s) => /dB$/.test(s)),
+                    `spectrogram colorbar dB label missing: ${JSON.stringify(sg)}`);
+
+                const sp = axes.spectrumPerTrack[0] ?? [];
+                assert.ok(sp.includes('0 Hz'),
+                    `per-track spectrum should include "0 Hz": ${JSON.stringify(sp)}`);
+                assert.ok(sp.some((s) => /dB$/.test(s)),
+                    `per-track spectrum dB label missing: ${JSON.stringify(sp)}`);
+
+                const overlay = axes.spectrumOverlay;
+                assert.ok(overlay.includes('0 Hz'),
+                    `overlay spectrum should include "0 Hz": ${JSON.stringify(overlay)}`);
+                assert.ok(overlay.some((s) => /dB$/.test(s)),
+                    `overlay spectrum dB label missing: ${JSON.stringify(overlay)}`);
             },
         },
     ];
