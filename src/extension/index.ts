@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { AnalysisResult, AnalysisResultWithError, DirectoryTreeNode } from '../shared/analysis/analysisTypes';
+import type { AnalysisResult, AnalysisResultWithError, DirectoryTreeNode, StftOptions } from '../shared/analysis/analysisTypes';
 import {
     isAnalyzeSelectedFilesMessage,
     isSelectPythonEnvironmentMessage,
@@ -573,16 +573,25 @@ async function analyzeFilesWithProgress(
     );
 }
 
-async function runAnalysis(extensionPath: string, fileUri: vscode.Uri): Promise<AnalysisResult> {
+async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptions?: StftOptions): Promise<AnalysisResult> {
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
     const pythonCommand = config.get<string>('pythonCommand', 'python3');
     const defaultPeakCount = config.get<number>('defaultPeakCount', 5);
     const scriptPath = path.join(extensionPath, 'python-backend', 'main.py');
 
+    const args = [scriptPath, '--file', fileUri.fsPath, '--peaks', String(defaultPeakCount)];
+    if (stftOptions) {
+        args.push(
+            '--stft-n-fft', String(stftOptions.nFft),
+            '--stft-hop', String(stftOptions.hopSize),
+            '--stft-window', stftOptions.window,
+        );
+    }
+
     return new Promise((resolve, reject) => {
         const process = spawn(
             pythonCommand,
-            [scriptPath, '--file', fileUri.fsPath, '--peaks', String(defaultPeakCount)],
+            args,
             {
                 cwd: extensionPath,
                 stdio: ['ignore', 'pipe', 'pipe'],
