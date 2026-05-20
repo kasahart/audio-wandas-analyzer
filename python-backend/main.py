@@ -12,6 +12,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--range-start", type=float, default=None, dest="range_start")
     parser.add_argument("--range-end", type=float, default=None, dest="range_end")
     parser.add_argument("--range-points", type=int, default=2000, dest="range_points")
+    parser.add_argument("--stft-n-fft", type=int, default=None, dest="stft_n_fft")
+    parser.add_argument("--stft-hop", type=int, default=None, dest="stft_hop")
+    parser.add_argument("--stft-window", type=str, default=None, dest="stft_window")
     return parser.parse_args()
 
 
@@ -31,7 +34,14 @@ def main() -> int:
         else:
             from analyzer import analyze_audio  # noqa: PLC0415
 
-            result = analyze_audio(args.file, peak_count=args.peaks)
+            stft_options = None
+            if args.stft_n_fft is not None and args.stft_hop is not None:
+                stft_options = {
+                    "n_fft": args.stft_n_fft,
+                    "hop_size": args.stft_hop,
+                    "window": args.stft_window or "hann",
+                }
+            result = analyze_audio(args.file, peak_count=args.peaks, stft_options=stft_options)
     except Exception as error:
         print(str(error), file=sys.stderr)
         return 1
