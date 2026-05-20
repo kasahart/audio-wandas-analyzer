@@ -982,6 +982,7 @@ export class ComparisonPanel {
                     + '<span class="tb-label">トラック:</span>'
                     + '<button class="tb-btn is-active" data-action="content-waveform">波形</button>'
                     + '<button class="tb-btn" data-action="content-spectrogram">スペクトログラム</button>'
+                    + '<button class="tb-btn" data-action="spectrogram-settings" title="スペクトログラム設定" style="display:none">⚙</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span class="tb-label">ズーム:</span>'
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
@@ -1251,6 +1252,12 @@ export class ComparisonPanel {
                 const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
                 const trackDurRatio = dur / gs.spanSec;
 
+                const dispCfg = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display) || {};
+                const dbLo = (dispCfg.dbMin != null) ? dispCfg.dbMin : spec.minDb;
+                const dbHi = (dispCfg.dbMax != null) ? dispCfg.dbMax : spec.maxDb;
+                const maxFreq = (dispCfg.maxFrequencyHz != null) ? Math.min(dispCfg.maxFrequencyHz, spec.maxFrequencyHz) : spec.maxFrequencyHz;
+                const freqPerBin = spec.maxFrequencyHz / Math.max(fBins, 1);
+
                 const imageData = ctx.createImageData(W, H);
                 const data = imageData.data;
 
@@ -1263,11 +1270,13 @@ export class ComparisonPanel {
                     for (let py = 0; py < H; py++) {
                         const fIdx = Math.floor((1 - py / H) * fBins);
                         if (fIdx < 0 || fIdx >= fBins) { continue; }
+                        const fHz = fIdx * freqPerBin;
+                        if (fHz > maxFreq) { continue; }
                         const val = (spec.values[tIdx] && spec.values[tIdx][fIdx] !== undefined)
-                            ? spec.values[tIdx][fIdx] : spec.minDb;
-                        const range = spec.maxDb - spec.minDb;
+                            ? spec.values[tIdx][fIdx] : dbLo;
+                        const range = dbHi - dbLo;
                         const norm = range !== 0
-                            ? Math.max(0, Math.min(1, (val - spec.minDb) / range))
+                            ? Math.max(0, Math.min(1, (val - dbLo) / range))
                             : 0;
                         const off = (py * W + px) * 4;
                         const rgb = dbToRgb(norm);
@@ -1828,11 +1837,13 @@ export class ComparisonPanel {
                     contentType = 'waveform';
                     document.querySelector('[data-action="content-waveform"]').classList.add('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.remove('is-active');
+                    __updateSpecGearVisibility();
                     scheduleRender();
                 } else if (action === 'content-spectrogram') {
                     contentType = 'spectrogram';
                     document.querySelector('[data-action="content-waveform"]').classList.remove('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.add('is-active');
+                    __updateSpecGearVisibility();
                     scheduleRender();
                 } else if (action === 'zoom-in') {
                     zoomIn();
@@ -2237,6 +2248,144 @@ export class ComparisonPanel {
                 scheduleRender();
                 refreshSpectrumViews();
             }
+
+            // ── Spectrogram settings popover ──
+            let __spectrogramSettings = state.spectrogramSettings || {
+                auto: true,
+                stft: { nFft: 1024, hopSize: 256, window: 'hann' },
+                display: { dbMin: null, dbMax: null, maxFrequencyHz: null }
+            };
+
+            function __updateSpecGearVisibility() {
+                const gear = document.querySelector('[data-action="spectrogram-settings"]');
+                if (gear) { gear.style.display = (contentType === 'spectrogram') ? '' : 'none'; }
+            }
+
+            (function __buildSpecPopover() {
+                const nfftOptions = [64,128,256,512,1024,2048,4096,8192,16384]
+                    .map(function(v) { return '<option value="' + v + '">' + v + '</option>'; })
+                    .join('');
+                const html = ''
+                    + '<div id="spec-settings-popover" hidden style="position:absolute;z-index:50;background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:6px;min-width:260px;color:var(--text);font-family:var(--font-ui);">'
+                    + '<label style="display:block;margin-bottom:6px"><input type="checkbox" id="spec-auto"> Auto (defaults)</label>'
+                    + '<fieldset id="spec-stft-fields" style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
+                    + '<legend>STFT</legend>'
+                    + '<label>n_fft <select id="spec-nfft">' + nfftOptions + '</select></label><br>'
+                    + '<label>hop_size <input type="number" id="spec-hop" min="1" step="1"></label><br>'
+                    + '<label>window <select id="spec-window">'
+                    + '<option value="hann">hann</option><option value="hamming">hamming</option>'
+                    + '<option value="blackman">blackman</option><option value="boxcar">boxcar</option>'
+                    + '</select></label>'
+                    + '<div style="font-size:11px;color:var(--muted)">変更は「適用」で反映</div>'
+                    + '</fieldset>'
+                    + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
+                    + '<legend>Display</legend>'
+                    + '<label>dB min <input type="number" id="spec-dbmin" step="1" placeholder="auto"></label><br>'
+                    + '<label>dB max <input type="number" id="spec-dbmax" step="1" placeholder="auto"></label><br>'
+                    + '<label>max freq Hz <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="Nyquist"></label>'
+                    + '</fieldset>'
+                    + '<div style="display:flex;gap:6px;justify-content:flex-end">'
+                    + '<button class="tb-btn" id="spec-reset">Reset</button>'
+                    + '<button class="tb-btn" id="spec-apply">Apply</button>'
+                    + '</div>'
+                    + '</div>';
+                document.body.insertAdjacentHTML('beforeend', html);
+            })();
+
+            const __specPopover = document.getElementById('spec-settings-popover');
+
+            function __syncSpecFormFromState() {
+                document.getElementById('spec-auto').checked = !!__spectrogramSettings.auto;
+                document.getElementById('spec-nfft').value = String(__spectrogramSettings.stft.nFft);
+                document.getElementById('spec-hop').value = String(__spectrogramSettings.stft.hopSize);
+                document.getElementById('spec-window').value = __spectrogramSettings.stft.window;
+                document.getElementById('spec-dbmin').value = __spectrogramSettings.display.dbMin == null ? '' : __spectrogramSettings.display.dbMin;
+                document.getElementById('spec-dbmax').value = __spectrogramSettings.display.dbMax == null ? '' : __spectrogramSettings.display.dbMax;
+                document.getElementById('spec-maxfreq').value = __spectrogramSettings.display.maxFrequencyHz == null ? '' : __spectrogramSettings.display.maxFrequencyHz;
+                __applySpecAutoState();
+            }
+
+            function __applySpecAutoState() {
+                const auto = document.getElementById('spec-auto').checked;
+                document.getElementById('spec-stft-fields').disabled = auto;
+            }
+
+            function __readDisplayFromForm() {
+                function n(id) {
+                    const v = document.getElementById(id).value;
+                    return v === '' ? null : Number(v);
+                }
+                return { dbMin: n('spec-dbmin'), dbMax: n('spec-dbmax'), maxFrequencyHz: n('spec-maxfreq') };
+            }
+
+            function __openSpecPopover() {
+                const btn = document.querySelector('[data-action="spectrogram-settings"]');
+                if (!btn || !__specPopover) { return; }
+                const rect = btn.getBoundingClientRect();
+                __specPopover.style.top = (rect.bottom + 6) + 'px';
+                __specPopover.style.left = Math.max(8, rect.right - 280) + 'px';
+                __specPopover.hidden = false;
+                __syncSpecFormFromState();
+            }
+
+            function __closeSpecPopover() { if (__specPopover) { __specPopover.hidden = true; } }
+
+            document.getElementById('spec-auto').addEventListener('change', __applySpecAutoState);
+
+            ['spec-dbmin','spec-dbmax','spec-maxfreq'].forEach(function(id) {
+                document.getElementById(id).addEventListener('change', function() {
+                    __spectrogramSettings.display = __readDisplayFromForm();
+                    vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+                    scheduleRender();
+                });
+            });
+
+            document.getElementById('spec-reset').addEventListener('click', function() {
+                __spectrogramSettings = { auto: true, stft: { nFft: 1024, hopSize: 256, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
+                __syncSpecFormFromState();
+                vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+                scheduleRender();
+            });
+
+            document.getElementById('spec-apply').addEventListener('click', function() {
+                __spectrogramSettings = {
+                    auto: document.getElementById('spec-auto').checked,
+                    stft: {
+                        nFft: Number(document.getElementById('spec-nfft').value),
+                        hopSize: Number(document.getElementById('spec-hop').value),
+                        window: document.getElementById('spec-window').value
+                    },
+                    display: __readDisplayFromForm()
+                };
+                vscode.postMessage({ type: 'request-reanalyze', settings: __spectrogramSettings });
+                __closeSpecPopover();
+            });
+
+            document.addEventListener('click', function(ev) {
+                const target = ev.target;
+                const btn = target && target.closest ? target.closest('[data-action="spectrogram-settings"]') : null;
+                if (btn) {
+                    ev.stopPropagation();
+                    if (__specPopover.hidden) { __openSpecPopover(); } else { __closeSpecPopover(); }
+                    return;
+                }
+                if (__specPopover && !__specPopover.hidden && !__specPopover.contains(target)) { __closeSpecPopover(); }
+            });
+
+            document.addEventListener('keydown', function(ev) { if (ev.key === 'Escape') { __closeSpecPopover(); } });
+
+            window.addEventListener('message', function(event) {
+                const msg = event.data;
+                if (!msg || msg.type !== 'analysis-update' || !Array.isArray(msg.results)) { return; }
+                state.results = msg.results.map(function(r, i) {
+                    const old = state.results[i];
+                    return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
+                });
+                scheduleRender();
+                refreshSpectrumViews();
+            });
+
+            __updateSpecGearVisibility();
         })();
         `;
     }
