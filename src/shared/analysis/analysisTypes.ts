@@ -51,3 +51,44 @@ export interface DirectoryTreeNode {
     filePath?: string;
     children?: DirectoryTreeNode[];
 }
+
+export type StftWindow = 'hann' | 'hamming' | 'blackman' | 'boxcar';
+
+export interface StftOptions {
+    nFft: number;
+    hopSize: number;
+    window: StftWindow;
+}
+
+export interface SpectrogramDisplaySettings {
+    dbMin: number | null;
+    dbMax: number | null;
+    maxFrequencyHz: number | null;
+}
+
+export interface SpectrogramSettings {
+    auto: boolean;
+    stft: StftOptions;
+    display: SpectrogramDisplaySettings;
+}
+
+export const DEFAULT_SPECTROGRAM_SETTINGS: SpectrogramSettings = {
+    auto: true,
+    stft: { nFft: 1024, hopSize: 256, window: 'hann' },
+    display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
+};
+
+export interface RequestReanalyzeMessage {
+    type: 'request-reanalyze';
+    settings: SpectrogramSettings;
+}
+
+export interface UpdateSpectrogramSettingsMessage {
+    type: 'update-spectrogram-settings';
+    settings: SpectrogramSettings;
+}
+
+export interface AnalysisUpdateMessage {
+    type: 'analysis-update';
+    results: AnalysisResultWithError[];
+}
