@@ -55,13 +55,14 @@ interface TestSnapshot {
  *
  * - `single-track`: SINGLE_TRACK_DEBUG_AUDIO_PATH を解析した結果が表示済み
  * - `multi-track-all`: MULTI_TRACK_DEBUG_AUDIO_PATH の全ファイルを選択済み
- * - `any`: 直前の状態に依存しない (ケース内で必要なら自前で analyze する)
+ * - `any`: 特に要件なし。直前の状態をそのまま引き継ぐ
+ *   (ケース冒頭で何も保証されない。必要なら自前で analyze する)
  */
 type FixturePreset = 'single-track' | 'multi-track-all' | 'any';
 
 interface E2ETestCase {
     name: string;
-    /** 開始前に保証されるフィクスチャ。省略時は前ケースの状態を引き継ぐ。 */
+    /** 開始前に保証されるフィクスチャ。省略時は 'any' (前ケースの状態を引き継ぐ)。 */
     requires?: FixturePreset;
     run: (ctx: { snapshot: TestSnapshot }) => Promise<void>;
 }
@@ -80,14 +81,20 @@ let currentFixture: FixturePreset | null = null;
 let currentSnapshot: TestSnapshot | null = null;
 
 async function ensureFixture(preset: FixturePreset): Promise<TestSnapshot> {
+    // 'any' は要件なし — 何もロードせず、現在の webview スナップショットを返す。
+    // 何もロードされていない場合は single-track を保証する (E2E の出発点)。
     if (preset === 'any') {
-        if (currentSnapshot) { return currentSnapshot; }
-        currentFixture = 'single-track';
-        currentSnapshot = await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
-        return currentSnapshot;
+        if (currentFixture === null) {
+            currentFixture = 'single-track';
+            currentSnapshot = await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+            return currentSnapshot;
+        }
+        return refreshSnapshot();
     }
+    // フィクスチャが変わったときだけ再 analyze。同じなら最新スナップショットを取得し直す
+    // (前ケースが postTestActions で webview を変更している可能性があるため)。
     if (currentFixture === preset && currentSnapshot) {
-        return currentSnapshot;
+        return refreshSnapshot();
     }
     currentFixture = preset;
     if (preset === 'single-track') {
@@ -96,6 +103,13 @@ async function ensureFixture(preset: FixturePreset): Promise<TestSnapshot> {
         currentSnapshot = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
     }
     return currentSnapshot;
+}
+
+/** 最新の webview スナップショットを取得 (キャッシュも更新)。 */
+async function refreshSnapshot(): Promise<TestSnapshot> {
+    const latest = await waitForSnapshot();
+    currentSnapshot = latest;
+    return latest;
 }
 
 function invalidateFixtureCache(): void {
@@ -107,7 +121,7 @@ function invalidateFixtureCache(): void {
  * E2E_SHUFFLE_SEED=<n> が設定されていればケースをそのシードで決定論的にシャッフルする。
  * 暗黙の順序依存が残っていた場合に検出するため。CI には混入させず、ローカル検証用。
  */
-function maybeShuffle<T>(items: T[]): T[] {
+function maybeShuffle<T extends { name: string }>(items: T[]): T[] {
     const seedStr = process.env.E2E_SHUFFLE_SEED;
     if (!seedStr) { return items; }
     let seed = Number(seedStr);
@@ -122,7 +136,7 @@ function maybeShuffle<T>(items: T[]): T[] {
         const j = Math.floor(rand() * (i + 1));
         [out[i], out[j]] = [out[j], out[i]];
     }
-    console.log(`E2E shuffled with seed ${seedStr}: ${out.map((c) => (c as { name: string }).name).join(' / ')}`);
+    console.log(`E2E shuffled with seed ${seedStr}: ${out.map((c) => c.name).join(' / ')}`);
     return out;
 }
 
