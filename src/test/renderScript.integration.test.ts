@@ -307,15 +307,18 @@ test('directory selection mode renders file tree checkboxes for audio files', ()
     assert.match(dom.window.document.body.textContent || '', /b\.flac/);
 });
 
-test('directory selection mode renders a Python environment button in the selection toolbar only', () => {
+test('directory selection mode renders a Python environment button in the selection toolbar and results toolbar', () => {
     const { dom } = setupSelectionEnv();
     const selectionButton = dom.window.document.getElementById('selection-python-environment');
-    const mainToolbarButton = dom.window.document.querySelector('#toolbar [data-action="select-python-environment"]');
+    const mainToolbarButton = dom.window.document.getElementById('toolbar-python-environment');
 
     assert.ok(selectionButton instanceof dom.window.HTMLButtonElement);
     assert.equal(selectionButton.textContent, 'Python: python3');
     assert.equal(selectionButton.title, 'Click to select Python interpreter');
-    assert.equal(mainToolbarButton, null);
+
+    assert.ok(mainToolbarButton instanceof dom.window.HTMLButtonElement);
+    assert.equal(mainToolbarButton.textContent, 'Python: python3');
+    assert.equal(mainToolbarButton.title, 'Click to select Python interpreter');
 });
 
 test('selection Python button posts select-python-environment when clicked', () => {

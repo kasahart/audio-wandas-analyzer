@@ -423,7 +423,10 @@ export function getComparisonRenderScript(): string {
                     + nodes.map(function(node) {
                         if (node.type === 'directory') {
                             return '<li>'
-                                + '<div class="selection-tree-directory">' + escHtml(node.name) + '</div>'
+                                + '<div class="selection-tree-directory" data-action="toggle-directory">'
+                                + '<span class="dir-toggle">▼</span>'
+                                + '<span class="dir-name">' + escHtml(node.name) + '</span>'
+                                + '</div>'
                                 + buildSelectionTree(node.children || [], false)
                                 + '</li>';
                         }
@@ -451,10 +454,13 @@ export function getComparisonRenderScript(): string {
             }
 
             function buildToolbar() {
+                const pythonButtonText = 'Python: ' + (pythonEnvironmentState.pythonCommand || 'python3') + (pythonEnvironmentState.status === 'warning' ? ' ⚠' : '');
+                const pythonButtonClass = 'tb-btn' + (pythonEnvironmentState.status === 'warning' ? ' is-warning' : '');
                 return '<span style="font-weight:700;font-size:12px;color:var(--accent)">' + escHtml(STR.toolbarMain) + '</span>'
                     + '<div class="tb-sep"></div>'
                     + '<button class="tb-btn" data-action="open-file">' + escHtml(STR.btnOpenFile) + '</button>'
                     + '<button class="tb-btn" data-action="open-folder">' + escHtml(STR.btnOpenFolder) + '</button>'
+                    + '<button class="' + pythonButtonClass + '" id="toolbar-python-environment" data-action="select-python-environment" title="' + escHtml(pythonEnvironmentState.tooltip || '') + '">' + escHtml(pythonButtonText) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span class="tb-label">' + escHtml(STR.toolbarTrackLabel) + '</span>'
                     + '<button class="tb-btn is-active" data-action="content-waveform">' + escHtml(STR.btnWaveform) + '</button>'
@@ -464,6 +470,7 @@ export function getComparisonRenderScript(): string {
                     + '<span class="tb-label">' + escHtml(STR.toolbarZoomLabel) + '</span>'
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in">＋</button>'
+                    + '<button class="tb-btn" data-action="zoom-reset">Reset</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
                     + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>';
@@ -650,6 +657,10 @@ export function getComparisonRenderScript(): string {
                         return originalLineTo(x, y);
                     };
                     try {
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.rect(32, 0, W - 32, H);
+                        ctx.clip();
                         window.renderWaveformPipeline(ctx, W, H, src.waveform, {
                             zoomStart,
                             zoomEnd,
@@ -659,6 +670,7 @@ export function getComparisonRenderScript(): string {
                             dataEnd: src.dataEnd,
                             color,
                         });
+                        ctx.restore();
                     } finally {
                         ctx.moveTo = originalMoveTo;
                         ctx.lineTo = originalLineTo;
@@ -1213,6 +1225,21 @@ export function getComparisonRenderScript(): string {
                 layout.addEventListener('click', function(e) {
                     const target = e.target;
                     if (!target || typeof target.getAttribute !== 'function') { return; }
+
+                    const dirHeader = target.closest('.selection-tree-directory');
+                    if (dirHeader) {
+                        const list = dirHeader.nextElementSibling;
+                        const toggle = dirHeader.querySelector('.dir-toggle');
+                        if (list && list.classList && list.classList.contains('selection-tree-list')) {
+                            const isCollapsed = list.style.display === 'none';
+                            list.style.display = isCollapsed ? '' : 'none';
+                            if (toggle) {
+                                toggle.textContent = isCollapsed ? '▼' : '▶';
+                            }
+                        }
+                        return;
+                    }
+
                     const action = target.getAttribute('data-action');
                     if (!action) { return; }
 
@@ -1241,6 +1268,9 @@ export function getComparisonRenderScript(): string {
             function handleSelectionAction(action) {
                 if (action === 'open-file' || action === 'open-folder' || action === 'select-python-environment') {
                     handleToolbarAction(action);
+                    return true;
+                }
+                if (action === 'toggle-directory') {
                     return true;
                 }
                 if (action === 'selection-select-all') {
@@ -1281,17 +1311,27 @@ export function getComparisonRenderScript(): string {
             }
 
             function syncPythonEnvironmentButton() {
-                const button = document.getElementById('selection-python-environment');
-                if (!button) { return; }
+                const selectionButton = document.getElementById('selection-python-environment');
+                const toolbarButton = document.getElementById('toolbar-python-environment');
                 const pythonCommand = pythonEnvironmentState && typeof pythonEnvironmentState.pythonCommand === 'string'
                     ? pythonEnvironmentState.pythonCommand
                     : 'python3';
                 const isWarning = pythonEnvironmentState && pythonEnvironmentState.status === 'warning';
-                button.textContent = 'Python: ' + pythonCommand + (isWarning ? ' ⚠' : '');
-                button.title = pythonEnvironmentState && typeof pythonEnvironmentState.tooltip === 'string'
+                const buttonText = 'Python: ' + pythonCommand + (isWarning ? ' ⚠' : '');
+                const tooltip = pythonEnvironmentState && typeof pythonEnvironmentState.tooltip === 'string'
                     ? pythonEnvironmentState.tooltip
                     : 'Click to select Python interpreter';
-                button.classList.toggle('is-warning', !!isWarning);
+
+                if (selectionButton) {
+                    selectionButton.textContent = buttonText;
+                    selectionButton.title = tooltip;
+                    selectionButton.classList.toggle('is-warning', !!isWarning);
+                }
+                if (toolbarButton) {
+                    toolbarButton.textContent = buttonText;
+                    toolbarButton.title = tooltip;
+                    toolbarButton.classList.toggle('is-warning', !!isWarning);
+                }
             }
 
             function postSelectedFiles() {
@@ -1329,6 +1369,10 @@ export function getComparisonRenderScript(): string {
                     zoomIn();
                 } else if (action === 'zoom-out') {
                     zoomOut();
+                } else if (action === 'zoom-reset') {
+                    zoomStart = 0;
+                    zoomEnd = 1;
+                    scheduleRender();
                 }
             }
 
@@ -1538,12 +1582,19 @@ export function getComparisonRenderScript(): string {
                 if (tIdx >= spec.timeBins) { tIdx = spec.timeBins - 1; }
                 const slice = spec.values[tIdx];
                 if (!slice || slice.length === 0) { return null; }
+
+                const displaySettings = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display) || {};
+                const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : spec.minDb;
+                const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : spec.maxDb;
+                const maxFrequencyHz = displaySettings.maxFrequencyHz != null ? displaySettings.maxFrequencyHz : spec.maxFrequencyHz;
+
                 return {
                     values: slice,
                     frequencyBins: spec.frequencyBins,
-                    maxFrequencyHz: spec.maxFrequencyHz,
-                    minDb: spec.minDb,
-                    maxDb: spec.maxDb,
+                    originalMaxFrequencyHz: spec.maxFrequencyHz,
+                    maxFrequencyHz: maxFrequencyHz,
+                    minDb: minDb,
+                    maxDb: maxDb,
                 };
             }
 
@@ -1560,8 +1611,11 @@ export function getComparisonRenderScript(): string {
                 ctx.strokeStyle = color;
                 ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
                 ctx.beginPath();
+                const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
                 for (let i = 0; i < fBins; i++) {
-                    const x = padL + (i / Math.max(fBins - 1, 1)) * plotW;
+                    const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
+                    if (fHz > slice.maxFrequencyHz) { break; }
+                    const x = padL + (fHz / slice.maxFrequencyHz) * plotW;
                     const v = slice.values[i];
                     const norm = Math.max(0, Math.min(1, (v - slice.minDb) / range));
                     const y = padT + (1 - norm) * plotH;
@@ -1666,8 +1720,10 @@ export function getComparisonRenderScript(): string {
                     ctx.lineWidth = 1.4;
                     ctx.beginPath();
                     const fBins = s.slice.frequencyBins;
+                    const originalMaxFreq = s.slice.originalMaxFrequencyHz || s.slice.maxFrequencyHz;
                     for (let i = 0; i < fBins; i++) {
-                        const fHz = (i / Math.max(fBins - 1, 1)) * s.slice.maxFrequencyHz;
+                        const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
+                        if (fHz > maxF) { break; }
                         const x = padL + (fHz / maxF) * plotW;
                         const v = s.slice.values[i];
                         const norm = Math.max(0, Math.min(1, (v - minDb) / range));
@@ -1894,6 +1950,7 @@ export function getComparisonRenderScript(): string {
                     return;
                 }
                 if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
+                    __setReanalyzeBusy(false);
                     state.results = msg.results.map(function(r, i) {
                         const old = state.results[i];
                         return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
