@@ -70,6 +70,18 @@ python -m pytest python-backend -q
 
 Do **not** invent ad-hoc verification recipes. If a check is worth running, add it to `scripts/verify.sh`.
 
+### 並行作業用ハーネス
+
+複数エージェントで並行に PR を進める／PR スタック中に独立した作業領域が必要なときは worktree を使う:
+
+```bash
+scripts/worktree-new.sh <feature-slug> [base-branch]   # base 既定: main
+# .worktrees/<slug>/ に worktree が作られ、新規ブランチ <slug> が切られる。
+# node_modules と .venv は symlink で共有、dist と .vscode-test は worktree 専有。
+```
+
+`npm run compile` は実行前に `scripts/clean-dist.js` で **対応する `src/**/*.ts` が存在しない tsc 出力 (`.js` / `.js.map`)** を自動削除する。ブランチ切替や rebase 後に古いテスト .js が node:test に拾われる事故 (stale dist) を防ぐ。`.json` や画像など tsc が emit しないファイルは対象外で誤削除されない。別 build スクリプトが生成する成果物 (現状は将来予定の `dist/webview/comparisonWaveform.js`) は `PROTECTED_RELATIVE` で保護する。
+
 ---
 
 ## 4. Architecture — key files
@@ -80,9 +92,8 @@ Do **not** invent ad-hoc verification recipes. If a check is worth running, add 
 | `src/extension/waveformServer.ts` | Persistent Python child process for range requests; newline-JSON IPC |
 | `src/webview/panels/ComparisonPanel.ts` | Multi-track comparison Webview; `renderScript()` returns the inline JS |
 | `src/shared/analysis/analysisTypes.ts` | Shared `AnalysisResult` / `DirectoryTreeNode` contracts |
-| `src/webview/waveform/waveformRenderer.ts` | Pure TS waveform rendering pipeline (3 layers, no Canvas dependency) |
+| `src/webview/waveform/waveformRenderer.ts` | Pure TS waveform rendering pipeline (3 layers, no Canvas dependency). `scripts/build-webview.js` packages it as `dist/webview/comparisonWaveform.js` for the Webview. |
 | `src/webview/waveform/rangeRequestPolicy.ts` | `isCacheSufficient` / `computeReqBounds` |
-| `media/comparisonWaveform.js` | Plain-JS mirror of `waveformRenderer.ts`, loaded by the Webview |
 | `python-backend/analyzer.py` | `analyze_audio()` — full-file analysis via wandas |
 | `python-backend/decimator.py` | `decimated_waveform()` — bucket-level argmin/argmax |
 | `python-backend/range_analyzer.py` | `analyze_range()` — range-only high-res waveform via soundfile |
@@ -90,7 +101,7 @@ Do **not** invent ad-hoc verification recipes. If a check is worth running, add 
 
 ### Waveform rendering pipeline
 
-`waveformRenderer.ts` and `media/comparisonWaveform.js` implement the **same algorithm in two languages**. Three pure layers:
+`waveformRenderer.ts` is the **single source of truth**. `scripts/build-webview.js` wraps the compiled CJS output into an IIFE and emits `dist/webview/comparisonWaveform.js`, which the Webview loads via `<script src>`. Three pure layers:
 
 1. **CoordTransform** (`makeCoordTransform`) — file-normalized time `tNorm ∈ [0,1]` → canvas x, using `offsetNorm` and `trackDurRatio`.
 2. **Decimation** (`computeViewRange` + `decimateBuckets`) — choose bucket range and apply argmin/argmax.
@@ -124,10 +135,6 @@ trackDurRatio  = durationSeconds / globalSpanSec
 - Prefer wandas APIs over reimplementing DSP. See `python-backend/analyzer.py` for the canonical entry point.
 - Tests use `pytest` and live alongside the module they test (`python-backend/test_*.py`).
 
-### Cross-language invariant
-
-`media/comparisonWaveform.js` mirrors `src/webview/waveform/waveformRenderer.ts`. **When you change one, change the other.** There is no automated parity check — `src/test/renderScript.integration.test.ts` only smoke-tests that `comparisonWaveform.js` loads and runs in jsdom; `src/test/waveformRenderer.test.ts` covers the TypeScript renderer in isolation. Diff between the two files visually before committing.
-
 ---
 
 ## 6. Testing strategy
@@ -148,15 +155,14 @@ trackDurRatio  = durationSeconds / globalSpanSec
 1. **Read this file before any non-trivial change.**
 2. **Don't create new files** unless the task genuinely requires it. Prefer editing existing files. No new markdown docs unless the user asks.
 3. **Read-only paths**: `dist/`, `.venv/`, `node_modules/`, `.vscode-test/`, `.worktrees/`. Never edit or stage them.
-4. **Sync waveform mirrors**: editing `waveformRenderer.ts` requires the matching edit in `media/comparisonWaveform.js` (and vice versa).
-5. **Completion bar**: `npm run verify` must pass before claiming the task is done. If you can't run it, say so explicitly — don't claim success.
-6. **No comments restating what the code does.** No multi-paragraph docstrings. No "added for issue #X" notes.
-7. **Don't add fallback/error handling for impossible cases.** Validate at boundaries (user input, IPC payloads), trust internal code.
-8. **Don't bypass quality gates**: never use `--no-verify`, `--no-gpg-sign`, `git push --force` to main, or `pytest --noconftest` to silence a failure. Diagnose the root cause.
+4. **Completion bar**: `npm run verify` must pass before claiming the task is done. If you can't run it, say so explicitly — don't claim success.
+5. **No comments restating what the code does.** No multi-paragraph docstrings. No "added for issue #X" notes.
+6. **Don't add fallback/error handling for impossible cases.** Validate at boundaries (user input, IPC payloads), trust internal code.
+7. **Don't bypass quality gates**: never use `--no-verify`, `--no-gpg-sign`, `git push --force` to main, or `pytest --noconftest` to silence a failure. Diagnose the root cause.
 
 ---
 
 ## 8. Agent-specific notes
 
-- **Claude Code**: also read [CLAUDE.md](CLAUDE.md). It documents the available `wandas-*` skills, `.claude/settings.json` permissions, and the PostToolUse hook that warns when only one waveform mirror is edited.
+- **Claude Code**: also read [CLAUDE.md](CLAUDE.md). It documents the available `wandas-*` skills and `.claude/settings.json` permissions.
 - **GitHub Copilot**: also read [.github/copilot-instructions.md](.github/copilot-instructions.md). It restates the completion bar and the waveform-mirror invariant in a form Copilot picks up automatically.
