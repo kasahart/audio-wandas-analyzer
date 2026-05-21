@@ -45,17 +45,26 @@ if [[ -e "$worktree_dir" ]]; then
 fi
 
 # base ブランチを最新化 (ネットワーク不可な環境ではローカルにフォールバック)。
-# fetch は 10 秒で諦め、ローカルの $base から作成する。
+# fetch は 10 秒で諦め、オフラインでもローカル参照から動けるようにする。
+# fetch 成功時は origin/$base (最新) から、失敗時は local $base から worktree を切る。
+fetch_ok=1
 if ! timeout 10 git fetch origin "$base" --quiet 2>/dev/null; then
+    fetch_ok=0
     echo "  (fetch skipped: using local $base)" >&2
 fi
-if ! git rev-parse --verify --quiet "$base" >/dev/null; then
-    echo "base branch '$base' not found locally" >&2
+
+if [[ "$fetch_ok" -eq 1 ]] && git rev-parse --verify --quiet "origin/$base" >/dev/null; then
+    fork_point="origin/$base"
+elif git rev-parse --verify --quiet "$base" >/dev/null; then
+    fork_point="$base"
+else
+    echo "base ref not found: tried origin/$base and local $base" >&2
     exit 1
 fi
 
 # worktree 作成
-git worktree add -b "$branch" "$worktree_dir" "$base"
+echo "  forking from: $fork_point"
+git worktree add -b "$branch" "$worktree_dir" "$fork_point"
 
 cd "$worktree_dir"
 
