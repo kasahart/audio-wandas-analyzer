@@ -2,7 +2,12 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { serializeForScript } from '../../shared/utils/webviewEscaping';
 import { getComparisonRenderScript } from '../comparisonRenderScript';
-import type { AnalysisResultWithError, DirectoryTreeNode } from '../../shared/analysis/analysisTypes';
+import {
+    DEFAULT_SPECTROGRAM_SETTINGS,
+    type AnalysisResultWithError,
+    type DirectoryTreeNode,
+    type SpectrogramSettings,
+} from '../../shared/analysis/analysisTypes';
 
 interface ComparisonTrackState extends AnalysisResultWithError {
     audioSource?: string;
@@ -11,6 +16,7 @@ interface ComparisonTrackState extends AnalysisResultWithError {
 interface ComparisonResultsState {
     mode: 'results';
     results: ComparisonTrackState[];
+    spectrogramSettings: SpectrogramSettings;
 }
 
 interface DirectorySelectionState {
@@ -25,6 +31,7 @@ interface DirectorySelectionState {
         status: 'normal' | 'warning';
         tooltip: string;
     };
+    spectrogramSettings: SpectrogramSettings;
 }
 
 type ComparisonState = ComparisonResultsState | DirectorySelectionState;
@@ -50,6 +57,13 @@ interface ComparisonPanelRenderedUi {
     spectrumOverlayPresent: boolean;
     spectrumTrackCanvasCount: number;
     visibleSpectrumTrackCount: number;
+    latestSpectrogram?: {
+        windowSize: number;
+        hopSize: number;
+        dbMinApplied: number | null;
+        dbMaxApplied: number | null;
+        maxFrequencyHzApplied: number | null;
+    };
     axisLabels: {
         spectrumOverlay: string[];
         spectrogramPerTrack: string[][];
@@ -82,7 +96,7 @@ interface ComparisonPanelRenderedUiMessage {
 interface ComparisonPanelTestActionMessage {
     type: 'comparison-panel-test-action';
     actionId: string;
-    actions: Array<string | { action: string; trackIndex?: number }>;
+    actions: Array<string | { action: string; trackIndex?: number; payload?: Record<string, unknown> }>;
 }
 
 export class ComparisonPanel {
@@ -94,6 +108,7 @@ export class ComparisonPanel {
         extensionUri: vscode.Uri,
         results: AnalysisResultWithError[],
         existingPanel?: vscode.WebviewPanel,
+        spectrogramSettings: SpectrogramSettings = DEFAULT_SPECTROGRAM_SETTINGS,
     ): vscode.WebviewPanel {
         const title = results.length === 1
             ? `Audio Analyzer: ${results[0].fileName}`
@@ -146,6 +161,7 @@ export class ComparisonPanel {
                 ...result,
                 audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
             })),
+            spectrogramSettings,
         };
         const html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
         panel.webview.html = html;
@@ -167,6 +183,7 @@ export class ComparisonPanel {
         results: AnalysisResultWithError[],
         pythonEnvironmentState: DirectorySelectionState['pythonEnvironmentState'],
         existingPanel?: vscode.WebviewPanel,
+        spectrogramSettings: SpectrogramSettings = DEFAULT_SPECTROGRAM_SETTINGS,
     ): vscode.WebviewPanel {
         const title = `Audio Analyzer: ${path.basename(rootPath) || rootPath}`;
         const panel = existingPanel ?? vscode.window.createWebviewPanel(
@@ -220,6 +237,7 @@ export class ComparisonPanel {
             allFilePaths,
             selectedFilePaths,
             pythonEnvironmentState,
+            spectrogramSettings,
         };
         const html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
         panel.webview.html = html;
@@ -242,7 +260,7 @@ export class ComparisonPanel {
 
     public static async postTestActions(
         actionId: string,
-        actions: Array<string | { action: string; trackIndex?: number }>,
+        actions: Array<string | { action: string; trackIndex?: number; payload?: Record<string, unknown> }>,
     ): Promise<void> {
         if (!ComparisonPanel.activePanel) {
             throw new Error('No active ComparisonPanel is available for test actions');

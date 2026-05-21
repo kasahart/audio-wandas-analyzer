@@ -1,7 +1,17 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { AnalysisResult, AnalysisResultWithError, DirectoryTreeNode } from '../shared/analysis/analysisTypes';
+import {
+    DEFAULT_SPECTROGRAM_SETTINGS,
+    type AnalysisResult,
+    type AnalysisResultWithError,
+    type AnalysisUpdateMessage,
+    type DirectoryTreeNode,
+    type RequestReanalyzeMessage,
+    type SpectrogramSettings,
+    type StftOptions,
+    type UpdateSpectrogramSettingsMessage,
+} from '../shared/analysis/analysisTypes';
 import {
     isAnalyzeSelectedFilesMessage,
     isSelectPythonEnvironmentMessage,
@@ -28,7 +38,15 @@ import {
 } from './pythonEnvironment';
 import { WaveformServer } from './waveformServer';
 
+const SPECTROGRAM_SETTINGS_KEY = 'audioWandasAnalyzer.spectrogramSettings';
+
+function loadSpectrogramSettings(context: vscode.ExtensionContext): SpectrogramSettings {
+    const stored = context.workspaceState.get<SpectrogramSettings>(SPECTROGRAM_SETTINGS_KEY);
+    return stored ?? DEFAULT_SPECTROGRAM_SETTINGS;
+}
+
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
+const panelResultFilePaths = new WeakMap<vscode.WebviewPanel, string[]>();
 const panelPythonEnvironmentDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 const panelDirectorySelections = new WeakMap<vscode.WebviewPanel, {
     rootPath: string;
@@ -220,7 +238,7 @@ async function analyzeAudioTarget(
         }
 
         const comparisonPanel = showDirectorySelectionPanel(
-            context.extensionUri,
+            context,
             targetUri.fsPath,
             tree,
             filePaths,
@@ -287,7 +305,7 @@ function registerPanelMessageHandler(
 
                 if (selectedFilePaths.length === 0) {
                     showDirectorySelectionPanel(
-                        context.extensionUri,
+                        context,
                         selection.rootPath,
                         selection.tree,
                         selection.allFilePaths,
@@ -333,7 +351,7 @@ function registerPanelMessageHandler(
 
                 waveformServer?.warmup();
                 showDirectorySelectionPanel(
-                    context.extensionUri,
+                    context,
                     currentSelection.rootPath,
                     currentSelection.tree,
                     currentSelection.allFilePaths,
@@ -357,6 +375,30 @@ function registerPanelMessageHandler(
                 }
 
                 await analyzeAudioTarget(context, selected, panel);
+                return;
+            }
+
+            if (isUpdateSpectrogramSettingsMessage(message)) {
+                await context.workspaceState.update(SPECTROGRAM_SETTINGS_KEY, message.settings);
+                return;
+            }
+
+            if (isRequestReanalyzeMessage(message)) {
+                await context.workspaceState.update(SPECTROGRAM_SETTINGS_KEY, message.settings);
+                const filePaths = getActiveFilePathsForPanel(panel);
+                const stftOptions = message.settings.auto ? undefined : message.settings.stft;
+                await panel.webview.postMessage({ type: 'reanalyze-start', count: filePaths.length });
+                try {
+                    const results = await analyzeFilesWithProgress(
+                        context,
+                        filePaths,
+                        stftOptions,
+                        `Recomputing spectrogram (${filePaths.length} file${filePaths.length === 1 ? '' : 's'})`,
+                    );
+                    await panel.webview.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
+                } finally {
+                    await panel.webview.postMessage({ type: 'reanalyze-end' });
+                }
                 return;
             }
 
@@ -392,7 +434,7 @@ function registerPanelMessageHandler(
 }
 
 function showDirectorySelectionPanel(
-    extensionUri: vscode.Uri,
+    context: vscode.ExtensionContext,
     rootPath: string,
     directoryTree: DirectoryTreeNode[],
     allFilePaths: string[],
@@ -401,7 +443,7 @@ function showDirectorySelectionPanel(
     existingPanel?: vscode.WebviewPanel,
 ): vscode.WebviewPanel {
     const panel = ComparisonPanel.showDirectorySelection(
-        extensionUri,
+        context.extensionUri,
         rootPath,
         directoryTree,
         allFilePaths,
@@ -409,7 +451,9 @@ function showDirectorySelectionPanel(
         results,
         getCurrentPythonEnvironmentState(),
         existingPanel,
+        loadSpectrogramSettings(context),
     );
+    panelResultFilePaths.set(panel, results.map((r) => r.filePath));
     ensurePythonEnvironmentStateSync(panel);
     return panel;
 }
@@ -427,6 +471,23 @@ function ensurePythonEnvironmentStateSync(panel: vscode.WebviewPanel): void {
     }
 
     postPythonEnvironmentState(panel, getCurrentPythonEnvironmentState());
+}
+
+function getActiveFilePathsForPanel(panel: vscode.WebviewPanel): string[] {
+    const selection = panelDirectorySelections.get(panel);
+    if (selection) {
+        return [...selection.selectedFilePaths];
+    }
+    const fallback = panelResultFilePaths.get(panel);
+    return fallback ? [...fallback] : [];
+}
+
+function isRequestReanalyzeMessage(value: unknown): value is RequestReanalyzeMessage {
+    return !!value && typeof value === 'object' && (value as { type?: unknown }).type === 'request-reanalyze';
+}
+
+function isUpdateSpectrogramSettingsMessage(value: unknown): value is UpdateSpectrogramSettingsMessage {
+    return !!value && typeof value === 'object' && (value as { type?: unknown }).type === 'update-spectrogram-settings';
 }
 
 function postPythonEnvironmentState(panel: vscode.WebviewPanel, state: PythonEnvironmentState): void {
@@ -530,18 +591,26 @@ async function analyzeMultipleFiles(
 ): Promise<void> {
     const results = await analyzeFilesWithProgress(context, filePaths);
     waveformServer?.warmup();
-    const comparisonPanel = ComparisonPanel.show(context.extensionUri, results, panel);
+    const comparisonPanel = ComparisonPanel.show(
+        context.extensionUri,
+        results,
+        panel,
+        loadSpectrogramSettings(context),
+    );
+    panelResultFilePaths.set(comparisonPanel, results.map((r) => r.filePath));
     registerPanelMessageHandler(context, comparisonPanel);
 }
 
 async function analyzeFilesWithProgress(
     context: vscode.ExtensionContext,
     filePaths: string[],
+    stftOptions?: StftOptions,
+    titleOverride?: string,
 ): Promise<AnalysisResultWithError[]> {
     return vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
-            title: `Analyzing ${filePaths.length} files with wandas`,
+            title: titleOverride ?? `Analyzing ${filePaths.length} files with wandas`,
             cancellable: false,
         },
         async (progress) => {
@@ -552,7 +621,7 @@ async function analyzeFilesWithProgress(
                     message: `(${i + 1}/${filePaths.length}) ${path.basename(filePaths[i])}`,
                 });
                 try {
-                    const result = await runAnalysis(context.extensionPath, vscode.Uri.file(filePaths[i]));
+                    const result = await runAnalysis(context.extensionPath, vscode.Uri.file(filePaths[i]), stftOptions);
                     results.push(result);
                 } catch (err) {
                     results.push({
@@ -573,16 +642,25 @@ async function analyzeFilesWithProgress(
     );
 }
 
-async function runAnalysis(extensionPath: string, fileUri: vscode.Uri): Promise<AnalysisResult> {
+async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptions?: StftOptions): Promise<AnalysisResult> {
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
     const pythonCommand = config.get<string>('pythonCommand', 'python3');
     const defaultPeakCount = config.get<number>('defaultPeakCount', 5);
     const scriptPath = path.join(extensionPath, 'python-backend', 'main.py');
 
+    const args = [scriptPath, '--file', fileUri.fsPath, '--peaks', String(defaultPeakCount)];
+    if (stftOptions) {
+        args.push(
+            '--stft-n-fft', String(stftOptions.nFft),
+            '--stft-hop', String(stftOptions.hopSize),
+            '--stft-window', stftOptions.window,
+        );
+    }
+
     return new Promise((resolve, reject) => {
         const process = spawn(
             pythonCommand,
-            [scriptPath, '--file', fileUri.fsPath, '--peaks', String(defaultPeakCount)],
+            args,
             {
                 cwd: extensionPath,
                 stdio: ['ignore', 'pipe', 'pipe'],

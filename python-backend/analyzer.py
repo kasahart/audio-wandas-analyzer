@@ -173,7 +173,39 @@ def analyze_range(
     return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
 
 
-def analyze_audio(file_path: str | Path, peak_count: int = 5) -> dict[str, object]:
+_ALLOWED_WINDOWS = {"hann", "hamming", "blackman", "boxcar"}
+
+
+def _resolve_stft_params(
+    sample_count: int,
+    stft_options: dict | None,
+) -> tuple[int, int, str]:
+    if stft_options is None:
+        window_size = max(64, _pick_window_size(sample_count))
+        hop_size = max(
+            1,
+            int(np.ceil(max(1, sample_count - window_size) / max(1, SPECTROGRAM_TIME_BIN_LIMIT - 1))),
+        )
+        return window_size, hop_size, "hann"
+
+    n_fft = int(stft_options.get("n_fft", 0))
+    hop = int(stft_options.get("hop_size", 0))
+    window = str(stft_options.get("window", "hann"))
+    if n_fft < 64 or n_fft > 16384:
+        raise ValueError(f"n_fft must be in [64, 16384], got {n_fft}")
+    if hop < 1 or hop > n_fft:
+        raise ValueError(f"hop_size must be in [1, n_fft], got {hop}")
+    if window not in _ALLOWED_WINDOWS:
+        raise ValueError(f"window must be one of {sorted(_ALLOWED_WINDOWS)}, got {window!r}")
+    return n_fft, hop, window
+
+
+def analyze_audio(
+    file_path: str | Path,
+    peak_count: int = 5,
+    *,
+    stft_options: dict | None = None,
+) -> dict[str, object]:
     target = Path(file_path).expanduser().resolve()
     if not target.exists():
         raise FileNotFoundError(f"Audio file not found: {target}")
@@ -190,9 +222,8 @@ def analyze_audio(file_path: str | Path, peak_count: int = 5) -> dict[str, objec
     fft_freqs = np.asarray(fft.freqs, dtype=np.float64)
     fft_magnitudes = _channels_first(np.asarray(fft.magnitude), channel_count, fft_freqs.size)
 
-    window_size = max(64, _pick_window_size(sample_count))
-    hop_size = max(1, int(np.ceil(max(1, sample_count - window_size) / max(1, SPECTROGRAM_TIME_BIN_LIMIT - 1))))
-    stft = signal.stft(n_fft=window_size, hop_length=hop_size)
+    window_size, hop_size, window_name = _resolve_stft_params(sample_count, stft_options)
+    stft = signal.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
     stft_db = np.asarray(stft.dB, dtype=np.float64)
 
     channels: list[dict[str, object]] = []

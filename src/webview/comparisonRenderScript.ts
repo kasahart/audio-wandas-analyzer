@@ -1,15 +1,13 @@
 /**
  * ComparisonPanel の webview に注入される IIFE JavaScript を返す。
  *
- * NOTE: この関数は文字列を組み立てるだけのファサード。実体は backtick
- * テンプレート内の inline JS であり、`__APP_STATE__` をグローバル経由で受け取る。
- * 物理分離の目的は ComparisonPanel.ts の肥大化防止と、renderScript の
- * import-and-test を可能にすること。Step 3 で純粋描画関数は
- * src/webview/draw/canvasDrawers.ts に切り出され、ここではそれを
- * `window.draw*` 経由で呼ぶ薄い alias と DOM テーマ橋渡しを行う。
+ * NOTE: 文字列を組み立てるだけのファサード。実体は backtick テンプレート内の
+ * inline JS で、`__APP_STATE__` をグローバル経由で受け取る。
+ * 純粋描画関数は src/webview/draw/canvasDrawers.ts に切り出され、ここでは
+ * window.draw* 経由で呼ぶ薄い alias と DOM テーマ橋渡しを行う。
  */
 export function getComparisonRenderScript(): string {
-    return `
+        return `
         (function() {
             const vscode = acquireVsCodeApi();
             const state = __APP_STATE__;
@@ -24,36 +22,6 @@ export function getComparisonRenderScript(): string {
             };
 
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc'];
-
-            // src/webview/draw/canvasDrawers.ts からビルドされた window.draw* を
-            // 旧来の関数名でローカルに alias する。
-            // テーマ色は body の CSS 変数 (--muted / --track-bg / --line) から取る。
-            // 描画ごとに getComputedStyle を呼ぶと毎フレーム DOM レイアウト計算が
-            // 走るため初回のみ計算してキャッシュする。CSS 変数は runtime に変わらない
-            // 前提 (テーマ切替が必要になったら invalidateCachedTheme() を呼ぶ)。
-            let cachedTheme = null;
-            function getTheme() {
-                if (cachedTheme) { return cachedTheme; }
-                const cs = getComputedStyle(document.body);
-                cachedTheme = {
-                    mutedColor: cs.getPropertyValue('--muted').trim() || '#888',
-                    bgColor: cs.getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)',
-                    lineColor: cs.getPropertyValue('--line').trim() || '#444',
-                };
-                return cachedTheme;
-            }
-            const formatHz = window.formatHz;
-            const dbToRgb = window.dbToRgb;
-            const drawSpectrumLine = window.drawSpectrumLine;
-            function drawWaveformAmplitudeAxis(ctx, W, H) {
-                return window.drawWaveformAmplitudeAxis(ctx, W, H, getTheme());
-            }
-            function drawSpectrogramAxes(ctx, W, H, spec) {
-                return window.drawSpectrogramAxes(ctx, W, H, spec, getTheme());
-            }
-            function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB) {
-                return window.drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB, getTheme());
-            }
 
             function hexToRgba(hex, alpha) {
                 const r = parseInt(hex.slice(1, 3), 16);
@@ -173,6 +141,32 @@ export function getComparisonRenderScript(): string {
                 if (entry.action === 'offset-down' && idx >= 0) { adjustOffset(idx, -0.01); }
                 if (entry.action === 'toggle-mute' && idx >= 0) { toggleMute(idx); }
                 if (entry.action === 'remove-track' && idx >= 0) { removeTrack(idx); }
+                if (entry.action === 'open-spectrogram-settings') {
+                    const gear = document.querySelector('[data-action="spectrogram-settings"]');
+                    if (gear) { gear.click(); }
+                }
+                if (entry.action === 'apply-spectrogram-settings' && entry.payload) {
+                    const p = entry.payload;
+                    if (__specPopover && __specPopover.hidden) { __openSpecPopover(); }
+                    document.getElementById('spec-auto').checked = !!p.auto;
+                    if (p.nFft != null) { document.getElementById('spec-nfft').value = String(p.nFft); }
+                    if (p.hopSize != null) { document.getElementById('spec-hop').value = String(p.hopSize); }
+                    if (p.window != null) { document.getElementById('spec-window').value = String(p.window); }
+                    __applySpecAutoState();
+                    document.getElementById('spec-apply').click();
+                }
+                if (entry.action === 'set-spectrogram-display' && entry.payload) {
+                    const p = entry.payload;
+                    if (__specPopover && __specPopover.hidden) { __openSpecPopover(); }
+                    function __setN(id, v) {
+                        const el = document.getElementById(id);
+                        el.value = (v == null) ? '' : String(v);
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    __setN('spec-dbmin', p.dbMin);
+                    __setN('spec-dbmax', p.dbMax);
+                    __setN('spec-maxfreq', p.maxFrequencyHz);
+                }
             }
 
             function scheduleRangeRequests() {
@@ -269,9 +263,13 @@ export function getComparisonRenderScript(): string {
                     waveformPerTrack.push(['+1.0', '0', '-1.0', 'Amp (FS)']);
                     const ch0 = result.channels && result.channels[0];
                     const spec = ch0 && ch0.spectrogram;
+                    const dispCfg2 = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display) || {};
+                    const specDbLo = spec ? ((dispCfg2.dbMin != null) ? dispCfg2.dbMin : spec.minDb) : 0;
+                    const specDbHi = spec ? ((dispCfg2.dbMax != null) ? dispCfg2.dbMax : spec.maxDb) : 0;
+                    const specMaxF = spec ? ((dispCfg2.maxFrequencyHz != null) ? Math.min(dispCfg2.maxFrequencyHz, spec.maxFrequencyHz) : spec.maxFrequencyHz) : 0;
                     spectrogramPerTrack.push(spec
-                        ? ['0 Hz', formatHz(spec.maxFrequencyHz / 2), formatHz(spec.maxFrequencyHz),
-                           spec.minDb.toFixed(0) + ' dB', spec.maxDb.toFixed(0) + ' dB', 'Freq']
+                        ? ['0 Hz', formatHz(specMaxF / 2), formatHz(specMaxF),
+                           specDbLo.toFixed(0) + ' dB', specDbHi.toFixed(0) + ' dB', 'Freq']
                         : []);
                     spectrumPerTrack.push(slice
                         ? [slice.maxDb.toFixed(0) + ' dB',
@@ -295,6 +293,26 @@ export function getComparisonRenderScript(): string {
                         spectrumSlicePresent: !!slice,
                     };
                 });
+                let latestSpectrogram;
+                try {
+                    const firstSpec = state.results
+                        && state.results[0]
+                        && state.results[0].channels
+                        && state.results[0].channels[0]
+                        && state.results[0].channels[0].spectrogram;
+                    if (firstSpec) {
+                        const disp = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display)
+                            ? __spectrogramSettings.display
+                            : { dbMin: null, dbMax: null, maxFrequencyHz: null };
+                        latestSpectrogram = {
+                            windowSize: firstSpec.windowSize,
+                            hopSize: firstSpec.hopSize,
+                            dbMinApplied: disp.dbMin == null ? null : Number(disp.dbMin),
+                            dbMaxApplied: disp.dbMax == null ? null : Number(disp.dbMax),
+                            maxFrequencyHzApplied: disp.maxFrequencyHz == null ? null : Number(disp.maxFrequencyHz),
+                        };
+                    }
+                } catch (e) { /* ignore */ }
                 vscode.postMessage({
                     type: 'comparison-panel-test-snapshot',
                     actionId: actionId,
@@ -314,6 +332,7 @@ export function getComparisonRenderScript(): string {
                         spectrumOverlayPresent: !!overlayCanvas,
                         spectrumTrackCanvasCount: document.querySelectorAll('.track-spectrum-canvas').length,
                         visibleSpectrumTrackCount: visibleSpectrumTrackCount,
+                        latestSpectrogram: latestSpectrogram,
                         axisLabels: {
                             spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayMinDb)
                                 ? [overlayMaxDb.toFixed(0) + ' dB',
@@ -439,6 +458,7 @@ export function getComparisonRenderScript(): string {
                     + '<span class="tb-label">トラック:</span>'
                     + '<button class="tb-btn is-active" data-action="content-waveform">波形</button>'
                     + '<button class="tb-btn" data-action="content-spectrogram">スペクトログラム</button>'
+                    + '<button class="tb-btn" data-action="spectrogram-settings" title="スペクトログラム設定" style="display:none">⚙</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span class="tb-label">ズーム:</span>'
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
@@ -664,6 +684,34 @@ export function getComparisonRenderScript(): string {
                 drawWaveformAmplitudeAxis(ctx, W, H);
             }
 
+            function drawWaveformAmplitudeAxis(ctx, W, H) {
+                const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
+                const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
+                const labelW = 30;
+                ctx.save();
+                ctx.fillStyle = bgColor;
+                ctx.globalAlpha = 0.7;
+                ctx.fillRect(0, 0, labelW, H);
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = mutedColor;
+                ctx.font = '9px monospace';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                ctx.fillText('+1.0', labelW - 2, 1);
+                ctx.textBaseline = 'middle';
+                ctx.fillText('0', labelW - 2, H / 2);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('-1.0', labelW - 2, H - 1);
+                ctx.save();
+                ctx.translate(8, H / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('Amp (FS)', 0, 0);
+                ctx.restore();
+                ctx.restore();
+            }
+
             function drawSpectrogram(canvas, result, offsetSeconds) {
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width;
@@ -680,6 +728,12 @@ export function getComparisonRenderScript(): string {
                 const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
                 const trackDurRatio = dur / gs.spanSec;
 
+                const dispCfg = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display) || {};
+                const dbLo = (dispCfg.dbMin != null) ? dispCfg.dbMin : spec.minDb;
+                const dbHi = (dispCfg.dbMax != null) ? dispCfg.dbMax : spec.maxDb;
+                const maxFreq = (dispCfg.maxFrequencyHz != null) ? Math.min(dispCfg.maxFrequencyHz, spec.maxFrequencyHz) : spec.maxFrequencyHz;
+                const freqPerBin = spec.maxFrequencyHz / Math.max(fBins, 1);
+
                 const imageData = ctx.createImageData(W, H);
                 const data = imageData.data;
 
@@ -692,11 +746,13 @@ export function getComparisonRenderScript(): string {
                     for (let py = 0; py < H; py++) {
                         const fIdx = Math.floor((1 - py / H) * fBins);
                         if (fIdx < 0 || fIdx >= fBins) { continue; }
+                        const fHz = fIdx * freqPerBin;
+                        if (fHz > maxFreq) { continue; }
                         const val = (spec.values[tIdx] && spec.values[tIdx][fIdx] !== undefined)
-                            ? spec.values[tIdx][fIdx] : spec.minDb;
-                        const range = spec.maxDb - spec.minDb;
+                            ? spec.values[tIdx][fIdx] : dbLo;
+                        const range = dbHi - dbLo;
                         const norm = range !== 0
-                            ? Math.max(0, Math.min(1, (val - spec.minDb) / range))
+                            ? Math.max(0, Math.min(1, (val - dbLo) / range))
                             : 0;
                         const off = (py * W + px) * 4;
                         const rgb = dbToRgb(norm);
@@ -704,10 +760,80 @@ export function getComparisonRenderScript(): string {
                     }
                 }
                 ctx.putImageData(imageData, 0, 0);
-                drawSpectrogramAxes(ctx, W, H, spec);
+                drawSpectrogramAxes(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi, maxFreq: maxFreq });
                 drawLoopRegionOnCanvas(ctx, W, H);
                 drawCursorOnCanvas(ctx, W, H);
                 drawHoverLineOnCanvas(ctx, W, H);
+            }
+
+            // 軸とカラーバーは半透明オーバーレイとして全幅キャンバスの上に描画する。
+            // これによりカーソル/ループ/ホバー線とマウス入力は従来通り canvas.width 基準のままで済む。
+            function drawSpectrogramAxes(ctx, W, H, spec, opts) {
+                const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
+                const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
+                const labelW = 36;
+                const cbStripW = 50;
+                const o = opts || {};
+                const maxHz = (o.maxFreq != null) ? o.maxFreq : spec.maxFrequencyHz;
+                const dbLo = (o.dbLo != null) ? o.dbLo : spec.minDb;
+                const dbHi = (o.dbHi != null) ? o.dbHi : spec.maxDb;
+
+                ctx.save();
+                ctx.fillStyle = bgColor;
+                ctx.globalAlpha = 0.7;
+                ctx.fillRect(0, 0, labelW, H);
+                ctx.fillRect(W - cbStripW, 0, cbStripW, H);
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = mutedColor;
+                ctx.font = '9px monospace';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                ctx.fillText(formatHz(maxHz), labelW - 2, 1);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(formatHz(maxHz / 2), labelW - 2, H / 2);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('0 Hz', labelW - 2, H - 1);
+                ctx.save();
+                ctx.translate(9, H / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('Freq', 0, 0);
+                ctx.restore();
+
+                const cbW = 10;
+                const cbX = W - cbStripW + 6;
+                const cbY = 2;
+                const cbH = Math.max(1, H - 4);
+                const grad = ctx.createImageData(cbW, cbH);
+                for (let y = 0; y < cbH; y++) {
+                    const norm = 1 - y / Math.max(cbH - 1, 1);
+                    const rgb = dbToRgb(norm);
+                    for (let x = 0; x < cbW; x++) {
+                        const off = (y * cbW + x) * 4;
+                        grad.data[off] = rgb[0]; grad.data[off + 1] = rgb[1]; grad.data[off + 2] = rgb[2]; grad.data[off + 3] = 255;
+                    }
+                }
+                ctx.putImageData(grad, cbX, cbY);
+                ctx.fillStyle = mutedColor;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillText(dbHi.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(dbLo.toFixed(0) + ' dB', cbX + cbW + 2, cbY + cbH);
+                ctx.restore();
+            }
+
+            function formatHz(hz) {
+                if (hz >= 1000) { return (hz / 1000).toFixed(hz >= 10000 ? 0 : 1) + ' kHz'; }
+                return Math.round(hz) + ' Hz';
+            }
+
+            function dbToRgb(norm) {
+                if (norm < 0.25) { const t = norm / 0.25; return [Math.floor(68 + t * (59 - 68)), Math.floor(1 + t * (82 - 1)), Math.floor(84 + t * (139 - 84))]; }
+                if (norm < 0.5)  { const t = (norm - 0.25) / 0.25; return [Math.floor(59 + t * (33 - 59)), Math.floor(82 + t * (145 - 82)), Math.floor(139 + t * (140 - 139))]; }
+                if (norm < 0.75) { const t = (norm - 0.5) / 0.25; return [Math.floor(33 + t * (94 - 33)), Math.floor(145 + t * (201 - 145)), Math.floor(140 + t * (98 - 140))]; }
+                const t = (norm - 0.75) / 0.25; return [Math.floor(94 + t * (253 - 94)), Math.floor(201 + t * (231 - 201)), Math.floor(98 + t * (37 - 98))];
             }
 
             function drawCursorOnCanvas(ctx, W, H) {
@@ -1190,11 +1316,13 @@ export function getComparisonRenderScript(): string {
                     contentType = 'waveform';
                     document.querySelector('[data-action="content-waveform"]').classList.add('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.remove('is-active');
+                    __updateSpecGearVisibility();
                     scheduleRender();
                 } else if (action === 'content-spectrogram') {
                     contentType = 'spectrogram';
                     document.querySelector('[data-action="content-waveform"]').classList.remove('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.add('is-active');
+                    __updateSpecGearVisibility();
                     scheduleRender();
                 } else if (action === 'zoom-in') {
                     zoomIn();
@@ -1418,6 +1546,56 @@ export function getComparisonRenderScript(): string {
                 };
             }
 
+            function drawSpectrumLine(ctx, W, H, slice, color, opts) {
+                const fBins = slice.frequencyBins;
+                const range = slice.maxDb - slice.minDb;
+                if (range <= 0) { return; }
+                const padL = (opts && opts.padL) || 0;
+                const padR = (opts && opts.padR) || 0;
+                const padT = (opts && opts.padT) || 0;
+                const padB = (opts && opts.padB) || 0;
+                const plotW = W - padL - padR;
+                const plotH = H - padT - padB;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
+                ctx.beginPath();
+                for (let i = 0; i < fBins; i++) {
+                    const x = padL + (i / Math.max(fBins - 1, 1)) * plotW;
+                    const v = slice.values[i];
+                    const norm = Math.max(0, Math.min(1, (v - slice.minDb) / range));
+                    const y = padT + (1 - norm) * plotH;
+                    if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+                }
+                ctx.stroke();
+            }
+
+            function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB) {
+                const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
+                const lineColor = getComputedStyle(document.body).getPropertyValue('--line').trim() || '#444';
+                const plotW = W - padL - padR;
+                const plotH = H - padT - padB;
+                ctx.strokeStyle = lineColor;
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(padL, padT); ctx.lineTo(padL, H - padB);
+                ctx.moveTo(padL, H - padB); ctx.lineTo(W - padR, H - padB);
+                ctx.stroke();
+                ctx.fillStyle = mutedColor;
+                ctx.font = '9px monospace';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                ctx.fillText(slice.maxDb.toFixed(0) + ' dB', padL - 2, padT);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' dB', padL - 2, padT + plotH / 2);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(slice.minDb.toFixed(0) + ' dB', padL - 2, H - padB);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('0 Hz', padL, H - 1);
+                ctx.fillText(formatHz(slice.maxFrequencyHz / 2), padL + plotW / 2, H - 1);
+                ctx.fillText(formatHz(slice.maxFrequencyHz), W - padR, H - 1);
+            }
+
             function renderTrackSpectra() {
                 state.results.forEach(function(result, i) {
                     const canvas = document.getElementById('track-spectrum-' + i);
@@ -1549,6 +1727,184 @@ export function getComparisonRenderScript(): string {
                 scheduleRender();
                 refreshSpectrumViews();
             }
+
+            // ── Spectrogram settings popover ──
+            let __spectrogramSettings = state.spectrogramSettings || {
+                auto: true,
+                stft: { nFft: 1024, hopSize: 256, window: 'hann' },
+                display: { dbMin: null, dbMax: null, maxFrequencyHz: null }
+            };
+
+            function __updateSpecGearVisibility() {
+                const gear = document.querySelector('[data-action="spectrogram-settings"]');
+                if (gear) { gear.style.display = (contentType === 'spectrogram') ? '' : 'none'; }
+            }
+
+            (function __buildSpecPopover() {
+                const nfftOptions = [64,128,256,512,1024,2048,4096,8192,16384]
+                    .map(function(v) { return '<option value="' + v + '">' + v + '</option>'; })
+                    .join('');
+                const html = ''
+                    + '<div id="spec-settings-popover" hidden style="position:absolute;z-index:50;background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:6px;min-width:260px;color:var(--text);font-family:var(--font-ui);">'
+                    + '<label style="display:block;margin-bottom:6px"><input type="checkbox" id="spec-auto"> Auto (defaults)</label>'
+                    + '<fieldset id="spec-stft-fields" style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
+                    + '<legend>STFT</legend>'
+                    + '<label>n_fft <select id="spec-nfft">' + nfftOptions + '</select></label><br>'
+                    + '<label>hop_size <input type="number" id="spec-hop" min="1" step="1"></label><br>'
+                    + '<label>window <select id="spec-window">'
+                    + '<option value="hann">hann</option><option value="hamming">hamming</option>'
+                    + '<option value="blackman">blackman</option><option value="boxcar">boxcar</option>'
+                    + '</select></label>'
+                    + '<div style="font-size:11px;color:var(--muted)">変更は「適用」で反映</div>'
+                    + '</fieldset>'
+                    + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
+                    + '<legend>Display</legend>'
+                    + '<label>dB min <input type="number" id="spec-dbmin" step="1" placeholder="auto"></label><br>'
+                    + '<label>dB max <input type="number" id="spec-dbmax" step="1" placeholder="auto"></label><br>'
+                    + '<label>max freq Hz <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="Nyquist"></label>'
+                    + '</fieldset>'
+                    + '<div style="display:flex;gap:6px;justify-content:flex-end">'
+                    + '<button class="tb-btn" id="spec-reset">Reset</button>'
+                    + '<button class="tb-btn" id="spec-apply">Apply</button>'
+                    + '</div>'
+                    + '</div>';
+                document.body.insertAdjacentHTML('beforeend', html);
+            })();
+
+            const __specPopover = document.getElementById('spec-settings-popover');
+
+            function __syncSpecFormFromState() {
+                document.getElementById('spec-auto').checked = !!__spectrogramSettings.auto;
+                document.getElementById('spec-nfft').value = String(__spectrogramSettings.stft.nFft);
+                document.getElementById('spec-hop').value = String(__spectrogramSettings.stft.hopSize);
+                document.getElementById('spec-window').value = __spectrogramSettings.stft.window;
+                document.getElementById('spec-dbmin').value = __spectrogramSettings.display.dbMin == null ? '' : __spectrogramSettings.display.dbMin;
+                document.getElementById('spec-dbmax').value = __spectrogramSettings.display.dbMax == null ? '' : __spectrogramSettings.display.dbMax;
+                document.getElementById('spec-maxfreq').value = __spectrogramSettings.display.maxFrequencyHz == null ? '' : __spectrogramSettings.display.maxFrequencyHz;
+                __applySpecAutoState();
+            }
+
+            function __applySpecAutoState() {
+                const auto = document.getElementById('spec-auto').checked;
+                document.getElementById('spec-stft-fields').disabled = auto;
+            }
+
+            function __readDisplayFromForm() {
+                function n(id) {
+                    const v = document.getElementById(id).value;
+                    return v === '' ? null : Number(v);
+                }
+                return { dbMin: n('spec-dbmin'), dbMax: n('spec-dbmax'), maxFrequencyHz: n('spec-maxfreq') };
+            }
+
+            function __openSpecPopover() {
+                const btn = document.querySelector('[data-action="spectrogram-settings"]');
+                if (!btn || !__specPopover) { return; }
+                const rect = btn.getBoundingClientRect();
+                __specPopover.style.top = (rect.bottom + 6) + 'px';
+                __specPopover.style.left = Math.max(8, rect.right - 280) + 'px';
+                __specPopover.hidden = false;
+                __syncSpecFormFromState();
+            }
+
+            function __closeSpecPopover() { if (__specPopover) { __specPopover.hidden = true; } }
+
+            document.getElementById('spec-auto').addEventListener('change', __applySpecAutoState);
+
+            ['spec-dbmin','spec-dbmax','spec-maxfreq'].forEach(function(id) {
+                document.getElementById(id).addEventListener('change', function() {
+                    __spectrogramSettings.display = __readDisplayFromForm();
+                    vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+                    scheduleRender();
+                    requestAnimationFrame(function() { publishTestSnapshot(); });
+                });
+            });
+
+            document.getElementById('spec-reset').addEventListener('click', function() {
+                __spectrogramSettings = { auto: true, stft: { nFft: 1024, hopSize: 256, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
+                __syncSpecFormFromState();
+                vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+                scheduleRender();
+            });
+
+            document.getElementById('spec-apply').addEventListener('click', function() {
+                __spectrogramSettings = {
+                    auto: document.getElementById('spec-auto').checked,
+                    stft: {
+                        nFft: Number(document.getElementById('spec-nfft').value),
+                        hopSize: Number(document.getElementById('spec-hop').value),
+                        window: document.getElementById('spec-window').value
+                    },
+                    display: __readDisplayFromForm()
+                };
+                __setReanalyzeBusy(true, 'STFT を再計算中…');
+                vscode.postMessage({ type: 'request-reanalyze', settings: __spectrogramSettings });
+                __closeSpecPopover();
+            });
+
+            // 再解析中のオーバーレイ
+            (function __buildReanalyzeOverlay() {
+                document.body.insertAdjacentHTML('beforeend',
+                    '<div id="reanalyze-overlay" hidden style="position:fixed;top:0;left:0;right:0;z-index:60;background:var(--panel);color:var(--text);'
+                    + 'padding:8px 14px;border-bottom:1px solid var(--line);font-family:var(--font-ui);font-size:12px;'
+                    + 'display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'
+                    + '<span class="spinner" style="width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></span>'
+                    + '<span id="reanalyze-overlay-msg">再計算中…</span>'
+                    + '</div>'
+                    + '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>');
+            })();
+
+            function __setReanalyzeBusy(busy, msg) {
+                const overlay = document.getElementById('reanalyze-overlay');
+                if (!overlay) { return; }
+                if (busy) {
+                    document.getElementById('reanalyze-overlay-msg').textContent = msg || '再計算中…';
+                    overlay.hidden = false;
+                } else {
+                    overlay.hidden = true;
+                }
+                const applyBtn = document.getElementById('spec-apply');
+                if (applyBtn) { applyBtn.disabled = !!busy; }
+            }
+
+            document.addEventListener('click', function(ev) {
+                const target = ev.target;
+                const btn = target && target.closest ? target.closest('[data-action="spectrogram-settings"]') : null;
+                if (btn) {
+                    ev.stopPropagation();
+                    if (__specPopover.hidden) { __openSpecPopover(); } else { __closeSpecPopover(); }
+                    return;
+                }
+                if (__specPopover && !__specPopover.hidden && !__specPopover.contains(target)) { __closeSpecPopover(); }
+            });
+
+            document.addEventListener('keydown', function(ev) { if (ev.key === 'Escape') { __closeSpecPopover(); } });
+
+            window.addEventListener('message', function(event) {
+                const msg = event.data;
+                if (!msg) { return; }
+                if (msg.type === 'reanalyze-start') {
+                    const cnt = typeof msg.count === 'number' ? msg.count : 0;
+                    __setReanalyzeBusy(true, 'STFT を再計算中… (' + cnt + ' ファイル)');
+                    return;
+                }
+                if (msg.type === 'reanalyze-end') {
+                    __setReanalyzeBusy(false);
+                    return;
+                }
+                if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
+                    state.results = msg.results.map(function(r, i) {
+                        const old = state.results[i];
+                        return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
+                    });
+                    scheduleRender();
+                    refreshSpectrumViews();
+                    requestAnimationFrame(function() { publishTestSnapshot(); });
+                    return;
+                }
+            });
+
+            __updateSpecGearVisibility();
         })();
-    `;
+        `;
 }
