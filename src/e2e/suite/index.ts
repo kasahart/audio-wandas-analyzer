@@ -50,13 +50,94 @@ interface TestSnapshot {
     };
 }
 
+/**
+ * 各ケースが要求する読み込み済み状態。
+ *
+ * - `single-track`: SINGLE_TRACK_DEBUG_AUDIO_PATH を解析した結果が表示済み
+ * - `multi-track-all`: MULTI_TRACK_DEBUG_AUDIO_PATH の全ファイルを選択済み
+ * - `any`: 特に要件なし。直前の状態をそのまま引き継ぐ
+ *   (ケース冒頭で何も保証されない。必要なら自前で analyze する)
+ */
+type FixturePreset = 'single-track' | 'multi-track-all' | 'any';
+
 interface E2ETestCase {
     name: string;
-    run: () => Promise<void>;
+    /** 開始前に保証されるフィクスチャ。省略時は 'any' (前ケースの状態を引き継ぐ)。 */
+    requires?: FixturePreset;
+    run: (ctx: { snapshot: TestSnapshot }) => Promise<void>;
 }
 
 function formatProgress(passed: number, total: number): string {
     return `[${passed}/${total}]`;
+}
+
+/**
+ * 直近で読み込んだフィクスチャを記録し、同じものが要求されたら再解析しない。
+ *
+ * これによりケース間に明示的な前提が宣言され、順序や挿入で壊れにくくなる。
+ * 異なるフィクスチャが要求された場合は確実に再 analyze する。
+ */
+let currentFixture: FixturePreset | null = null;
+let currentSnapshot: TestSnapshot | null = null;
+
+async function ensureFixture(preset: FixturePreset): Promise<TestSnapshot> {
+    // 'any' は要件なし — 何もロードせず、現在の webview スナップショットを返す。
+    // 何もロードされていない場合は single-track を保証する (E2E の出発点)。
+    if (preset === 'any') {
+        if (currentFixture === null) {
+            currentFixture = 'single-track';
+            currentSnapshot = await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+            return currentSnapshot;
+        }
+        return refreshSnapshot();
+    }
+    // フィクスチャが変わったときだけ再 analyze。同じなら最新スナップショットを取得し直す
+    // (前ケースが postTestActions で webview を変更している可能性があるため)。
+    if (currentFixture === preset && currentSnapshot) {
+        return refreshSnapshot();
+    }
+    currentFixture = preset;
+    if (preset === 'single-track') {
+        currentSnapshot = await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+    } else {
+        currentSnapshot = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
+    }
+    return currentSnapshot;
+}
+
+/** 最新の webview スナップショットを取得 (キャッシュも更新)。 */
+async function refreshSnapshot(): Promise<TestSnapshot> {
+    const latest = await waitForSnapshot();
+    currentSnapshot = latest;
+    return latest;
+}
+
+function invalidateFixtureCache(): void {
+    currentFixture = null;
+    currentSnapshot = null;
+}
+
+/**
+ * E2E_SHUFFLE_SEED=<n> が設定されていればケースをそのシードで決定論的にシャッフルする。
+ * 暗黙の順序依存が残っていた場合に検出するため。CI には混入させず、ローカル検証用。
+ */
+function maybeShuffle<T extends { name: string }>(items: T[]): T[] {
+    const seedStr = process.env.E2E_SHUFFLE_SEED;
+    if (!seedStr) { return items; }
+    let seed = Number(seedStr);
+    if (!Number.isFinite(seed)) { return items; }
+    const out = items.slice();
+    // 簡易 LCG (xorshift32 でも可) — 決定論的ならなんでもよい
+    const rand = (): number => {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        return seed / 0x100000000;
+    };
+    for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [out[i], out[j]] = [out[j], out[i]];
+    }
+    console.log(`E2E shuffled with seed ${seedStr}: ${out.map((c) => c.name).join(' / ')}`);
+    return out;
 }
 
 export async function run(): Promise<void> {
@@ -73,8 +154,8 @@ export async function run(): Promise<void> {
     const testCases: E2ETestCase[] = [
         {
             name: 'single-track analysis renders expected UI',
-            run: async () => {
-                const snapshot = await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+            requires: 'single-track',
+            run: async ({ snapshot }) => {
                 assert.equal(snapshot.title, 'Audio Analyzer: sine-440.wav');
                 assert.equal(snapshot.resultCount, 1);
                 assert.deepEqual(snapshot.fileNames, ['sine-440.wav']);
@@ -99,6 +180,7 @@ export async function run(): Promise<void> {
         },
         {
             name: 'zoom recovery returns to full-track view',
+            requires: 'single-track',
             run: async () => {
                 const zoomRecoverySnapshot = await runZoomRecoveryScenario();
                 assert.ok(zoomRecoverySnapshot.renderedUi, 'Rendered UI snapshot should exist after zoom recovery');
@@ -114,6 +196,7 @@ export async function run(): Promise<void> {
         },
         {
             name: 'zoomed waveform still covers viewport edges',
+            requires: 'single-track',
             run: async () => {
                 const zoomInEdgeCoverageSnapshot = await runZoomInEdgeCoverageScenario();
                 assert.ok(zoomInEdgeCoverageSnapshot.renderedUi, 'Rendered UI snapshot should exist after repeated zoom-in');
@@ -131,6 +214,7 @@ export async function run(): Promise<void> {
         },
         {
             name: 'spectrogram mode renders successfully',
+            requires: 'single-track',
             run: async () => {
                 const spectrogramSnapshot = await runViewModeScenario(['content-spectrogram']);
                 assert.ok(spectrogramSnapshot.renderedUi, 'Rendered UI snapshot should exist after spectrogram switch');
@@ -138,17 +222,17 @@ export async function run(): Promise<void> {
         },
         {
             name: 'multi-track folder analysis loads all tracks',
-            run: async () => {
-                const multiTrackSnapshot = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
-                assert.equal(multiTrackSnapshot.resultCount, 3);
-                assert.ok(multiTrackSnapshot.renderedUi, 'Rendered UI snapshot should exist for multi-track analysis');
-                assert.equal(multiTrackSnapshot.renderedUi.trackRowCount, 3);
+            requires: 'multi-track-all',
+            run: async ({ snapshot }) => {
+                assert.equal(snapshot.resultCount, 3);
+                assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist for multi-track analysis');
+                assert.equal(snapshot.renderedUi.trackRowCount, 3);
             },
         },
         {
             name: 'cursor power spectrum section is rendered for each track',
-            run: async () => {
-                const snapshot = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
+            requires: 'multi-track-all',
+            run: async ({ snapshot }) => {
                 assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist');
                 const ui = snapshot.renderedUi;
                 assert.equal(ui.spectrumOverlayPresent, true, 'overlay spectrum canvas should be rendered');
@@ -164,8 +248,8 @@ export async function run(): Promise<void> {
         },
         {
             name: 'muting a track removes it from the cursor spectrum overlay',
-            run: async () => {
-                const baseline = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
+            requires: 'multi-track-all',
+            run: async ({ snapshot: baseline }) => {
                 assert.ok(baseline.renderedUi);
                 const baselineVisible = baseline.renderedUi.visibleSpectrumTrackCount;
                 assert.ok(baselineVisible >= 1, 'baseline should have at least one visible spectrum slice');
@@ -181,10 +265,14 @@ export async function run(): Promise<void> {
                     Math.max(0, baselineVisible - 1),
                     'muting one track should drop the overlay slice count by one',
                 );
+                // ミュート状態を残すと次の multi-track-all ケースの前提が崩れるため、
+                // フィクスチャキャッシュを無効化して次回確実に再ロードさせる。
+                invalidateFixtureCache();
             },
         },
         {
             name: 'track offset changes visible range on multi-track view',
+            requires: 'multi-track-all',
             run: async () => {
                 const multiTrackZoomBaselineSnapshot = await runViewModeScenario(['zoom-in']);
                 assert.ok(multiTrackZoomBaselineSnapshot.renderedUi, 'Rendered UI snapshot should exist for multi-track zoom baseline');
@@ -200,8 +288,8 @@ export async function run(): Promise<void> {
         },
         {
             name: 'axis labels with units are emitted for waveform / spectrogram / spectrum',
-            run: async () => {
-                const snapshot = await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+            requires: 'single-track',
+            run: async ({ snapshot }) => {
                 assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist');
                 const axes = snapshot.renderedUi.axisLabels;
                 assert.ok(axes, 'axisLabels must be present in snapshot');
@@ -238,10 +326,13 @@ export async function run(): Promise<void> {
 
     await config.update('pythonCommand', pythonCommand, vscode.ConfigurationTarget.Global);
 
+    const orderedCases = maybeShuffle(testCases);
+
     try {
-        console.log(`Running ${testCases.length} VS Code E2E checks...`);
-        for (const testCase of testCases) {
-            await testCase.run();
+        console.log(`Running ${orderedCases.length} VS Code E2E checks...`);
+        for (const testCase of orderedCases) {
+            const snapshot = await ensureFixture(testCase.requires ?? 'any');
+            await testCase.run({ snapshot });
             passedCount += 1;
             console.log(`${formatProgress(passedCount, testCases.length)} PASS ${testCase.name}`);
         }
@@ -250,6 +341,7 @@ export async function run(): Promise<void> {
         console.error(`VS Code E2E summary: ${passedCount}/${testCases.length} passed before failure`);
         throw error;
     } finally {
+        invalidateFixtureCache();
         await config.update('debugFilePath', undefined, vscode.ConfigurationTarget.Global);
         await config.update('pythonCommand', undefined, vscode.ConfigurationTarget.Global);
     }
