@@ -1,0 +1,151 @@
+/**
+ * UI 文字列の英日辞書と locale 選択ロジック。
+ *
+ * 設計:
+ * - VS Code 拡張側 (extension/index.ts, ComparisonPanel.ts) も Webview JS 側も
+ *   同じ辞書を共有する。Webview には `__APP_STATE__.strings` 経由で送信する。
+ * - locale は VS Code の `vscode.env.language` (e.g. 'ja', 'en-US') から決定。
+ *   'ja' で始まる場合のみ日本語、それ以外は英語。
+ * - キーは英語半角の短いスラッグ。階層なし (フラット) で 1 ファイルに集約。
+ */
+
+export type SupportedLocale = 'en' | 'ja';
+
+export interface UiStrings {
+    panelTitle: string;
+    panelTitlePrefix: string;
+    panelComparePrefix: string;
+    emptyAllExcluded: string;
+    emptyNoTracks: string;
+    selectionHeader: string;
+    btnOpenFile: string;
+    btnOpenAnotherFolder: string;
+    btnOpenFolder: string;
+    btnSelectAll: string;
+    btnClear: string;
+    selectionCountLabel: string;
+    selectionNoSupported: string;
+    spectrumSectionTitle: string;
+    toolbarMain: string;
+    toolbarTrackLabel: string;
+    btnWaveform: string;
+    btnSpectrogram: string;
+    btnSpectrogramSettingsTitle: string;
+    toolbarZoomLabel: string;
+    cursorDisplayHint: string;
+    loopBadge: string;
+    trackPlayTitle: string;
+    trackStopTitle: string;
+    trackOffsetResetHint: string;
+    trackSpectrumTitle: string;
+    analysisFailed: string;
+    cursorHelpKeys: string;
+    tooltipLoopResize: string;
+    tooltipLoopClear: string;
+    tooltipLoopOrShift: string;
+    canvasOutOfRange: string;
+    spectrumNoData: string;
+    settingsApplyHint: string;
+    reanalyzingStft: string;
+    reanalyzingDefault: string;
+    reanalyzingFiles: string;
+}
+
+const STRINGS: Record<SupportedLocale, UiStrings> = {
+    en: {
+        panelTitle: 'Comparison Panel',
+        panelTitlePrefix: 'Audio Analyzer: ',
+        panelComparePrefix: 'Audio Compare: ',
+        emptyAllExcluded: 'All tracks are excluded',
+        emptyNoTracks: 'Files checked in the left tree appear here as tracks',
+        selectionHeader: 'Select files to analyze',
+        btnOpenFile: 'Open File',
+        btnOpenAnotherFolder: 'Open another folder',
+        btnOpenFolder: 'Open Folder',
+        btnSelectAll: 'Select all',
+        btnClear: 'Clear',
+        selectionCountLabel: 'selected',
+        selectionNoSupported: 'No supported audio files found.',
+        spectrumSectionTitle: 'Power spectrum at cursor (all tracks overlaid)',
+        toolbarMain: '⚡ Main',
+        toolbarTrackLabel: 'Track:',
+        btnWaveform: 'Waveform',
+        btnSpectrogram: 'Spectrogram',
+        btnSpectrogramSettingsTitle: 'Spectrogram settings',
+        toolbarZoomLabel: 'Zoom:',
+        cursorDisplayHint: 'Fine-tune with ← →',
+        loopBadge: '🔁 Looping',
+        trackPlayTitle: 'Play / pause',
+        trackStopTitle: 'Stop',
+        trackOffsetResetHint: 'Double-click to reset',
+        trackSpectrumTitle: 'Power spectrum at main cursor',
+        analysisFailed: 'Analysis failed: ',
+        cursorHelpKeys: '← →: move cursor   Shift+←→: 100 ms step   Space: play/pause',
+        tooltipLoopResize: 'Drag to resize loop region',
+        tooltipLoopClear: 'Click to clear loop',
+        tooltipLoopOrShift: 'Drag: set loop region\\nShift+Drag: shift track in time',
+        canvasOutOfRange: 'Out of range',
+        spectrumNoData: 'No track has data at the cursor position',
+        settingsApplyHint: 'Click Apply to commit changes',
+        reanalyzingStft: 'Recomputing STFT…',
+        reanalyzingDefault: 'Recomputing…',
+        reanalyzingFiles: 'Recomputing STFT… ({count} files)',
+    },
+    ja: {
+        panelTitle: '比較パネル',
+        panelTitlePrefix: 'Audio Analyzer: ',
+        panelComparePrefix: 'Audio Compare: ',
+        emptyAllExcluded: 'すべてのトラックが除外されています',
+        emptyNoTracks: '左のツリーでチェックしたファイルがここにトラックとして表示されます',
+        selectionHeader: '選択して解析',
+        btnOpenFile: 'ファイルを開く',
+        btnOpenAnotherFolder: '別のフォルダを開く',
+        btnOpenFolder: 'フォルダを開く',
+        btnSelectAll: 'すべて選択',
+        btnClear: 'クリア',
+        selectionCountLabel: '件を選択中',
+        selectionNoSupported: '対応する音声ファイルは見つかりませんでした。',
+        spectrumSectionTitle: 'カーソル時刻のパワースペクトル（全トラック重ね合わせ）',
+        toolbarMain: '⚡ メイン',
+        toolbarTrackLabel: 'トラック:',
+        btnWaveform: '波形',
+        btnSpectrogram: 'スペクトログラム',
+        btnSpectrogramSettingsTitle: 'スペクトログラム設定',
+        toolbarZoomLabel: 'ズーム:',
+        cursorDisplayHint: '← →キーで微調整できます',
+        loopBadge: '🔁 ループ再生中',
+        trackPlayTitle: '再生 / 一時停止',
+        trackStopTitle: '停止',
+        trackOffsetResetHint: 'ダブルクリックでリセット',
+        trackSpectrumTitle: 'メインカーソル時刻のパワースペクトル',
+        analysisFailed: '解析失敗: ',
+        cursorHelpKeys: '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止',
+        tooltipLoopResize: 'ドラッグでループ区間をリサイズ',
+        tooltipLoopClear: 'クリックでループ解除',
+        tooltipLoopOrShift: 'ドラッグ: ループ区間を設定\\nShift+ドラッグ: トラックの時間をずらす',
+        canvasOutOfRange: '範囲外',
+        spectrumNoData: 'カーソル位置にデータがあるトラックがありません',
+        settingsApplyHint: '変更は「適用」で反映',
+        reanalyzingStft: 'STFT を再計算中…',
+        reanalyzingDefault: '再計算中…',
+        reanalyzingFiles: 'STFT を再計算中… ({count} ファイル)',
+    },
+};
+
+/**
+ * VS Code の言語 (例: 'ja', 'en-US') から SupportedLocale を選ぶ。
+ * 'ja' で始まる場合のみ日本語、それ以外は英語フォールバック。
+ */
+export function pickLocale(language: string | undefined): SupportedLocale {
+    if (typeof language !== 'string') { return 'en'; }
+    return language.toLowerCase().startsWith('ja') ? 'ja' : 'en';
+}
+
+export function getStrings(language: string | undefined): UiStrings {
+    return STRINGS[pickLocale(language)];
+}
+
+/** テストや拡張ホスト側で必要なときのために辞書全体を露出する。 */
+export function getAllStrings(): Record<SupportedLocale, UiStrings> {
+    return STRINGS;
+}

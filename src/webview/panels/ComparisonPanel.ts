@@ -1,7 +1,8 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { serializeForScript } from '../../shared/utils/webviewEscaping';
+import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscaping';
 import { getComparisonRenderScript } from '../comparisonRenderScript';
+import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import {
     DEFAULT_SPECTROGRAM_SETTINGS,
     type AnalysisResultWithError,
@@ -312,13 +313,16 @@ export class ComparisonPanel {
         const waveformScriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonWaveform.js'),
         );
+        const language = typeof vscode.env?.language === 'string' ? vscode.env.language : 'en';
+        const locale = pickLocale(language);
+        const strings = getStrings(language);
         return `<!DOCTYPE html>
-<html lang="ja">
+<html lang="${locale}">
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource}; media-src ${webview.cspSource};">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>比較パネル</title>
+    <title>${escapeHtml(strings.panelTitle)}</title>
     <style>${ComparisonPanel.renderStyles()}</style>
 </head>
 <body>
@@ -326,6 +330,8 @@ export class ComparisonPanel {
     <script src="${waveformScriptUri}"></script>
     <script nonce="${nonce}">
         const __APP_STATE__ = ${serializeForScript(state)};
+        const __APP_STRINGS__ = ${serializeForScript(strings)};
+        const __APP_LOCALE__ = ${serializeForScript(locale)};
         ${ComparisonPanel.renderScript()}
     </script>
     <div id="canvas-tooltip"></div>

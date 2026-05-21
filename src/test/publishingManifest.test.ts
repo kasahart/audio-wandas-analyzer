@@ -46,18 +46,39 @@ test('package.json contributes GUI entry points for analysis', () => {
     assert.deepEqual(manifest.contributes?.viewsContainers?.activitybar, [
         {
             id: 'audioWandasAnalyzer',
-            title: 'Audio Analyzer',
+            title: '%viewsContainer.title%',
             icon: 'media/icon.svg',
         },
     ]);
     assert.deepEqual(manifest.contributes?.views?.audioWandasAnalyzer, [
         {
             id: 'audioWandasAnalyzer.welcomeView',
-            name: 'Audio Analyzer',
+            name: '%views.welcomeView.name%',
         },
     ]);
     assert.equal(manifest.contributes?.viewsWelcome?.[0]?.view, 'audioWandasAnalyzer.welcomeView');
-    assert.match(manifest.contributes?.viewsWelcome?.[0]?.contents ?? '', /Analyze with Audio Analyzer/);
+    assert.equal(manifest.contributes?.viewsWelcome?.[0]?.contents, '%viewsWelcome.contents%');
+});
+
+test('NLS bundles cover all %placeholders% used in package.json', () => {
+    const manifestRaw = readText('package.json');
+    const placeholders = new Set<string>();
+    const re = /%([\w.]+)%/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(manifestRaw)) !== null) { placeholders.add(m[1]); }
+    const en = readJson<Record<string, string>>('package.nls.json');
+    const ja = readJson<Record<string, string>>('package.nls.ja.json');
+    for (const key of placeholders) {
+        assert.ok(key in en, `package.nls.json is missing key: ${key}`);
+        assert.ok(key in ja, `package.nls.ja.json is missing key: ${key}`);
+    }
+    // 逆方向: NLS バンドルにあるキーは package.json でも使われていることを確認
+    for (const key of Object.keys(en)) {
+        assert.ok(placeholders.has(key), `package.nls.json key not referenced in package.json: ${key}`);
+    }
+    // 英日のキー集合が一致
+    assert.deepEqual(Object.keys(en).sort(), Object.keys(ja).sort(),
+        'package.nls.json and package.nls.ja.json must share the same keys');
 });
 
 test('README avoids relative markdown links that break Marketplace packaging', () => {
