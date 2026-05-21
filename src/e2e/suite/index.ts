@@ -178,11 +178,13 @@ export async function run(): Promise<void> {
                 assert.deepEqual(snapshot.renderedUi.toolbarActions, [
                     'open-file',
                     'open-folder',
+                    'select-python-environment',
                     'content-waveform',
                     'content-spectrogram',
                     'spectrogram-settings',
                     'zoom-out',
                     'zoom-in',
+                    'zoom-reset',
                 ]);
             },
         },

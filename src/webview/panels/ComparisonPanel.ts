@@ -445,6 +445,17 @@ export class ComparisonPanel {
         .track-spectrum-wrap { width: 180px; flex-shrink: 0; border-left: 1px solid var(--line); background: var(--track-bg); }
         .track-spectrum-canvas { display: block; width: 100%; height: 80px; }
 
+        /* ── Responsive power spectrum ── */
+        @media (max-width: 900px) {
+            .track-spectrum-wrap { width: 140px; }
+        }
+        @media (max-width: 700px) {
+            .track-spectrum-wrap { width: 100px; }
+        }
+        @media (max-width: 500px) {
+            .track-spectrum-wrap { display: none; }
+        }
+
         /* ── Cursor power spectrum section ── */
         #spectrum-section {
             border-top: 1px solid var(--line); background: var(--panel);
@@ -545,6 +556,20 @@ export class ComparisonPanel {
             font-weight: 600;
             color: var(--text);
             padding: 4px 0 2px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .selection-tree-directory:hover {
+            color: var(--accent);
+        }
+        .dir-toggle {
+            font-size: 10px;
+            display: inline-block;
+            width: 12px;
+            text-align: center;
         }
         .selection-file-row {
             display: flex;
