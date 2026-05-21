@@ -1,106 +1,95 @@
 # Audio Wandas Analyzer
 
-VS Code 拡張として音声ファイルを解析し、TypeScript 製の UI から Python バックエンドを呼び出して結果を表示する最小構成です。
+**English** | [日本語](README.ja.md)
 
-## 構成
+A VS Code extension to open audio files and compare them side-by-side via waveform, spectrogram, and power spectrum views. Heavy DSP runs in a Python child process powered by the [wandas](https://github.com/kasahart/wandas) library; the UI is implemented as a VS Code Webview.
 
-- `src/extension/index.ts`: コマンド登録、ファイル選択、Python 実行
-- `src/webview/panels/ComparisonPanel.ts`: 単一ファイル表示と比較表示を担う Webview UI
-- `src/shared/analysis/analysisTypes.ts`: Extension と Webview 間で共有する解析結果の型
-- `python-backend/main.py`: CLI エントリポイント
-- `python-backend/analyzer.py`: `wandas` を使った音声解析本体
+## Features
 
-## セットアップ
+- **Multi-track comparison** — open multiple audio files at once and compare them via waveform / spectrogram / power spectrum
+- **Waveform view** — high-resolution re-decimation on zoom, with amplitude axis (±1.0 FS) and time axis always visible
+- **Spectrogram view** — frequency axis (Hz / kHz) with a dB colorbar overlay. STFT parameters (FFT size, hop length, window function) and display range (dB min/max, max frequency) are configurable from an in-panel settings popover
+- **Cursor-time power spectrum** — overlay across all tracks at the cursor position, plus a per-track spectrum strip next to each row
+- **Playback / loop** — play each track individually, mute it, or constrain playback to a loop region
+- **Track offsets** — shift each track along the time axis to align them
+- **Directory picker UI** — open a folder to see a tree of supported audio files; check the boxes to add tracks (uncheck to remove)
+- **Explorer integration** — right-click audio files / folders or drag-and-drop them onto the sidebar to start analysis
 
-### Dev Container
+Supported formats: **WAV / FLAC / OGG / AIFF / AIF / SND**
 
-VS Code の Dev Containers 拡張を使う前提なら、ローカルの Python や Node を直接汚さずに開発できます。
+## Requirements
 
-1. Dev Containers 拡張を入れる
-2. このフォルダを開く
-3. `Dev Containers: Reopen in Container` を実行する
-4. 初回起動時に `npm install` とワークスペース内 `.venv` への `python-backend/requirements.txt` 導入が自動実行される
+This extension calls a Python backend that depends on `wandas`. You need to set up Python before using it.
 
-コンテナ内では `.venv/bin/python` が VS Code の既定インタープリタと拡張機能のバックエンド実行コマンドとして設定されます。
-
-### 1. Node.js 依存関係
+### 1. Install Python 3.11+
 
 ```bash
-npm install
+python3 --version   # 3.11 or newer recommended
 ```
 
-### テスト
+### 2. Install wandas
 
-```bash
-npm test
-```
-
-VS Code 実環境で debug command から ComparisonPanel が開く最小スモークを回す場合は、次を使います。
-
-```bash
-npm run test:e2e:vscode
-```
-
-この E2E はワークスペース内の `.venv/bin/python` を使って、`Audio Analyzer: Analyze Debug Path` の経路を実際に起動します。単一ファイル debug path だけでなく、ディレクトリ debug path ではファイル選択画面を経由して比較表示まで確認します。
-Linux のヘッドレス環境では、`xvfb-run` が利用可能なら自動で仮想ディスプレイ付きで実行します。
-
-Testing ビューを使う場合は、この拡張を Extension Development Host で起動してから、別ウインドウ側の Testing ビューを開いてください。現状は src/test 配下の *.test.ts を解析し、describe と test をケース単位で一覧表示します。Run は npm run compile の後に node --test を TAP 出力付きで呼び出し、各ケースの結果を Testing ビューへ反映します。Debug は Testing ビューの Debug アクションから実行でき、単一のファイル、suite、test を対象に Node デバッガーを起動します。
-
-### 2. Python 環境
+A virtual environment is recommended:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r python-backend/requirements.txt
+pip install wandas numpy soundfile
 ```
 
-必要に応じて VS Code 設定 `audioWandasAnalyzer.pythonCommand` を `.venv/bin/python` に変更してください。Dev Container を使う場合は既定値の `python3` のままで動く想定です。
+### 3. Point VS Code at your Python interpreter
 
-Dev Container を使う場合は、この設定が自動で `.venv/bin/python` に切り替わります。
+In VS Code settings, set `audioWandasAnalyzer.pythonCommand` to the Python in the venv you just created. Example: `/path/to/your/.venv/bin/python`.
 
-## 使い方
+Or, from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`), run **Audio Analyzer: Select Python Environment** to pick it via a GUI.
 
-1. このフォルダを VS Code で開く
-2. `npm install`
-3. `F5` で Extension Development Host を起動
-4. 次のいずれかの方法で解析を開始
-   - コマンドパレットから `Audio Analyzer: Analyze File or Folder` を実行
-   - Explorer で音声ファイルまたはフォルダを右クリックして `Analyze with Audio Analyzer` を選択
-   - Activity Bar の Audio Analyzer ビューを開き、`ファイル・フォルダを選択して解析` をクリック
-   - Explorer から音声ファイルまたはフォルダを Audio Analyzer サイドバーの `Drop audio files or folders here` 行へドラッグ＆ドロップ
-5. WAV / FLAC / OGG / AIFF などの音声ファイル、またはそれらを含むディレクトリを選択
+## Usage
 
-解析パネルを開いた後も、画面内の「別の対象を開く: ファイル / ディレクトリ」ボタンから対象を選び直せます。単一ファイル画面からディレクトリブラウザーへ、またはディレクトリブラウザーから別ファイルへ、同じパネルのまま切り替わります。
+### Opening files
 
-ディレクトリを選んだ場合は即時解析せず、まず対応済み音声ファイルだけのディレクトリツリーを表示します。初期状態ではどのファイルも未選択で、チェックを入れたファイルだけが右側のトラックへ即時に追加されます。チェックを外すと、そのトラックも即時に外れます。
+| Method | How |
+|--------|-----|
+| Command Palette | **Audio Analyzer: Analyze File or Folder** |
+| Context menu | Right-click an audio file / folder in the Explorer → **Analyze with Audio Analyzer** |
+| Sidebar | Open the **Audio Analyzer** view in the Activity Bar → click *Select files / folder to analyze* |
+| Drag-and-drop | Drop audio files or folders onto the *Drop audio files or folders here* row in the sidebar |
 
-デバッグ用の固定入力を素早く試す場合は、`audioWandasAnalyzer.debugFilePath` に既定の音声ファイルまたはディレクトリのパスを設定し、コマンドパレットから `Audio Analyzer: Analyze Debug Path` を実行します。既定値はワークスペース相対の `media/debug` です。ディレクトリを指定した場合は、その配下の対応音声ファイルが選択 UI に表示され、チェック操作に応じてトラック表示が即時更新されます。
+### Opening a folder
 
-F5 直後に debug 用ディレクトリを自動で開きたい場合は、ワークスペースの `.vscode/launch.json` にある `Run Extension (Open Debug Directory)` を使ってください。この構成では起動時に `audioWandasAnalyzer.debugFilePath` を自動で開きます。ディレクトリ指定ならファイルツリーを表示したまま開始し、どのファイルを出すかはチェック操作で選べます。
+A tree of the supported audio files appears. All entries start unchecked; checking a file adds a track instantly, unchecking removes it.
 
-## VS Code 拡張として配布する
+### Controls
 
-Marketplace や手元配布向けに VSIX を作る場合は、次を実行します。
+- **Zoom**: the `+ / -` buttons in the toolbar, or scroll over the waveform
+- **Move cursor**: click on the waveform or spectrogram
+- **Loop region**: drag to select / click to clear
+- **Track offset**: `▲ / ▼` buttons on the track header for ±0.01 s steps; double-click the value to reset
+- **Playback**: `▶` to start, `■` to stop
+- **Mute**: `M` button (excludes the track from the cursor spectrum overlay too)
+- **Spectrogram settings**: gear icon in the toolbar opens a popover for FFT size, hop length, window function, and display range
 
-```bash
-npm install
-npm run package:vsix
-```
+### View modes
 
-`audio-wandas-analyzer-<version>.vsix` が生成されます。Marketplace 公開時は `@vscode/vsce` を使って publisher を作成し、PAT を用意したうえで `vsce login <publisher>` → `vsce publish` を実行してください。
+Each track's toolbar lets you flip between **Waveform** and **Spectrogram**.
 
-## 初期実装の内容
+## Settings
 
-- `wandas.read_wav()` による音声読み込み
-- 基本メタデータの表示
-- チャンネルごとの RMS / peak absolute value の算出
-- NumPy ベースの簡易周波数ピーク抽出
-- 単一ファイルまたはディレクトリ単位の入力受付
-- ディレクトリ入力時の再帰ツリー表示とファイル選択解析
+| Key | Default | Description |
+|-----|---------|-------------|
+| `audioWandasAnalyzer.pythonCommand` | `python3` | Python executable path used to launch the analysis backend |
+| `audioWandasAnalyzer.defaultPeakCount` | `5` | Number of dominant frequency peaks shown per channel (1–20) |
+| `audioWandasAnalyzer.debugFilePath` | `media/debug` | Default path opened by **Audio Analyzer: Analyze Debug Path**. Relative paths resolve against the workspace root |
 
-## 今後の拡張候補
+## Troubleshooting
 
-- `wandas` の `stft()` を使ったスペクトログラム可視化
-- 複数ファイル比較
-- 解析プリセット切り替え
-- 画像や CSV のエクスポート
+- **"Python interpreter was not found"** — set `audioWandasAnalyzer.pythonCommand` to the absolute path of the Python that has `wandas` installed.
+- **"analyze failed" errors** — open the **Output** panel and select the **Audio Wandas Analyzer** channel to see the Python stack trace. Confirm `wandas`, `numpy`, and `soundfile` are installed.
+- **File won't load** — only WAV / FLAC / OGG / AIFF are supported. MP3 / M4A are not.
+- **Slow on large files** — the waveform requests a high-resolution slice only for the visible zoom range, so subsequent zooming is fast. Smaller FFT sizes also speed up spectrogram updates.
+
+## Source & License
+
+- Repository: https://github.com/kasahart/audio-wandas-analyzer
+- Backend: [wandas](https://github.com/kasahart/wandas)
+- For setup & architecture details, see [`AGENTS.md`](https://github.com/kasahart/audio-wandas-analyzer/blob/main/AGENTS.md).
+- Bug reports / feature requests: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues).
