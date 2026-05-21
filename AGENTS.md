@@ -70,6 +70,18 @@ python -m pytest python-backend -q
 
 Do **not** invent ad-hoc verification recipes. If a check is worth running, add it to `scripts/verify.sh`.
 
+### 並行作業用ハーネス
+
+複数エージェントで並行に PR を進める／PR スタック中に独立した作業領域が必要なときは worktree を使う:
+
+```bash
+scripts/worktree-new.sh <feature-slug> [base-branch]   # base 既定: main
+# .worktrees/<slug>/ に worktree が作られ、新規ブランチ <slug> が切られる。
+# node_modules と .venv は symlink で共有、dist と .vscode-test は worktree 専有。
+```
+
+`npm run compile` は実行前に `scripts/clean-dist.js` で **対応する `src/**/*.ts` が存在しない tsc 出力 (`.js` / `.js.map`)** を自動削除する。ブランチ切替や rebase 後に古いテスト .js が node:test に拾われる事故 (stale dist) を防ぐ。`.json` や画像など tsc が emit しないファイルは対象外で誤削除されない。別 build スクリプトが生成する成果物 (現状は将来予定の `dist/webview/comparisonWaveform.js`) は `PROTECTED_RELATIVE` で保護する。
+
 ---
 
 ## 4. Architecture — key files

@@ -98,7 +98,7 @@
         }
     },
     "scripts": {
-        "compile": "tsc -p ./",
+        "compile": "node scripts/clean-dist.js && tsc -p ./",
         "watch": "tsc -watch -p ./",
         "package": "npm run compile",
         "vscode:prepublish": "npm run compile",
