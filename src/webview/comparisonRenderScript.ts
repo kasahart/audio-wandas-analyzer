@@ -362,10 +362,10 @@ export function getComparisonRenderScript(): string {
                 const pythonButtonClass = 'tb-btn' + (pythonEnvironmentState.status === 'warning' ? ' is-warning' : '');
                 return '<div id="directory-selection-layout">'
                     + '  <div id="selection-toolbar">'
-                    + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + STR.selectionHeader + '</span>'
+                    + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + escHtml(STR.selectionHeader) + '</span>'
                     + '    <div class="tb-sep"></div>'
-                    + '    <button class="tb-btn" data-action="open-file">' + STR.btnOpenFile + '</button>'
-                    + '    <button class="tb-btn" data-action="open-folder">' + STR.btnOpenAnotherFolder + '</button>'
+                    + '    <button class="tb-btn" data-action="open-file">' + escHtml(STR.btnOpenFile) + '</button>'
+                    + '    <button class="tb-btn" data-action="open-folder">' + escHtml(STR.btnOpenAnotherFolder) + '</button>'
                     + '    <button class="' + pythonButtonClass + '" id="selection-python-environment" data-action="select-python-environment" title="' + escHtml(pythonEnvironmentState.tooltip || '') + '">' + escHtml(pythonButtonText) + '</button>'
                     + '  </div>'
                     + '  <div id="selection-body">'
@@ -376,8 +376,8 @@ export function getComparisonRenderScript(): string {
                     + '      </div>'
                     + '      <div id="selection-tree">' + buildSelectionTree(state.directoryTree || [], true) + '</div>'
                     + '      <div id="selection-actions">'
-                    + '        <button class="tb-btn" data-action="selection-select-all">' + STR.btnSelectAll + '</button>'
-                    + '        <button class="tb-btn" data-action="selection-clear-all">' + STR.btnClear + '</button>'
+                    + '        <button class="tb-btn" data-action="selection-select-all">' + escHtml(STR.btnSelectAll) + '</button>'
+                    + '        <button class="tb-btn" data-action="selection-clear-all">' + escHtml(STR.btnClear) + '</button>'
                     + '      </div>'
                     + '    </div>'
                     + '    <div id="selection-results-pane">'
@@ -408,7 +408,7 @@ export function getComparisonRenderScript(): string {
                     + '  <div id="empty-state"><p>' + escHtml(emptyMessage) + '</p></div>'
                     + '</div>'
                     + '<div id="spectrum-section">'
-                    + '  <div id="spectrum-section-header"><span>' + STR.spectrumSectionTitle + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span></div>'
+                    + '  <div id="spectrum-section-header"><span>' + escHtml(STR.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span></div>'
                     + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas"></canvas></div>'
                     + '</div>'
                     + '<div id="audio-host">' + buildAudioElements() + '</div>'
@@ -417,7 +417,7 @@ export function getComparisonRenderScript(): string {
 
             function buildSelectionTree(nodes, isRoot) {
                 if (!Array.isArray(nodes) || nodes.length === 0) {
-                    return '<div class="selection-path">' + STR.selectionNoSupported + '</div>';
+                    return '<div class="selection-path">' + escHtml(STR.selectionNoSupported) + '</div>';
                 }
                 return '<ul class="selection-tree-list' + (isRoot ? ' is-root' : '') + '">'
                     + nodes.map(function(node) {
@@ -451,22 +451,22 @@ export function getComparisonRenderScript(): string {
             }
 
             function buildToolbar() {
-                return '<span style="font-weight:700;font-size:12px;color:var(--accent)">' + STR.toolbarMain + '</span>'
+                return '<span style="font-weight:700;font-size:12px;color:var(--accent)">' + escHtml(STR.toolbarMain) + '</span>'
                     + '<div class="tb-sep"></div>'
-                    + '<button class="tb-btn" data-action="open-file">' + STR.btnOpenFile + '</button>'
-                    + '<button class="tb-btn" data-action="open-folder">' + STR.btnOpenFolder + '</button>'
+                    + '<button class="tb-btn" data-action="open-file">' + escHtml(STR.btnOpenFile) + '</button>'
+                    + '<button class="tb-btn" data-action="open-folder">' + escHtml(STR.btnOpenFolder) + '</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<span class="tb-label">' + STR.toolbarTrackLabel + '</span>'
-                    + '<button class="tb-btn is-active" data-action="content-waveform">' + STR.btnWaveform + '</button>'
-                    + '<button class="tb-btn" data-action="content-spectrogram">' + STR.btnSpectrogram + '</button>'
-                    + '<button class="tb-btn" data-action="spectrogram-settings" title="' + STR.btnSpectrogramSettingsTitle + '" style="display:none">⚙</button>'
+                    + '<span class="tb-label">' + escHtml(STR.toolbarTrackLabel) + '</span>'
+                    + '<button class="tb-btn is-active" data-action="content-waveform">' + escHtml(STR.btnWaveform) + '</button>'
+                    + '<button class="tb-btn" data-action="content-spectrogram">' + escHtml(STR.btnSpectrogram) + '</button>'
+                    + '<button class="tb-btn" data-action="spectrogram-settings" title="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" style="display:none">⚙</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<span class="tb-label">' + STR.toolbarZoomLabel + '</span>'
+                    + '<span class="tb-label">' + escHtml(STR.toolbarZoomLabel) + '</span>'
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in">＋</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<span id="cursor-display" title="' + STR.cursorDisplayHint + '">—</span>'
-                    + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + STR.loopBadge + '</span>';
+                    + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
+                    + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>';
             }
 
             function buildTrackRow(result, i) {
@@ -477,12 +477,12 @@ export function getComparisonRenderScript(): string {
                     + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
                     + '    <button class="track-btn" data-action="toggle-mute" data-track-index="' + i + '">M</button>'
-                    + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + STR.trackPlayTitle + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
-                    + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + STR.trackStopTitle + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
+                    + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackPlayTitle) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
+                    + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackStopTitle) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
                     + '    <button class="track-btn" data-action="remove-track" data-track-index="' + i + '">✕</button>'
                     + '  </div>'
                     + '  <div class="track-offset">'
-                    + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-index="' + i + '" title="' + STR.trackOffsetResetHint + '">+0.000s</span>'
+                    + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-index="' + i + '" title="' + escHtml(STR.trackOffsetResetHint) + '">+0.000s</span>'
                     + '    <button class="track-offset-step" data-action="offset-up" data-track-index="' + i + '">▲</button>'
                     + '    <button class="track-offset-step" data-action="offset-down" data-track-index="' + i + '">▼</button>'
                     + '  </div>'
@@ -490,7 +490,7 @@ export function getComparisonRenderScript(): string {
                     + '<div class="track-canvas-wrap" id="track-canvas-wrap-' + i + '">'
                     + '  <canvas class="track-canvas" id="track-canvas-' + i + '" data-track-index="' + i + '" tabindex="0" style="outline:none"></canvas>'
                     + '</div>'
-                    + '<div class="track-spectrum-wrap" id="track-spectrum-wrap-' + i + '" title="' + STR.trackSpectrumTitle + '">'
+                    + '<div class="track-spectrum-wrap" id="track-spectrum-wrap-' + i + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
                     + '  <canvas class="track-spectrum-canvas" id="track-spectrum-' + i + '" data-track-index="' + i + '"></canvas>'
                     + '</div>'
                     + '</div>';
@@ -1756,7 +1756,7 @@ export function getComparisonRenderScript(): string {
                     + '<option value="hann">hann</option><option value="hamming">hamming</option>'
                     + '<option value="blackman">blackman</option><option value="boxcar">boxcar</option>'
                     + '</select></label>'
-                    + '<div style="font-size:11px;color:var(--muted)">' + STR.settingsApplyHint + '</div>'
+                    + '<div style="font-size:11px;color:var(--muted)">' + escHtml(STR.settingsApplyHint) + '</div>'
                     + '</fieldset>'
                     + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
                     + '<legend>Display</legend>'
@@ -1850,7 +1850,7 @@ export function getComparisonRenderScript(): string {
                     + 'padding:8px 14px;border-bottom:1px solid var(--line);font-family:var(--font-ui);font-size:12px;'
                     + 'display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'
                     + '<span class="spinner" style="width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></span>'
-                    + '<span id="reanalyze-overlay-msg">' + STR.reanalyzingDefault + '</span>'
+                    + '<span id="reanalyze-overlay-msg">' + escHtml(STR.reanalyzingDefault) + '</span>'
                     + '</div>'
                     + '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>');
             })();

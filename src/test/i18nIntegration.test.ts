@@ -9,11 +9,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-// vscode モジュールは module 解決時にスタブする必要がある
-// (comparisonScriptLoader と同じパターン)
+// vscode モジュールを stub に差し替えてから ComparisonPanel を require する。
+// 一度キャッシュに載れば後続 require('vscode') は cache hit で stub が返るので、
+// グローバル _load の上書きは ComparisonPanel ロード直後に元に戻して他テストへの
+// 漏出を防ぐ。env.language の動的変更は stub の env プロパティを書き換える形で行う。
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const NodeModule = require('node:module');
-const originalLoad = NodeModule._load;
 
 interface VsCodeStub {
     env: { language: string };
@@ -31,13 +32,20 @@ const vscodeStub: VsCodeStub = {
     workspace: { getConfiguration: () => ({ get: (_k: string, d: unknown) => d }) },
 };
 
+const originalLoad = NodeModule._load;
 NodeModule._load = function (id: string, ...rest: unknown[]) {
     if (id === 'vscode') { return vscodeStub; }
     return originalLoad.call(this, id, ...rest);
 };
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { ComparisonPanel } = require('../webview/panels/ComparisonPanel');
+let ComparisonPanel: { renderHtml: (...args: unknown[]) => string };
+try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ComparisonPanel = require('../webview/panels/ComparisonPanel').ComparisonPanel;
+} finally {
+    // 後続テストや並列実行への漏出を防ぐため、即座に元に戻す。
+    // ComparisonPanel は require cache に入ったので以後の require('vscode') は触らない。
+    NodeModule._load = originalLoad;
+}
 
 function renderHtmlWith(language: string): string {
     vscodeStub.env.language = language;

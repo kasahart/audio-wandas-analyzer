@@ -3,7 +3,9 @@
  *
  * 設計:
  * - VS Code 拡張側 (extension/index.ts, ComparisonPanel.ts) も Webview JS 側も
- *   同じ辞書を共有する。Webview には `__APP_STATE__.strings` 経由で送信する。
+ *   同じ辞書を共有する。Webview には ComparisonPanel.renderHtml() が生成する
+ *   inline `<script>` で `__APP_STRINGS__` (および locale 値の `__APP_LOCALE__`)
+ *   としてグローバル注入される。renderScript IIFE 冒頭で `STR` に alias される。
  * - locale は VS Code の `vscode.env.language` (e.g. 'ja', 'en-US') から決定。
  *   'ja' で始まる場合のみ日本語、それ以外は英語。
  * - キーは英語半角の短いスラッグ。階層なし (フラット) で 1 ファイルに集約。
