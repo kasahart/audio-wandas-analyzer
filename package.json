@@ -2,7 +2,7 @@
     "name": "audio-wandas-analyzer",
     "displayName": "Audio Wandas Analyzer",
     "description": "Analyze audio files in VS Code with a TypeScript extension UI and a Python backend powered by wandas.",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "publisher": "audio-wandas-analyzer",
     "repository": {
         "type": "git",
