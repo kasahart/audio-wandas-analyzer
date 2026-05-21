@@ -20,10 +20,9 @@ Prefer these over recreating DSP code by hand.
 
 - `.claude/settings.json` (committed) holds the **shared** allowlist needed for the standard verify loop (npm, ruff, pytest, git read-only, the wandas skills). Treat it as the minimum every contributor agrees to.
 - `.claude/settings.local.json` (gitignored) is for personal additions only.
-- A `PostToolUse` hook fires when `Edit` or `Write` touches `src/webview/waveform/waveformRenderer.ts` or `media/comparisonWaveform.js`, reminding you to update the other mirror.
 
 ## Working style in this repo
 
-- Use `TodoWrite` for any task with 3+ steps. The waveform mirroring requirement is a frequent extra step worth tracking.
+- Use `TodoWrite` for any task with 3+ steps.
 - Use the `Explore` subagent for codebase-wide questions; use direct `Read`/`Grep` for known paths.
 - Before declaring done, run `npm run verify`. If it can't run in your sandbox, say so explicitly rather than claiming success.

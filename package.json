@@ -98,7 +98,7 @@
         }
     },
     "scripts": {
-        "compile": "tsc -p ./",
+        "compile": "tsc -p ./ && node scripts/build-webview.js",
         "watch": "tsc -watch -p ./",
         "package": "npm run compile",
         "vscode:prepublish": "npm run compile",

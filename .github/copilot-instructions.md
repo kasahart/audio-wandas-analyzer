@@ -23,11 +23,9 @@ Never suggest edits to these directories — they are generated, vendored, or en
 - `.vscode-test/`
 - `.worktrees/`
 
-## Cross-language invariant (important)
+## Webview waveform pipeline
 
-`media/comparisonWaveform.js` is a plain-JavaScript mirror of `src/webview/waveform/waveformRenderer.ts`. They implement the same 3-layer rendering algorithm and **must stay in lockstep**.
-
-If you propose a change to one, propose the matching change to the other in the same commit. There is no automated parity check between the two files — `src/test/renderScript.integration.test.ts` only smoke-tests that `comparisonWaveform.js` loads in jsdom, and `src/test/waveformRenderer.test.ts` covers the TypeScript renderer in isolation. The author is responsible for keeping them in lockstep.
+`src/webview/waveform/waveformRenderer.ts` is the single source of truth for the comparison panel's waveform rendering. `scripts/build-webview.js` (run automatically by `npm run compile`) wraps its CJS output in an IIFE and emits `dist/webview/comparisonWaveform.js`, which the Webview loads via `<script src>`. Do not hand-edit the generated file.
 
 ## Python style
 

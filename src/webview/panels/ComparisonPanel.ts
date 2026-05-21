@@ -277,6 +277,8 @@ export class ComparisonPanel {
         const roots = new Map<string, vscode.Uri>();
         const mediaRoot = vscode.Uri.joinPath(extensionUri, 'media');
         roots.set(mediaRoot.toString(), mediaRoot);
+        const webviewBuiltRoot = vscode.Uri.joinPath(extensionUri, 'dist', 'webview');
+        roots.set(webviewBuiltRoot.toString(), webviewBuiltRoot);
 
         results.forEach((result) => {
             const audioDir = vscode.Uri.file(path.dirname(result.filePath));
@@ -289,7 +291,7 @@ export class ComparisonPanel {
     private static renderHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri): string {
         const nonce = Date.now().toString();
         const waveformScriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(extensionUri, 'media', 'comparisonWaveform.js'),
+            vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonWaveform.js'),
         );
         return `<!DOCTYPE html>
 <html lang="ja">

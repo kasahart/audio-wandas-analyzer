@@ -30,18 +30,5 @@
       "Skill(wandas-visualization)",
       "Skill(wandas-analyst)"
     ]
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/waveform-mirror-reminder.sh"
-          }
-        ]
-      }
-    ]
   }
 }
