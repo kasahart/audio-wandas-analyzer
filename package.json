@@ -98,8 +98,8 @@
         }
     },
     "scripts": {
-        "compile": "node scripts/clean-dist.js && tsc -p ./",
-        "watch": "tsc -watch -p ./",
+        "compile": "node scripts/clean-dist.js && tsc -p ./ && node scripts/build-webview.js",
+        "watch": "tsc -p ./ -watch & node scripts/watch-webview.js",
         "package": "npm run compile",
         "vscode:prepublish": "npm run compile",
         "package:vsix": "vsce package --no-yarn --allow-missing-repository --skip-license",

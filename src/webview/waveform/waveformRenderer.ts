@@ -365,3 +365,99 @@ export function renderWaveform(
     const transform = makeCoordTransform(zoomStart, zoomEnd, offsetNorm, W, H, peak);
     paintDecimatedPoints(ctx, points, transform, color, lineWidth);
 }
+
+export interface WaveformPipelineParams {
+    zoomStart: number;
+    zoomEnd: number;
+    offsetNorm: number;
+    dataStart: number;
+    dataEnd: number;
+    color: string;
+    trackDurRatio?: number;
+    lineWidth?: number;
+}
+
+/**
+ * マルチトラック比較パネル用の描画関数。
+ *
+ * offsetNorm / trackDurRatio はグローバルスパン基準の正規化座標で、
+ * 単一トラック内の正規化時刻 t (0..1) をグローバル座標へ写像する:
+ *   global = offsetNorm + t * trackDurRatio
+ *
+ * media/comparisonWaveform.js が長らく公開していた window.renderWaveformPipeline
+ * と同一の挙動を持つ単一ソース実装。webview からは scripts/build-webview.js が
+ * 生成する dist/webview/comparisonWaveform.js 経由で window.renderWaveformPipeline
+ * として呼び出される。
+ */
+export function renderWaveformPipeline(
+    ctx: CanvasCtx,
+    W: number,
+    H: number,
+    env: WaveformEnv,
+    params: WaveformPipelineParams,
+): void {
+    const { zoomStart, zoomEnd, offsetNorm, dataStart, dataEnd, color } = params;
+    const trackDurRatio = params.trackDurRatio ?? 1;
+    const lineWidth = params.lineWidth ?? 1.5;
+    const peak = env.absolutePeak || 1;
+    const minArr = env.min || [];
+    const maxArr = env.max || [];
+    const samplesArr = env.samples || [];
+    const n = minArr.length || samplesArr.length;
+    if (n === 0) { return; }
+
+    const dataRange = Math.max(dataEnd - dataStart, 1e-9);
+    const span = Math.max(zoomEnd - zoomStart, 1e-9);
+
+    const fileAtZoomStart = (zoomStart - offsetNorm) / trackDurRatio;
+    const fileAtZoomEnd = (zoomEnd - offsetNorm) / trackDurRatio;
+    const visStartNorm = (fileAtZoomStart - dataStart) / dataRange;
+    const visEndNorm = (fileAtZoomEnd - dataStart) / dataRange;
+    const clampedVisStartNorm = Math.max(0, visStartNorm);
+    const clampedVisEndNorm = Math.min(1, visEndNorm);
+    const extSpan = Math.max(clampedVisEndNorm - clampedVisStartNorm, 1 / n);
+    const i0 = Math.max(0, Math.floor((visStartNorm - extSpan) * n));
+    const i1 = Math.min(n - 1, Math.ceil((visEndNorm + extSpan) * n));
+    if (i1 < i0) { return; }
+
+    const visI0 = Math.max(0, Math.floor(visStartNorm * n) - 1);
+    const visI1 = Math.min(n - 1, Math.ceil(visEndNorm * n) + 1);
+    const div = Math.max(1, Math.floor(Math.max(1, visI1 - visI0 + 1) / (W * 2)));
+
+    const lo = (i: number): number => (minArr.length > i ? minArr[i] : (samplesArr[i] ?? 0));
+    const hi = (i: number): number => (maxArr.length > i ? maxArr[i] : (samplesArr[i] ?? 0));
+    const tOfMin = (idx: number): number => (env.minT && env.minT.length > idx
+        ? env.minT[idx]
+        : dataStart + (idx / n) * dataRange);
+    const tOfMax = (idx: number): number => (env.maxT && env.maxT.length > idx
+        ? env.maxT[idx]
+        : dataStart + (idx / n) * dataRange);
+
+    const toX = (t: number): number => ((offsetNorm + t * trackDurRatio - zoomStart) / span) * W;
+    const toY = (v: number): number => H / 2 - (v / peak) * (H * 0.44);
+
+    ctx.lineWidth = lineWidth;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    let started = false;
+
+    for (let b = i0; b <= i1; b += div) {
+        const bEnd = Math.min(i1 + 1, b + div);
+        let minIdx = b, maxIdx = b;
+        let minVal = lo(b), maxVal = hi(b);
+        for (let i = b + 1; i < bEnd; i++) {
+            const l = lo(i), h = hi(i);
+            if (l < minVal) { minVal = l; minIdx = i; }
+            if (h > maxVal) { maxVal = h; maxIdx = i; }
+        }
+        const tMin = tOfMin(minIdx);
+        const tMax = tOfMax(maxIdx);
+        const fx = tMin <= tMax ? toX(tMin) : toX(tMax);
+        const fy = tMin <= tMax ? toY(minVal) : toY(maxVal);
+        const sx = tMin <= tMax ? toX(tMax) : toX(tMin);
+        const sy = tMin <= tMax ? toY(maxVal) : toY(minVal);
+        if (!started) { ctx.moveTo(fx, fy); started = true; } else { ctx.lineTo(fx, fy); }
+        ctx.lineTo(sx, sy);
+    }
+    ctx.stroke();
+}

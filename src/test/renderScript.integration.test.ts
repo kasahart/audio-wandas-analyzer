@@ -20,8 +20,9 @@ import { join } from 'node:path';
 import { getRenderScript, getRenderStyles } from './helpers/comparisonScriptLoader';
 import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
 
+// scripts/build-webview.js が tsc 後に生成。__dirname は dist/test なので 1 階層上が dist/。
 const WAVEFORM_PIPELINE_JS = readFileSync(
-    join(__dirname, '..', '..', 'media', 'comparisonWaveform.js'),
+    join(__dirname, '..', 'webview', 'comparisonWaveform.js'),
     'utf8',
 );
 
