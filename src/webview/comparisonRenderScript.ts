@@ -4,7 +4,9 @@
  * NOTE: この関数は文字列を組み立てるだけのファサード。実体は backtick
  * テンプレート内の inline JS であり、`__APP_STATE__` をグローバル経由で受け取る。
  * 物理分離の目的は ComparisonPanel.ts の肥大化防止と、renderScript の
- * import-and-test を可能にすること。ロジックは元のまま、変更なし。
+ * import-and-test を可能にすること。Step 3 で純粋描画関数は
+ * src/webview/draw/canvasDrawers.ts に切り出され、ここではそれを
+ * `window.draw*` 経由で呼ぶ薄い alias と DOM テーマ橋渡しを行う。
  */
 export function getComparisonRenderScript(): string {
     return `
@@ -22,6 +24,36 @@ export function getComparisonRenderScript(): string {
             };
 
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc'];
+
+            // src/webview/draw/canvasDrawers.ts からビルドされた window.draw* を
+            // 旧来の関数名でローカルに alias する。
+            // テーマ色は body の CSS 変数 (--muted / --track-bg / --line) から取る。
+            // 描画ごとに getComputedStyle を呼ぶと毎フレーム DOM レイアウト計算が
+            // 走るため初回のみ計算してキャッシュする。CSS 変数は runtime に変わらない
+            // 前提 (テーマ切替が必要になったら invalidateCachedTheme() を呼ぶ)。
+            let cachedTheme = null;
+            function getTheme() {
+                if (cachedTheme) { return cachedTheme; }
+                const cs = getComputedStyle(document.body);
+                cachedTheme = {
+                    mutedColor: cs.getPropertyValue('--muted').trim() || '#888',
+                    bgColor: cs.getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)',
+                    lineColor: cs.getPropertyValue('--line').trim() || '#444',
+                };
+                return cachedTheme;
+            }
+            const formatHz = window.formatHz;
+            const dbToRgb = window.dbToRgb;
+            const drawSpectrumLine = window.drawSpectrumLine;
+            function drawWaveformAmplitudeAxis(ctx, W, H) {
+                return window.drawWaveformAmplitudeAxis(ctx, W, H, getTheme());
+            }
+            function drawSpectrogramAxes(ctx, W, H, spec) {
+                return window.drawSpectrogramAxes(ctx, W, H, spec, getTheme());
+            }
+            function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB) {
+                return window.drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB, getTheme());
+            }
 
             function hexToRgba(hex, alpha) {
                 const r = parseInt(hex.slice(1, 3), 16);
@@ -632,34 +664,6 @@ export function getComparisonRenderScript(): string {
                 drawWaveformAmplitudeAxis(ctx, W, H);
             }
 
-            function drawWaveformAmplitudeAxis(ctx, W, H) {
-                const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-                const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
-                const labelW = 30;
-                ctx.save();
-                ctx.fillStyle = bgColor;
-                ctx.globalAlpha = 0.7;
-                ctx.fillRect(0, 0, labelW, H);
-                ctx.globalAlpha = 1;
-                ctx.fillStyle = mutedColor;
-                ctx.font = '9px monospace';
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'top';
-                ctx.fillText('+1.0', labelW - 2, 1);
-                ctx.textBaseline = 'middle';
-                ctx.fillText('0', labelW - 2, H / 2);
-                ctx.textBaseline = 'bottom';
-                ctx.fillText('-1.0', labelW - 2, H - 1);
-                ctx.save();
-                ctx.translate(8, H / 2);
-                ctx.rotate(-Math.PI / 2);
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('Amp (FS)', 0, 0);
-                ctx.restore();
-                ctx.restore();
-            }
-
             function drawSpectrogram(canvas, result, offsetSeconds) {
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width;
@@ -704,73 +708,6 @@ export function getComparisonRenderScript(): string {
                 drawLoopRegionOnCanvas(ctx, W, H);
                 drawCursorOnCanvas(ctx, W, H);
                 drawHoverLineOnCanvas(ctx, W, H);
-            }
-
-            // 軸とカラーバーは半透明オーバーレイとして全幅キャンバスの上に描画する。
-            // これによりカーソル/ループ/ホバー線とマウス入力は従来通り canvas.width 基準のままで済む。
-            function drawSpectrogramAxes(ctx, W, H, spec) {
-                const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-                const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
-                const labelW = 36;
-                const cbStripW = 50;
-                const maxHz = spec.maxFrequencyHz;
-
-                ctx.save();
-                ctx.fillStyle = bgColor;
-                ctx.globalAlpha = 0.7;
-                ctx.fillRect(0, 0, labelW, H);
-                ctx.fillRect(W - cbStripW, 0, cbStripW, H);
-                ctx.globalAlpha = 1;
-                ctx.fillStyle = mutedColor;
-                ctx.font = '9px monospace';
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'top';
-                ctx.fillText(formatHz(maxHz), labelW - 2, 1);
-                ctx.textBaseline = 'middle';
-                ctx.fillText(formatHz(maxHz / 2), labelW - 2, H / 2);
-                ctx.textBaseline = 'bottom';
-                ctx.fillText('0 Hz', labelW - 2, H - 1);
-                ctx.save();
-                ctx.translate(9, H / 2);
-                ctx.rotate(-Math.PI / 2);
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('Freq', 0, 0);
-                ctx.restore();
-
-                const cbW = 10;
-                const cbX = W - cbStripW + 6;
-                const cbY = 2;
-                const cbH = Math.max(1, H - 4);
-                const grad = ctx.createImageData(cbW, cbH);
-                for (let y = 0; y < cbH; y++) {
-                    const norm = 1 - y / Math.max(cbH - 1, 1);
-                    const rgb = dbToRgb(norm);
-                    for (let x = 0; x < cbW; x++) {
-                        const off = (y * cbW + x) * 4;
-                        grad.data[off] = rgb[0]; grad.data[off + 1] = rgb[1]; grad.data[off + 2] = rgb[2]; grad.data[off + 3] = 255;
-                    }
-                }
-                ctx.putImageData(grad, cbX, cbY);
-                ctx.fillStyle = mutedColor;
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'top';
-                ctx.fillText(spec.maxDb.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
-                ctx.textBaseline = 'bottom';
-                ctx.fillText(spec.minDb.toFixed(0) + ' dB', cbX + cbW + 2, cbY + cbH);
-                ctx.restore();
-            }
-
-            function formatHz(hz) {
-                if (hz >= 1000) { return (hz / 1000).toFixed(hz >= 10000 ? 0 : 1) + ' kHz'; }
-                return Math.round(hz) + ' Hz';
-            }
-
-            function dbToRgb(norm) {
-                if (norm < 0.25) { const t = norm / 0.25; return [Math.floor(68 + t * (59 - 68)), Math.floor(1 + t * (82 - 1)), Math.floor(84 + t * (139 - 84))]; }
-                if (norm < 0.5)  { const t = (norm - 0.25) / 0.25; return [Math.floor(59 + t * (33 - 59)), Math.floor(82 + t * (145 - 82)), Math.floor(139 + t * (140 - 139))]; }
-                if (norm < 0.75) { const t = (norm - 0.5) / 0.25; return [Math.floor(33 + t * (94 - 33)), Math.floor(145 + t * (201 - 145)), Math.floor(140 + t * (98 - 140))]; }
-                const t = (norm - 0.75) / 0.25; return [Math.floor(94 + t * (253 - 94)), Math.floor(201 + t * (231 - 201)), Math.floor(98 + t * (37 - 98))];
             }
 
             function drawCursorOnCanvas(ctx, W, H) {
@@ -1479,56 +1416,6 @@ export function getComparisonRenderScript(): string {
                     minDb: spec.minDb,
                     maxDb: spec.maxDb,
                 };
-            }
-
-            function drawSpectrumLine(ctx, W, H, slice, color, opts) {
-                const fBins = slice.frequencyBins;
-                const range = slice.maxDb - slice.minDb;
-                if (range <= 0) { return; }
-                const padL = (opts && opts.padL) || 0;
-                const padR = (opts && opts.padR) || 0;
-                const padT = (opts && opts.padT) || 0;
-                const padB = (opts && opts.padB) || 0;
-                const plotW = W - padL - padR;
-                const plotH = H - padT - padB;
-                ctx.strokeStyle = color;
-                ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
-                ctx.beginPath();
-                for (let i = 0; i < fBins; i++) {
-                    const x = padL + (i / Math.max(fBins - 1, 1)) * plotW;
-                    const v = slice.values[i];
-                    const norm = Math.max(0, Math.min(1, (v - slice.minDb) / range));
-                    const y = padT + (1 - norm) * plotH;
-                    if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
-                }
-                ctx.stroke();
-            }
-
-            function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB) {
-                const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-                const lineColor = getComputedStyle(document.body).getPropertyValue('--line').trim() || '#444';
-                const plotW = W - padL - padR;
-                const plotH = H - padT - padB;
-                ctx.strokeStyle = lineColor;
-                ctx.lineWidth = 0.5;
-                ctx.beginPath();
-                ctx.moveTo(padL, padT); ctx.lineTo(padL, H - padB);
-                ctx.moveTo(padL, H - padB); ctx.lineTo(W - padR, H - padB);
-                ctx.stroke();
-                ctx.fillStyle = mutedColor;
-                ctx.font = '9px monospace';
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'top';
-                ctx.fillText(slice.maxDb.toFixed(0) + ' dB', padL - 2, padT);
-                ctx.textBaseline = 'middle';
-                ctx.fillText(((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' dB', padL - 2, padT + plotH / 2);
-                ctx.textBaseline = 'bottom';
-                ctx.fillText(slice.minDb.toFixed(0) + ' dB', padL - 2, H - padB);
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'bottom';
-                ctx.fillText('0 Hz', padL, H - 1);
-                ctx.fillText(formatHz(slice.maxFrequencyHz / 2), padL + plotW / 2, H - 1);
-                ctx.fillText(formatHz(slice.maxFrequencyHz), W - padR, H - 1);
             }
 
             function renderTrackSpectra() {
