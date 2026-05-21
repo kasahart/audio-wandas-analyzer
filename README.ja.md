@@ -1,6 +1,6 @@
 # Audio Wandas Analyzer
 
-[English](README.md) | **日本語**
+[English](https://github.com/kasahart/audio-wandas-analyzer/blob/main/README.md) | **日本語**
 
 VS Code 上で音声ファイルを開き、波形・スペクトログラム・パワースペクトルを並べて比較・解析できる拡張機能です。DSP の重い部分は Python 側の [wandas](https://github.com/kasahart/wandas) ライブラリが担い、UI は VS Code Webview で動きます。
 

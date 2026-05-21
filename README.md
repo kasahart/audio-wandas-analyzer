@@ -1,6 +1,6 @@
 # Audio Wandas Analyzer
 
-**English** | [日本語](README.ja.md)
+**English** | [日本語](https://github.com/kasahart/audio-wandas-analyzer/blob/main/README.ja.md)
 
 A VS Code extension to open audio files and compare them side-by-side via waveform, spectrogram, and power spectrum views. Heavy DSP runs in a Python child process powered by the [wandas](https://github.com/kasahart/wandas) library; the UI is implemented as a VS Code Webview.
 
