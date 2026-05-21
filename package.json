@@ -22,19 +22,19 @@
         "commands": [
             {
                 "command": "audioWandasAnalyzer.analyzeFile",
-                "title": "Audio Analyzer: Analyze File or Folder"
+                "title": "%command.analyzeFile.title%"
             },
             {
                 "command": "audioWandasAnalyzer.analyzeThisTarget",
-                "title": "Analyze with Audio Analyzer"
+                "title": "%command.analyzeThisTarget.title%"
             },
             {
                 "command": "audioWandasAnalyzer.analyzeDebugFile",
-                "title": "Audio Analyzer: Analyze Debug Path"
+                "title": "%command.analyzeDebugFile.title%"
             },
             {
                 "command": "audioWandasAnalyzer.selectPythonEnvironment",
-                "title": "Audio Analyzer: Select Python Environment"
+                "title": "%command.selectPythonEnvironment.title%"
             }
         ],
         "menus": {
@@ -55,7 +55,7 @@
             "activitybar": [
                 {
                     "id": "audioWandasAnalyzer",
-                    "title": "Audio Analyzer",
+                    "title": "%viewsContainer.title%",
                     "icon": "media/icon.svg"
                 }
             ]
@@ -64,35 +64,35 @@
             "audioWandasAnalyzer": [
                 {
                     "id": "audioWandasAnalyzer.welcomeView",
-                    "name": "Audio Analyzer"
+                    "name": "%views.welcomeView.name%"
                 }
             ]
         },
         "viewsWelcome": [
             {
                 "view": "audioWandasAnalyzer.welcomeView",
-                "contents": "音声ファイルまたはフォルダを解析します。\n\n[ファイル・フォルダを選択して解析](command:audioWandasAnalyzer.analyzeFile)\n\nエクスプローラーで音声ファイルまたはフォルダを右クリックして「Analyze with Audio Analyzer」を選択することもできます。"
+                "contents": "%viewsWelcome.contents%"
             }
         ],
         "configuration": {
-            "title": "Audio Wandas Analyzer",
+            "title": "%configuration.title%",
             "properties": {
                 "audioWandasAnalyzer.pythonCommand": {
                     "type": "string",
                     "default": "python3",
-                    "description": "Python command used to launch the analysis backend."
+                    "description": "%configuration.pythonCommand.description%"
                 },
                 "audioWandasAnalyzer.defaultPeakCount": {
                     "type": "number",
                     "default": 5,
                     "minimum": 1,
                     "maximum": 20,
-                    "description": "Number of dominant frequency peaks shown per channel."
+                    "description": "%configuration.defaultPeakCount.description%"
                 },
                 "audioWandasAnalyzer.debugFilePath": {
                     "type": "string",
                     "default": "media/debug",
-                    "description": "Debug audio file or directory path used by the Analyze Debug Path command. Relative paths are resolved from the first workspace folder."
+                    "description": "%configuration.debugFilePath.description%"
                 }
             }
         }

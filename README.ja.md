@@ -17,6 +17,8 @@ VS Code 上で音声ファイルを開き、波形・スペクトログラム・
 
 対応フォーマット: **WAV / FLAC / OGG / AIFF / AIF / SND**
 
+UI 言語: **日本語** / **English** に対応。VS Code の表示言語 (`Configure Display Language`) に自動追従し、`ja*` で日本語、それ以外は英語にフォールバックします。
+
 ## 必要な環境
 
 この拡張は Python の `wandas` をバックエンドとして呼び出します。事前に Python 環境の準備が必要です。

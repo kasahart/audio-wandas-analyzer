@@ -11,6 +11,7 @@ export function getComparisonRenderScript(): string {
         (function() {
             const vscode = acquireVsCodeApi();
             const state = __APP_STATE__;
+            const STR = (typeof __APP_STRINGS__ !== 'undefined' && __APP_STRINGS__) ? __APP_STRINGS__ : {};
             const isSelectionMode = state.mode === 'directory-selection';
             const selectedFilePaths = new Set(Array.isArray(state.selectedFilePaths) ? state.selectedFilePaths : []);
             const allSelectableFilePaths = Array.isArray(state.allFilePaths) ? state.allFilePaths.slice() : [];
@@ -353,7 +354,7 @@ export function getComparisonRenderScript(): string {
                 if (isSelectionMode) {
                     return buildDirectorySelectionLayout();
                 }
-                return buildResultsPane('すべてのトラックが除外されています');
+                return buildResultsPane(STR.emptyAllExcluded);
             }
 
             function buildDirectorySelectionLayout() {
@@ -361,10 +362,10 @@ export function getComparisonRenderScript(): string {
                 const pythonButtonClass = 'tb-btn' + (pythonEnvironmentState.status === 'warning' ? ' is-warning' : '');
                 return '<div id="directory-selection-layout">'
                     + '  <div id="selection-toolbar">'
-                    + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">選択して解析</span>'
+                    + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + escHtml(STR.selectionHeader) + '</span>'
                     + '    <div class="tb-sep"></div>'
-                    + '    <button class="tb-btn" data-action="open-file">ファイルを開く</button>'
-                    + '    <button class="tb-btn" data-action="open-folder">別のフォルダを開く</button>'
+                    + '    <button class="tb-btn" data-action="open-file">' + escHtml(STR.btnOpenFile) + '</button>'
+                    + '    <button class="tb-btn" data-action="open-folder">' + escHtml(STR.btnOpenAnotherFolder) + '</button>'
                     + '    <button class="' + pythonButtonClass + '" id="selection-python-environment" data-action="select-python-environment" title="' + escHtml(pythonEnvironmentState.tooltip || '') + '">' + escHtml(pythonButtonText) + '</button>'
                     + '  </div>'
                     + '  <div id="selection-body">'
@@ -375,12 +376,12 @@ export function getComparisonRenderScript(): string {
                     + '      </div>'
                     + '      <div id="selection-tree">' + buildSelectionTree(state.directoryTree || [], true) + '</div>'
                     + '      <div id="selection-actions">'
-                    + '        <button class="tb-btn" data-action="selection-select-all">すべて選択</button>'
-                    + '        <button class="tb-btn" data-action="selection-clear-all">クリア</button>'
+                    + '        <button class="tb-btn" data-action="selection-select-all">' + escHtml(STR.btnSelectAll) + '</button>'
+                    + '        <button class="tb-btn" data-action="selection-clear-all">' + escHtml(STR.btnClear) + '</button>'
                     + '      </div>'
                     + '    </div>'
                     + '    <div id="selection-results-pane">'
-                    + buildResultsPane('左のツリーでチェックしたファイルがここにトラックとして表示されます')
+                    + buildResultsPane(STR.emptyNoTracks)
                     + '    </div>'
                     + '  </div>'
                     + '</div>';
@@ -407,7 +408,7 @@ export function getComparisonRenderScript(): string {
                     + '  <div id="empty-state"><p>' + escHtml(emptyMessage) + '</p></div>'
                     + '</div>'
                     + '<div id="spectrum-section">'
-                    + '  <div id="spectrum-section-header"><span>カーソル時刻のパワースペクトル（全トラック重ね合わせ）</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span></div>'
+                    + '  <div id="spectrum-section-header"><span>' + escHtml(STR.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span></div>'
                     + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas"></canvas></div>'
                     + '</div>'
                     + '<div id="audio-host">' + buildAudioElements() + '</div>'
@@ -416,7 +417,7 @@ export function getComparisonRenderScript(): string {
 
             function buildSelectionTree(nodes, isRoot) {
                 if (!Array.isArray(nodes) || nodes.length === 0) {
-                    return '<div class="selection-path">対応する音声ファイルは見つかりませんでした。</div>';
+                    return '<div class="selection-path">' + escHtml(STR.selectionNoSupported) + '</div>';
                 }
                 return '<ul class="selection-tree-list' + (isRoot ? ' is-root' : '') + '">'
                     + nodes.map(function(node) {
@@ -450,22 +451,22 @@ export function getComparisonRenderScript(): string {
             }
 
             function buildToolbar() {
-                return '<span style="font-weight:700;font-size:12px;color:var(--accent)">⚡ メイン</span>'
+                return '<span style="font-weight:700;font-size:12px;color:var(--accent)">' + escHtml(STR.toolbarMain) + '</span>'
                     + '<div class="tb-sep"></div>'
-                    + '<button class="tb-btn" data-action="open-file">ファイルを開く</button>'
-                    + '<button class="tb-btn" data-action="open-folder">フォルダを開く</button>'
+                    + '<button class="tb-btn" data-action="open-file">' + escHtml(STR.btnOpenFile) + '</button>'
+                    + '<button class="tb-btn" data-action="open-folder">' + escHtml(STR.btnOpenFolder) + '</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<span class="tb-label">トラック:</span>'
-                    + '<button class="tb-btn is-active" data-action="content-waveform">波形</button>'
-                    + '<button class="tb-btn" data-action="content-spectrogram">スペクトログラム</button>'
-                    + '<button class="tb-btn" data-action="spectrogram-settings" title="スペクトログラム設定" style="display:none">⚙</button>'
+                    + '<span class="tb-label">' + escHtml(STR.toolbarTrackLabel) + '</span>'
+                    + '<button class="tb-btn is-active" data-action="content-waveform">' + escHtml(STR.btnWaveform) + '</button>'
+                    + '<button class="tb-btn" data-action="content-spectrogram">' + escHtml(STR.btnSpectrogram) + '</button>'
+                    + '<button class="tb-btn" data-action="spectrogram-settings" title="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" style="display:none">⚙</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<span class="tb-label">ズーム:</span>'
+                    + '<span class="tb-label">' + escHtml(STR.toolbarZoomLabel) + '</span>'
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in">＋</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<span id="cursor-display" title="← →キーで微調整できます">—</span>'
-                    + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">🔁 ループ再生中</span>';
+                    + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
+                    + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>';
             }
 
             function buildTrackRow(result, i) {
@@ -476,12 +477,12 @@ export function getComparisonRenderScript(): string {
                     + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
                     + '    <button class="track-btn" data-action="toggle-mute" data-track-index="' + i + '">M</button>'
-                    + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="再生 / 一時停止"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
-                    + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="停止"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
+                    + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackPlayTitle) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
+                    + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackStopTitle) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
                     + '    <button class="track-btn" data-action="remove-track" data-track-index="' + i + '">✕</button>'
                     + '  </div>'
                     + '  <div class="track-offset">'
-                    + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-index="' + i + '" title="ダブルクリックでリセット">+0.000s</span>'
+                    + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-index="' + i + '" title="' + escHtml(STR.trackOffsetResetHint) + '">+0.000s</span>'
                     + '    <button class="track-offset-step" data-action="offset-up" data-track-index="' + i + '">▲</button>'
                     + '    <button class="track-offset-step" data-action="offset-down" data-track-index="' + i + '">▼</button>'
                     + '  </div>'
@@ -489,7 +490,7 @@ export function getComparisonRenderScript(): string {
                     + '<div class="track-canvas-wrap" id="track-canvas-wrap-' + i + '">'
                     + '  <canvas class="track-canvas" id="track-canvas-' + i + '" data-track-index="' + i + '" tabindex="0" style="outline:none"></canvas>'
                     + '</div>'
-                    + '<div class="track-spectrum-wrap" id="track-spectrum-wrap-' + i + '" title="メインカーソル時刻のパワースペクトル">'
+                    + '<div class="track-spectrum-wrap" id="track-spectrum-wrap-' + i + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
                     + '  <canvas class="track-spectrum-canvas" id="track-spectrum-' + i + '" data-track-index="' + i + '"></canvas>'
                     + '</div>'
                     + '</div>';
@@ -576,7 +577,7 @@ export function getComparisonRenderScript(): string {
                             ctx.clearRect(0, 0, canvas.width, canvas.height);
                             ctx.fillStyle = '#e8637a';
                             ctx.font = '11px sans-serif';
-                            ctx.fillText('解析失敗: ' + result.error, 8, canvas.height / 2 + 4);
+                            ctx.fillText(STR.analysisFailed + result.error, 8, canvas.height / 2 + 4);
                         }
                         return;
                     }
@@ -1157,7 +1158,7 @@ export function getComparisonRenderScript(): string {
                         const el = document.getElementById('canvas-tooltip');
                         if (el) {
                             const rect = canvas.getBoundingClientRect();
-                            el.textContent = '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止';
+                            el.textContent = STR.cursorHelpKeys;
                             el.style.display = 'block';
                             el.style.left = (rect.left + 8) + 'px';
                             el.style.top = (rect.bottom - 36) + 'px';
@@ -1275,7 +1276,7 @@ export function getComparisonRenderScript(): string {
                 const countEl = document.getElementById('selection-count');
                 const count = selectedFilePaths.size;
                 if (countEl) {
-                    countEl.textContent = count + ' / ' + allSelectableFilePaths.length + ' 件を選択中';
+                    countEl.textContent = count + ' / ' + allSelectableFilePaths.length + ' ' + STR.selectionCountLabel;
                 }
             }
 
@@ -1399,11 +1400,11 @@ export function getComparisonRenderScript(): string {
 
                 const gripType = getGripType(norm);
                 if (gripType) {
-                    showTooltip(e, 'ドラッグでループ区間をリサイズ');
+                    showTooltip(e, STR.tooltipLoopResize);
                 } else if (loopRegion && norm >= loopRegion.start && norm <= loopRegion.end) {
-                    showTooltip(e, 'クリックでループ解除');
+                    showTooltip(e, STR.tooltipLoopClear);
                 } else {
-                    showTooltip(e, 'ドラッグ: ループ区間を設定\\nShift+ドラッグ: トラックの時間をずらす');
+                    showTooltip(e, STR.tooltipLoopOrShift);
                 }
 
                 renderWithHoverAt(norm);
@@ -1612,7 +1613,7 @@ export function getComparisonRenderScript(): string {
                         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                         ctx.font = '9px sans-serif';
                         ctx.textAlign = 'center';
-                        ctx.fillText('範囲外', W / 2, H / 2);
+                        ctx.fillText(STR.canvasOutOfRange, W / 2, H / 2);
                         return;
                     }
                     const color = TRACK_COLORS[i % TRACK_COLORS.length];
@@ -1642,7 +1643,7 @@ export function getComparisonRenderScript(): string {
                     ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                     ctx.font = '11px sans-serif';
                     ctx.textAlign = 'center';
-                    ctx.fillText('カーソル位置にデータがあるトラックがありません', W / 2, H / 2);
+                    ctx.fillText(STR.spectrumNoData, W / 2, H / 2);
                     return;
                 }
 
@@ -1755,7 +1756,7 @@ export function getComparisonRenderScript(): string {
                     + '<option value="hann">hann</option><option value="hamming">hamming</option>'
                     + '<option value="blackman">blackman</option><option value="boxcar">boxcar</option>'
                     + '</select></label>'
-                    + '<div style="font-size:11px;color:var(--muted)">変更は「適用」で反映</div>'
+                    + '<div style="font-size:11px;color:var(--muted)">' + escHtml(STR.settingsApplyHint) + '</div>'
                     + '</fieldset>'
                     + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
                     + '<legend>Display</legend>'
@@ -1837,7 +1838,7 @@ export function getComparisonRenderScript(): string {
                     },
                     display: __readDisplayFromForm()
                 };
-                __setReanalyzeBusy(true, 'STFT を再計算中…');
+                __setReanalyzeBusy(true, STR.reanalyzingStft);
                 vscode.postMessage({ type: 'request-reanalyze', settings: __spectrogramSettings });
                 __closeSpecPopover();
             });
@@ -1849,7 +1850,7 @@ export function getComparisonRenderScript(): string {
                     + 'padding:8px 14px;border-bottom:1px solid var(--line);font-family:var(--font-ui);font-size:12px;'
                     + 'display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'
                     + '<span class="spinner" style="width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></span>'
-                    + '<span id="reanalyze-overlay-msg">再計算中…</span>'
+                    + '<span id="reanalyze-overlay-msg">' + escHtml(STR.reanalyzingDefault) + '</span>'
                     + '</div>'
                     + '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>');
             })();
@@ -1858,7 +1859,7 @@ export function getComparisonRenderScript(): string {
                 const overlay = document.getElementById('reanalyze-overlay');
                 if (!overlay) { return; }
                 if (busy) {
-                    document.getElementById('reanalyze-overlay-msg').textContent = msg || '再計算中…';
+                    document.getElementById('reanalyze-overlay-msg').textContent = msg || STR.reanalyzingDefault;
                     overlay.hidden = false;
                 } else {
                     overlay.hidden = true;
@@ -1885,7 +1886,7 @@ export function getComparisonRenderScript(): string {
                 if (!msg) { return; }
                 if (msg.type === 'reanalyze-start') {
                     const cnt = typeof msg.count === 'number' ? msg.count : 0;
-                    __setReanalyzeBusy(true, 'STFT を再計算中… (' + cnt + ' ファイル)');
+                    __setReanalyzeBusy(true, STR.reanalyzingFiles.replace('{count}', cnt));
                     return;
                 }
                 if (msg.type === 'reanalyze-end') {

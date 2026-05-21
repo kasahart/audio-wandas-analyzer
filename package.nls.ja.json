@@ -1,0 +1,13 @@
+{
+  "command.analyzeFile.title": "Audio Analyzer: ファイル・フォルダを解析",
+  "command.analyzeThisTarget.title": "Audio Analyzer で解析",
+  "command.analyzeDebugFile.title": "Audio Analyzer: デバッグパスを解析",
+  "command.selectPythonEnvironment.title": "Audio Analyzer: Python 環境を選択",
+  "viewsContainer.title": "Audio Analyzer",
+  "views.welcomeView.name": "Audio Analyzer",
+  "viewsWelcome.contents": "音声ファイルまたはフォルダを解析します。\n\n[ファイル・フォルダを選択して解析](command:audioWandasAnalyzer.analyzeFile)\n\nエクスプローラーで音声ファイルまたはフォルダを右クリックして「Audio Analyzer で解析」を選択することもできます。",
+  "configuration.title": "Audio Wandas Analyzer",
+  "configuration.pythonCommand.description": "解析バックエンドを起動する Python コマンド。",
+  "configuration.defaultPeakCount.description": "チャンネルごとに表示する周波数ピーク数。",
+  "configuration.debugFilePath.description": "Audio Analyzer: デバッグパスを解析 コマンドで開く既定パス。相対パスは最初のワークスペースフォルダから解決されます。"
+}

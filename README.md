@@ -17,6 +17,8 @@ A VS Code extension to open audio files and compare them side-by-side via wavefo
 
 Supported formats: **WAV / FLAC / OGG / AIFF / AIF / SND**
 
+UI language: **English** and **日本語**. Automatically follows VS Code's display language (`Configure Display Language`); `ja*` shows Japanese, anything else falls back to English.
+
 ## Requirements
 
 This extension calls a Python backend that depends on `wandas`. You need to set up Python before using it.
