@@ -7,7 +7,7 @@
  * import-and-test を可能にすること。ロジックは元のまま、変更なし。
  */
 export function getComparisonRenderScript(): string {
-        return `
+    return `
         (function() {
             const vscode = acquireVsCodeApi();
             const state = __APP_STATE__;
@@ -1663,5 +1663,5 @@ export function getComparisonRenderScript(): string {
                 refreshSpectrumViews();
             }
         })();
-        `;
+    `;
 }
