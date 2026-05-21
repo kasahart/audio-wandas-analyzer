@@ -33,14 +33,112 @@ export interface WebviewEnv {
     domCanvasContexts: Map<string, DomCanvasSpyCtx>;
 }
 
+const noop = (): undefined => undefined;
+
+// 既定値: ctx.lineWidth 等を set 前に読まれたときの返却値。
+// 旧実装の getter 返却値を踏襲（変更すると既存テストが壊れる可能性がある）。
+const CANVAS_PROPERTY_DEFAULTS: Record<string, unknown> = {
+    lineWidth: 1,
+    strokeStyle: '',
+    fillStyle: '',
+    font: '',
+    textAlign: 'left',
+    textBaseline: 'alphabetic',
+    globalAlpha: 1,
+};
+
+/**
+ * 未知のメソッド呼び出しに対しては no-op を返す Canvas2D 互換 Proxy。
+ *
+ * 新しい描画 API が呼び出されても TypeError にならないため、
+ * 描画コード側の追加で無関係なテストが連鎖失敗することを防ぐ。
+ *
+ * 計測したい呼び出しは `counters` テーブルに、戻り値が必要なメソッドは
+ * `valueReturning` テーブルに明示的に列挙する。
+ */
+function createDomCanvasContextProxy(spy: DomCanvasSpyCtx): CanvasRenderingContext2D {
+    const stored: Record<string, unknown> = { ...CANVAS_PROPERTY_DEFAULTS };
+
+    const counters: Record<string, (...args: unknown[]) => void> = {
+        clearRect: () => { spy.clearRectCalls++; },
+        beginPath: () => { spy.beginPathCalls++; },
+        stroke: () => { spy.strokeCalls++; },
+        drawImage: (src) => { spy.drawImageCalls.push({ src }); },
+        fillText: (text) => { spy.fillTextCalls.push(String(text)); },
+        fillRect: () => { spy.fillRectCalls++; },
+        putImageData: () => { spy.putImageDataCalls++; },
+        save: () => { spy.saveCalls++; },
+        restore: () => { spy.restoreCalls++; },
+    };
+
+    const valueReturning: Record<string, (...args: unknown[]) => unknown> = {
+        createImageData: (w, h) => {
+            const width = (w as number) | 0;
+            const height = (h as number) | 0;
+            return {
+                width,
+                height,
+                data: new Uint8ClampedArray(Math.max(0, width) * Math.max(0, height) * 4),
+            };
+        },
+        getImageData: (_x, _y, w, h) => {
+            const width = (w as number) | 0;
+            const height = (h as number) | 0;
+            return {
+                width,
+                height,
+                data: new Uint8ClampedArray(Math.max(0, width) * Math.max(0, height) * 4),
+            };
+        },
+        measureText: () => ({ width: 0 }),
+    };
+
+    return new Proxy({}, {
+        get(_target, prop) {
+            if (typeof prop !== 'string') { return undefined; }
+            if (prop in counters) { return counters[prop]; }
+            if (prop in valueReturning) { return valueReturning[prop]; }
+            if (prop in stored) { return stored[prop]; }
+            return noop;
+        },
+        set(_target, prop, value) {
+            if (typeof prop === 'string') { stored[prop] = value; }
+            return true;
+        },
+    }) as unknown as CanvasRenderingContext2D;
+}
+
+function createOffscreenContextProxy(spy: CanvasSpyCtx): unknown {
+    const stored: Record<string, unknown> = { ...CANVAS_PROPERTY_DEFAULTS };
+    const counters: Record<string, (...args: unknown[]) => void> = {
+        clearRect: () => { spy.clearRectCalls++; },
+        beginPath: () => { spy.beginPathCalls++; },
+        stroke: () => { spy.strokeCalls++; },
+        drawImage: (src) => { spy.drawImageCalls.push({ src }); },
+    };
+    return new Proxy({}, {
+        get(_target, prop) {
+            if (typeof prop !== 'string') { return undefined; }
+            if (prop in counters) { return counters[prop]; }
+            if (prop in stored) { return stored[prop]; }
+            return noop;
+        },
+        set(_target, prop, value) {
+            if (typeof prop === 'string') { stored[prop] = value; }
+            return true;
+        },
+    });
+}
+
 /**
  * ComparisonPanel の renderScript() を実行するための
  * 軽量 jsdom 環境を構築する。
  *
  * - acquireVsCodeApi() をスタブ化（postMessage はキャプチャ）
- * - OffscreenCanvas をスパイ付きスタブで差し替え
- * - HTMLCanvasElement.getContext() を最小スタブで差し替え
- * - jsdom は CSS レイアウトを実装しないため clientWidth は 0 になる点に注意。
+ * - OffscreenCanvas を Proxy ベースのスパイで差し替え
+ * - HTMLCanvasElement.getContext() を Proxy ベースのスパイで差し替え
+ *   未知の API は no-op、計測対象だけ明示的に counters に列挙する
+ * - jsdom は CSS レイアウト（clientWidth）を実装しないため、
  *   テスト内で `Object.defineProperty(wrap, 'clientWidth', { value: 800 })` 等で設定できる。
  */
 export function createWebviewEnv(appStateJson: string): WebviewEnv {
@@ -75,19 +173,7 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
         }
 
         getContext(_type: string) {
-            const ctx = this.ctx;
-            return {
-                clearRect() { ctx.clearRectCalls++; },
-                beginPath() { ctx.beginPathCalls++; },
-                moveTo() { },
-                lineTo() { },
-                stroke() { ctx.strokeCalls++; },
-                drawImage(src: unknown) { ctx.drawImageCalls.push({ src }); },
-                get lineWidth() { return 1; },
-                set lineWidth(_v: number) { },
-                get strokeStyle() { return ''; },
-                set strokeStyle(_v: string) { },
-            };
+            return createOffscreenContextProxy(this.ctx);
         }
     };
 
@@ -109,42 +195,7 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
             };
             domCanvasContexts.set(id, spy);
         }
-        return {
-            clearRect() { spy.clearRectCalls++; },
-            beginPath() { spy.beginPathCalls++; },
-            moveTo() { },
-            lineTo() { },
-            stroke() { spy.strokeCalls++; },
-            drawImage(src: unknown) { spy.drawImageCalls.push({ src }); },
-            fillText(text: string) { spy.fillTextCalls.push(String(text)); },
-            fillRect() { spy.fillRectCalls++; },
-            rect() { },
-            clip() { },
-            translate() { },
-            rotate() { },
-            scale() { },
-            createImageData(w: number, h: number) {
-                return { width: w, height: h, data: new Uint8ClampedArray(Math.max(0, w) * Math.max(0, h) * 4) };
-            },
-            putImageData() { spy.putImageDataCalls++; },
-            get lineWidth() { return 1; },
-            set lineWidth(_v: number) { },
-            get strokeStyle() { return ''; },
-            set strokeStyle(_v: string) { },
-            get fillStyle() { return ''; },
-            set fillStyle(_v: string) { },
-            get font() { return ''; },
-            set font(_v: string) { },
-            get textAlign() { return 'left'; },
-            set textAlign(_v: string) { },
-            get textBaseline() { return 'alphabetic'; },
-            set textBaseline(_v: string) { },
-            setLineDash() { },
-            save() { spy.saveCalls++; },
-            restore() { spy.restoreCalls++; },
-            get globalAlpha() { return 1; },
-            set globalAlpha(_v: number) { },
-        };
+        return createDomCanvasContextProxy(spy);
     };
 
     Object.defineProperty(win.HTMLMediaElement.prototype, 'paused', {
