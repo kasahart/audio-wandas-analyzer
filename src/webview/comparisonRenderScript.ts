@@ -423,8 +423,8 @@ export function getComparisonRenderScript(): string {
                     + nodes.map(function(node) {
                         if (node.type === 'directory') {
                             return '<li>'
-                                + '<div class="selection-tree-directory" data-action="toggle-directory">'
-                                + '<span class="dir-toggle">▼</span>'
+                                + '<div class="selection-tree-directory" data-action="toggle-directory" role="button" tabindex="0" aria-expanded="true">'
+                                + '<span class="dir-toggle" aria-hidden="true">▼</span>'
                                 + '<span class="dir-name">' + escHtml(node.name) + '</span>'
                                 + '</div>'
                                 + buildSelectionTree(node.children || [], false)
@@ -470,7 +470,7 @@ export function getComparisonRenderScript(): string {
                     + '<span class="tb-label">' + escHtml(STR.toolbarZoomLabel) + '</span>'
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in">＋</button>'
-                    + '<button class="tb-btn" data-action="zoom-reset">Reset</button>'
+                    + '<button class="tb-btn" data-action="zoom-reset">' + escHtml(STR.btnZoomReset) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
                     + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>';
@@ -656,11 +656,11 @@ export function getComparisonRenderScript(): string {
                         }
                         return originalLineTo(x, y);
                     };
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.rect(32, 0, W - 32, H);
+                    ctx.clip();
                     try {
-                        ctx.save();
-                        ctx.beginPath();
-                        ctx.rect(32, 0, W - 32, H);
-                        ctx.clip();
                         window.renderWaveformPipeline(ctx, W, H, src.waveform, {
                             zoomStart,
                             zoomEnd,
@@ -670,8 +670,8 @@ export function getComparisonRenderScript(): string {
                             dataEnd: src.dataEnd,
                             color,
                         });
-                        ctx.restore();
                     } finally {
+                        ctx.restore();
                         ctx.moveTo = originalMoveTo;
                         ctx.lineTo = originalLineTo;
                     }
@@ -1222,21 +1222,26 @@ export function getComparisonRenderScript(): string {
                 const layout = document.getElementById('directory-selection-layout');
                 if (!layout) { return; }
 
+                function toggleDirectoryHeader(dirHeader) {
+                    const list = dirHeader.nextElementSibling;
+                    const toggle = dirHeader.querySelector('.dir-toggle');
+                    if (list && list.classList && list.classList.contains('selection-tree-list')) {
+                        const isCollapsed = list.style.display === 'none';
+                        list.style.display = isCollapsed ? '' : 'none';
+                        if (toggle) {
+                            toggle.textContent = isCollapsed ? '▼' : '▶';
+                        }
+                        dirHeader.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
+                    }
+                }
+
                 layout.addEventListener('click', function(e) {
                     const target = e.target;
                     if (!target || typeof target.getAttribute !== 'function') { return; }
 
                     const dirHeader = target.closest('.selection-tree-directory');
                     if (dirHeader) {
-                        const list = dirHeader.nextElementSibling;
-                        const toggle = dirHeader.querySelector('.dir-toggle');
-                        if (list && list.classList && list.classList.contains('selection-tree-list')) {
-                            const isCollapsed = list.style.display === 'none';
-                            list.style.display = isCollapsed ? '' : 'none';
-                            if (toggle) {
-                                toggle.textContent = isCollapsed ? '▼' : '▶';
-                            }
-                        }
+                        toggleDirectoryHeader(dirHeader);
                         return;
                     }
 
@@ -1246,6 +1251,16 @@ export function getComparisonRenderScript(): string {
                     if (handleSelectionAction(action)) {
                         return;
                     }
+                });
+
+                layout.addEventListener('keydown', function(e) {
+                    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') { return; }
+                    const target = e.target;
+                    if (!target || typeof target.closest !== 'function') { return; }
+                    const dirHeader = target.closest('.selection-tree-directory');
+                    if (!dirHeader) { return; }
+                    e.preventDefault();
+                    toggleDirectoryHeader(dirHeader);
                 });
 
                 layout.addEventListener('change', function(e) {
@@ -1586,7 +1601,11 @@ export function getComparisonRenderScript(): string {
                 const displaySettings = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display) || {};
                 const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : spec.minDb;
                 const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : spec.maxDb;
-                const maxFrequencyHz = displaySettings.maxFrequencyHz != null ? displaySettings.maxFrequencyHz : spec.maxFrequencyHz;
+                const requestedMaxFreq = displaySettings.maxFrequencyHz;
+                let maxFrequencyHz = spec.maxFrequencyHz;
+                if (requestedMaxFreq != null && Number.isFinite(requestedMaxFreq) && requestedMaxFreq > 0) {
+                    maxFrequencyHz = Math.min(requestedMaxFreq, spec.maxFrequencyHz);
+                }
 
                 return {
                     values: slice,
@@ -1656,7 +1675,12 @@ export function getComparisonRenderScript(): string {
                     const canvas = document.getElementById('track-spectrum-' + i);
                     if (!canvas) { return; }
                     const wrap = document.getElementById('track-spectrum-wrap-' + i);
-                    const w = (wrap && wrap.clientWidth) || 180;
+                    if (!wrap) { return; }
+                    const wrapStyle = (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function')
+                        ? window.getComputedStyle(wrap)
+                        : null;
+                    if (wrapStyle && wrapStyle.display === 'none') { return; }
+                    const w = wrap.clientWidth || 180;
                     if (canvas.width !== w) { canvas.width = w; canvas.height = 80; }
                     const ctx = canvas.getContext('2d');
                     const W = canvas.width, H = canvas.height;
