@@ -4,7 +4,9 @@
  * NOTE: この関数は文字列を組み立てるだけのファサード。実体は backtick
  * テンプレート内の inline JS であり、`__APP_STATE__` をグローバル経由で受け取る。
  * 物理分離の目的は ComparisonPanel.ts の肥大化防止と、renderScript の
- * import-and-test を可能にすること。ロジックは元のまま、変更なし。
+ * import-and-test を可能にすること。Step 3 で純粋描画関数は
+ * src/webview/draw/canvasDrawers.ts に切り出され、ここではそれを
+ * `window.draw*` 経由で呼ぶ薄い alias と DOM テーマ橋渡しを行う。
  */
 export function getComparisonRenderScript(): string {
     return `
@@ -24,15 +26,21 @@ export function getComparisonRenderScript(): string {
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc'];
 
             // src/webview/draw/canvasDrawers.ts からビルドされた window.draw* を
-            // 旧来の関数名でローカルに alias する。theme は描画ごとに DOM から
-            // 読み直す (CSS 変数が変更されてもライブに反映される)。
+            // 旧来の関数名でローカルに alias する。
+            // テーマ色は body の CSS 変数 (--muted / --track-bg / --line) から取る。
+            // 描画ごとに getComputedStyle を呼ぶと毎フレーム DOM レイアウト計算が
+            // 走るため初回のみ計算してキャッシュする。CSS 変数は runtime に変わらない
+            // 前提 (テーマ切替が必要になったら invalidateCachedTheme() を呼ぶ)。
+            let cachedTheme = null;
             function getTheme() {
+                if (cachedTheme) { return cachedTheme; }
                 const cs = getComputedStyle(document.body);
-                return {
+                cachedTheme = {
                     mutedColor: cs.getPropertyValue('--muted').trim() || '#888',
                     bgColor: cs.getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)',
                     lineColor: cs.getPropertyValue('--line').trim() || '#444',
                 };
+                return cachedTheme;
             }
             const formatHz = window.formatHz;
             const dbToRgb = window.dbToRgb;
