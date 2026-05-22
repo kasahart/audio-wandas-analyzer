@@ -1930,9 +1930,9 @@ export function getComparisonRenderScript(): string {
             // 再解析中のオーバーレイ
             (function __buildReanalyzeOverlay() {
                 document.body.insertAdjacentHTML('beforeend',
-                    '<div id="reanalyze-overlay" hidden style="position:fixed;top:0;left:0;right:0;z-index:60;background:var(--panel);color:var(--text);'
+                    '<div id="reanalyze-overlay" style="position:fixed;top:0;left:0;right:0;z-index:60;background:var(--panel);color:var(--text);'
                     + 'padding:8px 14px;border-bottom:1px solid var(--line);font-family:var(--font-ui);font-size:12px;'
-                    + 'display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'
+                    + 'display:none;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'
                     + '<span class="spinner" style="width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></span>'
                     + '<span id="reanalyze-overlay-msg">' + escHtml(STR.reanalyzingDefault) + '</span>'
                     + '</div>'
@@ -1944,9 +1944,9 @@ export function getComparisonRenderScript(): string {
                 if (!overlay) { return; }
                 if (busy) {
                     document.getElementById('reanalyze-overlay-msg').textContent = msg || STR.reanalyzingDefault;
-                    overlay.hidden = false;
+                    overlay.style.display = 'flex';
                 } else {
-                    overlay.hidden = true;
+                    overlay.style.display = 'none';
                 }
                 const applyBtn = document.getElementById('spec-apply');
                 if (applyBtn) { applyBtn.disabled = !!busy; }
