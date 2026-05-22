@@ -3,10 +3,11 @@
  * and the webview renderer in src/webview/chartSpecRenderScript.ts.
  *
  * Kept hand-mirrored from python-backend/chart_spec.py. The
- * src/test/chartSpecSchema.test.ts test spawns python -m chart_spec and
- * compares its JSON Schema output against a checked-in snapshot at
- * src/test/__snapshots__/chartSpecSchema.json — any drift between the two
- * sides surfaces there.
+ * src/test/chartSpecSchema.test.ts test spawns
+ * `python chart_spec.py` from python-backend/ and compares its JSON
+ * Schema output against the checked-in snapshot at
+ * src/test/__snapshots__/chartSpec.schema.json — any drift between the
+ * two sides surfaces there.
  */
 
 export interface LineSeries {

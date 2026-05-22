@@ -186,7 +186,7 @@ export function getChartSpecRenderScript(): string {
             for (let c = 0; c < cols; c++) {
                 const v = row[c];
                 const t = Number.isFinite(v) ? Math.max(0, Math.min(1, (v - vMin) / (vMax - vMin))) : 0;
-                ctx.fillStyle = viridis(t);
+                ctx.fillStyle = sampleColormap(spec.colormap, t);
                 ctx.fillRect(plot.x + c * cellW, yPx, cellW + 0.5, cellH + 0.5);
             }
         }
@@ -203,7 +203,7 @@ export function getChartSpecRenderScript(): string {
         const cbW = 14, cbH = plot.h;
         for (let i = 0; i < cbH; i++) {
             const t = 1 - (i / cbH);
-            ctx.fillStyle = viridis(t);
+            ctx.fillStyle = sampleColormap(spec.colormap, t);
             ctx.fillRect(cbX, plot.y + i, cbW, 1);
         }
         ctx.strokeStyle = cssVar('--line', '#666');
@@ -309,12 +309,19 @@ export function getChartSpecRenderScript(): string {
         attachCard(spec.title, table);
     }
 
-    function viridis(t) {
-        // Tiny piecewise-linear approximation of viridis (good enough for previews).
-        const stops = [
+    const COLORMAPS = {
+        viridis: [
             [0.0, [68, 1, 84]], [0.25, [59, 82, 139]], [0.5, [33, 144, 141]],
             [0.75, [94, 201, 98]], [1.0, [253, 231, 37]],
-        ];
+        ],
+        magma: [
+            [0.0, [0, 0, 4]], [0.25, [80, 18, 123]], [0.5, [183, 55, 121]],
+            [0.75, [251, 136, 97]], [1.0, [252, 253, 191]],
+        ],
+    };
+    function sampleColormap(name, t) {
+        const stops = COLORMAPS[name] || COLORMAPS.viridis;
+        const last = stops[stops.length - 1];
         for (let i = 0; i < stops.length - 1; i++) {
             const a = stops[i], b = stops[i + 1];
             if (t >= a[0] && t <= b[0]) {
@@ -325,7 +332,7 @@ export function getChartSpecRenderScript(): string {
                 return 'rgb(' + r + ',' + g + ',' + bb + ')';
             }
         }
-        return 'rgb(253,231,37)';
+        return 'rgb(' + last[1][0] + ',' + last[1][1] + ',' + last[1][2] + ')';
     }
 
     specs.forEach(function(spec) {

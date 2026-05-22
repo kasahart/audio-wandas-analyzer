@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscaping';
 import type { ChartSpec } from '../../shared/chartSpec';
+import { getStrings } from '../../shared/i18n/strings';
 import { getChartSpecRenderScript } from '../chartSpecRenderScript';
 
 export class ChartSpecPanel {
@@ -22,6 +23,8 @@ export class ChartSpecPanel {
         const nonce = Date.now().toString();
         const serialized = serializeForScript(charts);
         const renderScript = getChartSpecRenderScript();
+        const language = typeof vscode.env?.language === 'string' ? vscode.env.language : 'en';
+        const strings = getStrings(language);
         return `<!DOCTYPE html>
 <html>
 <head>
@@ -52,7 +55,7 @@ canvas { display: block; }
 <div id="charts"></div>
 <script nonce="${nonce}">
 window.__CHART_SPECS__ = ${serialized};
-window.__CHART_NO_RESULTS_LABEL__ = 'Recipe returned no charts.';
+window.__CHART_NO_RESULTS_LABEL__ = ${serializeForScript(strings.chartSpecNoResults)};
 </script>
 <script nonce="${nonce}">${renderScript}</script>
 </body>

@@ -35,6 +35,10 @@
             {
                 "command": "audioWandasAnalyzer.selectPythonEnvironment",
                 "title": "%command.selectPythonEnvironment.title%"
+            },
+            {
+                "command": "audioWandasAnalyzer.runRecipe",
+                "title": "%command.runRecipe.title%"
             }
         ],
         "menus": {

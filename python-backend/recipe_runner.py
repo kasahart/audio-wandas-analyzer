@@ -35,7 +35,10 @@ AST whitelist (all other nodes raise ``RecipeError``):
 * ``Constant``         — ``int``, ``float``, ``str``, ``bool``, ``None``.
 * ``keyword``          — keyword argument passthrough.
 * ``UnaryOp(USub/UAdd)`` — for negative literal arguments like ``-3.0``.
-* ``BinOp(Add/Sub/Mult/Div/Pow)`` between numeric ``Constant``/``Name`` only.
+* ``BinOp(Add/Sub/Mult/Div/Pow)`` — operands recurse through the whitelist,
+  so both ``Constant`` and previously-bound ``Name`` are accepted. The
+  intent here is "arithmetic over recipe-supplied values," not a tight
+  numeric-only constraint.
 * ``List`` / ``Tuple`` — for arguments like ``freqs=[100, 200]``.
 
 Specifically *not* allowed: ``Import``, ``Subscript``, ``Lambda``, ``If``,

@@ -2,9 +2,10 @@
 
 The TS side mirrors the ChartSpec union in ``src/shared/chartSpec.ts``.
 A drift check (``src/test/chartSpecSchema.test.ts``) spawns this module
-as ``python -m chart_spec`` and diffs the output against a checked-in
-snapshot, so the two languages stay in lockstep without a code
-generator.
+as ``python chart_spec.py`` from ``python-backend/`` and diffs the output
+against the checked-in snapshot at
+``src/test/__snapshots__/chartSpec.schema.json``, so the two languages
+stay in lockstep without a code generator.
 
 Each ``oneOf`` branch covers one ``kind``:
 

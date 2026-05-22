@@ -38,10 +38,12 @@ test('ChartSpec schema snapshot matches python-backend chart_spec.dump_schema()'
         encoding: 'utf-8',
         timeout: 30_000,
     });
-    if (result.status !== 0) {
-        // Likely missing dependencies in this sandbox. Skip rather than spurious-fail.
-        return;
-    }
+    assert.equal(
+        result.status,
+        0,
+        `python chart_spec.py exited with status ${result.status}.\n` +
+            `stderr:\n${result.stderr}`,
+    );
     const live = JSON.parse(result.stdout);
     const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8'));
     assert.deepEqual(
