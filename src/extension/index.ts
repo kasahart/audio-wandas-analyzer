@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
@@ -85,7 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
         title: 'Analyze File or Folder',
     };
     welcomeDropTarget.iconPath = new vscode.ThemeIcon('new-file');
-    backendServer = new PythonBackendServer(context.extensionPath);
+    backendServer = new PythonBackendServer(context.extensionPath, (line) => logPerf(`[py] ${line.slice(7)}`));
     context.subscriptions.push({ dispose: () => { backendServer?.dispose(); backendServer = null; } });
     const pythonStatusBarItem = vscode.window.createStatusBarItem(
         vscode.StatusBarAlignment.Left,
@@ -750,90 +749,24 @@ async function analyzeFilesWithProgress(
 }
 
 async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptions?: StftOptions): Promise<AnalysisResult> {
-    const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-    const pythonCommand = config.get<string>('pythonCommand', 'python3');
-    const defaultPeakCount = config.get<number>('defaultPeakCount', 5);
-    const scriptPath = path.join(extensionPath, 'python-backend', 'main.py');
-
-    const args = [scriptPath, '--file', fileUri.fsPath, '--peaks', String(defaultPeakCount)];
-    if (stftOptions) {
-        args.push(
-            '--stft-n-fft', String(stftOptions.nFft),
-            '--stft-hop', String(stftOptions.hopSize),
-            '--stft-window', stftOptions.window,
-        );
+    const peakCount = vscode.workspace.getConfiguration('audioWandasAnalyzer').get<number>('defaultPeakCount', 5);
+    if (!backendServer) {
+        backendServer = new PythonBackendServer(extensionPath, (line) => logPerf(`[py] ${line.slice(7)}`));
     }
-
     const fileLabel = path.basename(fileUri.fsPath);
-    const tSpawn = Date.now();
-    logPerf(`[ts] spawn start file=${fileLabel}`);
-
-    return new Promise((resolve, reject) => {
-        const process = spawn(
-            pythonCommand,
-            args,
-            {
-                cwd: extensionPath,
-                stdio: ['ignore', 'pipe', 'pipe'],
-                env: { ...globalThis.process.env, AWA_PERF_LOG: '1' },
-            },
-        );
-
-        let stdout = '';
-        let stderr = '';
-        let stderrBuf = '';
-
-        process.stdout.on('data', (chunk: Buffer | string) => {
-            stdout += chunk.toString();
-        });
-
-        process.stderr.on('data', (chunk: Buffer | string) => {
-            stderrBuf += chunk.toString();
-            const lines = stderrBuf.split('\n');
-            stderrBuf = lines.pop() ?? '';
-            for (const line of lines) {
-                if (line.startsWith('[perf]')) {
-                    logPerf(`[py] ${fileLabel} ${line.slice(7)}`);
-                } else if (line.length > 0) {
-                    stderr += line + '\n';
-                }
-            }
-        });
-
-        process.on('error', (error: Error) => {
-            reject(new Error(`Failed to start Python process (${pythonCommand}): ${error.message}`));
-        });
-
-        process.on('close', (code: number | null) => {
-            if (stderrBuf.length > 0) {
-                if (stderrBuf.startsWith('[perf]')) {
-                    logPerf(`[py] ${fileLabel} ${stderrBuf.slice(7)}`);
-                } else {
-                    stderr += stderrBuf;
-                }
-                stderrBuf = '';
-            }
-
-            const totalMs = Date.now() - tSpawn;
-            logPerf(`[ts] spawn exit  file=${fileLabel} code=${code} total_ms=${totalMs} stdout_bytes=${stdout.length}`);
-
-            if (code !== 0) {
-                reject(new Error(stderr.trim() || `Python backend exited with code ${code}`));
-                return;
-            }
-
-            try {
-                const tParse = Date.now();
-                const parsed = JSON.parse(stdout) as AnalysisResult;
-                logPerf(`[ts] json_parse  file=${fileLabel} ms=${Date.now() - tParse}`);
-                resolve(parsed);
-            } catch (error) {
-                reject(
-                    new Error(
-                        `Invalid backend response: ${error instanceof Error ? error.message : String(error)}`,
-                    ),
-                );
-            }
-        });
-    });
+    const tReq = Date.now();
+    logPerf(`[ts] analyze start file=${fileLabel}`);
+    try {
+        const result = await backendServer.analyze(fileUri.fsPath, {
+            peakCount,
+            stftOptions: stftOptions
+                ? { nFft: stftOptions.nFft, hopSize: stftOptions.hopSize, window: stftOptions.window }
+                : undefined,
+        }) as AnalysisResult;
+        logPerf(`[ts] analyze done  file=${fileLabel} total_ms=${Date.now() - tReq}`);
+        return result;
+    } catch (err) {
+        logPerf(`[ts] analyze fail  file=${fileLabel} total_ms=${Date.now() - tReq}`);
+        throw err;
+    }
 }
