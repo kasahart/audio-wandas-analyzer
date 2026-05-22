@@ -9,8 +9,6 @@
  * sides surfaces there.
  */
 
-export type ChartKind = 'line' | 'heatmap' | 'bar' | 'scalar';
-
 export interface LineSeries {
     name: string;
     ys: number[];
@@ -73,20 +71,4 @@ export type ChartSpec = LineChart | HeatmapChart | BarChart | ScalarTable;
 
 export interface RecipeRunnerResult {
     charts: ChartSpec[];
-}
-
-export function isLineChart(c: ChartSpec): c is LineChart {
-    return c.kind === 'line';
-}
-
-export function isHeatmapChart(c: ChartSpec): c is HeatmapChart {
-    return c.kind === 'heatmap';
-}
-
-export function isBarChart(c: ChartSpec): c is BarChart {
-    return c.kind === 'bar';
-}
-
-export function isScalarTable(c: ChartSpec): c is ScalarTable {
-    return c.kind === 'scalar';
 }

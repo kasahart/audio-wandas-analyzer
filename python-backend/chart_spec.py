@@ -1,102 +1,27 @@
-"""Chart-spec IR: a small union of plot primitives that the TS webview can render.
+"""ChartSpec JSON-Schema dump.
 
-The goal is to keep the TypeScript side analysis-agnostic. Every wandas frame
-type gets adapted into one of four ``kind`` values:
+The TS side mirrors the ChartSpec union in ``src/shared/chartSpec.ts``.
+A drift check (``src/test/chartSpecSchema.test.ts``) spawns this module
+as ``python -m chart_spec`` and diffs the output against a checked-in
+snapshot, so the two languages stay in lockstep without a code
+generator.
 
-* ``line``    — x/y line plot, one or more series (FFT, Welch, coherence, TF
-  magnitude/phase, time-varying loudness, etc.)
-* ``heatmap`` — 2-D matrix indexed by x and y axes (STFT, roughness spectrum)
-* ``bar``     — categorical bars (octave / 1/N-octave bands)
-* ``scalar``  — small key/value table (single-number metrics like Zwicker
-  stationary loudness, DIN sharpness)
+Each ``oneOf`` branch covers one ``kind``:
 
-The TypedDict definitions below intentionally use plain ``list`` of ``float``
-because the values are produced for JSON serialization. A NumPy → list cast
-happens in ``wandas_to_chart``.
-
-A JSON-Schema dump is produced by ``dump_schema()`` so the TS side can
-keep a checked-in snapshot for cross-language type-drift detection. See
-``src/test/chartSpecSchema.test.ts``.
+* ``line``    — x/y line plot, one or more series.
+* ``heatmap`` — 2D matrix indexed by xs and ys.
+* ``bar``     — categorical bars, one or more series.
+* ``scalar``  — small label/value/unit table.
 """
 
 from __future__ import annotations
 
 import json
 import sys
-from typing import Literal, TypedDict
-
-
-class LineSeries(TypedDict, total=False):
-    name: str
-    ys: list[float]
-    unit: str
-
-
-class LineChart(TypedDict, total=False):
-    kind: Literal["line"]
-    title: str
-    xLabel: str
-    yLabel: str
-    xs: list[float]
-    series: list[LineSeries]
-    xScale: Literal["linear", "log"]
-    yScale: Literal["linear", "log", "db"]
-
-
-class HeatmapChart(TypedDict, total=False):
-    kind: Literal["heatmap"]
-    title: str
-    xLabel: str
-    yLabel: str
-    xs: list[float]
-    ys: list[float]
-    matrix: list[list[float]]
-    unit: str
-    colormap: str
-    vmin: float
-    vmax: float
-
-
-class BarSeries(TypedDict, total=False):
-    name: str
-    values: list[float]
-    unit: str
-
-
-class BarChart(TypedDict, total=False):
-    kind: Literal["bar"]
-    title: str
-    xLabel: str
-    yLabel: str
-    categories: list[str]
-    series: list[BarSeries]
-
-
-class ScalarRow(TypedDict, total=False):
-    label: str
-    value: float | str
-    unit: str
-
-
-class ScalarTable(TypedDict, total=False):
-    kind: Literal["scalar"]
-    title: str
-    rows: list[ScalarRow]
-
-
-# A ChartSpec is one of the four discriminated unions above. Python's typing
-# is loose here on purpose — at runtime each adapter constructs a plain dict
-# with the appropriate ``kind`` field, and the JSON Schema below is the
-# authoritative wire contract.
-ChartSpec = dict
 
 
 def dump_schema() -> dict:
-    """Return a JSON Schema (Draft 2020-12) describing the ChartSpec union.
-
-    Kept hand-written (rather than generated from typing) so that the schema
-    stays terse and the TS-side snapshot diff stays meaningful.
-    """
+    """Return the Draft 2020-12 JSON Schema describing the ChartSpec union."""
     line = {
         "type": "object",
         "required": ["kind", "title", "xLabel", "yLabel", "xs", "series"],

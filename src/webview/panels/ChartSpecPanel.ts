@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { serializeForScript } from '../../shared/utils/webviewEscaping';
+import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscaping';
 import type { ChartSpec } from '../../shared/chartSpec';
 import { getChartSpecRenderScript } from '../chartSpecRenderScript';
 
@@ -27,7 +27,7 @@ export class ChartSpecPanel {
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
-<title>${escapeAttr(title)}</title>
+<title>${escapeHtml(title)}</title>
 <style>
 :root {
     --bg: var(--vscode-editor-background, #1e1e1e);
@@ -60,18 +60,3 @@ window.__CHART_NO_RESULTS_LABEL__ = 'Recipe returned no charts.';
     }
 }
 
-function escapeHtml(s: string): string {
-    return String(s).replace(/[&<>"']/g, (ch) => {
-        switch (ch) {
-            case '&': return '&amp;';
-            case '<': return '&lt;';
-            case '>': return '&gt;';
-            case '"': return '&quot;';
-            case "'": return '&#39;';
-            default: return ch;
-        }
-    });
-}
-function escapeAttr(s: string): string {
-    return escapeHtml(s);
-}
