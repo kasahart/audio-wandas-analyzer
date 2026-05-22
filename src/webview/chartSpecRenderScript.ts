@@ -193,9 +193,13 @@ export function getChartSpecRenderScript(): string {
 
         const xs = spec.xs || [];
         const ys = spec.ys || [];
+        const xMinAxis = xs.length > 0 ? xs[0] : 0;
+        const xMaxAxis = xs.length > 0 ? xs[xs.length - 1] : cols;
+        const yMinAxis = ys.length > 0 ? ys[0] : 0;
+        const yMaxAxis = ys.length > 0 ? ys[ys.length - 1] : rows;
         drawAxisLabels(ctx, plot, spec,
-            { min: xs[0] || 0, max: xs[xs.length - 1] || cols },
-            { min: ys[0] || 0, max: ys[ys.length - 1] || rows },
+            { min: xMinAxis, max: xMaxAxis },
+            { min: yMinAxis, max: yMaxAxis },
             { xDecimals: 2, yDecimals: 0 });
 
         // colour bar

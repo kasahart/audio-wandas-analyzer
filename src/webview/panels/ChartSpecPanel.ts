@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscaping';
 import type { ChartSpec } from '../../shared/chartSpec';
-import { getStrings } from '../../shared/i18n/strings';
+import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { getChartSpecRenderScript } from '../chartSpecRenderScript';
 
 export class ChartSpecPanel {
@@ -25,8 +25,9 @@ export class ChartSpecPanel {
         const renderScript = getChartSpecRenderScript();
         const language = typeof vscode.env?.language === 'string' ? vscode.env.language : 'en';
         const strings = getStrings(language);
+        const locale = pickLocale(language);
         return `<!DOCTYPE html>
-<html>
+<html lang="${escapeHtml(locale)}">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
