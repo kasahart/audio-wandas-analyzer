@@ -155,6 +155,7 @@ test('activate keeps analyze commands available when workspace test registration
             'audioWandasAnalyzer.analyzeDebugFile',
             'audioWandasAnalyzer.analyzeThisTarget',
             'audioWandasAnalyzer.selectPythonEnvironment',
+            'audioWandasAnalyzer.runRecipe',
         ]);
         assert.deepEqual(createdTreeViewIds, ['audioWandasAnalyzer.welcomeView']);
         const welcomeItems = createdTreeViewOptions?.treeDataProvider?.getChildren() as Array<{

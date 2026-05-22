@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "line"
+        },
+        "series": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "ys": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "name",
+              "ys"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "xLabel": {
+          "type": "string"
+        },
+        "xScale": {
+          "enum": [
+            "linear",
+            "log"
+          ]
+        },
+        "xs": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "yLabel": {
+          "type": "string"
+        },
+        "yScale": {
+          "enum": [
+            "linear",
+            "log",
+            "db"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "xLabel",
+        "yLabel",
+        "xs",
+        "series"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "colormap": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "heatmap"
+        },
+        "matrix": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "vmax": {
+          "type": "number"
+        },
+        "vmin": {
+          "type": "number"
+        },
+        "xLabel": {
+          "type": "string"
+        },
+        "xs": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "yLabel": {
+          "type": "string"
+        },
+        "ys": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "xLabel",
+        "yLabel",
+        "xs",
+        "ys",
+        "matrix"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "const": "bar"
+        },
+        "series": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "values": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "name",
+              "values"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "xLabel": {
+          "type": "string"
+        },
+        "yLabel": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "xLabel",
+        "yLabel",
+        "categories",
+        "series"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "scalar"
+        },
+        "rows": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "value": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
+            },
+            "required": [
+              "label",
+              "value"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "rows"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "ChartSpec"
+}

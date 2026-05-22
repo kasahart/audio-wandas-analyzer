@@ -472,6 +472,8 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="zoom-in">＋</button>'
                     + '<button class="tb-btn" data-action="zoom-reset">' + escHtml(STR.btnZoomReset) + '</button>'
                     + '<div class="tb-sep"></div>'
+                    + '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
+                    + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
                     + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>';
             }
@@ -1388,6 +1390,8 @@ export function getComparisonRenderScript(): string {
                     zoomStart = 0;
                     zoomEnd = 1;
                     scheduleRender();
+                } else if (action === 'run-recipe') {
+                    vscode.postMessage({ type: 'run-recipe' });
                 }
             }
 

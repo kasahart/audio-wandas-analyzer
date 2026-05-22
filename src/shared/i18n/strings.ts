@@ -35,6 +35,7 @@ export interface UiStrings {
     btnSpectrogramSettingsTitle: string;
     toolbarZoomLabel: string;
     btnZoomReset: string;
+    btnRunRecipe: string;
     cursorDisplayHint: string;
     loopBadge: string;
     trackPlayTitle: string;
@@ -77,6 +78,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnSpectrogramSettingsTitle: 'Spectrogram settings',
         toolbarZoomLabel: 'Zoom:',
         btnZoomReset: 'Reset',
+        btnRunRecipe: 'Run recipe',
         cursorDisplayHint: 'Fine-tune with ← →',
         loopBadge: '🔁 Looping',
         trackPlayTitle: 'Play / pause',
@@ -117,6 +119,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnSpectrogramSettingsTitle: 'スペクトログラム設定',
         toolbarZoomLabel: 'ズーム:',
         btnZoomReset: 'リセット',
+        btnRunRecipe: 'Run recipe',
         cursorDisplayHint: '← →キーで微調整できます',
         loopBadge: '🔁 ループ再生中',
         trackPlayTitle: '再生 / 一時停止',
