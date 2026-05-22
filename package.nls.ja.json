@@ -3,6 +3,7 @@
   "command.analyzeThisTarget.title": "Audio Analyzer で解析",
   "command.analyzeDebugFile.title": "Audio Analyzer: デバッグパスを解析",
   "command.selectPythonEnvironment.title": "Audio Analyzer: Python 環境を選択",
+  "command.runRecipe.title": "Audio Analyzer: wandas レシピを実行",
   "viewsContainer.title": "Audio Analyzer",
   "views.welcomeView.name": "Audio Analyzer",
   "viewsWelcome.contents": "音声ファイルまたはフォルダを解析します。\n\n[ファイル・フォルダを選択して解析](command:audioWandasAnalyzer.analyzeFile)\n\nエクスプローラーで音声ファイルまたはフォルダを右クリックして「Audio Analyzer で解析」を選択することもできます。",

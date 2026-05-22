@@ -1,0 +1,13 @@
+{
+  "inputs": [
+    { "name": "a", "file": "{{selection}}" },
+    { "name": "b", "file": "{{selection}}" }
+  ],
+  "steps": [
+    { "as": "pair", "expr": "a.add_channel(b.get_channel(0), suffix_on_dup='_b')" },
+    { "as": "coh", "expr": "pair.coherence(n_fft=4096)" }
+  ],
+  "display": [
+    { "name": "coh", "title": "Coherence (cross-channel)" }
+  ]
+}

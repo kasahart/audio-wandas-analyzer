@@ -185,6 +185,7 @@ export async function run(): Promise<void> {
                     'zoom-out',
                     'zoom-in',
                     'zoom-reset',
+                    'run-recipe',
                 ]);
             },
         },

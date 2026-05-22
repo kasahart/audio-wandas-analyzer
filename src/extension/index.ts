@@ -37,6 +37,8 @@ import {
     type PythonEnvironmentState,
 } from './pythonEnvironment';
 import { WaveformServer } from './waveformServer';
+import { runRecipe } from './recipeRunner';
+import { ChartSpecPanel } from '../webview/panels/ChartSpecPanel';
 
 const SPECTROGRAM_SETTINGS_KEY = 'audioWandasAnalyzer.spectrogramSettings';
 
@@ -176,6 +178,14 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand(
             'audioWandasAnalyzer.selectPythonEnvironment',
             () => selectPythonEnvironment(pythonStatusBarItem),
+        ),
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'audioWandasAnalyzer.runRecipe',
+            async (filePathsFromCaller?: string[]) => {
+                await runRecipeFlow(context, filePathsFromCaller);
+            },
         ),
     );
     context.subscriptions.push(
@@ -367,6 +377,12 @@ function registerPanelMessageHandler(
                 return;
             }
 
+            if (isRunRecipeMessage(message)) {
+                const filePaths = getActiveFilePathsForPanel(panel);
+                await vscode.commands.executeCommand('audioWandasAnalyzer.runRecipe', filePaths);
+                return;
+            }
+
             if (isSelectTargetMessage(message)) {
                 const selected = await pickAudioTarget(message.targetKind);
 
@@ -490,6 +506,10 @@ function isUpdateSpectrogramSettingsMessage(value: unknown): value is UpdateSpec
     return !!value && typeof value === 'object' && (value as { type?: unknown }).type === 'update-spectrogram-settings';
 }
 
+function isRunRecipeMessage(value: unknown): boolean {
+    return !!value && typeof value === 'object' && (value as { type?: unknown }).type === 'run-recipe';
+}
+
 function postPythonEnvironmentState(panel: vscode.WebviewPanel, state: PythonEnvironmentState): void {
     void panel.webview.postMessage({
         type: 'python-environment-state',
@@ -497,6 +517,81 @@ function postPythonEnvironmentState(panel: vscode.WebviewPanel, state: PythonEnv
         status: state.status,
         tooltip: state.tooltip,
     });
+}
+
+async function runRecipeFlow(
+    context: vscode.ExtensionContext,
+    filePathsFromCaller?: string[],
+): Promise<void> {
+    const recipesDir = path.join(context.extensionPath, 'python-backend', 'recipes');
+    let recipeFiles: string[];
+    try {
+        const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(recipesDir));
+        recipeFiles = entries
+            .filter(([name, type]) => (type & vscode.FileType.File) !== 0 && name.toLowerCase().endsWith('.json'))
+            .map(([name]) => name)
+            .sort();
+    } catch (e) {
+        void vscode.window.showErrorMessage(
+            `Could not read recipe directory ${recipesDir}: ${(e as Error).message}`,
+        );
+        return;
+    }
+
+    const pickItems = recipeFiles.map((name) => ({ label: name, description: path.join(recipesDir, name) }));
+    const browseLabel = '$(folder-opened) Browse...';
+    pickItems.push({ label: browseLabel, description: 'Pick a recipe JSON from disk' });
+    const picked = await vscode.window.showQuickPick(pickItems, { placeHolder: 'Select a wandas recipe' });
+    if (!picked) {
+        return;
+    }
+    let recipePath = picked.description;
+    if (picked.label === browseLabel) {
+        const uris = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            filters: { 'Recipe JSON': ['json'] },
+            openLabel: 'Use recipe',
+        });
+        if (!uris || uris.length === 0) {
+            return;
+        }
+        recipePath = uris[0].fsPath;
+    }
+
+    const selectionFilePaths = filePathsFromCaller && filePathsFromCaller.length > 0
+        ? filePathsFromCaller
+        : await pickRecipeInputFiles();
+    if (!selectionFilePaths) {
+        return;
+    }
+
+    await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Running recipe ${path.basename(recipePath)}…` },
+        async () => {
+            try {
+                const result = await runRecipe({
+                    recipePath,
+                    selectionFilePaths,
+                    extensionPath: context.extensionPath,
+                });
+                ChartSpecPanel.show(context.extensionUri, path.basename(recipePath), result.charts);
+            } catch (e) {
+                void vscode.window.showErrorMessage(`Recipe execution failed: ${(e as Error).message}`);
+            }
+        },
+    );
+}
+
+async function pickRecipeInputFiles(): Promise<string[] | undefined> {
+    const uris = await vscode.window.showOpenDialog({
+        canSelectMany: true,
+        filters: { Audio: ['wav', 'flac', 'ogg', 'aiff', 'aif', 'snd'] },
+        openLabel: 'Use as recipe input',
+    });
+    if (!uris || uris.length === 0) {
+        return undefined;
+    }
+    return uris.map((u) => u.fsPath);
 }
 
 function getDebugTargetUri(extensionUri: vscode.Uri): vscode.Uri | undefined {

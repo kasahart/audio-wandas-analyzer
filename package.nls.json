@@ -3,6 +3,7 @@
   "command.analyzeThisTarget.title": "Analyze with Audio Analyzer",
   "command.analyzeDebugFile.title": "Audio Analyzer: Analyze Debug Path",
   "command.selectPythonEnvironment.title": "Audio Analyzer: Select Python Environment",
+  "command.runRecipe.title": "Audio Analyzer: Run wandas recipe",
   "viewsContainer.title": "Audio Analyzer",
   "views.welcomeView.name": "Audio Analyzer",
   "viewsWelcome.contents": "Analyze audio files or folders.\n\n[Select files / folder to analyze](command:audioWandasAnalyzer.analyzeFile)\n\nYou can also right-click an audio file or folder in the Explorer and choose \"Analyze with Audio Analyzer\".",

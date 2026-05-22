@@ -1,0 +1,13 @@
+{
+  "inputs": [
+    { "name": "sig", "file": "{{selection}}" }
+  ],
+  "steps": [
+    { "as": "filtered", "expr": "sig.band_pass_filter(low_cutoff=100, high_cutoff=4000)" },
+    { "as": "normalized", "expr": "filtered.normalize()" },
+    { "as": "welch", "expr": "normalized.welch(n_fft=4096)" }
+  ],
+  "display": [
+    { "name": "welch", "title": "Welch PSD (100-4000 Hz bandpass, normalized)" }
+  ]
+}

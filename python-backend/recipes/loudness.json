@@ -1,0 +1,15 @@
+{
+  "inputs": [
+    { "name": "sig", "file": "{{selection}}" }
+  ],
+  "steps": [
+    { "as": "loud_stat", "expr": "sig.loudness_zwst()" },
+    { "as": "loud_tv", "expr": "sig.loudness_zwtv()" },
+    { "as": "sharp", "expr": "sig.sharpness_din_st()" }
+  ],
+  "display": [
+    { "name": "loud_stat", "title": "Zwicker stationary loudness", "unit": "sone" },
+    { "name": "loud_tv", "title": "Time-varying loudness" },
+    { "name": "sharp", "title": "DIN sharpness (stationary)", "unit": "acum" }
+  ]
+}
