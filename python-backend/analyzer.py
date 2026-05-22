@@ -216,7 +216,7 @@ def _resolve_stft_params(
 
 
 def analyze_from_frame(
-    frame: "wd.ChannelFrame",
+    frame: wd.ChannelFrame,
     file_path: str | Path,
     peak_count: int = 5,
     *,
