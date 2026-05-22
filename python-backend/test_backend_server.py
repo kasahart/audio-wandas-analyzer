@@ -136,3 +136,25 @@ def test_analyze_then_range_share_cache(server: _ServerHandle, tmp_path: Path) -
     )
     elapsed = time.perf_counter() - t
     assert elapsed < 1.0, f"range after analyze took {elapsed:.3f}s — cache likely not shared"
+
+
+def test_lru_evicts_oldest_when_over_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    import backend_server
+
+    importlib.reload(backend_server)
+    monkeypatch.setattr(backend_server, "_cache_limit_bytes", 8 * 1024)
+    backend_server._cache.clear()
+
+    paths: list[str] = []
+    for i in range(4):
+        p = tmp_path / f"t{i}.wav"
+        _write_sine_wav(p, seconds=0.2, sr=16000)
+        paths.append(str(p))
+        backend_server._get_cached(paths[-1])
+
+    assert paths[-1] in backend_server._cache
+    assert paths[0] not in backend_server._cache
+    total = sum(e.nbytes() for e in backend_server._cache.values())
+    assert total <= backend_server._cache_limit_bytes or len(backend_server._cache) == 1
