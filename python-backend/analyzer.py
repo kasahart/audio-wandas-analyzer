@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+import os
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
 import wandas as wd
 
 from decimator import decimated_waveform
+
+_PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
+
+
+def _perf(phase: str, started: float, **extra: object) -> None:
+    if not _PERF_ENABLED:
+        return
+    ms = (time.perf_counter() - started) * 1000.0
+    parts = [f"phase={phase}", f"ms={ms:.2f}"]
+    parts.extend(f"{k}={v}" for k, v in extra.items())
+    print("[perf] " + " ".join(parts), file=sys.stderr, flush=True)
+
 
 WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
@@ -210,6 +225,7 @@ def analyze_audio(
     if not target.exists():
         raise FileNotFoundError(f"Audio file not found: {target}")
 
+    t0 = time.perf_counter()
     signal = wd.read_wav(str(target))
     channel_count = int(signal.n_channels)
     sample_count = int(signal.n_samples)
@@ -217,15 +233,21 @@ def analyze_audio(
     labels = list(signal.labels)
     data = _channels_first(np.asarray(signal.data), channel_count, sample_count)
     rms_values = np.asarray(signal.rms, dtype=np.float64)
+    _perf("read_wav", t0, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
 
+    t_fft = time.perf_counter()
     fft = signal.fft()
     fft_freqs = np.asarray(fft.freqs, dtype=np.float64)
     fft_magnitudes = _channels_first(np.asarray(fft.magnitude), channel_count, fft_freqs.size)
+    _perf("fft", t_fft, bins=fft_freqs.size)
 
     window_size, hop_size, window_name = _resolve_stft_params(sample_count, stft_options)
+    t_stft = time.perf_counter()
     stft = signal.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
     stft_db = np.asarray(stft.dB, dtype=np.float64)
+    _perf("stft", t_stft, n_fft=window_size, hop=hop_size, shape="x".join(str(s) for s in stft_db.shape))
 
+    t_channels = time.perf_counter()
     channels: list[dict[str, object]] = []
     for index in range(channel_count):
         samples = data[index]
@@ -245,6 +267,8 @@ def analyze_audio(
                 "spectrogram": _build_spectrogram(spectrogram_db, sample_rate_hz, window_size, hop_size),
             }
         )
+
+    _perf("channels_build", t_channels, count=channel_count)
 
     return {
         "filePath": str(target),
