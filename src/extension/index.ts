@@ -36,7 +36,7 @@ import {
     setStatusBarNormal,
     type PythonEnvironmentState,
 } from './pythonEnvironment';
-import { WaveformServer } from './waveformServer';
+import { PythonBackendServer } from './pythonBackendServer';
 import { runRecipe } from './recipeRunner';
 import { ChartSpecPanel } from '../webview/panels/ChartSpecPanel';
 
@@ -59,7 +59,7 @@ const panelDirectorySelections = new WeakMap<vscode.WebviewPanel, {
     latestRequestId?: string;
 }>();
 
-let waveformServer: WaveformServer | null = null;
+let backendServer: PythonBackendServer | null = null;
 let perfChannel: vscode.OutputChannel | null = null;
 
 function getPerfChannel(): vscode.OutputChannel {
@@ -85,8 +85,8 @@ export function activate(context: vscode.ExtensionContext): void {
         title: 'Analyze File or Folder',
     };
     welcomeDropTarget.iconPath = new vscode.ThemeIcon('new-file');
-    waveformServer = new WaveformServer(context.extensionPath);
-    context.subscriptions.push({ dispose: () => { waveformServer?.dispose(); waveformServer = null; } });
+    backendServer = new PythonBackendServer(context.extensionPath);
+    context.subscriptions.push({ dispose: () => { backendServer?.dispose(); backendServer = null; } });
     const pythonStatusBarItem = vscode.window.createStatusBarItem(
         vscode.StatusBarAlignment.Left,
         10,
@@ -371,7 +371,7 @@ function registerPanelMessageHandler(
                     currentSelection.cachedResultsByFilePath,
                 );
 
-                waveformServer?.warmup();
+                backendServer?.warmup();
                 showDirectorySelectionPanel(
                     context,
                     currentSelection.rootPath,
@@ -432,7 +432,7 @@ function registerPanelMessageHandler(
 
             if (isRequestWaveformRangeMessage(message)) {
                 const req = message;
-                waveformServer?.requestRange(
+                backendServer?.requestRange(
                     req.filePath,
                     req.startNorm,
                     req.endNorm,
@@ -697,7 +697,7 @@ async function analyzeMultipleFiles(
     panel?: vscode.WebviewPanel,
 ): Promise<void> {
     const results = await analyzeFilesWithProgress(context, filePaths);
-    waveformServer?.warmup();
+    backendServer?.warmup();
     const comparisonPanel = ComparisonPanel.show(
         context.extensionUri,
         results,

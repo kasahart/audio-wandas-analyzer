@@ -102,9 +102,9 @@ test('activate keeps analyze commands available when workspace test registration
             };
         }
 
-        if (request === './waveformServer') {
+        if (request === './pythonBackendServer') {
             return {
-                WaveformServer: class {
+                PythonBackendServer: class {
                     dispose(): void {}
                 },
             };
