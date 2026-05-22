@@ -585,7 +585,7 @@ async function runRecipeFlow(
 async function pickRecipeInputFiles(): Promise<string[] | undefined> {
     const uris = await vscode.window.showOpenDialog({
         canSelectMany: true,
-        filters: { Audio: ['wav', 'flac', 'ogg', 'aiff', 'aif'] },
+        filters: { Audio: ['wav', 'flac', 'ogg', 'aiff', 'aif', 'snd'] },
         openLabel: 'Use as recipe input',
     });
     if (!uris || uris.length === 0) {

@@ -292,7 +292,10 @@ export function getChartSpecRenderScript(): string {
         table.className = 'scalar-table';
         const rows = spec.rows || [];
         const head = document.createElement('tr');
-        ['Label', 'Value', 'Unit'].forEach(function(name) {
+        const headerLabels = (window.__CHART_SCALAR_HEADERS__ && window.__CHART_SCALAR_HEADERS__.length === 3)
+            ? window.__CHART_SCALAR_HEADERS__
+            : ['Label', 'Value', 'Unit'];
+        headerLabels.forEach(function(name) {
             const th = document.createElement('th');
             th.textContent = name;
             head.appendChild(th);

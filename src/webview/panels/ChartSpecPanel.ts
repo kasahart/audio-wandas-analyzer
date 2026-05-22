@@ -57,6 +57,11 @@ canvas { display: block; }
 <script nonce="${nonce}">
 window.__CHART_SPECS__ = ${serialized};
 window.__CHART_NO_RESULTS_LABEL__ = ${serializeForScript(strings.chartSpecNoResults)};
+window.__CHART_SCALAR_HEADERS__ = ${serializeForScript([
+            strings.chartSpecScalarLabelHeader,
+            strings.chartSpecScalarValueHeader,
+            strings.chartSpecScalarUnitHeader,
+        ])};
 </script>
 <script nonce="${nonce}">${renderScript}</script>
 </body>

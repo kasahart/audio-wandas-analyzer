@@ -37,6 +37,9 @@ export interface UiStrings {
     btnZoomReset: string;
     btnRunRecipe: string;
     chartSpecNoResults: string;
+    chartSpecScalarLabelHeader: string;
+    chartSpecScalarValueHeader: string;
+    chartSpecScalarUnitHeader: string;
     cursorDisplayHint: string;
     loopBadge: string;
     trackPlayTitle: string;
@@ -81,6 +84,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnZoomReset: 'Reset',
         btnRunRecipe: 'Run recipe',
         chartSpecNoResults: 'Recipe returned no charts.',
+        chartSpecScalarLabelHeader: 'Label',
+        chartSpecScalarValueHeader: 'Value',
+        chartSpecScalarUnitHeader: 'Unit',
         cursorDisplayHint: 'Fine-tune with ← →',
         loopBadge: '🔁 Looping',
         trackPlayTitle: 'Play / pause',
@@ -123,6 +129,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnZoomReset: 'リセット',
         btnRunRecipe: 'レシピ実行',
         chartSpecNoResults: 'レシピは何もチャートを返しませんでした。',
+        chartSpecScalarLabelHeader: '項目',
+        chartSpecScalarValueHeader: '値',
+        chartSpecScalarUnitHeader: '単位',
         cursorDisplayHint: '← →キーで微調整できます',
         loopBadge: '🔁 ループ再生中',
         trackPlayTitle: '再生 / 一時停止',
