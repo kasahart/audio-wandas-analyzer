@@ -64,3 +64,6 @@ jobs:
 
       - name: Warm compile output
         run: npm run compile
+
+      - name: Pre-download VS Code for E2E tests
+        run: node -e "require('@vscode/test-electron').downloadAndUnzipVSCode('stable')"
