@@ -88,6 +88,8 @@ async function main(): Promise<void> {
                 '--new-window',
                 '--no-sandbox',
                 '--disable-gpu',
+                '--disable-telemetry',
+                '--disable-updates',
                 '--user-data-dir', userDataDir,
             ],
             extensionTestsEnv: {
