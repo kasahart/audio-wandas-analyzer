@@ -718,3 +718,98 @@ test('renderScript: spectrum canvases are redrawn during playback as cursor adva
     env.dom.window.close();
 });
 
+
+// ── Offset direct edit ────────────────────────────────────────────────────────
+
+test('renderScript: click .track-offset-val opens inline input', () => {
+    const env = setupEnv();
+    const span = env.dom.window.document.querySelector('.track-offset-val') as HTMLElement | null;
+    assert.ok(span, '.track-offset-val span が存在すること');
+
+    span!.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
+
+    const input = span!.parentNode?.querySelector('input.track-offset-input') as HTMLInputElement | null;
+    assert.ok(input, 'クリック後に .track-offset-input input が挿入されること');
+    assert.equal(span!.style.display, 'none', 'クリック後に span が非表示になること');
+    env.dom.window.close();
+});
+
+test('renderScript: Enter commits inline offset edit', () => {
+    const env = setupEnv();
+    const span = env.dom.window.document.querySelector('.track-offset-val') as HTMLElement | null;
+    assert.ok(span, '.track-offset-val span が存在すること');
+
+    span!.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
+
+    const input = span!.parentNode?.querySelector('input.track-offset-input') as HTMLInputElement | null;
+    assert.ok(input, 'input が挿入されること');
+
+    input!.value = '500';
+    input!.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+
+    assert.ok(!span!.parentNode?.querySelector('input.track-offset-input'), 'Enter 後に input が削除されること');
+    assert.equal(span!.style.display, '', 'Enter 後に span が再表示されること');
+    env.dom.window.close();
+});
+
+test('renderScript: Escape cancels inline offset edit', () => {
+    const env = setupEnv();
+    const span = env.dom.window.document.querySelector('.track-offset-val') as HTMLElement | null;
+    assert.ok(span, '.track-offset-val span が存在すること');
+
+    const originalText = span!.textContent;
+    span!.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
+
+    const input = span!.parentNode?.querySelector('input.track-offset-input') as HTMLInputElement | null;
+    assert.ok(input, 'input が挿入されること');
+
+    input!.value = '9999';
+    input!.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+
+    assert.ok(!span!.parentNode?.querySelector('input.track-offset-input'), 'Escape 後に input が削除されること');
+    assert.equal(span!.style.display, '', 'Escape 後に span が再表示されること');
+    assert.equal(span!.textContent, originalText, 'Escape 後に span のテキストが変化しないこと');
+    env.dom.window.close();
+});
+
+// ── Export PNG / CSV ──────────────────────────────────────────────────────────
+
+test('renderScript: export-png button does not throw', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+    const btn = env.dom.window.document.querySelector('[data-action="export-png"]') as HTMLButtonElement | null;
+    assert.ok(btn, '[data-action="export-png"] ボタンが存在すること');
+    assert.doesNotThrow(() => { btn!.click(); }, 'export-png クリックが例外を投げないこと');
+    env.dom.window.close();
+});
+
+test('renderScript: export-csv button does not throw', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const btn = env.dom.window.document.querySelector('[data-action="export-csv"]') as HTMLButtonElement | null;
+    assert.ok(btn, '[data-action="export-csv"] ボタンが存在すること');
+    assert.doesNotThrow(() => { btn!.click(); }, 'export-csv クリックが例外を投げないこと');
+    env.dom.window.close();
+});
+
+test('renderScript: export-csv creates a download anchor with data URI', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const created: HTMLAnchorElement[] = [];
+    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
+    env.dom.window.document.createElement = function(tag: string) {
+        const el = origCreate(tag);
+        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
+        return el;
+    } as typeof document.createElement;
+
+    env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
+        new env.dom.window.MouseEvent('click', { bubbles: true }),
+    );
+
+    const anchor = created.find((a) => a.download === 'spectrum-export.csv');
+    assert.ok(anchor, 'spectrum-export.csv という download 属性を持つ <a> が作られること');
+    assert.ok(anchor!.href.startsWith('data:text/csv'), 'href が data:text/csv URI であること');
+    env.dom.window.close();
+});

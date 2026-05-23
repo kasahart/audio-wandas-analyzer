@@ -1260,6 +1260,7 @@ export function getComparisonRenderScript(): string {
                         span.style.display = '';
                         updateOffsetDisplays();
                         scheduleRender();
+                        refreshSpectrumViews();
                     }
                     function cancelEdit() {
                         if (settled) { return; }
@@ -1648,6 +1649,7 @@ export function getComparisonRenderScript(): string {
                 offscreen.width = totalWidth;
                 offscreen.height = totalHeight;
                 const ctx = offscreen.getContext('2d');
+                if (!ctx) { console.warn('exportPng: could not get 2d context'); return; }
                 ctx.fillStyle = '#1e1e1e';
                 ctx.fillRect(0, 0, totalWidth, totalHeight);
                 let y = 0;
@@ -1672,6 +1674,7 @@ export function getComparisonRenderScript(): string {
                 const tracks = [];
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i] && trackRuntime[i].hidden) { return; }
+                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (!slice || !slice.values || slice.values.length === 0) { return; }
                     tracks.push({ name: result.fileName || ('track' + (i + 1)), slice: slice });
@@ -1686,7 +1689,7 @@ export function getComparisonRenderScript(): string {
                 const fBins = refSlice.frequencyBins;
                 const maxHz = refSlice.maxFrequencyHz;
                 const freqPerBin = maxHz / Math.max(fBins, 1);
-                function csvCell(s) { return /[,"]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+                function csvCell(s) { return /[,"\\r\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
                 const headers = ['frequency_hz'].concat(tracks.map(function(t) { return csvCell(t.name); }));
                 const rows = [headers.join(',')];
                 for (let bin = 0; bin < fBins; bin++) {
