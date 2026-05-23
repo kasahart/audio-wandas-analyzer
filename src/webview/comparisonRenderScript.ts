@@ -38,6 +38,9 @@ export function getComparisonRenderScript(): string {
             let playbackRafId = null;
             let playbackTrackIndex = null;
             let soloTrackIndex = null; // null = solo off, number = solo track
+            let specHoverFreqNorm = null; // null or 0-1, spectrum hover position
+            let specDeltaFreqNorm = null; // null or 0-1, Shift+click locked cursor
+            let specLastMaxFreq = 0;      // last rendered maxF (Hz), for Δ display
 
             function scheduleRender() {
                 if (rafPending) { return; }
@@ -409,7 +412,9 @@ export function getComparisonRenderScript(): string {
                     + '  <div id="empty-state"><p>' + escHtml(emptyMessage) + '</p></div>'
                     + '</div>'
                     + '<div id="spectrum-section">'
-                    + '  <div id="spectrum-section-header"><span>' + escHtml(STR.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span></div>'
+                    + '  <div id="spectrum-section-header"><span>' + escHtml(STR.spectrumSectionTitle) + '</span>'
+                    + '<span id="spectrum-delta-display" style="font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-right:8px"></span>'
+                    + '<span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span></div>'
                     + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas"></canvas></div>'
                     + '</div>'
                     + '<div id="audio-host">' + buildAudioElements() + '</div>'
@@ -1263,6 +1268,53 @@ export function getComparisonRenderScript(): string {
                         refreshSpectrumViews();
                     }
                 });
+
+                // ── スペクトラムオーバーレイのΔカーソル ──
+                (function attachSpectrumDeltaCursor() {
+                    var specCanvas = document.getElementById('spectrum-overlay-canvas');
+                    if (!specCanvas) { return; }
+                    specCanvas.style.cursor = 'crosshair';
+                    specCanvas.addEventListener('mousemove', function(e) {
+                        var rect = specCanvas.getBoundingClientRect();
+                        var plotW = specCanvas.width - 36 - 8; // padL - padR
+                        var xInPlot = e.clientX - rect.left - 36;
+                        specHoverFreqNorm = Math.max(0, Math.min(1, xInPlot / Math.max(1, plotW)));
+                        renderOverlaySpectrum();
+                    });
+                    specCanvas.addEventListener('mouseleave', function() {
+                        specHoverFreqNorm = null;
+                        renderOverlaySpectrum();
+                        updateSpectrumDeltaDisplay();
+                    });
+                    specCanvas.addEventListener('click', function(e) {
+                        if (!e.shiftKey) { return; }
+                        var rect = specCanvas.getBoundingClientRect();
+                        var plotW = specCanvas.width - 36 - 8;
+                        var xInPlot = e.clientX - rect.left - 36;
+                        var norm = Math.max(0, Math.min(1, xInPlot / Math.max(1, plotW)));
+                        specDeltaFreqNorm = (specDeltaFreqNorm !== null && Math.abs(specDeltaFreqNorm - norm) < 0.02) ? null : norm;
+                        renderOverlaySpectrum();
+                        e.preventDefault();
+                    });
+                })();
+            }
+
+            function updateSpectrumDeltaDisplay() {
+                var el = document.getElementById('spectrum-delta-display');
+                if (!el) { return; }
+                if (specHoverFreqNorm === null || specLastMaxFreq <= 0) { el.textContent = ''; return; }
+                var hoverHz = specHoverFreqNorm * specLastMaxFreq;
+                var text = formatHz(hoverHz);
+                if (specDeltaFreqNorm !== null) {
+                    var deltaHz = Math.abs(specHoverFreqNorm - specDeltaFreqNorm) * specLastMaxFreq;
+                    text += '  Δf=' + formatHz(deltaHz);
+                }
+                el.textContent = text;
+            }
+
+            function formatHz(hz) {
+                if (hz >= 1000) { return (hz / 1000).toFixed(hz >= 10000 ? 0 : 1) + 'kHz'; }
+                return Math.round(hz) + 'Hz';
             }
 
             function attachDirectorySelectionEvents() {
@@ -1857,6 +1909,27 @@ export function getComparisonRenderScript(): string {
                     ctx.fillText(s.name, padL + 20, legendY + 6);
                     legendY += 12;
                 });
+
+                // ── Δ カーソル & ホバーカーソル描画 ──
+                specLastMaxFreq = maxF;
+                if (specDeltaFreqNorm !== null) {
+                    var dx = padL + Math.max(0, Math.min(1, specDeltaFreqNorm)) * plotW;
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(200,160,32,0.85)';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.moveTo(dx, padT); ctx.lineTo(dx, padT + plotH); ctx.stroke();
+                    ctx.restore();
+                }
+                if (specHoverFreqNorm !== null) {
+                    var hx = padL + Math.max(0, Math.min(1, specHoverFreqNorm)) * plotW;
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 3]);
+                    ctx.beginPath(); ctx.moveTo(hx, padT); ctx.lineTo(hx, padT + plotH); ctx.stroke();
+                    ctx.restore();
+                }
+                updateSpectrumDeltaDisplay();
             }
 
             function refreshSpectrumViews() {
