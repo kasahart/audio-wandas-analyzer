@@ -35,7 +35,7 @@ interface DirectorySelectionState {
     spectrogramSettings: SpectrogramSettings;
 }
 
-type ComparisonState = ComparisonResultsState | DirectorySelectionState;
+export type ComparisonState = ComparisonResultsState | DirectorySelectionState;
 
 interface ComparisonPanelTestSnapshot {
     title: string;
@@ -164,7 +164,7 @@ export class ComparisonPanel {
             })),
             spectrogramSettings,
         };
-        const html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
+        const html = renderComparisonHtml(panel.webview, state, extensionUri);
         panel.webview.html = html;
         ComparisonPanel.testSnapshot = {
             title,
@@ -240,7 +240,7 @@ export class ComparisonPanel {
             pythonEnvironmentState,
             spectrogramSettings,
         };
-        const html = ComparisonPanel.renderHtml(panel.webview, state, extensionUri);
+        const html = renderComparisonHtml(panel.webview, state, extensionUri);
         panel.webview.html = html;
         ComparisonPanel.testSnapshot = {
             title,
@@ -309,21 +309,34 @@ export class ComparisonPanel {
     }
 
     private static renderHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri): string {
-        const nonce = Date.now().toString();
-        const waveformScriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonWaveform.js'),
-        );
-        const language = typeof vscode.env?.language === 'string' ? vscode.env.language : 'en';
-        const locale = pickLocale(language);
-        const strings = getStrings(language);
-        return `<!DOCTYPE html>
+        return renderComparisonHtml(webview, state, extensionUri);
+    }
+
+    private static renderStyles(): string {
+        return renderComparisonStyles();
+    }
+
+    private static renderScript(): string {
+        return renderComparisonScript();
+    }
+}
+
+export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri): string {
+    const nonce = Date.now().toString();
+    const waveformScriptUri = webview.asWebviewUri(
+        vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonWaveform.js'),
+    );
+    const language = typeof vscode.env?.language === 'string' ? vscode.env.language : 'en';
+    const locale = pickLocale(language);
+    const strings = getStrings(language);
+    return `<!DOCTYPE html>
 <html lang="${locale}">
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource}; media-src ${webview.cspSource};">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${escapeHtml(strings.panelTitle)}</title>
-    <style>${ComparisonPanel.renderStyles()}</style>
+    <style>${renderComparisonStyles()}</style>
 </head>
 <body>
     <div id="app"></div>
@@ -332,15 +345,15 @@ export class ComparisonPanel {
         const __APP_STATE__ = ${serializeForScript(state)};
         const __APP_STRINGS__ = ${serializeForScript(strings)};
         const __APP_LOCALE__ = ${serializeForScript(locale)};
-        ${ComparisonPanel.renderScript()}
+        ${renderComparisonScript()}
     </script>
     <div id="canvas-tooltip"></div>
 </body>
 </html>`;
-    }
+}
 
-    private static renderStyles(): string {
-        return `
+export function renderComparisonStyles(): string {
+    return `
         :root {
             color-scheme: light dark;
             --font-ui: var(--vscode-font-family, "Aptos", "Segoe UI", sans-serif);
@@ -625,9 +638,8 @@ export class ComparisonPanel {
             }
         }
         `;
-    }
+}
 
-    private static renderScript(): string {
-        return getComparisonRenderScript();
-    }
+export function renderComparisonScript(): string {
+    return getComparisonRenderScript();
 }

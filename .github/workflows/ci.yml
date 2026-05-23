@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   verify:
-    name: verify (compile + node:test + ruff + pytest)
+    name: verify (compile + lint + node:test + ruff + pytest)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -44,10 +44,32 @@ jobs:
       - name: Run verify
         run: npm run verify
 
+  test-ui:
+    name: test:ui (Playwright Chromium smoke)
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run UI smoke
+        run: npm run test:ui
+
   e2e:
     name: e2e (VS Code extension host)
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [verify, test-ui]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5

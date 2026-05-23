@@ -26,16 +26,39 @@ NodeModule._load = function (id: string, ...rest: unknown[]) {
 // vscode スタブが有効な状態で ComparisonPanel をロード
 // (require は Module._load 差し替え後に実行されるので安全)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { ComparisonPanel } = require('../../webview/panels/ComparisonPanel');
+const comparisonPanelModule = require('../../webview/panels/ComparisonPanel') as {
+    renderComparisonHtml(
+        webview: { asWebviewUri: (_uri: unknown) => { toString(): string }; cspSource: string },
+        state: unknown,
+        extensionUri: { fsPath: string; toString(): string },
+    ): string;
+    renderComparisonScript(): string;
+    renderComparisonStyles(): string;
+};
 
 /** ComparisonPanel.renderScript() が返す JavaScript 文字列を取得する */
 export function getRenderScript(): string {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    return (ComparisonPanel as { renderScript(): string }).renderScript();
+    return comparisonPanelModule.renderComparisonScript();
 }
 
 /** ComparisonPanel.renderStyles() が返す CSS 文字列を取得する */
 export function getRenderStyles(): string {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    return (ComparisonPanel as { renderStyles(): string }).renderStyles();
+    return comparisonPanelModule.renderComparisonStyles();
+}
+
+/** ComparisonPanel.renderHtml() 相当の HTML をテスト用スタブ Webview で生成する */
+export function getRenderHtml(state: unknown): string {
+    return comparisonPanelModule.renderComparisonHtml(
+        {
+            asWebviewUri: () => ({
+                toString: () => '__WAVEFORM_PIPELINE__',
+            }),
+            cspSource: 'data:',
+        },
+        state,
+        {
+            fsPath: '/ext',
+            toString: () => '/ext',
+        },
+    );
 }
