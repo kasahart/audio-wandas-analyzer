@@ -30,6 +30,44 @@ npm run test:ui
 npm run verify
 ```
 
+## Phase workflow
+
+### Phase 1: Diff analysis
+
+- inspect the touched Webview HTML / script generation paths first
+- list which visibility, focus, or runtime behaviors changed
+- decide whether the risk is static-pattern only, real-browser only, or both
+
+### Phase 2: L1 static lint
+
+- run `node scripts/lint-webview-patterns.js`
+- fail fast on risky generated-markup patterns such as `hidden`/`aria-hidden` mixed with inline display styles
+- if the change introduces dialog markup, verify the source also includes an Escape dismissal path
+
+### Phase 3: L2 browser smoke
+
+- run `npm run test:ui`
+- verify modal visibility, keyboard dismissal, focus trapping, and console/page errors in Chromium
+- keep failures reproducible with self-contained HTML fixtures
+
+### Phase 4: Dynamic case generation
+
+- derive a focused Playwright case directly from the regression shape instead of only reusing existing smoke coverage
+- add or extend fixture HTML so the failing UI state can be recreated without VS Code extension-host setup
+- cover each independent close/open path separately when behavior can regress asymmetrically (keyboard toggle, Escape, close button, backdrop click)
+
+### Phase 5: Decision report
+
+- summarize which layer caught the bug (`L1`, `L2`, or both)
+- record the exact command results needed for the PR comment or handoff
+- include a screenshot when the UI changed or when the regression is visual
+
+### Phase 6: Cleanup
+
+- remove temporary reproduction changes after dogfooding
+- keep generated artifacts out of git (`test-results/`, `playwright-report/`, etc.)
+- finish with `npm run verify` and, for Webview runtime changes, `npm run test:ui`
+
 ## Good targets for this skill
 
 - `hidden` / `display` / `aria-modal` interactions

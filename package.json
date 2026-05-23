@@ -126,7 +126,6 @@
         "@types/jsdom": "^28.0.1",
         "@types/node": "^22.10.2",
         "@types/vscode": "^1.96.0",
-        "@playwright/test": "^1.60.0",
         "@vscode/test-electron": "^2.5.2",
         "@vscode/vsce": "^3.6.2",
         "jsdom": "^29.1.1",
