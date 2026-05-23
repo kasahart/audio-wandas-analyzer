@@ -1387,13 +1387,7 @@ export function getComparisonRenderScript(): string {
                         // L → zoom-to-selection (ループ選択範囲にズーム)
                         if (e.key === 'l' || e.key === 'L') {
                             e.preventDefault();
-                            if (loopRegion) {
-                                const pad = (loopRegion.end - loopRegion.start) * 0.05;
-                                disableFollowCursor();
-                                zoomStart = Math.max(0, loopRegion.start - pad);
-                                zoomEnd = Math.min(1, loopRegion.end + pad);
-                                scheduleRender();
-                            }
+                            zoomToSelection();
                             return;
                         }
                     }
@@ -1652,13 +1646,7 @@ export function getComparisonRenderScript(): string {
                     if (btn) { btn.classList.toggle('is-active', followCursor); }
                     scheduleRender();
                 } else if (action === 'zoom-to-selection') {
-                    if (loopRegion) {
-                        const pad = (loopRegion.end - loopRegion.start) * 0.05;
-                        disableFollowCursor();
-                        zoomStart = Math.max(0, loopRegion.start - pad);
-                        zoomEnd = Math.min(1, loopRegion.end + pad);
-                        scheduleRender();
-                    }
+                    zoomToSelection();
                 } else if (action === 'run-recipe') {
                     vscode.postMessage({ type: 'run-recipe' });
                 } else if (action === 'copy-spec') {
@@ -1675,6 +1663,16 @@ export function getComparisonRenderScript(): string {
                 followCursor = false;
                 const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
                 if (btn) { btn.classList.remove('is-active'); }
+            }
+
+            function zoomToSelection() {
+                if (loopRegion) {
+                    const pad = (loopRegion.end - loopRegion.start) * 0.05;
+                    disableFollowCursor();
+                    zoomStart = Math.max(0, loopRegion.start - pad);
+                    zoomEnd = Math.min(1, loopRegion.end + pad);
+                    scheduleRender();
+                }
             }
 
             function updateZoomToSelectionBtn() {
