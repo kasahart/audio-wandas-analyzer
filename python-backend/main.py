@@ -2,7 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
+
+_PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
+
+
+def _perf(phase: str, started: float, **extra: object) -> None:
+    if not _PERF_ENABLED:
+        return
+    ms = (time.perf_counter() - started) * 1000.0
+    parts = [f"phase={phase}", f"ms={ms:.2f}"]
+    parts.extend(f"{k}={v}" for k, v in extra.items())
+    print("[perf] " + " ".join(parts), file=sys.stderr, flush=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,11 +32,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    t_start = time.perf_counter()
     args = parse_args()
 
     try:
         if args.range_start is not None and args.range_end is not None:
+            t_imp = time.perf_counter()
             from range_analyzer import analyze_range  # noqa: PLC0415 — skip wandas import
+
+            _perf("import_range_analyzer", t_imp)
 
             result: object = analyze_range(
                 args.file,
@@ -32,7 +49,10 @@ def main() -> int:
                 args.range_points,
             )
         else:
+            t_imp = time.perf_counter()
             from analyzer import analyze_audio  # noqa: PLC0415
+
+            _perf("import_analyzer", t_imp)
 
             stft_options = None
             if args.stft_n_fft is not None and args.stft_hop is not None:
@@ -41,12 +61,18 @@ def main() -> int:
                     "hop_size": args.stft_hop,
                     "window": args.stft_window or "hann",
                 }
+            t_an = time.perf_counter()
             result = analyze_audio(args.file, peak_count=args.peaks, stft_options=stft_options)
+            _perf("analyze_audio_total", t_an)
     except Exception as error:
         print(str(error), file=sys.stderr)
         return 1
 
-    print(json.dumps(result, ensure_ascii=False))
+    t_dump = time.perf_counter()
+    payload = json.dumps(result, ensure_ascii=False)
+    _perf("json_dumps", t_dump, bytes=len(payload))
+    print(payload)
+    _perf("main_total", t_start)
     return 0
 
 

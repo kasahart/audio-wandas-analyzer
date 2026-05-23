@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+import os
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
 import wandas as wd
 
 from decimator import decimated_waveform
+
+_PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
+
+
+def _perf(phase: str, started: float, **extra: object) -> None:
+    if not _PERF_ENABLED:
+        return
+    ms = (time.perf_counter() - started) * 1000.0
+    parts = [f"phase={phase}", f"ms={ms:.2f}"]
+    parts.extend(f"{k}={v}" for k, v in extra.items())
+    print("[perf] " + " ".join(parts), file=sys.stderr, flush=True)
+
 
 WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
@@ -200,32 +215,37 @@ def _resolve_stft_params(
     return n_fft, hop, window
 
 
-def analyze_audio(
+def analyze_from_frame(
+    frame: wd.ChannelFrame,
     file_path: str | Path,
     peak_count: int = 5,
     *,
     stft_options: dict | None = None,
 ) -> dict[str, object]:
-    target = Path(file_path).expanduser().resolve()
-    if not target.exists():
-        raise FileNotFoundError(f"Audio file not found: {target}")
+    """Build the AnalysisResult JSON payload from a (typically persisted) ChannelFrame."""
+    target = Path(file_path)
+    t_frame = time.perf_counter()
+    channel_count = int(frame.n_channels)
+    sample_count = int(frame.n_samples)
+    sample_rate_hz = int(frame.sampling_rate)
+    labels = list(frame.labels)
+    data = _channels_first(np.asarray(frame.data), channel_count, sample_count)
+    rms_values = np.asarray(frame.rms, dtype=np.float64)
+    _perf("read_frame", t_frame, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
 
-    signal = wd.read_wav(str(target))
-    channel_count = int(signal.n_channels)
-    sample_count = int(signal.n_samples)
-    sample_rate_hz = int(signal.sampling_rate)
-    labels = list(signal.labels)
-    data = _channels_first(np.asarray(signal.data), channel_count, sample_count)
-    rms_values = np.asarray(signal.rms, dtype=np.float64)
-
-    fft = signal.fft()
+    t_fft = time.perf_counter()
+    fft = frame.fft()
     fft_freqs = np.asarray(fft.freqs, dtype=np.float64)
     fft_magnitudes = _channels_first(np.asarray(fft.magnitude), channel_count, fft_freqs.size)
+    _perf("fft", t_fft, bins=fft_freqs.size)
 
     window_size, hop_size, window_name = _resolve_stft_params(sample_count, stft_options)
-    stft = signal.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
+    t_stft = time.perf_counter()
+    stft = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
     stft_db = np.asarray(stft.dB, dtype=np.float64)
+    _perf("stft", t_stft, n_fft=window_size, hop=hop_size, shape="x".join(str(s) for s in stft_db.shape))
 
+    t_channels = time.perf_counter()
     channels: list[dict[str, object]] = []
     for index in range(channel_count):
         samples = data[index]
@@ -246,12 +266,29 @@ def analyze_audio(
             }
         )
 
+    _perf("channels_build", t_channels, count=channel_count)
+
     return {
         "filePath": str(target),
         "fileName": target.name,
         "sampleRateHz": sample_rate_hz,
-        "durationSeconds": float(signal.duration),
+        "durationSeconds": float(frame.duration),
         "channelCount": channel_count,
         "sampleCount": sample_count,
         "channels": channels,
     }
+
+
+def analyze_audio(
+    file_path: str | Path,
+    peak_count: int = 5,
+    *,
+    stft_options: dict | None = None,
+) -> dict[str, object]:
+    target = Path(file_path).expanduser().resolve()
+    if not target.exists():
+        raise FileNotFoundError(f"Audio file not found: {target}")
+    t0 = time.perf_counter()
+    frame = wd.read_wav(str(target))
+    _perf("read_wav", t0)
+    return analyze_from_frame(frame, target, peak_count=peak_count, stft_options=stft_options)

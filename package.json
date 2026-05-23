@@ -97,6 +97,13 @@
                     "type": "string",
                     "default": "media/debug",
                     "description": "%configuration.debugFilePath.description%"
+                },
+                "audioWandasAnalyzer.cacheMemoryMb": {
+                    "type": "number",
+                    "default": 1024,
+                    "minimum": 64,
+                    "description": "Maximum total bytes of cached audio (in MB) held in the persistent Python backend.",
+                    "scope": "window"
                 }
             }
         }

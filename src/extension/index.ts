@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
@@ -36,7 +35,7 @@ import {
     setStatusBarNormal,
     type PythonEnvironmentState,
 } from './pythonEnvironment';
-import { WaveformServer } from './waveformServer';
+import { PythonBackendServer } from './pythonBackendServer';
 import { runRecipe } from './recipeRunner';
 import { ChartSpecPanel } from '../webview/panels/ChartSpecPanel';
 
@@ -59,7 +58,19 @@ const panelDirectorySelections = new WeakMap<vscode.WebviewPanel, {
     latestRequestId?: string;
 }>();
 
-let waveformServer: WaveformServer | null = null;
+let backendServer: PythonBackendServer | null = null;
+let perfChannel: vscode.OutputChannel | null = null;
+
+function getPerfChannel(): vscode.OutputChannel {
+    if (!perfChannel) {
+        perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
+    }
+    return perfChannel;
+}
+
+function logPerf(line: string): void {
+    getPerfChannel().appendLine(line);
+}
 
 interface AnalyzeTargetOptions {
     autoSelectAllDirectoryFiles?: boolean;
@@ -73,8 +84,8 @@ export function activate(context: vscode.ExtensionContext): void {
         title: 'Analyze File or Folder',
     };
     welcomeDropTarget.iconPath = new vscode.ThemeIcon('new-file');
-    waveformServer = new WaveformServer(context.extensionPath);
-    context.subscriptions.push({ dispose: () => { waveformServer?.dispose(); waveformServer = null; } });
+    backendServer = new PythonBackendServer(context.extensionPath, (line) => logPerf(`[py] ${line.slice(7)}`));
+    context.subscriptions.push({ dispose: () => { backendServer?.dispose(); backendServer = null; } });
     const pythonStatusBarItem = vscode.window.createStatusBarItem(
         vscode.StatusBarAlignment.Left,
         10,
@@ -359,7 +370,7 @@ function registerPanelMessageHandler(
                     currentSelection.cachedResultsByFilePath,
                 );
 
-                waveformServer?.warmup();
+                backendServer?.warmup();
                 showDirectorySelectionPanel(
                     context,
                     currentSelection.rootPath,
@@ -420,7 +431,7 @@ function registerPanelMessageHandler(
 
             if (isRequestWaveformRangeMessage(message)) {
                 const req = message;
-                waveformServer?.requestRange(
+                backendServer?.requestRange(
                     req.filePath,
                     req.startNorm,
                     req.endNorm,
@@ -685,7 +696,7 @@ async function analyzeMultipleFiles(
     panel?: vscode.WebviewPanel,
 ): Promise<void> {
     const results = await analyzeFilesWithProgress(context, filePaths);
-    waveformServer?.warmup();
+    backendServer?.warmup();
     const comparisonPanel = ComparisonPanel.show(
         context.extensionUri,
         results,
@@ -738,61 +749,24 @@ async function analyzeFilesWithProgress(
 }
 
 async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptions?: StftOptions): Promise<AnalysisResult> {
-    const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-    const pythonCommand = config.get<string>('pythonCommand', 'python3');
-    const defaultPeakCount = config.get<number>('defaultPeakCount', 5);
-    const scriptPath = path.join(extensionPath, 'python-backend', 'main.py');
-
-    const args = [scriptPath, '--file', fileUri.fsPath, '--peaks', String(defaultPeakCount)];
-    if (stftOptions) {
-        args.push(
-            '--stft-n-fft', String(stftOptions.nFft),
-            '--stft-hop', String(stftOptions.hopSize),
-            '--stft-window', stftOptions.window,
-        );
+    const peakCount = vscode.workspace.getConfiguration('audioWandasAnalyzer').get<number>('defaultPeakCount', 5);
+    if (!backendServer) {
+        backendServer = new PythonBackendServer(extensionPath, (line) => logPerf(`[py] ${line.slice(7)}`));
     }
-
-    return new Promise((resolve, reject) => {
-        const process = spawn(
-            pythonCommand,
-            args,
-            {
-                cwd: extensionPath,
-                stdio: ['ignore', 'pipe', 'pipe'],
-            },
-        );
-
-        let stdout = '';
-        let stderr = '';
-
-        process.stdout.on('data', (chunk: Buffer | string) => {
-            stdout += chunk.toString();
-        });
-
-        process.stderr.on('data', (chunk: Buffer | string) => {
-            stderr += chunk.toString();
-        });
-
-        process.on('error', (error: Error) => {
-            reject(new Error(`Failed to start Python process (${pythonCommand}): ${error.message}`));
-        });
-
-        process.on('close', (code: number | null) => {
-            if (code !== 0) {
-                reject(new Error(stderr.trim() || `Python backend exited with code ${code}`));
-                return;
-            }
-
-            try {
-                const parsed = JSON.parse(stdout) as AnalysisResult;
-                resolve(parsed);
-            } catch (error) {
-                reject(
-                    new Error(
-                        `Invalid backend response: ${error instanceof Error ? error.message : String(error)}`,
-                    ),
-                );
-            }
-        });
-    });
+    const fileLabel = path.basename(fileUri.fsPath);
+    const tReq = Date.now();
+    logPerf(`[ts] analyze start file=${fileLabel}`);
+    try {
+        const result = await backendServer.analyze(fileUri.fsPath, {
+            peakCount,
+            stftOptions: stftOptions
+                ? { nFft: stftOptions.nFft, hopSize: stftOptions.hopSize, window: stftOptions.window }
+                : undefined,
+        }) as AnalysisResult;
+        logPerf(`[ts] analyze done  file=${fileLabel} total_ms=${Date.now() - tReq}`);
+        return result;
+    } catch (err) {
+        logPerf(`[ts] analyze fail  file=${fileLabel} total_ms=${Date.now() - tReq}`);
+        throw err;
+    }
 }
