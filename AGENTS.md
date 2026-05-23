@@ -50,10 +50,11 @@ Node 22 and Python 3.11 are the supported versions (matches `.devcontainer/Docke
 
 ## 3. Canonical commands — the completion bar
 
-**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness.
+**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. That script now includes the Webview pattern lint (`node scripts/lint-webview-patterns.js`) in addition to compile + unit checks.
 
 ```bash
-npm run verify        # compile + node:test + ruff check + ruff format --check + pytest
+npm run verify        # compile + webview pattern lint + node:test + ruff check + ruff format --check + pytest
+npm run test:ui       # Playwright Chromium smoke for real-browser Webview regressions
 npm run verify:e2e    # VS Code extension-host E2E (uses xvfb-run on Linux)
 ```
 
@@ -143,10 +144,11 @@ trackDurRatio  = durationSeconds / globalSpanSec
 |-------|--------|-------|
 | TS unit | `node:test` (compiled to `dist/test/`) | `src/test/*.test.ts` |
 | TS webview-script integration | `node:test` + jsdom | `src/test/renderScript.integration.test.ts` |
+| TS webview browser smoke | `@playwright/test` + Chromium | `src/test/uiSmoke/*.spec.ts` |
 | Python unit | `pytest` | `python-backend/test_*.py` |
 | VS Code E2E | `@vscode/test-electron` (xvfb on Linux) | `src/e2e/suite/index.ts` |
 
-`npm run verify` runs the first three. E2E is separate (`npm run verify:e2e`) because it needs a display and is slower; CI runs it as a second job.
+`npm run verify` runs the static lint plus the unit layers above except Playwright browser smoke and VS Code E2E. `npm run test:ui` is the real-browser smoke layer for Webview regressions. VS Code E2E remains separate (`npm run verify:e2e`) because it needs a full extension host and is slower; CI runs both as separate jobs.
 
 ---
 

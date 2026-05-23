@@ -1,3 +1,18 @@
+import type { UiStrings } from '../shared/i18n/strings';
+
+export const SHORTCUT_ROWS = [
+    { shortcut: 'Space', labelKey: 'helpRowSpace' },
+    { shortcut: '← / →', labelKey: 'helpRowArrow' },
+    { shortcut: '+ / − / 0', labelKey: 'helpRowZoomKeys' },
+    { shortcut: 'M / S', labelKey: 'helpRowMuteSolo' },
+    { shortcut: 'Wheel', labelKey: 'helpRowWheel' },
+    { shortcut: 'Ctrl+Wheel', labelKey: 'helpRowCtrlWheel' },
+    { shortcut: 'Drag', labelKey: 'helpRowDrag' },
+    { shortcut: 'Shift+Drag', labelKey: 'helpRowShiftDrag' },
+    { shortcut: '?', labelKey: 'helpRowQuestion' },
+    { shortcut: 'Esc', labelKey: 'helpRowEsc' },
+] as const satisfies ReadonlyArray<{ shortcut: string; labelKey: keyof UiStrings }>;
+
 /**
  * ComparisonPanel の webview に注入される IIFE JavaScript を返す。
  *
@@ -7,11 +22,13 @@
  * window.draw* 経由で呼ぶ薄い alias と DOM テーマ橋渡しを行う。
  */
 export function getComparisonRenderScript(): string {
-        return `
+    const serializedShortcutRows = JSON.stringify(SHORTCUT_ROWS);
+    return `
         (function() {
             const vscode = acquireVsCodeApi();
             const state = __APP_STATE__;
             const STR = (typeof __APP_STRINGS__ !== 'undefined' && __APP_STRINGS__) ? __APP_STRINGS__ : {};
+            const SHORTCUT_ROWS = ${serializedShortcutRows};
             const isSelectionMode = state.mode === 'directory-selection';
             const selectedFilePaths = new Set(Array.isArray(state.selectedFilePaths) ? state.selectedFilePaths : []);
             const allSelectableFilePaths = Array.isArray(state.allFilePaths) ? state.allFilePaths.slice() : [];
@@ -2519,21 +2536,9 @@ export function getComparisonRenderScript(): string {
 
             // ── ヘルプオーバーレイ ──
             (function __buildHelpOverlay() {
-                const rows = [
-                    ['Space',         STR.helpRowSpace],
-                    ['← / →',         STR.helpRowArrow],
-                    ['+ / − / 0',     STR.helpRowZoomKeys],
-                    ['M / S',         STR.helpRowMuteSolo],
-                    ['Wheel',         STR.helpRowWheel],
-                    ['Ctrl+Wheel',    STR.helpRowCtrlWheel],
-                    ['Drag',          STR.helpRowDrag],
-                    ['Shift+Drag',    STR.helpRowShiftDrag],
-                    ['?',             STR.helpRowQuestion],
-                    ['Esc',           STR.helpRowEsc],
-                ];
-                const tableRows = rows.map(function(r) {
-                    return '<tr><td style="padding:3px 12px 3px 0;font-family:var(--font-mono);white-space:nowrap;color:var(--accent)">' + escHtml(r[0])
-                         + '</td><td style="padding:3px 0;color:var(--text)">' + escHtml(r[1]) + '</td></tr>';
+                const tableRows = SHORTCUT_ROWS.map(function(row) {
+                    return '<tr><td style="padding:3px 12px 3px 0;font-family:var(--font-mono);white-space:nowrap;color:var(--accent)">' + escHtml(row.shortcut)
+                         + '</td><td style="padding:3px 0;color:var(--text)">' + escHtml(STR[row.labelKey]) + '</td></tr>';
                 }).join('');
                 document.body.insertAdjacentHTML('beforeend',
                     '<div id="help-overlay" hidden role="dialog" aria-modal="true" aria-label="' + escHtml(STR.helpTitle) + '" '
@@ -2547,9 +2552,20 @@ export function getComparisonRenderScript(): string {
                     + '</div></div>');
                 function openHelp() {
                     var el = document.getElementById('help-overlay');
-                    if (el) { el.hidden = false; el.style.display = 'flex'; var btn = document.getElementById('help-close-btn'); if (btn) { btn.focus(); } }
+                    if (el) {
+                        el.hidden = false;
+                        el.style.display = 'flex';
+                        var btn = document.getElementById('help-close-btn');
+                        if (btn) { btn.focus(); }
+                    }
                 }
-                function closeHelp() { var el = document.getElementById('help-overlay'); if (el) { el.hidden = true; el.style.display = 'none'; } }
+                function closeHelp() {
+                    var el = document.getElementById('help-overlay');
+                    if (el) {
+                        el.style.display = 'none';
+                        el.hidden = true;
+                    }
+                }
                 function isHelpOpen() { var el = document.getElementById('help-overlay'); return el && !el.hidden; }
                 var closeBtn = document.getElementById('help-close-btn');
                 if (closeBtn) { closeBtn.addEventListener('click', closeHelp); }
