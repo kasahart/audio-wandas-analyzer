@@ -258,6 +258,7 @@ def analyze_from_frame(
     stft_options: dict | None = None,
 ) -> dict[str, object]:
     """Build the AnalysisResult JSON payload from a (typically persisted) ChannelFrame."""
+    peak_count = max(0, int(peak_count))  # guard against negative/zero from user config
     target = Path(file_path)
     t_frame = time.perf_counter()
     channel_count = int(frame.n_channels)

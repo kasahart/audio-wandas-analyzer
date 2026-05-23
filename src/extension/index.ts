@@ -697,7 +697,13 @@ async function analyzeMultipleFiles(
     filePaths: string[],
     panel?: vscode.WebviewPanel,
 ): Promise<void> {
-    const results = await analyzeFilesWithProgress(context, filePaths);
+    let results: AnalysisResultWithError[];
+    try {
+        results = await analyzeFilesWithProgress(context, filePaths);
+    } catch (err) {
+        if (err instanceof vscode.CancellationError) { return; }
+        throw err;
+    }
     backendServer?.warmup();
     const comparisonPanel = ComparisonPanel.show(
         context.extensionUri,
@@ -725,7 +731,7 @@ async function analyzeFilesWithProgress(
         async (progress, token) => {
             const results: AnalysisResultWithError[] = [];
             for (let i = 0; i < filePaths.length; i++) {
-                if (token.isCancellationRequested) { break; }
+                if (token.isCancellationRequested) { throw new vscode.CancellationError(); }
                 const fileName = path.basename(filePaths[i]);
                 progress.report({
                     increment: Math.floor(100 / filePaths.length),

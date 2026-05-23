@@ -62,8 +62,8 @@ def test_analyze_audio_peaks_contains_440hz(tmp_path: Path) -> None:
     assert len(peaks) > 0, "peaks list should not be empty"
     # Every peak must have the required keys
     for peak in peaks:
-        assert "freqHz" in peak, "each peak must have freq_hz"
-        assert "amplitudeDb" in peak, "each peak must have amplitude_db"
+        assert "freqHz" in peak, "each peak must have freqHz"
+        assert "amplitudeDb" in peak, "each peak must have amplitudeDb"
     # At least one peak should be near 440 Hz
     freq_values = [p["freqHz"] for p in peaks]
     assert any(abs(f - 440.0) <= 20.0 for f in freq_values), f"Expected a peak near 440 Hz, got: {freq_values}"

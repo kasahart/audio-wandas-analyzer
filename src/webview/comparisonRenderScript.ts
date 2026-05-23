@@ -1238,6 +1238,10 @@ export function getComparisonRenderScript(): string {
                     // ── 時刻カーソル操作（波形キャンバスフォーカス時）──
                     const active = document.activeElement;
 
+                    // ── Help overlay が開いている間はショートカットを無効化 ──
+                    const helpEl = document.getElementById('help-overlay');
+                    if (helpEl && !helpEl.hidden) { return; }
+
                     // ── Space: グローバル再生/停止トグル (入力要素以外で有効) ──
                     if (e.code === 'Space') {
                         const tag = (active && active.tagName) ? active.tagName.toUpperCase() : '';
@@ -1793,10 +1797,8 @@ export function getComparisonRenderScript(): string {
                     ctx.moveTo(x, y - 6);
                     ctx.lineTo(x, y + 4);
                     ctx.stroke();
-                    // Frequency label above tick
-                    var label = p.freqHz >= 1000
-                        ? (p.freqHz / 1000).toFixed(p.freqHz >= 10000 ? 0 : 1) + 'k'
-                        : Math.round(p.freqHz) + 'Hz';
+                    // Frequency label above tick — reuse formatHz() for consistent units
+                    var label = formatHz(p.freqHz);
                     var labelY = y - 8;
                     if (labelY < padT + 10) { labelY = y + 14; }
                     ctx.fillText(label, x, labelY);
@@ -2042,7 +2044,7 @@ export function getComparisonRenderScript(): string {
 
             function toggleSolo(idx) {
                 soloTrackIndex = (soloTrackIndex === idx) ? null : idx;
-                // ソロ解除時に再生中トラックが非表示になる場合は停止
+                // ソロ有効化時、再生中トラックがソロ対象外なら停止
                 if (soloTrackIndex !== null && playbackTrackIndex !== null && playbackTrackIndex !== soloTrackIndex) {
                     stopPlayback(playbackTrackIndex, { keepCursor: true });
                 }
@@ -2286,6 +2288,11 @@ export function getComparisonRenderScript(): string {
                 }
                 if (msg.type === 'reanalyze-end') {
                     __setReanalyzeBusy(false);
+                    return;
+                }
+                if (msg.type === 'analysis-file-progress') {
+                    var progMsg = '(' + msg.current + '/' + msg.total + ') ' + (msg.fileName || '');
+                    __setReanalyzeBusy(true, progMsg);
                     return;
                 }
                 if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
