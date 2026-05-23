@@ -76,6 +76,7 @@ export interface UiStrings {
     loopTimeDisplayTitle: string;
     btnFollowCursor: string;
     btnFollowCursorTitle: string;
+    btnCopySpec: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -142,6 +143,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         loopTimeDisplayTitle: 'Click to copy loop range',
         btnFollowCursor: 'Follow',
         btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback',
+        btnCopySpec: 'Copy spec',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -206,6 +208,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         loopTimeDisplayTitle: 'クリックでループ範囲をコピー',
         btnFollowCursor: '追従',
         btnFollowCursorTitle: '再生中にカーソルを中央に保つ',
+        btnCopySpec: 'スペックをコピー',
     },
 };
 
