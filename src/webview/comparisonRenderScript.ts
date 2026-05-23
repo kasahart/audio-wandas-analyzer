@@ -1714,6 +1714,41 @@ export function getComparisonRenderScript(): string {
                 ctx.fillText(formatHz(slice.maxFrequencyHz), W - padR, H - 1);
             }
 
+            function drawSpectrumPeakAnnotations(ctx, W, H, peaks, maxFrequencyHz, minDb, maxDb, padL, padR, padT, padB) {
+                if (!peaks || peaks.length === 0) { return; }
+                var plotW = W - padL - padR;
+                var plotH = H - padT - padB;
+                var range = maxDb - minDb;
+                if (range <= 0 || plotW <= 0 || maxFrequencyHz <= 0) { return; }
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255,255,180,0.85)';
+                ctx.fillStyle = 'rgba(255,255,180,0.95)';
+                ctx.lineWidth = 1;
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'center';
+                for (var pi = 0; pi < peaks.length; pi++) {
+                    var p = peaks[pi];
+                    if (!p || p.freq_hz == null || p.amplitude_db == null) { continue; }
+                    if (p.freq_hz <= 0 || p.freq_hz > maxFrequencyHz) { continue; }
+                    var x = padL + (p.freq_hz / maxFrequencyHz) * plotW;
+                    var norm = Math.max(0, Math.min(1, (p.amplitude_db - minDb) / range));
+                    var y = padT + (1 - norm) * plotH;
+                    // Vertical tick mark at peak
+                    ctx.beginPath();
+                    ctx.moveTo(x, y - 6);
+                    ctx.lineTo(x, y + 4);
+                    ctx.stroke();
+                    // Frequency label above tick
+                    var label = p.freq_hz >= 1000
+                        ? (p.freq_hz / 1000).toFixed(p.freq_hz >= 10000 ? 0 : 1) + 'k'
+                        : Math.round(p.freq_hz) + 'Hz';
+                    var labelY = y - 8;
+                    if (labelY < padT + 10) { labelY = y + 14; }
+                    ctx.fillText(label, x, labelY);
+                }
+                ctx.restore();
+            }
+
             function renderTrackSpectra() {
                 state.results.forEach(function(result, i) {
                     const canvas = document.getElementById('track-spectrum-' + i);
@@ -1741,6 +1776,9 @@ export function getComparisonRenderScript(): string {
                     const color = TRACK_COLORS[i % TRACK_COLORS.length];
                     drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14);
                     drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 });
+                    const ch0 = result.channels && result.channels[0];
+                    const peaks = ch0 && ch0.peaks;
+                    drawSpectrumPeakAnnotations(ctx, W, H, peaks, slice.maxFrequencyHz, slice.minDb, slice.maxDb, 32, 6, 4, 14);
                 });
             }
 
@@ -1799,6 +1837,9 @@ export function getComparisonRenderScript(): string {
                         if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                     }
                     ctx.stroke();
+                    const overlayResult = state.results[s.index];
+                    const overlayPeaks = overlayResult && overlayResult.channels && overlayResult.channels[0] && overlayResult.channels[0].peaks;
+                    drawSpectrumPeakAnnotations(ctx, W, H, overlayPeaks, maxF, minDb, maxDb, padL, padR, padT, padB);
                 });
 
                 ctx.font = '10px sans-serif';
@@ -2004,6 +2045,55 @@ export function getComparisonRenderScript(): string {
             });
 
             document.addEventListener('keydown', function(ev) { if (ev.key === 'Escape') { __closeSpecPopover(); } });
+
+            // ── ヘルプオーバーレイ ──
+            (function __buildHelpOverlay() {
+                const rows = [
+                    ['Space',         'play / pause'],
+                    ['← / →', 'move cursor  (Shift: fast)'],
+                    ['Wheel',         'zoom  (Shift: scroll)'],
+                    ['Ctrl+Wheel',    'zoom (alternative)'],
+                    ['Drag',          'create / resize loop'],
+                    ['Shift+Drag',    'adjust track offset'],
+                    ['?',             'toggle this help'],
+                    ['Esc',           'close popover / help'],
+                ];
+                const tableRows = rows.map(function(r) {
+                    return '<tr><td style="padding:3px 12px 3px 0;font-family:var(--font-mono);white-space:nowrap;color:var(--accent)">' + escHtml(r[0])
+                         + '</td><td style="padding:3px 0;color:var(--text)">' + escHtml(r[1]) + '</td></tr>';
+                }).join('');
+                document.body.insertAdjacentHTML('beforeend',
+                    '<div id="help-overlay" hidden role="dialog" aria-modal="true" aria-label="' + escHtml(STR.helpTitle) + '" '
+                    + 'style="position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45)">'
+                    + '<div style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:20px 24px;min-width:320px;box-shadow:0 4px 24px rgba(0,0,0,0.4)">'
+                    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+                    + '<span style="font-weight:700;font-size:13px;color:var(--text)">' + escHtml(STR.helpTitle) + '</span>'
+                    + '<button id="help-close-btn" class="toolbar-btn" style="font-size:11px;padding:2px 8px">' + escHtml(STR.helpClose) + '</button>'
+                    + '</div>'
+                    + '<table style="border-collapse:collapse;font-size:12px;width:100%">' + tableRows + '</table>'
+                    + '</div></div>');
+                function openHelp() {
+                    var el = document.getElementById('help-overlay');
+                    if (el) { el.hidden = false; var btn = document.getElementById('help-close-btn'); if (btn) { btn.focus(); } }
+                }
+                function closeHelp() { var el = document.getElementById('help-overlay'); if (el) { el.hidden = true; } }
+                function isHelpOpen() { var el = document.getElementById('help-overlay'); return el && !el.hidden; }
+                var closeBtn = document.getElementById('help-close-btn');
+                if (closeBtn) { closeBtn.addEventListener('click', closeHelp); }
+                document.getElementById('help-overlay').addEventListener('click', function(e) {
+                    if (e.target === document.getElementById('help-overlay')) { closeHelp(); }
+                });
+                document.addEventListener('keydown', function(ev) {
+                    var tag = document.activeElement && document.activeElement.tagName ? document.activeElement.tagName.toUpperCase() : '';
+                    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') { return; }
+                    if (ev.key === '?') {
+                        if (isHelpOpen()) { closeHelp(); } else { openHelp(); }
+                        ev.preventDefault();
+                        return;
+                    }
+                    if (ev.key === 'Escape' && isHelpOpen()) { closeHelp(); ev.stopPropagation(); }
+                });
+            })();
 
             window.addEventListener('message', function(event) {
                 const msg = event.data;
