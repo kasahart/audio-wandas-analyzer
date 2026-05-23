@@ -60,6 +60,18 @@ const panelDirectorySelections = new WeakMap<vscode.WebviewPanel, {
 }>();
 
 let waveformServer: WaveformServer | null = null;
+let perfChannel: vscode.OutputChannel | null = null;
+
+function getPerfChannel(): vscode.OutputChannel {
+    if (!perfChannel) {
+        perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
+    }
+    return perfChannel;
+}
+
+function logPerf(line: string): void {
+    getPerfChannel().appendLine(line);
+}
 
 interface AnalyzeTargetOptions {
     autoSelectAllDirectoryFiles?: boolean;
@@ -752,6 +764,10 @@ async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptio
         );
     }
 
+    const fileLabel = path.basename(fileUri.fsPath);
+    const tSpawn = Date.now();
+    logPerf(`[ts] spawn start file=${fileLabel}`);
+
     return new Promise((resolve, reject) => {
         const process = spawn(
             pythonCommand,
@@ -759,18 +775,29 @@ async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptio
             {
                 cwd: extensionPath,
                 stdio: ['ignore', 'pipe', 'pipe'],
+                env: { ...globalThis.process.env, AWA_PERF_LOG: '1' },
             },
         );
 
         let stdout = '';
         let stderr = '';
+        let stderrBuf = '';
 
         process.stdout.on('data', (chunk: Buffer | string) => {
             stdout += chunk.toString();
         });
 
         process.stderr.on('data', (chunk: Buffer | string) => {
-            stderr += chunk.toString();
+            stderrBuf += chunk.toString();
+            const lines = stderrBuf.split('\n');
+            stderrBuf = lines.pop() ?? '';
+            for (const line of lines) {
+                if (line.startsWith('[perf]')) {
+                    logPerf(`[py] ${fileLabel} ${line.slice(7)}`);
+                } else if (line.length > 0) {
+                    stderr += line + '\n';
+                }
+            }
         });
 
         process.on('error', (error: Error) => {
@@ -778,13 +805,27 @@ async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptio
         });
 
         process.on('close', (code: number | null) => {
+            if (stderrBuf.length > 0) {
+                if (stderrBuf.startsWith('[perf]')) {
+                    logPerf(`[py] ${fileLabel} ${stderrBuf.slice(7)}`);
+                } else {
+                    stderr += stderrBuf;
+                }
+                stderrBuf = '';
+            }
+
+            const totalMs = Date.now() - tSpawn;
+            logPerf(`[ts] spawn exit  file=${fileLabel} code=${code} total_ms=${totalMs} stdout_bytes=${stdout.length}`);
+
             if (code !== 0) {
                 reject(new Error(stderr.trim() || `Python backend exited with code ${code}`));
                 return;
             }
 
             try {
+                const tParse = Date.now();
                 const parsed = JSON.parse(stdout) as AnalysisResult;
+                logPerf(`[ts] json_parse  file=${fileLabel} ms=${Date.now() - tParse}`);
                 resolve(parsed);
             } catch (error) {
                 reject(

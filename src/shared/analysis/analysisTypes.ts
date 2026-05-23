@@ -3,6 +3,11 @@ export interface FrequencyPeak {
     magnitude: number;
 }
 
+export interface SpectrumPeak {
+    freq_hz: number;
+    amplitude_db: number;
+}
+
 export interface WaveformEnvelope {
     min: number[];
     max: number[];
@@ -26,6 +31,7 @@ export interface ChannelSummary {
     rms: number;
     peakAbsolute: number;
     dominantFrequencies: FrequencyPeak[];
+    peaks?: SpectrumPeak[];
     waveform: WaveformEnvelope;
     spectrogram: SpectrogramData;
 }
