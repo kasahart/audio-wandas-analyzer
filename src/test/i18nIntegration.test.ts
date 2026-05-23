@@ -37,10 +37,10 @@ NodeModule._load = function (id: string, ...rest: unknown[]) {
     if (id === 'vscode') { return vscodeStub; }
     return originalLoad.call(this, id, ...rest);
 };
-let ComparisonPanel: { renderHtml: (...args: unknown[]) => string };
+let renderComparisonHtml: (...args: unknown[]) => string;
 try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ComparisonPanel = require('../webview/panels/ComparisonPanel').ComparisonPanel;
+    renderComparisonHtml = require('../webview/panels/ComparisonPanel').renderComparisonHtml;
 } finally {
     // 後続テストや並列実行への漏出を防ぐため、即座に元に戻す。
     // ComparisonPanel は require cache に入ったので以後の require('vscode') は触らない。
@@ -67,9 +67,7 @@ function renderHtmlWith(language: string): string {
         },
     };
     const extensionUri = { fsPath: '/ext', toString: () => '/ext' };
-    // private static renderHtml を呼ぶ
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (ComparisonPanel as any).renderHtml(fakeWebview, state, extensionUri);
+    return renderComparisonHtml(fakeWebview, state, extensionUri);
 }
 
 test('i18n: env.language="ja" は HTML lang="ja" を出力する', () => {

@@ -308,17 +308,6 @@ export class ComparisonPanel {
         return Array.from(roots.values());
     }
 
-    private static renderHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri): string {
-        return renderComparisonHtml(webview, state, extensionUri);
-    }
-
-    private static renderStyles(): string {
-        return renderComparisonStyles();
-    }
-
-    private static renderScript(): string {
-        return renderComparisonScript();
-    }
 }
 
 export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri): string {
