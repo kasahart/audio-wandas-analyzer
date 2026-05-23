@@ -481,7 +481,7 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
-                    + '<span id="playback-display" title="' + escHtml(STR.trackPlayTitle) + '"></span>'
+                    + '<span id="playback-display" title="' + escHtml(STR.playbackDisplayTitle) + '"></span>'
                     + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>';
             }
 
@@ -1255,8 +1255,8 @@ export function getComparisonRenderScript(): string {
 
                     if (!isInputFocused) {
                         // +/= → zoom in、- → zoom out、0 → zoom reset
-                        if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); scheduleRender(); return; }
-                        if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomOut(); scheduleRender(); return; }
+                        if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); return; }
+                        if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomOut(); return; }
                         if (e.key === '0') { e.preventDefault(); zoomStart = 0; zoomEnd = 1; scheduleRender(); return; }
 
                         // M/S → フォーカス中 or 最後に再生したトラックの mute/solo

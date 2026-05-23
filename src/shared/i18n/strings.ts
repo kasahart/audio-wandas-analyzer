@@ -71,6 +71,7 @@ export interface UiStrings {
     helpRowMuteSolo: string;
     helpRowZoomKeys: string;
     playbackTimePrefix: string;
+    playbackDisplayTitle: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -129,9 +130,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowShiftDrag: 'adjust track offset',
         helpRowQuestion: 'toggle this help',
         helpRowEsc: 'close popover / help',
-        helpRowMuteSolo: 'mute / solo focused track',
+        helpRowMuteSolo: 'mute / solo active track (focused, last played, or first)',
         helpRowZoomKeys: 'zoom in / out / reset',
         playbackTimePrefix: '▶',
+        playbackDisplayTitle: 'Playback position',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -188,9 +190,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowShiftDrag: 'トラックのオフセット調整',
         helpRowQuestion: 'このヘルプを開閉',
         helpRowEsc: 'ポップオーバー / ヘルプを閉じる',
-        helpRowMuteSolo: 'フォーカス中のトラックをミュート / ソロ',
+        helpRowMuteSolo: 'アクティブなトラックをミュート / ソロ（フォーカス中・最後に再生・先頭）',
         helpRowZoomKeys: 'ズームイン / アウト / リセット',
         playbackTimePrefix: '▶',
+        playbackDisplayTitle: '再生位置',
     },
 };
 
