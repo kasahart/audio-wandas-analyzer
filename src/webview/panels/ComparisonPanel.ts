@@ -364,13 +364,13 @@ export class ComparisonPanel {
             --track-header-bg: #171a1f;
         }
         body.vscode-light, body[data-theme-kind="light"] {
-            --surface: #16181c;
-            --panel: #1d2025;
-            --line: #343942;
-            --text: #d9dde3;
-            --muted: #8f98a3;
-            --track-bg: #090b0f;
-            --track-header-bg: #14171c;
+            --surface: #ffffff;
+            --panel: #f3f3f3;
+            --line: #d4d4d4;
+            --text: #1e1e1e;
+            --muted: #6e7681;
+            --track-bg: #f5f5f5;
+            --track-header-bg: #ebebeb;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--surface); color: var(--text); font-family: var(--font-ui); overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
