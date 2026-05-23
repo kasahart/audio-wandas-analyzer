@@ -90,6 +90,8 @@ export interface UiStrings {
     specSettingsMaxFreqHz: string;
     specSettingsReset: string;
     specSettingsApply: string;
+    btnExportPng: string;
+    btnExportPngTitle: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -170,6 +172,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsMaxFreqHz: 'max freq Hz',
         specSettingsReset: 'Reset',
         specSettingsApply: 'Apply',
+        btnExportPng: 'Export PNG',
+        btnExportPngTitle: 'Export visible tracks as PNG',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -248,6 +252,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsMaxFreqHz: '最大周波数 Hz',
         specSettingsReset: 'リセット',
         specSettingsApply: '適用',
+        btnExportPng: 'PNG 出力',
+        btnExportPngTitle: '表示中のトラックを PNG として出力',
     },
 };
 

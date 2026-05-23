@@ -483,6 +483,8 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
                     + '<button class="tb-btn" data-action="copy-spec">' + escHtml(STR.btnCopySpec) + '</button>'
                     + '<div class="tb-sep"></div>'
+                    + '<button class="tb-btn" data-action="export-png" title="' + escHtml(STR.btnExportPngTitle) + '">' + escHtml(STR.btnExportPng) + '</button>'
+                    + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
                     + '<span id="playback-display" title="' + escHtml(STR.playbackDisplayTitle) + '"></span>'
                     + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>'
@@ -1228,6 +1230,7 @@ export function getComparisonRenderScript(): string {
 
                 document.getElementById('tracks-wrapper').addEventListener('click', function(e) {
                     if (!e.target.classList.contains('track-offset-val')) { return; }
+                    if (e.detail !== 1) { return; }
                     const span = e.target;
                     const idx = parseInt(span.getAttribute('data-track-index'), 10);
                     if (isNaN(idx)) { return; }
@@ -1244,7 +1247,7 @@ export function getComparisonRenderScript(): string {
                     span.parentNode.insertBefore(input, span);
                     input.focus();
                     input.select();
-                    var settled = false;
+                    let settled = false;
                     function commitEdit() {
                         if (settled) { return; }
                         settled = true;
@@ -1613,6 +1616,8 @@ export function getComparisonRenderScript(): string {
                     vscode.postMessage({ type: 'run-recipe' });
                 } else if (action === 'copy-spec') {
                     copySpecToClipboard();
+                } else if (action === 'export-png') {
+                    exportPng();
                 }
             }
 
@@ -1621,6 +1626,39 @@ export function getComparisonRenderScript(): string {
                 followCursor = false;
                 const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
                 if (btn) { btn.classList.remove('is-active'); }
+            }
+
+            function exportPng() {
+                const wrapper = document.getElementById('tracks-wrapper');
+                const canvases = wrapper
+                    ? Array.prototype.slice.call(wrapper.querySelectorAll('canvas')).filter(function(c) {
+                        return c.offsetParent !== null;
+                    })
+                    : [];
+                if (canvases.length === 0) {
+                    console.warn('exportPng: no visible canvases found');
+                    return;
+                }
+                const totalWidth = canvases.reduce(function(m, c) { return Math.max(m, c.width); }, 0);
+                const totalHeight = canvases.reduce(function(sum, c) { return sum + c.height; }, 0);
+                const offscreen = document.createElement('canvas');
+                offscreen.width = totalWidth;
+                offscreen.height = totalHeight;
+                const ctx = offscreen.getContext('2d');
+                ctx.fillStyle = '#1e1e1e';
+                ctx.fillRect(0, 0, totalWidth, totalHeight);
+                let y = 0;
+                canvases.forEach(function(c) {
+                    ctx.drawImage(c, 0, y);
+                    y += c.height;
+                });
+                const dataURL = offscreen.toDataURL('image/png');
+                const a = document.createElement('a');
+                a.href = dataURL;
+                a.download = 'waveform-export.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
             }
 
             function zoomIn() {
