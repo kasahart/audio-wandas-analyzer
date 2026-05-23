@@ -2385,7 +2385,7 @@ export function getComparisonRenderScript(): string {
                 }).join('');
                 document.body.insertAdjacentHTML('beforeend',
                     '<div id="help-overlay" hidden role="dialog" aria-modal="true" aria-label="' + escHtml(STR.helpTitle) + '" '
-                    + 'style="position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45)">'
+                    + 'style="position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.45)">'
                     + '<div style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:20px 24px;min-width:320px;box-shadow:0 4px 24px rgba(0,0,0,0.4)">'
                     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
                     + '<span style="font-weight:700;font-size:13px;color:var(--text)">' + escHtml(STR.helpTitle) + '</span>'
@@ -2395,9 +2395,9 @@ export function getComparisonRenderScript(): string {
                     + '</div></div>');
                 function openHelp() {
                     var el = document.getElementById('help-overlay');
-                    if (el) { el.hidden = false; var btn = document.getElementById('help-close-btn'); if (btn) { btn.focus(); } }
+                    if (el) { el.hidden = false; el.style.display = 'flex'; var btn = document.getElementById('help-close-btn'); if (btn) { btn.focus(); } }
                 }
-                function closeHelp() { var el = document.getElementById('help-overlay'); if (el) { el.hidden = true; } }
+                function closeHelp() { var el = document.getElementById('help-overlay'); if (el) { el.hidden = true; el.style.display = 'none'; } }
                 function isHelpOpen() { var el = document.getElementById('help-overlay'); return el && !el.hidden; }
                 var closeBtn = document.getElementById('help-close-btn');
                 if (closeBtn) { closeBtn.addEventListener('click', closeHelp); }
