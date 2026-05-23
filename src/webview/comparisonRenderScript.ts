@@ -483,6 +483,9 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
                     + '<button class="tb-btn" data-action="copy-spec">' + escHtml(STR.btnCopySpec) + '</button>'
                     + '<div class="tb-sep"></div>'
+                    + '<button class="tb-btn" data-action="export-png" title="' + escHtml(STR.btnExportPngTitle) + '">' + escHtml(STR.btnExportPng) + '</button>'
+                    + '<button class="tb-btn" data-action="export-csv" title="' + escHtml(STR.btnExportCsvTitle) + '">' + escHtml(STR.btnExportCsv) + '</button>'
+                    + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
                     + '<span id="playback-display" title="' + escHtml(STR.playbackDisplayTitle) + '"></span>'
                     + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>'
@@ -1219,11 +1222,70 @@ export function getComparisonRenderScript(): string {
                     if (action === 'offset-down' && !isNaN(idx)) { adjustOffset(idx, -0.01); }
                 });
 
+                let _offsetEditTimer = null;
                 document.getElementById('tracks-wrapper').addEventListener('dblclick', function(e) {
                     if (e.target.classList.contains('track-offset-val')) {
+                        clearTimeout(_offsetEditTimer);
+                        _offsetEditTimer = null;
                         const idx = parseInt(e.target.getAttribute('data-track-index'), 10);
-                        if (!isNaN(idx)) { trackRuntime[idx].offsetSeconds = 0; updateOffsetDisplays(); scheduleRender(); }
+                        if (!isNaN(idx)) {
+                            trackRuntime[idx].offsetSeconds = 0;
+                            updateOffsetDisplays();
+                            scheduleRender();
+                            refreshSpectrumViews();
+                        }
                     }
+                });
+
+                document.getElementById('tracks-wrapper').addEventListener('click', function(e) {
+                    if (!e.target.classList.contains('track-offset-val')) { return; }
+                    const span = e.target;
+                    const idx = parseInt(span.getAttribute('data-track-index'), 10);
+                    if (isNaN(idx)) { return; }
+                    // Don't open if already editing
+                    if (span.style.display === 'none') { return; }
+                    // Delay to allow dblclick (reset) to cancel before opening editor
+                    clearTimeout(_offsetEditTimer);
+                    _offsetEditTimer = setTimeout(function() {
+                    _offsetEditTimer = null;
+                    if (span.style.display === 'none') { return; }
+                    const currentMs = Math.round(trackRuntime[idx].offsetSeconds * 1000);
+                    const input = document.createElement('input');
+                    input.type = 'number';
+                    input.className = 'track-offset-input';
+                    input.value = String(currentMs);
+                    input.placeholder = STR.offsetEditPlaceholder;
+                    input.setAttribute('aria-label', STR.offsetEditAriaLabel);
+                    span.style.display = 'none';
+                    span.parentNode.insertBefore(input, span);
+                    input.focus();
+                    input.select();
+                    let settled = false;
+                    function commitEdit() {
+                        if (settled) { return; }
+                        settled = true;
+                        const val = parseFloat(input.value);
+                        if (!isNaN(val)) {
+                            trackRuntime[idx].offsetSeconds = val / 1000;
+                        }
+                        if (input.parentNode) { input.parentNode.removeChild(input); }
+                        span.style.display = '';
+                        updateOffsetDisplays();
+                        scheduleRender();
+                        refreshSpectrumViews();
+                    }
+                    function cancelEdit() {
+                        if (settled) { return; }
+                        settled = true;
+                        if (input.parentNode) { input.parentNode.removeChild(input); }
+                        span.style.display = '';
+                    }
+                    input.addEventListener('keydown', function(ev) {
+                        if (ev.key === 'Enter') { ev.preventDefault(); commitEdit(); }
+                        else if (ev.key === 'Escape') { ev.preventDefault(); cancelEdit(); }
+                    });
+                    input.addEventListener('blur', function() { commitEdit(); });
+                    }, 200); // end setTimeout
                 });
 
                 document.getElementById('tracks-wrapper').addEventListener('mousemove', function(e) {
@@ -1569,6 +1631,10 @@ export function getComparisonRenderScript(): string {
                     vscode.postMessage({ type: 'run-recipe' });
                 } else if (action === 'copy-spec') {
                     copySpecToClipboard();
+                } else if (action === 'export-png') {
+                    exportPng();
+                } else if (action === 'export-csv') {
+                    exportCsv();
                 }
             }
 
@@ -1577,6 +1643,83 @@ export function getComparisonRenderScript(): string {
                 followCursor = false;
                 const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
                 if (btn) { btn.classList.remove('is-active'); }
+            }
+
+            function exportPng() {
+                const wrapper = document.getElementById('tracks-wrapper');
+                const canvases = wrapper
+                    ? Array.prototype.slice.call(wrapper.querySelectorAll('canvas')).filter(function(c) {
+                        return c.offsetParent !== null;
+                    })
+                    : [];
+                if (canvases.length === 0) {
+                    console.warn('exportPng: no visible canvases found');
+                    return;
+                }
+                const totalWidth = canvases.reduce(function(m, c) { return Math.max(m, c.width); }, 0);
+                const totalHeight = canvases.reduce(function(sum, c) { return sum + c.height; }, 0);
+                const offscreen = document.createElement('canvas');
+                offscreen.width = totalWidth;
+                offscreen.height = totalHeight;
+                const ctx = offscreen.getContext('2d');
+                if (!ctx) { console.warn('exportPng: could not get 2d context'); return; }
+                ctx.fillStyle = '#1e1e1e';
+                ctx.fillRect(0, 0, totalWidth, totalHeight);
+                let y = 0;
+                canvases.forEach(function(c) {
+                    ctx.drawImage(c, 0, y);
+                    y += c.height;
+                });
+                const dataURL = offscreen.toDataURL('image/png');
+                const a = document.createElement('a');
+                a.href = dataURL;
+                a.download = 'waveform-export.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+
+            function exportCsv() {
+                if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
+                    console.warn('exportCsv: no results available');
+                    return;
+                }
+                const tracks = [];
+                state.results.forEach(function(result, i) {
+                    if (trackRuntime[i] && trackRuntime[i].hidden) { return; }
+                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
+                    const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
+                    if (!slice || !slice.values || slice.values.length === 0) { return; }
+                    tracks.push({ name: result.fileName || ('track' + (i + 1)), slice: slice });
+                });
+                if (tracks.length === 0) {
+                    console.warn('exportCsv: no spectrum data available at cursor position');
+                    return;
+                }
+                // Build CSV: header + one row per frequency bin
+                // Use the first track's bin count and maxFrequencyHz as reference
+                const refSlice = tracks[0].slice;
+                const fBins = refSlice.frequencyBins;
+                const maxHz = refSlice.maxFrequencyHz;
+                function csvCell(s) { return /[,"\\r\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+                const headers = ['frequency_hz'].concat(tracks.map(function(t) { return csvCell(t.name); }));
+                const rows = [headers.join(',')];
+                for (let bin = 0; bin < fBins; bin++) {
+                    const fHz = (bin / Math.max(fBins - 1, 1)) * maxHz;
+                    const cols = [fHz.toFixed(4)];
+                    tracks.forEach(function(t) {
+                        const v = t.slice.values[bin];
+                        cols.push(v !== undefined && v !== null ? v.toFixed(6) : '');
+                    });
+                    rows.push(cols.join(','));
+                }
+                const csv = rows.join('\\n');
+                const a = document.createElement('a');
+                a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+                a.download = 'spectrum-export.csv';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
             }
 
             function zoomIn() {
@@ -2240,26 +2383,26 @@ export function getComparisonRenderScript(): string {
                     .join('');
                 const html = ''
                     + '<div id="spec-settings-popover" hidden style="position:absolute;z-index:50;background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:6px;min-width:260px;color:var(--text);font-family:var(--font-ui);">'
-                    + '<label style="display:block;margin-bottom:6px"><input type="checkbox" id="spec-auto"> Auto (defaults)</label>'
+                    + '<label style="display:block;margin-bottom:6px"><input type="checkbox" id="spec-auto"> ' + escHtml(STR.specSettingsAuto) + '</label>'
                     + '<fieldset id="spec-stft-fields" style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
-                    + '<legend>STFT</legend>'
-                    + '<label>n_fft <select id="spec-nfft">' + nfftOptions + '</select></label><br>'
-                    + '<label>hop_size <input type="number" id="spec-hop" min="1" step="1"></label><br>'
-                    + '<label>window <select id="spec-window">'
+                    + '<legend>' + escHtml(STR.specSettingsStftLegend) + '</legend>'
+                    + '<label>' + escHtml(STR.specSettingsNFft) + ' <select id="spec-nfft">' + nfftOptions + '</select></label><br>'
+                    + '<label>' + escHtml(STR.specSettingsHopSize) + ' <input type="number" id="spec-hop" min="1" step="1"></label><br>'
+                    + '<label>' + escHtml(STR.specSettingsWindow) + ' <select id="spec-window">'
                     + '<option value="hann">hann</option><option value="hamming">hamming</option>'
                     + '<option value="blackman">blackman</option><option value="boxcar">boxcar</option>'
                     + '</select></label>'
                     + '<div style="font-size:11px;color:var(--muted)">' + escHtml(STR.settingsApplyHint) + '</div>'
                     + '</fieldset>'
                     + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
-                    + '<legend>Display</legend>'
-                    + '<label>dB min <input type="number" id="spec-dbmin" step="1" placeholder="auto"></label><br>'
-                    + '<label>dB max <input type="number" id="spec-dbmax" step="1" placeholder="auto"></label><br>'
-                    + '<label>max freq Hz <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="Nyquist"></label>'
+                    + '<legend>' + escHtml(STR.specSettingsDisplayLegend) + '</legend>'
+                    + '<label>' + escHtml(STR.specSettingsDbMin) + ' <input type="number" id="spec-dbmin" step="1" placeholder="' + escHtml(STR.specSettingsPlaceholderAuto) + '"></label><br>'
+                    + '<label>' + escHtml(STR.specSettingsDbMax) + ' <input type="number" id="spec-dbmax" step="1" placeholder="' + escHtml(STR.specSettingsPlaceholderAuto) + '"></label><br>'
+                    + '<label>' + escHtml(STR.specSettingsMaxFreqHz) + ' <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="' + escHtml(STR.specSettingsPlaceholderNyquist) + '"></label>'
                     + '</fieldset>'
                     + '<div style="display:flex;gap:6px;justify-content:flex-end">'
-                    + '<button class="tb-btn" id="spec-reset">Reset</button>'
-                    + '<button class="tb-btn" id="spec-apply">Apply</button>'
+                    + '<button class="tb-btn" id="spec-reset">' + escHtml(STR.specSettingsReset) + '</button>'
+                    + '<button class="tb-btn" id="spec-apply">' + escHtml(STR.specSettingsApply) + '</button>'
                     + '</div>'
                     + '</div>';
                 document.body.insertAdjacentHTML('beforeend', html);

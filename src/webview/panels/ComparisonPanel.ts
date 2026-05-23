@@ -444,6 +444,7 @@ export class ComparisonPanel {
             cursor: text;
         }
         .track-offset-step { font-size: 9px; padding: 1px 3px; border-radius: 2px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; }
+        .track-offset-input { width: 5em; font-size: inherit; font-family: var(--font-mono); text-align: right; background: var(--vscode-input-background, #1e1e1e); color: var(--vscode-input-foreground, #d4d4d4); border: 1px solid var(--vscode-input-border, #3c3c3c); border-radius: 2px; }
         .track-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: var(--track-bg); }
         .track-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
         .track-spectrum-wrap { width: 180px; flex-shrink: 0; border-left: 1px solid var(--line); background: var(--track-bg); }

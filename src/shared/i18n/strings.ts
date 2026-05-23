@@ -45,6 +45,8 @@ export interface UiStrings {
     trackPlayTitle: string;
     trackStopTitle: string;
     trackOffsetResetHint: string;
+    offsetEditPlaceholder: string;
+    offsetEditAriaLabel: string;
     trackSpectrumTitle: string;
     analysisFailed: string;
     cursorHelpKeys: string;
@@ -77,6 +79,23 @@ export interface UiStrings {
     btnFollowCursor: string;
     btnFollowCursorTitle: string;
     btnCopySpec: string;
+    specSettingsAuto: string;
+    specSettingsStftLegend: string;
+    specSettingsNFft: string;
+    specSettingsHopSize: string;
+    specSettingsWindow: string;
+    specSettingsDisplayLegend: string;
+    specSettingsDbMin: string;
+    specSettingsDbMax: string;
+    specSettingsMaxFreqHz: string;
+    specSettingsReset: string;
+    specSettingsApply: string;
+    specSettingsPlaceholderAuto: string;
+    specSettingsPlaceholderNyquist: string;
+    btnExportPng: string;
+    btnExportPngTitle: string;
+    btnExportCsv: string;
+    btnExportCsvTitle: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -112,6 +131,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackPlayTitle: 'Play / pause',
         trackStopTitle: 'Stop',
         trackOffsetResetHint: 'Double-click to reset',
+        offsetEditPlaceholder: 'ms',
+        offsetEditAriaLabel: 'Track offset in milliseconds',
         trackSpectrumTitle: 'Power spectrum at main cursor',
         analysisFailed: 'Analysis failed: ',
         cursorHelpKeys: '← →: move cursor   Shift+←→: 100 ms step   Space: play/pause',
@@ -144,6 +165,23 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnFollowCursor: 'Follow',
         btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback',
         btnCopySpec: 'Copy spec',
+        specSettingsAuto: 'Auto (defaults)',
+        specSettingsStftLegend: 'STFT',
+        specSettingsNFft: 'n_fft',
+        specSettingsHopSize: 'hop_size',
+        specSettingsWindow: 'window',
+        specSettingsDisplayLegend: 'Display',
+        specSettingsDbMin: 'dB min',
+        specSettingsDbMax: 'dB max',
+        specSettingsMaxFreqHz: 'max freq Hz',
+        specSettingsReset: 'Reset',
+        specSettingsApply: 'Apply',
+        specSettingsPlaceholderAuto: 'auto',
+        specSettingsPlaceholderNyquist: 'Nyquist',
+        btnExportPng: 'Export PNG',
+        btnExportPngTitle: 'Export visible tracks as PNG',
+        btnExportCsv: 'Export CSV',
+        btnExportCsvTitle: 'Export spectrum data as CSV',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -177,6 +215,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackPlayTitle: '再生 / 一時停止',
         trackStopTitle: '停止',
         trackOffsetResetHint: 'ダブルクリックでリセット',
+        offsetEditPlaceholder: 'ms',
+        offsetEditAriaLabel: 'トラックオフセット（ミリ秒）',
         trackSpectrumTitle: 'メインカーソル時刻のパワースペクトル',
         analysisFailed: '解析失敗: ',
         cursorHelpKeys: '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止',
@@ -209,6 +249,23 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnFollowCursor: '追従',
         btnFollowCursorTitle: '再生中にカーソルを中央に保つ',
         btnCopySpec: 'スペックをコピー',
+        specSettingsAuto: '自動 (デフォルト)',
+        specSettingsStftLegend: 'STFT',
+        specSettingsNFft: 'n_fft',
+        specSettingsHopSize: 'hop_size',
+        specSettingsWindow: 'ウィンドウ',
+        specSettingsDisplayLegend: '表示設定',
+        specSettingsDbMin: 'dB 最小',
+        specSettingsDbMax: 'dB 最大',
+        specSettingsMaxFreqHz: '最大周波数 Hz',
+        specSettingsReset: 'リセット',
+        specSettingsApply: '適用',
+        specSettingsPlaceholderAuto: '自動',
+        specSettingsPlaceholderNyquist: 'ナイキスト',
+        btnExportPng: 'PNG 出力',
+        btnExportPngTitle: '表示中のトラックを PNG として出力',
+        btnExportCsv: 'CSV 出力',
+        btnExportCsvTitle: 'スペクトルデータを CSV として出力',
     },
 };
 
