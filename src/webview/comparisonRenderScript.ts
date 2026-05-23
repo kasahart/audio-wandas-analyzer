@@ -1063,10 +1063,10 @@ export function getComparisonRenderScript(): string {
                                 if (zoomEnd > 1) { zoomEnd = 1; zoomStart = Math.max(0, 1 - span); }
                             }
                             updateCursorDisplay(nextCursor);
-                            updatePlaybackDisplay(playbackEl.currentTime);
                             scheduleRender();
                             refreshSpectrumViews();
                         }
+                        updatePlaybackDisplay(playbackEl.currentTime);
                     } else {
                         updatePlaybackDisplay(null);
                     }
@@ -1300,27 +1300,13 @@ export function getComparisonRenderScript(): string {
                         // M/S → フォーカス中 or 最後に再生したトラックの mute/solo
                         if (e.key === 'm' || e.key === 'M') {
                             e.preventDefault();
-                            const tidx = (function() {
-                                if (active && active.classList && active.classList.contains('track-canvas')) {
-                                    const n = parseInt(active.getAttribute('data-track-index'), 10);
-                                    if (!isNaN(n)) { return n; }
-                                }
-                                if (playbackTrackIndex !== null) { return playbackTrackIndex; }
-                                return (state.results && state.results.length > 0) ? 0 : null;
-                            })();
+                            const tidx = resolveActiveTrackIndex(active);
                             if (tidx !== null) { toggleMute(tidx); }
                             return;
                         }
                         if (e.key === 's' || e.key === 'S') {
                             e.preventDefault();
-                            const tidx = (function() {
-                                if (active && active.classList && active.classList.contains('track-canvas')) {
-                                    const n = parseInt(active.getAttribute('data-track-index'), 10);
-                                    if (!isNaN(n)) { return n; }
-                                }
-                                if (playbackTrackIndex !== null) { return playbackTrackIndex; }
-                                return (state.results && state.results.length > 0) ? 0 : null;
-                            })();
+                            const tidx = resolveActiveTrackIndex(active);
                             if (tidx !== null) { toggleSolo(tidx); }
                             return;
                         }
@@ -1806,15 +1792,28 @@ export function getComparisonRenderScript(): string {
                 if (el) { el.textContent = formatTime(t); }
             }
 
+            let _playbackDisplayVisible = false;
+            let _playbackDisplayText = '';
             function updatePlaybackDisplay(timeSec) {
                 const el = document.getElementById('playback-display');
                 if (!el) { return; }
                 if (timeSec === null) {
-                    el.style.display = 'none';
-                    el.textContent = '';
+                    if (_playbackDisplayVisible) {
+                        el.style.display = 'none';
+                        el.textContent = '';
+                        _playbackDisplayVisible = false;
+                        _playbackDisplayText = '';
+                    }
                 } else {
-                    el.style.display = 'inline';
-                    el.textContent = (STR.playbackTimePrefix || '▶') + ' ' + formatTime(timeSec);
+                    const text = (STR.playbackTimePrefix || '▶') + ' ' + formatTime(timeSec);
+                    if (!_playbackDisplayVisible) {
+                        el.style.display = 'inline';
+                        _playbackDisplayVisible = true;
+                    }
+                    if (text !== _playbackDisplayText) {
+                        el.textContent = text;
+                        _playbackDisplayText = text;
+                    }
                 }
             }
 
@@ -2167,6 +2166,16 @@ export function getComparisonRenderScript(): string {
                 }
             }
 
+
+            /** フォーカス中キャンバス → 最後に再生したトラック → 先頭 の順でインデックスを解決 */
+            function resolveActiveTrackIndex(activeEl) {
+                if (activeEl && activeEl.classList && activeEl.classList.contains('track-canvas')) {
+                    const n = parseInt(activeEl.getAttribute('data-track-index'), 10);
+                    if (!isNaN(n)) { return n; }
+                }
+                if (playbackTrackIndex !== null) { return playbackTrackIndex; }
+                return (state.results && state.results.length > 0) ? 0 : null;
+            }
 
             function toggleMute(idx) {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }
