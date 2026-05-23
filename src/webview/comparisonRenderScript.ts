@@ -1187,14 +1187,27 @@ export function getComparisonRenderScript(): string {
 
                 document.addEventListener('keydown', function(e) {
                     const active = document.activeElement;
-                    if (!active || !active.classList.contains('track-canvas')) { return; }
 
+                    // ── Space: グローバル再生/停止トグル (入力要素以外で有効) ──
                     if (e.code === 'Space') {
-                        e.preventDefault();
-                        const idx = parseInt(active.getAttribute('data-track-index'), 10);
-                        if (!isNaN(idx)) { togglePlayback(idx); }
-                        return;
+                        const tag = (active && active.tagName) ? active.tagName.toUpperCase() : '';
+                        if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+                            e.preventDefault();
+                            if (active && active.classList.contains('track-canvas')) {
+                                const idx = parseInt(active.getAttribute('data-track-index'), 10);
+                                if (!isNaN(idx)) { togglePlayback(idx); }
+                            } else {
+                                const idx = playbackTrackIndex !== null ? playbackTrackIndex : 0;
+                                if (state.results && idx < state.results.length) {
+                                    togglePlayback(idx);
+                                }
+                            }
+                            return;
+                        }
                     }
+
+                    // ── 以下は track-canvas フォーカス時のみ ──
+                    if (!active || !active.classList.contains('track-canvas')) { return; }
 
                     if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
                         e.preventDefault();
