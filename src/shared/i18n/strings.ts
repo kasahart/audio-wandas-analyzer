@@ -77,6 +77,17 @@ export interface UiStrings {
     btnFollowCursor: string;
     btnFollowCursorTitle: string;
     btnCopySpec: string;
+    specSettingsAuto: string;
+    specSettingsStftLegend: string;
+    specSettingsNFft: string;
+    specSettingsHopSize: string;
+    specSettingsWindow: string;
+    specSettingsDisplayLegend: string;
+    specSettingsDbMin: string;
+    specSettingsDbMax: string;
+    specSettingsMaxFreqHz: string;
+    specSettingsReset: string;
+    specSettingsApply: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -144,6 +155,17 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnFollowCursor: 'Follow',
         btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback',
         btnCopySpec: 'Copy spec',
+        specSettingsAuto: 'Auto (defaults)',
+        specSettingsStftLegend: 'STFT',
+        specSettingsNFft: 'n_fft',
+        specSettingsHopSize: 'hop_size',
+        specSettingsWindow: 'window',
+        specSettingsDisplayLegend: 'Display',
+        specSettingsDbMin: 'dB min',
+        specSettingsDbMax: 'dB max',
+        specSettingsMaxFreqHz: 'max freq Hz',
+        specSettingsReset: 'Reset',
+        specSettingsApply: 'Apply',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -209,6 +231,17 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnFollowCursor: '追従',
         btnFollowCursorTitle: '再生中にカーソルを中央に保つ',
         btnCopySpec: 'スペックをコピー',
+        specSettingsAuto: '自動 (デフォルト)',
+        specSettingsStftLegend: 'STFT',
+        specSettingsNFft: 'n_fft',
+        specSettingsHopSize: 'hop_size',
+        specSettingsWindow: 'ウィンドウ',
+        specSettingsDisplayLegend: '表示設定',
+        specSettingsDbMin: 'dB 最小',
+        specSettingsDbMax: 'dB 最大',
+        specSettingsMaxFreqHz: '最大周波数 Hz',
+        specSettingsReset: 'リセット',
+        specSettingsApply: '適用',
     },
 };
 
