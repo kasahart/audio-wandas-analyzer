@@ -922,3 +922,31 @@ test('renderScript: L キーはループがある場合に zoom-to-selection を
 
     env.dom.window.close();
 });
+
+test('renderScript: ショートカットキーは修飾キー (Ctrl/Meta/Alt) が押されている場合は動作しないこと', () => {
+    const env = setupEnv();
+    const followBtn = env.dom.window.document.querySelector('[data-action="toggle-follow-cursor"]') as HTMLButtonElement | null;
+    assert.ok(followBtn, '[data-action="toggle-follow-cursor"] ボタンが存在すること');
+    assert.equal(followBtn!.classList.contains('is-active'), false, '初期状態は非アクティブであること');
+
+    // Ctrl+F を押下
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f', ctrlKey: true }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), false, 'Ctrl+F キーでは is-active にならないこと');
+
+    // Alt+F を押下
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f', altKey: true }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), false, 'Alt+F キーでは is-active にならないこと');
+
+    // Meta+F を押下
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f', metaKey: true }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), false, 'Meta+F キーでは is-active にならないこと');
+
+    env.dom.window.close();
+});
+

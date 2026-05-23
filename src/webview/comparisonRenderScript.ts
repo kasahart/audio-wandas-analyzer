@@ -1330,6 +1330,7 @@ export function getComparisonRenderScript(): string {
                 });
 
                 document.addEventListener('keydown', function(e) {
+                    if (e.ctrlKey || e.metaKey || e.altKey) { return; }
                     // ── スペクトルカーソル操作（マウスがスペクトル上にある間）──
                     if (spectrumHasMouse && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
                         e.preventDefault();
