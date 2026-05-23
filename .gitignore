@@ -13,3 +13,5 @@ docs/superpowers/
 .claude/settings.local.json
 *.egg-info/
 .claude/worktrees/
+test-results/
+playwright-report/

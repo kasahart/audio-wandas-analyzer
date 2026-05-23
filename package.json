@@ -114,17 +114,20 @@
         "package": "npm run compile",
         "vscode:prepublish": "npm run compile",
         "package:vsix": "vsce package --no-yarn --allow-missing-repository --skip-license",
+        "lint:webview-patterns": "node scripts/lint-webview-patterns.js",
         "test": "npm run compile && node --test dist/test/**/*.test.js",
+        "test:ui": "npm run compile && playwright test",
         "test:e2e:vscode": "npm run compile && if command -v xvfb-run >/dev/null 2>&1; then xvfb-run -a node dist/e2e/runVscodeE2E.js; else node dist/e2e/runVscodeE2E.js; fi",
         "verify": "bash scripts/verify.sh",
         "verify:e2e": "npm run test:e2e:vscode"
     },
     "devDependencies": {
-        "@vscode/vsce": "^3.6.2",
-        "@vscode/test-electron": "^2.5.2",
+        "@playwright/test": "^1.60.0",
         "@types/jsdom": "^28.0.1",
         "@types/node": "^22.10.2",
         "@types/vscode": "^1.96.0",
+        "@vscode/test-electron": "^2.5.2",
+        "@vscode/vsce": "^3.6.2",
         "jsdom": "^29.1.1",
         "typescript": "^5.7.2"
     }

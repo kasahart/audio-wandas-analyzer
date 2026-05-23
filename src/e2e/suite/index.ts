@@ -280,6 +280,32 @@ export async function run(): Promise<void> {
                     512,
                     'changing display range should not re-analyze STFT',
                 );
+                const reopened = await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+                assert.equal(
+                    reopened.renderedUi?.latestSpectrogram?.windowSize,
+                    512,
+                    'reopened panel should restore persisted spectrogram window size',
+                );
+                assert.equal(
+                    reopened.renderedUi?.latestSpectrogram?.hopSize,
+                    128,
+                    'reopened panel should restore persisted spectrogram hop size',
+                );
+                assert.equal(
+                    reopened.renderedUi?.latestSpectrogram?.dbMinApplied,
+                    -60,
+                    'reopened panel should restore persisted spectrogram min dB',
+                );
+                assert.equal(
+                    reopened.renderedUi?.latestSpectrogram?.dbMaxApplied,
+                    0,
+                    'reopened panel should restore persisted spectrogram max dB',
+                );
+                assert.equal(
+                    reopened.renderedUi?.latestSpectrogram?.maxFrequencyHzApplied,
+                    null,
+                    'reopened panel should restore persisted spectrogram max frequency',
+                );
             },
         },
         {

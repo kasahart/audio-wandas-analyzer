@@ -19,6 +19,9 @@ cd "$repo_root"
 echo "==> tsc compile"
 npm run compile
 
+echo "==> webview pattern lint"
+node scripts/lint-webview-patterns.js
+
 echo "==> node:test"
 node --test dist/test/**/*.test.js
 
