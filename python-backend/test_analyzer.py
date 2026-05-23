@@ -48,3 +48,22 @@ def test_analyze_audio_rejects_bad_options(tmp_path: Path) -> None:
         analyze_audio(wav, stft_options={"n_fft": 0, "hop_size": 1, "window": "hann"})
     with pytest.raises(ValueError):
         analyze_audio(wav, stft_options={"n_fft": 256, "hop_size": 512, "window": "hann"})
+
+
+def test_analyze_audio_peaks_contains_440hz(tmp_path: Path) -> None:
+    """peaks list should contain 440 Hz (within ±20 Hz) for a 440 Hz sine wave."""
+    wav = tmp_path / "tone440.wav"
+    _write_sine_wav(wav, freq_hz=440.0, seconds=2.0, sr=44100)
+    result = analyze_audio(wav, peak_count=3)
+    ch = result["channels"][0]
+    assert "peaks" in ch, "peaks key missing from channel result"
+    peaks = ch["peaks"]
+    assert isinstance(peaks, list), "peaks should be a list"
+    assert len(peaks) > 0, "peaks list should not be empty"
+    # Every peak must have the required keys
+    for peak in peaks:
+        assert "freqHz" in peak, "each peak must have freqHz"
+        assert "amplitudeDb" in peak, "each peak must have amplitudeDb"
+    # At least one peak should be near 440 Hz
+    freq_values = [p["freqHz"] for p in peaks]
+    assert any(abs(f - 440.0) <= 20.0 for f in freq_values), f"Expected a peak near 440 Hz, got: {freq_values}"

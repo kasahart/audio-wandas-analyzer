@@ -86,6 +86,7 @@ export function activate(context: vscode.ExtensionContext): void {
     welcomeDropTarget.iconPath = new vscode.ThemeIcon('new-file');
     backendServer = new PythonBackendServer(context.extensionPath, (line) => logPerf(`[py] ${line.slice(7)}`));
     context.subscriptions.push({ dispose: () => { backendServer?.dispose(); backendServer = null; } });
+    context.subscriptions.push({ dispose: () => { perfChannel?.dispose(); perfChannel = null; } });
     const pythonStatusBarItem = vscode.window.createStatusBarItem(
         vscode.StatusBarAlignment.Left,
         10,
@@ -421,6 +422,7 @@ function registerPanelMessageHandler(
                         filePaths,
                         stftOptions,
                         `Recomputing spectrogram (${filePaths.length} file${filePaths.length === 1 ? '' : 's'})`,
+                        panel,
                     );
                     await panel.webview.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
                 } finally {
@@ -695,7 +697,13 @@ async function analyzeMultipleFiles(
     filePaths: string[],
     panel?: vscode.WebviewPanel,
 ): Promise<void> {
-    const results = await analyzeFilesWithProgress(context, filePaths);
+    let results: AnalysisResultWithError[];
+    try {
+        results = await analyzeFilesWithProgress(context, filePaths);
+    } catch (err) {
+        if (err instanceof vscode.CancellationError) { return; }
+        throw err;
+    }
     backendServer?.warmup();
     const comparisonPanel = ComparisonPanel.show(
         context.extensionUri,
@@ -712,19 +720,28 @@ async function analyzeFilesWithProgress(
     filePaths: string[],
     stftOptions?: StftOptions,
     titleOverride?: string,
+    progressPanel?: vscode.WebviewPanel,
 ): Promise<AnalysisResultWithError[]> {
     return vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
             title: titleOverride ?? `Analyzing ${filePaths.length} files with wandas`,
-            cancellable: false,
+            cancellable: true,
         },
-        async (progress) => {
+        async (progress, token) => {
             const results: AnalysisResultWithError[] = [];
             for (let i = 0; i < filePaths.length; i++) {
+                if (token.isCancellationRequested) { throw new vscode.CancellationError(); }
+                const fileName = path.basename(filePaths[i]);
                 progress.report({
                     increment: Math.floor(100 / filePaths.length),
-                    message: `(${i + 1}/${filePaths.length}) ${path.basename(filePaths[i])}`,
+                    message: `(${i + 1}/${filePaths.length}) ${fileName}`,
+                });
+                void progressPanel?.webview.postMessage({
+                    type: 'analysis-file-progress',
+                    current: i + 1,
+                    total: filePaths.length,
+                    fileName,
                 });
                 try {
                     const result = await runAnalysis(context.extensionPath, vscode.Uri.file(filePaths[i]), stftOptions);
@@ -732,7 +749,7 @@ async function analyzeFilesWithProgress(
                 } catch (err) {
                     results.push({
                         filePath: filePaths[i],
-                        fileName: path.basename(filePaths[i]),
+                        fileName,
                         sampleRateHz: 0,
                         durationSeconds: 0,
                         channelCount: 0,

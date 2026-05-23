@@ -364,13 +364,13 @@ export class ComparisonPanel {
             --track-header-bg: #171a1f;
         }
         body.vscode-light, body[data-theme-kind="light"] {
-            --surface: #16181c;
-            --panel: #1d2025;
-            --line: #343942;
-            --text: #d9dde3;
-            --muted: #8f98a3;
-            --track-bg: #090b0f;
-            --track-header-bg: #14171c;
+            --surface: #ffffff;
+            --panel: #f3f3f3;
+            --line: #d4d4d4;
+            --text: #1e1e1e;
+            --muted: #6e7681;
+            --track-bg: #f5f5f5;
+            --track-header-bg: #ebebeb;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--surface); color: var(--text); font-family: var(--font-ui); overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
@@ -432,6 +432,7 @@ export class ComparisonPanel {
         }
         .track-btn.is-playing { background: var(--accent); color: #fff; border-color: var(--accent); }
         .track-btn.is-muted { background: #555; color: #fff; }
+        .track-btn.is-solo { background: #c8a020; color: #fff; border-color: #c8a020; }
         .track-offset { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .track-offset-val {
             font-size: 9px; font-family: var(--font-mono);

@@ -6,7 +6,7 @@ import os
 import sys
 import time
 
-_PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
+_PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "0") == "1"
 
 
 def _perf(phase: str, started: float, **extra: object) -> None:
