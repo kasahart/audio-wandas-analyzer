@@ -397,6 +397,7 @@ export class ComparisonPanel {
         .tb-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
         #cursor-display { font-size: 11px; font-family: var(--font-mono); color: var(--muted); min-width: 80px; }
         #playback-display { font-size: 11px; font-family: var(--font-mono); color: #64a0ff; min-width: 70px; display: none; }
+        #loop-time-display { font-size: 0.85em; font-family: var(--font-mono); color: #64a0ff; margin-left: 6px; cursor: pointer; }
 
         #canvas-tooltip {
             position: fixed;
@@ -424,6 +425,7 @@ export class ComparisonPanel {
             padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 9px; background: var(--track-header-bg);
         }
         .track-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
+        .clip-badge { display: inline-block; background: #d32f2f; color: #fff; font-size: 8px; font-weight: 700; border-radius: 2px; padding: 0px 3px; margin-left: 4px; vertical-align: middle; letter-spacing: 0.5px; cursor: default; }
         .track-meta { color: var(--muted); }
         .track-btns { display: flex; gap: 3px; margin-top: 2px; align-items: center; }
         .track-btn {

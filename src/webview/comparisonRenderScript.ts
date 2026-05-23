@@ -38,6 +38,7 @@ export function getComparisonRenderScript(): string {
             let playbackRafId = null;
             let playbackTrackIndex = null;
             let soloTrackIndex = null; // null = solo off, number = solo track
+            let followCursor = false;
 
             function scheduleRender() {
                 if (rafPending) { return; }
@@ -477,18 +478,22 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in">＋</button>'
                     + '<button class="tb-btn" data-action="zoom-reset">' + escHtml(STR.btnZoomReset) + '</button>'
+                    + '<button class="tb-btn" data-action="toggle-follow-cursor" title="' + escHtml(STR.btnFollowCursorTitle) + '">' + escHtml(STR.btnFollowCursor) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
+                    + '<button class="tb-btn" data-action="copy-spec">' + escHtml(STR.btnCopySpec) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
                     + '<span id="playback-display" title="' + escHtml(STR.playbackDisplayTitle) + '"></span>'
-                    + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>';
+                    + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>'
+                    + '<span id="loop-time-display" title="' + escHtml(STR.loopTimeDisplayTitle) + '" style="display:none;"></span>';
             }
 
             function buildTrackRow(result, i) {
                 return '<div class="track-row" id="track-row-' + i + '" data-track-index="' + i + '">'
                     + '<div class="track-header">'
                     + '  <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
+                    + (result.channels && result.channels[0] && result.channels[0].peakAbsolute >= 0.99 ? '  <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
                     + '  <div class="track-meta">Ch: ' + result.channelCount + ' &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
                     + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
@@ -1009,6 +1014,21 @@ export function getComparisonRenderScript(): string {
                 const badge = document.getElementById('loop-badge');
                 if (!badge) { return; }
                 badge.style.display = (loopRegion && playbackEl && !playbackEl.paused) ? 'inline' : 'none';
+                updateLoopTimeDisplay();
+            }
+
+            function updateLoopTimeDisplay() {
+                const el = document.getElementById('loop-time-display');
+                if (!el) { return; }
+                if (!loopRegion) {
+                    el.style.display = 'none';
+                    return;
+                }
+                const gs = computeGlobalSpan();
+                const startSec = gs.startSec + loopRegion.start * gs.spanSec;
+                const endSec = gs.startSec + loopRegion.end * gs.spanSec;
+                el.textContent = formatTime(startSec) + ' – ' + formatTime(endSec);
+                el.style.display = 'inline';
             }
 
             function clearPlaybackState() {
@@ -1036,6 +1056,12 @@ export function getComparisonRenderScript(): string {
                         const nextCursor = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
                         if (nextCursor !== null) {
                             cursorNorm = nextCursor;
+                            if (followCursor) {
+                                const span = zoomEnd - zoomStart;
+                                zoomStart = Math.max(0, nextCursor - span / 2);
+                                zoomEnd = zoomStart + span;
+                                if (zoomEnd > 1) { zoomEnd = 1; zoomStart = Math.max(0, 1 - span); }
+                            }
                             updateCursorDisplay(nextCursor);
                             updatePlaybackDisplay(playbackEl.currentTime);
                             scheduleRender();
@@ -1169,6 +1195,18 @@ export function getComparisonRenderScript(): string {
                     handleToolbarAction(action);
                 });
 
+                const loopTimeDisplayEl = document.getElementById('loop-time-display');
+                if (loopTimeDisplayEl) {
+                    loopTimeDisplayEl.addEventListener('click', function() {
+                        if (!loopRegion) { return; }
+                        if (!navigator.clipboard || !navigator.clipboard.writeText) { return; }
+                        const gs = computeGlobalSpan();
+                        const startSec = gs.startSec + loopRegion.start * gs.spanSec;
+                        const endSec = gs.startSec + loopRegion.end * gs.spanSec;
+                        navigator.clipboard.writeText(formatTime(startSec) + ' – ' + formatTime(endSec)).catch(function() {});
+                    });
+                }
+
                 document.getElementById('tracks-wrapper').addEventListener('click', function(e) {
                     const action = e.target.getAttribute('data-action');
                     const idx = parseInt(e.target.getAttribute('data-track-index'), 10);
@@ -1257,7 +1295,7 @@ export function getComparisonRenderScript(): string {
                         // +/= → zoom in、- → zoom out、0 → zoom reset
                         if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); return; }
                         if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomOut(); return; }
-                        if (e.key === '0') { e.preventDefault(); zoomStart = 0; zoomEnd = 1; scheduleRender(); return; }
+                        if (e.key === '0') { e.preventDefault(); disableFollowCursor(); zoomStart = 0; zoomEnd = 1; scheduleRender(); return; }
 
                         // M/S → フォーカス中 or 最後に再生したトラックの mute/solo
                         if (e.key === 'm' || e.key === 'M') {
@@ -1532,15 +1570,31 @@ export function getComparisonRenderScript(): string {
                 } else if (action === 'zoom-out') {
                     zoomOut();
                 } else if (action === 'zoom-reset') {
+                    disableFollowCursor();
                     zoomStart = 0;
                     zoomEnd = 1;
                     scheduleRender();
+                } else if (action === 'toggle-follow-cursor') {
+                    followCursor = !followCursor;
+                    const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
+                    if (btn) { btn.classList.toggle('is-active', followCursor); }
+                    scheduleRender();
                 } else if (action === 'run-recipe') {
                     vscode.postMessage({ type: 'run-recipe' });
+                } else if (action === 'copy-spec') {
+                    copySpecToClipboard();
                 }
             }
 
+            function disableFollowCursor() {
+                if (!followCursor) { return; }
+                followCursor = false;
+                const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
+                if (btn) { btn.classList.remove('is-active'); }
+            }
+
             function zoomIn() {
+                disableFollowCursor();
                 const center = (zoomStart + zoomEnd) / 2;
                 const half = (zoomEnd - zoomStart) / 2 * 0.7;
                 zoomStart = Math.max(0, center - half);
@@ -1549,6 +1603,7 @@ export function getComparisonRenderScript(): string {
             }
 
             function zoomOut() {
+                disableFollowCursor();
                 const center = (zoomStart + zoomEnd) / 2;
                 const half = (zoomEnd - zoomStart) / 2 * (1 / 0.7);
                 zoomStart = Math.max(0, center - half);
@@ -1556,7 +1611,25 @@ export function getComparisonRenderScript(): string {
                 scheduleRender();
             }
 
+            function copySpecToClipboard() {
+                if (!navigator.clipboard || !navigator.clipboard.writeText) { return; }
+                const lines = ['=== Audio Analyzer Spec ==='];
+                const results = state.results || [];
+                results.forEach(function(r, i) {
+                    const srKhz = ((r.sampleRateHz || 0) / 1000).toFixed(1) + ' kHz';
+                    const dur = ((r.durationSeconds || 0).toFixed(2)) + ' s';
+                    const ch = (r.channelCount || 0) + ' ch';
+                    lines.push('[Track ' + (i + 1) + '] ' + (r.fileName || '') + '  ' + srKhz + '  ' + dur + '  ' + ch);
+                });
+                lines.push('--- STFT ---');
+                const _settings = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings) || {};
+                const stft = _settings.stft || {};
+                lines.push('nFft: ' + (stft.nFft || '') + '  hopSize: ' + (stft.hopSize || '') + '  window: ' + (stft.window || ''));
+                navigator.clipboard.writeText(lines.join('\\n')).catch(function() { /* permission denied or unavailable */ });
+            }
+
             function handleZoomWheel(e) {
+                disableFollowCursor();
                 const scaleFactor = e.deltaY > 0 ? 1.15 : 0.85;
                 const span = (zoomEnd - zoomStart) * scaleFactor;
 
@@ -1587,6 +1660,7 @@ export function getComparisonRenderScript(): string {
             }
 
             function handlePanWheel(e) {
+                disableFollowCursor();
                 const shift = (zoomEnd - zoomStart) * 0.1 * (e.deltaY > 0 ? 1 : -1);
                 if (zoomStart + shift < 0) { zoomEnd -= zoomStart; zoomStart = 0; }
                 else if (zoomEnd + shift > 1) { zoomStart += 1 - zoomEnd; zoomEnd = 1; }
@@ -1655,6 +1729,7 @@ export function getComparisonRenderScript(): string {
                 const dx = e.clientX - dragState.startClientX;
                 if (Math.abs(dx) > 3) { dragState.isDrag = true; }
                 if (!dragState.isDrag) { return; }
+                disableFollowCursor();
                 hideTooltip();
 
                 if (dragState.dragType === 'offset') {
@@ -1670,21 +1745,21 @@ export function getComparisonRenderScript(): string {
                     const norm = Math.max(0, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
                     const s = Math.min(dragState.startNorm, norm);
                     const end = Math.max(dragState.startNorm, norm);
-                    if (end > s) { loopRegion = { start: s, end: end }; }
+                    if (end > s) { loopRegion = { start: s, end: end }; updateLoopTimeDisplay(); }
                 } else if (dragState.dragType === 'gripStart') {
                     const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
                     if (!canvasEl || !loopRegion) { scheduleRender(); return; }
                     const rect = canvasEl.getBoundingClientRect();
                     const x = e.clientX - rect.left;
                     const norm = Math.max(0, Math.min(loopRegion.end - 0.001, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
-                    loopRegion = { start: norm, end: loopRegion.end };
+                    loopRegion = { start: norm, end: loopRegion.end }; updateLoopTimeDisplay();
                 } else if (dragState.dragType === 'gripEnd') {
                     const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
                     if (!canvasEl || !loopRegion) { scheduleRender(); return; }
                     const rect = canvasEl.getBoundingClientRect();
                     const x = e.clientX - rect.left;
                     const norm = Math.max(loopRegion.start + 0.001, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
-                    loopRegion = { start: loopRegion.start, end: norm };
+                    loopRegion = { start: loopRegion.start, end: norm }; updateLoopTimeDisplay();
                 }
                 scheduleRender();
             }
@@ -1701,6 +1776,7 @@ export function getComparisonRenderScript(): string {
                         const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
                         cursorNorm = Math.max(0, Math.min(1, norm));
                         loopRegion = null;
+                        updateLoopTimeDisplay();
                         updateCursorDisplay(cursorNorm);
                         scheduleRender();
                     }
