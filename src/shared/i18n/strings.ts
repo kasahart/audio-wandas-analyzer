@@ -57,6 +57,17 @@ export interface UiStrings {
     reanalyzingStft: string;
     reanalyzingDefault: string;
     reanalyzingFiles: string;
+    configurePython: string;
+    helpTitle: string;
+    helpClose: string;
+    helpRowSpace: string;
+    helpRowArrow: string;
+    helpRowWheel: string;
+    helpRowCtrlWheel: string;
+    helpRowDrag: string;
+    helpRowShiftDrag: string;
+    helpRowQuestion: string;
+    helpRowEsc: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -104,6 +115,17 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reanalyzingStft: 'Recomputing STFT…',
         reanalyzingDefault: 'Recomputing…',
         reanalyzingFiles: 'Recomputing STFT… ({count} files)',
+        configurePython: 'Configure Python environment',
+        helpTitle: 'Keyboard Shortcuts',
+        helpClose: 'Close (Esc / ?)',
+        helpRowSpace: 'play / pause',
+        helpRowArrow: 'move cursor  (Shift: fast)',
+        helpRowWheel: 'zoom  (Shift: scroll)',
+        helpRowCtrlWheel: 'zoom (alternative)',
+        helpRowDrag: 'create / resize loop',
+        helpRowShiftDrag: 'adjust track offset',
+        helpRowQuestion: 'toggle this help',
+        helpRowEsc: 'close popover / help',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -149,6 +171,17 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reanalyzingStft: 'STFT を再計算中…',
         reanalyzingDefault: '再計算中…',
         reanalyzingFiles: 'STFT を再計算中… ({count} ファイル)',
+        configurePython: 'Python 環境を設定する',
+        helpTitle: 'キーボードショートカット',
+        helpClose: '閉じる (Esc / ?)',
+        helpRowSpace: '再生 / 停止',
+        helpRowArrow: 'カーソル移動 (Shift: 高速)',
+        helpRowWheel: 'ズーム (Shift: 横スクロール)',
+        helpRowCtrlWheel: 'ズーム (代替)',
+        helpRowDrag: 'ループ作成 / リサイズ',
+        helpRowShiftDrag: 'トラックのオフセット調整',
+        helpRowQuestion: 'このヘルプを開閉',
+        helpRowEsc: 'ポップオーバー / ヘルプを閉じる',
     },
 };
 

@@ -10,7 +10,7 @@ import wandas as wd
 
 from decimator import decimated_waveform
 
-_PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
+_PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "0") == "1"
 
 
 def _perf(phase: str, started: float, **extra: object) -> None:
@@ -74,6 +74,41 @@ def _dominant_frequencies(
         }
         for index in sorted_indices
     ]
+
+
+def _spectrum_peaks(
+    magnitudes: np.ndarray,
+    freqs: np.ndarray,
+    peak_count: int,
+) -> list[dict[str, float]]:
+    """Return up to *peak_count* peaks as {freqHz, amplitudeDb} dicts.
+
+    Uses scipy.signal.find_peaks for proper local-maxima detection, then
+    converts magnitude (linear) to dB and returns the top-N by amplitude.
+    """
+    from scipy.signal import find_peaks  # lazy import — not all callers need this
+
+    if magnitudes.size <= 2 or freqs.size != magnitudes.size:
+        return []
+
+    mag = np.asarray(magnitudes, dtype=np.float64).copy()
+    fr = np.asarray(freqs, dtype=np.float64)
+    mag[0] = 0.0  # suppress DC bin
+
+    indices, _ = find_peaks(mag, height=0)
+    if indices.size == 0:
+        return []
+
+    # Keep top-N by magnitude
+    n = min(peak_count, indices.size)
+    top_idx = indices[np.argsort(mag[indices])[::-1][:n]]
+
+    eps = 1e-12
+    result = []
+    for idx in top_idx:
+        amplitude_db = 20.0 * np.log10(float(mag[idx]) + eps)
+        result.append({"freqHz": float(fr[idx]), "amplitudeDb": round(amplitude_db, 2)})
+    return result
 
 
 def _build_waveform_envelope(
@@ -256,6 +291,7 @@ def analyze_from_frame(
                 "rms": float(rms_values[index]),
                 "peakAbsolute": float(np.max(np.abs(samples))),
                 "dominantFrequencies": _dominant_frequencies(fft_magnitudes[index], fft_freqs, peak_count),
+                "peaks": _spectrum_peaks(fft_magnitudes[index], fft_freqs, peak_count),
                 "waveform": _build_waveform_envelope(
                     samples,
                     WAVEFORM_POINT_LIMIT,
