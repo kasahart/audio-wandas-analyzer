@@ -71,6 +71,7 @@ function hasAny(tag, regexes) {
 function collectInlineVisibilityFindings(source, filePath) {
     /** @type {Array<{filePath:string,line:number,description:string,excerpt:string}>} */
     const findings = [];
+    tagRegex.lastIndex = 0;
     let match;
     while ((match = tagRegex.exec(source)) !== null) {
         const tag = match[0];
