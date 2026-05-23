@@ -343,8 +343,8 @@ export class ComparisonPanel {
         return `
         :root {
             color-scheme: light dark;
-            --font-ui: "Aptos", "Segoe UI", sans-serif;
-            --font-mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+            --font-ui: var(--vscode-font-family, "Aptos", "Segoe UI", sans-serif);
+            --font-mono: var(--vscode-editor-font-family, "Cascadia Mono", "SFMono-Regular", Consolas, monospace);
             --surface: #16181c;
             --panel: #1d2025;
             --line: #343942;
@@ -396,6 +396,7 @@ export class ComparisonPanel {
         .tb-btn:disabled { opacity: 0.4; cursor: default; }
         .tb-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
         #cursor-display { font-size: 11px; font-family: var(--font-mono); color: var(--muted); min-width: 80px; }
+        #playback-display { font-size: 11px; font-family: var(--font-mono); color: #64a0ff; min-width: 70px; display: none; }
 
         #canvas-tooltip {
             position: fixed;

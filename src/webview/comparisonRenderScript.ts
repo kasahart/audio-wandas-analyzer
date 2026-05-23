@@ -481,6 +481,7 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
+                    + '<span id="playback-display" title="' + escHtml(STR.playbackDisplayTitle) + '"></span>'
                     + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>';
             }
 
@@ -1016,6 +1017,7 @@ export function getComparisonRenderScript(): string {
                 stopPlaybackLoop();
                 updatePlaybackButtons();
                 updateLoopBadge();
+                updatePlaybackDisplay(null);
             }
 
             function startPlaybackLoop() {
@@ -1035,9 +1037,12 @@ export function getComparisonRenderScript(): string {
                         if (nextCursor !== null) {
                             cursorNorm = nextCursor;
                             updateCursorDisplay(nextCursor);
+                            updatePlaybackDisplay(playbackEl.currentTime);
                             scheduleRender();
                             refreshSpectrumViews();
                         }
+                    } else {
+                        updatePlaybackDisplay(null);
                     }
                     updateLoopBadge();
                     playbackRafId = requestAnimationFrame(tick);
@@ -1243,6 +1248,45 @@ export function getComparisonRenderScript(): string {
                     // ── Help overlay が開いている間はショートカットを無効化 ──
                     const helpEl = document.getElementById('help-overlay');
                     if (helpEl && !helpEl.hidden) { return; }
+
+                    // ── グローバルショートカット (入力要素以外で有効) ──
+                    const activeTag2 = (active && active.tagName) ? active.tagName.toUpperCase() : '';
+                    const isInputFocused = activeTag2 === 'INPUT' || activeTag2 === 'TEXTAREA' || activeTag2 === 'SELECT';
+
+                    if (!isInputFocused) {
+                        // +/= → zoom in、- → zoom out、0 → zoom reset
+                        if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); return; }
+                        if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomOut(); return; }
+                        if (e.key === '0') { e.preventDefault(); zoomStart = 0; zoomEnd = 1; scheduleRender(); return; }
+
+                        // M/S → フォーカス中 or 最後に再生したトラックの mute/solo
+                        if (e.key === 'm' || e.key === 'M') {
+                            e.preventDefault();
+                            const tidx = (function() {
+                                if (active && active.classList && active.classList.contains('track-canvas')) {
+                                    const n = parseInt(active.getAttribute('data-track-index'), 10);
+                                    if (!isNaN(n)) { return n; }
+                                }
+                                if (playbackTrackIndex !== null) { return playbackTrackIndex; }
+                                return (state.results && state.results.length > 0) ? 0 : null;
+                            })();
+                            if (tidx !== null) { toggleMute(tidx); }
+                            return;
+                        }
+                        if (e.key === 's' || e.key === 'S') {
+                            e.preventDefault();
+                            const tidx = (function() {
+                                if (active && active.classList && active.classList.contains('track-canvas')) {
+                                    const n = parseInt(active.getAttribute('data-track-index'), 10);
+                                    if (!isNaN(n)) { return n; }
+                                }
+                                if (playbackTrackIndex !== null) { return playbackTrackIndex; }
+                                return (state.results && state.results.length > 0) ? 0 : null;
+                            })();
+                            if (tidx !== null) { toggleSolo(tidx); }
+                            return;
+                        }
+                    }
 
                     // ── Space: グローバル再生/停止トグル (入力要素以外で有効) ──
                     if (e.code === 'Space') {
@@ -1684,6 +1728,18 @@ export function getComparisonRenderScript(): string {
                 const t = gs.startSec + norm * gs.spanSec;
                 const el = document.getElementById('cursor-display');
                 if (el) { el.textContent = formatTime(t); }
+            }
+
+            function updatePlaybackDisplay(timeSec) {
+                const el = document.getElementById('playback-display');
+                if (!el) { return; }
+                if (timeSec === null) {
+                    el.style.display = 'none';
+                    el.textContent = '';
+                } else {
+                    el.style.display = 'inline';
+                    el.textContent = (STR.playbackTimePrefix || '▶') + ' ' + formatTime(timeSec);
+                }
             }
 
             function extractSpectrumAtCursor(result, offsetSeconds, cursorNormValue) {
@@ -2238,6 +2294,8 @@ export function getComparisonRenderScript(): string {
                 const rows = [
                     ['Space',         STR.helpRowSpace],
                     ['← / →',         STR.helpRowArrow],
+                    ['+ / − / 0',     STR.helpRowZoomKeys],
+                    ['M / S',         STR.helpRowMuteSolo],
                     ['Wheel',         STR.helpRowWheel],
                     ['Ctrl+Wheel',    STR.helpRowCtrlWheel],
                     ['Drag',          STR.helpRowDrag],
