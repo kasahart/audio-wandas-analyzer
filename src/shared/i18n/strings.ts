@@ -68,6 +68,9 @@ export interface UiStrings {
     helpRowShiftDrag: string;
     helpRowQuestion: string;
     helpRowEsc: string;
+    helpRowMuteSolo: string;
+    helpRowZoomKeys: string;
+    playbackTimePrefix: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -126,6 +129,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowShiftDrag: 'adjust track offset',
         helpRowQuestion: 'toggle this help',
         helpRowEsc: 'close popover / help',
+        helpRowMuteSolo: 'mute / solo focused track',
+        helpRowZoomKeys: 'zoom in / out / reset',
+        playbackTimePrefix: '▶',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -182,6 +188,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowShiftDrag: 'トラックのオフセット調整',
         helpRowQuestion: 'このヘルプを開閉',
         helpRowEsc: 'ポップオーバー / ヘルプを閉じる',
+        helpRowMuteSolo: 'フォーカス中のトラックをミュート / ソロ',
+        helpRowZoomKeys: 'ズームイン / アウト / リセット',
+        playbackTimePrefix: '▶',
     },
 };
 
