@@ -72,6 +72,11 @@ export interface UiStrings {
     helpRowZoomKeys: string;
     playbackTimePrefix: string;
     playbackDisplayTitle: string;
+    clipBadgeTitle: string;
+    loopTimeDisplayTitle: string;
+    btnFollowCursor: string;
+    btnFollowCursorTitle: string;
+    btnCopySpec: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -134,6 +139,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowZoomKeys: 'zoom in / out / reset',
         playbackTimePrefix: '▶',
         playbackDisplayTitle: 'Playback position',
+        clipBadgeTitle: 'Peak ≥ 0.99 — possible clipping',
+        loopTimeDisplayTitle: 'Click to copy loop range',
+        btnFollowCursor: 'Follow',
+        btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback',
+        btnCopySpec: 'Copy spec',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -194,6 +204,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowZoomKeys: 'ズームイン / アウト / リセット',
         playbackTimePrefix: '▶',
         playbackDisplayTitle: '再生位置',
+        clipBadgeTitle: 'ピーク ≥ 0.99 — クリッピングの可能性',
+        loopTimeDisplayTitle: 'クリックでループ範囲をコピー',
+        btnFollowCursor: '追従',
+        btnFollowCursorTitle: '再生中にカーソルを中央に保つ',
+        btnCopySpec: 'スペックをコピー',
     },
 };
 
