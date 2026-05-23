@@ -1226,6 +1226,50 @@ export function getComparisonRenderScript(): string {
                     }
                 });
 
+                document.getElementById('tracks-wrapper').addEventListener('click', function(e) {
+                    if (!e.target.classList.contains('track-offset-val')) { return; }
+                    const span = e.target;
+                    const idx = parseInt(span.getAttribute('data-track-index'), 10);
+                    if (isNaN(idx)) { return; }
+                    // Don't open if already editing
+                    if (span.style.display === 'none') { return; }
+                    const currentMs = Math.round(trackRuntime[idx].offsetSeconds * 1000);
+                    const input = document.createElement('input');
+                    input.type = 'number';
+                    input.className = 'track-offset-input';
+                    input.value = String(currentMs);
+                    input.placeholder = STR.offsetEditPlaceholder;
+                    input.setAttribute('aria-label', STR.offsetEditAriaLabel);
+                    span.style.display = 'none';
+                    span.parentNode.insertBefore(input, span);
+                    input.focus();
+                    input.select();
+                    var settled = false;
+                    function commitEdit() {
+                        if (settled) { return; }
+                        settled = true;
+                        const val = parseFloat(input.value);
+                        if (!isNaN(val)) {
+                            trackRuntime[idx].offsetSeconds = val / 1000;
+                        }
+                        if (input.parentNode) { input.parentNode.removeChild(input); }
+                        span.style.display = '';
+                        updateOffsetDisplays();
+                        scheduleRender();
+                    }
+                    function cancelEdit() {
+                        if (settled) { return; }
+                        settled = true;
+                        if (input.parentNode) { input.parentNode.removeChild(input); }
+                        span.style.display = '';
+                    }
+                    input.addEventListener('keydown', function(ev) {
+                        if (ev.key === 'Enter') { ev.preventDefault(); commitEdit(); }
+                        else if (ev.key === 'Escape') { ev.preventDefault(); cancelEdit(); }
+                    });
+                    input.addEventListener('blur', function() { commitEdit(); });
+                });
+
                 document.getElementById('tracks-wrapper').addEventListener('mousemove', function(e) {
                     handleCanvasMouseMove(e);
                 });

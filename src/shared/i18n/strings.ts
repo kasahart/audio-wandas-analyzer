@@ -45,6 +45,8 @@ export interface UiStrings {
     trackPlayTitle: string;
     trackStopTitle: string;
     trackOffsetResetHint: string;
+    offsetEditPlaceholder: string;
+    offsetEditAriaLabel: string;
     trackSpectrumTitle: string;
     analysisFailed: string;
     cursorHelpKeys: string;
@@ -123,6 +125,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackPlayTitle: 'Play / pause',
         trackStopTitle: 'Stop',
         trackOffsetResetHint: 'Double-click to reset',
+        offsetEditPlaceholder: 'ms',
+        offsetEditAriaLabel: 'Track offset in milliseconds',
         trackSpectrumTitle: 'Power spectrum at main cursor',
         analysisFailed: 'Analysis failed: ',
         cursorHelpKeys: '← →: move cursor   Shift+←→: 100 ms step   Space: play/pause',
@@ -199,6 +203,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackPlayTitle: '再生 / 一時停止',
         trackStopTitle: '停止',
         trackOffsetResetHint: 'ダブルクリックでリセット',
+        offsetEditPlaceholder: 'ms',
+        offsetEditAriaLabel: 'トラックオフセット（ミリ秒）',
         trackSpectrumTitle: 'メインカーソル時刻のパワースペクトル',
         analysisFailed: '解析失敗: ',
         cursorHelpKeys: '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止',
