@@ -422,6 +422,7 @@ function registerPanelMessageHandler(
                         filePaths,
                         stftOptions,
                         `Recomputing spectrogram (${filePaths.length} file${filePaths.length === 1 ? '' : 's'})`,
+                        panel,
                     );
                     await panel.webview.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
                 } finally {
@@ -713,27 +714,49 @@ async function analyzeFilesWithProgress(
     filePaths: string[],
     stftOptions?: StftOptions,
     titleOverride?: string,
+    progressPanel?: vscode.WebviewPanel,
 ): Promise<AnalysisResultWithError[]> {
     return vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
             title: titleOverride ?? `Analyzing ${filePaths.length} files with wandas`,
-            cancellable: false,
+            cancellable: true,
         },
-        async (progress) => {
+        async (progress, token) => {
             const results: AnalysisResultWithError[] = [];
             for (let i = 0; i < filePaths.length; i++) {
+                if (token.isCancellationRequested) { break; }
+                const fileName = path.basename(filePaths[i]);
                 progress.report({
                     increment: Math.floor(100 / filePaths.length),
-                    message: `(${i + 1}/${filePaths.length}) ${path.basename(filePaths[i])}`,
+                    message: `(${i + 1}/${filePaths.length}) ${fileName}`,
+                });
+                // Webview 内プログレス通知 (reanalyze 時のみパネルがある)
+                void progressPanel?.webview.postMessage({
+                    type: 'analysis-file-progress',
+                    current: i + 1,
+                    total: filePaths.length,
+                    fileName,
                 });
                 try {
-                    const result = await runAnalysis(context.extensionPath, vscode.Uri.file(filePaths[i]), stftOptions);
-                    results.push(result);
+                    const abortController = new AbortController();
+                    const cancelDisposable = token.onCancellationRequested(() => abortController.abort());
+                    try {
+                        const result = await runAnalysis(
+                            context.extensionPath,
+                            vscode.Uri.file(filePaths[i]),
+                            stftOptions,
+                            abortController.signal,
+                        );
+                        results.push(result);
+                    } finally {
+                        cancelDisposable.dispose();
+                    }
                 } catch (err) {
+                    if ((err as NodeJS.ErrnoException).code === 'ABORT_ERR') { break; }
                     results.push({
                         filePath: filePaths[i],
-                        fileName: path.basename(filePaths[i]),
+                        fileName,
                         sampleRateHz: 0,
                         durationSeconds: 0,
                         channelCount: 0,
@@ -749,7 +772,7 @@ async function analyzeFilesWithProgress(
     );
 }
 
-async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptions?: StftOptions): Promise<AnalysisResult> {
+async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptions?: StftOptions, signal?: AbortSignal): Promise<AnalysisResult> {
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
     const pythonCommand = config.get<string>('pythonCommand', 'python3');
     const defaultPeakCount = config.get<number>('defaultPeakCount', 5);
@@ -778,6 +801,23 @@ async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptio
                 env: { ...globalThis.process.env, AWA_PERF_LOG: '1' },
             },
         );
+
+        // AbortSignal でキャンセル要求を受け取ったら Python プロセスを強制終了
+        if (signal) {
+            if (signal.aborted) {
+                process.kill();
+                const err = new Error('Analysis cancelled');
+                (err as NodeJS.ErrnoException).code = 'ABORT_ERR';
+                reject(err);
+                return;
+            }
+            signal.addEventListener('abort', () => {
+                process.kill();
+                const err = new Error('Analysis cancelled');
+                (err as NodeJS.ErrnoException).code = 'ABORT_ERR';
+                reject(err);
+            }, { once: true });
+        }
 
         let stdout = '';
         let stderr = '';

@@ -2128,6 +2128,11 @@ export function getComparisonRenderScript(): string {
                     __setReanalyzeBusy(false);
                     return;
                 }
+                if (msg.type === 'analysis-file-progress') {
+                    var progMsg = '(' + msg.current + '/' + msg.total + ') ' + (msg.fileName || '');
+                    __setReanalyzeBusy(true, progMsg);
+                    return;
+                }
                 if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
                     __setReanalyzeBusy(false);
                     state.results = msg.results.map(function(r, i) {
