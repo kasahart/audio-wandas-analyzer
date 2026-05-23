@@ -60,6 +60,7 @@ export interface UiStrings {
     configurePython: string;
     helpTitle: string;
     helpClose: string;
+    btnZoomToSelection: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -110,6 +111,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         configurePython: 'Configure Python environment',
         helpTitle: 'Keyboard Shortcuts',
         helpClose: 'Close (Esc / ?)',
+        btnZoomToSelection: 'Zoom to loop selection',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -158,6 +160,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         configurePython: 'Python 環境を設定する',
         helpTitle: 'キーボードショートカット',
         helpClose: '閉じる (Esc / ?)',
+        btnZoomToSelection: 'ループ選択範囲にズーム',
     },
 };
 

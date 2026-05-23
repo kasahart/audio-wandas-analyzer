@@ -472,6 +472,7 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in">＋</button>'
                     + '<button class="tb-btn" data-action="zoom-reset">' + escHtml(STR.btnZoomReset) + '</button>'
+                    + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection" title="' + escHtml(STR.btnZoomToSelection || 'Zoom to loop selection') + '" disabled>⇔</button>'
                     + '<div class="tb-sep"></div>'
                     + '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
                     + '<div class="tb-sep"></div>'
@@ -1435,9 +1436,21 @@ export function getComparisonRenderScript(): string {
                     zoomStart = 0;
                     zoomEnd = 1;
                     scheduleRender();
+                } else if (action === 'zoom-to-selection') {
+                    if (loopRegion) {
+                        var pad = (loopRegion.end - loopRegion.start) * 0.05;
+                        zoomStart = Math.max(0, loopRegion.start - pad);
+                        zoomEnd = Math.min(1, loopRegion.end + pad);
+                        scheduleRender();
+                    }
                 } else if (action === 'run-recipe') {
                     vscode.postMessage({ type: 'run-recipe' });
                 }
+            }
+
+            function updateZoomToSelectionBtn() {
+                var btn = document.getElementById('btn-zoom-to-selection');
+                if (btn) { btn.disabled = !loopRegion; }
             }
 
             function zoomIn() {
@@ -1586,6 +1599,7 @@ export function getComparisonRenderScript(): string {
                     const norm = Math.max(loopRegion.start + 0.001, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
                     loopRegion = { start: loopRegion.start, end: norm };
                 }
+                updateZoomToSelectionBtn();
                 scheduleRender();
             }
 
@@ -1601,6 +1615,7 @@ export function getComparisonRenderScript(): string {
                         const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
                         cursorNorm = Math.max(0, Math.min(1, norm));
                         loopRegion = null;
+                        updateZoomToSelectionBtn();
                         updateCursorDisplay(cursorNorm);
                         scheduleRender();
                     }
