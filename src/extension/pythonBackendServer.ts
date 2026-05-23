@@ -92,7 +92,7 @@ export class PythonBackendServer {
                 env: {
                     ...globalThis.process.env,
                     AWA_CACHE_MB: String(cacheMb),
-                    AWA_PERF_LOG: '1',
+                    // AWA_PERF_LOG: inherit from env (default '0' = opt-in)
                 },
             });
 

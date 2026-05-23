@@ -184,6 +184,7 @@ export function getComparisonRenderScript(): string {
                 const OVERVIEW_PTS = 1200;
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden || result.error) { return; }
+                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const canvas = document.getElementById('track-canvas-' + i);
                     const W = (canvas ? canvas.width : 0) || 800;
                     const visibleOverview = OVERVIEW_PTS * (zoomEnd - zoomStart);
@@ -590,6 +591,7 @@ export function getComparisonRenderScript(): string {
             function renderStackedTracks() {
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden) { return; }
+                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     // 前回のエラーオーバーレイを除去
                     const existingOverlay = document.getElementById('track-error-overlay-' + i);
                     if (existingOverlay) { existingOverlay.remove(); }
@@ -1822,6 +1824,7 @@ export function getComparisonRenderScript(): string {
                     const W = canvas.width, H = canvas.height;
                     ctx.clearRect(0, 0, W, H);
                     if (trackRuntime[i].hidden) { return; }
+                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (!slice) {
                         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
@@ -1884,6 +1887,7 @@ export function getComparisonRenderScript(): string {
                 const slices = [];
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden) { return; }
+                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (slice) { slices.push({ slice: slice, color: TRACK_COLORS[i % TRACK_COLORS.length], index: i, name: result.fileName }); }
                 });
@@ -2265,6 +2269,22 @@ export function getComparisonRenderScript(): string {
                 if (closeBtn) { closeBtn.addEventListener('click', closeHelp); }
                 document.getElementById('help-overlay').addEventListener('click', function(e) {
                     if (e.target === document.getElementById('help-overlay')) { closeHelp(); }
+                });
+                // フォーカストラップ: aria-modal="true" の期待に応えるため、Tab キーをダイアログ内に閉じ込める
+                document.getElementById('help-overlay').addEventListener('keydown', function(ev) {
+                    if (ev.key !== 'Tab') { return; }
+                    var overlay = document.getElementById('help-overlay');
+                    var focusable = Array.from(overlay.querySelectorAll(
+                        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+                    ));
+                    if (focusable.length === 0) { ev.preventDefault(); return; }
+                    var first = focusable[0];
+                    var last = focusable[focusable.length - 1];
+                    if (ev.shiftKey) {
+                        if (document.activeElement === first) { last.focus(); ev.preventDefault(); }
+                    } else {
+                        if (document.activeElement === last) { first.focus(); ev.preventDefault(); }
+                    }
                 });
                 document.addEventListener('keydown', function(ev) {
                     var tag = document.activeElement && document.activeElement.tagName ? document.activeElement.tagName.toUpperCase() : '';
