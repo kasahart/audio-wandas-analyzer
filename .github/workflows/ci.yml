@@ -69,6 +69,12 @@ jobs:
       - name: Run UI smoke
         run: npm run test:ui
 
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+
   e2e:
     name: e2e (VS Code extension host)
     runs-on: ubuntu-latest
