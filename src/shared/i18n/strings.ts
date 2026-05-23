@@ -92,6 +92,8 @@ export interface UiStrings {
     specSettingsApply: string;
     btnExportPng: string;
     btnExportPngTitle: string;
+    btnExportCsv: string;
+    btnExportCsvTitle: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -174,6 +176,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsApply: 'Apply',
         btnExportPng: 'Export PNG',
         btnExportPngTitle: 'Export visible tracks as PNG',
+        btnExportCsv: 'Export CSV',
+        btnExportCsvTitle: 'Export spectrum data as CSV',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -254,6 +258,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsApply: '適用',
         btnExportPng: 'PNG 出力',
         btnExportPngTitle: '表示中のトラックを PNG として出力',
+        btnExportCsv: 'CSV 出力',
+        btnExportCsvTitle: 'スペクトルデータを CSV として出力',
     },
 };
 

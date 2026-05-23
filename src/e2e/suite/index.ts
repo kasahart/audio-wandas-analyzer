@@ -188,6 +188,8 @@ export async function run(): Promise<void> {
                     'toggle-follow-cursor',
                     'run-recipe',
                     'copy-spec',
+                    'export-png',
+                    'export-csv',
                 ]);
             },
         },

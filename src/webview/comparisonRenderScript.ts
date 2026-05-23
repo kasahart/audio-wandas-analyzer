@@ -484,6 +484,7 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="copy-spec">' + escHtml(STR.btnCopySpec) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<button class="tb-btn" data-action="export-png" title="' + escHtml(STR.btnExportPngTitle) + '">' + escHtml(STR.btnExportPng) + '</button>'
+                    + '<button class="tb-btn" data-action="export-csv" title="' + escHtml(STR.btnExportCsvTitle) + '">' + escHtml(STR.btnExportCsv) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
                     + '<span id="playback-display" title="' + escHtml(STR.playbackDisplayTitle) + '"></span>'
@@ -1618,6 +1619,8 @@ export function getComparisonRenderScript(): string {
                     copySpecToClipboard();
                 } else if (action === 'export-png') {
                     exportPng();
+                } else if (action === 'export-csv') {
+                    exportCsv();
                 }
             }
 
@@ -1656,6 +1659,49 @@ export function getComparisonRenderScript(): string {
                 const a = document.createElement('a');
                 a.href = dataURL;
                 a.download = 'waveform-export.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+
+            function exportCsv() {
+                if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
+                    console.warn('exportCsv: no results available');
+                    return;
+                }
+                const tracks = [];
+                state.results.forEach(function(result, i) {
+                    if (trackRuntime[i] && trackRuntime[i].hidden) { return; }
+                    const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
+                    if (!slice || !slice.values || slice.values.length === 0) { return; }
+                    tracks.push({ name: result.fileName || ('track' + (i + 1)), slice: slice });
+                });
+                if (tracks.length === 0) {
+                    console.warn('exportCsv: no spectrum data available at cursor position');
+                    return;
+                }
+                // Build CSV: header + one row per frequency bin
+                // Use the first track's bin count and maxFrequencyHz as reference
+                const refSlice = tracks[0].slice;
+                const fBins = refSlice.frequencyBins;
+                const maxHz = refSlice.maxFrequencyHz;
+                const freqPerBin = maxHz / Math.max(fBins, 1);
+                function csvCell(s) { return /[,"]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+                const headers = ['frequency_hz'].concat(tracks.map(function(t) { return csvCell(t.name); }));
+                const rows = [headers.join(',')];
+                for (let bin = 0; bin < fBins; bin++) {
+                    const fHz = (bin + 0.5) * freqPerBin;
+                    const cols = [fHz.toFixed(4)];
+                    tracks.forEach(function(t) {
+                        const v = t.slice.values[bin];
+                        cols.push(v !== undefined && v !== null ? v.toFixed(6) : '');
+                    });
+                    rows.push(cols.join(','));
+                }
+                const csv = rows.join('\\n');
+                const a = document.createElement('a');
+                a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+                a.download = 'spectrum-export.csv';
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
