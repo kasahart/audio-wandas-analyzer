@@ -818,13 +818,16 @@ test('renderScript: export-csv creates a download anchor with data URI', async (
         return el;
     } as typeof document.createElement;
 
-    env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
-        new env.dom.window.MouseEvent('click', { bubbles: true }),
-    );
+    try {
+        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
+            new env.dom.window.MouseEvent('click', { bubbles: true }),
+        );
 
-    const anchor = created.find((a) => a.download === 'spectrum-export.csv');
-    assert.ok(anchor, 'spectrum-export.csv という download 属性を持つ <a> が作られること');
-    assert.ok(anchor!.href.startsWith('data:text/csv'), 'href が data:text/csv URI であること');
-    env.dom.window.document.createElement = origCreate;
-    env.dom.window.close();
+        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
+        assert.ok(anchor, 'spectrum-export.csv という download 属性を持つ <a> が作られること');
+        assert.ok(anchor!.href.startsWith('data:text/csv'), 'href が data:text/csv URI であること');
+    } finally {
+        env.dom.window.document.createElement = origCreate;
+        env.dom.window.close();
+    }
 });
