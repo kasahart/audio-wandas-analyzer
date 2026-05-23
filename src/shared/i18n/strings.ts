@@ -90,6 +90,8 @@ export interface UiStrings {
     specSettingsMaxFreqHz: string;
     specSettingsReset: string;
     specSettingsApply: string;
+    specSettingsPlaceholderAuto: string;
+    specSettingsPlaceholderNyquist: string;
     btnExportPng: string;
     btnExportPngTitle: string;
     btnExportCsv: string;
@@ -174,6 +176,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsMaxFreqHz: 'max freq Hz',
         specSettingsReset: 'Reset',
         specSettingsApply: 'Apply',
+        specSettingsPlaceholderAuto: 'auto',
+        specSettingsPlaceholderNyquist: 'Nyquist',
         btnExportPng: 'Export PNG',
         btnExportPngTitle: 'Export visible tracks as PNG',
         btnExportCsv: 'Export CSV',
@@ -256,6 +260,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsMaxFreqHz: '最大周波数 Hz',
         specSettingsReset: 'リセット',
         specSettingsApply: '適用',
+        specSettingsPlaceholderAuto: '自動',
+        specSettingsPlaceholderNyquist: 'ナイキスト',
         btnExportPng: 'PNG 出力',
         btnExportPngTitle: '表示中のトラックを PNG として出力',
         btnExportCsv: 'CSV 出力',

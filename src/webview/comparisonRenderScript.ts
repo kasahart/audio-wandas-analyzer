@@ -1222,20 +1222,32 @@ export function getComparisonRenderScript(): string {
                     if (action === 'offset-down' && !isNaN(idx)) { adjustOffset(idx, -0.01); }
                 });
 
+                let _offsetEditTimer = null;
                 document.getElementById('tracks-wrapper').addEventListener('dblclick', function(e) {
                     if (e.target.classList.contains('track-offset-val')) {
+                        clearTimeout(_offsetEditTimer);
+                        _offsetEditTimer = null;
                         const idx = parseInt(e.target.getAttribute('data-track-index'), 10);
-                        if (!isNaN(idx)) { trackRuntime[idx].offsetSeconds = 0; updateOffsetDisplays(); scheduleRender(); }
+                        if (!isNaN(idx)) {
+                            trackRuntime[idx].offsetSeconds = 0;
+                            updateOffsetDisplays();
+                            scheduleRender();
+                            refreshSpectrumViews();
+                        }
                     }
                 });
 
                 document.getElementById('tracks-wrapper').addEventListener('click', function(e) {
                     if (!e.target.classList.contains('track-offset-val')) { return; }
-                    if (e.detail !== 1) { return; }
                     const span = e.target;
                     const idx = parseInt(span.getAttribute('data-track-index'), 10);
                     if (isNaN(idx)) { return; }
                     // Don't open if already editing
+                    if (span.style.display === 'none') { return; }
+                    // Delay to allow dblclick (reset) to cancel before opening editor
+                    clearTimeout(_offsetEditTimer);
+                    _offsetEditTimer = setTimeout(function() {
+                    _offsetEditTimer = null;
                     if (span.style.display === 'none') { return; }
                     const currentMs = Math.round(trackRuntime[idx].offsetSeconds * 1000);
                     const input = document.createElement('input');
@@ -1273,6 +1285,7 @@ export function getComparisonRenderScript(): string {
                         else if (ev.key === 'Escape') { ev.preventDefault(); cancelEdit(); }
                     });
                     input.addEventListener('blur', function() { commitEdit(); });
+                    }, 200); // end setTimeout
                 });
 
                 document.getElementById('tracks-wrapper').addEventListener('mousemove', function(e) {
@@ -1688,12 +1701,11 @@ export function getComparisonRenderScript(): string {
                 const refSlice = tracks[0].slice;
                 const fBins = refSlice.frequencyBins;
                 const maxHz = refSlice.maxFrequencyHz;
-                const freqPerBin = maxHz / Math.max(fBins, 1);
                 function csvCell(s) { return /[,"\\r\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
                 const headers = ['frequency_hz'].concat(tracks.map(function(t) { return csvCell(t.name); }));
                 const rows = [headers.join(',')];
                 for (let bin = 0; bin < fBins; bin++) {
-                    const fHz = (bin + 0.5) * freqPerBin;
+                    const fHz = (bin / Math.max(fBins - 1, 1)) * maxHz;
                     const cols = [fHz.toFixed(4)];
                     tracks.forEach(function(t) {
                         const v = t.slice.values[bin];
@@ -2384,9 +2396,9 @@ export function getComparisonRenderScript(): string {
                     + '</fieldset>'
                     + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
                     + '<legend>' + escHtml(STR.specSettingsDisplayLegend) + '</legend>'
-                    + '<label>' + escHtml(STR.specSettingsDbMin) + ' <input type="number" id="spec-dbmin" step="1" placeholder="auto"></label><br>'
-                    + '<label>' + escHtml(STR.specSettingsDbMax) + ' <input type="number" id="spec-dbmax" step="1" placeholder="auto"></label><br>'
-                    + '<label>' + escHtml(STR.specSettingsMaxFreqHz) + ' <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="Nyquist"></label>'
+                    + '<label>' + escHtml(STR.specSettingsDbMin) + ' <input type="number" id="spec-dbmin" step="1" placeholder="' + escHtml(STR.specSettingsPlaceholderAuto) + '"></label><br>'
+                    + '<label>' + escHtml(STR.specSettingsDbMax) + ' <input type="number" id="spec-dbmax" step="1" placeholder="' + escHtml(STR.specSettingsPlaceholderAuto) + '"></label><br>'
+                    + '<label>' + escHtml(STR.specSettingsMaxFreqHz) + ' <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="' + escHtml(STR.specSettingsPlaceholderNyquist) + '"></label>'
                     + '</fieldset>'
                     + '<div style="display:flex;gap:6px;justify-content:flex-end">'
                     + '<button class="tb-btn" id="spec-reset">' + escHtml(STR.specSettingsReset) + '</button>'
