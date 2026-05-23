@@ -432,6 +432,7 @@ export class ComparisonPanel {
         }
         .track-btn.is-playing { background: var(--accent); color: #fff; border-color: var(--accent); }
         .track-btn.is-muted { background: #555; color: #fff; }
+        .track-btn.is-solo { background: #c8a020; color: #fff; border-color: #c8a020; }
         .track-offset { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .track-offset-val {
             font-size: 9px; font-family: var(--font-mono);

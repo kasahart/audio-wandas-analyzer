@@ -37,6 +37,7 @@ export function getComparisonRenderScript(): string {
             let playbackEl = null;
             let playbackRafId = null;
             let playbackTrackIndex = null;
+            let soloTrackIndex = null; // null = solo off, number = solo track
 
             function scheduleRender() {
                 if (rafPending) { return; }
@@ -486,6 +487,7 @@ export function getComparisonRenderScript(): string {
                     + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
                     + '    <button class="track-btn" data-action="toggle-mute" data-track-index="' + i + '">M</button>'
+                    + '    <button class="track-btn" data-action="toggle-solo" data-track-index="' + i + '">S</button>'
                     + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackPlayTitle) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
                     + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackStopTitle) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
                     + '    <button class="track-btn" data-action="remove-track" data-track-index="' + i + '">✕</button>'
@@ -918,11 +920,13 @@ export function getComparisonRenderScript(): string {
 
 
             function updateVisibility() {
-                // まず各行の display を更新する
+                // まず各行の display を更新する (ソロ中は solo track 以外を非表示)
                 document.querySelectorAll('.track-row').forEach(function(row) {
                     const idx = parseInt(row.getAttribute('data-track-index'), 10);
                     if (!isNaN(idx) && trackRuntime[idx]) {
-                        row.style.display = trackRuntime[idx].hidden ? 'none' : 'flex';
+                        var isMuted = trackRuntime[idx].hidden;
+                        var isSoloFiltered = soloTrackIndex !== null && soloTrackIndex !== idx;
+                        row.style.display = (isMuted || isSoloFiltered) ? 'none' : 'flex';
                     }
                 });
                 // 次に空状態を判定する（削除済み or 全非表示）
@@ -1158,6 +1162,7 @@ export function getComparisonRenderScript(): string {
                     const action = e.target.getAttribute('data-action');
                     const idx = parseInt(e.target.getAttribute('data-track-index'), 10);
                     if (action === 'toggle-mute' && !isNaN(idx)) { toggleMute(idx); }
+                    if (action === 'toggle-solo' && !isNaN(idx)) { toggleSolo(idx); }
                     if (action === 'toggle-playback' && !isNaN(idx)) { togglePlayback(idx); }
                     if (action === 'stop-playback' && !isNaN(idx)) { stopPlayback(idx); }
                     if (action === 'remove-track' && !isNaN(idx)) { removeTrack(idx); }
@@ -1870,6 +1875,22 @@ export function getComparisonRenderScript(): string {
                 trackRuntime[idx].hidden = !trackRuntime[idx].hidden;
                 const btn = document.querySelector('[data-action="toggle-mute"][data-track-index="' + idx + '"]');
                 if (btn) { btn.classList.toggle('is-muted', trackRuntime[idx].hidden); }
+                updateVisibility();
+                scheduleRender();
+                refreshSpectrumViews();
+            }
+
+            function toggleSolo(idx) {
+                soloTrackIndex = (soloTrackIndex === idx) ? null : idx;
+                // ソロ解除時に再生中トラックが非表示になる場合は停止
+                if (soloTrackIndex !== null && playbackTrackIndex !== null && playbackTrackIndex !== soloTrackIndex) {
+                    stopPlayback(playbackTrackIndex, { keepCursor: true });
+                }
+                // Solo ボタンの表示を更新
+                document.querySelectorAll('[data-action="toggle-solo"]').forEach(function(btn) {
+                    var i = parseInt(btn.getAttribute('data-track-index'), 10);
+                    btn.classList.toggle('is-solo', soloTrackIndex === i);
+                });
                 updateVisibility();
                 scheduleRender();
                 refreshSpectrumViews();
