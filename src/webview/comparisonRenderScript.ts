@@ -576,17 +576,44 @@ export function getComparisonRenderScript(): string {
                 return m + ':' + (parseFloat(s) < 10 ? '0' : '') + s;
             }
 
+            function isPythonEnvError(msg) {
+                if (!msg) { return false; }
+                return /Failed to start Python process|No module named|ModuleNotFoundError|ENOENT|spawn.*python|command not found/i.test(msg);
+            }
+
             function renderStackedTracks() {
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden) { return; }
+                    // 前回のエラーオーバーレイを除去
+                    const existingOverlay = document.getElementById('track-error-overlay-' + i);
+                    if (existingOverlay) { existingOverlay.remove(); }
                     if (result.error) {
                         const canvas = document.getElementById('track-canvas-' + i);
                         if (canvas) {
                             const ctx = canvas.getContext('2d');
                             ctx.clearRect(0, 0, canvas.width, canvas.height);
-                            ctx.fillStyle = '#e8637a';
-                            ctx.font = '11px sans-serif';
-                            ctx.fillText(STR.analysisFailed + result.error, 8, canvas.height / 2 + 4);
+                        }
+                        const wrap = document.getElementById('track-canvas-wrap-' + i);
+                        if (wrap) {
+                            const overlay = document.createElement('div');
+                            overlay.id = 'track-error-overlay-' + i;
+                            overlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px;background:var(--track-bg);z-index:2';
+                            const msg = document.createElement('span');
+                            msg.style.cssText = 'color:#e8637a;font-size:11px;text-align:center;white-space:pre-wrap;word-break:break-all;max-height:3em;overflow:hidden';
+                            msg.textContent = STR.analysisFailed + result.error;
+                            overlay.appendChild(msg);
+                            if (isPythonEnvError(result.error)) {
+                                const btn = document.createElement('button');
+                                btn.className = 'toolbar-btn';
+                                btn.style.cssText = 'font-size:11px;padding:2px 8px';
+                                btn.textContent = STR.configurePython || 'Configure Python environment';
+                                btn.addEventListener('click', function() {
+                                    vscode.postMessage({ type: 'select-python-environment' });
+                                });
+                                overlay.appendChild(btn);
+                            }
+                            wrap.style.position = 'relative';
+                            wrap.appendChild(overlay);
                         }
                         return;
                     }

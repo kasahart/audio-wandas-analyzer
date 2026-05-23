@@ -57,6 +57,7 @@ export interface UiStrings {
     reanalyzingStft: string;
     reanalyzingDefault: string;
     reanalyzingFiles: string;
+    configurePython: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -104,6 +105,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reanalyzingStft: 'Recomputing STFT…',
         reanalyzingDefault: 'Recomputing…',
         reanalyzingFiles: 'Recomputing STFT… ({count} files)',
+        configurePython: 'Configure Python environment',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -149,6 +151,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reanalyzingStft: 'STFT を再計算中…',
         reanalyzingDefault: '再計算中…',
         reanalyzingFiles: 'STFT を再計算中… ({count} ファイル)',
+        configurePython: 'Python 環境を設定する',
     },
 };
 
