@@ -831,3 +831,122 @@ test('renderScript: export-csv creates a download anchor with data URI', async (
         env.dom.window.close();
     }
 });
+
+// ── Zoom-to-Selection (⇔) & F/L shortcuts ────────────────────────────────────
+
+test('renderScript: zoom-to-selection ボタンがツールバーに存在すること', () => {
+    const env = setupEnv();
+    const btn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    assert.ok(btn, '[data-action="zoom-to-selection"] ボタンが存在すること');
+    env.dom.window.close();
+});
+
+test('renderScript: zoom-to-selection ボタンはループがない状態で disabled であること', () => {
+    const env = setupEnv();
+    const btn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    assert.ok(btn, '[data-action="zoom-to-selection"] ボタンが存在すること');
+    assert.equal(btn!.disabled, true, 'ループがない場合は disabled であること');
+    env.dom.window.close();
+});
+
+test('renderScript: F キーで follow-cursor ボタンの is-active が切り替わること', () => {
+    const env = setupEnv();
+    const followBtn = env.dom.window.document.querySelector('[data-action="toggle-follow-cursor"]') as HTMLButtonElement | null;
+    assert.ok(followBtn, '[data-action="toggle-follow-cursor"] ボタンが存在すること');
+    assert.equal(followBtn!.classList.contains('is-active'), false, '初期状態は非アクティブであること');
+
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f' }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), true, 'F キー後に is-active になること');
+
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f' }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), false, 'F キー再押しで is-active が解除されること');
+    env.dom.window.close();
+});
+
+test('renderScript: L キーはループがある場合に zoom-to-selection を実行すること', async () => {
+    const env = setupEnv();
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'track-canvas-0 が存在すること');
+
+    // ループ区間をドラッグで作成（MouseEvent で loopRegion を設定する）
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 5, buttons: 1 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 5, buttons: 1 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, clientX: 200, clientY: 5 }));
+
+    const zoomBtn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    assert.ok(zoomBtn, '[data-action="zoom-to-selection"] ボタンが存在すること');
+    // ループ作成後は disabled が解除されていることを検証
+    assert.equal(zoomBtn!.disabled, false, 'ループ作成後は zoom-to-selection ボタンが enabled になること');
+
+    // follow-cursor を一旦有効化しておく
+    const followBtn = env.dom.window.document.querySelector('[data-action="toggle-follow-cursor"]') as HTMLButtonElement | null;
+    assert.ok(followBtn, 'follow-cursor ボタンが存在すること');
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f' }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), true, 'follow-cursor が有効になっていること');
+
+    // L キーを押下して zoom-to-selection を実行
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'l' }),
+    );
+
+    // 副作用の検証 1: follow-cursor が無効化されること
+    assert.equal(followBtn!.classList.contains('is-active'), false, 'zoom-to-selection により follow-cursor が無効化されること');
+
+    // テストスナップショットの送信を要求する
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: {
+                type: 'comparison-panel-test-action',
+                actions: [],
+                actionId: 'test-l-key-snapshot'
+            }
+        })
+    );
+    await nextAnimationFrame(env.dom);
+
+    // 副作用の検証 2: ズーム範囲が更新されていること
+    const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot');
+    const lastSnapshot = snapshots[snapshots.length - 1] as any;
+    assert.ok(lastSnapshot, 'テストスナップショットが送信されていること');
+    const ui = lastSnapshot.renderedUi;
+    assert.ok(ui, 'スナップショットに renderedUi が含まれること');
+    assert.ok(ui.zoomStart >= 0, 'zoomStart は 0 以上であること');
+    assert.ok(ui.zoomEnd <= 1, 'zoomEnd は 1 以下であること');
+    assert.ok(ui.zoomStart < ui.zoomEnd, 'zoomStart < zoomEnd であること');
+
+    env.dom.window.close();
+});
+
+test('renderScript: ショートカットキーは修飾キー (Ctrl/Meta/Alt) が押されている場合は動作しないこと', () => {
+    const env = setupEnv();
+    const followBtn = env.dom.window.document.querySelector('[data-action="toggle-follow-cursor"]') as HTMLButtonElement | null;
+    assert.ok(followBtn, '[data-action="toggle-follow-cursor"] ボタンが存在すること');
+    assert.equal(followBtn!.classList.contains('is-active'), false, '初期状態は非アクティブであること');
+
+    // Ctrl+F を押下
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f', ctrlKey: true }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), false, 'Ctrl+F キーでは is-active にならないこと');
+
+    // Alt+F を押下
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f', altKey: true }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), false, 'Alt+F キーでは is-active にならないこと');
+
+    // Meta+F を押下
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f', metaKey: true }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), false, 'Meta+F キーでは is-active にならないこと');
+
+    env.dom.window.close();
+});
+

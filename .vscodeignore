@@ -20,3 +20,8 @@ dist/**/*.map
 python-backend/__pycache__/**
 python-backend/.pytest_cache/**
 python-backend/test_*.py
+.worktrees/**
+.ruff_cache/**
+.antigravitycli/**
+audio_wandas_analyzer_backend.egg-info/**
+

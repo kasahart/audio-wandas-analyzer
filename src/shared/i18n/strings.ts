@@ -96,6 +96,10 @@ export interface UiStrings {
     btnExportPngTitle: string;
     btnExportCsv: string;
     btnExportCsvTitle: string;
+    btnZoomToSelection: string;
+    btnZoomToSelectionTitle: string;
+    helpRowFollowCursor: string;
+    helpRowZoomToSelection: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -182,6 +186,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnExportPngTitle: 'Export visible tracks as PNG',
         btnExportCsv: 'Export CSV',
         btnExportCsvTitle: 'Export spectrum data as CSV',
+        btnZoomToSelection: '⇔',
+        btnZoomToSelectionTitle: 'Zoom to loop selection (L)',
+        helpRowFollowCursor: 'toggle follow-cursor (auto-scroll during playback)',
+        helpRowZoomToSelection: 'zoom to loop selection',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -266,6 +274,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnExportPngTitle: '表示中のトラックを PNG として出力',
         btnExportCsv: 'CSV 出力',
         btnExportCsvTitle: 'スペクトルデータを CSV として出力',
+        btnZoomToSelection: '⇔',
+        btnZoomToSelectionTitle: 'ループ選択範囲にズーム (L)',
+        helpRowFollowCursor: 'フォロー追従のオン/オフ（再生中にカーソルを追従）',
+        helpRowZoomToSelection: 'ループ選択範囲にズーム',
     },
 };
 
