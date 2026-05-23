@@ -443,7 +443,7 @@ export class ComparisonPanel {
         .track-canvas-wrap { flex: 1; position: relative; overflow: hidden; background: var(--track-bg); }
         .track-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
         .track-spectrum-wrap { width: 180px; flex-shrink: 0; border-left: 1px solid var(--line); background: var(--track-bg); }
-        .track-spectrum-canvas { display: block; width: 100%; height: 80px; }
+        .track-spectrum-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
 
         /* ── Responsive power spectrum ── */
         @media (max-width: 900px) {
@@ -466,7 +466,7 @@ export class ComparisonPanel {
             font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line);
         }
         #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); }
-        #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; }
+        #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; cursor: crosshair; }
 
         /* ── Metrics bar ── */
         #metrics-bar {

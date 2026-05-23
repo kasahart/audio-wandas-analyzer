@@ -48,6 +48,9 @@ export function getComparisonRenderScript(): string {
             let zoomEnd = 1;
             let cursorNorm = 0;           // グローバルカーソル（常に number）
             let hoverNorm = null;         // ホバープレビュー位置（null = 非表示）
+            let spectrumHoverNorm = null;  // スペクトルカーソル（正規化周波数 0..1、null = 非表示）
+            let spectrumHoverYFrac = null; // スペクトルカーソルy（canvas高さに対する比率 0..1）
+            let spectrumHasMouse = false;  // マウスがスペクトルキャンバス上にある間 true
             let playbackStartNorm = 0;    // 再生開始位置の記憶
             let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag, isShift, startNorm, dragType }
             let loopRegion = null;        // null or { start: number, end: number }（正規化グローバル時間）
@@ -408,7 +411,7 @@ export function getComparisonRenderScript(): string {
                     + '  <div id="empty-state"><p>' + escHtml(emptyMessage) + '</p></div>'
                     + '</div>'
                     + '<div id="spectrum-section">'
-                    + '  <div id="spectrum-section-header"><span>' + escHtml(STR.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span></div>'
+                    + '  <div id="spectrum-section-header"><span>' + escHtml(STR.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span><span id="spectrum-freq-readout" style="font-family:var(--font-mono);margin-left:14px;"></span></div>'
                     + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas"></canvas></div>'
                     + '</div>'
                     + '<div id="audio-host">' + buildAudioElements() + '</div>'
@@ -1186,6 +1189,20 @@ export function getComparisonRenderScript(): string {
                 });
 
                 document.addEventListener('keydown', function(e) {
+                    // ── スペクトルカーソル操作（マウスがスペクトル上にある間）──
+                    if (spectrumHasMouse && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
+                        e.preventDefault();
+                        const overlayC = document.getElementById('spectrum-overlay-canvas');
+                        const plotW = overlayC ? Math.max(1, overlayC.width - 36 - 8) : 800;
+                        const step = e.shiftKey ? (10 / plotW) : (1 / plotW);
+                        const delta = e.code === 'ArrowLeft' ? -step : step;
+                        if (spectrumHoverNorm === null) { spectrumHoverNorm = 0.5; }
+                        spectrumHoverNorm = Math.max(0, Math.min(1, spectrumHoverNorm + delta));
+                        refreshSpectrumViews();
+                        return;
+                    }
+
+                    // ── 時刻カーソル操作（波形キャンバスフォーカス時）──
                     const active = document.activeElement;
                     if (!active || !active.classList.contains('track-canvas')) { return; }
 
@@ -1218,6 +1235,38 @@ export function getComparisonRenderScript(): string {
                         refreshSpectrumViews();
                     }
                 });
+
+                // スペクトルカーソルイベント（オーバーレイ＋各トラック）
+                (function attachSpectrumCursorEvents() {
+                    function onSpectrumMove(padL, padR, canvasEl, e) {
+                        const rect = canvasEl.getBoundingClientRect();
+                        const x = e.clientX - rect.left;
+                        const y = e.clientY - rect.top;
+                        const plotW = canvasEl.width - padL - padR;
+                        const canvasH = canvasEl.height || 140;
+                        if (plotW > 0) {
+                            spectrumHoverNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
+                            spectrumHoverYFrac = Math.max(0, Math.min(1, y / canvasH));
+                        }
+                        spectrumHasMouse = true;
+                        refreshSpectrumViews();
+                    }
+                    function onSpectrumLeave() {
+                        spectrumHasMouse = false;
+                        spectrumHoverNorm = null;
+                        spectrumHoverYFrac = null;
+                        refreshSpectrumViews();
+                    }
+                    const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
+                    if (overlayCanvas) {
+                        overlayCanvas.addEventListener('mousemove', function(e) { onSpectrumMove(36, 8, overlayCanvas, e); });
+                        overlayCanvas.addEventListener('mouseleave', onSpectrumLeave);
+                    }
+                    document.querySelectorAll('.track-spectrum-canvas').forEach(function(c) {
+                        c.addEventListener('mousemove', function(e) { onSpectrumMove(32, 6, c, e); });
+                        c.addEventListener('mouseleave', onSpectrumLeave);
+                    });
+                })();
             }
 
             function attachDirectorySelectionEvents() {
@@ -1701,6 +1750,38 @@ export function getComparisonRenderScript(): string {
                     const color = TRACK_COLORS[i % TRACK_COLORS.length];
                     drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14);
                     drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 });
+                    // スペクトル十字カーソル（縦線＋スペクトルにスナップした横線）
+                    if (spectrumHoverNorm !== null) {
+                        const padL2 = 32, padR2 = 6, padT2 = 4, padB2 = 14;
+                        const plotW2 = W - padL2 - padR2;
+                        const plotH2 = H - padT2 - padB2;
+                        const curX = padL2 + spectrumHoverNorm * plotW2;
+                        const origMaxF2 = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
+                        const fHz2 = spectrumHoverNorm * slice.maxFrequencyHz;
+                        const binF2 = (fHz2 / Math.max(origMaxF2, 1)) * Math.max(slice.frequencyBins - 1, 1);
+                        const binIdx2 = Math.max(0, Math.min(slice.frequencyBins - 1, Math.round(binF2)));
+                        const dbVal2 = slice.values[binIdx2];
+                        const range2 = slice.maxDb - slice.minDb;
+                        ctx.save();
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([3, 3]);
+                        // 縦線
+                        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+                        ctx.beginPath();
+                        ctx.moveTo(curX, padT2); ctx.lineTo(curX, H - padB2);
+                        ctx.stroke();
+                        // 横線（スペクトル値にスナップ）
+                        if (dbVal2 !== undefined && range2 > 0) {
+                            const norm2 = Math.max(0, Math.min(1, (dbVal2 - slice.minDb) / range2));
+                            const snapY = padT2 + (1 - norm2) * plotH2;
+                            ctx.strokeStyle = color;
+                            ctx.beginPath();
+                            ctx.moveTo(padL2, snapY); ctx.lineTo(W - padR2, snapY);
+                            ctx.stroke();
+                        }
+                        ctx.setLineDash([]);
+                        ctx.restore();
+                    }
                 });
             }
 
@@ -1761,16 +1842,94 @@ export function getComparisonRenderScript(): string {
                     ctx.stroke();
                 });
 
-                ctx.font = '10px sans-serif';
-                ctx.textAlign = 'left';
-                let legendY = padT + 4;
-                slices.forEach(function(s) {
-                    ctx.fillStyle = s.color;
-                    ctx.fillRect(padL + 6, legendY, 10, 2);
-                    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#ddd';
-                    ctx.fillText(s.name, padL + 20, legendY + 6);
-                    legendY += 12;
-                });
+                // 十字カーソル描画（最近傍スペクトルにスナップ）
+                if (spectrumHoverNorm !== null) {
+                    const curX = padL + spectrumHoverNorm * plotW;
+                    const fHz = spectrumHoverNorm * maxF;
+
+                    // 各スライスのカーソル周波数でのy座標とdB値を計算
+                    const sliceSnaps = [];
+                    slices.forEach(function(s) {
+                        if (range <= 0) { return; }
+                        const origMaxF = s.slice.originalMaxFrequencyHz || s.slice.maxFrequencyHz;
+                        const binF = (fHz / Math.max(origMaxF, 1)) * Math.max(s.slice.frequencyBins - 1, 1);
+                        const binIdx = Math.max(0, Math.min(s.slice.frequencyBins - 1, Math.round(binF)));
+                        const dbVal = s.slice.values[binIdx];
+                        if (dbVal === undefined) { return; }
+                        const norm = Math.max(0, Math.min(1, (dbVal - minDb) / range));
+                        const snapY = padT + (1 - norm) * plotH;
+                        sliceSnaps.push({ s: s, dbVal: dbVal, snapY: snapY });
+                    });
+
+                    // マウスy位置に最も近いスライスを選択
+                    const mouseY = spectrumHoverYFrac !== null ? spectrumHoverYFrac * H : null;
+                    let nearest = null;
+                    if (mouseY !== null && sliceSnaps.length > 0) {
+                        let minDist = Infinity;
+                        sliceSnaps.forEach(function(item) {
+                            const dist = Math.abs(item.snapY - mouseY);
+                            if (dist < minDist) { minDist = dist; nearest = item; }
+                        });
+                    } else if (sliceSnaps.length > 0) {
+                        nearest = sliceSnaps[0];
+                    }
+
+                    // 最近傍スライスを太い線で再描画（ハイライト）
+                    if (nearest) {
+                        ctx.save();
+                        ctx.strokeStyle = nearest.s.color;
+                        ctx.lineWidth = 2.5;
+                        ctx.beginPath();
+                        const fBinsH = nearest.s.slice.frequencyBins;
+                        const origMaxFH = nearest.s.slice.originalMaxFrequencyHz || nearest.s.slice.maxFrequencyHz;
+                        for (let i = 0; i < fBinsH; i++) {
+                            const f = (i / Math.max(fBinsH - 1, 1)) * origMaxFH;
+                            if (f > maxF) { break; }
+                            const x = padL + (f / maxF) * plotW;
+                            const v = nearest.s.slice.values[i];
+                            const n = Math.max(0, Math.min(1, (v - minDb) / range));
+                            const y = padT + (1 - n) * plotH;
+                            if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+                        }
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+
+                    // 十字カーソル
+                    ctx.save();
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([3, 3]);
+                    // 縦線（周波数軸）
+                    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+                    ctx.beginPath();
+                    ctx.moveTo(curX, padT); ctx.lineTo(curX, H - padB);
+                    ctx.stroke();
+                    // 横線（最近傍スペクトルのdB値にスナップ）
+                    if (nearest) {
+                        ctx.strokeStyle = nearest.s.color;
+                        ctx.beginPath();
+                        ctx.moveTo(padL, nearest.snapY); ctx.lineTo(W - padR, nearest.snapY);
+                        ctx.stroke();
+                    }
+                    ctx.setLineDash([]);
+                    ctx.restore();
+
+                    // 周波数・dB 読み取り値をヘッダースパンに表示（canvas 上には描かない）
+                    const readoutEl = document.getElementById('spectrum-freq-readout');
+                    if (readoutEl) {
+                        let txt = formatHz(fHz);
+                        if (nearest) {
+                            txt += '  ' + nearest.dbVal.toFixed(1) + ' dB';
+                            readoutEl.style.color = nearest.s.color;
+                        } else {
+                            readoutEl.style.color = '';
+                        }
+                        readoutEl.textContent = txt;
+                    }
+                } else {
+                    const readoutEl = document.getElementById('spectrum-freq-readout');
+                    if (readoutEl) { readoutEl.textContent = ''; readoutEl.style.color = ''; }
+                }
             }
 
             function refreshSpectrumViews() {
