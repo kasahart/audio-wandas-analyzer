@@ -46,6 +46,11 @@ function loadSpectrogramSettings(context: vscode.ExtensionContext): SpectrogramS
     return stored ?? DEFAULT_SPECTROGRAM_SETTINGS;
 }
 
+function loadPersistedStftOptions(context: vscode.ExtensionContext): StftOptions | undefined {
+    const settings = loadSpectrogramSettings(context);
+    return settings.auto ? undefined : settings.stft;
+}
+
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 const panelResultFilePaths = new WeakMap<vscode.WebviewPanel, string[]>();
 const panelPythonEnvironmentDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
@@ -348,7 +353,11 @@ function registerPanelMessageHandler(
                 ];
 
                 if (uncachedSelectedFilePaths.length > 0) {
-                    const newResults = await analyzeFilesWithProgress(context, uncachedSelectedFilePaths);
+                    const newResults = await analyzeFilesWithProgress(
+                        context,
+                        uncachedSelectedFilePaths,
+                        loadPersistedStftOptions(context),
+                    );
                     const currentSelectionAfterLoad = panelDirectorySelections.get(panel);
                     if (!currentSelectionAfterLoad) {
                         return;
@@ -699,7 +708,7 @@ async function analyzeMultipleFiles(
 ): Promise<void> {
     let results: AnalysisResultWithError[];
     try {
-        results = await analyzeFilesWithProgress(context, filePaths);
+        results = await analyzeFilesWithProgress(context, filePaths, loadPersistedStftOptions(context));
     } catch (err) {
         if (err instanceof vscode.CancellationError) { return; }
         throw err;
