@@ -2,14 +2,22 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getRenderHtml } from '../helpers/comparisonScriptLoader';
 
-const WAVEFORM_PIPELINE_JS = readFileSync(
-    join(__dirname, '..', '..', '..', 'dist', 'webview', 'comparisonWaveform.js'),
-    'utf8',
-);
-
 const SILENT_WAV_DATA_URI = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
 
 export function buildUiSmokeHtml(): string {
+    let waveformPipelineJs: string;
+    try {
+        waveformPipelineJs = readFileSync(
+            join(__dirname, '..', '..', '..', 'dist', 'webview', 'comparisonWaveform.js'),
+            'utf8',
+        );
+    } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+            throw new Error('Cannot read dist/webview/comparisonWaveform.js — run `npm run compile` first');
+        }
+        throw error;
+    }
+
     const html = getRenderHtml({
         mode: 'results',
         results: [
@@ -77,6 +85,6 @@ window.acquireVsCodeApi = function() {
         .replace('<div id="app"></div>', `<div id="app"></div>\n    ${vscodeApiStub}`)
         .replace(
             '<script src="__WAVEFORM_PIPELINE__"></script>',
-            `<script nonce="${nonce}">${WAVEFORM_PIPELINE_JS}</script>`,
+            `<script nonce="${nonce}">${waveformPipelineJs}</script>`,
         );
 }
