@@ -478,6 +478,7 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="zoom-out">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in">＋</button>'
                     + '<button class="tb-btn" data-action="zoom-reset">' + escHtml(STR.btnZoomReset) + '</button>'
+                    + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection" title="' + escHtml(STR.btnZoomToSelectionTitle) + '" disabled>' + escHtml(STR.btnZoomToSelection) + '</button>'
                     + '<button class="tb-btn" data-action="toggle-follow-cursor" title="' + escHtml(STR.btnFollowCursorTitle) + '">' + escHtml(STR.btnFollowCursor) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
@@ -1372,6 +1373,29 @@ export function getComparisonRenderScript(): string {
                             if (tidx !== null) { toggleSolo(tidx); }
                             return;
                         }
+
+                        // F → follow-cursor トグル
+                        if (e.key === 'f' || e.key === 'F') {
+                            e.preventDefault();
+                            followCursor = !followCursor;
+                            const fcBtn = document.querySelector('[data-action="toggle-follow-cursor"]');
+                            if (fcBtn) { fcBtn.classList.toggle('is-active', followCursor); }
+                            scheduleRender();
+                            return;
+                        }
+
+                        // L → zoom-to-selection (ループ選択範囲にズーム)
+                        if (e.key === 'l' || e.key === 'L') {
+                            e.preventDefault();
+                            if (loopRegion) {
+                                const pad = (loopRegion.end - loopRegion.start) * 0.05;
+                                disableFollowCursor();
+                                zoomStart = Math.max(0, loopRegion.start - pad);
+                                zoomEnd = Math.min(1, loopRegion.end + pad);
+                                scheduleRender();
+                            }
+                            return;
+                        }
                     }
 
                     // ── Space: グローバル再生/停止トグル (入力要素以外で有効) ──
@@ -1627,6 +1651,14 @@ export function getComparisonRenderScript(): string {
                     const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
                     if (btn) { btn.classList.toggle('is-active', followCursor); }
                     scheduleRender();
+                } else if (action === 'zoom-to-selection') {
+                    if (loopRegion) {
+                        const pad = (loopRegion.end - loopRegion.start) * 0.05;
+                        disableFollowCursor();
+                        zoomStart = Math.max(0, loopRegion.start - pad);
+                        zoomEnd = Math.min(1, loopRegion.end + pad);
+                        scheduleRender();
+                    }
                 } else if (action === 'run-recipe') {
                     vscode.postMessage({ type: 'run-recipe' });
                 } else if (action === 'copy-spec') {
@@ -1643,6 +1675,11 @@ export function getComparisonRenderScript(): string {
                 followCursor = false;
                 const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
                 if (btn) { btn.classList.remove('is-active'); }
+            }
+
+            function updateZoomToSelectionBtn() {
+                var btn = document.getElementById('btn-zoom-to-selection');
+                if (btn) { btn.disabled = !loopRegion; }
             }
 
             function exportPng() {
@@ -1874,21 +1911,21 @@ export function getComparisonRenderScript(): string {
                     const norm = Math.max(0, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
                     const s = Math.min(dragState.startNorm, norm);
                     const end = Math.max(dragState.startNorm, norm);
-                    if (end > s) { loopRegion = { start: s, end: end }; updateLoopTimeDisplay(); }
+                    if (end > s) { loopRegion = { start: s, end: end }; updateLoopTimeDisplay(); updateZoomToSelectionBtn(); }
                 } else if (dragState.dragType === 'gripStart') {
                     const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
                     if (!canvasEl || !loopRegion) { scheduleRender(); return; }
                     const rect = canvasEl.getBoundingClientRect();
                     const x = e.clientX - rect.left;
                     const norm = Math.max(0, Math.min(loopRegion.end - 0.001, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
-                    loopRegion = { start: norm, end: loopRegion.end }; updateLoopTimeDisplay();
+                    loopRegion = { start: norm, end: loopRegion.end }; updateLoopTimeDisplay(); updateZoomToSelectionBtn();
                 } else if (dragState.dragType === 'gripEnd') {
                     const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
                     if (!canvasEl || !loopRegion) { scheduleRender(); return; }
                     const rect = canvasEl.getBoundingClientRect();
                     const x = e.clientX - rect.left;
                     const norm = Math.max(loopRegion.start + 0.001, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
-                    loopRegion = { start: loopRegion.start, end: norm }; updateLoopTimeDisplay();
+                    loopRegion = { start: loopRegion.start, end: norm }; updateLoopTimeDisplay(); updateZoomToSelectionBtn();
                 }
                 scheduleRender();
             }
@@ -1906,6 +1943,7 @@ export function getComparisonRenderScript(): string {
                         cursorNorm = Math.max(0, Math.min(1, norm));
                         loopRegion = null;
                         updateLoopTimeDisplay();
+                        updateZoomToSelectionBtn();
                         updateCursorDisplay(cursorNorm);
                         scheduleRender();
                     }
@@ -2524,6 +2562,8 @@ export function getComparisonRenderScript(): string {
                     ['← / →',         STR.helpRowArrow],
                     ['+ / − / 0',     STR.helpRowZoomKeys],
                     ['M / S',         STR.helpRowMuteSolo],
+                    ['F',             STR.helpRowFollowCursor],
+                    ['L',             STR.helpRowZoomToSelection],
                     ['Wheel',         STR.helpRowWheel],
                     ['Ctrl+Wheel',    STR.helpRowCtrlWheel],
                     ['Drag',          STR.helpRowDrag],

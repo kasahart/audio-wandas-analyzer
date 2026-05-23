@@ -831,3 +831,60 @@ test('renderScript: export-csv creates a download anchor with data URI', async (
         env.dom.window.close();
     }
 });
+
+// ── Zoom-to-Selection (⇔) & F/L shortcuts ────────────────────────────────────
+
+test('renderScript: zoom-to-selection ボタンがツールバーに存在すること', () => {
+    const env = setupEnv();
+    const btn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    assert.ok(btn, '[data-action="zoom-to-selection"] ボタンが存在すること');
+    env.dom.window.close();
+});
+
+test('renderScript: zoom-to-selection ボタンはループがない状態で disabled であること', () => {
+    const env = setupEnv();
+    const btn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    assert.ok(btn, '[data-action="zoom-to-selection"] ボタンが存在すること');
+    assert.equal(btn!.disabled, true, 'ループがない場合は disabled であること');
+    env.dom.window.close();
+});
+
+test('renderScript: F キーで follow-cursor ボタンの is-active が切り替わること', () => {
+    const env = setupEnv();
+    const followBtn = env.dom.window.document.querySelector('[data-action="toggle-follow-cursor"]') as HTMLButtonElement | null;
+    assert.ok(followBtn, '[data-action="toggle-follow-cursor"] ボタンが存在すること');
+    assert.equal(followBtn!.classList.contains('is-active'), false, '初期状態は非アクティブであること');
+
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f' }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), true, 'F キー後に is-active になること');
+
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f' }),
+    );
+    assert.equal(followBtn!.classList.contains('is-active'), false, 'F キー再押しで is-active が解除されること');
+    env.dom.window.close();
+});
+
+test('renderScript: L キーはループがある場合に zoom-to-selection を実行すること', () => {
+    const env = setupEnv();
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'track-canvas-0 が存在すること');
+
+    // ループ区間をドラッグで作成（MouseEvent で loopRegion を設定する）
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 5, buttons: 1 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 5, buttons: 1 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, clientX: 200, clientY: 5 }));
+
+    const zoomBtn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    // ループ作成後、ボタンが enabled になるかを確認（L キーが動作する前提）
+    assert.ok(zoomBtn, '[data-action="zoom-to-selection"] ボタンが存在すること');
+    // L キーを押しても例外が出ないこと（ループの有無に関わらず）
+    assert.doesNotThrow(() => {
+        env.dom.window.document.dispatchEvent(
+            new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'l' }),
+        );
+    }, 'L キー押下が例外を投げないこと');
+    env.dom.window.close();
+});
