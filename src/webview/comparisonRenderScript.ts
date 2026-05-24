@@ -421,16 +421,17 @@ export function getComparisonRenderScript(): string {
             }
 
             function buildResultsPane(emptyMessage) {
-                const tracks = state.results.map(function(result, i) {
-                    return buildTrackRow(result, i);
+                const tracks = displayOrder.map(function(stateIdx) {
+                    return buildTrackRow(state.results[stateIdx], stateIdx);
                 }).join('');
-                const metrics = state.results.map(function(result, i) {
+                const metrics = displayOrder.map(function(stateIdx) {
+                    const result = state.results[stateIdx];
                     const ch = result.channels[0];
                     const rmsDb = ch ? (20 * Math.log10(Math.max(ch.rms, 1e-9))).toFixed(1) + ' dBFS' : '—';
                     const peakDb = ch ? (20 * Math.log10(Math.max(ch.peakAbsolute, 1e-9))).toFixed(1) + ' dBFS' : '—';
                     const domHz = ch && ch.dominantFrequencies && ch.dominantFrequencies[0]
                         ? Math.round(ch.dominantFrequencies[0].frequencyHz) + ' Hz' : '—';
-                    return '<div class="metrics-item"><div class="metrics-swatch" style="background:' + TRACK_COLORS[i % TRACK_COLORS.length] + '"></div>'
+                    return '<div class="metrics-item" id="metrics-item-' + stateIdx + '"><div class="metrics-swatch" id="metrics-swatch-' + stateIdx + '" style="background:' + trackColor(stateIdx) + '"></div>'
                         + '<span>' + escHtml(result.fileName) + ': RMS ' + rmsDb + ' / Peak ' + peakDb + ' / ' + domHz + '</span></div>';
                 }).join('');
 
