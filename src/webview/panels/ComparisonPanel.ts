@@ -330,6 +330,7 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
     <style>${renderComparisonStyles()}</style>
 </head>
 <body>
+    <div id="a11y-announce" role="status" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
     <div id="app"></div>
     <script src="${waveformScriptUri}"></script>
     <script nonce="${nonce}">
@@ -339,7 +340,6 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
         ${renderComparisonScript()}
     </script>
     <div id="canvas-tooltip"></div>
-    <div id="a11y-announce" role="status" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
 </body>
 </html>`;
 }
@@ -389,7 +389,11 @@ export function renderComparisonStyles(): string {
             --track-header-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
         }
         @media (forced-colors: active) {
-            :root {
+            :root,
+            body,
+            body.vscode-dark, body.vscode-light,
+            body.vscode-high-contrast, body.vscode-high-contrast-light,
+            body[data-theme-kind] {
                 --line:            ButtonBorder;
                 --text:            ButtonText;
                 --muted:           GrayText;
