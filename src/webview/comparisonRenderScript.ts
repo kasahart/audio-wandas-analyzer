@@ -41,7 +41,8 @@ export function getComparisonRenderScript(): string {
                 tooltip: 'Click to select Python interpreter',
             };
 
-            const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc'];
+            const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc',
+                                   '#f0c040','#40b0d0','#d09060','#80c080','#a0a0ff'];
 
             function hexToRgba(hex, alpha) {
                 const r = parseInt(hex.slice(1, 3), 16);
@@ -78,8 +79,14 @@ export function getComparisonRenderScript(): string {
             const lastWaveformCoverage = state.results.map(function() { return null; });
 
             const trackRuntime = state.results.map(function() {
-                return { offsetSeconds: 0, hidden: false };
+                return { offsetSeconds: 0, hidden: false, color: null };
             });
+
+            let displayOrder = state.results.map(function(_, i) { return i; });
+
+            function trackColor(i) {
+                return (trackRuntime[i] && trackRuntime[i].color) || TRACK_COLORS[i % TRACK_COLORS.length];
+            }
 
             function showTooltip(e, text) {
                 const el = document.getElementById('canvas-tooltip');
@@ -371,6 +378,7 @@ export function getComparisonRenderScript(): string {
                             spectrumPerTrack: spectrumPerTrack,
                             waveformPerTrack: waveformPerTrack,
                         },
+                        displayOrder: displayOrder.slice(),
                         tracks: trackInfo,
                     },
                 });
@@ -414,16 +422,17 @@ export function getComparisonRenderScript(): string {
             }
 
             function buildResultsPane(emptyMessage) {
-                const tracks = state.results.map(function(result, i) {
-                    return buildTrackRow(result, i);
+                const tracks = displayOrder.map(function(stateIdx) {
+                    return buildTrackRow(state.results[stateIdx], stateIdx);
                 }).join('');
-                const metrics = state.results.map(function(result, i) {
+                const metrics = displayOrder.map(function(stateIdx) {
+                    const result = state.results[stateIdx];
                     const ch = result.channels[0];
                     const rmsDb = ch ? (20 * Math.log10(Math.max(ch.rms, 1e-9))).toFixed(1) + ' dBFS' : '—';
                     const peakDb = ch ? (20 * Math.log10(Math.max(ch.peakAbsolute, 1e-9))).toFixed(1) + ' dBFS' : '—';
                     const domHz = ch && ch.dominantFrequencies && ch.dominantFrequencies[0]
                         ? Math.round(ch.dominantFrequencies[0].frequencyHz) + ' Hz' : '—';
-                    return '<div class="metrics-item"><div class="metrics-swatch" style="background:' + TRACK_COLORS[i % TRACK_COLORS.length] + '"></div>'
+                    return '<div class="metrics-item" id="metrics-item-' + stateIdx + '"><div class="metrics-swatch" id="metrics-swatch-' + stateIdx + '" style="background:' + trackColor(stateIdx) + '"></div>'
                         + '<span>' + escHtml(result.fileName) + ': RMS ' + rmsDb + ' / Peak ' + peakDb + ' / ' + domHz + '</span></div>';
                 }).join('');
 
@@ -517,8 +526,12 @@ export function getComparisonRenderScript(): string {
             function buildTrackRow(result, i) {
                 return '<div class="track-row" id="track-row-' + i + '" data-track-index="' + i + '">'
                     + '<div class="track-header">'
-                    + '  <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
-                    + (result.channels && result.channels[0] && result.channels[0].peakAbsolute >= 0.99 ? '  <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+                    + '  <div class="track-title-row">'
+                    + '    <div class="track-drag-handle" draggable="true" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaDragHandle) + '" title="' + escHtml(STR.ariaDragHandle) + '">≡</div>'
+                    + '    <div class="track-color-swatch" data-action="pick-color" data-track-index="' + i + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escHtml(STR.ariaPickColor) + '" title="' + escHtml(STR.trackPickColor) + '"></div>'
+                    + '    <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
+                    + (result.channels && result.channels[0] && result.channels[0].peakAbsolute >= 0.99 ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+                    + '  </div>'
                     + '  <div class="track-meta">Ch: ' + result.channelCount + ' &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
                     + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
@@ -620,7 +633,8 @@ export function getComparisonRenderScript(): string {
             }
 
             function renderStackedTracks() {
-                state.results.forEach(function(result, i) {
+                displayOrder.forEach(function(i) {
+                    const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
                     if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     // 前回のエラーオーバーレイを除去
@@ -658,7 +672,7 @@ export function getComparisonRenderScript(): string {
                     }
                     const canvas = document.getElementById('track-canvas-' + i);
                     if (!canvas) { return; }
-                    const color = TRACK_COLORS[i % TRACK_COLORS.length];
+                    const color = trackColor(i);
                     if (contentType === 'waveform') {
                         drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     } else {
@@ -1233,8 +1247,9 @@ export function getComparisonRenderScript(): string {
                 }
 
                 document.getElementById('tracks-wrapper').addEventListener('click', function(e) {
-                    const action = e.target.getAttribute('data-action');
-                    const idx = parseInt(e.target.getAttribute('data-track-index'), 10);
+                    const tgt = e.target;
+                    const action = tgt.getAttribute ? tgt.getAttribute('data-action') : null;
+                    const idx = parseInt(tgt.getAttribute ? tgt.getAttribute('data-track-index') : 'NaN', 10);
                     if (action === 'toggle-mute' && !isNaN(idx)) { toggleMute(idx); }
                     if (action === 'toggle-solo' && !isNaN(idx)) { toggleSolo(idx); }
                     if (action === 'toggle-playback' && !isNaN(idx)) { togglePlayback(idx); }
@@ -1242,6 +1257,22 @@ export function getComparisonRenderScript(): string {
                     if (action === 'remove-track' && !isNaN(idx)) { removeTrack(idx); }
                     if (action === 'offset-up' && !isNaN(idx)) { adjustOffset(idx, 0.01); }
                     if (action === 'offset-down' && !isNaN(idx)) { adjustOffset(idx, -0.01); }
+                    if (action === 'pick-color' && !isNaN(idx)) {
+                        var anchor = tgt.closest ? tgt.closest('[data-action="pick-color"]') : tgt;
+                        openColorPicker(idx, anchor);
+                    }
+                });
+
+                document.getElementById('tracks-wrapper').addEventListener('keydown', function(e) {
+                    if (e.key !== 'Enter' && e.key !== ' ') { return; }
+                    var tgt2 = e.target;
+                    var action2 = tgt2.getAttribute ? tgt2.getAttribute('data-action') : null;
+                    var idx2 = parseInt(tgt2.getAttribute ? tgt2.getAttribute('data-track-index') : 'NaN', 10);
+                    if (action2 === 'pick-color' && !isNaN(idx2)) {
+                        e.preventDefault();
+                        var anchor2 = tgt2.closest ? tgt2.closest('[data-action="pick-color"]') : tgt2;
+                        openColorPicker(idx2, anchor2);
+                    }
                 });
 
                 let _offsetEditTimer = null;
@@ -1325,6 +1356,47 @@ export function getComparisonRenderScript(): string {
                     if (e.ctrlKey) { handleZoomWheel(e); }
                     else if (e.shiftKey) { handlePanWheel(e); }
                 }, { passive: false });
+
+                var stackedWrap = document.getElementById('stacked-wrap');
+                if (stackedWrap) {
+                    stackedWrap.addEventListener('dragstart', function(e) {
+                        var handle = e.target.closest ? e.target.closest('.track-drag-handle') : null;
+                        if (!handle) { e.preventDefault(); return; }
+                        reorderDragFrom = parseInt(handle.getAttribute('data-track-index'), 10);
+                        if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; }
+                        var row = document.getElementById('track-row-' + reorderDragFrom);
+                        if (row) { row.style.opacity = '0.4'; }
+                    });
+
+                    stackedWrap.addEventListener('dragover', function(e) {
+                        if (reorderDragFrom === null) { return; }
+                        e.preventDefault();
+                        if (e.dataTransfer) { e.dataTransfer.dropEffect = 'move'; }
+                        var row = e.target.closest ? e.target.closest('.track-row') : null;
+                        document.querySelectorAll('.track-row').forEach(function(r) { r.classList.remove('drag-over'); });
+                        if (row) {
+                            var toIdx = parseInt(row.getAttribute('data-track-index'), 10);
+                            if (!isNaN(toIdx) && toIdx !== reorderDragFrom) { row.classList.add('drag-over'); }
+                        }
+                    });
+
+                    stackedWrap.addEventListener('drop', function(e) {
+                        if (reorderDragFrom === null) { return; }
+                        e.preventDefault();
+                        var row = e.target.closest ? e.target.closest('.track-row') : null;
+                        if (row) {
+                            var toIdx = parseInt(row.getAttribute('data-track-index'), 10);
+                            if (!isNaN(toIdx) && toIdx !== reorderDragFrom) {
+                                reorderTracks(reorderDragFrom, toIdx);
+                            }
+                        }
+                        cleanupReorderDrag();
+                    });
+
+                    stackedWrap.addEventListener('dragend', function() {
+                        cleanupReorderDrag();
+                    });
+                }
 
                 window.addEventListener('resize', function() { scheduleRender(); });
                 attachAudioEvents();
@@ -2325,7 +2397,7 @@ export function getComparisonRenderScript(): string {
                         ctx.fillText(STR.canvasOutOfRange, W / 2, H / 2);
                         return;
                     }
-                    const color = TRACK_COLORS[i % TRACK_COLORS.length];
+                    const color = trackColor(i);
                     drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14);
                     drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 });
                     const ch0 = result.channels && result.channels[0];
@@ -2377,11 +2449,12 @@ export function getComparisonRenderScript(): string {
                 ctx.clearRect(0, 0, W, H);
 
                 const slices = [];
-                state.results.forEach(function(result, i) {
+                displayOrder.forEach(function(i) {
+                    const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
                     if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
-                    if (slice) { slices.push({ slice: slice, color: TRACK_COLORS[i % TRACK_COLORS.length], index: i, name: result.fileName }); }
+                    if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, name: result.fileName }); }
                 });
 
                 if (slices.length === 0) {
@@ -2573,9 +2646,14 @@ export function getComparisonRenderScript(): string {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }
                 const row = document.getElementById('track-row-' + idx);
                 if (row) { row.remove(); }
+                var metricsItem = document.getElementById('metrics-item-' + idx);
+                if (metricsItem) { metricsItem.remove(); }
                 const audio = getTrackAudio(idx);
                 if (audio) { audio.remove(); }
                 trackRuntime[idx].hidden = true;
+                var pos = displayOrder.indexOf(idx);
+                if (pos !== -1) { displayOrder.splice(pos, 1); }
+                if (__colorPickTarget === idx) { closeColorPicker(); }
                 updateVisibility();
                 scheduleRender();
                 refreshSpectrumViews();
@@ -2829,12 +2907,134 @@ export function getComparisonRenderScript(): string {
                         const old = state.results[i];
                         return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
                     });
+                    displayOrder = state.results.map(function(_, i) { return i; });
                     scheduleRender();
                     refreshSpectrumViews();
                     requestAnimationFrame(function() { publishTestSnapshot(); });
                     return;
                 }
             });
+
+            // ── Track drag reorder ──
+            var reorderDragFrom = null;
+
+            function reorderTracks(fromStateIdx, toStateIdx) {
+                var fromPos = displayOrder.indexOf(fromStateIdx);
+                var toPos   = displayOrder.indexOf(toStateIdx);
+                if (fromPos === -1 || toPos === -1) { return; }
+                displayOrder.splice(fromPos, 1);
+                displayOrder.splice(toPos, 0, fromStateIdx);
+                var wrap = document.getElementById('stacked-wrap');
+                if (wrap) {
+                    displayOrder.forEach(function(idx) {
+                        var row = document.getElementById('track-row-' + idx);
+                        if (row) { wrap.appendChild(row); }
+                    });
+                }
+                var metricsBar = document.getElementById('metrics-bar');
+                if (metricsBar) {
+                    displayOrder.forEach(function(idx) {
+                        var item = document.getElementById('metrics-item-' + idx);
+                        if (item) { metricsBar.appendChild(item); }
+                    });
+                }
+                scheduleRender();
+                refreshSpectrumViews();
+            }
+
+            function cleanupReorderDrag() {
+                if (reorderDragFrom !== null) {
+                    var row = document.getElementById('track-row-' + reorderDragFrom);
+                    if (row) { row.style.opacity = ''; }
+                }
+                document.querySelectorAll('.track-row').forEach(function(r) {
+                    r.classList.remove('drag-over');
+                });
+                reorderDragFrom = null;
+            }
+
+            // ── Color picker popover ──
+            var __colorPickTarget = null;
+
+            function openColorPicker(stateIdx, anchorEl) {
+                __colorPickTarget = stateIdx;
+                var pop = document.getElementById('color-picker-popover');
+                if (!pop) { return; }
+                var rect = anchorEl.getBoundingClientRect();
+                pop.style.top  = (rect.bottom + 4) + 'px';
+                pop.style.left = rect.left + 'px';
+                pop.removeAttribute('hidden');
+            }
+
+            function closeColorPicker() {
+                var pop = document.getElementById('color-picker-popover');
+                if (pop) { pop.setAttribute('hidden', ''); }
+                __colorPickTarget = null;
+            }
+
+            (function __buildColorPopover() {
+                var swatches = TRACK_COLORS.map(function(hex) {
+                    return '<div class="color-palette-swatch" data-color="' + hex + '"'
+                         + ' style="background:' + hex + '" role="button" tabindex="0"'
+                         + ' aria-label="' + hex + '"></div>';
+                }).join('');
+                var html = '<div id="color-picker-popover" hidden'
+                    + ' style="position:fixed;z-index:9999;background:var(--panel);'
+                    + 'border:1px solid var(--line);padding:8px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.4);">'
+                    + '<div style="display:flex;flex-wrap:wrap;gap:4px;width:148px">' + swatches + '</div>'
+                    + '<button id="color-reset-btn" style="margin-top:6px;width:100%;font-size:11px;'
+                    + 'background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:2px;cursor:pointer;padding:2px 0">'
+                    + escHtml(STR.trackColorReset) + '</button>'
+                    + '</div>';
+                var container = document.createElement('div');
+                container.innerHTML = html;
+                document.body.appendChild(container.firstChild);
+
+                var pop = document.getElementById('color-picker-popover');
+                pop.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        closeColorPicker();
+                        return;
+                    }
+                    if (e.key !== 'Enter' && e.key !== ' ') { return; }
+                    var sw = e.target.closest ? e.target.closest('.color-palette-swatch') : null;
+                    if (sw) { e.preventDefault(); sw.click(); }
+                });
+                pop.addEventListener('click', function(e) {
+                    var sw = e.target.closest ? e.target.closest('.color-palette-swatch') : null;
+                    if (sw && __colorPickTarget !== null) {
+                        var hex = sw.getAttribute('data-color');
+                        trackRuntime[__colorPickTarget].color = hex;
+                        var hs = document.querySelector('[data-action="pick-color"][data-track-index="' + __colorPickTarget + '"]');
+                        if (hs) { hs.style.background = hex; }
+                        var ms = document.getElementById('metrics-swatch-' + __colorPickTarget);
+                        if (ms) { ms.style.background = hex; }
+                        scheduleRender();
+                        refreshSpectrumViews();
+                        closeColorPicker();
+                        return;
+                    }
+                    if (e.target.id === 'color-reset-btn' && __colorPickTarget !== null) {
+                        trackRuntime[__colorPickTarget].color = null;
+                        var def = trackColor(__colorPickTarget);
+                        var hs2 = document.querySelector('[data-action="pick-color"][data-track-index="' + __colorPickTarget + '"]');
+                        if (hs2) { hs2.style.background = def; }
+                        var ms2 = document.getElementById('metrics-swatch-' + __colorPickTarget);
+                        if (ms2) { ms2.style.background = def; }
+                        scheduleRender();
+                        refreshSpectrumViews();
+                        closeColorPicker();
+                    }
+                });
+
+                document.addEventListener('click', function(e) {
+                    var pop2 = document.getElementById('color-picker-popover');
+                    if (!pop2 || pop2.hasAttribute('hidden')) { return; }
+                    var clickedSwatch = e.target.closest ? e.target.closest('[data-action="pick-color"]') : null;
+                    if (pop2.contains(e.target) || clickedSwatch) { return; }
+                    closeColorPicker();
+                }, true);
+            })();
 
             __updateSpecGearVisibility();
         })();
