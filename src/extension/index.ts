@@ -18,6 +18,7 @@ import {
     isSelectTargetMessage,
     isSupportedAudioFile,
     isRequestWaveformRangeMessage,
+    isExportReportOptionsMessage,
     type SelectionTargetKind,
 } from '../shared/utils/audioTarget';
 import {
@@ -27,6 +28,7 @@ import {
     sanitizeSelectedAudioFilePaths,
 } from '../shared/utils/directorySelection';
 import { getDebugStartupBehavior } from '../shared/utils/startupDebug';
+import { getStrings } from '../shared/i18n/strings';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import {
     checkAndPromptInstallDependencies,
@@ -518,6 +520,39 @@ function registerPanelMessageHandler(
                 if (typeof msg === 'string') {
                     void vscode.window.showInformationMessage(msg);
                 }
+                return;
+            }
+
+            if (isExportReportOptionsMessage(message)) {
+                const str = getStrings(vscode.env.language);
+                const format = await vscode.window.showQuickPick(
+                    [
+                        { label: str.reportFormatMarkdown, value: 'markdown' as const },
+                        { label: str.reportFormatNotebook, value: 'notebook' as const },
+                    ],
+                    { placeHolder: str.reportFormatPlaceholder },
+                );
+                if (!format) { return; }
+
+                const ext = format.value === 'markdown' ? '.md' : '.ipynb';
+                const wsFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const defaultUri = wsFolder
+                    ? vscode.Uri.file(path.join(wsFolder, message.defaultName + ext))
+                    : undefined;
+                const saveUri = await vscode.window.showSaveDialog({
+                    defaultUri,
+                    filters: format.value === 'markdown'
+                        ? { Markdown: ['md'] }
+                        : { Notebook: ['ipynb'] },
+                    saveLabel: str.reportSaveLabel,
+                });
+                if (!saveUri) { return; }
+
+                const content = format.value === 'markdown'
+                    ? message.markdownContent
+                    : message.notebookContent;
+                await vscode.workspace.fs.writeFile(saveUri, Buffer.from(content, 'utf-8'));
+                void vscode.window.showInformationMessage(str.reportExportedPrefix + saveUri.fsPath);
                 return;
             }
         } catch (error) {

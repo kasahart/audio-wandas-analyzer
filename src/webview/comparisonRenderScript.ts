@@ -506,6 +506,7 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="export-png" title="' + escHtml(STR.btnExportPngTitle) + '">' + escHtml(STR.btnExportPng) + '</button>'
                     + '<button class="tb-btn" data-action="export-csv" title="' + escHtml(STR.btnExportCsvTitle) + '">' + escHtml(STR.btnExportCsv) + '</button>'
                     + '<button class="tb-btn" data-action="export-wav" title="' + escHtml(STR.btnExportWavTitle) + '">' + escHtml(STR.btnExportWav) + '</button>'
+                    + '<button class="tb-btn" data-action="export-report" title="' + escHtml(STR.btnExportReportTitle) + '">' + escHtml(STR.btnExportReport) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
                     + '<span id="playback-display" title="' + escHtml(STR.playbackDisplayTitle) + '"></span>'
@@ -1678,6 +1679,8 @@ export function getComparisonRenderScript(): string {
                     exportCsv();
                 } else if (action === 'export-wav') {
                     exportWavLoop();
+                } else if (action === 'export-report') {
+                    exportReport();
                 }
             }
 
@@ -1800,6 +1803,139 @@ export function getComparisonRenderScript(): string {
                     filePaths: visiblePaths,
                     startNorm: loopRegion.start,
                     endNorm: loopRegion.end,
+                });
+            }
+
+            // --- Report export helpers ---
+
+            function _fmtSec(secs) {
+                var m = Math.floor(secs / 60);
+                var s = (secs - m * 60).toFixed(3);
+                return (m > 0 ? m + 'm ' : '') + s + 's';
+            }
+
+            function _dbfs(rms) {
+                return (20 * Math.log10(Math.max(rms, 1e-9))).toFixed(1) + ' dBFS';
+            }
+
+            function buildMarkdownReport() {
+                var now = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+                var lines = [
+                    '# Audio Analysis Report',
+                    '',
+                    '**Generated:** ' + now,
+                    '',
+                    '## Tracks',
+                    '',
+                    '| File | Sample Rate | Duration | Channels | RMS | Peak |',
+                    '|------|-------------|----------|----------|-----|------|',
+                ];
+                (state.results || []).forEach(function(r) {
+                    var ch0 = r.channels && r.channels[0];
+                    var rms = ch0 ? _dbfs(ch0.rms) : '-';
+                    var peak = ch0 ? _dbfs(ch0.peakAbsolute) : '-';
+                    var dur = r.durationSeconds ? _fmtSec(r.durationSeconds) : '-';
+                    var bt = String.fromCharCode(96);
+                    lines.push('| ' + bt + r.fileName + bt + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + rms + ' | ' + peak + ' |');
+                });
+                lines.push('');
+
+                // Loop region
+                if (loopRegion && state.results && state.results.length > 0) {
+                    var refResult = state.results[0];
+                    var dur = refResult.durationSeconds || 0;
+                    var ls = (loopRegion.start * dur).toFixed(3);
+                    var le = (loopRegion.end * dur).toFixed(3);
+                    var ld = ((loopRegion.end - loopRegion.start) * dur).toFixed(3);
+                    lines.push('## Loop Region');
+                    lines.push('');
+                    lines.push('- Start: ' + ls + ' s');
+                    lines.push('- End: ' + le + ' s');
+                    lines.push('- Duration: ' + ld + ' s');
+                    lines.push('');
+                }
+
+                // Spectrum peaks
+                if (state.results && state.results.length > 0) {
+                    lines.push('## Spectral Peaks (first track)');
+                    lines.push('');
+                    var firstResult = state.results[0];
+                    var peaks = firstResult.channels && firstResult.channels.length > 0
+                        ? firstResult.channels[0].peaks
+                        : undefined;
+                    if (peaks && peaks.length > 0) {
+                        lines.push('| Frequency (Hz) | Level (dB) |');
+                        lines.push('|---------------|------------|');
+                        peaks.forEach(function(p) {
+                            lines.push('| ' + p.freqHz.toFixed(1) + ' | ' + p.amplitudeDb.toFixed(1) + ' |');
+                        });
+                        lines.push('');
+                    }
+                }
+
+                return lines.join('\\n');
+            }
+
+            function buildNotebook() {
+                var filePaths = (state.results || []).map(function(r) { return r.filePath; });
+                var loadCode = filePaths.map(function(p) {
+                    var safePath = p.split('\\\\').join('\\\\\\\\').split('"').join('\\\\"');
+                    return 'sig = wd.read_wav("' + safePath + '")\\n' +
+                           'sig.describe()';
+                }).join('\\n\\n');
+
+                var nb = {
+                    nbformat: 4,
+                    nbformat_minor: 5,
+                    metadata: {
+                        kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' },
+                        language_info: { name: 'python', version: '3.11' }
+                    },
+                    cells: [
+                        {
+                            cell_type: 'markdown',
+                            id: 'title',
+                            metadata: {},
+                            source: ['# Audio Analysis Report\\n', '\\nGenerated by Audio Wandas Analyzer\\n']
+                        },
+                        {
+                            cell_type: 'code',
+                            id: 'imports',
+                            metadata: {},
+                            outputs: [],
+                            source: ['import wandas as wd\\n']
+                        },
+                        {
+                            cell_type: 'markdown',
+                            id: 'files-header',
+                            metadata: {},
+                            source: ['## Files\\n']
+                        },
+                        {
+                            cell_type: 'code',
+                            id: 'load-files',
+                            metadata: {},
+                            outputs: [],
+                            source: [loadCode]
+                        }
+                    ]
+                };
+                return JSON.stringify(nb, null, 2);
+            }
+
+            function exportReport() {
+                if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
+                    vscode.postMessage({ type: 'show-info', message: STR.exportReportNoData });
+                    return;
+                }
+                var mdContent = buildMarkdownReport();
+                var nbContent = buildNotebook();
+                var defaultName = (state.results[0].fileName || 'analysis').replace(/\.[^.]+$/, '');
+                vscode.postMessage({
+                    type: 'export-report-options',
+                    defaultName: defaultName,
+                    markdownContent: mdContent,
+                    notebookContent: nbContent,
                 });
             }
 
