@@ -2296,6 +2296,10 @@ export function getComparisonRenderScript(): string {
                 const padB = (opts && opts.padB) || 0;
                 const plotW = W - padL - padR;
                 const plotH = H - padT - padB;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(padL, padT, plotW, plotH);
+                ctx.clip();
                 ctx.strokeStyle = color;
                 ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
                 ctx.beginPath();
@@ -2305,11 +2309,12 @@ export function getComparisonRenderScript(): string {
                     if (fHz > slice.maxFrequencyHz) { break; }
                     const x = padL + (fHz / slice.maxFrequencyHz) * plotW;
                     const v = slice.values[i];
-                    const norm = Math.max(0, Math.min(1, (v - slice.minDb) / range));
+                    const norm = (v - slice.minDb) / range;
                     const y = padT + (1 - norm) * plotH;
                     if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                 }
                 ctx.stroke();
+                ctx.restore();
             }
 
             function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB) {
