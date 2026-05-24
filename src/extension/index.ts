@@ -13,6 +13,7 @@ import {
 } from '../shared/analysis/analysisTypes';
 import {
     isAnalyzeSelectedFilesMessage,
+    isExportWavLoopMessage,
     isSelectPythonEnvironmentMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
@@ -460,6 +461,45 @@ function registerPanelMessageHandler(
                 }).catch(() => {
                     // Silently ignore — WebView falls back to overview data
                 });
+                return;
+            }
+
+            if (isExportWavLoopMessage(message)) {
+                if (!backendServer) { return; }
+                const folderUris = await vscode.window.showOpenDialog({
+                    canSelectFiles: false,
+                    canSelectFolders: true,
+                    canSelectMany: false,
+                    openLabel: 'Select output folder',
+                });
+                if (!folderUris || folderUris.length === 0) { return; }
+                const outFolder = folderUris[0];
+
+                for (const filePath of message.filePaths) {
+                    try {
+                        const result = await backendServer.exportWavLoop(
+                            filePath,
+                            message.startNorm,
+                            message.endNorm,
+                        );
+                        const baseName = path.basename(filePath, path.extname(filePath)) + '_loop.wav';
+                        const outUri = vscode.Uri.joinPath(outFolder, baseName);
+                        const buf = Buffer.from(result.wavBase64, 'base64');
+                        await vscode.workspace.fs.writeFile(outUri, buf);
+                    } catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        void vscode.window.showErrorMessage(`WAV export failed for ${path.basename(filePath)}: ${msg}`);
+                    }
+                }
+                void vscode.window.showInformationMessage(`WAV export complete → ${outFolder.fsPath}`);
+                return;
+            }
+
+            if (typeof message === 'object' && message !== null && (message as Record<string, unknown>)['type'] === 'show-info') {
+                const msg = (message as Record<string, unknown>)['message'];
+                if (typeof msg === 'string') {
+                    void vscode.window.showInformationMessage(msg);
+                }
                 return;
             }
         } catch (error) {

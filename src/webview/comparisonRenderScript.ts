@@ -505,6 +505,7 @@ export function getComparisonRenderScript(): string {
                     + '<div class="tb-sep"></div>'
                     + '<button class="tb-btn" data-action="export-png" title="' + escHtml(STR.btnExportPngTitle) + '">' + escHtml(STR.btnExportPng) + '</button>'
                     + '<button class="tb-btn" data-action="export-csv" title="' + escHtml(STR.btnExportCsvTitle) + '">' + escHtml(STR.btnExportCsv) + '</button>'
+                    + '<button class="tb-btn" data-action="export-wav" title="' + escHtml(STR.btnExportWavTitle) + '">' + escHtml(STR.btnExportWav) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
                     + '<span id="playback-display" title="' + escHtml(STR.playbackDisplayTitle) + '"></span>'
@@ -1675,6 +1676,8 @@ export function getComparisonRenderScript(): string {
                     exportPng();
                 } else if (action === 'export-csv') {
                     exportCsv();
+                } else if (action === 'export-wav') {
+                    exportWavLoop();
                 }
             }
 
@@ -1775,6 +1778,29 @@ export function getComparisonRenderScript(): string {
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
+            }
+
+            function exportWavLoop() {
+                if (!loopRegion) {
+                    vscode.postMessage({ type: 'show-info', message: STR.exportWavNoLoop });
+                    return;
+                }
+                if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
+                    return;
+                }
+                var visiblePaths = [];
+                state.results.forEach(function(result, i) {
+                    if (trackRuntime[i] && trackRuntime[i].hidden) { return; }
+                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
+                    visiblePaths.push(result.filePath);
+                });
+                if (visiblePaths.length === 0) { return; }
+                vscode.postMessage({
+                    type: 'export-wav-loop',
+                    filePaths: visiblePaths,
+                    startNorm: loopRegion.start,
+                    endNorm: loopRegion.end,
+                });
             }
 
             function zoomIn() {

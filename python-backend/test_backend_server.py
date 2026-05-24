@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
 import math
 import os
+import struct
 import subprocess
 import sys
 import time
@@ -11,6 +14,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
+from backend_server import handle_export_wav_loop
 
 ROOT = Path(__file__).parent
 
@@ -204,6 +209,33 @@ def test_heartbeat_loop_emits_valid_json(monkeypatch):
         msg = _json.loads(line)
         assert msg["type"] == "heartbeat"
         assert "ts" in msg
+
+
+def test_export_wav_loop(tmp_path: Path) -> None:
+    """export-wav-loop returns valid base64 WAV for the loop region."""
+    # Create a 2-second 440Hz sine wave WAV
+    sr = 44100
+    n = int(sr * 2.0)
+    samples = [int(32767 * math.sin(2 * math.pi * 440 * i / sr)) for i in range(n)]
+    with wave.open(str(tmp_path / "tone.wav"), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(struct.pack("<" + "h" * n, *samples))
+
+    result = handle_export_wav_loop(
+        {
+            "filePath": str(tmp_path / "tone.wav"),
+            "startNorm": 0.25,
+            "endNorm": 0.75,
+        }
+    )
+    assert "wavBase64" in result
+    assert "sampleRate" in result
+    raw = base64.b64decode(result["wavBase64"])
+    with wave.open(io.BytesIO(raw)) as w:
+        assert w.getnframes() > 0
+        assert w.getframerate() == result["sampleRate"]
 
 
 def test_lru_evicts_oldest_when_over_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
