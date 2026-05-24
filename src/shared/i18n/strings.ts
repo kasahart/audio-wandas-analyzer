@@ -100,6 +100,21 @@ export interface UiStrings {
     btnZoomToSelectionTitle: string;
     helpRowFollowCursor: string;
     helpRowZoomToSelection: string;
+    // Accessibility: toolbar aria-labels
+    ariaToolbar: string;
+    ariaZoomOut: string;
+    ariaZoomIn: string;
+    ariaZoomReset: string;
+    ariaToggleMute: string;
+    ariaToggleSolo: string;
+    ariaRemoveTrack: string;
+    ariaTrackPlay: string;
+    ariaTrackStop: string;
+    ariaOffsetUp: string;
+    ariaOffsetDown: string;
+    ariaOffsetValue: string;
+    ariaSelectionTree: string;
+    ariaSelectionTreeDir: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -190,6 +205,20 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnZoomToSelectionTitle: 'Zoom to loop selection (L)',
         helpRowFollowCursor: 'toggle follow-cursor (auto-scroll during playback)',
         helpRowZoomToSelection: 'zoom to loop selection',
+        ariaToolbar: 'Main toolbar',
+        ariaZoomOut: 'Zoom out',
+        ariaZoomIn: 'Zoom in',
+        ariaZoomReset: 'Reset zoom',
+        ariaToggleMute: 'Toggle mute',
+        ariaToggleSolo: 'Toggle solo',
+        ariaRemoveTrack: 'Remove track',
+        ariaTrackPlay: 'Play / pause track',
+        ariaTrackStop: 'Stop track',
+        ariaOffsetUp: 'Increase offset',
+        ariaOffsetDown: 'Decrease offset',
+        ariaOffsetValue: 'Track offset',
+        ariaSelectionTree: 'File selection tree',
+        ariaSelectionTreeDir: 'Directory',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -278,6 +307,20 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnZoomToSelectionTitle: 'ループ選択範囲にズーム (L)',
         helpRowFollowCursor: 'フォロー追従のオン/オフ（再生中にカーソルを追従）',
         helpRowZoomToSelection: 'ループ選択範囲にズーム',
+        ariaToolbar: 'メインツールバー',
+        ariaZoomOut: 'ズームアウト',
+        ariaZoomIn: 'ズームイン',
+        ariaZoomReset: 'ズームリセット',
+        ariaToggleMute: 'ミュート切替',
+        ariaToggleSolo: 'ソロ切替',
+        ariaRemoveTrack: 'トラックを削除',
+        ariaTrackPlay: 'トラックを再生／一時停止',
+        ariaTrackStop: 'トラックを停止',
+        ariaOffsetUp: 'オフセットを増やす',
+        ariaOffsetDown: 'オフセットを減らす',
+        ariaOffsetValue: 'トラックオフセット',
+        ariaSelectionTree: 'ファイル選択ツリー',
+        ariaSelectionTreeDir: 'ディレクトリ',
     },
 };
 

@@ -31,3 +31,39 @@ test('keyboard shortcut dialog traps focus on Tab and closes on Escape', async (
     await page.keyboard.press('Escape');
     await expect(page.locator('#help-overlay')).toBeHidden();
 });
+
+test('toolbar buttons have aria-labels and toolbar has role=toolbar', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+
+    // Verify toolbar has role="toolbar" and aria-label
+    const toolbar = page.locator('#toolbar');
+    await expect(toolbar).toHaveAttribute('role', 'toolbar');
+    const ariaLabel = await toolbar.getAttribute('aria-label');
+    expect(ariaLabel).toBeTruthy();
+
+    // Verify zoom buttons have aria-labels
+    const zoomOut = page.locator('[data-action="zoom-out"]');
+    const zoomIn = page.locator('[data-action="zoom-in"]');
+    const zoomReset = page.locator('[data-action="zoom-reset"]');
+    await expect(zoomOut).toHaveAttribute('aria-label');
+    await expect(zoomIn).toHaveAttribute('aria-label');
+    await expect(zoomReset).toHaveAttribute('aria-label');
+});
+
+test('focus-visible CSS rule is present in rendered styles', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+
+    const hasFocusVisibleRule = await page.evaluate(() => {
+        for (const sheet of Array.from(document.styleSheets)) {
+            try {
+                for (const rule of Array.from(sheet.cssRules)) {
+                    if (rule instanceof CSSStyleRule && rule.selectorText && rule.selectorText.includes('focus-visible')) {
+                        return true;
+                    }
+                }
+            } catch { /* cross-origin */ }
+        }
+        return false;
+    });
+    expect(hasFocusVisibleRule).toBe(true);
+});
