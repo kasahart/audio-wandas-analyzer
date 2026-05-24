@@ -475,6 +475,9 @@ function registerPanelMessageHandler(
                 if (!folderUris || folderUris.length === 0) { return; }
                 const outFolder = folderUris[0];
 
+                let successCount = 0;
+                const errors: string[] = [];
+                const usedNames = new Set<string>();
                 for (const filePath of message.filePaths) {
                     try {
                         const result = await backendServer.exportWavLoop(
@@ -482,16 +485,31 @@ function registerPanelMessageHandler(
                             message.startNorm,
                             message.endNorm,
                         );
-                        const baseName = path.basename(filePath, path.extname(filePath)) + '_loop.wav';
+                        const stem = path.basename(filePath, path.extname(filePath));
+                        let baseName = stem + '_loop.wav';
+                        if (usedNames.has(baseName)) {
+                            let n = 2;
+                            while (usedNames.has(stem + `_loop_${n}.wav`)) { n++; }
+                            baseName = stem + `_loop_${n}.wav`;
+                        }
+                        usedNames.add(baseName);
                         const outUri = vscode.Uri.joinPath(outFolder, baseName);
                         const buf = Buffer.from(result.wavBase64, 'base64');
                         await vscode.workspace.fs.writeFile(outUri, buf);
+                        successCount++;
                     } catch (err) {
-                        const msg = err instanceof Error ? err.message : String(err);
-                        void vscode.window.showErrorMessage(`WAV export failed for ${path.basename(filePath)}: ${msg}`);
+                        errors.push(`${path.basename(filePath)}: ${err instanceof Error ? err.message : String(err)}`);
                     }
                 }
-                void vscode.window.showInformationMessage(`WAV export complete → ${outFolder.fsPath}`);
+                if (errors.length > 0) {
+                    void vscode.window.showErrorMessage(
+                        `WAV export: ${successCount} succeeded, ${errors.length} failed — ${errors.join('; ')}`,
+                    );
+                } else {
+                    void vscode.window.showInformationMessage(
+                        `WAV export complete (${successCount} file${successCount !== 1 ? 's' : ''}) → ${outFolder.fsPath}`,
+                    );
+                }
                 return;
             }
 

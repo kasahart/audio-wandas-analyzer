@@ -211,7 +211,6 @@ def test_heartbeat_loop_emits_valid_json(monkeypatch):
         assert "ts" in msg
 
 
-
 def test_export_wav_loop(tmp_path: Path) -> None:
     """export-wav-loop returns valid base64 WAV for the loop region."""
     # Create a 2-second 440Hz sine wave WAV
