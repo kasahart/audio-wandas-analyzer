@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
@@ -135,8 +136,18 @@ COMMANDS: dict[str, Callable[[dict], dict]] = {
     "range": handle_range,
 }
 
+_HEARTBEAT_INTERVAL: float = 5.0
+
+
+def _heartbeat_loop() -> None:
+    """5 秒ごとに heartbeat を stdout に書く（デーモンスレッドで起動）。"""
+    while True:
+        time.sleep(_HEARTBEAT_INTERVAL)
+        print(json.dumps({"type": "heartbeat", "ts": time.time()}), flush=True)
+
 
 def main() -> None:
+    threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(json.dumps({"type": "ready"}), flush=True)
     for raw_line in sys.stdin:
         line = raw_line.strip()

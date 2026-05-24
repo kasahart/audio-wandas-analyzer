@@ -7,6 +7,7 @@ export function processStdoutChunk(
     buf: { value: string },
     chunk: string,
     pending: Map<string, PendingRequest>,
+    onUnhandled?: (msg: Record<string, unknown>) => void,
 ): void {
     buf.value += chunk;
     const lines = buf.value.split('\n');
@@ -21,7 +22,11 @@ export function processStdoutChunk(
         }
         if (msg['type'] === 'ready') { continue; }
         const id = msg['requestId'];
-        if (typeof id !== 'string') { continue; }
+        if (typeof id !== 'string') {
+            // heartbeat またはその他の通知
+            onUnhandled?.(msg);
+            continue;
+        }
         const p = pending.get(id);
         if (!p) { continue; }
         pending.delete(id);
