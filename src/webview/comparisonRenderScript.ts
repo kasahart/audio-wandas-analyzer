@@ -1768,6 +1768,24 @@ export function getComparisonRenderScript(): string {
                     zoomStart = 0;
                     zoomEnd = 1;
                     scheduleRender();
+                } else if (action === 'spec-zoom-in') {
+                    specZoomIn();
+                } else if (action === 'spec-zoom-out') {
+                    specZoomOut();
+                } else if (action === 'spec-zoom-reset') {
+                    specZoomReset();
+                } else if (action === 'wave-mode-loop') {
+                    waveformMode = 'loop';
+                    var btnL = document.getElementById('btn-wave-mode-loop');
+                    var btnZ = document.getElementById('btn-wave-mode-rect-zoom');
+                    if (btnL) { btnL.setAttribute('aria-pressed', 'true'); }
+                    if (btnZ) { btnZ.setAttribute('aria-pressed', 'false'); }
+                } else if (action === 'wave-mode-rect-zoom') {
+                    waveformMode = 'rect-zoom';
+                    var btnL2 = document.getElementById('btn-wave-mode-loop');
+                    var btnZ2 = document.getElementById('btn-wave-mode-rect-zoom');
+                    if (btnL2) { btnL2.setAttribute('aria-pressed', 'false'); }
+                    if (btnZ2) { btnZ2.setAttribute('aria-pressed', 'true'); }
                 } else if (action === 'toggle-follow-cursor') {
                     followCursor = !followCursor;
                     const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
@@ -2061,6 +2079,42 @@ export function getComparisonRenderScript(): string {
                 zoomStart = Math.max(0, center - half);
                 zoomEnd = Math.min(1, center + half);
                 scheduleRender();
+            }
+
+            function specZoomIn() {
+                const fc = (specFreqStart + specFreqEnd) / 2;
+                const fh = (specFreqEnd - specFreqStart) / 2 * 0.7;
+                specFreqStart = Math.max(0, fc - fh);
+                specFreqEnd   = Math.min(1, fc + fh);
+                if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
+                    const dc = (_lastVisDbMin + _lastVisDbMax) / 2;
+                    const dh = (_lastVisDbMax - _lastVisDbMin) / 2 * 0.7;
+                    specDbMin = dc - dh;
+                    specDbMax = dc + dh;
+                }
+                refreshSpectrumViews();
+            }
+
+            function specZoomOut() {
+                const fc = (specFreqStart + specFreqEnd) / 2;
+                const fh = (specFreqEnd - specFreqStart) / 2 * (1 / 0.7);
+                specFreqStart = Math.max(0, fc - fh);
+                specFreqEnd   = Math.min(1, fc + fh);
+                if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
+                    const dc = (_lastVisDbMin + _lastVisDbMax) / 2;
+                    const dh = (_lastVisDbMax - _lastVisDbMin) / 2 * (1 / 0.7);
+                    specDbMin = dc - dh;
+                    specDbMax = dc + dh;
+                }
+                refreshSpectrumViews();
+            }
+
+            function specZoomReset() {
+                specFreqStart = 0;
+                specFreqEnd   = 1;
+                specDbMin     = null;
+                specDbMax     = null;
+                refreshSpectrumViews();
             }
 
             function copySpecToClipboard() {
