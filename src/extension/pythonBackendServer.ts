@@ -57,6 +57,17 @@ export class PythonBackendServer {
         ) as Promise<{ channels: unknown[] }>;
     }
 
+    async exportWavLoop(
+        filePath: string,
+        startNorm: number,
+        endNorm: number,
+    ): Promise<{ wavBase64: string; sampleRate: number }> {
+        return this.request(
+            'export-wav-loop',
+            { filePath, startNorm, endNorm },
+        ) as Promise<{ wavBase64: string; sampleRate: number }>;
+    }
+
     dispose(): void {
         this.stopWatchdog();
         this.proc?.kill();

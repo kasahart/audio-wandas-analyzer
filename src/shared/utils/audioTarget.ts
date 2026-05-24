@@ -73,3 +73,22 @@ export function isRequestWaveformRangeMessage(message: unknown): message is Wave
         typeof m['points'] === 'number'
     );
 }
+
+export interface ExportWavLoopMessage {
+    type: 'export-wav-loop';
+    filePaths: string[];
+    startNorm: number;
+    endNorm: number;
+}
+
+export function isExportWavLoopMessage(message: unknown): message is ExportWavLoopMessage {
+    if (!message || typeof message !== 'object') { return false; }
+    const m = message as Record<string, unknown>;
+    return (
+        m['type'] === 'export-wav-loop' &&
+        Array.isArray(m['filePaths']) &&
+        (m['filePaths'] as unknown[]).every((p) => typeof p === 'string') &&
+        typeof m['startNorm'] === 'number' &&
+        typeof m['endNorm'] === 'number'
+    );
+}

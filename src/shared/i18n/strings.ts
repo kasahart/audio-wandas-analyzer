@@ -100,6 +100,9 @@ export interface UiStrings {
     btnZoomToSelectionTitle: string;
     helpRowFollowCursor: string;
     helpRowZoomToSelection: string;
+    btnExportWav: string;
+    btnExportWavTitle: string;
+    exportWavNoLoop: string;
     // Accessibility: toolbar aria-labels
     ariaToolbar: string;
     ariaZoomOut: string;
@@ -205,6 +208,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnZoomToSelectionTitle: 'Zoom to loop selection (L)',
         helpRowFollowCursor: 'toggle follow-cursor (auto-scroll during playback)',
         helpRowZoomToSelection: 'zoom to loop selection',
+        btnExportWav: 'WAV',
+        btnExportWavTitle: 'Export loop region as WAV (requires loop selection)',
+        exportWavNoLoop: 'No loop region selected. Drag on the waveform to create a loop first.',
         ariaToolbar: 'Main toolbar',
         ariaZoomOut: 'Zoom out',
         ariaZoomIn: 'Zoom in',
@@ -307,6 +313,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnZoomToSelectionTitle: 'ループ選択範囲にズーム (L)',
         helpRowFollowCursor: 'フォロー追従のオン/オフ（再生中にカーソルを追従）',
         helpRowZoomToSelection: 'ループ選択範囲にズーム',
+        btnExportWav: 'WAV',
+        btnExportWavTitle: 'ループ区間を WAV として書き出す（ループ選択が必要）',
+        exportWavNoLoop: 'ループ区間が選択されていません。波形上をドラッグしてループ区間を作成してください。',
         ariaToolbar: 'メインツールバー',
         ariaZoomOut: 'ズームアウト',
         ariaZoomIn: 'ズームイン',

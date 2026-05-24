@@ -13,6 +13,7 @@ import {
 } from '../shared/analysis/analysisTypes';
 import {
     isAnalyzeSelectedFilesMessage,
+    isExportWavLoopMessage,
     isSelectPythonEnvironmentMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
@@ -460,6 +461,63 @@ function registerPanelMessageHandler(
                 }).catch(() => {
                     // Silently ignore — WebView falls back to overview data
                 });
+                return;
+            }
+
+            if (isExportWavLoopMessage(message)) {
+                if (!backendServer) { return; }
+                const folderUris = await vscode.window.showOpenDialog({
+                    canSelectFiles: false,
+                    canSelectFolders: true,
+                    canSelectMany: false,
+                    openLabel: 'Select output folder',
+                });
+                if (!folderUris || folderUris.length === 0) { return; }
+                const outFolder = folderUris[0];
+
+                let successCount = 0;
+                const errors: string[] = [];
+                const usedNames = new Set<string>();
+                for (const filePath of message.filePaths) {
+                    try {
+                        const result = await backendServer.exportWavLoop(
+                            filePath,
+                            message.startNorm,
+                            message.endNorm,
+                        );
+                        const stem = path.basename(filePath, path.extname(filePath));
+                        let baseName = stem + '_loop.wav';
+                        if (usedNames.has(baseName)) {
+                            let n = 2;
+                            while (usedNames.has(stem + `_loop_${n}.wav`)) { n++; }
+                            baseName = stem + `_loop_${n}.wav`;
+                        }
+                        usedNames.add(baseName);
+                        const outUri = vscode.Uri.joinPath(outFolder, baseName);
+                        const buf = Buffer.from(result.wavBase64, 'base64');
+                        await vscode.workspace.fs.writeFile(outUri, buf);
+                        successCount++;
+                    } catch (err) {
+                        errors.push(`${path.basename(filePath)}: ${err instanceof Error ? err.message : String(err)}`);
+                    }
+                }
+                if (errors.length > 0) {
+                    void vscode.window.showErrorMessage(
+                        `WAV export: ${successCount} succeeded, ${errors.length} failed — ${errors.join('; ')}`,
+                    );
+                } else {
+                    void vscode.window.showInformationMessage(
+                        `WAV export complete (${successCount} file${successCount !== 1 ? 's' : ''}) → ${outFolder.fsPath}`,
+                    );
+                }
+                return;
+            }
+
+            if (typeof message === 'object' && message !== null && (message as Record<string, unknown>)['type'] === 'show-info') {
+                const msg = (message as Record<string, unknown>)['message'];
+                if (typeof msg === 'string') {
+                    void vscode.window.showInformationMessage(msg);
+                }
                 return;
             }
         } catch (error) {

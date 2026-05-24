@@ -191,6 +191,7 @@ export async function run(): Promise<void> {
                     'copy-spec',
                     'export-png',
                     'export-csv',
+                    'export-wav',
                 ]);
             },
         },

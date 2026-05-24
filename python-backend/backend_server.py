@@ -15,6 +15,8 @@ All responses include the originating requestId. Errors come back as
 
 from __future__ import annotations
 
+import base64
+import io as _io
 import json
 import os
 import sys
@@ -131,9 +133,41 @@ def handle_range(cmd: dict) -> dict:
     return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
 
 
+def handle_export_wav_loop(cmd: dict) -> dict:
+    """ループ区間を WAV として base64 エンコードして返す。"""
+    import soundfile as sf
+
+    file_path = str(cmd["filePath"])
+    start_norm = float(cmd["startNorm"])
+    end_norm = float(cmd["endNorm"])
+
+    info = sf.info(file_path)
+    sample_rate = info.samplerate
+    start_sample = max(0, int(start_norm * info.frames))
+    end_sample = min(info.frames, int(end_norm * info.frames))
+    n_frames = end_sample - start_sample
+
+    if n_frames <= 0:
+        raise ValueError(
+            f"Loop region produces 0 frames (startNorm={start_norm}, endNorm={end_norm}, "
+            f"total_frames={info.frames}). Ensure startNorm < endNorm and the file is not empty."
+        )
+
+    with sf.SoundFile(file_path) as f:
+        f.seek(start_sample)
+        data = f.read(n_frames, dtype="float32", always_2d=True)
+
+    buf = _io.BytesIO()
+    sf.write(buf, data, sample_rate, format="WAV", subtype="PCM_16")
+    wav_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+    return {"wavBase64": wav_b64, "sampleRate": sample_rate}
+
+
 COMMANDS: dict[str, Callable[[dict], dict]] = {
     "analyze": handle_analyze,
     "range": handle_range,
+    "export-wav-loop": handle_export_wav_loop,
 }
 
 _HEARTBEAT_INTERVAL: float = 5.0
