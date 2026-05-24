@@ -1344,6 +1344,47 @@ export function getComparisonRenderScript(): string {
                     else if (e.shiftKey) { handlePanWheel(e); }
                 }, { passive: false });
 
+                var stackedWrap = document.getElementById('stacked-wrap');
+                if (stackedWrap) {
+                    stackedWrap.addEventListener('dragstart', function(e) {
+                        var handle = e.target.closest ? e.target.closest('.track-drag-handle') : null;
+                        if (!handle) { e.preventDefault(); return; }
+                        reorderDragFrom = parseInt(handle.getAttribute('data-track-index'), 10);
+                        if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; }
+                        var row = document.getElementById('track-row-' + reorderDragFrom);
+                        if (row) { row.style.opacity = '0.4'; }
+                    });
+
+                    stackedWrap.addEventListener('dragover', function(e) {
+                        if (reorderDragFrom === null) { return; }
+                        e.preventDefault();
+                        if (e.dataTransfer) { e.dataTransfer.dropEffect = 'move'; }
+                        var row = e.target.closest ? e.target.closest('.track-row') : null;
+                        document.querySelectorAll('.track-row').forEach(function(r) { r.classList.remove('drag-over'); });
+                        if (row) {
+                            var toIdx = parseInt(row.getAttribute('data-track-index'), 10);
+                            if (!isNaN(toIdx) && toIdx !== reorderDragFrom) { row.classList.add('drag-over'); }
+                        }
+                    });
+
+                    stackedWrap.addEventListener('drop', function(e) {
+                        if (reorderDragFrom === null) { return; }
+                        e.preventDefault();
+                        var row = e.target.closest ? e.target.closest('.track-row') : null;
+                        if (row) {
+                            var toIdx = parseInt(row.getAttribute('data-track-index'), 10);
+                            if (!isNaN(toIdx) && toIdx !== reorderDragFrom) {
+                                reorderTracks(reorderDragFrom, toIdx);
+                            }
+                        }
+                        cleanupReorderDrag();
+                    });
+
+                    stackedWrap.addEventListener('dragend', function() {
+                        cleanupReorderDrag();
+                    });
+                }
+
                 window.addEventListener('resize', function() { scheduleRender(); });
                 attachAudioEvents();
                 updatePlaybackButtons();
@@ -2854,6 +2895,44 @@ export function getComparisonRenderScript(): string {
                     return;
                 }
             });
+
+            // ── Track drag reorder ──
+            var reorderDragFrom = null;
+
+            function reorderTracks(fromStateIdx, toStateIdx) {
+                var fromPos = displayOrder.indexOf(fromStateIdx);
+                var toPos   = displayOrder.indexOf(toStateIdx);
+                if (fromPos === -1 || toPos === -1) { return; }
+                displayOrder.splice(fromPos, 1);
+                displayOrder.splice(toPos, 0, fromStateIdx);
+                var wrap = document.getElementById('stacked-wrap');
+                if (wrap) {
+                    displayOrder.forEach(function(idx) {
+                        var row = document.getElementById('track-row-' + idx);
+                        if (row) { wrap.appendChild(row); }
+                    });
+                }
+                var metricsBar = document.getElementById('metrics-bar');
+                if (metricsBar) {
+                    displayOrder.forEach(function(idx) {
+                        var item = document.getElementById('metrics-item-' + idx);
+                        if (item) { metricsBar.appendChild(item); }
+                    });
+                }
+                scheduleRender();
+                refreshSpectrumViews();
+            }
+
+            function cleanupReorderDrag() {
+                if (reorderDragFrom !== null) {
+                    var row = document.getElementById('track-row-' + reorderDragFrom);
+                    if (row) { row.style.opacity = ''; }
+                }
+                document.querySelectorAll('.track-row').forEach(function(r) {
+                    r.classList.remove('drag-over');
+                });
+                reorderDragFrom = null;
+            }
 
             // ── Color picker popover ──
             var __colorPickTarget = null;
