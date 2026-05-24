@@ -2626,7 +2626,8 @@ export function getComparisonRenderScript(): string {
             function toggleMute(idx) {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }
                 trackRuntime[idx].hidden = !trackRuntime[idx].hidden;
-                var n = displayOrder.indexOf(idx) + 1;
+                var mutePos = displayOrder.indexOf(idx);
+                var n = mutePos !== -1 ? mutePos + 1 : idx + 1;
                 announce(trackRuntime[idx].hidden
                     ? (STR.announceMuted || 'Track {n} muted').replace('{n}', String(n))
                     : (STR.announceUnmuted || 'Track {n} unmuted').replace('{n}', String(n)));
@@ -2642,7 +2643,8 @@ export function getComparisonRenderScript(): string {
 
             function toggleSolo(idx) {
                 soloTrackIndex = (soloTrackIndex === idx) ? null : idx;
-                var n = displayOrder.indexOf(idx) + 1;
+                var soloPos = displayOrder.indexOf(idx);
+                var n = soloPos !== -1 ? soloPos + 1 : idx + 1;
                 announce(soloTrackIndex === idx
                     ? (STR.announceSoloed || 'Track {n} solo').replace('{n}', String(n))
                     : (STR.announceUnsoloed || 'Track {n} solo off').replace('{n}', String(n)));
@@ -2671,8 +2673,8 @@ export function getComparisonRenderScript(): string {
                 const audio = getTrackAudio(idx);
                 if (audio) { audio.remove(); }
                 trackRuntime[idx].hidden = true;
-                var n = displayOrder.indexOf(idx) + 1;
                 var pos = displayOrder.indexOf(idx);
+                var n = pos !== -1 ? pos + 1 : idx + 1;
                 if (pos !== -1) { displayOrder.splice(pos, 1); }
                 announce((STR.announceTrackRemoved || 'Track {n} removed').replace('{n}', String(n)));
                 if (__colorPickTarget === idx) { closeColorPicker(); }
