@@ -9,6 +9,8 @@ export const SHORTCUT_ROWS = [
     { shortcut: 'L', labelKey: 'helpRowZoomToSelection' },
     { shortcut: 'Wheel', labelKey: 'helpRowWheel' },
     { shortcut: 'Ctrl+Wheel', labelKey: 'helpRowCtrlWheel' },
+    { shortcut: 'Drag (spectrum)', labelKey: 'helpRowSpectrumDrag' },
+    { shortcut: 'Drag (zoom mode)', labelKey: 'helpRowWaveRectZoom' },
     { shortcut: 'Drag', labelKey: 'helpRowDrag' },
     { shortcut: 'Shift+Drag', labelKey: 'helpRowShiftDrag' },
     { shortcut: '?', labelKey: 'helpRowQuestion' },
@@ -81,6 +83,17 @@ export function getComparisonRenderScript(): string {
             let spectrumHoverNorm = null;  // スペクトルカーソル（正規化周波数 0..1、null = 非表示）
             let spectrumHoverYFrac = null; // スペクトルカーソルy（canvas高さに対する比率 0..1）
             let spectrumHasMouse = false;  // マウスがスペクトルキャンバス上にある間 true
+            // ── スペクトルズーム ───────────────────────────────────
+            let specFreqStart = 0;      // 0..1 正規化周波数（0=0Hz, 1=maxFreq）
+            let specFreqEnd   = 1;
+            let specDbMin = null;       // null = データ自動, number = dB 上書き
+            let specDbMax = null;
+            let _lastVisDbMin = null;   // 前回レンダリング時の visDbMin キャッシュ
+            let _lastVisDbMax = null;
+            let specDragAnchor  = null; // { freqNorm, dbNorm } | null
+            let specDragCurrent = null; // { freqNorm, dbNorm } | null
+            // ── 波形モード ────────────────────────────────────────
+            let waveformMode = 'loop';  // 'loop' | 'rect-zoom'
             let playbackStartNorm = 0;    // 再生開始位置の記憶
             let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag, isShift, startNorm, dragType }
             let loopRegion = null;        // null or { start: number, end: number }（正規化グローバル時間）
