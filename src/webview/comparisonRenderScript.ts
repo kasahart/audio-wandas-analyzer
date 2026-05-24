@@ -44,6 +44,14 @@ export function getComparisonRenderScript(): string {
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc',
                                    '#f0c040','#40b0d0','#d09060','#80c080','#a0a0ff'];
 
+            function announce(msg) {
+                var el = document.getElementById('a11y-announce');
+                if (!el) { return; }
+                // 同一テキストの連続セットはスクリーンリーダーが無視するためクリアしてから設定
+                el.textContent = '';
+                requestAnimationFrame(function() { el.textContent = msg; });
+            }
+
             function hexToRgba(hex, alpha) {
                 const r = parseInt(hex.slice(1, 3), 16);
                 const g = parseInt(hex.slice(3, 5), 16);
@@ -379,6 +387,10 @@ export function getComparisonRenderScript(): string {
                             waveformPerTrack: waveformPerTrack,
                         },
                         displayOrder: displayOrder.slice(),
+                        lastAnnounce: (function() {
+                            var el = document.getElementById('a11y-announce');
+                            return el ? (el.textContent || '') : '';
+                        })(),
                         tracks: trackInfo,
                     },
                 });
@@ -2588,6 +2600,11 @@ export function getComparisonRenderScript(): string {
             function toggleMute(idx) {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }
                 trackRuntime[idx].hidden = !trackRuntime[idx].hidden;
+                var mutePos = displayOrder.indexOf(idx);
+                var n = mutePos !== -1 ? mutePos + 1 : idx + 1;
+                announce(trackRuntime[idx].hidden
+                    ? (STR.announceMuted || 'Track {n} muted').replace('{n}', String(n))
+                    : (STR.announceUnmuted || 'Track {n} unmuted').replace('{n}', String(n)));
                 const btn = document.querySelector('[data-action="toggle-mute"][data-track-index="' + idx + '"]');
                 if (btn) {
                     btn.classList.toggle('is-muted', trackRuntime[idx].hidden);
@@ -2600,6 +2617,11 @@ export function getComparisonRenderScript(): string {
 
             function toggleSolo(idx) {
                 soloTrackIndex = (soloTrackIndex === idx) ? null : idx;
+                var soloPos = displayOrder.indexOf(idx);
+                var n = soloPos !== -1 ? soloPos + 1 : idx + 1;
+                announce(soloTrackIndex === idx
+                    ? (STR.announceSoloed || 'Track {n} solo').replace('{n}', String(n))
+                    : (STR.announceUnsoloed || 'Track {n} solo off').replace('{n}', String(n)));
                 // ソロ有効化時、再生中トラックがソロ対象外なら停止
                 if (soloTrackIndex !== null && playbackTrackIndex !== null && playbackTrackIndex !== soloTrackIndex) {
                     stopPlayback(playbackTrackIndex, { keepCursor: true });
@@ -2626,7 +2648,9 @@ export function getComparisonRenderScript(): string {
                 if (audio) { audio.remove(); }
                 trackRuntime[idx].hidden = true;
                 var pos = displayOrder.indexOf(idx);
+                var n = pos !== -1 ? pos + 1 : idx + 1;
                 if (pos !== -1) { displayOrder.splice(pos, 1); }
+                announce((STR.announceTrackRemoved || 'Track {n} removed').replace('{n}', String(n)));
                 if (__colorPickTarget === idx) { closeColorPicker(); }
                 updateVisibility();
                 scheduleRender();
@@ -2772,6 +2796,7 @@ export function getComparisonRenderScript(): string {
                 if (busy) {
                     document.getElementById('reanalyze-overlay-msg').textContent = msg || STR.reanalyzingDefault;
                     overlay.style.display = 'flex';
+                    announce((STR.announceAnalyzing || 'Analyzing: {msg}').replace('{msg}', msg || STR.reanalyzingDefault || ''));
                 } else {
                     overlay.style.display = 'none';
                 }
@@ -2882,6 +2907,7 @@ export function getComparisonRenderScript(): string {
                         return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
                     });
                     displayOrder = state.results.map(function(_, i) { return i; });
+                    announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
                     scheduleRender();
                     refreshSpectrumViews();
                     requestAnimationFrame(function() { publishTestSnapshot(); });

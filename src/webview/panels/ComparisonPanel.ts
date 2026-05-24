@@ -72,6 +72,7 @@ interface ComparisonPanelRenderedUi {
         waveformPerTrack: string[][];
     };
     displayOrder: number[];
+    lastAnnounce: string;
     tracks: Array<{
         trackIndex: number;
         offsetSeconds: number;
@@ -329,6 +330,7 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
     <style>${renderComparisonStyles()}</style>
 </head>
 <body>
+    <div id="a11y-announce" role="status" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
     <div id="app"></div>
     <script src="${waveformScriptUri}"></script>
     <script nonce="${nonce}">
@@ -374,6 +376,41 @@ export function renderComparisonStyles(): string {
             --muted: #6e7681;
             --track-bg: #f5f5f5;
             --track-header-bg: #ebebeb;
+        }
+        body.vscode-high-contrast,
+        body.vscode-high-contrast-light {
+            --surface:         var(--vscode-editor-background);
+            --panel:           var(--vscode-sideBar-background, var(--vscode-editor-background));
+            --line:            var(--vscode-contrastBorder);
+            --text:            var(--vscode-editor-foreground);
+            --muted:           var(--vscode-descriptionForeground);
+            --accent:          var(--vscode-focusBorder);
+            --track-bg:        var(--vscode-editor-background);
+            --track-header-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+        }
+        @media (forced-colors: active) {
+            :root,
+            body,
+            body.vscode-dark, body.vscode-light,
+            body.vscode-high-contrast, body.vscode-high-contrast-light,
+            body[data-theme-kind] {
+                --line:            ButtonBorder;
+                --text:            ButtonText;
+                --muted:           GrayText;
+                --surface:         Canvas;
+                --panel:           Canvas;
+                --track-bg:        Canvas;
+                --track-header-bg: Canvas;
+                --accent:          Highlight;
+            }
+        }
+        body.vscode-high-contrast .tb-btn,
+        body.vscode-high-contrast .track-btn,
+        body.vscode-high-contrast .track-offset-step,
+        body.vscode-high-contrast-light .tb-btn,
+        body.vscode-high-contrast-light .track-btn,
+        body.vscode-high-contrast-light .track-offset-step {
+            border-color: var(--vscode-contrastBorder) !important;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--surface); color: var(--text); font-family: var(--font-ui); overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
