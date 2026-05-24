@@ -482,6 +482,14 @@ export function renderComparisonStyles(): string {
         }
         .metrics-item { display: flex; align-items: center; gap: 4px; }
         .metrics-swatch { width: 8px; height: 8px; border-radius: 50%; }
+        .track-title-row { display: flex; align-items: center; gap: 4px; overflow: hidden; }
+        .track-drag-handle { cursor: grab; color: var(--muted); font-size: 12px; user-select: none; flex-shrink: 0; padding: 0 2px; line-height: 1; }
+        .track-drag-handle:active { cursor: grabbing; }
+        .track-color-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; cursor: pointer; border: 1px solid var(--line); }
+        .track-color-swatch:hover, .track-color-swatch:focus { outline: 2px solid var(--accent); }
+        .color-palette-swatch { width: 20px; height: 20px; border-radius: 3px; cursor: pointer; border: 1px solid var(--line); flex-shrink: 0; }
+        .color-palette-swatch:hover, .color-palette-swatch:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+        .track-row.drag-over { outline: 2px solid var(--accent); outline-offset: -2px; }
 
         /* ── Empty state ── */
         #empty-state {
