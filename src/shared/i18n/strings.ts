@@ -130,6 +130,13 @@ export interface UiStrings {
     trackColorReset: string;
     ariaDragHandle: string;
     ariaPickColor: string;
+    announceAnalyzing: string;
+    announceAnalysisDone: string;
+    announceTrackRemoved: string;
+    announceMuted: string;
+    announceUnmuted: string;
+    announceSoloed: string;
+    announceUnsoloed: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -249,6 +256,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackColorReset: 'Reset to default',
         ariaDragHandle: 'Drag to reorder track',
         ariaPickColor: 'Change track color',
+        announceAnalyzing: 'Analyzing: {msg}',
+        announceAnalysisDone: 'Analysis complete: {count} tracks',
+        announceTrackRemoved: 'Track {n} removed',
+        announceMuted: 'Track {n} muted',
+        announceUnmuted: 'Track {n} unmuted',
+        announceSoloed: 'Track {n} solo',
+        announceUnsoloed: 'Track {n} solo off',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -366,6 +380,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackColorReset: 'デフォルトに戻す',
         ariaDragHandle: 'ドラッグしてトラックを並び替え',
         ariaPickColor: 'トラック色を変更',
+        announceAnalyzing: '解析中: {msg}',
+        announceAnalysisDone: '解析完了: {count}件',
+        announceTrackRemoved: 'トラック{n}を削除',
+        announceMuted: 'トラック{n}ミュート',
+        announceUnmuted: 'トラック{n}ミュート解除',
+        announceSoloed: 'トラック{n}ソロ',
+        announceUnsoloed: 'トラック{n}ソロ解除',
     },
 };
 
