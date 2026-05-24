@@ -525,8 +525,12 @@ export function getComparisonRenderScript(): string {
             function buildTrackRow(result, i) {
                 return '<div class="track-row" id="track-row-' + i + '" data-track-index="' + i + '">'
                     + '<div class="track-header">'
-                    + '  <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
-                    + (result.channels && result.channels[0] && result.channels[0].peakAbsolute >= 0.99 ? '  <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+                    + '  <div class="track-title-row">'
+                    + '    <div class="track-drag-handle" draggable="true" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaDragHandle) + '" title="' + escHtml(STR.ariaDragHandle) + '">≡</div>'
+                    + '    <div class="track-color-swatch" data-action="pick-color" data-track-index="' + i + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escHtml(STR.ariaPickColor) + '" title="' + escHtml(STR.trackPickColor) + '"></div>'
+                    + '    <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
+                    + (result.channels && result.channels[0] && result.channels[0].peakAbsolute >= 0.99 ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+                    + '  </div>'
                     + '  <div class="track-meta">Ch: ' + result.channelCount + ' &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
                     + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
