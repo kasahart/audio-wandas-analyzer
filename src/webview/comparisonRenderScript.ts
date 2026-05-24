@@ -1776,16 +1776,16 @@ export function getComparisonRenderScript(): string {
                     specZoomReset();
                 } else if (action === 'wave-mode-loop') {
                     waveformMode = 'loop';
-                    var btnL = document.getElementById('btn-wave-mode-loop');
-                    var btnZ = document.getElementById('btn-wave-mode-rect-zoom');
+                    const btnL = document.getElementById('btn-wave-mode-loop');
+                    const btnZ = document.getElementById('btn-wave-mode-rect-zoom');
                     if (btnL) { btnL.setAttribute('aria-pressed', 'true'); }
                     if (btnZ) { btnZ.setAttribute('aria-pressed', 'false'); }
                 } else if (action === 'wave-mode-rect-zoom') {
                     waveformMode = 'rect-zoom';
-                    var btnL2 = document.getElementById('btn-wave-mode-loop');
-                    var btnZ2 = document.getElementById('btn-wave-mode-rect-zoom');
-                    if (btnL2) { btnL2.setAttribute('aria-pressed', 'false'); }
-                    if (btnZ2) { btnZ2.setAttribute('aria-pressed', 'true'); }
+                    const btnL = document.getElementById('btn-wave-mode-loop');
+                    const btnZ = document.getElementById('btn-wave-mode-rect-zoom');
+                    if (btnL) { btnL.setAttribute('aria-pressed', 'false'); }
+                    if (btnZ) { btnZ.setAttribute('aria-pressed', 'true'); }
                 } else if (action === 'toggle-follow-cursor') {
                     followCursor = !followCursor;
                     const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
