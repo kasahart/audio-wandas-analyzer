@@ -41,7 +41,8 @@ export function getComparisonRenderScript(): string {
                 tooltip: 'Click to select Python interpreter',
             };
 
-            const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc'];
+            const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc',
+                                   '#f0c040','#40b0d0','#d09060','#80c080','#a0a0ff'];
 
             function hexToRgba(hex, alpha) {
                 const r = parseInt(hex.slice(1, 3), 16);
@@ -78,8 +79,14 @@ export function getComparisonRenderScript(): string {
             const lastWaveformCoverage = state.results.map(function() { return null; });
 
             const trackRuntime = state.results.map(function() {
-                return { offsetSeconds: 0, hidden: false };
+                return { offsetSeconds: 0, hidden: false, color: null };
             });
+
+            let displayOrder = state.results.map(function(_, i) { return i; });
+
+            function trackColor(i) {
+                return (trackRuntime[i] && trackRuntime[i].color) || TRACK_COLORS[i % TRACK_COLORS.length];
+            }
 
             function showTooltip(e, text) {
                 const el = document.getElementById('canvas-tooltip');
