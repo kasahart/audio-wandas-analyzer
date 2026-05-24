@@ -2447,6 +2447,10 @@ export function getComparisonRenderScript(): string {
                 const plotW = W - padL - padR;
                 const plotH = H - padT - padB;
                 const range = maxDb - minDb;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(padL, padT, plotW, plotH);
+                ctx.clip();
                 slices.forEach(function(s) {
                     if (range <= 0) { return; }
                     ctx.strokeStyle = s.color;
@@ -2459,12 +2463,13 @@ export function getComparisonRenderScript(): string {
                         if (fHz > maxF) { break; }
                         const x = padL + (fHz / maxF) * plotW;
                         const v = s.slice.values[i];
-                        const norm = Math.max(0, Math.min(1, (v - minDb) / range));
+                        const norm = (v - minDb) / range;
                         const y = padT + (1 - norm) * plotH;
                         if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                     }
                     ctx.stroke();
                 });
+                ctx.restore();
 
                 // 十字カーソル描画（最近傍スペクトルにスナップ）
                 if (spectrumHoverNorm !== null) {
