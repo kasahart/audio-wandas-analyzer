@@ -400,6 +400,9 @@ export function getComparisonRenderScript(): string {
                             waveformPerTrack: waveformPerTrack,
                         },
                         displayOrder: displayOrder.slice(),
+                        specFreqStart: specFreqStart,
+                        specFreqEnd: specFreqEnd,
+                        waveformMode: waveformMode,
                         lastAnnounce: (function() {
                             var el = document.getElementById('a11y-announce');
                             return el ? (el.textContent || '') : '';
