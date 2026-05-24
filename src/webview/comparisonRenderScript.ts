@@ -2479,12 +2479,19 @@ export function getComparisonRenderScript(): string {
                     if (s.slice.maxFrequencyHz > maxF) { maxF = s.slice.maxFrequencyHz; }
                 });
                 const padL = 36, padR = 8, padT = 8, padB = 18;
-                const sharedAxis = { values: [], frequencyBins: 1, maxFrequencyHz: maxF, minDb: minDb, maxDb: maxDb };
-                drawSpectrumAxes(ctx, W, H, sharedAxis, padL, padR, padT, padB);
+                const visFreqMinO = specFreqStart * maxF;
+                const visFreqMaxO = specFreqEnd   * maxF;
+                const visDbMinO   = (specDbMin != null) ? specDbMin : minDb;
+                const visDbMaxO   = (specDbMax != null) ? specDbMax : maxDb;
+                _lastVisDbMin = visDbMinO;
+                _lastVisDbMax = visDbMaxO;
+                const sharedAxis = { values: [], frequencyBins: 1, maxFrequencyHz: maxF, minDb: visDbMinO, maxDb: visDbMaxO };
+                drawSpectrumAxes(ctx, W, H, sharedAxis, padL, padR, padT, padB, visFreqMinO, visFreqMaxO, visDbMinO, visDbMaxO);
 
                 const plotW = W - padL - padR;
                 const plotH = H - padT - padB;
-                const range = maxDb - minDb;
+                const range = visDbMaxO - visDbMinO;
+                const visFreqRangeO = visFreqMaxO - visFreqMinO;
                 ctx.save();
                 ctx.beginPath();
                 ctx.rect(padL, padT, plotW, plotH);
@@ -2499,9 +2506,9 @@ export function getComparisonRenderScript(): string {
                     for (let i = 0; i < fBins; i++) {
                         const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
                         if (fHz > maxF) { break; }
-                        const x = padL + (fHz / maxF) * plotW;
+                        const x = padL + ((fHz - visFreqMinO) / visFreqRangeO) * plotW;
                         const v = s.slice.values[i];
-                        const norm = (v - minDb) / range;
+                        const norm = (v - visDbMinO) / range;
                         const y = padT + (1 - norm) * plotH;
                         if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                     }
@@ -2512,7 +2519,7 @@ export function getComparisonRenderScript(): string {
                 // 十字カーソル描画（最近傍スペクトルにスナップ）
                 if (spectrumHoverNorm !== null) {
                     const curX = padL + spectrumHoverNorm * plotW;
-                    const fHz = spectrumHoverNorm * maxF;
+                    const fHz = visFreqMinO + spectrumHoverNorm * (visFreqMaxO - visFreqMinO);
 
                     // 各スライスのカーソル周波数でのy座標とdB値を計算
                     const sliceSnaps = [];
@@ -2523,7 +2530,7 @@ export function getComparisonRenderScript(): string {
                         const binIdx = Math.max(0, Math.min(s.slice.frequencyBins - 1, Math.round(binF)));
                         const dbVal = s.slice.values[binIdx];
                         if (dbVal === undefined) { return; }
-                        const norm = Math.max(0, Math.min(1, (dbVal - minDb) / range));
+                        const norm = Math.max(0, Math.min(1, (dbVal - visDbMinO) / range));
                         const snapY = padT + (1 - norm) * plotH;
                         sliceSnaps.push({ s: s, dbVal: dbVal, snapY: snapY });
                     });
@@ -2555,9 +2562,9 @@ export function getComparisonRenderScript(): string {
                         for (let i = 0; i < fBinsH; i++) {
                             const f = (i / Math.max(fBinsH - 1, 1)) * origMaxFH;
                             if (f > maxF) { break; }
-                            const x = padL + (f / maxF) * plotW;
+                            const x = padL + ((f - visFreqMinO) / visFreqRangeO) * plotW;
                             const v = nearest.s.slice.values[i];
-                            const n = (v - minDb) / range;
+                            const n = (v - visDbMinO) / range;
                             const y = padT + (1 - n) * plotH;
                             if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                         }
@@ -2599,6 +2606,24 @@ export function getComparisonRenderScript(): string {
                 } else {
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl) { readoutEl.textContent = ''; readoutEl.style.color = ''; }
+                }
+
+                // ── スペクトルドラッグ選択ゴムバンド ─────────────────────
+                if (specDragAnchor !== null && specDragCurrent !== null) {
+                    const ax = padL + specDragAnchor.freqNorm  * plotW;
+                    const ay = padT + (1 - specDragAnchor.dbNorm)  * plotH;
+                    const bx = padL + specDragCurrent.freqNorm * plotW;
+                    const by = padT + (1 - specDragCurrent.dbNorm) * plotH;
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(100,180,255,0.9)';
+                    ctx.fillStyle   = 'rgba(100,180,255,0.15)';
+                    ctx.lineWidth   = 1;
+                    ctx.setLineDash([4, 3]);
+                    const rx = Math.min(ax, bx), ry = Math.min(ay, by);
+                    const rw = Math.abs(bx - ax),  rh = Math.abs(by - ay);
+                    ctx.fillRect(rx, ry, rw, rh);
+                    ctx.strokeRect(rx, ry, rw, rh);
+                    ctx.restore();
                 }
             }
 
