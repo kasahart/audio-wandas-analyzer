@@ -2330,6 +2330,7 @@ export function getComparisonRenderScript(): string {
 
             function handleDocMouseUp(e) {
                 const hadDrag = !!dragState;
+                const wasRectZoom = hadDrag && dragState.isDrag && dragState.dragType === 'loop' && waveformMode === 'rect-zoom';
                 if (dragState && !dragState.isDrag) {
                     // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
                     const canvasId = 'track-canvas-' + dragState.trackIndex;
@@ -2347,6 +2348,17 @@ export function getComparisonRenderScript(): string {
                     }
                 }
                 dragState = null;
+                if (wasRectZoom && loopRegion) {
+                    const pad = (loopRegion.end - loopRegion.start) * 0.05;
+                    disableFollowCursor();
+                    zoomStart = Math.max(0, loopRegion.start - pad);
+                    zoomEnd   = Math.min(1, loopRegion.end + pad);
+                    loopRegion = null;
+                    updateZoomToSelectionBtn();
+                    updateLoopTimeDisplay();
+                    scheduleRender();
+                    return;
+                }
                 if (hadDrag) { refreshSpectrumViews(); }
             }
 
