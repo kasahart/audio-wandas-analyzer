@@ -40,6 +40,7 @@ interface TestSnapshot {
             waveformPerTrack: string[][];
         };
         displayOrder: number[];
+        lastAnnounce: string;
         tracks: Array<{
             trackIndex: number;
             offsetSeconds: number;
@@ -199,6 +200,11 @@ export async function run(): Promise<void> {
                     snapshot.renderedUi.displayOrder,
                     snapshot.renderedUi.tracks.map((_: unknown, i: number) => i),
                     'Initial displayOrder should be [0, 1, ..., N-1]'
+                );
+                assert.strictEqual(
+                    snapshot.renderedUi.lastAnnounce,
+                    '',
+                    'Initial lastAnnounce should be empty'
                 );
             },
         },
