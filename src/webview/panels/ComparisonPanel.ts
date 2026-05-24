@@ -338,6 +338,7 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
         ${renderComparisonScript()}
     </script>
     <div id="canvas-tooltip"></div>
+    <div id="a11y-announce" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap"></div>
 </body>
 </html>`;
 }

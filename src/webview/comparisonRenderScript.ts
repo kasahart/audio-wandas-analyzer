@@ -44,6 +44,14 @@ export function getComparisonRenderScript(): string {
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc',
                                    '#f0c040','#40b0d0','#d09060','#80c080','#a0a0ff'];
 
+            function announce(msg) {
+                var el = document.getElementById('a11y-announce');
+                if (!el) { return; }
+                // 同一テキストの連続セットはスクリーンリーダーが無視するためクリアしてから設定
+                el.textContent = '';
+                requestAnimationFrame(function() { el.textContent = msg; });
+            }
+
             function hexToRgba(hex, alpha) {
                 const r = parseInt(hex.slice(1, 3), 16);
                 const g = parseInt(hex.slice(3, 5), 16);
