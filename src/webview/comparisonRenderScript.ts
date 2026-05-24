@@ -400,7 +400,7 @@ export function getComparisonRenderScript(): string {
                     + '        <div class="selection-count" id="selection-count"></div>'
                     + '        <div class="selection-path">' + escHtml(state.rootPath || '') + '</div>'
                     + '      </div>'
-                    + '      <div id="selection-tree" role="tree" aria-label="' + escHtml(STR.ariaSelectionTree) + '">' + buildSelectionTree(state.directoryTree || [], true) + '</div>'
+                    + '      <div id="selection-tree" role="group" aria-label="' + escHtml(STR.ariaSelectionTree) + '">' + buildSelectionTree(state.directoryTree || [], true) + '</div>'
                     + '      <div id="selection-actions">'
                     + '        <button class="tb-btn" data-action="selection-select-all">' + escHtml(STR.btnSelectAll) + '</button>'
                     + '        <button class="tb-btn" data-action="selection-clear-all">' + escHtml(STR.btnClear) + '</button>'
@@ -449,7 +449,7 @@ export function getComparisonRenderScript(): string {
                     + nodes.map(function(node) {
                         if (node.type === 'directory') {
                             return '<li>'
-                                + '<div class="selection-tree-directory" data-action="toggle-directory" role="treeitem" tabindex="0" aria-expanded="true" aria-label="' + escHtml(STR.ariaSelectionTreeDir) + ': ' + escHtml(node.name) + '">'
+                                + '<div class="selection-tree-directory" data-action="toggle-directory" role="button" tabindex="0" aria-expanded="true" aria-label="' + escHtml(STR.ariaSelectionTreeDir) + ': ' + escHtml(node.name) + '">'
                                 + '<span class="dir-toggle" aria-hidden="true">▼</span>'
                                 + '<span class="dir-name">' + escHtml(node.name) + '</span>'
                                 + '</div>'
@@ -491,7 +491,7 @@ export function getComparisonRenderScript(): string {
                     + '<span class="tb-label">' + escHtml(STR.toolbarTrackLabel) + '</span>'
                     + '<button class="tb-btn is-active" data-action="content-waveform">' + escHtml(STR.btnWaveform) + '</button>'
                     + '<button class="tb-btn" data-action="content-spectrogram">' + escHtml(STR.btnSpectrogram) + '</button>'
-                    + '<button class="tb-btn" data-action="spectrogram-settings" title="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" style="display:none">⚙</button>'
+                    + '<button class="tb-btn" data-action="spectrogram-settings" title="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" aria-label="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" style="display:none">⚙</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span class="tb-label">' + escHtml(STR.toolbarZoomLabel) + '</span>'
                     + '<button class="tb-btn" data-action="zoom-out" aria-label="' + escHtml(STR.ariaZoomOut) + '">－</button>'
@@ -520,14 +520,14 @@ export function getComparisonRenderScript(): string {
                     + '  <div class="track-meta">Ch: ' + result.channelCount + ' &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
                     + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
-                    + '    <button class="track-btn" data-action="toggle-mute" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaToggleMute) + '">M</button>'
-                    + '    <button class="track-btn" data-action="toggle-solo" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaToggleSolo) + '">S</button>'
+                    + '    <button class="track-btn" data-action="toggle-mute" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaToggleMute) + '" aria-pressed="false">M</button>'
+                    + '    <button class="track-btn" data-action="toggle-solo" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaToggleSolo) + '" aria-pressed="false">S</button>'
                     + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
                     + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
                     + '    <button class="track-btn" data-action="remove-track" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaRemoveTrack) + '">✕</button>'
                     + '  </div>'
                     + '  <div class="track-offset">'
-                    + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-index="' + i + '" title="' + escHtml(STR.trackOffsetResetHint) + '" aria-label="' + escHtml(STR.ariaOffsetValue) + '" role="status">+0.000s</span>'
+                    + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-index="' + i + '" title="' + escHtml(STR.trackOffsetResetHint) + '" aria-label="' + escHtml(STR.ariaOffsetValue) + '">+0.000s</span>'
                     + '    <button class="track-offset-step" data-action="offset-up" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaOffsetUp) + '">▲</button>'
                     + '    <button class="track-offset-step" data-action="offset-down" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaOffsetDown) + '">▼</button>'
                     + '  </div>'
@@ -2380,7 +2380,10 @@ export function getComparisonRenderScript(): string {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }
                 trackRuntime[idx].hidden = !trackRuntime[idx].hidden;
                 const btn = document.querySelector('[data-action="toggle-mute"][data-track-index="' + idx + '"]');
-                if (btn) { btn.classList.toggle('is-muted', trackRuntime[idx].hidden); }
+                if (btn) {
+                    btn.classList.toggle('is-muted', trackRuntime[idx].hidden);
+                    btn.setAttribute('aria-pressed', trackRuntime[idx].hidden ? 'true' : 'false');
+                }
                 updateVisibility();
                 scheduleRender();
                 refreshSpectrumViews();
@@ -2392,10 +2395,12 @@ export function getComparisonRenderScript(): string {
                 if (soloTrackIndex !== null && playbackTrackIndex !== null && playbackTrackIndex !== soloTrackIndex) {
                     stopPlayback(playbackTrackIndex, { keepCursor: true });
                 }
-                // Solo ボタンの表示を更新
+                // Solo ボタンの表示と aria-pressed を更新
                 document.querySelectorAll('[data-action="toggle-solo"]').forEach(function(btn) {
                     var i = parseInt(btn.getAttribute('data-track-index'), 10);
-                    btn.classList.toggle('is-solo', soloTrackIndex === i);
+                    var active = soloTrackIndex === i;
+                    btn.classList.toggle('is-solo', active);
+                    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
                 });
                 updateVisibility();
                 scheduleRender();

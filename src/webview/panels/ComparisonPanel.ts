@@ -630,16 +630,15 @@ export function renderComparisonStyles(): string {
         .tb-btn:focus-visible,
         .track-btn:focus-visible,
         .track-offset-step:focus-visible,
-        .track-offset-val:focus-visible,
-        .selection-tree-directory:focus-visible,
-        .btn-open-file:focus-visible,
-        .tb-label:focus-visible {
+        .selection-tree-directory:focus-visible {
             outline: 2px solid var(--vscode-focusBorder, #007fd4);
             outline-offset: 2px;
         }
-        /* Remove browser default outline that shows even without keyboard nav */
+        /* Suppress browser default outline on mouse/touch focus (non-keyboard) */
         .tb-btn:focus:not(:focus-visible),
-        .track-btn:focus:not(:focus-visible) {
+        .track-btn:focus:not(:focus-visible),
+        .track-offset-step:focus:not(:focus-visible),
+        .selection-tree-directory:focus:not(:focus-visible) {
             outline: none;
         }
         `;
