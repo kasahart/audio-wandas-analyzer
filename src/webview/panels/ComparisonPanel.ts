@@ -626,6 +626,22 @@ export function renderComparisonStyles(): string {
                 border-bottom: 1px solid var(--line);
             }
         }
+        /* Accessibility: visible focus rings */
+        .tb-btn:focus-visible,
+        .track-btn:focus-visible,
+        .track-offset-step:focus-visible,
+        .track-offset-val:focus-visible,
+        .selection-tree-directory:focus-visible,
+        .btn-open-file:focus-visible,
+        .tb-label:focus-visible {
+            outline: 2px solid var(--vscode-focusBorder, #007fd4);
+            outline-offset: 2px;
+        }
+        /* Remove browser default outline that shows even without keyboard nav */
+        .tb-btn:focus:not(:focus-visible),
+        .track-btn:focus:not(:focus-visible) {
+            outline: none;
+        }
         `;
 }
 
