@@ -1633,7 +1633,7 @@ export function getComparisonRenderScript(): string {
                             if (!anchor || !current) { refreshSpectrumViews(); return; }
                             const pxDx = Math.abs((anchor.freqNorm - current.freqNorm) * (overlayCanvas.width - 36 - 8));
                             const pxDy = Math.abs((anchor.dbNorm   - current.dbNorm)   * (overlayCanvas.height - 8 - 18));
-                            if (pxDx < 5 && pxDy < 5) { refreshSpectrumViews(); return; }
+                            if (pxDx < 5 || pxDy < 5) { refreshSpectrumViews(); return; }
                             // ズームを適用: freqNorm は現在の visFreqStart..visFreqEnd 内の相対値
                             const f0 = Math.min(anchor.freqNorm, current.freqNorm);
                             const f1 = Math.max(anchor.freqNorm, current.freqNorm);
@@ -2161,6 +2161,11 @@ export function getComparisonRenderScript(): string {
                 const fh = (specFreqEnd - specFreqStart) / 2 * (1 / 0.7);
                 specFreqStart = Math.max(0, fc - fh);
                 specFreqEnd   = Math.min(1, fc + fh);
+                // 完全ズームアウト時は dB も自動に戻す
+                if (specFreqStart <= 0 && specFreqEnd >= 1) {
+                    specDbMin = null;
+                    specDbMax = null;
+                }
                 if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
                     const dc = (_lastVisDbMin + _lastVisDbMax) / 2;
                     const dh = (_lastVisDbMax - _lastVisDbMin) / 2 * (1 / 0.7);
@@ -2470,6 +2475,7 @@ export function getComparisonRenderScript(): string {
                 ctx.beginPath();
                 const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
                 const visFreqRange = _visFreqMax - _visFreqMin;
+                if (visFreqRange <= 0) { ctx.restore(); return; }
                 for (let i = 0; i < fBins; i++) {
                     const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
                     if (fHz > slice.maxFrequencyHz) { break; }
@@ -2628,6 +2634,7 @@ export function getComparisonRenderScript(): string {
                 const plotH = H - padT - padB;
                 const range = visDbMaxO - visDbMinO;
                 const visFreqRangeO = visFreqMaxO - visFreqMinO;
+                if (visFreqRangeO <= 0) { return; }
                 ctx.save();
                 ctx.beginPath();
                 ctx.rect(padL, padT, plotW, plotH);
