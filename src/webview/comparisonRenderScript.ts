@@ -2339,7 +2339,6 @@ export function getComparisonRenderScript(): string {
                 ctx.fillText(formatHz(slice.maxFrequencyHz), W - padR, H - 1);
             }
 
-
             function renderTrackSpectra() {
                 state.results.forEach(function(result, i) {
                     const canvas = document.getElementById('track-spectrum-' + i);
