@@ -339,7 +339,7 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
         ${renderComparisonScript()}
     </script>
     <div id="canvas-tooltip"></div>
-    <div id="a11y-announce" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap"></div>
+    <div id="a11y-announce" role="status" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
 </body>
 </html>`;
 }
@@ -390,11 +390,14 @@ export function renderComparisonStyles(): string {
         }
         @media (forced-colors: active) {
             :root {
-                --line:   ButtonBorder;
-                --text:   ButtonText;
-                --surface: Canvas;
-                --panel:  Canvas;
-                --accent: Highlight;
+                --line:            ButtonBorder;
+                --text:            ButtonText;
+                --muted:           GrayText;
+                --surface:         Canvas;
+                --panel:           Canvas;
+                --track-bg:        Canvas;
+                --track-header-bg: Canvas;
+                --accent:          Highlight;
             }
         }
         body.vscode-high-contrast .tb-btn,
