@@ -95,11 +95,13 @@ if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
 + ' title="' + escHtml(STR.trackPickColor) + '"></div>'
 ```
 
-メトリクスバーの `metrics-swatch` に ID を付与：
+メトリクスバーの `metrics-item` と `metrics-swatch` に ID を付与（`reorderTracks` で DOM 並び替えに使用）：
 
 ```js
-'<div class="metrics-swatch" id="metrics-swatch-' + stateIdx + '"'
+'<div class="metrics-item" id="metrics-item-' + stateIdx + '">'
++ '<div class="metrics-swatch" id="metrics-swatch-' + stateIdx + '"'
 + ' style="background:' + trackColor(stateIdx) + '"></div>'
++ '<span>...</span></div>'
 ```
 
 ### パレットポップオーバー
