@@ -2889,6 +2889,7 @@ export function getComparisonRenderScript(): string {
                         const old = state.results[i];
                         return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
                     });
+                    displayOrder = state.results.map(function(_, i) { return i; });
                     scheduleRender();
                     refreshSpectrumViews();
                     requestAnimationFrame(function() { publishTestSnapshot(); });
