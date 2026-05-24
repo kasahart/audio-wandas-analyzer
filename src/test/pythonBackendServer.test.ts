@@ -45,3 +45,28 @@ test('processStdoutChunk: ignores malformed JSON lines without throwing', () => 
     processStdoutChunk(buf, 'not json\n', pending);
     assert.equal(buf.value, '');
 });
+
+test('processStdoutChunk: heartbeat line calls onUnhandled and leaves pending intact', () => {
+    const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+    let resolved: unknown = null;
+    pending.set('r1', { resolve: (v) => { resolved = v; }, reject: () => { /* unused */ } });
+
+    const unhandled: Array<Record<string, unknown>> = [];
+    const buf = { value: '' };
+    processStdoutChunk(buf, '{"type":"heartbeat","ts":1234567890}\n', pending, (msg) => { unhandled.push(msg); });
+
+    assert.equal(unhandled.length, 1, 'onUnhandled should be called once for the heartbeat');
+    assert.equal(unhandled[0]!['type'], 'heartbeat');
+    assert.equal(unhandled[0]!['ts'], 1234567890);
+    assert.equal(resolved, null, 'pending request should be unaffected');
+    assert.equal(pending.size, 1, 'pending map should still contain r1');
+});
+
+test('processStdoutChunk: onUnhandled not called for ready message', () => {
+    const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+    const unhandled: Array<Record<string, unknown>> = [];
+    const buf = { value: '' };
+    processStdoutChunk(buf, '{"type":"ready"}\n', pending, (msg) => { unhandled.push(msg); });
+
+    assert.equal(unhandled.length, 0, 'ready message should not reach onUnhandled');
+});
