@@ -2506,6 +2506,9 @@ export function getComparisonRenderScript(): string {
                     // 最近傍スライスを太い線で再描画（ハイライト）
                     if (nearest) {
                         ctx.save();
+                        ctx.beginPath();
+                        ctx.rect(padL, padT, plotW, plotH);
+                        ctx.clip();
                         ctx.strokeStyle = nearest.s.color;
                         ctx.lineWidth = 2.5;
                         ctx.beginPath();
@@ -2516,7 +2519,7 @@ export function getComparisonRenderScript(): string {
                             if (f > maxF) { break; }
                             const x = padL + (f / maxF) * plotW;
                             const v = nearest.s.slice.values[i];
-                            const n = Math.max(0, Math.min(1, (v - minDb) / range));
+                            const n = (v - minDb) / range;
                             const y = padT + (1 - n) * plotH;
                             if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                         }
