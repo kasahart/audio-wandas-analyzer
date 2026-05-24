@@ -2161,12 +2161,11 @@ export function getComparisonRenderScript(): string {
                 const fh = (specFreqEnd - specFreqStart) / 2 * (1 / 0.7);
                 specFreqStart = Math.max(0, fc - fh);
                 specFreqEnd   = Math.min(1, fc + fh);
-                // 完全ズームアウト時は dB も自動に戻す
+                // 完全ズームアウト時は dB も自動に戻す（dB ブロックはスキップ）
                 if (specFreqStart <= 0 && specFreqEnd >= 1) {
                     specDbMin = null;
                     specDbMax = null;
-                }
-                if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
+                } else if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
                     const dc = (_lastVisDbMin + _lastVisDbMax) / 2;
                     const dh = (_lastVisDbMax - _lastVisDbMin) / 2 * (1 / 0.7);
                     specDbMin = dc - dh;

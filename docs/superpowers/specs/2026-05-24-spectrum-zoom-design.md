@@ -2,7 +2,7 @@
 
 **Goal:** パワースペクトルに周波数軸・dB 軸の独立ズームと矩形選択ズームを追加し、波形エリアにモード切り替え式の矩形範囲ズームを追加する。ヘルプ表示に新操作の説明を補完する。Issue #67 をクローズする。
 
-**Architecture:** `comparisonRenderScript.ts` にスペクトルズーム状態変数を追加し、既存の `zoomStart`/`zoomEnd` パターンを踏襲。描画関数にズーム範囲を渡してマッピングを変更。`ComparisonPanel.ts` の HTML テンプレートにスペクトルツールバー行と波形モードボタンを追加。
+**Architecture:** `comparisonRenderScript.ts` にスペクトルズーム状態変数を追加し、既存の `zoomStart`/`zoomEnd` パターンを踏襲。描画関数にズーム範囲を渡してマッピングを変更。`comparisonRenderScript.ts` の `buildResultsPane`/`buildToolbar` にスペクトルツールバー行と波形モードボタンを追加。`ComparisonPanel.ts` はテスト用型フィールドのみ追加。
 
 **Tech Stack:** TypeScript (webview template literal)、Canvas 2D API、`src/shared/i18n/strings.ts`
 
@@ -145,10 +145,11 @@ const norm = (v - visDbMin) / (visDbMax - visDbMin);
 
 ```js
 // 矩形ドラッグ中のゴムバンド表示
+// freqNorm / dbNorm は「現在の可視範囲内での 0..1 相対値」（mousedown 時に padL..plotW で正規化済み）
 if (specDragAnchor !== null && specDragCurrent !== null) {
-    const ax = padL + (specDragAnchor.freqNorm  - specFreqStart) / (specFreqEnd - specFreqStart) * plotW;
+    const ax = padL + specDragAnchor.freqNorm  * plotW;
     const ay = padT + (1 - specDragAnchor.dbNorm)  * plotH;
-    const bx = padL + (specDragCurrent.freqNorm - specFreqStart) / (specFreqEnd - specFreqStart) * plotW;
+    const bx = padL + specDragCurrent.freqNorm * plotW;
     const by = padT + (1 - specDragCurrent.dbNorm) * plotH;
     ctx.save();
     ctx.strokeStyle = 'rgba(100,180,255,0.9)';
@@ -165,7 +166,7 @@ if (specDragAnchor !== null && specDragCurrent !== null) {
 
 ---
 
-## 3. HTML 変更 (`ComparisonPanel.ts`)
+## 3. HTML 変更 (`comparisonRenderScript.ts`)
 
 ### 3-1. スペクトルツールバー行
 
@@ -325,7 +326,7 @@ function onSpecCanvasMouseUp(e) {
 | ファイル | 変更内容 |
 |---------|---------|
 | `src/webview/comparisonRenderScript.ts` | 状態変数追加、`drawSpectrumLine`/`drawSpectrumAxes` シグネチャ変更、描画ループ変更、ゴムバンド描画、イベントハンドラ追加、ボタンアクション追加、ヘルプ行追加 |
-| `src/webview/panels/ComparisonPanel.ts` | スペクトルツールバー HTML、波形モードボタン HTML |
+| `src/webview/panels/ComparisonPanel.ts` | テスト用スナップショット型 `ComparisonPanelRenderedUi` に 3 フィールド追加のみ |
 | `src/shared/i18n/strings.ts` | 9 キー追加 |
 
 ---
