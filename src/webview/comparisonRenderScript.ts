@@ -1246,8 +1246,9 @@ export function getComparisonRenderScript(): string {
                 }
 
                 document.getElementById('tracks-wrapper').addEventListener('click', function(e) {
-                    const action = e.target.getAttribute('data-action');
-                    const idx = parseInt(e.target.getAttribute('data-track-index'), 10);
+                    const tgt = e.target;
+                    const action = tgt.getAttribute ? tgt.getAttribute('data-action') : null;
+                    const idx = parseInt(tgt.getAttribute ? tgt.getAttribute('data-track-index') : 'NaN', 10);
                     if (action === 'toggle-mute' && !isNaN(idx)) { toggleMute(idx); }
                     if (action === 'toggle-solo' && !isNaN(idx)) { toggleSolo(idx); }
                     if (action === 'toggle-playback' && !isNaN(idx)) { togglePlayback(idx); }
@@ -1255,6 +1256,10 @@ export function getComparisonRenderScript(): string {
                     if (action === 'remove-track' && !isNaN(idx)) { removeTrack(idx); }
                     if (action === 'offset-up' && !isNaN(idx)) { adjustOffset(idx, 0.01); }
                     if (action === 'offset-down' && !isNaN(idx)) { adjustOffset(idx, -0.01); }
+                    if (action === 'pick-color' && !isNaN(idx)) {
+                        var anchor = tgt.closest ? tgt.closest('[data-action="pick-color"]') : tgt;
+                        openColorPicker(idx, anchor);
+                    }
                 });
 
                 let _offsetEditTimer = null;
@@ -2849,6 +2854,84 @@ export function getComparisonRenderScript(): string {
                     return;
                 }
             });
+
+            // ── Color picker popover ──
+            var __colorPickTarget = null;
+
+            function openColorPicker(stateIdx, anchorEl) {
+                __colorPickTarget = stateIdx;
+                var pop = document.getElementById('color-picker-popover');
+                if (!pop) { return; }
+                var rect = anchorEl.getBoundingClientRect();
+                pop.style.top  = (rect.bottom + window.scrollY + 4) + 'px';
+                pop.style.left = (rect.left  + window.scrollX) + 'px';
+                pop.removeAttribute('hidden');
+            }
+
+            function closeColorPicker() {
+                var pop = document.getElementById('color-picker-popover');
+                if (pop) { pop.setAttribute('hidden', ''); }
+                __colorPickTarget = null;
+            }
+
+            (function __buildColorPopover() {
+                var COLOR_PALETTE = [
+                    '#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc',
+                    '#f0c040','#40b0d0','#d09060','#80c080','#a0a0ff'
+                ];
+                var swatches = COLOR_PALETTE.map(function(hex) {
+                    return '<div class="color-palette-swatch" data-color="' + hex + '"'
+                         + ' style="background:' + hex + '" role="button" tabindex="0"'
+                         + ' aria-label="' + hex + '"></div>';
+                }).join('');
+                var html = '<div id="color-picker-popover" hidden'
+                    + ' style="position:fixed;z-index:9999;background:var(--panel);'
+                    + 'border:1px solid var(--line);padding:8px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.4);">'
+                    + '<div style="display:flex;flex-wrap:wrap;gap:4px;width:148px">' + swatches + '</div>'
+                    + '<button id="color-reset-btn" style="margin-top:6px;width:100%;font-size:11px;'
+                    + 'background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:2px;cursor:pointer;padding:2px 0">'
+                    + escHtml(STR.trackColorReset) + '</button>'
+                    + '</div>';
+                var container = document.createElement('div');
+                container.innerHTML = html;
+                document.body.appendChild(container.firstChild);
+
+                var pop = document.getElementById('color-picker-popover');
+                pop.addEventListener('click', function(e) {
+                    var sw = e.target.closest ? e.target.closest('.color-palette-swatch') : null;
+                    if (sw && __colorPickTarget !== null) {
+                        var hex = sw.getAttribute('data-color');
+                        trackRuntime[__colorPickTarget].color = hex;
+                        var hs = document.querySelector('[data-action="pick-color"][data-track-index="' + __colorPickTarget + '"]');
+                        if (hs) { hs.style.background = hex; }
+                        var ms = document.getElementById('metrics-swatch-' + __colorPickTarget);
+                        if (ms) { ms.style.background = hex; }
+                        scheduleRender();
+                        refreshSpectrumViews();
+                        closeColorPicker();
+                        return;
+                    }
+                    if (e.target.id === 'color-reset-btn' && __colorPickTarget !== null) {
+                        trackRuntime[__colorPickTarget].color = null;
+                        var def = trackColor(__colorPickTarget);
+                        var hs2 = document.querySelector('[data-action="pick-color"][data-track-index="' + __colorPickTarget + '"]');
+                        if (hs2) { hs2.style.background = def; }
+                        var ms2 = document.getElementById('metrics-swatch-' + __colorPickTarget);
+                        if (ms2) { ms2.style.background = def; }
+                        scheduleRender();
+                        refreshSpectrumViews();
+                        closeColorPicker();
+                    }
+                });
+
+                document.addEventListener('click', function(e) {
+                    var pop2 = document.getElementById('color-picker-popover');
+                    if (!pop2 || pop2.hasAttribute('hidden')) { return; }
+                    var clickedSwatch = e.target.closest ? e.target.closest('[data-action="pick-color"]') : null;
+                    if (pop2.contains(e.target) || clickedSwatch) { return; }
+                    closeColorPicker();
+                }, true);
+            })();
 
             __updateSpecGearVisibility();
         })();
