@@ -39,6 +39,7 @@ interface TestSnapshot {
             spectrumPerTrack: string[][];
             waveformPerTrack: string[][];
         };
+        displayOrder: number[];
         tracks: Array<{
             trackIndex: number;
             offsetSeconds: number;
@@ -194,6 +195,11 @@ export async function run(): Promise<void> {
                     'export-wav',
                     'export-report',
                 ]);
+                assert.deepEqual(
+                    snapshot.renderedUi.displayOrder,
+                    snapshot.renderedUi.tracks.map((_: unknown, i: number) => i),
+                    'Initial displayOrder should be [0, 1, ..., N-1]'
+                );
             },
         },
         {

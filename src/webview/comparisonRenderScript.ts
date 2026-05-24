@@ -378,6 +378,7 @@ export function getComparisonRenderScript(): string {
                             spectrumPerTrack: spectrumPerTrack,
                             waveformPerTrack: waveformPerTrack,
                         },
+                        displayOrder: displayOrder.slice(),
                         tracks: trackInfo,
                     },
                 });

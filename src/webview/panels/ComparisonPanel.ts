@@ -71,6 +71,7 @@ interface ComparisonPanelRenderedUi {
         spectrumPerTrack: string[][];
         waveformPerTrack: string[][];
     };
+    displayOrder: number[];
     tracks: Array<{
         trackIndex: number;
         offsetSeconds: number;
