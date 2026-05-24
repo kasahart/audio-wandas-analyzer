@@ -2342,7 +2342,11 @@ export function getComparisonRenderScript(): string {
                 ctx.restore();
             }
 
-            function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB) {
+            function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB, visFreqMin, visFreqMax, visDbMin, visDbMax) {
+                const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
+                const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
+                const _visDbMin   = (visDbMin   != null) ? visDbMin   : slice.minDb;
+                const _visDbMax   = (visDbMax   != null) ? visDbMax   : slice.maxDb;
                 const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                 const lineColor = getComputedStyle(document.body).getPropertyValue('--line').trim() || '#444';
                 const plotW = W - padL - padR;
@@ -2357,16 +2361,16 @@ export function getComparisonRenderScript(): string {
                 ctx.font = '9px monospace';
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'top';
-                ctx.fillText(slice.maxDb.toFixed(0) + ' dB', padL - 2, padT);
+                ctx.fillText(_visDbMax.toFixed(0) + ' dB', padL - 2, padT);
                 ctx.textBaseline = 'middle';
-                ctx.fillText(((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' dB', padL - 2, padT + plotH / 2);
+                ctx.fillText(((_visDbMax + _visDbMin) / 2).toFixed(0) + ' dB', padL - 2, padT + plotH / 2);
                 ctx.textBaseline = 'bottom';
-                ctx.fillText(slice.minDb.toFixed(0) + ' dB', padL - 2, H - padB);
+                ctx.fillText(_visDbMin.toFixed(0) + ' dB', padL - 2, H - padB);
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'bottom';
-                ctx.fillText('0 Hz', padL, H - 1);
-                ctx.fillText(formatHz(slice.maxFrequencyHz / 2), padL + plotW / 2, H - 1);
-                ctx.fillText(formatHz(slice.maxFrequencyHz), W - padR, H - 1);
+                ctx.fillText(formatHz(_visFreqMin), padL, H - 1);
+                ctx.fillText(formatHz((_visFreqMin + _visFreqMax) / 2), padL + plotW / 2, H - 1);
+                ctx.fillText(formatHz(_visFreqMax), W - padR, H - 1);
             }
 
             function renderTrackSpectra() {
