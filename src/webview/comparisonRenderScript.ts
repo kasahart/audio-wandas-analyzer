@@ -2308,6 +2308,10 @@ export function getComparisonRenderScript(): string {
                 const padB = (opts && opts.padB) || 0;
                 const plotW = W - padL - padR;
                 const plotH = H - padT - padB;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(padL, padT, plotW, plotH);
+                ctx.clip();
                 ctx.strokeStyle = color;
                 ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
                 ctx.beginPath();
@@ -2317,11 +2321,12 @@ export function getComparisonRenderScript(): string {
                     if (fHz > slice.maxFrequencyHz) { break; }
                     const x = padL + (fHz / slice.maxFrequencyHz) * plotW;
                     const v = slice.values[i];
-                    const norm = Math.max(0, Math.min(1, (v - slice.minDb) / range));
+                    const norm = (v - slice.minDb) / range;
                     const y = padT + (1 - norm) * plotH;
                     if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                 }
                 ctx.stroke();
+                ctx.restore();
             }
 
             function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB) {
@@ -2349,39 +2354,6 @@ export function getComparisonRenderScript(): string {
                 ctx.fillText('0 Hz', padL, H - 1);
                 ctx.fillText(formatHz(slice.maxFrequencyHz / 2), padL + plotW / 2, H - 1);
                 ctx.fillText(formatHz(slice.maxFrequencyHz), W - padR, H - 1);
-            }
-
-            function drawSpectrumPeakAnnotations(ctx, W, H, peaks, maxFrequencyHz, minDb, maxDb, padL, padR, padT, padB) {
-                if (!peaks || peaks.length === 0) { return; }
-                var plotW = W - padL - padR;
-                var plotH = H - padT - padB;
-                var range = maxDb - minDb;
-                if (range <= 0 || plotW <= 0 || maxFrequencyHz <= 0) { return; }
-                ctx.save();
-                ctx.strokeStyle = 'rgba(255,255,180,0.85)';
-                ctx.fillStyle = 'rgba(255,255,180,0.95)';
-                ctx.lineWidth = 1;
-                ctx.font = '10px monospace';
-                ctx.textAlign = 'center';
-                for (var pi = 0; pi < peaks.length; pi++) {
-                    var p = peaks[pi];
-                    if (!p || p.freqHz == null || p.amplitudeDb == null) { continue; }
-                    if (p.freqHz <= 0 || p.freqHz > maxFrequencyHz) { continue; }
-                    var x = padL + (p.freqHz / maxFrequencyHz) * plotW;
-                    var norm = Math.max(0, Math.min(1, (p.amplitudeDb - minDb) / range));
-                    var y = padT + (1 - norm) * plotH;
-                    // Vertical tick mark at peak
-                    ctx.beginPath();
-                    ctx.moveTo(x, y - 6);
-                    ctx.lineTo(x, y + 4);
-                    ctx.stroke();
-                    // Frequency label above tick — reuse formatHz() for consistent units
-                    var label = formatHz(p.freqHz);
-                    var labelY = y - 8;
-                    if (labelY < padT + 10) { labelY = y + 14; }
-                    ctx.fillText(label, x, labelY);
-                }
-                ctx.restore();
             }
 
             function renderTrackSpectra() {
@@ -2412,9 +2384,6 @@ export function getComparisonRenderScript(): string {
                     const color = trackColor(i);
                     drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14);
                     drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 });
-                    const ch0 = result.channels && result.channels[0];
-                    const peaks = ch0 && ch0.peaks;
-                    drawSpectrumPeakAnnotations(ctx, W, H, peaks, slice.maxFrequencyHz, slice.minDb, slice.maxDb, 32, 6, 4, 14);
                     // スペクトル十字カーソル（縦線＋スペクトルにスナップした横線）
                     if (spectrumHoverNorm !== null) {
                         const padL2 = 32, padR2 = 6, padT2 = 4, padB2 = 14;
@@ -2490,6 +2459,10 @@ export function getComparisonRenderScript(): string {
                 const plotW = W - padL - padR;
                 const plotH = H - padT - padB;
                 const range = maxDb - minDb;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(padL, padT, plotW, plotH);
+                ctx.clip();
                 slices.forEach(function(s) {
                     if (range <= 0) { return; }
                     ctx.strokeStyle = s.color;
@@ -2502,15 +2475,13 @@ export function getComparisonRenderScript(): string {
                         if (fHz > maxF) { break; }
                         const x = padL + (fHz / maxF) * plotW;
                         const v = s.slice.values[i];
-                        const norm = Math.max(0, Math.min(1, (v - minDb) / range));
+                        const norm = (v - minDb) / range;
                         const y = padT + (1 - norm) * plotH;
                         if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                     }
                     ctx.stroke();
-                    const overlayResult = state.results[s.index];
-                    const overlayPeaks = overlayResult && overlayResult.channels && overlayResult.channels[0] && overlayResult.channels[0].peaks;
-                    drawSpectrumPeakAnnotations(ctx, W, H, overlayPeaks, maxF, minDb, maxDb, padL, padR, padT, padB);
                 });
+                ctx.restore();
 
                 // 十字カーソル描画（最近傍スペクトルにスナップ）
                 if (spectrumHoverNorm !== null) {
@@ -2547,6 +2518,9 @@ export function getComparisonRenderScript(): string {
                     // 最近傍スライスを太い線で再描画（ハイライト）
                     if (nearest) {
                         ctx.save();
+                        ctx.beginPath();
+                        ctx.rect(padL, padT, plotW, plotH);
+                        ctx.clip();
                         ctx.strokeStyle = nearest.s.color;
                         ctx.lineWidth = 2.5;
                         ctx.beginPath();
@@ -2557,7 +2531,7 @@ export function getComparisonRenderScript(): string {
                             if (f > maxF) { break; }
                             const x = padL + (f / maxF) * plotW;
                             const v = nearest.s.slice.values[i];
-                            const n = Math.max(0, Math.min(1, (v - minDb) / range));
+                            const n = (v - minDb) / range;
                             const y = padT + (1 - n) * plotH;
                             if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                         }
