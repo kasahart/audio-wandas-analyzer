@@ -1,7 +1,9 @@
 /**
- * displayOrder 配列の並び替え純粋関数のユニットテスト。
- * reorderInPlace は comparisonRenderScript.ts のテンプレートリテラル内で
- * 定義されるため、同一ロジックをここに複製して検証する。
+ * displayOrder 配列の並び替えロジックのユニットテスト。
+ * reorderInPlace は入力配列を破壊的に更新して返す。
+ * comparisonRenderScript.ts はテンプレートリテラルとして Webview に
+ * インジェクトされるため外部モジュールを import できない。
+ * そのため、同一アルゴリズムをここに複製してテストする。
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';

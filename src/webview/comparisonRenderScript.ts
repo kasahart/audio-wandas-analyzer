@@ -1263,6 +1263,18 @@ export function getComparisonRenderScript(): string {
                     }
                 });
 
+                document.getElementById('tracks-wrapper').addEventListener('keydown', function(e) {
+                    if (e.key !== 'Enter' && e.key !== ' ') { return; }
+                    var tgt2 = e.target;
+                    var action2 = tgt2.getAttribute ? tgt2.getAttribute('data-action') : null;
+                    var idx2 = parseInt(tgt2.getAttribute ? tgt2.getAttribute('data-track-index') : 'NaN', 10);
+                    if (action2 === 'pick-color' && !isNaN(idx2)) {
+                        e.preventDefault();
+                        var anchor2 = tgt2.closest ? tgt2.closest('[data-action="pick-color"]') : tgt2;
+                        openColorPicker(idx2, anchor2);
+                    }
+                });
+
                 let _offsetEditTimer = null;
                 document.getElementById('tracks-wrapper').addEventListener('dblclick', function(e) {
                     if (e.target.classList.contains('track-offset-val')) {
@@ -2634,9 +2646,14 @@ export function getComparisonRenderScript(): string {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }
                 const row = document.getElementById('track-row-' + idx);
                 if (row) { row.remove(); }
+                var metricsItem = document.getElementById('metrics-item-' + idx);
+                if (metricsItem) { metricsItem.remove(); }
                 const audio = getTrackAudio(idx);
                 if (audio) { audio.remove(); }
                 trackRuntime[idx].hidden = true;
+                var pos = displayOrder.indexOf(idx);
+                if (pos !== -1) { displayOrder.splice(pos, 1); }
+                if (__colorPickTarget === idx) { closeColorPicker(); }
                 updateVisibility();
                 scheduleRender();
                 refreshSpectrumViews();
@@ -2944,8 +2961,8 @@ export function getComparisonRenderScript(): string {
                 var pop = document.getElementById('color-picker-popover');
                 if (!pop) { return; }
                 var rect = anchorEl.getBoundingClientRect();
-                pop.style.top  = (rect.bottom + window.scrollY + 4) + 'px';
-                pop.style.left = (rect.left  + window.scrollX) + 'px';
+                pop.style.top  = (rect.bottom + 4) + 'px';
+                pop.style.left = rect.left + 'px';
                 pop.removeAttribute('hidden');
             }
 
@@ -2956,11 +2973,7 @@ export function getComparisonRenderScript(): string {
             }
 
             (function __buildColorPopover() {
-                var COLOR_PALETTE = [
-                    '#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc',
-                    '#f0c040','#40b0d0','#d09060','#80c080','#a0a0ff'
-                ];
-                var swatches = COLOR_PALETTE.map(function(hex) {
+                var swatches = TRACK_COLORS.map(function(hex) {
                     return '<div class="color-palette-swatch" data-color="' + hex + '"'
                          + ' style="background:' + hex + '" role="button" tabindex="0"'
                          + ' aria-label="' + hex + '"></div>';
@@ -2978,6 +2991,15 @@ export function getComparisonRenderScript(): string {
                 document.body.appendChild(container.firstChild);
 
                 var pop = document.getElementById('color-picker-popover');
+                pop.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        closeColorPicker();
+                        return;
+                    }
+                    if (e.key !== 'Enter' && e.key !== ' ') { return; }
+                    var sw = e.target.closest ? e.target.closest('.color-palette-swatch') : null;
+                    if (sw) { e.preventDefault(); sw.click(); }
+                });
                 pop.addEventListener('click', function(e) {
                     var sw = e.target.closest ? e.target.closest('.color-palette-swatch') : null;
                     if (sw && __colorPickTarget !== null) {
