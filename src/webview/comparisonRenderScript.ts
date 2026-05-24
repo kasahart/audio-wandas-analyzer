@@ -2404,8 +2404,12 @@ export function getComparisonRenderScript(): string {
                         return;
                     }
                     const color = trackColor(i);
-                    drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14);
-                    drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 });
+                    const visFreqMinT = specFreqStart * slice.maxFrequencyHz;
+                    const visFreqMaxT = specFreqEnd   * slice.maxFrequencyHz;
+                    const visDbMinT   = (specDbMin != null) ? specDbMin : slice.minDb;
+                    const visDbMaxT   = (specDbMax != null) ? specDbMax : slice.maxDb;
+                    drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
+                    drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 }, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
                     // スペクトル十字カーソル（縦線＋スペクトルにスナップした横線）
                     if (spectrumHoverNorm !== null) {
                         const padL2 = 32, padR2 = 6, padT2 = 4, padB2 = 14;
@@ -2413,11 +2417,11 @@ export function getComparisonRenderScript(): string {
                         const plotH2 = H - padT2 - padB2;
                         const curX = padL2 + spectrumHoverNorm * plotW2;
                         const origMaxF2 = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
-                        const fHz2 = spectrumHoverNorm * slice.maxFrequencyHz;
+                        const fHz2 = visFreqMinT + spectrumHoverNorm * (visFreqMaxT - visFreqMinT);
                         const binF2 = (fHz2 / Math.max(origMaxF2, 1)) * Math.max(slice.frequencyBins - 1, 1);
                         const binIdx2 = Math.max(0, Math.min(slice.frequencyBins - 1, Math.round(binF2)));
                         const dbVal2 = slice.values[binIdx2];
-                        const range2 = slice.maxDb - slice.minDb;
+                        const range2 = visDbMaxT - visDbMinT;
                         ctx.save();
                         ctx.lineWidth = 1;
                         ctx.setLineDash([3, 3]);
@@ -2428,7 +2432,7 @@ export function getComparisonRenderScript(): string {
                         ctx.stroke();
                         // 横線（スペクトル値にスナップ）
                         if (dbVal2 !== undefined && range2 > 0) {
-                            const norm2 = Math.max(0, Math.min(1, (dbVal2 - slice.minDb) / range2));
+                            const norm2 = Math.max(0, Math.min(1, (dbVal2 - visDbMinT) / range2));
                             const snapY = padT2 + (1 - norm2) * plotH2;
                             ctx.strokeStyle = color;
                             ctx.beginPath();
