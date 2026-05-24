@@ -632,7 +632,8 @@ export function getComparisonRenderScript(): string {
             }
 
             function renderStackedTracks() {
-                state.results.forEach(function(result, i) {
+                displayOrder.forEach(function(i) {
+                    const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
                     if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     // 前回のエラーオーバーレイを除去
@@ -670,7 +671,7 @@ export function getComparisonRenderScript(): string {
                     }
                     const canvas = document.getElementById('track-canvas-' + i);
                     if (!canvas) { return; }
-                    const color = TRACK_COLORS[i % TRACK_COLORS.length];
+                    const color = trackColor(i);
                     if (contentType === 'waveform') {
                         drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     } else {
@@ -2337,7 +2338,7 @@ export function getComparisonRenderScript(): string {
                         ctx.fillText(STR.canvasOutOfRange, W / 2, H / 2);
                         return;
                     }
-                    const color = TRACK_COLORS[i % TRACK_COLORS.length];
+                    const color = trackColor(i);
                     drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14);
                     drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 });
                     const ch0 = result.channels && result.channels[0];
@@ -2389,11 +2390,12 @@ export function getComparisonRenderScript(): string {
                 ctx.clearRect(0, 0, W, H);
 
                 const slices = [];
-                state.results.forEach(function(result, i) {
+                displayOrder.forEach(function(i) {
+                    const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
                     if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
-                    if (slice) { slices.push({ slice: slice, color: TRACK_COLORS[i % TRACK_COLORS.length], index: i, name: result.fileName }); }
+                    if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, name: result.fileName }); }
                 });
 
                 if (slices.length === 0) {
