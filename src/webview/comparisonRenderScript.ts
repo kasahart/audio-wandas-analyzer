@@ -2311,9 +2311,13 @@ export function getComparisonRenderScript(): string {
                 };
             }
 
-            function drawSpectrumLine(ctx, W, H, slice, color, opts) {
+            function drawSpectrumLine(ctx, W, H, slice, color, opts, visFreqMin, visFreqMax, visDbMin, visDbMax) {
                 const fBins = slice.frequencyBins;
-                const range = slice.maxDb - slice.minDb;
+                const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
+                const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
+                const _visDbMin   = (visDbMin   != null) ? visDbMin   : slice.minDb;
+                const _visDbMax   = (visDbMax   != null) ? visDbMax   : slice.maxDb;
+                const range = _visDbMax - _visDbMin;
                 if (range <= 0) { return; }
                 const padL = (opts && opts.padL) || 0;
                 const padR = (opts && opts.padR) || 0;
@@ -2329,12 +2333,13 @@ export function getComparisonRenderScript(): string {
                 ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
                 ctx.beginPath();
                 const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
+                const visFreqRange = _visFreqMax - _visFreqMin;
                 for (let i = 0; i < fBins; i++) {
                     const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
                     if (fHz > slice.maxFrequencyHz) { break; }
-                    const x = padL + (fHz / slice.maxFrequencyHz) * plotW;
+                    const x = padL + ((fHz - _visFreqMin) / visFreqRange) * plotW;
                     const v = slice.values[i];
-                    const norm = (v - slice.minDb) / range;
+                    const norm = (v - _visDbMin) / range;
                     const y = padT + (1 - norm) * plotH;
                     if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                 }
