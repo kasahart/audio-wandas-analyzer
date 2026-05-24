@@ -92,3 +92,21 @@ export function isExportWavLoopMessage(message: unknown): message is ExportWavLo
         typeof m['endNorm'] === 'number'
     );
 }
+
+export interface ExportReportOptionsMessage {
+    type: 'export-report-options';
+    defaultName: string;
+    markdownContent: string;
+    notebookContent: string;
+}
+
+export function isExportReportOptionsMessage(message: unknown): message is ExportReportOptionsMessage {
+    if (!message || typeof message !== 'object') { return false; }
+    const m = message as Record<string, unknown>;
+    return (
+        m['type'] === 'export-report-options' &&
+        typeof m['defaultName'] === 'string' &&
+        typeof m['markdownContent'] === 'string' &&
+        typeof m['notebookContent'] === 'string'
+    );
+}

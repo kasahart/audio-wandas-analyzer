@@ -118,6 +118,14 @@ export interface UiStrings {
     ariaOffsetValue: string;
     ariaSelectionTree: string;
     ariaSelectionTreeDir: string;
+    btnExportReport: string;
+    btnExportReportTitle: string;
+    exportReportNoData: string;
+    reportFormatMarkdown: string;
+    reportFormatNotebook: string;
+    reportFormatPlaceholder: string;
+    reportSaveLabel: string;
+    reportExportedPrefix: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -225,6 +233,14 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaOffsetValue: 'Track offset',
         ariaSelectionTree: 'File selection tree',
         ariaSelectionTreeDir: 'Directory',
+        btnExportReport: 'Report',
+        btnExportReportTitle: 'Export analysis report as Markdown or Jupyter Notebook',
+        exportReportNoData: 'No analysis data to export.',
+        reportFormatMarkdown: 'Markdown (.md)',
+        reportFormatNotebook: 'Jupyter Notebook (.ipynb)',
+        reportFormatPlaceholder: 'Select report format',
+        reportSaveLabel: 'Export Report',
+        reportExportedPrefix: 'Report exported → ',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -330,6 +346,14 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaOffsetValue: 'トラックオフセット',
         ariaSelectionTree: 'ファイル選択ツリー',
         ariaSelectionTreeDir: 'ディレクトリ',
+        btnExportReport: 'レポート',
+        btnExportReportTitle: '解析結果を Markdown または Jupyter Notebook として書き出す',
+        exportReportNoData: 'エクスポートする解析データがありません。',
+        reportFormatMarkdown: 'Markdown (.md)',
+        reportFormatNotebook: 'Jupyter Notebook (.ipynb)',
+        reportFormatPlaceholder: 'レポート形式を選択',
+        reportSaveLabel: 'レポートを書き出す',
+        reportExportedPrefix: 'レポートを書き出しました → ',
     },
 };
 
