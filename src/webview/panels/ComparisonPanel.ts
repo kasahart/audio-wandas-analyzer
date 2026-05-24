@@ -375,6 +375,34 @@ export function renderComparisonStyles(): string {
             --track-bg: #f5f5f5;
             --track-header-bg: #ebebeb;
         }
+        body.vscode-high-contrast,
+        body.vscode-high-contrast-light {
+            --surface:         var(--vscode-editor-background);
+            --panel:           var(--vscode-sideBar-background, var(--vscode-editor-background));
+            --line:            var(--vscode-contrastBorder);
+            --text:            var(--vscode-editor-foreground);
+            --muted:           var(--vscode-descriptionForeground);
+            --accent:          var(--vscode-focusBorder);
+            --track-bg:        var(--vscode-editor-background);
+            --track-header-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+        }
+        @media (forced-colors: active) {
+            :root {
+                --line:   ButtonBorder;
+                --text:   ButtonText;
+                --surface: Canvas;
+                --panel:  Canvas;
+                --accent: Highlight;
+            }
+        }
+        body.vscode-high-contrast .tb-btn,
+        body.vscode-high-contrast .track-btn,
+        body.vscode-high-contrast .track-offset-step,
+        body.vscode-high-contrast-light .tb-btn,
+        body.vscode-high-contrast-light .track-btn,
+        body.vscode-high-contrast-light .track-offset-step {
+            border-color: var(--vscode-contrastBorder) !important;
+        }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--surface); color: var(--text); font-family: var(--font-ui); overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
 
