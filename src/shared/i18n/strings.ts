@@ -126,6 +126,10 @@ export interface UiStrings {
     reportFormatPlaceholder: string;
     reportSaveLabel: string;
     reportExportedPrefix: string;
+    trackPickColor: string;
+    trackColorReset: string;
+    ariaDragHandle: string;
+    ariaPickColor: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -241,6 +245,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportFormatPlaceholder: 'Select report format',
         reportSaveLabel: 'Export Report',
         reportExportedPrefix: 'Report exported → ',
+        trackPickColor: 'Change color',
+        trackColorReset: 'Reset to default',
+        ariaDragHandle: 'Drag to reorder track',
+        ariaPickColor: 'Change track color',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -354,6 +362,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportFormatPlaceholder: 'レポート形式を選択',
         reportSaveLabel: 'レポートを書き出す',
         reportExportedPrefix: 'レポートを書き出しました → ',
+        trackPickColor: '色を変更',
+        trackColorReset: 'デフォルトに戻す',
+        ariaDragHandle: 'ドラッグしてトラックを並び替え',
+        ariaPickColor: 'トラック色を変更',
     },
 };
 
