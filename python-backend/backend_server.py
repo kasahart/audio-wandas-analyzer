@@ -145,7 +145,13 @@ def handle_export_wav_loop(cmd: dict) -> dict:
     sample_rate = info.samplerate
     start_sample = max(0, int(start_norm * info.frames))
     end_sample = min(info.frames, int(end_norm * info.frames))
-    n_frames = max(0, end_sample - start_sample)
+    n_frames = end_sample - start_sample
+
+    if n_frames <= 0:
+        raise ValueError(
+            f"Loop region produces 0 frames (startNorm={start_norm}, endNorm={end_norm}, "
+            f"total_frames={info.frames}). Ensure startNorm < endNorm and the file is not empty."
+        )
 
     with sf.SoundFile(file_path) as f:
         f.seek(start_sample)
