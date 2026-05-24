@@ -138,6 +138,74 @@ def test_analyze_then_range_share_cache(server: _ServerHandle, tmp_path: Path) -
     assert elapsed < 1.0, f"range after analyze took {elapsed:.3f}s — cache likely not shared"
 
 
+def test_heartbeat_loop_produces_heartbeat_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_heartbeat_loop sends valid heartbeat JSON."""
+    import builtins
+    import json as _json
+    import time
+
+    import backend_server
+
+    original_sleep = time.sleep
+    call_count = [0]
+
+    def fast_sleep(s: float) -> None:
+        call_count[0] += 1
+        if call_count[0] > 2:
+            raise SystemExit  # stop the loop
+        original_sleep(0.001)
+
+    monkeypatch.setattr(backend_server, "_HEARTBEAT_INTERVAL", 0.001)
+
+    printed: list[object] = []
+    monkeypatch.setattr(builtins, "print", lambda *args, **kwargs: printed.extend(args))
+    monkeypatch.setattr(time, "sleep", fast_sleep)
+
+    import contextlib
+
+    with contextlib.suppress(SystemExit):
+        backend_server._heartbeat_loop()
+
+    assert len(printed) >= 1
+    msg = _json.loads(str(printed[0]))
+    assert msg["type"] == "heartbeat"
+    assert "ts" in msg
+
+
+def test_heartbeat_loop_emits_valid_json(monkeypatch):
+    """_heartbeat_loop emits valid heartbeat JSON."""
+    import builtins
+    import contextlib
+    import json as _json
+    import time as _time
+
+    import backend_server
+
+    printed = []
+    monkeypatch.setattr(builtins, "print", lambda *args, **kwargs: printed.extend(args))
+    monkeypatch.setattr(backend_server, "_HEARTBEAT_INTERVAL", 0.001)
+
+    call_count = [0]
+    original_sleep = _time.sleep
+
+    def fast_sleep(s: float) -> None:
+        call_count[0] += 1
+        if call_count[0] > 3:
+            raise SystemExit
+        original_sleep(0.001)
+
+    monkeypatch.setattr(_time, "sleep", fast_sleep)
+
+    with contextlib.suppress(SystemExit):
+        backend_server._heartbeat_loop()
+
+    assert len(printed) >= 2
+    for line in printed:
+        msg = _json.loads(line)
+        assert msg["type"] == "heartbeat"
+        assert "ts" in msg
+
+
 def test_lru_evicts_oldest_when_over_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import importlib
 

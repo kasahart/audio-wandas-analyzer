@@ -21,6 +21,10 @@ export class PythonBackendServer {
     private stderrBuf = '';
     private startPromise: Promise<void> | null = null;
     private nextId = 1;
+    private lastHeartbeatAt = 0;
+    private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+    private static readonly HEARTBEAT_TIMEOUT_MS = 15_000;
+    private static readonly WATCHDOG_INTERVAL_MS = 5_000;
 
     constructor(
         private readonly extensionPath: string,
@@ -54,6 +58,7 @@ export class PythonBackendServer {
     }
 
     dispose(): void {
+        this.stopWatchdog();
         this.proc?.kill();
         this.proc = null;
         this.rejectAll(new Error('PythonBackendServer disposed'));
@@ -114,8 +119,9 @@ export class PythonBackendServer {
                             this.startPromise = null;
                             this.proc!.stdout!.off('data', handleReadyOrLine);
                             this.proc!.stdout!.on('data', (c: Buffer | string) => {
-                                processStdoutChunk(this.stdoutBuf, c.toString(), this.pending);
+                                processStdoutChunk(this.stdoutBuf, c.toString(), this.pending, (msg) => this.onHeartbeat(msg));
                             });
+                            this.startWatchdog();
                             resolve();
                             return;
                         }
@@ -145,11 +151,38 @@ export class PythonBackendServer {
 
             this.proc.on('exit', () => {
                 clearTimeout(timeout);
+                this.stopWatchdog();
                 this.proc = null;
                 this.startPromise = null;
                 this.rejectAll(new Error('PythonBackendServer exited unexpectedly'));
             });
         });
+    }
+
+    private startWatchdog(): void {
+        this.lastHeartbeatAt = Date.now();
+        if (this.watchdogTimer) { return; }
+        this.watchdogTimer = setInterval(() => {
+            const elapsed = Date.now() - this.lastHeartbeatAt;
+            if (elapsed > PythonBackendServer.HEARTBEAT_TIMEOUT_MS) {
+                this.onPerfLine('[watchdog] heartbeat timeout — restarting backend');
+                this.proc?.kill();
+                this.proc = null;
+                this.startPromise = null;
+                void this.ensureRunning().catch(() => { /* surfaced on next request */ });
+            }
+        }, PythonBackendServer.WATCHDOG_INTERVAL_MS);
+    }
+
+    private stopWatchdog(): void {
+        if (this.watchdogTimer) {
+            clearInterval(this.watchdogTimer);
+            this.watchdogTimer = null;
+        }
+    }
+
+    private onHeartbeat(_msg: Record<string, unknown>): void {
+        this.lastHeartbeatAt = Date.now();
     }
 
     private rejectAll(err: Error): void {
