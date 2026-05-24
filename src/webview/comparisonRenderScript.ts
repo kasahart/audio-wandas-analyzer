@@ -2622,6 +2622,10 @@ export function getComparisonRenderScript(): string {
             function toggleMute(idx) {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }
                 trackRuntime[idx].hidden = !trackRuntime[idx].hidden;
+                var n = displayOrder.indexOf(idx) + 1;
+                announce(trackRuntime[idx].hidden
+                    ? (STR.announceMuted || 'Track {n} muted').replace('{n}', String(n))
+                    : (STR.announceUnmuted || 'Track {n} unmuted').replace('{n}', String(n)));
                 const btn = document.querySelector('[data-action="toggle-mute"][data-track-index="' + idx + '"]');
                 if (btn) {
                     btn.classList.toggle('is-muted', trackRuntime[idx].hidden);
@@ -2634,6 +2638,10 @@ export function getComparisonRenderScript(): string {
 
             function toggleSolo(idx) {
                 soloTrackIndex = (soloTrackIndex === idx) ? null : idx;
+                var n = displayOrder.indexOf(idx) + 1;
+                announce(soloTrackIndex === idx
+                    ? (STR.announceSoloed || 'Track {n} solo').replace('{n}', String(n))
+                    : (STR.announceUnsoloed || 'Track {n} solo off').replace('{n}', String(n)));
                 // ソロ有効化時、再生中トラックがソロ対象外なら停止
                 if (soloTrackIndex !== null && playbackTrackIndex !== null && playbackTrackIndex !== soloTrackIndex) {
                     stopPlayback(playbackTrackIndex, { keepCursor: true });
@@ -2659,8 +2667,10 @@ export function getComparisonRenderScript(): string {
                 const audio = getTrackAudio(idx);
                 if (audio) { audio.remove(); }
                 trackRuntime[idx].hidden = true;
+                var n = displayOrder.indexOf(idx) + 1;
                 var pos = displayOrder.indexOf(idx);
                 if (pos !== -1) { displayOrder.splice(pos, 1); }
+                announce((STR.announceTrackRemoved || 'Track {n} removed').replace('{n}', String(n)));
                 if (__colorPickTarget === idx) { closeColorPicker(); }
                 updateVisibility();
                 scheduleRender();
@@ -2806,6 +2816,7 @@ export function getComparisonRenderScript(): string {
                 if (busy) {
                     document.getElementById('reanalyze-overlay-msg').textContent = msg || STR.reanalyzingDefault;
                     overlay.style.display = 'flex';
+                    announce((STR.announceAnalyzing || 'Analyzing: {msg}').replace('{msg}', msg || STR.reanalyzingDefault || ''));
                 } else {
                     overlay.style.display = 'none';
                 }
@@ -2916,6 +2927,7 @@ export function getComparisonRenderScript(): string {
                         return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
                     });
                     displayOrder = state.results.map(function(_, i) { return i; });
+                    announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
                     scheduleRender();
                     refreshSpectrumViews();
                     requestAnimationFrame(function() { publishTestSnapshot(); });
