@@ -72,7 +72,7 @@ body.vscode-high-contrast-light .track-offset-step {
 ### 対象ファイル
 - Modify: `src/webview/panels/ComparisonPanel.ts` — `renderComparisonHtml()` 内 HTML テンプレート
 - Modify: `src/webview/comparisonRenderScript.ts` — `announce()`・各ハンドラ・`publishTestSnapshot`
-- Modify: `src/shared/i18n/strings.ts` — 8キー追加
+- Modify: `src/shared/i18n/strings.ts` — 7キー追加
 - Modify: `src/e2e/suite/index.ts` — `lastAnnounce` 型定義 + assert
 
 ### HTML 追加
@@ -119,7 +119,7 @@ function announce(msg) {
 
 ## 3. i18n キー
 
-`src/shared/i18n/strings.ts` に追加する8キー：
+`src/shared/i18n/strings.ts` に追加する7キー：
 
 | キー | EN | JA |
 |------|----|----|
@@ -167,7 +167,7 @@ assert.strictEqual(snapshot.renderedUi.lastAnnounce, '', 'Initial announce shoul
 |---------|---------|------|
 | `src/webview/panels/ComparisonPanel.ts` | Modify | HC CSS ブロック追加、`#a11y-announce` HTML 追加、`ComparisonPanelRenderedUi.lastAnnounce` 追加 |
 | `src/webview/comparisonRenderScript.ts` | Modify | `announce()` ヘルパー追加、各ハンドラに `announce()` 呼び出し追加、`publishTestSnapshot` 拡張 |
-| `src/shared/i18n/strings.ts` | Modify | 8キー追加 |
+| `src/shared/i18n/strings.ts` | Modify | 7キー追加 |
 | `src/e2e/suite/index.ts` | Modify | `lastAnnounce: string` 型追加、初期値 assert 追加 |
 
 ---
