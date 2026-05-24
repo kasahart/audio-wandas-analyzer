@@ -1587,8 +1587,66 @@ export function getComparisonRenderScript(): string {
                     }
                     const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
                     if (overlayCanvas) {
-                        overlayCanvas.addEventListener('mousemove', function(e) { onSpectrumMove(36, 8, overlayCanvas, e); });
+                        overlayCanvas.addEventListener('mousemove', function(e) {
+                            if (specDragAnchor !== null) { return; }  // ドラッグ中はホバー不要
+                            onSpectrumMove(36, 8, overlayCanvas, e);
+                        });
                         overlayCanvas.addEventListener('mouseleave', onSpectrumLeave);
+                        overlayCanvas.addEventListener('mousedown', function(e) {
+                            if (e.button !== 0) { return; }
+                            const rect = overlayCanvas.getBoundingClientRect();
+                            const x = e.clientX - rect.left;
+                            const y = e.clientY - rect.top;
+                            const padL = 36, padR = 8, padT = 8, padB = 18;
+                            const plotW = overlayCanvas.width - padL - padR;
+                            const plotH = overlayCanvas.height - padT - padB;
+                            if (plotW <= 0 || plotH <= 0) { return; }
+                            const freqNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
+                            const dbNorm   = Math.max(0, Math.min(1, 1 - (y - padT) / plotH));
+                            specDragAnchor  = { freqNorm: freqNorm, dbNorm: dbNorm };
+                            specDragCurrent = { freqNorm: freqNorm, dbNorm: dbNorm };
+                            e.preventDefault();
+                        });
+                        document.addEventListener('mousemove', function(e) {
+                            if (specDragAnchor === null) { return; }
+                            const rect = overlayCanvas.getBoundingClientRect();
+                            const x = e.clientX - rect.left;
+                            const y = e.clientY - rect.top;
+                            const padL = 36, padR = 8, padT = 8, padB = 18;
+                            const plotW = overlayCanvas.width - padL - padR;
+                            const plotH = overlayCanvas.height - padT - padB;
+                            if (plotW <= 0 || plotH <= 0) { return; }
+                            const freqNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
+                            const dbNorm   = Math.max(0, Math.min(1, 1 - (y - padT) / plotH));
+                            specDragCurrent = { freqNorm: freqNorm, dbNorm: dbNorm };
+                            refreshSpectrumViews();
+                        });
+                        document.addEventListener('mouseup', function(e) {
+                            if (specDragAnchor === null) { return; }
+                            const anchor  = specDragAnchor;
+                            const current = specDragCurrent;
+                            specDragAnchor  = null;
+                            specDragCurrent = null;
+                            if (!anchor || !current) { refreshSpectrumViews(); return; }
+                            const pxDx = Math.abs((anchor.freqNorm - current.freqNorm) * (overlayCanvas.width - 36 - 8));
+                            const pxDy = Math.abs((anchor.dbNorm   - current.dbNorm)   * (overlayCanvas.height - 8 - 18));
+                            if (pxDx < 5 && pxDy < 5) { refreshSpectrumViews(); return; }
+                            // ズームを適用: freqNorm は現在の visFreqStart..visFreqEnd 内の相対値
+                            const f0 = Math.min(anchor.freqNorm, current.freqNorm);
+                            const f1 = Math.max(anchor.freqNorm, current.freqNorm);
+                            const d0 = Math.min(anchor.dbNorm,   current.dbNorm);
+                            const d1 = Math.max(anchor.dbNorm,   current.dbNorm);
+                            const prevFreqStart = specFreqStart;
+                            const prevFreqEnd   = specFreqEnd;
+                            specFreqStart = prevFreqStart + f0 * (prevFreqEnd - prevFreqStart);
+                            specFreqEnd   = prevFreqStart + f1 * (prevFreqEnd - prevFreqStart);
+                            if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
+                                const visDbRange = _lastVisDbMax - _lastVisDbMin;
+                                specDbMin = _lastVisDbMin + d0 * visDbRange;
+                                specDbMax = _lastVisDbMin + d1 * visDbRange;
+                            }
+                            refreshSpectrumViews();
+                        });
                     }
                     document.querySelectorAll('.track-spectrum-canvas').forEach(function(c) {
                         c.addEventListener('mousemove', function(e) { onSpectrumMove(32, 6, c, e); });
