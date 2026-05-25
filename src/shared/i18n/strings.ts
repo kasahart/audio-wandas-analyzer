@@ -137,6 +137,15 @@ export interface UiStrings {
     announceUnmuted: string;
     announceSoloed: string;
     announceUnsoloed: string;
+    spectrumZoomLabel: string;
+    ariaSpecZoomIn: string;
+    ariaSpecZoomOut: string;
+    ariaSpecZoomReset: string;
+    btnSpecZoomReset: string;
+    helpRowSpectrumDrag: string;
+    helpRowWaveRectZoom: string;
+    waveModeLabelLoop: string;
+    waveModeLabelRectZoom: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -263,6 +272,15 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceUnmuted: 'Track {n} unmuted',
         announceSoloed: 'Track {n} solo',
         announceUnsoloed: 'Track {n} solo off',
+        spectrumZoomLabel: 'Spectrum',
+        ariaSpecZoomIn: 'Spectrum zoom in',
+        ariaSpecZoomOut: 'Spectrum zoom out',
+        ariaSpecZoomReset: 'Spectrum zoom reset',
+        btnSpecZoomReset: 'All',
+        helpRowSpectrumDrag: 'drag zoom (spectrum)',
+        helpRowWaveRectZoom: 'drag zoom (waveform zoom mode)',
+        waveModeLabelLoop: '🔁 Loop',
+        waveModeLabelRectZoom: '🔲 Zoom',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -387,6 +405,15 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceUnmuted: 'トラック{n}ミュート解除',
         announceSoloed: 'トラック{n}ソロ',
         announceUnsoloed: 'トラック{n}ソロ解除',
+        spectrumZoomLabel: 'スペクトル',
+        ariaSpecZoomIn: 'スペクトル拡大',
+        ariaSpecZoomOut: 'スペクトル縮小',
+        ariaSpecZoomReset: 'スペクトルズームリセット',
+        btnSpecZoomReset: '全域',
+        helpRowSpectrumDrag: '矩形ズーム (スペクトル)',
+        helpRowWaveRectZoom: '矩形ズーム (波形ズームモード時)',
+        waveModeLabelLoop: '🔁 ループ',
+        waveModeLabelRectZoom: '🔲 ズーム',
     },
 };
 

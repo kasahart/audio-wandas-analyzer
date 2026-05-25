@@ -9,6 +9,8 @@ export const SHORTCUT_ROWS = [
     { shortcut: 'L', labelKey: 'helpRowZoomToSelection' },
     { shortcut: 'Wheel', labelKey: 'helpRowWheel' },
     { shortcut: 'Ctrl+Wheel', labelKey: 'helpRowCtrlWheel' },
+    { shortcut: 'Drag (spectrum)', labelKey: 'helpRowSpectrumDrag' },
+    { shortcut: 'Drag (zoom mode)', labelKey: 'helpRowWaveRectZoom' },
     { shortcut: 'Drag', labelKey: 'helpRowDrag' },
     { shortcut: 'Shift+Drag', labelKey: 'helpRowShiftDrag' },
     { shortcut: '?', labelKey: 'helpRowQuestion' },
@@ -81,6 +83,17 @@ export function getComparisonRenderScript(): string {
             let spectrumHoverNorm = null;  // スペクトルカーソル（正規化周波数 0..1、null = 非表示）
             let spectrumHoverYFrac = null; // スペクトルカーソルy（canvas高さに対する比率 0..1）
             let spectrumHasMouse = false;  // マウスがスペクトルキャンバス上にある間 true
+            // ── スペクトルズーム ───────────────────────────────────
+            let specFreqStart = 0;      // 0..1 正規化周波数（0=0Hz, 1=maxFreq）
+            let specFreqEnd   = 1;
+            let specDbMin = null;       // null = データ自動, number = dB 上書き
+            let specDbMax = null;
+            let _lastVisDbMin = null;   // 前回レンダリング時の visDbMin キャッシュ
+            let _lastVisDbMax = null;
+            let specDragAnchor  = null; // { freqNorm, dbNorm } | null
+            let specDragCurrent = null; // { freqNorm, dbNorm } | null
+            // ── 波形モード ────────────────────────────────────────
+            let waveformMode = 'loop';  // 'loop' | 'rect-zoom'
             let playbackStartNorm = 0;    // 再生開始位置の記憶
             let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag, isShift, startNorm, dragType }
             let loopRegion = null;        // null or { start: number, end: number }（正規化グローバル時間）
@@ -313,12 +326,20 @@ export function getComparisonRenderScript(): string {
                         ? ['0 Hz', formatHz(specMaxF / 2), formatHz(specMaxF),
                            specDbLo.toFixed(0) + ' dB', specDbHi.toFixed(0) + ' dB', 'Freq']
                         : []);
-                    spectrumPerTrack.push(slice
-                        ? [slice.maxDb.toFixed(0) + ' dB',
-                           ((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' dB',
-                           slice.minDb.toFixed(0) + ' dB',
-                           '0 Hz', formatHz(slice.maxFrequencyHz / 2), formatHz(slice.maxFrequencyHz)]
-                        : []);
+                    if (slice) {
+                        const visSliceDbMin  = (specDbMin != null) ? specDbMin : slice.minDb;
+                        const visSliceDbMax  = (specDbMax != null) ? specDbMax : slice.maxDb;
+                        const visSliceFreqMin = specFreqStart * slice.maxFrequencyHz;
+                        const visSliceFreqMax = specFreqEnd   * slice.maxFrequencyHz;
+                        spectrumPerTrack.push([
+                            visSliceDbMax.toFixed(0) + ' dB',
+                            ((visSliceDbMax + visSliceDbMin) / 2).toFixed(0) + ' dB',
+                            visSliceDbMin.toFixed(0) + ' dB',
+                            formatHz(visSliceFreqMin), formatHz((visSliceFreqMin + visSliceFreqMax) / 2), formatHz(visSliceFreqMax),
+                        ]);
+                    } else {
+                        spectrumPerTrack.push([]);
+                    }
                     return {
                         trackIndex: trackIndex,
                         offsetSeconds: trackRuntime[trackIndex].offsetSeconds,
@@ -377,16 +398,27 @@ export function getComparisonRenderScript(): string {
                         latestSpectrogram: latestSpectrogram,
                         axisLabels: {
                             spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayMinDb)
-                                ? [overlayMaxDb.toFixed(0) + ' dB',
-                                   ((overlayMaxDb + overlayMinDb) / 2).toFixed(0) + ' dB',
-                                   overlayMinDb.toFixed(0) + ' dB',
-                                   '0 Hz', formatHz(overlayMaxF / 2), formatHz(overlayMaxF)]
+                                ? (function() {
+                                    const visOvDbMin  = (specDbMin != null) ? specDbMin : overlayMinDb;
+                                    const visOvDbMax  = (specDbMax != null) ? specDbMax : overlayMaxDb;
+                                    const visOvFMin   = specFreqStart * overlayMaxF;
+                                    const visOvFMax   = specFreqEnd   * overlayMaxF;
+                                    return [
+                                        visOvDbMax.toFixed(0) + ' dB',
+                                        ((visOvDbMax + visOvDbMin) / 2).toFixed(0) + ' dB',
+                                        visOvDbMin.toFixed(0) + ' dB',
+                                        formatHz(visOvFMin), formatHz((visOvFMin + visOvFMax) / 2), formatHz(visOvFMax),
+                                    ];
+                                })()
                                 : [],
                             spectrogramPerTrack: spectrogramPerTrack,
                             spectrumPerTrack: spectrumPerTrack,
                             waveformPerTrack: waveformPerTrack,
                         },
                         displayOrder: displayOrder.slice(),
+                        specFreqStart: specFreqStart,
+                        specFreqEnd: specFreqEnd,
+                        waveformMode: waveformMode,
                         lastAnnounce: (function() {
                             var el = document.getElementById('a11y-announce');
                             return el ? (el.textContent || '') : '';
@@ -456,6 +488,12 @@ export function getComparisonRenderScript(): string {
                     + '</div>'
                     + '<div id="spectrum-section">'
                     + '  <div id="spectrum-section-header"><span>' + escHtml(STR.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span><span id="spectrum-freq-readout" style="font-family:var(--font-mono);margin-left:14px;"></span></div>'
+                    + '  <div id="spectrum-zoom-toolbar" style="display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;">'
+                    + '    <span class="tb-label">' + escHtml(STR.spectrumZoomLabel) + '</span>'
+                    + '    <button class="tb-btn" data-action="spec-zoom-out" aria-label="' + escHtml(STR.ariaSpecZoomOut) + '">－</button>'
+                    + '    <button class="tb-btn" data-action="spec-zoom-in" aria-label="' + escHtml(STR.ariaSpecZoomIn) + '">＋</button>'
+                    + '    <button class="tb-btn" data-action="spec-zoom-reset" aria-label="' + escHtml(STR.ariaSpecZoomReset) + '">' + escHtml(STR.btnSpecZoomReset) + '</button>'
+                    + '  </div>'
                     + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas"></canvas></div>'
                     + '</div>'
                     + '<div id="audio-host">' + buildAudioElements() + '</div>'
@@ -518,6 +556,9 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="zoom-out" aria-label="' + escHtml(STR.ariaZoomOut) + '">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in" aria-label="' + escHtml(STR.ariaZoomIn) + '">＋</button>'
                     + '<button class="tb-btn" data-action="zoom-reset" aria-label="' + escHtml(STR.ariaZoomReset) + '">' + escHtml(STR.btnZoomReset) + '</button>'
+                    + '<div class="tb-sep"></div>'
+                    + '<button class="tb-btn" id="btn-wave-mode-loop" data-action="wave-mode-loop" aria-pressed="true">' + escHtml(STR.waveModeLabelLoop) + '</button>'
+                    + '<button class="tb-btn" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom" aria-pressed="false">' + escHtml(STR.waveModeLabelRectZoom) + '</button>'
                     + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection" title="' + escHtml(STR.btnZoomToSelectionTitle) + '" disabled>' + escHtml(STR.btnZoomToSelection) + '</button>'
                     + '<button class="tb-btn" data-action="toggle-follow-cursor" title="' + escHtml(STR.btnFollowCursorTitle) + '">' + escHtml(STR.btnFollowCursor) + '</button>'
                     + '<div class="tb-sep"></div>'
@@ -1565,8 +1606,66 @@ export function getComparisonRenderScript(): string {
                     }
                     const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
                     if (overlayCanvas) {
-                        overlayCanvas.addEventListener('mousemove', function(e) { onSpectrumMove(36, 8, overlayCanvas, e); });
+                        overlayCanvas.addEventListener('mousemove', function(e) {
+                            if (specDragAnchor !== null) { return; }  // ドラッグ中はホバー不要
+                            onSpectrumMove(36, 8, overlayCanvas, e);
+                        });
                         overlayCanvas.addEventListener('mouseleave', onSpectrumLeave);
+                        overlayCanvas.addEventListener('mousedown', function(e) {
+                            if (e.button !== 0) { return; }
+                            const rect = overlayCanvas.getBoundingClientRect();
+                            const x = e.clientX - rect.left;
+                            const y = e.clientY - rect.top;
+                            const padL = 36, padR = 8, padT = 8, padB = 18;
+                            const plotW = overlayCanvas.width - padL - padR;
+                            const plotH = overlayCanvas.height - padT - padB;
+                            if (plotW <= 0 || plotH <= 0) { return; }
+                            const freqNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
+                            const dbNorm   = Math.max(0, Math.min(1, 1 - (y - padT) / plotH));
+                            specDragAnchor  = { freqNorm: freqNorm, dbNorm: dbNorm };
+                            specDragCurrent = { freqNorm: freqNorm, dbNorm: dbNorm };
+                            e.preventDefault();
+                        });
+                        document.addEventListener('mousemove', function(e) {
+                            if (specDragAnchor === null) { return; }
+                            const rect = overlayCanvas.getBoundingClientRect();
+                            const x = e.clientX - rect.left;
+                            const y = e.clientY - rect.top;
+                            const padL = 36, padR = 8, padT = 8, padB = 18;
+                            const plotW = overlayCanvas.width - padL - padR;
+                            const plotH = overlayCanvas.height - padT - padB;
+                            if (plotW <= 0 || plotH <= 0) { return; }
+                            const freqNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
+                            const dbNorm   = Math.max(0, Math.min(1, 1 - (y - padT) / plotH));
+                            specDragCurrent = { freqNorm: freqNorm, dbNorm: dbNorm };
+                            refreshSpectrumViews();
+                        });
+                        document.addEventListener('mouseup', function(e) {
+                            if (specDragAnchor === null) { return; }
+                            const anchor  = specDragAnchor;
+                            const current = specDragCurrent;
+                            specDragAnchor  = null;
+                            specDragCurrent = null;
+                            if (!anchor || !current) { refreshSpectrumViews(); return; }
+                            const pxDx = Math.abs((anchor.freqNorm - current.freqNorm) * (overlayCanvas.width - 36 - 8));
+                            const pxDy = Math.abs((anchor.dbNorm   - current.dbNorm)   * (overlayCanvas.height - 8 - 18));
+                            if (pxDx < 5 || pxDy < 5) { refreshSpectrumViews(); return; }
+                            // ズームを適用: freqNorm は現在の visFreqStart..visFreqEnd 内の相対値
+                            const f0 = Math.min(anchor.freqNorm, current.freqNorm);
+                            const f1 = Math.max(anchor.freqNorm, current.freqNorm);
+                            const d0 = Math.min(anchor.dbNorm,   current.dbNorm);
+                            const d1 = Math.max(anchor.dbNorm,   current.dbNorm);
+                            const prevFreqStart = specFreqStart;
+                            const prevFreqEnd   = specFreqEnd;
+                            specFreqStart = prevFreqStart + f0 * (prevFreqEnd - prevFreqStart);
+                            specFreqEnd   = prevFreqStart + f1 * (prevFreqEnd - prevFreqStart);
+                            if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
+                                const visDbRange = _lastVisDbMax - _lastVisDbMin;
+                                specDbMin = _lastVisDbMin + d0 * visDbRange;
+                                specDbMax = _lastVisDbMin + d1 * visDbRange;
+                            }
+                            refreshSpectrumViews();
+                        });
                     }
                     document.querySelectorAll('.track-spectrum-canvas').forEach(function(c) {
                         c.addEventListener('mousemove', function(e) { onSpectrumMove(32, 6, c, e); });
@@ -1746,6 +1845,24 @@ export function getComparisonRenderScript(): string {
                     zoomStart = 0;
                     zoomEnd = 1;
                     scheduleRender();
+                } else if (action === 'spec-zoom-in') {
+                    specZoomIn();
+                } else if (action === 'spec-zoom-out') {
+                    specZoomOut();
+                } else if (action === 'spec-zoom-reset') {
+                    specZoomReset();
+                } else if (action === 'wave-mode-loop') {
+                    waveformMode = 'loop';
+                    const btnL = document.getElementById('btn-wave-mode-loop');
+                    const btnZ = document.getElementById('btn-wave-mode-rect-zoom');
+                    if (btnL) { btnL.setAttribute('aria-pressed', 'true'); }
+                    if (btnZ) { btnZ.setAttribute('aria-pressed', 'false'); }
+                } else if (action === 'wave-mode-rect-zoom') {
+                    waveformMode = 'rect-zoom';
+                    const btnL = document.getElementById('btn-wave-mode-loop');
+                    const btnZ = document.getElementById('btn-wave-mode-rect-zoom');
+                    if (btnL) { btnL.setAttribute('aria-pressed', 'false'); }
+                    if (btnZ) { btnZ.setAttribute('aria-pressed', 'true'); }
                 } else if (action === 'toggle-follow-cursor') {
                     followCursor = !followCursor;
                     const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
@@ -2041,6 +2158,46 @@ export function getComparisonRenderScript(): string {
                 scheduleRender();
             }
 
+            function specZoomIn() {
+                const fc = (specFreqStart + specFreqEnd) / 2;
+                const fh = (specFreqEnd - specFreqStart) / 2 * 0.7;
+                specFreqStart = Math.max(0, fc - fh);
+                specFreqEnd   = Math.min(1, fc + fh);
+                if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
+                    const dc = (_lastVisDbMin + _lastVisDbMax) / 2;
+                    const dh = (_lastVisDbMax - _lastVisDbMin) / 2 * 0.7;
+                    specDbMin = dc - dh;
+                    specDbMax = dc + dh;
+                }
+                refreshSpectrumViews();
+            }
+
+            function specZoomOut() {
+                const fc = (specFreqStart + specFreqEnd) / 2;
+                const fh = (specFreqEnd - specFreqStart) / 2 * (1 / 0.7);
+                specFreqStart = Math.max(0, fc - fh);
+                specFreqEnd   = Math.min(1, fc + fh);
+                // 完全ズームアウト時は dB も自動に戻す（dB ブロックはスキップ）
+                if (specFreqStart <= 0 && specFreqEnd >= 1) {
+                    specDbMin = null;
+                    specDbMax = null;
+                } else if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
+                    const dc = (_lastVisDbMin + _lastVisDbMax) / 2;
+                    const dh = (_lastVisDbMax - _lastVisDbMin) / 2 * (1 / 0.7);
+                    specDbMin = dc - dh;
+                    specDbMax = dc + dh;
+                }
+                refreshSpectrumViews();
+            }
+
+            function specZoomReset() {
+                specFreqStart = 0;
+                specFreqEnd   = 1;
+                specDbMin     = null;
+                specDbMax     = null;
+                refreshSpectrumViews();
+            }
+
             function copySpecToClipboard() {
                 if (!navigator.clipboard || !navigator.clipboard.writeText) { return; }
                 const lines = ['=== Audio Analyzer Spec ==='];
@@ -2196,6 +2353,7 @@ export function getComparisonRenderScript(): string {
 
             function handleDocMouseUp(e) {
                 const hadDrag = !!dragState;
+                const wasRectZoom = hadDrag && dragState.isDrag && dragState.dragType === 'loop' && waveformMode === 'rect-zoom';
                 if (dragState && !dragState.isDrag) {
                     // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
                     const canvasId = 'track-canvas-' + dragState.trackIndex;
@@ -2213,6 +2371,17 @@ export function getComparisonRenderScript(): string {
                     }
                 }
                 dragState = null;
+                if (wasRectZoom && loopRegion) {
+                    const pad = (loopRegion.end - loopRegion.start) * 0.05;
+                    disableFollowCursor();
+                    zoomStart = Math.max(0, loopRegion.start - pad);
+                    zoomEnd   = Math.min(1, loopRegion.end + pad);
+                    loopRegion = null;
+                    updateZoomToSelectionBtn();
+                    updateLoopTimeDisplay();
+                    scheduleRender();
+                    return;
+                }
                 if (hadDrag) { refreshSpectrumViews(); }
             }
 
@@ -2298,9 +2467,13 @@ export function getComparisonRenderScript(): string {
                 };
             }
 
-            function drawSpectrumLine(ctx, W, H, slice, color, opts) {
+            function drawSpectrumLine(ctx, W, H, slice, color, opts, visFreqMin, visFreqMax, visDbMin, visDbMax) {
                 const fBins = slice.frequencyBins;
-                const range = slice.maxDb - slice.minDb;
+                const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
+                const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
+                const _visDbMin   = (visDbMin   != null) ? visDbMin   : slice.minDb;
+                const _visDbMax   = (visDbMax   != null) ? visDbMax   : slice.maxDb;
+                const range = _visDbMax - _visDbMin;
                 if (range <= 0) { return; }
                 const padL = (opts && opts.padL) || 0;
                 const padR = (opts && opts.padR) || 0;
@@ -2316,12 +2489,14 @@ export function getComparisonRenderScript(): string {
                 ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
                 ctx.beginPath();
                 const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
+                const visFreqRange = _visFreqMax - _visFreqMin;
+                if (visFreqRange <= 0) { ctx.restore(); return; }
                 for (let i = 0; i < fBins; i++) {
                     const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
                     if (fHz > slice.maxFrequencyHz) { break; }
-                    const x = padL + (fHz / slice.maxFrequencyHz) * plotW;
+                    const x = padL + ((fHz - _visFreqMin) / visFreqRange) * plotW;
                     const v = slice.values[i];
-                    const norm = (v - slice.minDb) / range;
+                    const norm = (v - _visDbMin) / range;
                     const y = padT + (1 - norm) * plotH;
                     if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                 }
@@ -2329,7 +2504,11 @@ export function getComparisonRenderScript(): string {
                 ctx.restore();
             }
 
-            function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB) {
+            function drawSpectrumAxes(ctx, W, H, slice, padL, padR, padT, padB, visFreqMin, visFreqMax, visDbMin, visDbMax) {
+                const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
+                const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
+                const _visDbMin   = (visDbMin   != null) ? visDbMin   : slice.minDb;
+                const _visDbMax   = (visDbMax   != null) ? visDbMax   : slice.maxDb;
                 const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                 const lineColor = getComputedStyle(document.body).getPropertyValue('--line').trim() || '#444';
                 const plotW = W - padL - padR;
@@ -2344,16 +2523,16 @@ export function getComparisonRenderScript(): string {
                 ctx.font = '9px monospace';
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'top';
-                ctx.fillText(slice.maxDb.toFixed(0) + ' dB', padL - 2, padT);
+                ctx.fillText(_visDbMax.toFixed(0) + ' dB', padL - 2, padT);
                 ctx.textBaseline = 'middle';
-                ctx.fillText(((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' dB', padL - 2, padT + plotH / 2);
+                ctx.fillText(((_visDbMax + _visDbMin) / 2).toFixed(0) + ' dB', padL - 2, padT + plotH / 2);
                 ctx.textBaseline = 'bottom';
-                ctx.fillText(slice.minDb.toFixed(0) + ' dB', padL - 2, H - padB);
+                ctx.fillText(_visDbMin.toFixed(0) + ' dB', padL - 2, H - padB);
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'bottom';
-                ctx.fillText('0 Hz', padL, H - 1);
-                ctx.fillText(formatHz(slice.maxFrequencyHz / 2), padL + plotW / 2, H - 1);
-                ctx.fillText(formatHz(slice.maxFrequencyHz), W - padR, H - 1);
+                ctx.fillText(formatHz(_visFreqMin), padL, H - 1);
+                ctx.fillText(formatHz((_visFreqMin + _visFreqMax) / 2), padL + plotW / 2, H - 1);
+                ctx.fillText(formatHz(_visFreqMax), W - padR, H - 1);
             }
 
             function renderTrackSpectra() {
@@ -2382,8 +2561,12 @@ export function getComparisonRenderScript(): string {
                         return;
                     }
                     const color = trackColor(i);
-                    drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14);
-                    drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 });
+                    const visFreqMinT = specFreqStart * slice.maxFrequencyHz;
+                    const visFreqMaxT = specFreqEnd   * slice.maxFrequencyHz;
+                    const visDbMinT   = (specDbMin != null) ? specDbMin : slice.minDb;
+                    const visDbMaxT   = (specDbMax != null) ? specDbMax : slice.maxDb;
+                    drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
+                    drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 }, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
                     // スペクトル十字カーソル（縦線＋スペクトルにスナップした横線）
                     if (spectrumHoverNorm !== null) {
                         const padL2 = 32, padR2 = 6, padT2 = 4, padB2 = 14;
@@ -2391,11 +2574,11 @@ export function getComparisonRenderScript(): string {
                         const plotH2 = H - padT2 - padB2;
                         const curX = padL2 + spectrumHoverNorm * plotW2;
                         const origMaxF2 = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
-                        const fHz2 = spectrumHoverNorm * slice.maxFrequencyHz;
+                        const fHz2 = visFreqMinT + spectrumHoverNorm * (visFreqMaxT - visFreqMinT);
                         const binF2 = (fHz2 / Math.max(origMaxF2, 1)) * Math.max(slice.frequencyBins - 1, 1);
                         const binIdx2 = Math.max(0, Math.min(slice.frequencyBins - 1, Math.round(binF2)));
                         const dbVal2 = slice.values[binIdx2];
-                        const range2 = slice.maxDb - slice.minDb;
+                        const range2 = visDbMaxT - visDbMinT;
                         ctx.save();
                         ctx.lineWidth = 1;
                         ctx.setLineDash([3, 3]);
@@ -2406,7 +2589,7 @@ export function getComparisonRenderScript(): string {
                         ctx.stroke();
                         // 横線（スペクトル値にスナップ）
                         if (dbVal2 !== undefined && range2 > 0) {
-                            const norm2 = Math.max(0, Math.min(1, (dbVal2 - slice.minDb) / range2));
+                            const norm2 = Math.max(0, Math.min(1, (dbVal2 - visDbMinT) / range2));
                             const snapY = padT2 + (1 - norm2) * plotH2;
                             ctx.strokeStyle = color;
                             ctx.beginPath();
@@ -2453,12 +2636,20 @@ export function getComparisonRenderScript(): string {
                     if (s.slice.maxFrequencyHz > maxF) { maxF = s.slice.maxFrequencyHz; }
                 });
                 const padL = 36, padR = 8, padT = 8, padB = 18;
-                const sharedAxis = { values: [], frequencyBins: 1, maxFrequencyHz: maxF, minDb: minDb, maxDb: maxDb };
-                drawSpectrumAxes(ctx, W, H, sharedAxis, padL, padR, padT, padB);
+                const visFreqMinO = specFreqStart * maxF;
+                const visFreqMaxO = specFreqEnd   * maxF;
+                const visDbMinO   = (specDbMin != null) ? specDbMin : minDb;
+                const visDbMaxO   = (specDbMax != null) ? specDbMax : maxDb;
+                _lastVisDbMin = visDbMinO;
+                _lastVisDbMax = visDbMaxO;
+                const sharedAxis = { values: [], frequencyBins: 1, maxFrequencyHz: maxF, minDb: visDbMinO, maxDb: visDbMaxO };
+                drawSpectrumAxes(ctx, W, H, sharedAxis, padL, padR, padT, padB, visFreqMinO, visFreqMaxO, visDbMinO, visDbMaxO);
 
                 const plotW = W - padL - padR;
                 const plotH = H - padT - padB;
-                const range = maxDb - minDb;
+                const range = visDbMaxO - visDbMinO;
+                const visFreqRangeO = visFreqMaxO - visFreqMinO;
+                if (visFreqRangeO <= 0) { return; }
                 ctx.save();
                 ctx.beginPath();
                 ctx.rect(padL, padT, plotW, plotH);
@@ -2473,9 +2664,9 @@ export function getComparisonRenderScript(): string {
                     for (let i = 0; i < fBins; i++) {
                         const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
                         if (fHz > maxF) { break; }
-                        const x = padL + (fHz / maxF) * plotW;
+                        const x = padL + ((fHz - visFreqMinO) / visFreqRangeO) * plotW;
                         const v = s.slice.values[i];
-                        const norm = (v - minDb) / range;
+                        const norm = (v - visDbMinO) / range;
                         const y = padT + (1 - norm) * plotH;
                         if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                     }
@@ -2486,7 +2677,7 @@ export function getComparisonRenderScript(): string {
                 // 十字カーソル描画（最近傍スペクトルにスナップ）
                 if (spectrumHoverNorm !== null) {
                     const curX = padL + spectrumHoverNorm * plotW;
-                    const fHz = spectrumHoverNorm * maxF;
+                    const fHz = visFreqMinO + spectrumHoverNorm * (visFreqMaxO - visFreqMinO);
 
                     // 各スライスのカーソル周波数でのy座標とdB値を計算
                     const sliceSnaps = [];
@@ -2497,7 +2688,7 @@ export function getComparisonRenderScript(): string {
                         const binIdx = Math.max(0, Math.min(s.slice.frequencyBins - 1, Math.round(binF)));
                         const dbVal = s.slice.values[binIdx];
                         if (dbVal === undefined) { return; }
-                        const norm = Math.max(0, Math.min(1, (dbVal - minDb) / range));
+                        const norm = Math.max(0, Math.min(1, (dbVal - visDbMinO) / range));
                         const snapY = padT + (1 - norm) * plotH;
                         sliceSnaps.push({ s: s, dbVal: dbVal, snapY: snapY });
                     });
@@ -2529,9 +2720,9 @@ export function getComparisonRenderScript(): string {
                         for (let i = 0; i < fBinsH; i++) {
                             const f = (i / Math.max(fBinsH - 1, 1)) * origMaxFH;
                             if (f > maxF) { break; }
-                            const x = padL + (f / maxF) * plotW;
+                            const x = padL + ((f - visFreqMinO) / visFreqRangeO) * plotW;
                             const v = nearest.s.slice.values[i];
-                            const n = (v - minDb) / range;
+                            const n = (v - visDbMinO) / range;
                             const y = padT + (1 - n) * plotH;
                             if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
                         }
@@ -2573,6 +2764,24 @@ export function getComparisonRenderScript(): string {
                 } else {
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl) { readoutEl.textContent = ''; readoutEl.style.color = ''; }
+                }
+
+                // ── スペクトルドラッグ選択ゴムバンド ─────────────────────
+                if (specDragAnchor !== null && specDragCurrent !== null) {
+                    const ax = padL + specDragAnchor.freqNorm  * plotW;
+                    const ay = padT + (1 - specDragAnchor.dbNorm)  * plotH;
+                    const bx = padL + specDragCurrent.freqNorm * plotW;
+                    const by = padT + (1 - specDragCurrent.dbNorm) * plotH;
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(100,180,255,0.9)';
+                    ctx.fillStyle   = 'rgba(100,180,255,0.15)';
+                    ctx.lineWidth   = 1;
+                    ctx.setLineDash([4, 3]);
+                    const rx = Math.min(ax, bx), ry = Math.min(ay, by);
+                    const rw = Math.abs(bx - ax),  rh = Math.abs(by - ay);
+                    ctx.fillRect(rx, ry, rw, rh);
+                    ctx.strokeRect(rx, ry, rw, rh);
+                    ctx.restore();
                 }
             }
 
