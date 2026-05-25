@@ -16,9 +16,9 @@ export function getChartSpecRenderScript(): string {
     return `(function() {
     'use strict';
 
-    const rangeOverrides = {};   // chartIndex → { min: number, max: number }
-    const chartRedraws   = [];   // chartIndex → function(override)
-    let   activeChartIdx = -1;   // 現在ポップアップが開いているチャート index
+    const rangeOverrides = {};   // chartIndex → { min: number, max: number } (wired in Task 2/3/4)
+    const chartRedraws   = [];   // chartIndex → function(override) (wired in Task 2/3)
+    let   activeChartIdx = -1;   // 現在ポップアップが開いているチャート index (wired in Task 2/3/4)
 
     // ── レンジポップアップ ────────────────────────────────────────
     (function buildRangePopup() {
