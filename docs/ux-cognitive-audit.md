@@ -61,8 +61,11 @@ node scripts/ux-cognitive-audit.js
 [src/e2e/suite/uxAudit.ts]
     ↓
     ├─► VS Code API: コマンド実行 (analyzeDebugFile) で拡張機能Webviewをアクティブ化
-    ├─► Playwright: CDP (Port 9222) 経由でElectronにアタッチ
+    ├─► Playwright: CDP (Port 9222, UX_AUDIT_CDP_PORT で変更可) 経由でElectronにアタッチ
     └─► Playwright: シミュレーション操作のトレース ＆ スクリーンショット撮影
+
+> [!NOTE]
+> CDPのポート番号はデフォルトで `9222` ですが、環境変数 `UX_AUDIT_CDP_PORT` を指定することで変更可能です。ポート衝突が発生する環境などでは、空いている別のポート番号を指定して実行してください。
 ```
 
 ---

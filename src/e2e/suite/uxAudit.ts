@@ -5,7 +5,6 @@ import * as vscode from 'vscode';
 import { chromium, type Browser } from '@playwright/test';
 import { ComparisonPanel } from '../../webview/panels/ComparisonPanel';
 
-const SCREENSHOT_DIR = path.resolve(__dirname, '..', '..', '..', 'ux-audit-screenshots');
 const SINGLE_TRACK_DEBUG_AUDIO_PATH = 'media/debug.wav';
 const MULTI_TRACK_DEBUG_AUDIO_PATH = 'media/debug';
 const COMMAND_TIMEOUT_MS = 20000;
@@ -36,7 +35,6 @@ async function waitForSnapshot(expectedActionId?: string): Promise<TestSnapshot>
 
 export async function run(): Promise<void> {
     console.log('Starting UX Cognitive Audit E2E Suite...');
-    ensureDirectoryExists(SCREENSHOT_DIR);
 
     const extension = vscode.extensions.getExtension('audio-wandas-analyzer.audio-wandas-analyzer');
     assert.ok(extension, 'Extension must be available');
@@ -44,6 +42,9 @@ export async function run(): Promise<void> {
 
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     assert.ok(workspaceFolder, 'Workspace folder is required');
+
+    const screenshotDir = path.resolve(workspaceFolder.uri.fsPath, 'ux-audit-screenshots');
+    ensureDirectoryExists(screenshotDir);
 
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
     const pythonCommand = path.join(workspaceFolder.uri.fsPath, '.venv', 'bin', 'python');
@@ -71,7 +72,7 @@ export async function run(): Promise<void> {
         await vscode.commands.executeCommand('audioWandasAnalyzer.analyzeDebugFile');
         await waitForSnapshot();
 
-        await page.screenshot({ path: path.join(SCREENSHOT_DIR, '01_directory_selection.png'), fullPage: true });
+        await page.screenshot({ path: path.join(screenshotDir, '01_directory_selection.png'), fullPage: true });
         console.log('Saved screenshot 01_directory_selection.png');
 
         // Step 2: Load Single Track Results
@@ -81,7 +82,7 @@ export async function run(): Promise<void> {
         await vscode.commands.executeCommand('audioWandasAnalyzer.analyzeDebugFile');
         await waitForSnapshot();
 
-        await page.screenshot({ path: path.join(SCREENSHOT_DIR, '02_single_track_results.png'), fullPage: true });
+        await page.screenshot({ path: path.join(screenshotDir, '02_single_track_results.png'), fullPage: true });
         console.log('Saved screenshot 02_single_track_results.png');
 
         // Step 3: Interactive operations - Zoomed Waveform view & settings popover
@@ -95,7 +96,7 @@ export async function run(): Promise<void> {
         ]);
         await waitForSnapshot(actionId);
 
-        await page.screenshot({ path: path.join(SCREENSHOT_DIR, '03_interactive_spectrogram_settings.png'), fullPage: true });
+        await page.screenshot({ path: path.join(screenshotDir, '03_interactive_spectrogram_settings.png'), fullPage: true });
         console.log('Saved screenshot 03_interactive_spectrogram_settings.png');
 
         console.log('UX Cognitive Audit simulation finished successfully.');
