@@ -326,12 +326,20 @@ export function getComparisonRenderScript(): string {
                         ? ['0 Hz', formatHz(specMaxF / 2), formatHz(specMaxF),
                            specDbLo.toFixed(0) + ' dB', specDbHi.toFixed(0) + ' dB', 'Freq']
                         : []);
-                    spectrumPerTrack.push(slice
-                        ? [slice.maxDb.toFixed(0) + ' dB',
-                           ((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' dB',
-                           slice.minDb.toFixed(0) + ' dB',
-                           '0 Hz', formatHz(slice.maxFrequencyHz / 2), formatHz(slice.maxFrequencyHz)]
-                        : []);
+                    if (slice) {
+                        const visSliceDbMin  = (specDbMin != null) ? specDbMin : slice.minDb;
+                        const visSliceDbMax  = (specDbMax != null) ? specDbMax : slice.maxDb;
+                        const visSliceFreqMin = specFreqStart * slice.maxFrequencyHz;
+                        const visSliceFreqMax = specFreqEnd   * slice.maxFrequencyHz;
+                        spectrumPerTrack.push([
+                            visSliceDbMax.toFixed(0) + ' dB',
+                            ((visSliceDbMax + visSliceDbMin) / 2).toFixed(0) + ' dB',
+                            visSliceDbMin.toFixed(0) + ' dB',
+                            formatHz(visSliceFreqMin), formatHz((visSliceFreqMin + visSliceFreqMax) / 2), formatHz(visSliceFreqMax),
+                        ]);
+                    } else {
+                        spectrumPerTrack.push([]);
+                    }
                     return {
                         trackIndex: trackIndex,
                         offsetSeconds: trackRuntime[trackIndex].offsetSeconds,
@@ -390,10 +398,18 @@ export function getComparisonRenderScript(): string {
                         latestSpectrogram: latestSpectrogram,
                         axisLabels: {
                             spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayMinDb)
-                                ? [overlayMaxDb.toFixed(0) + ' dB',
-                                   ((overlayMaxDb + overlayMinDb) / 2).toFixed(0) + ' dB',
-                                   overlayMinDb.toFixed(0) + ' dB',
-                                   '0 Hz', formatHz(overlayMaxF / 2), formatHz(overlayMaxF)]
+                                ? (function() {
+                                    const visOvDbMin  = (specDbMin != null) ? specDbMin : overlayMinDb;
+                                    const visOvDbMax  = (specDbMax != null) ? specDbMax : overlayMaxDb;
+                                    const visOvFMin   = specFreqStart * overlayMaxF;
+                                    const visOvFMax   = specFreqEnd   * overlayMaxF;
+                                    return [
+                                        visOvDbMax.toFixed(0) + ' dB',
+                                        ((visOvDbMax + visOvDbMin) / 2).toFixed(0) + ' dB',
+                                        visOvDbMin.toFixed(0) + ' dB',
+                                        formatHz(visOvFMin), formatHz((visOvFMin + visOvFMax) / 2), formatHz(visOvFMax),
+                                    ];
+                                })()
                                 : [],
                             spectrogramPerTrack: spectrogramPerTrack,
                             spectrumPerTrack: spectrumPerTrack,

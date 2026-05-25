@@ -74,7 +74,7 @@ interface ComparisonPanelRenderedUi {
     displayOrder: number[];
     specFreqStart: number;
     specFreqEnd: number;
-    waveformMode: string;
+    waveformMode: 'loop' | 'rect-zoom';
     lastAnnounce: string;
     tracks: Array<{
         trackIndex: number;
