@@ -59,6 +59,23 @@
       "problemMatcher": [],
       "group": "test",
       "dependsOn": "compile extension (hidden)"
+    },
+    {
+      "label": "Run UX Cognitive Audit",
+      "type": "shell",
+      "command": "node",
+      "args": [
+        "scripts/ux-cognitive-audit.js"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "close": false
+      },
+      "problemMatcher": [],
+      "group": "test",
+      "dependsOn": "compile extension (hidden)"
     }
   ]
 }

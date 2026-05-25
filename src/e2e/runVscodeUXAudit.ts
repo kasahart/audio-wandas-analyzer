@@ -12,8 +12,8 @@ import {
 
 async function main(): Promise<void> {
     const extensionDevelopmentPath = path.resolve(__dirname, '..', '..');
-    const extensionTestsPath = path.resolve(__dirname, 'suite', 'index.js');
-    const userDataDir = mkdtempSync(path.join(os.tmpdir(), 'audio-wandas-analyzer-vscode-e2e-'));
+    const extensionTestsPath = path.resolve(__dirname, 'suite', 'uxAudit.js');
+    const userDataDir = mkdtempSync(path.join(os.tmpdir(), 'audio-wandas-analyzer-vscode-ux-audit-'));
 
     const vscodeExecutablePath = await downloadAndUnzipVSCode(VSCODE_VERSION);
     const nlsMessagesFile = resolveNlsMessagesFile(vscodeExecutablePath);
@@ -21,20 +21,19 @@ async function main(): Promise<void> {
         ? JSON.stringify({ defaultMessagesFile: nlsMessagesFile, resolvedLanguage: 'en', userLocale: 'en', osLocale: 'en' })
         : undefined;
     const previousDevcontainerEnv = new Map<string, string | undefined>();
-    // Remove devcontainer extension host vars that cause VS Code to run as Node.js
-    // instead of launching the full Electron desktop app.
+
     for (const key of DEVCONTAINER_EXTENSION_HOST_ENV_KEYS) {
         previousDevcontainerEnv.set(key, process.env[key]);
         delete process.env[key];
     }
-    // Set on parent process.env so the Electron main process sees it at startup.
     const previousNlsConfig = process.env['VSCODE_NLS_CONFIG'];
     if (nlsConfig) {
         process.env['VSCODE_NLS_CONFIG'] = nlsConfig;
     }
 
     try {
-        console.log('Running VS Code E2E tests...');
+        console.log('Running VS Code Electron UX Audit...');
+        const cdpPort = process.env.UX_AUDIT_CDP_PORT || '9222';
         await withFilteredStderr(() => runTests({
             vscodeExecutablePath,
             extensionDevelopmentPath,
@@ -47,14 +46,16 @@ async function main(): Promise<void> {
                 '--disable-gpu',
                 '--disable-telemetry',
                 '--disable-updates',
+                `--remote-debugging-port=${cdpPort}`, // Expose CDP port for Playwright
                 '--user-data-dir', userDataDir,
             ],
             extensionTestsEnv: {
                 AUDIO_WANDAS_E2E: '1',
+                UX_AUDIT_CDP_PORT: cdpPort,
                 ...(nlsConfig ? { VSCODE_NLS_CONFIG: nlsConfig } : {}),
             },
         }));
-        console.log('VS Code E2E tests passed.');
+        console.log('VS Code UX Audit run finished.');
     } finally {
         for (const [key, value] of previousDevcontainerEnv) {
             if (value === undefined) {
