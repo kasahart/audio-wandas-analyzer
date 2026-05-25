@@ -20,7 +20,9 @@ async function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForSnapshot(expectedActionId?: string): Promise<any> {
+type TestSnapshot = NonNullable<ReturnType<typeof ComparisonPanel.getTestSnapshot>>;
+
+async function waitForSnapshot(expectedActionId?: string): Promise<TestSnapshot> {
     const deadline = Date.now() + COMMAND_TIMEOUT_MS;
     while (Date.now() < deadline) {
         const snapshot = ComparisonPanel.getTestSnapshot();
@@ -53,7 +55,8 @@ export async function run(): Promise<void> {
 
         // 1. Connect to VS Code over CDP
         console.log('Connecting Playwright to VS Code CDP...');
-        browser = await chromium.connectOverCDP('http://localhost:9222');
+        const cdpPort = process.env.UX_AUDIT_CDP_PORT || '9222';
+        browser = await chromium.connectOverCDP(`http://localhost:${cdpPort}`);
         const contexts = browser.contexts();
         assert.ok(contexts.length > 0, 'Should find browser contexts');
         const context = contexts[0];

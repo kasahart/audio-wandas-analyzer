@@ -76,6 +76,7 @@ async function main(): Promise<void> {
 
     try {
         console.log('Running VS Code Electron UX Audit...');
+        const cdpPort = process.env.UX_AUDIT_CDP_PORT || '9222';
         await withFilteredStderr(() => runTests({
             vscodeExecutablePath,
             extensionDevelopmentPath,
@@ -88,11 +89,12 @@ async function main(): Promise<void> {
                 '--disable-gpu',
                 '--disable-telemetry',
                 '--disable-updates',
-                '--remote-debugging-port=9222', // Expose CDP port for Playwright
+                `--remote-debugging-port=${cdpPort}`, // Expose CDP port for Playwright
                 '--user-data-dir', userDataDir,
             ],
             extensionTestsEnv: {
                 AUDIO_WANDAS_E2E: '1',
+                UX_AUDIT_CDP_PORT: cdpPort,
                 ...(nlsConfig ? { VSCODE_NLS_CONFIG: nlsConfig } : {}),
             },
         }));

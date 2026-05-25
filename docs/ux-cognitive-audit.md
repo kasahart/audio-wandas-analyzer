@@ -21,10 +21,10 @@
 1. コマンドパレット（`Ctrl+Shift+P` または `Cmd+Shift+P`）を開きます。
 2. **「Tasks: Run Task」** (タスク: タスクの実行) を選択します。
 3. タスク一覧から **`Run UX Cognitive Audit`** を選択します。
-4. ターミナルパネルが開き、コードの自動コンパイル（`npm run compile`）とElectronの自動起動、およびPlaywrightによる自動操作とスクリーンショット撮影が実行されます。
+4. ターミナルパネルが開き、タスクの依存関係によってコードの自動コンパイル（`compile extension (hidden)`）が走り、続いてElectronの自動起動、およびPlaywrightによる自動操作とスクリーンショット撮影が実行されます。
 
 ### 方法B: コマンドラインから実行する
-ターミナルから直接スクリプトをキックすることも可能です。
+ターミナルから直接スクリプトをキックすることも可能です（事前に `npm run compile` を実行してビルドを完了しておく必要があります。スクリプトがビルドファイルの存在を自動検証します）。
 ```bash
 node scripts/ux-cognitive-audit.js
 ```
@@ -54,8 +54,8 @@ node scripts/ux-cognitive-audit.js
 [VS Code Native Task] 
     ↓ (trigger)
 [scripts/ux-cognitive-audit.js] 
-    ↓ (npm run compile)
-    ↓ (download & spawn VS Code Electron with --remote-debugging-port=9222)
+    ↓ (preflight build check)
+    ↓ (download & spawn VS Code Electron with --remote-debugging-port=UX_AUDIT_CDP_PORT)
 [src/e2e/runVscodeUXAudit.ts]
     ↓ (loads Extension Tests)
 [src/e2e/suite/uxAudit.ts]

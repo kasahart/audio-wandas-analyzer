@@ -1,8 +1,16 @@
 #!/usr/bin/env node
 const { execSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
+const runnerPath = path.join(rootDir, 'dist', 'e2e', 'runVscodeUXAudit.js');
+
+if (!fs.existsSync(runnerPath)) {
+    console.error('Error: dist/e2e/runVscodeUXAudit.js not found.');
+    console.error('Please run "npm run compile" first to build the project.');
+    process.exit(1);
+}
 
 
 console.log('Detecting display environment and launching UX Audit...');
