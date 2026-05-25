@@ -12,6 +12,7 @@ function setupChartEnv(specs: unknown[]) {
             <button id="range-auto">Auto</button>
             <button id="range-apply">Apply</button>
             <button id="range-close">×</button>
+            <div id="range-error"></div>
         </div>
     </body></html>`, { runScripts: 'dangerously' });
     const win = dom.window as unknown as Record<string, unknown>;
@@ -166,5 +167,76 @@ test('Heatmap のカラーバーエリアをクリックするとポップアッ
     }));
     const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
     assert.notEqual(popup.style.display, 'none', 'ポップアップが表示されること');
+    dom.window.close();
+});
+
+test('Apply ボタンで範囲が適用される', () => {
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    // ポップアップを開く
+    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
+    assert.notEqual(popup.style.display, 'none', 'ポップアップが開いていること');
+
+    // 値を入力して Apply
+    const minInput = dom.window.document.getElementById('range-min') as HTMLInputElement;
+    const maxInput = dom.window.document.getElementById('range-max') as HTMLInputElement;
+    minInput.value = '-5';
+    maxInput.value = '20';
+    (dom.window.document.getElementById('range-apply') as HTMLElement).click();
+
+    assert.equal(popup.style.display, 'none', 'Apply 後にポップアップが閉じること');
+    dom.window.close();
+});
+
+test('min >= max のとき Apply でエラーメッセージが表示される', () => {
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    const minInput = dom.window.document.getElementById('range-min') as HTMLInputElement;
+    const maxInput = dom.window.document.getElementById('range-max') as HTMLInputElement;
+    minInput.value = '10';
+    maxInput.value = '5';
+    (dom.window.document.getElementById('range-apply') as HTMLElement).click();
+
+    const errDiv = dom.window.document.getElementById('range-error') as HTMLElement;
+    assert.ok(errDiv.textContent && errDiv.textContent.length > 0, 'エラーメッセージが表示されること');
+    const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
+    assert.notEqual(popup.style.display, 'none', 'エラー時はポップアップが開いたままであること');
+    dom.window.close();
+});
+
+test('Auto ボタンでオーバーライドが解除される', () => {
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    // Apply でオーバーライドをセット
+    (dom.window.document.getElementById('range-min') as HTMLInputElement).value = '1';
+    (dom.window.document.getElementById('range-max') as HTMLInputElement).value = '9';
+    (dom.window.document.getElementById('range-apply') as HTMLElement).click();
+
+    // 再度開いて Auto
+    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    (dom.window.document.getElementById('range-auto') as HTMLElement).click();
+
+    const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
+    assert.equal(popup.style.display, 'none', 'Auto 後にポップアップが閉じること');
     dom.window.close();
 });

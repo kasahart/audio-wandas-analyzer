@@ -54,6 +54,83 @@ export function getChartSpecRenderScript(): string {
         document.body.appendChild(pop);
     })();
 
+    // ── ポップアップハンドラ ─────────────────────────────────────
+    (function attachRangePopupHandlers() {
+        function closePopup() {
+            const pop = document.getElementById('range-popup');
+            if (pop) { pop.style.display = 'none'; }
+            const err = document.getElementById('range-error');
+            if (err) { err.textContent = ''; }
+            activeChartIdx = -1;
+        }
+
+        function applyRange() {
+            const minInput = document.getElementById('range-min');
+            const maxInput = document.getElementById('range-max');
+            const errDiv   = document.getElementById('range-error');
+            if (!minInput || !maxInput) { return; }
+
+            const minVal = minInput.value.trim();
+            const maxVal = maxInput.value.trim();
+            const min = minVal === '' ? null : Number(minVal);
+            const max = maxVal === '' ? null : Number(maxVal);
+
+            if (errDiv) { errDiv.textContent = ''; }
+
+            // バリデーション
+            if (min !== null && !Number.isFinite(min)) {
+                if (errDiv) { errDiv.textContent = 'Min は数値を入力してください'; }
+                return;
+            }
+            if (max !== null && !Number.isFinite(max)) {
+                if (errDiv) { errDiv.textContent = 'Max は数値を入力してください'; }
+                return;
+            }
+            if (min !== null && max !== null && min >= max) {
+                if (errDiv) { errDiv.textContent = 'Min は Max より小さい値を入力してください'; }
+                return;
+            }
+
+            if (activeChartIdx >= 0) {
+                if (min === null && max === null) {
+                    delete rangeOverrides[activeChartIdx];
+                } else {
+                    rangeOverrides[activeChartIdx] = { min: min, max: max };
+                }
+                if (typeof chartRedraws[activeChartIdx] === 'function') {
+                    chartRedraws[activeChartIdx](rangeOverrides[activeChartIdx]);
+                }
+            }
+            closePopup();
+        }
+
+        function autoRange() {
+            if (activeChartIdx >= 0) {
+                delete rangeOverrides[activeChartIdx];
+                if (typeof chartRedraws[activeChartIdx] === 'function') {
+                    chartRedraws[activeChartIdx](undefined);
+                }
+            }
+            closePopup();
+        }
+
+        // ポップアップ要素は buildRangePopup() が既に DOM に追加済みのため
+        // 即時にハンドラを登録する。DOMContentLoaded 待ちは不要。
+        (function wireHandlers() {
+            const applyBtn  = document.getElementById('range-apply');
+            const autoBtn   = document.getElementById('range-auto');
+            const closeBtn  = document.getElementById('range-close');
+            if (applyBtn)  { applyBtn.addEventListener('click', applyRange); }
+            if (autoBtn)   { autoBtn.addEventListener('click', autoRange); }
+            if (closeBtn)  { closeBtn.addEventListener('click', closePopup); }
+        })();
+
+        // Escape キーで閉じる
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { closePopup(); }
+        });
+    })();
+
     const specs = Array.isArray(window.__CHART_SPECS__) ? window.__CHART_SPECS__ : [];
     const host = document.getElementById('charts');
     if (!host) { return; }
