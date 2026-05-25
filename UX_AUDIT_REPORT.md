@@ -18,7 +18,7 @@
 
 ### UXH-001: 選択画面とメインツールバーにおける重複操作子
 - **優先度**: P1 (Significant Friction / Decision Fatigue)
-- **検出画面**: [01_directory_selection.png](file:///workspaces/audio-wandas-analyzer/ux-audit-screenshots/01_directory_selection.png)
+- **検出画面**: [01_directory_selection.png](ux-audit-screenshots/01_directory_selection.png)
 - **問題点**:
   初期のファイル選択パネル（Welcome View）内に `Open File` と `Open another folder` ボタンが存在する一方で、すぐ下のメインツールバーにも `Open File` と `Open Folder` ボタンが並んでいます。この冗長な二重表示は、ユーザーに「どちらを押すべきか」の不必要な判断を強いてしまい、意思決定の疲労（Decision Fatigue）に繋がります。
 - **認知的負荷の影響**:
@@ -42,7 +42,7 @@
 
 ### UXH-002: ツールバーの極端な改行と空のズームボタン
 - **優先度**: P0 (Critical Blocker / Extraneous Cognitive Load)
-- **検出画面**: [02_single_track_results.png](file:///workspaces/audio-wandas-analyzer/ux-audit-screenshots/02_single_track_results.png)
+- **検出画面**: [02_single_track_results.png](ux-audit-screenshots/02_single_track_results.png)
 - **問題点**:
   ツールバーのボタンやラベルが多く、横並びにしきれず3行に渡ってバラバラに改行されてしまっており、極めて無秩序で煩雑な見た目になっています。さらに、`Zoom:` の横にある「拡大・縮小」ボタンが単なる空の四角 `[ ]` `[ ]` となっており、アイコンもテキストもないため、機能が自己説明的でなく「Recognition over Recall (記憶に頼らない操作)」に著しく違反しています。
 - **認知的負荷の影響**:
@@ -83,7 +83,7 @@
 
 ### UXH-003: ピーク周波数ラベルの重なり（視覚的衝突）
 - **優先度**: P1 (Heuristics Violation: Visibility of System Status)
-- **検出画面**: [02_single_track_results.png](file:///workspaces/audio-wandas-analyzer/ux-audit-screenshots/02_single_track_results.png)
+- **検出画面**: [02_single_track_results.png](ux-audit-screenshots/02_single_track_results.png)
 - **問題点**:
   Waveform や Spectrum チャートの右側で、自動検出されたピーク周波数（`440 Hz`, `1.3 kHz` 等）のテキストラベルが縦方向に密集して重なり合って描画されており、テキストが完全に読めなくなっています。
 - **認知的負荷の影響**:
@@ -95,7 +95,7 @@
 
 ### UXH-004: スペクトログラム設定ポップアップの非表示（配置座標計算のレースコンディション）
 - **優先度**: P1 (Heuristics Violation: Recognition over Recall / System Status)
-- **検出画面**: [03_interactive_spectrogram_settings.png](file:///workspaces/audio-wandas-analyzer/ux-audit-screenshots/03_interactive_spectrogram_settings.png)
+- **検出画面**: [03_interactive_spectrogram_settings.png](ux-audit-screenshots/03_interactive_spectrogram_settings.png)
 - **問題点**:
   ⚙ボタンがクリックされてポップアップの `hidden` が解除されたにもかかわらず、ポップアップが画面上のどこにも表示されていません。
   これは、⚙ボタンの `display: none` から表示への切り替えと、位置計算用の `getBoundingClientRect()` の呼び出しが同じ同期スレッドで連続して行われたため、ブラウザによる再レイアウトの前に座標計算が実行され、結果として `rect.bottom` や `rect.right` が `0` になり、ポップアップが画面左上（`left: 8px, top: 6px`）に描画され、ツールバーの下や別要素の背後に隠れてしまっていることが原因です。

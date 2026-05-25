@@ -9,7 +9,7 @@
 ## 1. フレームワークの概要
 
 この評価システムは、テスト用のVS Code（Electron環境）を自動起動し、開発中の拡張機能をインストールした状態でユーザーの基本操作を自動シミュレート（トレース）します。
-シミュレーションの各段階においてUIのスクリーンショット（画素データ）を撮影し、エージェント（VLM）がそれを視覚的に分析することで、認知的フリクションやヒューリスティクス違反を検出し、[UX_AUDIT_REPORT.md](file:///workspaces/audio-wandas-analyzer/UX_AUDIT_REPORT.md) に改善コード提案と共に出力します。
+シミュレーションの各段階においてUIのスクリーンショット（画素データ）を撮影し、エージェント（VLM）がそれを視覚的に分析することで、認知的フリクションやヒューリスティクス違反を検出し、[UX_AUDIT_REPORT.md](../UX_AUDIT_REPORT.md) に改善コード提案と共に出力します。
 
 ---
 
@@ -70,7 +70,7 @@ node scripts/ux-cognitive-audit.js
 ## 5. 監査評価チェックリスト (VLM用 Skill 定義)
 
 監査で評価される指標のチェックリストは、以下のSkillファイルに定義されています。
-* [.agents/skills/ux-cognitive-auditor/SKILL.md](file:///workspaces/audio-wandas-analyzer/.agents/skills/ux-cognitive-auditor/SKILL.md)
+* [.agents/skills/ux-cognitive-auditor/SKILL.md](../.agents/skills/ux-cognitive-auditor/SKILL.md)
 
 主要な評価ポイント：
 * **認知的フリクション (Extraneous Cognitive Load)**:
@@ -86,5 +86,5 @@ node scripts/ux-cognitive-audit.js
 ## 6. テストシナリオの拡張方法
 
 新しいユーザーフロー（例: レシピ実行やマルチトラック位置調整など）を視覚監査に追加したい場合は、以下のファイルを編集してテストコードを追加してください。
-* **[src/e2e/suite/uxAudit.ts](file:///workspaces/audio-wandas-analyzer/src/e2e/suite/uxAudit.ts)**
+* **[src/e2e/suite/uxAudit.ts](../src/e2e/suite/uxAudit.ts)**
   `ComparisonPanel.postTestActions()` や Playwright の操作APIを使ってトレースステップを追加し、`page.screenshot()` で新しい画像を出力するようにします。
