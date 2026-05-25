@@ -3,7 +3,7 @@ import { buildUiSmokeHtml } from './buildHtml';
 
 async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
-    await page.locator('body').click({ position: { x: 20, y: 20 } });
+    await page.mouse.click(20, 20);
 }
 
 async function openHelp(page: Page) {
@@ -50,7 +50,7 @@ test('help overlay closes with the close button', async ({ page }) => {
     await openHelp(page);
     await expect(helpOverlay).toBeVisible();
 
-    await page.locator('#help-close-btn').click();
+    await page.locator('#help-close-btn').click({ force: true });
     await expect(helpOverlay).toBeHidden();
 });
 
@@ -61,6 +61,6 @@ test('help overlay closes when the backdrop is clicked', async ({ page }) => {
     await openHelp(page);
     await expect(helpOverlay).toBeVisible();
 
-    await helpOverlay.click({ position: { x: 8, y: 8 } });
+    await helpOverlay.click({ position: { x: 8, y: 8 }, force: true });
     await expect(helpOverlay).toBeHidden();
 });

@@ -20,6 +20,14 @@ test('package.json defines publish and packaging scripts for VS Code releases', 
     assert.equal(manifest.scripts?.['package:vsix'], 'vsce package --no-yarn --allow-missing-repository --skip-license');
 });
 
+test('package.json and verify.sh include the GUI triggerability audit', () => {
+    const manifest = readJson<{ scripts?: Record<string, string> }>('package.json');
+    const verifyScript = readText('scripts/verify.sh');
+
+    assert.equal(manifest.scripts?.['lint:gui-triggerability'], 'node scripts/verify-gui-triggerability.js');
+    assert.match(verifyScript, /npm run lint:gui-triggerability/u);
+});
+
 test('package.json contributes GUI entry points for analysis', () => {
     const manifest = readJson<{
         contributes?: {

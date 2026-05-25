@@ -705,6 +705,7 @@ test('renderScript: spectrum canvases are redrawn during playback as cursor adva
     // tick は paused=false の間 refreshSpectrumViews() を呼び、各スペクトル canvas を再描画する。
     (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.5;
     await nextAnimationFrame(env.dom);
+    await new Promise((resolve) => env.dom.window.setTimeout(resolve, 0));
 
     // すぐに停止してループを止める（rAF はループ内で再スケジュールされ続けるため）。
     stopButton!.click();
@@ -977,4 +978,3 @@ test('初期スペクトルズーム状態が全域である', async () => {
     assert.strictEqual(snapMsg.renderedUi.specFreqEnd,   1,      'specFreqEnd の初期値が 1 であること');
     assert.strictEqual(snapMsg.renderedUi.waveformMode,  'loop', 'waveformMode の初期値が loop であること');
 });
-

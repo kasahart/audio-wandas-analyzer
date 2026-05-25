@@ -22,6 +22,9 @@ npm run compile
 echo "==> webview pattern lint"
 node scripts/lint-webview-patterns.js
 
+echo "==> gui triggerability audit"
+npm run lint:gui-triggerability
+
 echo "==> node:test"
 node --test dist/test/**/*.test.js
 
