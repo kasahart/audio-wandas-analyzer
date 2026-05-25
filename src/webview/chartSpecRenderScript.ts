@@ -226,45 +226,30 @@ export function getChartSpecRenderScript(): string {
         attachCard(spec.title, cv.canvas);
     }
 
-    function drawHeatmap(spec) {
+    function drawHeatmap(spec, chartIdx) {
         const cv = setupCanvas(720, 240);
         const ctx = cv.ctx;
         const plot = { x: 50, y: 16, w: cv.width - 90, h: cv.height - 50 };
-        drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
         const matrix = spec.matrix || [];
         const rows = matrix.length;
         const cols = rows > 0 ? matrix[0].length : 0;
-        if (rows === 0 || cols === 0) { attachCard(spec.title, cv.canvas); return; }
 
-        let vMin = (spec.vmin != null) ? spec.vmin : Infinity;
-        let vMax = (spec.vmax != null) ? spec.vmax : -Infinity;
+        // データから vmin/vmax を事前計算
+        let dataVmin = (spec.vmin != null) ? spec.vmin : Infinity;
+        let dataVmax = (spec.vmax != null) ? spec.vmax : -Infinity;
         if (spec.vmin == null || spec.vmax == null) {
             for (let r = 0; r < rows; r++) {
                 const row = matrix[r];
                 for (let c = 0; c < cols; c++) {
                     const v = row[c];
                     if (!Number.isFinite(v)) { continue; }
-                    if (v < vMin) { vMin = v; }
-                    if (v > vMax) { vMax = v; }
+                    if (v < dataVmin) { dataVmin = v; }
+                    if (v > dataVmax) { dataVmax = v; }
                 }
             }
         }
-        if (!isFinite(vMin) || !isFinite(vMax)) { vMin = 0; vMax = 1; }
-        if (vMin === vMax) { vMax = vMin + 1; }
-
-        const cellW = plot.w / cols;
-        const cellH = plot.h / rows;
-        // Note: matrix[0] is the lowest y (first row) — draw from bottom to top.
-        for (let r = 0; r < rows; r++) {
-            const yPx = plot.y + plot.h - (r + 1) * cellH;
-            const row = matrix[r];
-            for (let c = 0; c < cols; c++) {
-                const v = row[c];
-                const t = Number.isFinite(v) ? Math.max(0, Math.min(1, (v - vMin) / (vMax - vMin))) : 0;
-                ctx.fillStyle = sampleColormap(spec.colormap, t);
-                ctx.fillRect(plot.x + c * cellW, yPx, cellW + 0.5, cellH + 0.5);
-            }
-        }
+        if (!isFinite(dataVmin) || !isFinite(dataVmax)) { dataVmin = 0; dataVmax = 1; }
+        if (dataVmin === dataVmax) { dataVmax = dataVmin + 1; }
 
         const xs = spec.xs || [];
         const ys = spec.ys || [];
@@ -272,28 +257,73 @@ export function getChartSpecRenderScript(): string {
         const xMaxAxis = xs.length > 0 ? xs[xs.length - 1] : cols;
         const yMinAxis = ys.length > 0 ? ys[0] : 0;
         const yMaxAxis = ys.length > 0 ? ys[ys.length - 1] : rows;
-        drawAxisLabels(ctx, plot, spec,
-            { min: xMinAxis, max: xMaxAxis },
-            { min: yMinAxis, max: yMaxAxis },
-            { xDecimals: 2, yDecimals: 0 });
 
-        // colour bar
-        const cbX = plot.x + plot.w + 8;
-        const cbW = 14, cbH = plot.h;
-        for (let i = 0; i < cbH; i++) {
-            const t = 1 - (i / cbH);
-            ctx.fillStyle = sampleColormap(spec.colormap, t);
-            ctx.fillRect(cbX, plot.y + i, cbW, 1);
+        function redraw(override) {
+            ctx.clearRect(0, 0, cv.width, cv.height);
+            drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
+
+            const vMin = (override && override.min != null) ? override.min : dataVmin;
+            const vMax = (override && override.max != null) ? override.max : dataVmax;
+            const vRange = vMax - vMin || 1;
+
+            const cellW = plot.w / Math.max(cols, 1);
+            const cellH = plot.h / Math.max(rows, 1);
+            for (let r = 0; r < rows; r++) {
+                const yPx = plot.y + plot.h - (r + 1) * cellH;
+                const row = matrix[r];
+                for (let c = 0; c < cols; c++) {
+                    const v = row[c];
+                    const t = Number.isFinite(v) ? Math.max(0, Math.min(1, (v - vMin) / vRange)) : 0;
+                    ctx.fillStyle = sampleColormap(spec.colormap, t);
+                    ctx.fillRect(plot.x + c * cellW, yPx, cellW + 0.5, cellH + 0.5);
+                }
+            }
+
+            drawAxisLabels(ctx, plot, spec,
+                { min: xMinAxis, max: xMaxAxis },
+                { min: yMinAxis, max: yMaxAxis },
+                { xDecimals: 2, yDecimals: 0 });
+
+            // カラーバー
+            const cbX = plot.x + plot.w + 8;
+            const cbW = 14;
+            for (let i = 0; i < plot.h; i++) {
+                const t = 1 - (i / plot.h);
+                ctx.fillStyle = sampleColormap(spec.colormap, t);
+                ctx.fillRect(cbX, plot.y + i, cbW, 1);
+            }
+            ctx.strokeStyle = cssVar('--line', '#666');
+            ctx.strokeRect(cbX, plot.y, cbW, plot.h);
+            ctx.fillStyle = cssVar('--muted', '#aaa');
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(vMax.toFixed(0), cbX + cbW + 2, plot.y);
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(vMin.toFixed(0), cbX + cbW + 2, plot.y + plot.h);
+
+            // カラーバークリックヒント
+            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            ctx.fillRect(cbX, plot.y, cbW + 20, plot.h);
         }
-        ctx.strokeStyle = cssVar('--line', '#666');
-        ctx.strokeRect(cbX, plot.y, cbW, cbH);
-        ctx.fillStyle = cssVar('--muted', '#aaa');
-        ctx.font = '10px monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText(vMax.toFixed(0), cbX + cbW + 2, plot.y);
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(vMin.toFixed(0), cbX + cbW + 2, plot.y + cbH);
+
+        if (rows === 0 || cols === 0) {
+            drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
+            attachCard(spec.title, cv.canvas);
+            return;
+        }
+
+        redraw(rangeOverrides[chartIdx]);
+        chartRedraws[chartIdx] = redraw;
+
+        // カラーバーエリア（plot 右端 + 8px 以降）クリック
+        cv.canvas.addEventListener('click', function(e) {
+            const rect = cv.canvas.getBoundingClientRect();
+            const scaleX = cv.canvas.width / (rect.width || cv.canvas.width);
+            const cx = (e.clientX - rect.left) * scaleX;
+            if (cx <= plot.x + plot.w) { return; }  // カラーバー左端より左はスキップ
+            openRangePopup(chartIdx, e.clientX, e.clientY, 'color');
+        });
 
         attachCard(spec.title, cv.canvas);
     }
