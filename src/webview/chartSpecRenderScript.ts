@@ -229,7 +229,8 @@ export function getChartSpecRenderScript(): string {
             if (yMin === yMax) { yMax = yMin + 1; }
 
             const _yMin = (override && override.min != null) ? override.min : yMin;
-            const _yMax = (override && override.max != null) ? override.max : yMax;
+            let _yMax = (override && override.max != null) ? override.max : yMax;
+            if (_yMax <= _yMin) { _yMax = _yMin + 1; }
             const xMin = xs[0] != null ? xs[0] : 0;
             const xMax = xs[xs.length - 1] != null ? xs[xs.length - 1] : 1;
 
@@ -258,6 +259,10 @@ export function getChartSpecRenderScript(): string {
             });
             ctx.restore();
 
+            // Y 軸クリックヒント（薄い帯）— テキストより前に描画
+            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            ctx.fillRect(0, plot.y, plot.x, plot.h);
+
             drawAxisLabels(ctx, plot, spec,
                 { min: xMin, max: xMax },
                 { min: _yMin, max: _yMax },
@@ -277,10 +282,6 @@ export function getChartSpecRenderScript(): string {
                 ctx.fillText(name, lx + 14, ly);
                 lx += 14 + Math.max(40, ctx.measureText(name).width + 18);
             });
-
-            // Y 軸クリックヒント（薄い帯）
-            ctx.fillStyle = 'rgba(255,255,255,0.04)';
-            ctx.fillRect(0, plot.y, plot.x, plot.h);
         }
 
         if (xs.length === 0 || series.length === 0) {
@@ -295,7 +296,7 @@ export function getChartSpecRenderScript(): string {
         // Y 軸エリア（x < plot.x）クリックでポップアップ
         cv.canvas.addEventListener('click', function(e) {
             const rect = cv.canvas.getBoundingClientRect();
-            const cx = (e.clientX - rect.left) * (cv.canvas.width / (rect.width || cv.canvas.width));
+            const cx = e.clientX - rect.left;
             if (cx >= plot.x) { return; }
             openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
         });
@@ -371,6 +372,11 @@ export function getChartSpecRenderScript(): string {
             }
             ctx.strokeStyle = cssVar('--line', '#666');
             ctx.strokeRect(cbX, plot.y, cbW, plot.h);
+
+            // カラーバークリックヒント— テキストより前に描画
+            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            ctx.fillRect(cbX, plot.y, cbW + 20, plot.h);
+
             ctx.fillStyle = cssVar('--muted', '#aaa');
             ctx.font = '10px monospace';
             ctx.textAlign = 'left';
@@ -378,10 +384,6 @@ export function getChartSpecRenderScript(): string {
             ctx.fillText(vMax.toFixed(0), cbX + cbW + 2, plot.y);
             ctx.textBaseline = 'bottom';
             ctx.fillText(vMin.toFixed(0), cbX + cbW + 2, plot.y + plot.h);
-
-            // カラーバークリックヒント
-            ctx.fillStyle = 'rgba(255,255,255,0.04)';
-            ctx.fillRect(cbX, plot.y, cbW + 20, plot.h);
         }
 
         if (rows === 0 || cols === 0) {
@@ -396,8 +398,7 @@ export function getChartSpecRenderScript(): string {
         // カラーバーエリア（plot 右端 + 8px 以降）クリック
         cv.canvas.addEventListener('click', function(e) {
             const rect = cv.canvas.getBoundingClientRect();
-            const scaleX = cv.canvas.width / (rect.width || cv.canvas.width);
-            const cx = (e.clientX - rect.left) * scaleX;
+            const cx = e.clientX - rect.left;
             if (cx <= plot.x + plot.w) { return; }  // カラーバー左端より左はスキップ
             openRangePopup(chartIdx, e.clientX, e.clientY, 'color');
         });
@@ -428,7 +429,8 @@ export function getChartSpecRenderScript(): string {
             if (yMin > 0) { yMin = 0; }
 
             const _yMin = (override && override.min != null) ? override.min : yMin;
-            const _yMax = (override && override.max != null) ? override.max : yMax;
+            let _yMax = (override && override.max != null) ? override.max : yMax;
+            if (_yMax <= _yMin) { _yMax = _yMin + 1; }
 
             drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
             const groupW = plot.w / Math.max(cats.length, 1);
@@ -452,6 +454,10 @@ export function getChartSpecRenderScript(): string {
             });
             ctx.restore();
 
+            // Y 軸クリックヒント— テキストより前に描画
+            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            ctx.fillRect(0, plot.y, plot.x, plot.h);
+
             ctx.fillStyle = cssVar('--muted', '#aaa');
             ctx.font = '10px monospace';
             ctx.textAlign = 'center';
@@ -474,10 +480,6 @@ export function getChartSpecRenderScript(): string {
             ctx.rotate(-Math.PI / 2);
             ctx.fillText(spec.yLabel || '', 0, 0);
             ctx.restore();
-
-            // Y 軸クリックヒント
-            ctx.fillStyle = 'rgba(255,255,255,0.04)';
-            ctx.fillRect(0, plot.y, plot.x, plot.h);
         }
 
         if (cats.length === 0 || series.length === 0) {
@@ -491,7 +493,7 @@ export function getChartSpecRenderScript(): string {
 
         cv.canvas.addEventListener('click', function(e) {
             const rect = cv.canvas.getBoundingClientRect();
-            const cx = (e.clientX - rect.left) * (cv.canvas.width / (rect.width || cv.canvas.width));
+            const cx = e.clientX - rect.left;
             if (cx >= plot.x) { return; }
             openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
         });

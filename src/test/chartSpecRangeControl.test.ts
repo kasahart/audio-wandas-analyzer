@@ -3,6 +3,30 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getChartSpecRenderScript } from '../webview/chartSpecRenderScript';
 
+// Fix 7: Shared canvas stub helper to avoid duplication across tests
+function applyCanvasStub(doc: Document, fillTextSpy?: (text: string) => void) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const origCreate = (doc as any).createElement.bind(doc);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (doc as any).createElement = function(tag: string) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const el = origCreate(tag) as any;
+        if (tag === 'canvas') {
+            el.getContext = () => new Proxy({}, {
+                get(_t: unknown, p: string | symbol) {
+                    if (p === 'canvas') { return el; }
+                    if (p === 'measureText') { return () => ({ width: 0 }); }
+                    if (p === 'fillText') { return (text: string) => { if (fillTextSpy) { fillTextSpy(String(text)); } }; }
+                    return () => undefined;
+                },
+                set() { return true; },
+            });
+            el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 720, height: 240 });
+        }
+        return el;
+    };
+}
+
 function setupChartEnv(specs: unknown[]) {
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="charts"></div>
@@ -20,27 +44,7 @@ function setupChartEnv(specs: unknown[]) {
     win.__CHART_NO_RESULTS_LABEL__ = 'No results';
     win.__CHART_SCALAR_HEADERS__ = ['Label', 'Value', 'Unit'];
 
-    // canvas stub
-    const origCreateElement = dom.window.document.createElement.bind(dom.window.document);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (dom.window.document as any).createElement = function(tag: string) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const el = origCreateElement(tag) as any;
-        if (tag === 'canvas') {
-            el.getContext = () => {
-                return new Proxy({}, {
-                    get(_t: unknown, p: string | symbol) {
-                        if (p === 'canvas') { return el; }
-                        if (p === 'measureText') { return () => ({ width: 0 }); }
-                        return () => undefined;
-                    },
-                    set() { return true; },
-                });
-            };
-            el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 720, height: 240 });
-        }
-        return el;
-    };
+    applyCanvasStub(dom.window.document);
 
     const script = dom.window.document.createElement('script');
     script.textContent = getChartSpecRenderScript();
@@ -81,25 +85,7 @@ test('range-popup が HTML になくても buildRangePopup() が注入する', (
     win.__CHART_NO_RESULTS_LABEL__ = 'No results';
     win.__CHART_SCALAR_HEADERS__ = ['Label', 'Value', 'Unit'];
 
-    // Same canvas stub as setupChartEnv
-    const origCreateElement2 = dom.window.document.createElement.bind(dom.window.document);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (dom.window.document as any).createElement = function(tag: string) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const el = origCreateElement2(tag) as any;
-        if (tag === 'canvas') {
-            el.getContext = () => new Proxy({}, {
-                get(_t: unknown, p: string | symbol) {
-                    if (p === 'canvas') { return el; }
-                    if (p === 'measureText') { return () => ({ width: 0 }); }
-                    return () => undefined;
-                },
-                set() { return true; },
-            });
-            el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 720, height: 240 });
-        }
-        return el;
-    };
+    applyCanvasStub(dom.window.document);
 
     const script = dom.window.document.createElement('script');
     script.textContent = getChartSpecRenderScript();
@@ -238,5 +224,43 @@ test('Auto ボタンでオーバーライドが解除される', () => {
 
     const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
     assert.equal(popup.style.display, 'none', 'Auto 後にポップアップが閉じること');
+    dom.window.close();
+});
+
+// Fix 6: Test verifying redraw actually receives override (fillText spy)
+test('Apply で redraw に override が渡される（fillText で軸ラベルが変化）', () => {
+    const filledTexts: string[] = [];
+    const dom = new JSDOM(`<!DOCTYPE html><html><body>
+        <div id="charts"></div>
+    </body></html>`, { runScripts: 'dangerously' });
+    const win = dom.window as unknown as Record<string, unknown>;
+    win.__CHART_SPECS__ = [{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }];
+    win.__CHART_NO_RESULTS_LABEL__ = 'No results';
+    win.__CHART_SCALAR_HEADERS__ = ['Label', 'Value', 'Unit'];
+
+    applyCanvasStub(dom.window.document, (text: string) => { filledTexts.push(text); });
+
+    const script = dom.window.document.createElement('script');
+    script.textContent = getChartSpecRenderScript();
+    dom.window.document.body.appendChild(script);
+
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+
+    // Apply with min=-50, max=200
+    filledTexts.length = 0;  // clear before apply
+    (dom.window.document.getElementById('range-min') as HTMLInputElement).value = '-50';
+    (dom.window.document.getElementById('range-max') as HTMLInputElement).value = '200';
+    (dom.window.document.getElementById('range-apply') as HTMLElement).click();
+
+    // drawAxisLabels calls fillText with y-axis tick labels including the min/max values
+    const hasMinValue = filledTexts.some(t => t.includes('-50') || t.includes('-50.00'));
+    const hasMaxValue = filledTexts.some(t => t.includes('200') || t.includes('200.00'));
+    assert.ok(hasMinValue || hasMaxValue, `override の値 (-50, 200) が fillText で描画されること。実際: ${JSON.stringify(filledTexts.slice(0, 10))}`);
     dom.window.close();
 });
