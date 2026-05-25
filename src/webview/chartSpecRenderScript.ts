@@ -15,6 +15,31 @@
 export function getChartSpecRenderScript(): string {
     return `(function() {
     'use strict';
+
+    const rangeOverrides = {};   // chartIndex → { min: number, max: number }
+    const chartRedraws   = [];   // chartIndex → function(override)
+    let   activeChartIdx = -1;   // 現在ポップアップが開いているチャート index
+
+    // ── レンジポップアップ ────────────────────────────────────────
+    (function buildRangePopup() {
+        if (document.getElementById('range-popup')) { return; }
+        const pop = document.createElement('div');
+        pop.id = 'range-popup';
+        pop.style.cssText = 'display:none;position:fixed;z-index:9999;background:var(--vscode-editorWidget-background,#2d2d2d);border:1px solid var(--vscode-editorWidget-border,#555);border-radius:4px;padding:10px 12px;font-size:12px;color:var(--vscode-editor-foreground,#ddd);box-shadow:0 4px 12px rgba(0,0,0,.4);min-width:180px;';
+        pop.innerHTML = '<div style="margin-bottom:6px;font-weight:600;font-size:11px;color:var(--vscode-descriptionForeground,#aaa)">Range</div>'
+            + '<div style="display:flex;flex-direction:column;gap:6px;">'
+            + '<label style="display:flex;align-items:center;gap:6px;"><span style="width:30px">Min</span><input id="range-min" type="number" step="any" style="width:80px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;"></label>'
+            + '<label style="display:flex;align-items:center;gap:6px;"><span style="width:30px">Max</span><input id="range-max" type="number" step="any" style="width:80px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;"></label>'
+            + '</div>'
+            + '<div style="display:flex;gap:6px;margin-top:8px;">'
+            + '<button id="range-apply" style="flex:1;padding:3px 0;background:var(--vscode-button-background,#0e639c);color:var(--vscode-button-foreground,#fff);border:none;border-radius:2px;cursor:pointer;font-size:11px;">Apply</button>'
+            + '<button id="range-auto"  style="flex:1;padding:3px 0;background:var(--vscode-button-secondaryBackground,#3a3d41);color:var(--vscode-button-secondaryForeground,#ddd);border:none;border-radius:2px;cursor:pointer;font-size:11px;">Auto</button>'
+            + '<button id="range-close" style="padding:3px 6px;background:transparent;color:var(--vscode-descriptionForeground,#aaa);border:none;cursor:pointer;font-size:13px;" aria-label="Close">×</button>'
+            + '</div>'
+            + '<div id="range-error" style="color:#f48771;font-size:11px;margin-top:4px;min-height:14px;"></div>';
+        document.body.appendChild(pop);
+    })();
+
     const specs = Array.isArray(window.__CHART_SPECS__) ? window.__CHART_SPECS__ : [];
     const host = document.getElementById('charts');
     if (!host) { return; }
