@@ -15,6 +15,122 @@
 export function getChartSpecRenderScript(): string {
     return `(function() {
     'use strict';
+
+    const rangeOverrides = {};   // chartIndex → { min: number, max: number } (wired in Task 2/3/4)
+    const chartRedraws   = [];   // chartIndex → function(override) (wired in Task 2/3)
+    let   activeChartIdx = -1;   // 現在ポップアップが開いているチャート index (wired in Task 2/3/4)
+
+    function openRangePopup(chartIdx, clientX, clientY, _axis) {
+        activeChartIdx = chartIdx;
+        const pop = document.getElementById('range-popup');
+        if (!pop) { return; }
+        const ov = rangeOverrides[chartIdx];
+        const minInput = document.getElementById('range-min');
+        const maxInput = document.getElementById('range-max');
+        if (minInput) { minInput.value = (ov && ov.min != null) ? String(ov.min) : ''; }
+        if (maxInput) { maxInput.value = (ov && ov.max != null) ? String(ov.max) : ''; }
+        pop.style.left = (clientX + 8) + 'px';
+        pop.style.top  = (clientY + 8) + 'px';
+        pop.style.display = 'block';
+    }
+
+    // ── レンジポップアップ ────────────────────────────────────────
+    (function buildRangePopup() {
+        if (document.getElementById('range-popup')) { return; }
+        const pop = document.createElement('div');
+        pop.id = 'range-popup';
+        pop.style.cssText = 'display:none;position:fixed;z-index:9999;background:var(--vscode-editorWidget-background,#2d2d2d);border:1px solid var(--vscode-editorWidget-border,#555);border-radius:4px;padding:10px 12px;font-size:12px;color:var(--vscode-editor-foreground,#ddd);box-shadow:0 4px 12px rgba(0,0,0,.4);min-width:180px;';
+        pop.innerHTML = '<div style="margin-bottom:6px;font-weight:600;font-size:11px;color:var(--vscode-descriptionForeground,#aaa)">Range</div>'
+            + '<div style="display:flex;flex-direction:column;gap:6px;">'
+            + '<label style="display:flex;align-items:center;gap:6px;"><span style="width:30px">Min</span><input id="range-min" type="number" step="any" style="width:80px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;"></label>'
+            + '<label style="display:flex;align-items:center;gap:6px;"><span style="width:30px">Max</span><input id="range-max" type="number" step="any" style="width:80px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;"></label>'
+            + '</div>'
+            + '<div style="display:flex;gap:6px;margin-top:8px;">'
+            + '<button id="range-apply" style="flex:1;padding:3px 0;background:var(--vscode-button-background,#0e639c);color:var(--vscode-button-foreground,#fff);border:none;border-radius:2px;cursor:pointer;font-size:11px;">Apply</button>'
+            + '<button id="range-auto"  style="flex:1;padding:3px 0;background:var(--vscode-button-secondaryBackground,#3a3d41);color:var(--vscode-button-secondaryForeground,#ddd);border:none;border-radius:2px;cursor:pointer;font-size:11px;">Auto</button>'
+            + '<button id="range-close" style="padding:3px 6px;background:transparent;color:var(--vscode-descriptionForeground,#aaa);border:none;cursor:pointer;font-size:13px;" aria-label="Close">×</button>'
+            + '</div>'
+            + '<div id="range-error" style="color:#f48771;font-size:11px;margin-top:4px;min-height:14px;"></div>';
+        document.body.appendChild(pop);
+    })();
+
+    // ── ポップアップハンドラ ─────────────────────────────────────
+    (function attachRangePopupHandlers() {
+        function closePopup() {
+            const pop = document.getElementById('range-popup');
+            if (pop) { pop.style.display = 'none'; }
+            const err = document.getElementById('range-error');
+            if (err) { err.textContent = ''; }
+            activeChartIdx = -1;
+        }
+
+        function applyRange() {
+            const minInput = document.getElementById('range-min');
+            const maxInput = document.getElementById('range-max');
+            const errDiv   = document.getElementById('range-error');
+            if (!minInput || !maxInput) { return; }
+
+            const minVal = minInput.value.trim();
+            const maxVal = maxInput.value.trim();
+            const min = minVal === '' ? null : Number(minVal);
+            const max = maxVal === '' ? null : Number(maxVal);
+
+            if (errDiv) { errDiv.textContent = ''; }
+
+            // バリデーション
+            if (min !== null && !Number.isFinite(min)) {
+                if (errDiv) { errDiv.textContent = 'Min は数値を入力してください'; }
+                return;
+            }
+            if (max !== null && !Number.isFinite(max)) {
+                if (errDiv) { errDiv.textContent = 'Max は数値を入力してください'; }
+                return;
+            }
+            if (min !== null && max !== null && min >= max) {
+                if (errDiv) { errDiv.textContent = 'Min は Max より小さい値を入力してください'; }
+                return;
+            }
+
+            if (activeChartIdx >= 0) {
+                if (min === null && max === null) {
+                    delete rangeOverrides[activeChartIdx];
+                } else {
+                    rangeOverrides[activeChartIdx] = { min: min, max: max };
+                }
+                if (typeof chartRedraws[activeChartIdx] === 'function') {
+                    chartRedraws[activeChartIdx](rangeOverrides[activeChartIdx]);
+                }
+            }
+            closePopup();
+        }
+
+        function autoRange() {
+            if (activeChartIdx >= 0) {
+                delete rangeOverrides[activeChartIdx];
+                if (typeof chartRedraws[activeChartIdx] === 'function') {
+                    chartRedraws[activeChartIdx](undefined);
+                }
+            }
+            closePopup();
+        }
+
+        // ポップアップ要素は buildRangePopup() が既に DOM に追加済みのため
+        // 即時にハンドラを登録する。DOMContentLoaded 待ちは不要。
+        (function wireHandlers() {
+            const applyBtn  = document.getElementById('range-apply');
+            const autoBtn   = document.getElementById('range-auto');
+            const closeBtn  = document.getElementById('range-close');
+            if (applyBtn)  { applyBtn.addEventListener('click', applyRange); }
+            if (autoBtn)   { autoBtn.addEventListener('click', autoRange); }
+            if (closeBtn)  { closeBtn.addEventListener('click', closePopup); }
+        })();
+
+        // Escape キーで閉じる
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { closePopup(); }
+        });
+    })();
+
     const specs = Array.isArray(window.__CHART_SPECS__) ? window.__CHART_SPECS__ : [];
     const host = document.getElementById('charts');
     if (!host) { return; }
@@ -90,106 +206,128 @@ export function getChartSpecRenderScript(): string {
         ctx.restore();
     }
 
-    function drawLine(spec) {
+    function drawLine(spec, chartIdx) {
         const cv = setupCanvas(720, 240);
         const ctx = cv.ctx;
         const plot = { x: 50, y: 16, w: cv.width - 60, h: cv.height - 50 };
-        drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
-
         const xs = spec.xs || [];
         const series = spec.series || [];
-        if (xs.length === 0 || series.length === 0) { attachCard(spec.title, cv.canvas); return; }
 
-        let yMin = Infinity, yMax = -Infinity;
-        for (const s of series) {
-            for (const y of s.ys || []) {
-                if (!Number.isFinite(y)) { continue; }
-                if (y < yMin) { yMin = y; }
-                if (y > yMax) { yMax = y; }
+        function redraw(override) {
+            // clear
+            ctx.clearRect(0, 0, cv.width, cv.height);
+
+            let yMin = Infinity, yMax = -Infinity;
+            for (const s of series) {
+                for (const y of s.ys || []) {
+                    if (!Number.isFinite(y)) { continue; }
+                    if (y < yMin) { yMin = y; }
+                    if (y > yMax) { yMax = y; }
+                }
             }
-        }
-        if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
-        if (yMin === yMax) { yMax = yMin + 1; }
-        const xMin = xs[0], xMax = xs[xs.length - 1];
+            if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
+            if (yMin === yMax) { yMax = yMin + 1; }
 
-        const yToPx = function(v) { return plot.y + plot.h - ((v - yMin) / (yMax - yMin)) * plot.h; };
-        const xToPx = function(v) { return plot.x + ((v - xMin) / (xMax - xMin || 1)) * plot.w; };
+            const _yMin = (override && override.min != null) ? override.min : yMin;
+            let _yMax = (override && override.max != null) ? override.max : yMax;
+            if (_yMax <= _yMin) { _yMax = _yMin + 1; }
+            const xMin = xs[0] != null ? xs[0] : 0;
+            const xMax = xs[xs.length - 1] != null ? xs[xs.length - 1] : 1;
 
-        series.forEach(function(s, idx) {
-            ctx.strokeStyle = colorAt(idx);
-            ctx.lineWidth = 1.2;
+            drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
+
+            const yToPx = function(v) { return plot.y + plot.h - ((v - _yMin) / (_yMax - _yMin)) * plot.h; };
+            const xToPx = function(v) { return plot.x + ((v - xMin) / (xMax - xMin || 1)) * plot.w; };
+
+            // clip to plot area
+            ctx.save();
             ctx.beginPath();
-            const ys = s.ys || [];
-            for (let i = 0; i < xs.length && i < ys.length; i++) {
-                const px = xToPx(xs[i]);
-                const py = yToPx(ys[i]);
-                if (i === 0) { ctx.moveTo(px, py); } else { ctx.lineTo(px, py); }
-            }
-            ctx.stroke();
-        });
+            ctx.rect(plot.x, plot.y, plot.w, plot.h);
+            ctx.clip();
 
-        drawAxisLabels(ctx, plot, spec, { min: xMin, max: xMax }, { min: yMin, max: yMax }, {
-            yDecimals: (spec.yScale === 'db') ? 0 : 2,
-            xDecimals: xMax >= 100 ? 0 : 2,
-        });
+            series.forEach(function(s, idx) {
+                ctx.strokeStyle = colorAt(idx);
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                const ys = s.ys || [];
+                for (let i = 0; i < xs.length && i < ys.length; i++) {
+                    const px = xToPx(xs[i]);
+                    const py = yToPx(ys[i]);
+                    if (i === 0) { ctx.moveTo(px, py); } else { ctx.lineTo(px, py); }
+                }
+                ctx.stroke();
+            });
+            ctx.restore();
 
-        // legend
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        let lx = plot.x + 8;
-        const ly = plot.y + 8;
-        series.forEach(function(s, idx) {
-            ctx.fillStyle = colorAt(idx);
-            ctx.fillRect(lx, ly - 4, 10, 8);
-            ctx.fillStyle = cssVar('--text', '#ddd');
-            const name = (s && s.name) ? s.name : ('series ' + (idx + 1));
-            ctx.fillText(name, lx + 14, ly);
-            lx += 14 + Math.max(40, ctx.measureText(name).width + 18);
+            // Y 軸クリックヒント（薄い帯）— テキストより前に描画
+            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            ctx.fillRect(0, plot.y, plot.x, plot.h);
+
+            drawAxisLabels(ctx, plot, spec,
+                { min: xMin, max: xMax },
+                { min: _yMin, max: _yMax },
+                { yDecimals: (spec.yScale === 'db') ? 0 : 2, xDecimals: xMax >= 100 ? 0 : 2 });
+
+            // legend
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            let lx = plot.x + 8;
+            const ly = plot.y + 8;
+            series.forEach(function(s, idx) {
+                ctx.fillStyle = colorAt(idx);
+                ctx.fillRect(lx, ly - 4, 10, 8);
+                ctx.fillStyle = cssVar('--text', '#ddd');
+                const name = (s && s.name) ? s.name : ('series ' + (idx + 1));
+                ctx.fillText(name, lx + 14, ly);
+                lx += 14 + Math.max(40, ctx.measureText(name).width + 18);
+            });
+        }
+
+        if (xs.length === 0 || series.length === 0) {
+            drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
+            attachCard(spec.title, cv.canvas);
+            return;
+        }
+
+        redraw(rangeOverrides[chartIdx]);
+        chartRedraws[chartIdx] = redraw;
+
+        // Y 軸エリア（x < plot.x）クリックでポップアップ
+        cv.canvas.addEventListener('click', function(e) {
+            const rect = cv.canvas.getBoundingClientRect();
+            const cx = e.clientX - rect.left;
+            if (cx >= plot.x) { return; }
+            openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
         });
 
         attachCard(spec.title, cv.canvas);
     }
 
-    function drawHeatmap(spec) {
+    function drawHeatmap(spec, chartIdx) {
         const cv = setupCanvas(720, 240);
         const ctx = cv.ctx;
         const plot = { x: 50, y: 16, w: cv.width - 90, h: cv.height - 50 };
-        drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
         const matrix = spec.matrix || [];
         const rows = matrix.length;
         const cols = rows > 0 ? matrix[0].length : 0;
-        if (rows === 0 || cols === 0) { attachCard(spec.title, cv.canvas); return; }
 
-        let vMin = (spec.vmin != null) ? spec.vmin : Infinity;
-        let vMax = (spec.vmax != null) ? spec.vmax : -Infinity;
+        // データから vmin/vmax を事前計算
+        let dataVmin = (spec.vmin != null) ? spec.vmin : Infinity;
+        let dataVmax = (spec.vmax != null) ? spec.vmax : -Infinity;
         if (spec.vmin == null || spec.vmax == null) {
             for (let r = 0; r < rows; r++) {
                 const row = matrix[r];
                 for (let c = 0; c < cols; c++) {
                     const v = row[c];
                     if (!Number.isFinite(v)) { continue; }
-                    if (v < vMin) { vMin = v; }
-                    if (v > vMax) { vMax = v; }
+                    if (v < dataVmin) { dataVmin = v; }
+                    if (v > dataVmax) { dataVmax = v; }
                 }
             }
         }
-        if (!isFinite(vMin) || !isFinite(vMax)) { vMin = 0; vMax = 1; }
-        if (vMin === vMax) { vMax = vMin + 1; }
-
-        const cellW = plot.w / cols;
-        const cellH = plot.h / rows;
-        // Note: matrix[0] is the lowest y (first row) — draw from bottom to top.
-        for (let r = 0; r < rows; r++) {
-            const yPx = plot.y + plot.h - (r + 1) * cellH;
-            const row = matrix[r];
-            for (let c = 0; c < cols; c++) {
-                const v = row[c];
-                const t = Number.isFinite(v) ? Math.max(0, Math.min(1, (v - vMin) / (vMax - vMin))) : 0;
-                ctx.fillStyle = sampleColormap(spec.colormap, t);
-                ctx.fillRect(plot.x + c * cellW, yPx, cellW + 0.5, cellH + 0.5);
-            }
-        }
+        if (!isFinite(dataVmin) || !isFinite(dataVmax)) { dataVmin = 0; dataVmax = 1; }
+        if (dataVmin === dataVmax) { dataVmax = dataVmin + 1; }
 
         const xs = spec.xs || [];
         const ys = spec.ys || [];
@@ -197,92 +335,168 @@ export function getChartSpecRenderScript(): string {
         const xMaxAxis = xs.length > 0 ? xs[xs.length - 1] : cols;
         const yMinAxis = ys.length > 0 ? ys[0] : 0;
         const yMaxAxis = ys.length > 0 ? ys[ys.length - 1] : rows;
-        drawAxisLabels(ctx, plot, spec,
-            { min: xMinAxis, max: xMaxAxis },
-            { min: yMinAxis, max: yMaxAxis },
-            { xDecimals: 2, yDecimals: 0 });
 
-        // colour bar
-        const cbX = plot.x + plot.w + 8;
-        const cbW = 14, cbH = plot.h;
-        for (let i = 0; i < cbH; i++) {
-            const t = 1 - (i / cbH);
-            ctx.fillStyle = sampleColormap(spec.colormap, t);
-            ctx.fillRect(cbX, plot.y + i, cbW, 1);
+        function redraw(override) {
+            ctx.clearRect(0, 0, cv.width, cv.height);
+            drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
+
+            const vMin = (override && override.min != null) ? override.min : dataVmin;
+            const vMax = (override && override.max != null) ? override.max : dataVmax;
+            const vRange = vMax - vMin || 1;
+
+            const cellW = plot.w / Math.max(cols, 1);
+            const cellH = plot.h / Math.max(rows, 1);
+            for (let r = 0; r < rows; r++) {
+                const yPx = plot.y + plot.h - (r + 1) * cellH;
+                const row = matrix[r];
+                for (let c = 0; c < cols; c++) {
+                    const v = row[c];
+                    const t = Number.isFinite(v) ? Math.max(0, Math.min(1, (v - vMin) / vRange)) : 0;
+                    ctx.fillStyle = sampleColormap(spec.colormap, t);
+                    ctx.fillRect(plot.x + c * cellW, yPx, cellW + 0.5, cellH + 0.5);
+                }
+            }
+
+            drawAxisLabels(ctx, plot, spec,
+                { min: xMinAxis, max: xMaxAxis },
+                { min: yMinAxis, max: yMaxAxis },
+                { xDecimals: 2, yDecimals: 0 });
+
+            // カラーバー
+            const cbX = plot.x + plot.w + 8;
+            const cbW = 14;
+            for (let i = 0; i < plot.h; i++) {
+                const t = 1 - (i / plot.h);
+                ctx.fillStyle = sampleColormap(spec.colormap, t);
+                ctx.fillRect(cbX, plot.y + i, cbW, 1);
+            }
+            ctx.strokeStyle = cssVar('--line', '#666');
+            ctx.strokeRect(cbX, plot.y, cbW, plot.h);
+
+            // カラーバークリックヒント— テキストより前に描画
+            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            ctx.fillRect(cbX, plot.y, cbW + 20, plot.h);
+
+            ctx.fillStyle = cssVar('--muted', '#aaa');
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(vMax.toFixed(0), cbX + cbW + 2, plot.y);
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(vMin.toFixed(0), cbX + cbW + 2, plot.y + plot.h);
         }
-        ctx.strokeStyle = cssVar('--line', '#666');
-        ctx.strokeRect(cbX, plot.y, cbW, cbH);
-        ctx.fillStyle = cssVar('--muted', '#aaa');
-        ctx.font = '10px monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText(vMax.toFixed(0), cbX + cbW + 2, plot.y);
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(vMin.toFixed(0), cbX + cbW + 2, plot.y + cbH);
+
+        if (rows === 0 || cols === 0) {
+            drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
+            attachCard(spec.title, cv.canvas);
+            return;
+        }
+
+        redraw(rangeOverrides[chartIdx]);
+        chartRedraws[chartIdx] = redraw;
+
+        // カラーバーエリア（plot 右端 + 8px 以降）クリック
+        cv.canvas.addEventListener('click', function(e) {
+            const rect = cv.canvas.getBoundingClientRect();
+            const cx = e.clientX - rect.left;
+            if (cx <= plot.x + plot.w) { return; }  // カラーバー左端より左はスキップ
+            openRangePopup(chartIdx, e.clientX, e.clientY, 'color');
+        });
 
         attachCard(spec.title, cv.canvas);
     }
 
-    function drawBar(spec) {
+    function drawBar(spec, chartIdx) {
         const cv = setupCanvas(720, 240);
         const ctx = cv.ctx;
         const plot = { x: 50, y: 16, w: cv.width - 60, h: cv.height - 50 };
-        drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
-
         const cats = spec.categories || [];
         const series = spec.series || [];
-        if (cats.length === 0 || series.length === 0) { attachCard(spec.title, cv.canvas); return; }
 
-        let yMin = Infinity, yMax = -Infinity;
-        for (const s of series) {
-            for (const v of s.values || []) {
-                if (!Number.isFinite(v)) { continue; }
-                if (v < yMin) { yMin = v; }
-                if (v > yMax) { yMax = v; }
+        function redraw(override) {
+            ctx.clearRect(0, 0, cv.width, cv.height);
+
+            let yMin = Infinity, yMax = -Infinity;
+            for (const s of series) {
+                for (const v of s.values || []) {
+                    if (!Number.isFinite(v)) { continue; }
+                    if (v < yMin) { yMin = v; }
+                    if (v > yMax) { yMax = v; }
+                }
             }
+            if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
+            if (yMin === yMax) { yMin = yMin - 1; yMax = yMax + 1; }
+            if (yMin > 0) { yMin = 0; }
+
+            const _yMin = (override && override.min != null) ? override.min : yMin;
+            let _yMax = (override && override.max != null) ? override.max : yMax;
+            if (_yMax <= _yMin) { _yMax = _yMin + 1; }
+
+            drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
+            const groupW = plot.w / Math.max(cats.length, 1);
+            const barW = (groupW * 0.7) / Math.max(series.length, 1);
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(plot.x, plot.y, plot.w, plot.h);
+            ctx.clip();
+            series.forEach(function(s, sIdx) {
+                ctx.fillStyle = colorAt(sIdx);
+                const vals = s.values || [];
+                for (let i = 0; i < cats.length && i < vals.length; i++) {
+                    const v = vals[i];
+                    if (!Number.isFinite(v)) { continue; }
+                    const x = plot.x + i * groupW + (groupW - groupW * 0.7) / 2 + sIdx * barW;
+                    const yPx  = plot.y + plot.h - ((v       - _yMin) / (_yMax - _yMin)) * plot.h;
+                    const baseY = plot.y + plot.h - ((0       - _yMin) / (_yMax - _yMin)) * plot.h;
+                    ctx.fillRect(x, Math.min(yPx, baseY), barW, Math.abs(baseY - yPx));
+                }
+            });
+            ctx.restore();
+
+            // Y 軸クリックヒント— テキストより前に描画
+            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            ctx.fillRect(0, plot.y, plot.x, plot.h);
+
+            ctx.fillStyle = cssVar('--muted', '#aaa');
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            const stride = Math.max(1, Math.ceil(cats.length / 8));
+            for (let i = 0; i < cats.length; i += stride) {
+                ctx.fillText(String(cats[i]), plot.x + (i + 0.5) * groupW, plot.y + plot.h + 4);
+            }
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            for (let i = 0; i <= 4; i++) {
+                const v = _yMax - (i / 4) * (_yMax - _yMin);
+                ctx.fillText(v.toFixed(0), plot.x - 4, plot.y + (i / 4) * plot.h);
+            }
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(spec.xLabel || '', plot.x + plot.w / 2, plot.y + plot.h + 18);
+            ctx.save();
+            ctx.translate(plot.x - 36, plot.y + plot.h / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(spec.yLabel || '', 0, 0);
+            ctx.restore();
         }
-        if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
-        if (yMin === yMax) { yMin = yMin - 1; yMax = yMax + 1; }
-        if (yMin > 0) { yMin = 0; }
 
-        const groupW = plot.w / cats.length;
-        const barW = (groupW * 0.7) / series.length;
+        if (cats.length === 0 || series.length === 0) {
+            drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
+            attachCard(spec.title, cv.canvas);
+            return;
+        }
 
-        series.forEach(function(s, sIdx) {
-            ctx.fillStyle = colorAt(sIdx);
-            const vals = s.values || [];
-            for (let i = 0; i < cats.length && i < vals.length; i++) {
-                const v = vals[i];
-                if (!Number.isFinite(v)) { continue; }
-                const x = plot.x + i * groupW + (groupW - groupW * 0.7) / 2 + sIdx * barW;
-                const yPx = plot.y + plot.h - ((v - yMin) / (yMax - yMin)) * plot.h;
-                const baseY = plot.y + plot.h - ((0 - yMin) / (yMax - yMin)) * plot.h;
-                ctx.fillRect(x, Math.min(yPx, baseY), barW, Math.abs(baseY - yPx));
-            }
+        redraw(rangeOverrides[chartIdx]);
+        chartRedraws[chartIdx] = redraw;
+
+        cv.canvas.addEventListener('click', function(e) {
+            const rect = cv.canvas.getBoundingClientRect();
+            const cx = e.clientX - rect.left;
+            if (cx >= plot.x) { return; }
+            openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
         });
-
-        ctx.fillStyle = cssVar('--muted', '#aaa');
-        ctx.font = '10px monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        const stride = Math.max(1, Math.ceil(cats.length / 8));
-        for (let i = 0; i < cats.length; i += stride) {
-            ctx.fillText(String(cats[i]), plot.x + (i + 0.5) * groupW, plot.y + plot.h + 4);
-        }
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        for (let i = 0; i <= 4; i++) {
-            const v = yMax - (i / 4) * (yMax - yMin);
-            ctx.fillText(v.toFixed(0), plot.x - 4, plot.y + (i / 4) * plot.h);
-        }
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText(spec.xLabel || '', plot.x + plot.w / 2, plot.y + plot.h + 18);
-        ctx.save();
-        ctx.translate(plot.x - 36, plot.y + plot.h / 2);
-        ctx.rotate(-Math.PI / 2);
-        ctx.fillText(spec.yLabel || '', 0, 0);
-        ctx.restore();
 
         attachCard(spec.title, cv.canvas);
     }
@@ -342,11 +556,11 @@ export function getChartSpecRenderScript(): string {
         return 'rgb(' + last[1][0] + ',' + last[1][1] + ',' + last[1][2] + ')';
     }
 
-    specs.forEach(function(spec) {
+    specs.forEach(function(spec, idx) {
         if (!spec || typeof spec !== 'object') { return; }
-        if (spec.kind === 'line') { drawLine(spec); }
-        else if (spec.kind === 'heatmap') { drawHeatmap(spec); }
-        else if (spec.kind === 'bar') { drawBar(spec); }
+        if (spec.kind === 'line') { drawLine(spec, idx); }
+        else if (spec.kind === 'heatmap') { drawHeatmap(spec, idx); }
+        else if (spec.kind === 'bar') { drawBar(spec, idx); }
         else if (spec.kind === 'scalar') { drawScalar(spec); }
     });
 })();`;
