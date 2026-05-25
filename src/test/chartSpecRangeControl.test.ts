@@ -116,3 +116,37 @@ test('range-popup が HTML になくても buildRangePopup() が注入する', (
     assert.ok(dom.window.document.getElementById('range-error'), '#range-error が存在すること');
     dom.window.close();
 });
+
+test('Line チャートの Y 軸エリアをクリックするとポップアップが開く', () => {
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    assert.ok(canvas, 'canvas が存在すること');
+
+    // Y 軸エリア (x=20, y=100) でクリックイベントを発火
+    const ev = new dom.window.MouseEvent('click', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    });
+    canvas.dispatchEvent(ev);
+
+    const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
+    assert.notEqual(popup.style.display, 'none', 'ポップアップが表示されること');
+    dom.window.close();
+});
+
+test('Bar チャートの Y 軸エリアをクリックするとポップアップが開く', () => {
+    const dom = setupChartEnv([{
+        kind: 'bar', title: 'T', xLabel: 'X', yLabel: 'Y',
+        categories: ['A', 'B'], series: [{ name: 's', values: [1, 2] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    assert.ok(canvas, 'canvas が存在すること');
+    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
+    assert.notEqual(popup.style.display, 'none', 'ポップアップが表示されること');
+    dom.window.close();
+});
