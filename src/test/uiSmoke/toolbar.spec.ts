@@ -5,6 +5,36 @@ async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 }
 
+async function getPostedActionTypes(page: Page): Promise<string[]> {
+    return page.evaluate(() => {
+        const messages = (window as typeof window & {
+            __uiSmokePostedMessages?: Array<{ type?: string }>;
+        }).__uiSmokePostedMessages ?? [];
+        return messages
+            .map((message) => message.type ?? '')
+            .filter((type) => type !== 'comparison-panel-test-snapshot');
+    });
+}
+
+test('toolbar message assertions ignore initial comparison-panel test snapshots', async ({ page }) => {
+    await loadUi(page);
+    await page.evaluate(() => {
+        (window as typeof window & {
+            __uiSmokePostedMessages?: Array<{ type?: string }>;
+        }).__uiSmokePostedMessages = [{ type: 'comparison-panel-test-snapshot' }];
+    });
+
+    await page.locator('[data-action="select-python-environment"]').click({ force: true });
+    await page.locator('[data-action="run-recipe"]').click({ force: true });
+    await page.locator('[data-action="export-report"]').click({ force: true });
+
+    expect(await getPostedActionTypes(page)).toEqual([
+        'select-python-environment',
+        'run-recipe',
+        'export-report-options',
+    ]);
+});
+
 test('results toolbar posts VS Code messages for Python selection, recipe run, and report export', async ({ page }) => {
     await loadUi(page);
 
@@ -12,14 +42,7 @@ test('results toolbar posts VS Code messages for Python selection, recipe run, a
     await page.locator('[data-action="run-recipe"]').click({ force: true });
     await page.locator('[data-action="export-report"]').click({ force: true });
 
-    const messageTypes = await page.evaluate(() => {
-        const messages = (window as typeof window & {
-            __uiSmokePostedMessages?: Array<{ type?: string }>;
-        }).__uiSmokePostedMessages ?? [];
-        return messages.map((message) => message.type ?? '');
-    });
-
-    expect(messageTypes).toEqual([
+    expect(await getPostedActionTypes(page)).toEqual([
         'select-python-environment',
         'run-recipe',
         'export-report-options',
@@ -38,12 +61,5 @@ test('spectrogram settings apply posts a reanalyze request', async ({ page }) =>
     await page.locator('#spec-hop').fill('256');
     await page.locator('#spec-apply').click({ force: true });
 
-    const messageTypes = await page.evaluate(() => {
-        const messages = (window as typeof window & {
-            __uiSmokePostedMessages?: Array<{ type?: string }>;
-        }).__uiSmokePostedMessages ?? [];
-        return messages.map((message) => message.type ?? '');
-    });
-
-    expect(messageTypes.at(-1)).toBe('request-reanalyze');
+    expect((await getPostedActionTypes(page)).at(-1)).toBe('request-reanalyze');
 });
