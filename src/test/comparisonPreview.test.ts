@@ -8,6 +8,7 @@ import {
     buildComparisonPreviewHtml,
     resolvePreviewOutputPath,
 } from '../tools/comparisonPreview';
+import { buildUiSmokeHtml } from './uiSmoke/buildHtml';
 
 test('buildComparisonPreviewHtml returns results-mode ComparisonPanel HTML', () => {
     const html = buildComparisonPreviewHtml('results');
@@ -35,6 +36,14 @@ test('buildComparisonPreviewHtml injects a browser-safe vscode api stub', () => 
         html,
         /window\.acquireVsCodeApi = function\(\)[\s\S]*const vscode = acquireVsCodeApi\(\);/,
     );
+});
+
+test('buildUiSmokeHtml keeps the ui-smoke vscode api capture stub as the only stub', () => {
+    const html = buildUiSmokeHtml();
+    const stubMatches = html.match(/window\.acquireVsCodeApi = function\(\)/g) ?? [];
+
+    assert.equal(stubMatches.length, 1);
+    assert.match(html, /window\.__uiSmokePostedMessages\.push\(message\)/);
 });
 
 test('resolvePreviewOutputPath creates a mode-specific html path under os.tmpdir()', () => {

@@ -17,6 +17,14 @@ window.acquireVsCodeApi = function() {
 </script>`;
 }
 
+function extractNonce(html: string): string {
+    const nonceMatch = html.match(/<script nonce="([^"]+)">/u);
+    if (!nonceMatch) {
+        throw new Error('Could not extract webview nonce from rendered HTML');
+    }
+    return nonceMatch[1];
+}
+
 function readWaveformPipelineJs(): string {
     try {
         return readFileSync(
@@ -31,22 +39,24 @@ function readWaveformPipelineJs(): string {
     }
 }
 
-function finalizePreviewHtml(html: string): string {
-    const nonceMatch = html.match(/<script nonce="([^"]+)">/u);
-    if (!nonceMatch) {
-        throw new Error('Could not extract webview nonce from rendered HTML');
-    }
-    const nonce = nonceMatch[1];
-    return html
-        .replace('<div id="app"></div>', `<div id="app"></div>\n    ${buildVsCodeApiStub(nonce)}`)
+function finalizePreviewHtml(html: string, injectVsCodeApiStub = false): string {
+    const nonce = extractNonce(html);
+    let finalizedHtml = html
         .replace(/<meta http-equiv="Content-Security-Policy"[^>]+>\n/u, '')
         .replace(
             '<script src="__WAVEFORM_PIPELINE__"></script>',
             `<script nonce="${nonce}">${readWaveformPipelineJs()}</script>`,
         );
+    if (injectVsCodeApiStub) {
+        finalizedHtml = finalizedHtml.replace(
+            '<div id="app"></div>',
+            `<div id="app"></div>\n    ${buildVsCodeApiStub(nonce)}`,
+        );
+    }
+    return finalizedHtml;
 }
 
-export function buildResultsPreviewHtml(): string {
+function buildResultsPreviewHtmlInternal(injectVsCodeApiStub = false): string {
     return finalizePreviewHtml(getRenderHtml({
         mode: 'results',
         results: [
@@ -95,10 +105,10 @@ export function buildResultsPreviewHtml(): string {
             stft: { nFft: 512, hopSize: 128, window: 'hamming' },
             display: { dbMin: -60, dbMax: 0, maxFrequencyHz: null },
         },
-    }));
+    }), injectVsCodeApiStub);
 }
 
-export function buildSelectionPreviewHtml(): string {
+function buildSelectionPreviewHtmlInternal(injectVsCodeApiStub = false): string {
     return finalizePreviewHtml(getRenderHtml({
         mode: 'directory-selection',
         results: [],
@@ -131,15 +141,23 @@ export function buildSelectionPreviewHtml(): string {
                 ],
             },
         ],
-    }));
+    }), injectVsCodeApiStub);
+}
+
+export function buildResultsPreviewHtml(): string {
+    return buildResultsPreviewHtmlInternal();
+}
+
+export function buildSelectionPreviewHtml(): string {
+    return buildSelectionPreviewHtmlInternal();
 }
 
 export function buildComparisonPreviewHtml(mode: ComparisonPreviewMode): string {
     if (mode === 'results') {
-        return buildResultsPreviewHtml();
+        return buildResultsPreviewHtmlInternal(true);
     }
     if (mode === 'selection') {
-        return buildSelectionPreviewHtml();
+        return buildSelectionPreviewHtmlInternal(true);
     }
     throw new Error(`Unsupported preview mode: ${String(mode)}`);
 }

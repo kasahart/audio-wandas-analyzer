@@ -20,8 +20,11 @@ function parseMode(argv: string[]): ComparisonPreviewMode {
     throw new Error(`Unknown preview mode: ${modeValue}`);
 }
 
+const SKIP_BROWSER_OPEN_ENV = 'AUDIO_WANDAS_SKIP_BROWSER_OPEN';
+
 function shouldSkipBrowserOpen(env: NodeJS.ProcessEnv): boolean {
-    return env.AUDIO_WANDAS_SKIP_BROWSER_OPEN === '1';
+    // Set AUDIO_WANDAS_SKIP_BROWSER_OPEN=1 to write the preview HTML without launching a browser.
+    return env[SKIP_BROWSER_OPEN_ENV] === '1';
 }
 
 async function main(): Promise<void> {
