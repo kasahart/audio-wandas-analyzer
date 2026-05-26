@@ -7,7 +7,13 @@ import {
 
 function parseMode(argv: string[]): ComparisonPreviewMode {
     const modeIndex = argv.indexOf('--mode');
-    const modeValue = modeIndex >= 0 ? argv[modeIndex + 1] : 'results';
+    if (modeIndex < 0) {
+        return 'results';
+    }
+    const modeValue = argv[modeIndex + 1];
+    if (modeValue === undefined || modeValue.startsWith('--')) {
+        throw new Error('--mode requires a value (results | selection)');
+    }
     if (modeValue === 'results' || modeValue === 'selection') {
         return modeValue;
     }

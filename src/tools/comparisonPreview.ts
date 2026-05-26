@@ -1,7 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
-import path from 'node:path';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { getRenderHtml } from '../shared/helpers/comparisonScriptLoader';
 
 export type ComparisonPreviewMode = 'results' | 'selection';
@@ -133,7 +132,7 @@ export function buildComparisonPreviewHtml(mode: ComparisonPreviewMode): string 
 }
 
 export function resolvePreviewOutputPath(mode: ComparisonPreviewMode): string {
-    return path.join(os.tmpdir(), `comparison-preview-${mode}.html`);
+    return join(os.tmpdir(), `comparison-preview-${mode}.html`);
 }
 
 export function buildBrowserOpenCommand(
@@ -151,7 +150,7 @@ export function buildBrowserOpenCommand(
 
 export function writeComparisonPreviewHtml(mode: ComparisonPreviewMode): string {
     const filePath = resolvePreviewOutputPath(mode);
-    mkdirSync(path.dirname(filePath), { recursive: true });
+    mkdirSync(dirname(filePath), { recursive: true });
     writeFileSync(filePath, buildComparisonPreviewHtml(mode), 'utf8');
     return filePath;
 }
