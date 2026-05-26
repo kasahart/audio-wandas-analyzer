@@ -76,6 +76,42 @@
       "problemMatcher": [],
       "group": "test",
       "dependsOn": "compile extension (hidden)"
+    },
+    {
+      "label": "Preview ComparisonPanel (Results)",
+      "type": "shell",
+      "command": "node",
+      "args": [
+        "dist/tools/openComparisonPreview.js",
+        "--mode",
+        "results"
+      ],
+      "dependsOn": "compile extension (hidden)",
+      "presentation": {
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "close": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Preview ComparisonPanel (Selection)",
+      "type": "shell",
+      "command": "node",
+      "args": [
+        "dist/tools/openComparisonPreview.js",
+        "--mode",
+        "selection"
+      ],
+      "dependsOn": "compile extension (hidden)",
+      "presentation": {
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "close": false
+      },
+      "problemMatcher": []
     }
   ]
 }

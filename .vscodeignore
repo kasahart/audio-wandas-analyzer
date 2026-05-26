@@ -16,6 +16,8 @@ plot_helper/**
 src/**
 dist/e2e/**
 dist/test/**
+dist/tools/**
+dist/shared/helpers/comparisonScriptLoader.*
 dist/**/*.map
 python-backend/__pycache__/**
 python-backend/.pytest_cache/**
