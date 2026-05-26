@@ -35,6 +35,8 @@ async function main(): Promise<void> {
     child.once('spawn', () => {
         console.log(`Opened ${mode} preview: ${filePath}`);
     });
+
+    child.unref();
 }
 
 void main().catch((error: unknown) => {

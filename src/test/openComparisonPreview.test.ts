@@ -50,3 +50,14 @@ test('openComparisonPreview --mode invalid-value shows unknown mode error', asyn
     assert.match(stderr, /Unknown preview mode: invalid/);
     assert.equal(exitCode, 1);
 });
+
+test('openComparisonPreview exits promptly without hanging on browser launcher', async () => {
+    const startTime = Date.now();
+    const { stdout, exitCode } = await runOpenComparisonPreview(['--mode', 'results']);
+    const elapsed = Date.now() - startTime;
+    
+    // Should exit quickly (< 2 seconds) even though browser might still be starting
+    assert.ok(elapsed < 2000, `CLI took ${elapsed}ms, expected < 2000ms`);
+    assert.match(stdout, /Opened results preview:/);
+    assert.equal(exitCode, 0);
+});
