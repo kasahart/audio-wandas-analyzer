@@ -6,20 +6,15 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 
-function commandExists(cmd: string): Promise<boolean> {
-    return new Promise((resolve) => {
-        const checkCmd = process.platform === 'win32' ? 'where' : 'which';
-        const child = spawn(checkCmd, [cmd], { stdio: 'ignore' });
-        child.once('error', () => resolve(false));
-        child.on('close', (code) => resolve(code === 0));
-    });
-}
-
-function runOpenComparisonPreview(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+function runOpenComparisonPreview(
+    args: string[],
+    env?: NodeJS.ProcessEnv,
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
     return new Promise((resolve) => {
         const scriptPath = join(__dirname, '..', '..', 'dist', 'tools', 'openComparisonPreview.js');
         const child = spawn('node', [scriptPath, ...args], {
             stdio: ['ignore', 'pipe', 'pipe'],
+            env: { ...process.env, ...env },
         });
 
         let stdout = '';
@@ -60,23 +55,15 @@ test('openComparisonPreview --mode invalid-value shows unknown mode error', asyn
     assert.equal(exitCode, 1);
 });
 
-test('openComparisonPreview exits promptly without hanging on browser launcher', async (t) => {
-    const launcherCmd = process.platform === 'darwin' ? 'open' 
-        : process.platform === 'win32' ? 'cmd' 
-        : 'xdg-open';
-    
-    const hasLauncher = await commandExists(launcherCmd);
-    if (!hasLauncher) {
-        t.skip(`Skipping: launcher command '${launcherCmd}' not available`);
-        return;
-    }
-    
+test('openComparisonPreview can skip browser launch during tests', async () => {
     const startTime = Date.now();
-    const { stdout, exitCode } = await runOpenComparisonPreview(['--mode', 'results']);
+    const { stdout, exitCode } = await runOpenComparisonPreview(
+        ['--mode', 'results'],
+        { AUDIO_WANDAS_SKIP_BROWSER_OPEN: '1' },
+    );
     const elapsed = Date.now() - startTime;
-    
-    // Should exit quickly (< 2 seconds) even though browser might still be starting
+
     assert.ok(elapsed < 2000, `CLI took ${elapsed}ms, expected < 2000ms`);
-    assert.match(stdout, /Opened results preview:/);
+    assert.match(stdout, /Preview HTML written to:/);
     assert.equal(exitCode, 0);
 });

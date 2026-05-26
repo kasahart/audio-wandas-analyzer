@@ -5,6 +5,18 @@ import { getRenderHtml } from '../shared/helpers/comparisonScriptLoader';
 
 export type ComparisonPreviewMode = 'results' | 'selection';
 
+function buildVsCodeApiStub(nonce: string): string {
+    return `<script nonce="${nonce}">
+window.acquireVsCodeApi = function() {
+    return {
+        postMessage() {},
+        getState() { return null; },
+        setState() {},
+    };
+};
+</script>`;
+}
+
 function readWaveformPipelineJs(): string {
     try {
         return readFileSync(
@@ -26,6 +38,7 @@ function finalizePreviewHtml(html: string): string {
     }
     const nonce = nonceMatch[1];
     return html
+        .replace('<div id="app"></div>', `<div id="app"></div>\n    ${buildVsCodeApiStub(nonce)}`)
         .replace(/<meta http-equiv="Content-Security-Policy"[^>]+>\n/u, '')
         .replace(
             '<script src="__WAVEFORM_PIPELINE__"></script>',

@@ -26,6 +26,17 @@ test('buildComparisonPreviewHtml returns selection-mode ComparisonPanel HTML', (
     assert.match(html, /id="selection-tree"/);
 });
 
+test('buildComparisonPreviewHtml injects a browser-safe vscode api stub', () => {
+    const html = buildComparisonPreviewHtml('results');
+
+    assert.match(html, /window\.acquireVsCodeApi = function\(\)/);
+    assert.match(html, /getState\(\) \{ return null; \}/);
+    assert.match(
+        html,
+        /window\.acquireVsCodeApi = function\(\)[\s\S]*const vscode = acquireVsCodeApi\(\);/,
+    );
+});
+
 test('resolvePreviewOutputPath creates a mode-specific html path under os.tmpdir()', () => {
     const filePath = resolvePreviewOutputPath('results');
 

@@ -20,9 +20,17 @@ function parseMode(argv: string[]): ComparisonPreviewMode {
     throw new Error(`Unknown preview mode: ${modeValue}`);
 }
 
+function shouldSkipBrowserOpen(env: NodeJS.ProcessEnv): boolean {
+    return env.AUDIO_WANDAS_SKIP_BROWSER_OPEN === '1';
+}
+
 async function main(): Promise<void> {
     const mode = parseMode(process.argv.slice(2));
     const filePath = writeComparisonPreviewHtml(mode);
+    if (shouldSkipBrowserOpen(process.env)) {
+        console.log(`Preview HTML written to: ${filePath}`);
+        return;
+    }
     const { command, args } = buildBrowserOpenCommand(process.platform, filePath);
     const child = spawn(command, args, { stdio: 'ignore', detached: false });
 
