@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
     buildBrowserOpenCommand,
     buildComparisonPreviewHtml,
@@ -59,4 +60,14 @@ test('buildComparisonPreviewHtml rejects unsupported mode values', () => {
         () => buildComparisonPreviewHtml('detail' as never),
         /Unsupported preview mode: detail/,
     );
+});
+
+test('tasks.json exposes browser preview tasks for results and selection modes', () => {
+    const tasksPath = path.resolve(__dirname, '..', '..', '.vscode', 'tasks.json');
+    const tasksJson = JSON.parse(readFileSync(tasksPath, 'utf8')) as {
+        tasks: Array<{ label: string; command: string; args?: string[]; dependsOn?: string | string[] }>;
+    };
+
+    assert.ok(tasksJson.tasks.some((task) => task.label === 'Preview ComparisonPanel (Results)'));
+    assert.ok(tasksJson.tasks.some((task) => task.label === 'Preview ComparisonPanel (Selection)'));
 });
