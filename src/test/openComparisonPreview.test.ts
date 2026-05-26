@@ -6,6 +6,17 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 
+function commandExists(cmd: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        const child = spawn(cmd, [], { stdio: 'ignore' });
+        child.once('error', () => resolve(false));
+        child.once('spawn', () => {
+            child.kill();
+            resolve(true);
+        });
+    });
+}
+
 function runOpenComparisonPreview(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
     return new Promise((resolve) => {
         const scriptPath = join(__dirname, '..', '..', 'dist', 'tools', 'openComparisonPreview.js');
@@ -51,7 +62,17 @@ test('openComparisonPreview --mode invalid-value shows unknown mode error', asyn
     assert.equal(exitCode, 1);
 });
 
-test('openComparisonPreview exits promptly without hanging on browser launcher', async () => {
+test('openComparisonPreview exits promptly without hanging on browser launcher', async (t) => {
+    const launcherCmd = process.platform === 'darwin' ? 'open' 
+        : process.platform === 'win32' ? 'cmd' 
+        : 'xdg-open';
+    
+    const hasLauncher = await commandExists(launcherCmd);
+    if (!hasLauncher) {
+        t.skip(`Skipping: launcher command '${launcherCmd}' not available`);
+        return;
+    }
+    
     const startTime = Date.now();
     const { stdout, exitCode } = await runOpenComparisonPreview(['--mode', 'results']);
     const elapsed = Date.now() - startTime;
