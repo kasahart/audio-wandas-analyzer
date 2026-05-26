@@ -6,27 +6,7 @@
  * このファイルが require() の前に Module._load を差し替える。
  */
 
-// Node.js の require フックで 'vscode' をスタブに差し替える
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const NodeModule = require('node:module');
-const originalLoad = NodeModule._load;
-NodeModule._load = function (id: string, ...rest: unknown[]) {
-    if (id === 'vscode') {
-        return {
-            window: {},
-            ViewColumn: { One: 1, Active: 1, Beside: 2 },
-            Uri: { joinPath: (..._args: unknown[]) => ({ fsPath: '' }) },
-            workspace: { getConfiguration: () => ({ get: (_k: string, d: unknown) => d }) },
-        };
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return originalLoad.call(this, id, ...rest);
-};
-
-// vscode スタブが有効な状態で ComparisonPanel をロード
-// (require は Module._load 差し替え後に実行されるので安全)
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const comparisonPanelModule = require('../../webview/panels/ComparisonPanel') as {
+type ComparisonPanelModule = {
     renderComparisonHtml(
         webview: { asWebviewUri: (_uri: unknown) => { toString(): string }; cspSource: string },
         state: unknown,
@@ -36,19 +16,58 @@ const comparisonPanelModule = require('../../webview/panels/ComparisonPanel') as
     renderComparisonStyles(): string;
 };
 
+let cachedModule: ComparisonPanelModule | undefined;
+
+/**
+ * ComparisonPanel を vscode スタブ環境下で読み込む。
+ * モジュールキャッシュが有効なので 2 回目以降は即座に返る。
+ */
+function loadComparisonPanelModule(): ComparisonPanelModule {
+    if (cachedModule) {
+        return cachedModule;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const NodeModule = require('node:module');
+    const originalLoad = NodeModule._load;
+
+    try {
+        // vscode をスタブに差し替える一時フック
+        NodeModule._load = function (id: string, ...rest: unknown[]) {
+            if (id === 'vscode') {
+                return {
+                    window: {},
+                    ViewColumn: { One: 1, Active: 1, Beside: 2 },
+                    Uri: { joinPath: (..._args: unknown[]) => ({ fsPath: '' }) },
+                    workspace: { getConfiguration: () => ({ get: (_k: string, d: unknown) => d }) },
+                };
+            }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return originalLoad.call(this, id, ...rest);
+        };
+
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        cachedModule = require('../../webview/panels/ComparisonPanel') as ComparisonPanelModule;
+        return cachedModule;
+    } finally {
+        // 必ず元に戻す
+        NodeModule._load = originalLoad;
+    }
+}
+
 /** ComparisonPanel.renderScript() が返す JavaScript 文字列を取得する */
 export function getRenderScript(): string {
-    return comparisonPanelModule.renderComparisonScript();
+    return loadComparisonPanelModule().renderComparisonScript();
 }
 
 /** ComparisonPanel.renderStyles() が返す CSS 文字列を取得する */
 export function getRenderStyles(): string {
-    return comparisonPanelModule.renderComparisonStyles();
+    return loadComparisonPanelModule().renderComparisonStyles();
 }
 
 /** ComparisonPanel.renderHtml() 相当の HTML をテスト用スタブ Webview で生成する */
 export function getRenderHtml(state: unknown): string {
-    return comparisonPanelModule.renderComparisonHtml(
+    return loadComparisonPanelModule().renderComparisonHtml(
         {
             asWebviewUri: () => ({
                 toString: () => '__WAVEFORM_PIPELINE__',
