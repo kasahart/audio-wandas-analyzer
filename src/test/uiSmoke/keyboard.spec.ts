@@ -5,7 +5,7 @@ import { buildUiSmokeHtml } from './buildHtml';
 test('keyboard shortcut dialog lists all documented shortcuts', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 
-    await page.locator('body').click({ position: { x: 20, y: 20 } });
+    await page.mouse.click(20, 20);
     await page.keyboard.press('?');
     const helpOverlay = page.locator('#help-overlay');
     await expect(helpOverlay).toBeVisible();
@@ -18,7 +18,7 @@ test('keyboard shortcut dialog lists all documented shortcuts', async ({ page })
 test('keyboard shortcut dialog traps focus on Tab and closes on Escape', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 
-    await page.locator('body').click({ position: { x: 20, y: 20 } });
+    await page.mouse.click(20, 20);
     await page.keyboard.press('?');
     await expect(page.locator('#help-close-btn')).toBeFocused();
 

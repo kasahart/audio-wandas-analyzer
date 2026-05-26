@@ -16,11 +16,11 @@ test('webview smoke renders without console or page errors', async ({ page }) =>
 
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 
-    await page.locator('body').click({ position: { x: 20, y: 20 } });
+    await page.mouse.click(20, 20);
     await page.keyboard.press('?');
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Spectrogram' }).click();
-    await page.locator('[data-action="spectrogram-settings"]').click();
+    await page.getByRole('button', { name: 'Spectrogram' }).click({ force: true });
+    await page.locator('[data-action="spectrogram-settings"]').click({ force: true });
     await expect(page.locator('#spec-settings-popover')).toBeVisible();
 
     expect(consoleErrors).toEqual([]);

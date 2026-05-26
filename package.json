@@ -115,6 +115,7 @@
         "vscode:prepublish": "npm run compile",
         "package:vsix": "vsce package --no-yarn --allow-missing-repository --skip-license",
         "lint:webview-patterns": "node scripts/lint-webview-patterns.js",
+        "lint:gui-triggerability": "node scripts/verify-gui-triggerability.js",
         "test": "npm run compile && node --test dist/test/**/*.test.js",
         "test:ui": "npm run compile && playwright test",
         "test:e2e:vscode": "npm run compile && if command -v xvfb-run >/dev/null 2>&1; then xvfb-run -a node dist/e2e/runVscodeE2E.js; else node dist/e2e/runVscodeE2E.js; fi",

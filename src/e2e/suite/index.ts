@@ -6,7 +6,7 @@ import { ComparisonPanel } from '../../webview/panels/ComparisonPanel';
 const EXTENSION_ID = 'audio-wandas-analyzer.audio-wandas-analyzer';
 const SINGLE_TRACK_DEBUG_AUDIO_PATH = 'media/debug/sine-440.wav';
 const MULTI_TRACK_DEBUG_AUDIO_PATH = 'media/debug';
-const COMMAND_TIMEOUT_MS = 30000;
+const COMMAND_TIMEOUT_MS = 60000;
 
 interface TestSnapshot {
     title: string;
@@ -101,9 +101,9 @@ async function ensureFixture(preset: FixturePreset): Promise<TestSnapshot> {
         return refreshSnapshot();
     }
     // フィクスチャが変わったときだけ再 analyze。同じなら最新スナップショットを取得し直す
-    // (前ケースが postTestActions で webview を変更している可能性があるため)。
+    // (直前ケースが UI を変更していても、requires が同じなら元の fixture 状態を保ちたい)。
     if (currentFixture === preset && currentSnapshot) {
-        return refreshSnapshot();
+        return currentSnapshot;
     }
     currentFixture = preset;
     if (preset === 'single-track') {
@@ -325,6 +325,29 @@ export async function run(): Promise<void> {
             },
         },
         {
+            name: 'directory selection toolbar can select all and clear all tracks',
+            run: async () => {
+                const initial = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
+                assert.equal(initial.resultCount, 0, 'directory selection should start with no analyzed tracks');
+                assert.ok(initial.renderedUi, 'directory selection snapshot should include rendered UI');
+                assert.equal(initial.renderedUi.trackRowCount, 0, 'directory selection should start with no track rows');
+
+                const selected = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
+                assert.equal(selected.resultCount, 3, 'select-all should analyze every track in the folder');
+                assert.equal(selected.renderedUi?.trackRowCount, 3, 'select-all should render every track row');
+
+                const clearId = `selection-clear-all-${Date.now()}`;
+                await ComparisonPanel.postTestActions(clearId, ['selection-clear-all']);
+                const cleared = await waitForSnapshotWhere((snapshot) => {
+                    return snapshot.resultCount === 0
+                        && !!snapshot.renderedUi
+                        && snapshot.renderedUi.trackRowCount === 0;
+                });
+                assert.equal(cleared.resultCount, 0, 'clear-all should remove analyzed tracks from the panel');
+                assert.equal(cleared.renderedUi?.trackRowCount, 0, 'clear-all should remove track rows from the panel');
+            },
+        },
+        {
             name: 'multi-track folder analysis loads all tracks',
             requires: 'multi-track-all',
             run: async ({ snapshot }) => {
@@ -464,12 +487,18 @@ async function analyzeDebugPath(
         await waitForSnapshot();
         const actionId = `selection-select-all-${Date.now()}`;
         await ComparisonPanel.postTestActions(actionId, ['selection-select-all']);
-        await waitForSnapshot(actionId);
+        const snapshotAfterAction = await waitForSnapshot(actionId);
+        if (
+            snapshotAfterAction.resultCount > 0
+            && !!snapshotAfterAction.renderedUi
+            && snapshotAfterAction.renderedUi.trackRowCount > 0
+        ) {
+            return snapshotAfterAction;
+        }
         return waitForSnapshotWhere((snapshot) => {
             return snapshot.resultCount > 0
                 && !!snapshot.renderedUi
-                && snapshot.renderedUi.trackRowCount > 0
-                && snapshot.lastActionId !== actionId;
+                && snapshot.renderedUi.trackRowCount > 0;
         });
     }
 

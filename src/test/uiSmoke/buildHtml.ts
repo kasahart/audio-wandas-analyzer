@@ -2,12 +2,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getRenderHtml } from '../helpers/comparisonScriptLoader';
 
-const SILENT_WAV_DATA_URI = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-
-export function buildUiSmokeHtml(): string {
-    let waveformPipelineJs: string;
+function readWaveformPipelineJs(): string {
     try {
-        waveformPipelineJs = readFileSync(
+        return readFileSync(
             join(__dirname, '..', '..', '..', 'dist', 'webview', 'comparisonWaveform.js'),
             'utf8',
         );
@@ -17,14 +14,69 @@ export function buildUiSmokeHtml(): string {
         }
         throw error;
     }
+}
 
-    const html = getRenderHtml({
+function buildVsCodeApiStub(nonce: string): string {
+    return `<script nonce="${nonce}">
+window.__uiSmokePostedMessages = [];
+window.__uiSmokeDownloads = [];
+window.__uiSmokeClipboardWrites = [];
+window.__uiSmokeState = {};
+window.acquireVsCodeApi = function() {
+    return {
+        postMessage(message) {
+            window.__uiSmokePostedMessages.push(message);
+        },
+        setState() {},
+        getState() { return null; },
+    };
+};
+if (!navigator.clipboard) {
+    Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {},
+    });
+}
+navigator.clipboard.writeText = async function(text) {
+    window.__uiSmokeClipboardWrites.push(String(text));
+};
+const originalAnchorClick = HTMLAnchorElement.prototype.click;
+HTMLAnchorElement.prototype.click = function() {
+    window.__uiSmokeDownloads.push({
+        download: this.download || '',
+        href: this.href || '',
+    });
+    return originalAnchorClick.call(this);
+};
+HTMLMediaElement.prototype.play = function() {
+    return Promise.resolve();
+};
+</script>`;
+}
+
+function finalizeUiSmokeHtml(html: string): string {
+    const nonceMatch = html.match(/<script nonce="([^"]+)">/u);
+    if (!nonceMatch) {
+        throw new Error('Could not extract webview nonce from rendered HTML');
+    }
+    const nonce = nonceMatch[1];
+    return html
+        .replace(/<meta http-equiv="Content-Security-Policy"[^>]+>\n/u, '')
+        .replace('<div id="app"></div>', `<div id="app"></div>\n    ${buildVsCodeApiStub(nonce)}`)
+        .replace(
+            '<script src="__WAVEFORM_PIPELINE__"></script>',
+            `<script nonce="${nonce}">${readWaveformPipelineJs()}</script>`,
+        );
+}
+
+export function buildUiSmokeHtml(): string {
+    return finalizeUiSmokeHtml(getRenderHtml({
         mode: 'results',
         results: [
             {
                 filePath: '/tmp/a.wav',
                 fileName: 'a.wav',
-                audioSource: SILENT_WAV_DATA_URI,
+                audioSource: '',
                 sampleRateHz: 44100,
                 durationSeconds: 1,
                 channelCount: 1,
@@ -44,8 +96,8 @@ export function buildUiSmokeHtml(): string {
                             absolutePeak: 0.5,
                         },
                         spectrogram: {
-                            values: Array.from({ length: 24 }, (_, rowIndex) => {
-                                return Array.from({ length: 48 }, (_, columnIndex) => {
+                            values: Array.from({ length: 48 }, (_, rowIndex) => {
+                                return Array.from({ length: 24 }, (_, columnIndex) => {
                                     return -90 + ((rowIndex * 3 + columnIndex * 2) % 18) * 5;
                                 });
                             }),
@@ -66,25 +118,41 @@ export function buildUiSmokeHtml(): string {
             stft: { nFft: 512, hopSize: 128, window: 'hamming' },
             display: { dbMin: -60, dbMax: 0, maxFrequencyHz: null },
         },
-    });
-    const nonceMatch = html.match(/<script nonce="([^"]+)">/u);
-    if (!nonceMatch) {
-        throw new Error('Could not extract webview nonce from rendered HTML');
-    }
-    const nonce = nonceMatch[1];
-    const vscodeApiStub = `<script nonce="${nonce}">
-window.acquireVsCodeApi = function() {
-    return {
-        postMessage() {},
-        setState() {},
-        getState() { return null; },
-    };
-};
-</script>`;
-    return html
-        .replace('<div id="app"></div>', `<div id="app"></div>\n    ${vscodeApiStub}`)
-        .replace(
-            '<script src="__WAVEFORM_PIPELINE__"></script>',
-            `<script nonce="${nonce}">${waveformPipelineJs}</script>`,
-        );
+    }));
+}
+
+export function buildUiSmokeSelectionHtml(): string {
+    return finalizeUiSmokeHtml(getRenderHtml({
+        mode: 'directory-selection',
+        results: [],
+        rootPath: '/tmp/session',
+        allFilePaths: ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'],
+        selectedFilePaths: [],
+        pythonEnvironmentState: {
+            pythonCommand: 'python3',
+            status: 'normal',
+            tooltip: 'Click to select Python interpreter',
+        },
+        directoryTree: [
+            {
+                type: 'file',
+                name: 'a.wav',
+                relativePath: 'a.wav',
+                filePath: '/tmp/session/a.wav',
+            },
+            {
+                type: 'directory',
+                name: 'sub',
+                relativePath: 'sub',
+                children: [
+                    {
+                        type: 'file',
+                        name: 'b.flac',
+                        relativePath: 'sub/b.flac',
+                        filePath: '/tmp/session/sub/b.flac',
+                    },
+                ],
+            },
+        ],
+    }));
 }

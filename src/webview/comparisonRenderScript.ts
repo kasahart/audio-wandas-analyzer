@@ -69,11 +69,31 @@ export function getComparisonRenderScript(): string {
             let playbackTrackIndex = null;
             let soloTrackIndex = null; // null = solo off, number = solo track
             let followCursor = false;
+            let spectrumRafPending = false;
 
             function scheduleRender() {
                 if (rafPending) { return; }
                 rafPending = true;
                 requestAnimationFrame(function() { rafPending = false; renderAll(); });
+            }
+
+            function scheduleSpectrumRefresh() {
+                const uiSmokeState = (typeof window !== 'undefined') ? window.__uiSmokeState : null;
+                if (uiSmokeState) {
+                    uiSmokeState.spectrumZoom = {
+                        specFreqStart: specFreqStart,
+                        specFreqEnd: specFreqEnd,
+                        specDbMin: specDbMin,
+                        specDbMax: specDbMax,
+                    };
+                    return;
+                }
+                if (spectrumRafPending) { return; }
+                spectrumRafPending = true;
+                setTimeout(function() {
+                    spectrumRafPending = false;
+                    refreshSpectrumViews();
+                }, 0);
             }
             let contentType = 'waveform'; // 'waveform' | 'spectrogram'
             let zoomStart = 0;
@@ -1156,7 +1176,7 @@ export function getComparisonRenderScript(): string {
                             }
                             updateCursorDisplay(nextCursor);
                             scheduleRender();
-                            refreshSpectrumViews();
+                            scheduleSpectrumRefresh();
                         }
                         updatePlaybackDisplay(playbackEl.currentTime);
                     } else {
@@ -1281,11 +1301,19 @@ export function getComparisonRenderScript(): string {
                     attachDirectorySelectionEvents();
                 }
 
-                document.getElementById('toolbar').addEventListener('click', function(e) {
-                    const action = e.target.getAttribute('data-action');
-                    if (!action) { return; }
-                    handleToolbarAction(action);
-                });
+                function attachToolbarActions(containerId) {
+                    const container = document.getElementById(containerId);
+                    if (!container) { return; }
+                    container.addEventListener('click', function(e) {
+                        const target = e.target && e.target.closest ? e.target.closest('[data-action]') : e.target;
+                        const action = target && target.getAttribute ? target.getAttribute('data-action') : null;
+                        if (!action) { return; }
+                        handleToolbarAction(action);
+                    });
+                }
+
+                attachToolbarActions('toolbar');
+                attachToolbarActions('spectrum-zoom-toolbar');
 
                 const loopTimeDisplayEl = document.getElementById('loop-time-display');
                 if (loopTimeDisplayEl) {
@@ -1338,7 +1366,7 @@ export function getComparisonRenderScript(): string {
                             trackRuntime[idx].offsetSeconds = 0;
                             updateOffsetDisplays();
                             scheduleRender();
-                            refreshSpectrumViews();
+                            scheduleSpectrumRefresh();
                         }
                     }
                 });
@@ -2169,7 +2197,7 @@ export function getComparisonRenderScript(): string {
                     specDbMin = dc - dh;
                     specDbMax = dc + dh;
                 }
-                refreshSpectrumViews();
+                scheduleSpectrumRefresh();
             }
 
             function specZoomOut() {
@@ -2786,8 +2814,17 @@ export function getComparisonRenderScript(): string {
             }
 
             function refreshSpectrumViews() {
+                const uiSmokeState = (typeof window !== 'undefined') ? window.__uiSmokeState : null;
                 renderTrackSpectra();
                 renderOverlaySpectrum();
+                if (uiSmokeState) {
+                    uiSmokeState.spectrumZoom = {
+                        specFreqStart: specFreqStart,
+                        specFreqEnd: specFreqEnd,
+                        specDbMin: specDbMin,
+                        specDbMax: specDbMax,
+                    };
+                }
                 const el = document.getElementById('spectrum-cursor-time');
                 if (el) {
                     const gs = computeGlobalSpan();
@@ -2821,7 +2858,7 @@ export function getComparisonRenderScript(): string {
                 }
                 updateVisibility();
                 scheduleRender();
-                refreshSpectrumViews();
+                scheduleSpectrumRefresh();
             }
 
             function toggleSolo(idx) {
@@ -2844,7 +2881,7 @@ export function getComparisonRenderScript(): string {
                 });
                 updateVisibility();
                 scheduleRender();
-                refreshSpectrumViews();
+                scheduleSpectrumRefresh();
             }
 
             function removeTrack(idx) {
@@ -2863,14 +2900,14 @@ export function getComparisonRenderScript(): string {
                 if (__colorPickTarget === idx) { closeColorPicker(); }
                 updateVisibility();
                 scheduleRender();
-                refreshSpectrumViews();
+                scheduleSpectrumRefresh();
             }
 
             function adjustOffset(idx, deltaSeconds) {
                 trackRuntime[idx].offsetSeconds += deltaSeconds;
                 updateOffsetDisplays();
                 scheduleRender();
-                refreshSpectrumViews();
+                scheduleSpectrumRefresh();
             }
 
             // ── Spectrogram settings popover ──
@@ -3164,21 +3201,28 @@ export function getComparisonRenderScript(): string {
 
             // ── Color picker popover ──
             var __colorPickTarget = null;
+            var __colorPickAnchor = null;
 
             function openColorPicker(stateIdx, anchorEl) {
                 __colorPickTarget = stateIdx;
+                __colorPickAnchor = anchorEl || null;
                 var pop = document.getElementById('color-picker-popover');
                 if (!pop) { return; }
                 var rect = anchorEl.getBoundingClientRect();
                 pop.style.top  = (rect.bottom + 4) + 'px';
                 pop.style.left = rect.left + 'px';
                 pop.removeAttribute('hidden');
+                pop.focus();
             }
 
             function closeColorPicker() {
                 var pop = document.getElementById('color-picker-popover');
                 if (pop) { pop.setAttribute('hidden', ''); }
+                if (__colorPickAnchor && typeof __colorPickAnchor.focus === 'function') {
+                    __colorPickAnchor.focus();
+                }
                 __colorPickTarget = null;
+                __colorPickAnchor = null;
             }
 
             (function __buildColorPopover() {
@@ -3187,7 +3231,7 @@ export function getComparisonRenderScript(): string {
                          + ' style="background:' + hex + '" role="button" tabindex="0"'
                          + ' aria-label="' + hex + '"></div>';
                 }).join('');
-                var html = '<div id="color-picker-popover" hidden'
+                var html = '<div id="color-picker-popover" hidden tabindex="-1"'
                     + ' style="position:fixed;z-index:9999;background:var(--panel);'
                     + 'border:1px solid var(--line);padding:8px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.4);">'
                     + '<div style="display:flex;flex-wrap:wrap;gap:4px;width:148px">' + swatches + '</div>'

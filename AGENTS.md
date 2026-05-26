@@ -50,10 +50,10 @@ Node 22 and Python 3.11 are the supported versions (matches `.devcontainer/Docke
 
 ## 3. Canonical commands — the completion bar
 
-**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. That script now includes the Webview pattern lint (`node scripts/lint-webview-patterns.js`) in addition to compile + unit checks.
+**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. That script now includes the Webview pattern lint (`node scripts/lint-webview-patterns.js`) and the GUI triggerability audit (`node scripts/verify-gui-triggerability.js`) in addition to compile + unit checks.
 
 ```bash
-npm run verify        # compile + webview pattern lint + node:test + ruff check + ruff format --check + pytest
+npm run verify        # compile + webview pattern lint + GUI triggerability audit + node:test + ruff check + ruff format --check + pytest
 npm run test:ui       # Playwright Chromium smoke for real-browser Webview regressions
 npm run verify:e2e    # VS Code extension-host E2E (uses xvfb-run on Linux)
 ```
@@ -64,6 +64,7 @@ Other useful commands:
 npm run compile       # tsc → dist/
 npm run watch         # tsc --watch
 npm test              # node:test only (subset of verify)
+npm run lint:gui-triggerability   # static audit: every user-facing GUI feature must stay mapped
 ruff check python-backend
 ruff format python-backend
 python -m pytest python-backend -q
@@ -149,6 +150,20 @@ trackDurRatio  = durationSeconds / globalSpanSec
 | VS Code E2E | `@vscode/test-electron` (xvfb on Linux) | `src/e2e/suite/index.ts` |
 
 `npm run verify` runs the static lint plus the unit layers above except Playwright browser smoke and VS Code E2E. `npm run test:ui` is the real-browser smoke layer for Webview regressions. VS Code E2E remains separate (`npm run verify:e2e`) because it needs a full extension host and is slower; CI runs both as separate jobs.
+
+### GUI triggerability audit boundary
+
+- `scripts/verify-gui-triggerability.js` compares the declared GUI inventory against:
+  - contributed VS Code commands in `package.json`
+  - `data-action` buttons in `src/webview/comparisonRenderScript.ts`
+  - shortcut rows exported from `src/webview/comparisonRenderScript.ts`
+- The source of truth for the inventory lives in `src/shared/gui/guiTriggerabilityInventory.ts`
+- Scope is **user-facing GUI features only**
+- Explicitly excluded from this audit:
+  - `audioWandasAnalyzer.analyzeDebugFile`
+  - startup debug automation and environment-variable-only flows
+  - test-only actions / snapshots / internal diagnostics
+- When adding a new GUI feature, update the inventory and the matching regression layer in the same change
 
 ---
 
