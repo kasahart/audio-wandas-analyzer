@@ -8,12 +8,10 @@ import { join } from 'node:path';
 
 function commandExists(cmd: string): Promise<boolean> {
     return new Promise((resolve) => {
-        const child = spawn(cmd, [], { stdio: 'ignore' });
+        const checkCmd = process.platform === 'win32' ? 'where' : 'which';
+        const child = spawn(checkCmd, [cmd], { stdio: 'ignore' });
         child.once('error', () => resolve(false));
-        child.once('spawn', () => {
-            child.kill();
-            resolve(true);
-        });
+        child.on('close', (code) => resolve(code === 0));
     });
 }
 
