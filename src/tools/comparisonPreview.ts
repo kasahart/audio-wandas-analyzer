@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { join } from 'node:path';
 import { getRenderHtml } from '../shared/helpers/comparisonScriptLoader';
 
@@ -124,5 +126,32 @@ export function buildComparisonPreviewHtml(mode: ComparisonPreviewMode): string 
     if (mode === 'results') {
         return buildResultsPreviewHtml();
     }
-    return buildSelectionPreviewHtml();
+    if (mode === 'selection') {
+        return buildSelectionPreviewHtml();
+    }
+    throw new Error(`Unsupported preview mode: ${String(mode)}`);
+}
+
+export function resolvePreviewOutputPath(mode: ComparisonPreviewMode): string {
+    return path.join(os.tmpdir(), `comparison-preview-${mode}.html`);
+}
+
+export function buildBrowserOpenCommand(
+    platform: NodeJS.Platform,
+    targetPath: string,
+): { command: string; args: string[] } {
+    if (platform === 'darwin') {
+        return { command: 'open', args: [targetPath] };
+    }
+    if (platform === 'win32') {
+        return { command: 'cmd', args: ['/c', 'start', '', targetPath] };
+    }
+    return { command: 'xdg-open', args: [targetPath] };
+}
+
+export function writeComparisonPreviewHtml(mode: ComparisonPreviewMode): string {
+    const filePath = resolvePreviewOutputPath(mode);
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, buildComparisonPreviewHtml(mode), 'utf8');
+    return filePath;
 }
