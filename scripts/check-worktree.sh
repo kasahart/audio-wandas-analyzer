@@ -51,10 +51,11 @@ GIT_COMMON_ABS=$(cd "$GIT_COMMON" 2>/dev/null && pwd -P) || GIT_COMMON_ABS="$GIT
 SUPERPROJECT=$(git rev-parse --show-superproject-working-tree 2>/dev/null) || SUPERPROJECT=""
 [[ -n "$SUPERPROJECT" ]] && exit 0
 
-# GIT_DIR == GIT_COMMON のとき → main checkout → ブロック
+# GIT_DIR == GIT_COMMON のとき → primary checkout（linked worktree ではない）→ ブロック
+# 注意: ブランチが main かどうかは関係なく、primary checkout そのものを検出している
 if [[ "$GIT_DIR_ABS" == "$GIT_COMMON_ABS" ]]; then
   printf '%s\n' \
-    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"mainブランチ直接でのリポジトリファイル編集はできません。修正前に EnterWorktree ツールで worktree を作成してください。"}}'
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"primary checkout（worktree 外）でのリポジトリファイル編集はできません。修正前に EnterWorktree ツールで worktree を作成してください。"}}'
 fi
 
 exit 0
