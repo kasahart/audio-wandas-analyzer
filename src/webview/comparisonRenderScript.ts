@@ -637,7 +637,7 @@ export function getComparisonRenderScript(): string {
             /** フルパスから basename だけを返す（パス区切り文字なしならそのまま返す） */
             function shortPythonName(cmd) {
                 var s = String(cmd);
-                var last = s.lastIndexOf('/');
+                var last = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\\\'));
                 return last >= 0 ? (s.slice(last + 1) || s) : s;
             }
 

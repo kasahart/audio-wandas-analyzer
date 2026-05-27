@@ -352,6 +352,25 @@ test('python-environment-state message updates the selection toolbar button stat
     assert.equal(button.classList.contains('is-warning'), true);
 });
 
+test('python-environment-state message shortens Windows-style path in button label', () => {
+    const { dom } = setupSelectionEnv();
+    const button = dom.window.document.getElementById('selection-python-environment');
+
+    assert.ok(button instanceof dom.window.HTMLButtonElement);
+
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
+        data: {
+            type: 'python-environment-state',
+            pythonCommand: 'C:\\Python311\\python.exe',
+            status: 'ok',
+            tooltip: 'Click to select Python interpreter',
+        },
+    }));
+
+    assert.equal(button.textContent, 'Python: python.exe');
+    assert.equal(button.title, 'C:\\Python311\\python.exe — Click to select Python interpreter');
+});
+
 test('directory selection mode posts analyze-selected-files immediately when a checkbox is checked', () => {
     const { dom, postedMessages } = setupSelectionEnv();
     const firstCheckbox = dom.window.document.querySelector('[data-file-path="/tmp/session/a.wav"]');
