@@ -3,7 +3,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getChartSpecRenderScript } from '../webview/chartSpecRenderScript';
 
-// Fix 7: Shared canvas stub helper to avoid duplication across tests
+// Shared canvas stub helper to avoid duplication across tests
 function applyCanvasStub(doc: Document, fillTextSpy?: (text: string) => void) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const origCreate = (doc as any).createElement.bind(doc);
@@ -224,7 +224,6 @@ test('Auto ボタンでオーバーライドが解除される', () => {
     dom.window.close();
 });
 
-// Fix 6: Test verifying redraw actually receives override (fillText spy)
 test('Apply で redraw に override が渡される（fillText で軸ラベルが変化）', () => {
     const filledTexts: string[] = [];
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
@@ -327,7 +326,7 @@ test('Line チャートの Y 軸ポップアップには Y 軸バッジが表示
     dom.window.close();
 });
 
-test('Line チャートのプロット内部ダブルクリックで Y・X レンジがリセットされる', () => {
+test('Line チャートのプロット内部ダブルクリックで Y レンジがリセットされる', () => {
     const dom = setupChartEnv([{
         kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
         xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
