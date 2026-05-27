@@ -1371,6 +1371,16 @@ export function getComparisonRenderScript(): string {
                     }
                 });
 
+                // 波形キャンバスのダブルクリック → ズームリセット
+                document.getElementById('tracks-wrapper').addEventListener('dblclick', function(e) {
+                    const targetCanvas = e.target.closest ? e.target.closest('.track-canvas') : null;
+                    if (!targetCanvas) { return; }
+                    disableFollowCursor();
+                    zoomStart = 0;
+                    zoomEnd = 1;
+                    scheduleRender();
+                });
+
                 document.getElementById('tracks-wrapper').addEventListener('click', function(e) {
                     if (!e.target.classList.contains('track-offset-val')) { return; }
                     const span = e.target;
