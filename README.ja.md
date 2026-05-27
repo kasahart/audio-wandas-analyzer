@@ -93,6 +93,6 @@ pip install wandas numpy soundfile
 
 - リポジトリ: https://github.com/kasahart/audio-wandas-analyzer
 - バックエンド: [wandas](https://github.com/kasahart/wandas)
-- 開発者ガイド: [`docs/developer-guide.ja.md`](./docs/developer-guide.ja.md)
+- 開発者ガイド: [docs/developer-guide.ja.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.ja.md)
 - 開発者向けセットアップとアーキテクチャ詳細は [`AGENTS.md`](https://github.com/kasahart/audio-wandas-analyzer/blob/main/AGENTS.md) を参照してください。
 - バグ報告 / 機能要望は [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues) へお願いします。

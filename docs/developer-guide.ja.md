@@ -59,7 +59,6 @@ npm run verify:e2e
 | 作業内容 | 主なファイル |
 | --- | --- |
 | コマンド登録 / VS Code 連携 | `src/extension/index.ts` |
-| 波形範囲取得用の常駐サーバー | `src/extension/waveformServer.ts`, `python-backend/waveform_server.py` |
 | ComparisonPanel の外枠 / HTML コンテナ | `src/webview/panels/ComparisonPanel.ts` |
 | Webview の操作ロジック | `src/webview/comparisonRenderScript.ts` |
 | 波形描画パイプライン | `src/webview/waveform/waveformRenderer.ts` |

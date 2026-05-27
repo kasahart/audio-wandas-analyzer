@@ -59,7 +59,6 @@ npm run verify:e2e
 | Task | Main files |
 | --- | --- |
 | Register commands / wire VS Code actions | `src/extension/index.ts` |
-| Persistent waveform range server | `src/extension/waveformServer.ts`, `python-backend/waveform_server.py` |
 | Comparison panel shell / HTML container | `src/webview/panels/ComparisonPanel.ts` |
 | Webview interaction logic | `src/webview/comparisonRenderScript.ts` |
 | Waveform rendering pipeline | `src/webview/waveform/waveformRenderer.ts` |
