@@ -456,7 +456,8 @@ export function getComparisonRenderScript(): string {
             }
 
             function buildDirectorySelectionLayout() {
-                const pythonButtonText = 'Python: ' + (pythonEnvironmentState.pythonCommand || 'python3') + (pythonEnvironmentState.status === 'warning' ? ' ⚠' : '');
+                const pythonButtonText = buildPythonButtonText(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.status === 'warning');
+                const pythonButtonTooltip = buildPythonTooltip(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.tooltip);
                 const pythonButtonClass = 'tb-btn' + (pythonEnvironmentState.status === 'warning' ? ' is-warning' : '');
                 return '<div id="directory-selection-layout">'
                     + '  <div id="selection-toolbar">'
@@ -464,7 +465,7 @@ export function getComparisonRenderScript(): string {
                     + '    <div class="tb-sep"></div>'
                     + '    <button class="tb-btn" data-action="open-file">' + escHtml(STR.btnOpenFile) + '</button>'
                     + '    <button class="tb-btn" data-action="open-folder">' + escHtml(STR.btnOpenAnotherFolder) + '</button>'
-                    + '    <button class="' + pythonButtonClass + '" id="selection-python-environment" data-action="select-python-environment" title="' + escHtml(pythonEnvironmentState.tooltip || '') + '">' + escHtml(pythonButtonText) + '</button>'
+                    + '    <button class="' + pythonButtonClass + '" id="selection-python-environment" data-action="select-python-environment" title="' + escHtml(pythonButtonTooltip) + '">' + escHtml(pythonButtonText) + '</button>'
                     + '  </div>'
                     + '  <div id="selection-body">'
                     + '    <div id="selection-sidebar">'
@@ -563,13 +564,14 @@ export function getComparisonRenderScript(): string {
             }
 
             function buildToolbar() {
-                const pythonButtonText = 'Python: ' + (pythonEnvironmentState.pythonCommand || 'python3') + (pythonEnvironmentState.status === 'warning' ? ' ⚠' : '');
+                const pythonButtonText = buildPythonButtonText(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.status === 'warning');
+                const pythonButtonTooltip = buildPythonTooltip(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.tooltip);
                 const pythonButtonClass = 'tb-btn' + (pythonEnvironmentState.status === 'warning' ? ' is-warning' : '');
                 return '<span style="font-weight:700;font-size:12px;color:var(--accent)">' + escHtml(STR.toolbarMain) + '</span>'
                     + '<div class="tb-sep"></div>'
                     + '<button class="tb-btn" data-action="open-file">' + escHtml(STR.btnOpenFile) + '</button>'
                     + '<button class="tb-btn" data-action="open-folder">' + escHtml(STR.btnOpenFolder) + '</button>'
-                    + '<button class="' + pythonButtonClass + '" id="toolbar-python-environment" data-action="select-python-environment" title="' + escHtml(pythonEnvironmentState.tooltip || '') + '">' + escHtml(pythonButtonText) + '</button>'
+                    + '<button class="' + pythonButtonClass + '" id="toolbar-python-environment" data-action="select-python-environment" title="' + escHtml(pythonButtonTooltip) + '">' + escHtml(pythonButtonText) + '</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span class="tb-label">' + escHtml(STR.toolbarTrackLabel) + '</span>'
                     + '<button class="tb-btn is-active" data-action="content-waveform">' + escHtml(STR.btnWaveform) + '</button>'
@@ -634,6 +636,24 @@ export function getComparisonRenderScript(): string {
 
             function escHtml(str) {
                 return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            }
+
+            /** フルパスから basename だけを返す（パス区切り文字なしならそのまま返す） */
+            function shortPythonName(cmd) {
+                var s = String(cmd);
+                var last = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\\\'));
+                return last >= 0 ? (s.slice(last + 1) || s) : s;
+            }
+
+            /** Python ボタンのラベル文字列を生成する（短い表示名のみ） */
+            function buildPythonButtonText(cmd, isWarning) {
+                return 'Python: ' + shortPythonName(cmd || 'python3') + (isWarning ? ' ⚠' : '');
+            }
+
+            /** Python ボタンのツールチップ文字列を生成する（フルパス＋説明） */
+            function buildPythonTooltip(cmd, tooltip) {
+                var full = cmd || 'python3';
+                return tooltip ? full + ' — ' + tooltip : full;
             }
 
             // ── Rendering ──
@@ -1892,10 +1912,11 @@ export function getComparisonRenderScript(): string {
                     ? pythonEnvironmentState.pythonCommand
                     : 'python3';
                 const isWarning = pythonEnvironmentState && pythonEnvironmentState.status === 'warning';
-                const buttonText = 'Python: ' + pythonCommand + (isWarning ? ' ⚠' : '');
-                const tooltip = pythonEnvironmentState && typeof pythonEnvironmentState.tooltip === 'string'
+                const buttonText = buildPythonButtonText(pythonCommand, isWarning);
+                const rawTooltip = pythonEnvironmentState && typeof pythonEnvironmentState.tooltip === 'string'
                     ? pythonEnvironmentState.tooltip
                     : 'Click to select Python interpreter';
+                const tooltip = buildPythonTooltip(pythonCommand, rawTooltip);
 
                 if (selectionButton) {
                     selectionButton.textContent = buttonText;
