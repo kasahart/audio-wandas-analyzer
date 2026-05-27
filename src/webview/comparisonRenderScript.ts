@@ -1790,9 +1790,9 @@ export function getComparisonRenderScript(): string {
                             var match = !query || fp.toLowerCase().indexOf(query) >= 0 || nm.toLowerCase().indexOf(query) >= 0;
                             li.style.display = match ? '' : 'none';
                         }
-                        // Hide directory <li>s whose sub-list has no visible items
+                        // Hide directory <li>s whose sub-list has no visible items (reverse order: leaves first)
                         var dirLis = document.querySelectorAll('#selection-tree li');
-                        for (var j = 0; j < dirLis.length; j++) {
+                        for (var j = dirLis.length - 1; j >= 0; j--) {
                             var dirLi = dirLis[j];
                             var subList = dirLi.querySelector('.selection-tree-list');
                             if (!subList) { continue; }
