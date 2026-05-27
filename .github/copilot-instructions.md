@@ -15,7 +15,7 @@ E2E (`npm run verify:e2e`) is a separate, slower job.
 
 ## Worktree isolation
 
-**Before making any code change, always work in a git worktree — never edit files directly on `main`.**
+**Before making any code change, always work in a linked git worktree — never edit files directly in the primary checkout.**
 
 Use `scripts/worktree-new.sh <feature-slug>` to create an isolated worktree under `.worktrees/`:
 
