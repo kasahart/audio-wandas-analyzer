@@ -24,6 +24,7 @@ Prefer these over recreating DSP code by hand.
 
 ## Working style in this repo
 
+- **Before any code change, always work in a git worktree** using `EnterWorktree` (Claude Code native tool). This isolates each task from `main` and ensures reproducibility.
 - Use `TodoWrite` for any task with 3+ steps.
 - Use the `Explore` subagent for codebase-wide questions; use direct `Read`/`Grep` for known paths.
 - Before declaring done, run `npm run verify`. If the change touches Webview runtime behavior, also run `npm run test:ui`. If either command can't run in your sandbox, say so explicitly rather than claiming success.
