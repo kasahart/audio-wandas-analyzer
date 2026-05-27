@@ -93,5 +93,6 @@ Each track's toolbar lets you flip between **Waveform** and **Spectrogram**.
 
 - Repository: https://github.com/kasahart/audio-wandas-analyzer
 - Backend: [wandas](https://github.com/kasahart/wandas)
+- Developer guide: [docs/developer-guide.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.md)
 - For setup & architecture details, see [`AGENTS.md`](https://github.com/kasahart/audio-wandas-analyzer/blob/main/AGENTS.md).
 - Bug reports / feature requests: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues).

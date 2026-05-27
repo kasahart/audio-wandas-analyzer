@@ -38,12 +38,36 @@ test('buildComparisonPreviewHtml injects a browser-safe vscode api stub', () => 
     );
 });
 
+test('results preview includes dummy audio and autoplay demo hooks', () => {
+    const html = buildComparisonPreviewHtml('results');
+
+    assert.match(html, /data:audio\/wav;base64,/);
+    assert.match(html, /window\.__comparisonPreviewDemo = true;/);
+    assert.match(html, /playButton\.click\(\)/);
+});
+
+test('results preview demo does not wait for the window load event', () => {
+    const html = buildComparisonPreviewHtml('results');
+
+    assert.match(html, /document\.readyState === 'loading'/);
+    assert.match(html, /document\.addEventListener\('DOMContentLoaded'/);
+    assert.doesNotMatch(html, /window\.addEventListener\('load'/);
+});
+
+test('selection preview does not inject playback demo hooks', () => {
+    const html = buildComparisonPreviewHtml('selection');
+
+    assert.doesNotMatch(html, /window\.__comparisonPreviewDemo = true;/);
+});
+
 test('buildUiSmokeHtml keeps the ui-smoke vscode api capture stub as the only stub', () => {
     const html = buildUiSmokeHtml();
     const stubMatches = html.match(/window\.acquireVsCodeApi = function\(\)/g) ?? [];
 
     assert.equal(stubMatches.length, 1);
     assert.match(html, /window\.__uiSmokePostedMessages\.push\(message\)/);
+    assert.doesNotMatch(html, /data:audio\/wav;base64,/);
+    assert.doesNotMatch(html, /window\.__comparisonPreviewDemo = true;/);
 });
 
 test('resolvePreviewOutputPath creates a mode-specific html path under os.tmpdir()', () => {
