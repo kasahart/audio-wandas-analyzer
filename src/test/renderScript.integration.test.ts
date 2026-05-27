@@ -978,3 +978,44 @@ test('初期スペクトルズーム状態が全域である', async () => {
     assert.strictEqual(snapMsg.renderedUi.specFreqEnd,   1,      'specFreqEnd の初期値が 1 であること');
     assert.strictEqual(snapMsg.renderedUi.waveformMode,  'loop', 'waveformMode の初期値が loop であること');
 });
+
+test('renderScript: 波形キャンバスの dblclick でズームがリセットされる', async () => {
+    const env = setupEnv();
+
+    // '+' キーでズームイン（zoomStart/zoomEnd が変化する）
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: '+' }),
+    );
+
+    // スナップショットを要求してズームが変化したことを確認
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'pre-dblclick' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+    const snapshots1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
+    const pre = (snapshots1[snapshots1.length - 1] as any)?.renderedUi;
+    assert.ok(pre, 'ズームイン後のスナップショットが存在すること');
+    assert.ok(pre.zoomStart > 0 || pre.zoomEnd < 1, 'ズームイン後は zoomStart/zoomEnd が変化していること');
+
+    // .track-canvas への dblclick でリセット
+    const canvas = env.dom.window.document.querySelector('.track-canvas') as HTMLElement | null;
+    assert.ok(canvas, '.track-canvas が存在すること');
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true }));
+
+    // スナップショットを再要求
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'post-dblclick' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+    const snapshots2 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
+    const post = (snapshots2[snapshots2.length - 1] as any)?.renderedUi;
+    assert.ok(post, 'dblclick 後のスナップショットが存在すること');
+    assert.strictEqual(post.zoomStart, 0, 'dblclick 後 zoomStart が 0 になること');
+    assert.strictEqual(post.zoomEnd,   1, 'dblclick 後 zoomEnd が 1 になること');
+
+    env.dom.window.close();
+});
