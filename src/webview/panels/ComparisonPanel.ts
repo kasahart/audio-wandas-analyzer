@@ -563,9 +563,8 @@ export function renderComparisonStyles(): string {
             white-space: nowrap;
         }
         #selection-body {
-            display: grid;
-            grid-template-columns: minmax(280px, 420px) 1fr;
-            gap: 0;
+            display: flex;
+            flex-direction: row;
             flex: 1;
             min-height: 0;
         }
@@ -573,8 +572,40 @@ export function renderComparisonStyles(): string {
             display: flex;
             flex-direction: column;
             min-height: 0;
-            border-right: 1px solid var(--line);
+            width: 300px;
+            min-width: 160px;
+            flex-shrink: 0;
             background: var(--panel);
+        }
+        .tree-resizer {
+            width: 4px;
+            flex-shrink: 0;
+            background: var(--line);
+            cursor: col-resize;
+            transition: background 0.15s;
+            position: relative;
+        }
+        .tree-resizer:hover,
+        .tree-resizer.is-dragging {
+            background: var(--accent);
+        }
+        #tree-filter-wrap {
+            padding: 6px 8px;
+            border-bottom: 1px solid var(--line);
+        }
+        #tree-filter-input {
+            width: 100%;
+            box-sizing: border-box;
+            font-size: 12px;
+            padding: 4px 6px;
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--line);
+            border-radius: 3px;
+            outline: none;
+        }
+        #tree-filter-input:focus {
+            border-color: var(--accent);
         }
         #selection-summary {
             padding: 12px 14px;
@@ -668,11 +699,16 @@ export function renderComparisonStyles(): string {
         }
         @media (max-width: 900px) {
             #selection-body {
-                grid-template-columns: 1fr;
+                flex-direction: column;
             }
             #selection-sidebar {
+                width: 100% !important;
+                min-width: 0;
                 border-right: none;
                 border-bottom: 1px solid var(--line);
+            }
+            .tree-resizer {
+                display: none;
             }
         }
         /* Accessibility: visible focus rings */

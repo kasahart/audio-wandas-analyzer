@@ -472,12 +472,16 @@ export function getComparisonRenderScript(): string {
                     + '        <div class="selection-count" id="selection-count"></div>'
                     + '        <div class="selection-path">' + escHtml(state.rootPath || '') + '</div>'
                     + '      </div>'
+                    + '      <div id="tree-filter-wrap">'
+                    + '        <input id="tree-filter-input" type="text" placeholder="' + escHtml(STR.treeFilterPlaceholder || 'Filter files...') + '" autocomplete="off" spellcheck="false">'
+                    + '      </div>'
                     + '      <div id="selection-tree" role="group" aria-label="' + escHtml(STR.ariaSelectionTree) + '">' + buildSelectionTree(state.directoryTree || [], true) + '</div>'
                     + '      <div id="selection-actions">'
                     + '        <button class="tb-btn" data-action="selection-select-all">' + escHtml(STR.btnSelectAll) + '</button>'
                     + '        <button class="tb-btn" data-action="selection-clear-all">' + escHtml(STR.btnClear) + '</button>'
                     + '      </div>'
                     + '    </div>'
+                    + '    <div class="tree-resizer" id="tree-resizer" role="separator" aria-orientation="vertical"></div>'
                     + '    <div id="selection-results-pane">'
                     + buildResultsPane(STR.emptyNoTracks)
                     + '    </div>'
@@ -1768,6 +1772,72 @@ export function getComparisonRenderScript(): string {
                 });
 
                 syncSelectionSummary();
+
+                // ── Tree filter ──
+                var treeFilterInput = document.getElementById('tree-filter-input');
+                if (treeFilterInput) {
+                    treeFilterInput.addEventListener('input', function() {
+                        var query = treeFilterInput.value.toLowerCase();
+                        var allLis = document.querySelectorAll('#selection-tree li');
+                        for (var i = 0; i < allLis.length; i++) {
+                            var li = allLis[i];
+                            var fileRow = li.querySelector('.selection-file-row');
+                            if (!fileRow) { continue; }
+                            var checkbox = li.querySelector('.selection-file-checkbox');
+                            var fp = checkbox ? (checkbox.getAttribute('data-file-path') || '') : '';
+                            var nameEl = li.querySelector('.selection-file-name');
+                            var nm = nameEl ? (nameEl.textContent || '') : '';
+                            var match = !query || fp.toLowerCase().indexOf(query) >= 0 || nm.toLowerCase().indexOf(query) >= 0;
+                            li.style.display = match ? '' : 'none';
+                        }
+                        // Hide directory <li>s whose sub-list has no visible items
+                        var dirLis = document.querySelectorAll('#selection-tree li');
+                        for (var j = 0; j < dirLis.length; j++) {
+                            var dirLi = dirLis[j];
+                            var subList = dirLi.querySelector('.selection-tree-list');
+                            if (!subList) { continue; }
+                            var visCount = 0;
+                            var children = subList.querySelectorAll('li');
+                            for (var k = 0; k < children.length; k++) {
+                                if (children[k].style.display !== 'none') { visCount++; }
+                            }
+                            dirLi.style.display = visCount > 0 ? '' : 'none';
+                        }
+                    });
+                }
+
+                // ── Tree resizer ──
+                var resizerEl = document.getElementById('tree-resizer');
+                var sidebarEl = document.getElementById('selection-sidebar');
+                if (resizerEl && sidebarEl) {
+                    var dragStartX = 0;
+                    var dragStartW = 0;
+                    var isDragging = false;
+
+                    function onResizerMouseMove(e) {
+                        if (!isDragging) { return; }
+                        var delta = e.clientX - dragStartX;
+                        var newW = Math.max(160, Math.min(600, dragStartW + delta));
+                        sidebarEl.style.width = newW + 'px';
+                    }
+
+                    function onResizerMouseUp() {
+                        isDragging = false;
+                        resizerEl.classList.remove('is-dragging');
+                        document.removeEventListener('mousemove', onResizerMouseMove);
+                        document.removeEventListener('mouseup', onResizerMouseUp);
+                    }
+
+                    resizerEl.addEventListener('mousedown', function(e) {
+                        isDragging = true;
+                        dragStartX = e.clientX;
+                        dragStartW = sidebarEl.getBoundingClientRect().width;
+                        resizerEl.classList.add('is-dragging');
+                        document.addEventListener('mousemove', onResizerMouseMove);
+                        document.addEventListener('mouseup', onResizerMouseUp);
+                        e.preventDefault();
+                    });
+                }
             }
 
             function handleSelectionAction(action) {
