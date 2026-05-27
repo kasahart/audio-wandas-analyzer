@@ -187,7 +187,6 @@ export async function run(): Promise<void> {
                     'zoom-out',
                     'zoom-in',
                     'zoom-reset',
-                    'wave-mode-loop',
                     'wave-mode-rect-zoom',
                     'zoom-to-selection',
                     'toggle-follow-cursor',

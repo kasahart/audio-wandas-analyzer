@@ -963,9 +963,7 @@ test('スペクトルズームツールバーのボタンが生成される', ()
 
 test('波形モードボタンが生成される', () => {
     const { dom } = setupEnv();
-    const loopBtn    = dom.window.document.querySelector('[data-action="wave-mode-loop"]');
     const rectZoomBtn = dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]');
-    assert.ok(loopBtn,     'wave-mode-loop ボタンが存在すること');
     assert.ok(rectZoomBtn, 'wave-mode-rect-zoom ボタンが存在すること');
 });
 

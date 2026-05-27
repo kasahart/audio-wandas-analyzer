@@ -49,7 +49,6 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'spec-zoom-out',
     'spec-zoom-in',
     'spec-zoom-reset',
-    'wave-mode-loop',
     'wave-mode-rect-zoom',
     'zoom-to-selection',
     'toggle-follow-cursor',
@@ -147,7 +146,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         id: 'waveform-mode',
         label: 'Switch waveform interaction mode',
         entryPoints: ['results-toolbar'],
-        triggers: ['wave-mode-loop', 'wave-mode-rect-zoom'],
+        triggers: ['wave-mode-rect-zoom'],
         regressionLayers: ['node:test', 'planned'],
     },
     {
