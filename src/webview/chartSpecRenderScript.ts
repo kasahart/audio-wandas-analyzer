@@ -16,22 +16,55 @@ export function getChartSpecRenderScript(): string {
     return `(function() {
     'use strict';
 
-    const rangeOverrides = {};   // chartIndex → { min: number, max: number } (wired in Task 2/3/4)
-    const chartRedraws   = [];   // chartIndex → function(override) (wired in Task 2/3)
-    let   activeChartIdx = -1;   // 現在ポップアップが開いているチャート index (wired in Task 2/3/4)
+    const rangeOverrides = {};   // chartIndex → { y?: {min,max}, x?: {min,max}, color?: {min,max} }
+    const chartRedraws   = [];   // chartIndex → function(override)
+    let   activeChartIdx = -1;   // 現在ポップアップが開いているチャート index
+    let   activeAxis     = 'y';  // 'y' | 'x' | 'color'
 
-    function openRangePopup(chartIdx, clientX, clientY, _axis) {
+    function openRangePopup(chartIdx, clientX, clientY, axis) {
         activeChartIdx = chartIdx;
+        activeAxis = axis || 'y';
         const pop = document.getElementById('range-popup');
         if (!pop) { return; }
-        const ov = rangeOverrides[chartIdx];
-        const minInput = document.getElementById('range-min');
-        const maxInput = document.getElementById('range-max');
-        if (minInput) { minInput.value = (ov && ov.min != null) ? String(ov.min) : ''; }
-        if (maxInput) { maxInput.value = (ov && ov.max != null) ? String(ov.max) : ''; }
+
+        // バッジ更新
+        const badge = document.getElementById('popup-axis-badge');
+        if (badge) {
+            badge.textContent = activeAxis === 'x' ? 'X 軸' : activeAxis === 'color' ? 'カラー' : 'Y 軸';
+            badge.style.background = activeAxis === 'x' ? '#6b3fa0' : activeAxis === 'color' ? '#5a8a30' : '#0e639c';
+        }
+
+        // 入力セクション切り替え
+        const vert  = document.getElementById('popup-inputs-vertical');
+        const horiz = document.getElementById('popup-inputs-horizontal');
+        const isX   = activeAxis === 'x';
+        if (vert)  { vert.style.display  = isX ? 'none' : ''; }
+        if (horiz) { horiz.style.display = isX ? 'flex' : 'none'; }
+
+        // 現在のオーバーライドで入力を初期化
+        const ov   = rangeOverrides[chartIdx];
+        const axOv = ov && ov[activeAxis];
+        if (isX) {
+            const minX = document.getElementById('range-min-x');
+            const maxX = document.getElementById('range-max-x');
+            if (minX) { minX.value = (axOv && axOv.min != null) ? String(axOv.min) : ''; }
+            if (maxX) { maxX.value = (axOv && axOv.max != null) ? String(axOv.max) : ''; }
+        } else {
+            const minInput = document.getElementById('range-min');
+            const maxInput = document.getElementById('range-max');
+            if (maxInput) { maxInput.value = (axOv && axOv.max != null) ? String(axOv.max) : ''; }
+            if (minInput) { minInput.value = (axOv && axOv.min != null) ? String(axOv.min) : ''; }
+        }
+
+        const err = document.getElementById('range-error');
+        if (err) { err.textContent = ''; }
         pop.style.left = (clientX + 8) + 'px';
         pop.style.top  = (clientY + 8) + 'px';
         pop.style.display = 'block';
+
+        // フォーカス自動移動: Y・カラー軸 → Max 入力、X 軸 → Min 入力（左）
+        const focusEl = document.getElementById(isX ? 'range-min-x' : 'range-max');
+        if (focusEl) { focusEl.focus(); }
     }
 
     // ── レンジポップアップ ────────────────────────────────────────
@@ -40,10 +73,27 @@ export function getChartSpecRenderScript(): string {
         const pop = document.createElement('div');
         pop.id = 'range-popup';
         pop.style.cssText = 'display:none;position:fixed;z-index:9999;background:var(--vscode-editorWidget-background,#2d2d2d);border:1px solid var(--vscode-editorWidget-border,#555);border-radius:4px;padding:10px 12px;font-size:12px;color:var(--vscode-editor-foreground,#ddd);box-shadow:0 4px 12px rgba(0,0,0,.4);min-width:180px;';
-        pop.innerHTML = '<div style="margin-bottom:6px;font-weight:600;font-size:11px;color:var(--vscode-descriptionForeground,#aaa)">Range</div>'
-            + '<div style="display:flex;flex-direction:column;gap:6px;">'
-            + '<label style="display:flex;align-items:center;gap:6px;"><span style="width:30px">Min</span><input id="range-min" type="number" step="any" style="width:80px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;"></label>'
-            + '<label style="display:flex;align-items:center;gap:6px;"><span style="width:30px">Max</span><input id="range-max" type="number" step="any" style="width:80px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;"></label>'
+        const inputStyle = 'width:80px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;';
+        const labelSpanStyle = 'width:30px;font-size:11px;color:var(--vscode-descriptionForeground,#aaa);';
+        pop.innerHTML =
+            '<div style="margin-bottom:8px;font-weight:600;font-size:11px;color:var(--vscode-descriptionForeground,#aaa);display:flex;align-items:center;gap:6px;">'
+            + 'レンジ設定'
+            + '<span id="popup-axis-badge" style="padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;color:#fff;background:#0e639c;">Y 軸</span>'
+            + '</div>'
+            + '<div id="popup-inputs-vertical" style="display:flex;flex-direction:column;gap:4px;">'
+            + '<label style="display:flex;align-items:center;gap:6px;"><span style="' + labelSpanStyle + '">Max</span><input id="range-max" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
+            + '<label style="display:flex;align-items:center;gap:6px;"><span style="' + labelSpanStyle + '">Min</span><input id="range-min" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
+            + '</div>'
+            + '<div id="popup-inputs-horizontal" style="display:none;flex-direction:row;align-items:flex-end;gap:6px;">'
+            + '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">'
+            + '<span style="font-size:10px;color:var(--vscode-descriptionForeground,#aaa);">Min（左）</span>'
+            + '<input id="range-min-x" type="number" step="any" placeholder="auto" aria-label="X 軸 Min（左）" style="width:72px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;">'
+            + '</div>'
+            + '<span style="font-size:16px;color:#666;padding-bottom:2px;">→</span>'
+            + '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">'
+            + '<span style="font-size:10px;color:var(--vscode-descriptionForeground,#aaa);">Max（右）</span>'
+            + '<input id="range-max-x" type="number" step="any" placeholder="auto" aria-label="X 軸 Max（右）" style="width:72px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;">'
+            + '</div>'
             + '</div>'
             + '<div style="display:flex;gap:6px;margin-top:8px;">'
             + '<button id="range-apply" style="flex:1;padding:3px 0;background:var(--vscode-button-background,#0e639c);color:var(--vscode-button-foreground,#fff);border:none;border-radius:2px;cursor:pointer;font-size:11px;">Apply</button>'
@@ -65,8 +115,9 @@ export function getChartSpecRenderScript(): string {
         }
 
         function applyRange() {
-            const minInput = document.getElementById('range-min');
-            const maxInput = document.getElementById('range-max');
+            const isX      = activeAxis === 'x';
+            const minInput = isX ? document.getElementById('range-min-x') : document.getElementById('range-min');
+            const maxInput = isX ? document.getElementById('range-max-x') : document.getElementById('range-max');
             const errDiv   = document.getElementById('range-error');
             if (!minInput || !maxInput) { return; }
 
@@ -77,7 +128,6 @@ export function getChartSpecRenderScript(): string {
 
             if (errDiv) { errDiv.textContent = ''; }
 
-            // バリデーション
             if (min !== null && !Number.isFinite(min)) {
                 if (errDiv) { errDiv.textContent = 'Min は数値を入力してください'; }
                 return;
@@ -92,10 +142,11 @@ export function getChartSpecRenderScript(): string {
             }
 
             if (activeChartIdx >= 0) {
+                if (!rangeOverrides[activeChartIdx]) { rangeOverrides[activeChartIdx] = {}; }
                 if (min === null && max === null) {
-                    delete rangeOverrides[activeChartIdx];
+                    delete rangeOverrides[activeChartIdx][activeAxis];
                 } else {
-                    rangeOverrides[activeChartIdx] = { min: min, max: max };
+                    rangeOverrides[activeChartIdx][activeAxis] = { min: min, max: max };
                 }
                 if (typeof chartRedraws[activeChartIdx] === 'function') {
                     chartRedraws[activeChartIdx](rangeOverrides[activeChartIdx]);
@@ -106,9 +157,11 @@ export function getChartSpecRenderScript(): string {
 
         function autoRange() {
             if (activeChartIdx >= 0) {
-                delete rangeOverrides[activeChartIdx];
+                if (rangeOverrides[activeChartIdx]) {
+                    delete rangeOverrides[activeChartIdx][activeAxis];
+                }
                 if (typeof chartRedraws[activeChartIdx] === 'function') {
-                    chartRedraws[activeChartIdx](undefined);
+                    chartRedraws[activeChartIdx](rangeOverrides[activeChartIdx]);
                 }
             }
             closePopup();
@@ -128,6 +181,14 @@ export function getChartSpecRenderScript(): string {
         // Escape キーで閉じる
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') { closePopup(); }
+        });
+
+        // ポップアップ外クリックで閉じる
+        document.addEventListener('mousedown', function(e) {
+            const pop = document.getElementById('range-popup');
+            if (pop && pop.style.display !== 'none' && !pop.contains(e.target)) {
+                closePopup();
+            }
         });
     })();
 
@@ -228,16 +289,21 @@ export function getChartSpecRenderScript(): string {
             if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
             if (yMin === yMax) { yMax = yMin + 1; }
 
-            const _yMin = (override && override.min != null) ? override.min : yMin;
-            let _yMax = (override && override.max != null) ? override.max : yMax;
+            const yOv = override && override.y;
+            const xOv = override && override.x;
+            const _yMin = (yOv && yOv.min != null) ? yOv.min : yMin;
+            let _yMax   = (yOv && yOv.max != null) ? yOv.max : yMax;
             if (_yMax <= _yMin) { _yMax = _yMin + 1; }
-            const xMin = xs[0] != null ? xs[0] : 0;
-            const xMax = xs[xs.length - 1] != null ? xs[xs.length - 1] : 1;
+            const dataXMin = xs[0] != null ? xs[0] : 0;
+            const dataXMax = xs[xs.length - 1] != null ? xs[xs.length - 1] : 1;
+            const _xMin = (xOv && xOv.min != null) ? xOv.min : dataXMin;
+            let _xMax   = (xOv && xOv.max != null) ? xOv.max : dataXMax;
+            if (_xMax <= _xMin) { _xMax = _xMin + 1; }
 
             drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
 
             const yToPx = function(v) { return plot.y + plot.h - ((v - _yMin) / (_yMax - _yMin)) * plot.h; };
-            const xToPx = function(v) { return plot.x + ((v - xMin) / (xMax - xMin || 1)) * plot.w; };
+            const xToPx = function(v) { return plot.x + ((v - _xMin) / (_xMax - _xMin || 1)) * plot.w; };
 
             // clip to plot area
             ctx.save();
@@ -264,9 +330,9 @@ export function getChartSpecRenderScript(): string {
             ctx.fillRect(0, plot.y, plot.x, plot.h);
 
             drawAxisLabels(ctx, plot, spec,
-                { min: xMin, max: xMax },
+                { min: _xMin, max: _xMax },
                 { min: _yMin, max: _yMax },
-                { yDecimals: (spec.yScale === 'db') ? 0 : 2, xDecimals: xMax >= 100 ? 0 : 2 });
+                { yDecimals: (spec.yScale === 'db') ? 0 : 2, xDecimals: _xMax >= 100 ? 0 : 2 });
 
             // legend
             ctx.font = '10px sans-serif';
@@ -293,12 +359,27 @@ export function getChartSpecRenderScript(): string {
         redraw(rangeOverrides[chartIdx]);
         chartRedraws[chartIdx] = redraw;
 
-        // Y 軸エリア（x < plot.x）クリックでポップアップ
-        cv.canvas.addEventListener('click', function(e) {
+        // ゾーン別ダブルクリック
+        cv.canvas.addEventListener('dblclick', function(e) {
             const rect = cv.canvas.getBoundingClientRect();
             const cx = e.clientX - rect.left;
-            if (cx >= plot.x) { return; }
-            openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
+            const cy = e.clientY - rect.top;
+            if (cx < plot.x) {
+                // Y 軸エリア → Y レンジ設定
+                openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
+            } else if (cx >= plot.x && cx <= plot.x + plot.w && cy > plot.y + plot.h) {
+                // X 軸エリア → X レンジ設定
+                openRangePopup(chartIdx, e.clientX, e.clientY, 'x');
+            } else if (cx >= plot.x && cx <= plot.x + plot.w && cy >= plot.y && cy <= plot.y + plot.h) {
+                // プロット内部 → X・Y 両レンジをリセット
+                if (rangeOverrides[chartIdx]) {
+                    delete rangeOverrides[chartIdx].x;
+                    delete rangeOverrides[chartIdx].y;
+                }
+                if (typeof chartRedraws[chartIdx] === 'function') {
+                    chartRedraws[chartIdx](rangeOverrides[chartIdx]);
+                }
+            }
         });
 
         attachCard(spec.title, cv.canvas);
@@ -340,8 +421,9 @@ export function getChartSpecRenderScript(): string {
             ctx.clearRect(0, 0, cv.width, cv.height);
             drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
 
-            const vMin = (override && override.min != null) ? override.min : dataVmin;
-            const vMax = (override && override.max != null) ? override.max : dataVmax;
+            const colorOv = override && override.color;
+            const vMin = (colorOv && colorOv.min != null) ? colorOv.min : dataVmin;
+            const vMax = (colorOv && colorOv.max != null) ? colorOv.max : dataVmax;
             const vRange = vMax - vMin || 1;
 
             const cellW = plot.w / Math.max(cols, 1);
@@ -395,12 +477,23 @@ export function getChartSpecRenderScript(): string {
         redraw(rangeOverrides[chartIdx]);
         chartRedraws[chartIdx] = redraw;
 
-        // カラーバーエリア（plot 右端 + 8px 以降）クリック
-        cv.canvas.addEventListener('click', function(e) {
+        // ゾーン別ダブルクリック
+        cv.canvas.addEventListener('dblclick', function(e) {
             const rect = cv.canvas.getBoundingClientRect();
             const cx = e.clientX - rect.left;
-            if (cx <= plot.x + plot.w) { return; }  // カラーバー左端より左はスキップ
-            openRangePopup(chartIdx, e.clientX, e.clientY, 'color');
+            const cy = e.clientY - rect.top;
+            if (cx > plot.x + plot.w) {
+                // カラーバーエリア → カラーレンジ設定
+                openRangePopup(chartIdx, e.clientX, e.clientY, 'color');
+            } else if (cx >= plot.x && cx <= plot.x + plot.w && cy >= plot.y && cy <= plot.y + plot.h) {
+                // プロット内部 → カラーレンジをリセット
+                if (rangeOverrides[chartIdx]) {
+                    delete rangeOverrides[chartIdx].color;
+                }
+                if (typeof chartRedraws[chartIdx] === 'function') {
+                    chartRedraws[chartIdx](rangeOverrides[chartIdx]);
+                }
+            }
         });
 
         attachCard(spec.title, cv.canvas);
@@ -428,8 +521,9 @@ export function getChartSpecRenderScript(): string {
             if (yMin === yMax) { yMin = yMin - 1; yMax = yMax + 1; }
             if (yMin > 0) { yMin = 0; }
 
-            const _yMin = (override && override.min != null) ? override.min : yMin;
-            let _yMax = (override && override.max != null) ? override.max : yMax;
+            const yOv   = override && override.y;
+            const _yMin = (yOv && yOv.min != null) ? yOv.min : yMin;
+            let _yMax   = (yOv && yOv.max != null) ? yOv.max : yMax;
             if (_yMax <= _yMin) { _yMax = _yMin + 1; }
 
             drawFrame(ctx, plot.x, plot.y, plot.w, plot.h);
@@ -491,11 +585,23 @@ export function getChartSpecRenderScript(): string {
         redraw(rangeOverrides[chartIdx]);
         chartRedraws[chartIdx] = redraw;
 
-        cv.canvas.addEventListener('click', function(e) {
+        // ゾーン別ダブルクリック（bar は Y 軸のみ、X 軸はカテゴリ軸のため対象外）
+        cv.canvas.addEventListener('dblclick', function(e) {
             const rect = cv.canvas.getBoundingClientRect();
             const cx = e.clientX - rect.left;
-            if (cx >= plot.x) { return; }
-            openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
+            const cy = e.clientY - rect.top;
+            if (cx < plot.x) {
+                // Y 軸エリア → Y レンジ設定
+                openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
+            } else if (cx >= plot.x && cx <= plot.x + plot.w && cy >= plot.y && cy <= plot.y + plot.h) {
+                // プロット内部 → Y レンジをリセット
+                if (rangeOverrides[chartIdx]) {
+                    delete rangeOverrides[chartIdx].y;
+                }
+                if (typeof chartRedraws[chartIdx] === 'function') {
+                    chartRedraws[chartIdx](rangeOverrides[chartIdx]);
+                }
+            }
         });
 
         attachCard(spec.title, cv.canvas);

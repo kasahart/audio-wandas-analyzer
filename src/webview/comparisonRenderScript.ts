@@ -1371,6 +1371,13 @@ export function getComparisonRenderScript(): string {
                     }
                 });
 
+                // 波形キャンバスのダブルクリック → ズームリセット
+                document.getElementById('tracks-wrapper').addEventListener('dblclick', function(e) {
+                    const targetCanvas = e.target.closest ? e.target.closest('.track-canvas') : null;
+                    if (!targetCanvas) { return; }
+                    resetZoom();
+                });
+
                 document.getElementById('tracks-wrapper').addEventListener('click', function(e) {
                     if (!e.target.classList.contains('track-offset-val')) { return; }
                     const span = e.target;
@@ -1533,7 +1540,7 @@ export function getComparisonRenderScript(): string {
                         // +/= → zoom in、- → zoom out、0 → zoom reset
                         if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); return; }
                         if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomOut(); return; }
-                        if (e.key === '0') { e.preventDefault(); disableFollowCursor(); zoomStart = 0; zoomEnd = 1; scheduleRender(); return; }
+                        if (e.key === '0') { e.preventDefault(); resetZoom(); return; }
 
                         // M/S → フォーカス中 or 最後に再生したトラックの mute/solo
                         if (e.key === 'm' || e.key === 'M') {
@@ -1869,10 +1876,7 @@ export function getComparisonRenderScript(): string {
                 } else if (action === 'zoom-out') {
                     zoomOut();
                 } else if (action === 'zoom-reset') {
-                    disableFollowCursor();
-                    zoomStart = 0;
-                    zoomEnd = 1;
-                    scheduleRender();
+                    resetZoom();
                 } else if (action === 'spec-zoom-in') {
                     specZoomIn();
                 } else if (action === 'spec-zoom-out') {
@@ -2183,6 +2187,13 @@ export function getComparisonRenderScript(): string {
                 const half = (zoomEnd - zoomStart) / 2 * (1 / 0.7);
                 zoomStart = Math.max(0, center - half);
                 zoomEnd = Math.min(1, center + half);
+                scheduleRender();
+            }
+
+            function resetZoom() {
+                disableFollowCursor();
+                zoomStart = 0;
+                zoomEnd = 1;
                 scheduleRender();
             }
 

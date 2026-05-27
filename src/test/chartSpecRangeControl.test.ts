@@ -3,7 +3,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getChartSpecRenderScript } from '../webview/chartSpecRenderScript';
 
-// Fix 7: Shared canvas stub helper to avoid duplication across tests
+// Shared canvas stub helper to avoid duplication across tests
 function applyCanvasStub(doc: Document, fillTextSpy?: (text: string) => void) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const origCreate = (doc as any).createElement.bind(doc);
@@ -30,14 +30,6 @@ function applyCanvasStub(doc: Document, fillTextSpy?: (text: string) => void) {
 function setupChartEnv(specs: unknown[]) {
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="charts"></div>
-        <div id="range-popup" style="display:none">
-            <input id="range-min" type="number">
-            <input id="range-max" type="number">
-            <button id="range-auto">Auto</button>
-            <button id="range-apply">Apply</button>
-            <button id="range-close">×</button>
-            <div id="range-error"></div>
-        </div>
     </body></html>`, { runScripts: 'dangerously' });
     const win = dom.window as unknown as Record<string, unknown>;
     win.__CHART_SPECS__ = specs;
@@ -101,10 +93,15 @@ test('range-popup が HTML になくても buildRangePopup() が注入する', (
     assert.ok(dom.window.document.getElementById('range-auto'),  '#range-auto が存在すること');
     assert.ok(dom.window.document.getElementById('range-close'), '#range-close が存在すること');
     assert.ok(dom.window.document.getElementById('range-error'), '#range-error が存在すること');
+    assert.ok(dom.window.document.getElementById('range-min-x'),             '#range-min-x が存在すること');
+    assert.ok(dom.window.document.getElementById('range-max-x'),             '#range-max-x が存在すること');
+    assert.ok(dom.window.document.getElementById('popup-axis-badge'),        '#popup-axis-badge が存在すること');
+    assert.ok(dom.window.document.getElementById('popup-inputs-vertical'),   '#popup-inputs-vertical が存在すること');
+    assert.ok(dom.window.document.getElementById('popup-inputs-horizontal'), '#popup-inputs-horizontal が存在すること');
     dom.window.close();
 });
 
-test('Line チャートの Y 軸エリアをクリックするとポップアップが開く', () => {
+test('Line チャートの Y 軸エリアをダブルクリックするとポップアップが開く', () => {
     const dom = setupChartEnv([{
         kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
         xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
@@ -112,8 +109,8 @@ test('Line チャートの Y 軸エリアをクリックするとポップアッ
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
     assert.ok(canvas, 'canvas が存在すること');
 
-    // Y 軸エリア (x=20, y=100) でクリックイベントを発火
-    const ev = new dom.window.MouseEvent('click', {
+    // Y 軸エリア (x=20, y=100) でダブルクリックイベントを発火
+    const ev = new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 20, clientY: 100,
     });
     canvas.dispatchEvent(ev);
@@ -123,14 +120,14 @@ test('Line チャートの Y 軸エリアをクリックするとポップアッ
     dom.window.close();
 });
 
-test('Bar チャートの Y 軸エリアをクリックするとポップアップが開く', () => {
+test('Bar チャートの Y 軸エリアをダブルクリックするとポップアップが開く', () => {
     const dom = setupChartEnv([{
         kind: 'bar', title: 'T', xLabel: 'X', yLabel: 'Y',
         categories: ['A', 'B'], series: [{ name: 's', values: [1, 2] }],
     }]);
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
     assert.ok(canvas, 'canvas が存在すること');
-    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 20, clientY: 100,
     }));
     const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
@@ -138,7 +135,7 @@ test('Bar チャートの Y 軸エリアをクリックするとポップアッ�
     dom.window.close();
 });
 
-test('Heatmap のカラーバーエリアをクリックするとポップアップが開く', () => {
+test('Heatmap のカラーバーエリアをダブルクリックするとポップアップが開く', () => {
     const dom = setupChartEnv([{
         kind: 'heatmap', title: 'H', xLabel: 'X', yLabel: 'Y',
         xs: [0, 1], ys: [0, 1],
@@ -148,7 +145,7 @@ test('Heatmap のカラーバーエリアをクリックするとポップアッ
     assert.ok(canvas, 'canvas が存在すること');
 
     // カラーバー右端エリア (x=690 > plot.x + plot.w = 50 + 630 = 680)
-    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 690, clientY: 100,
     }));
     const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
@@ -163,7 +160,7 @@ test('Apply ボタンで範囲が適用される', () => {
     }]);
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
     // ポップアップを開く
-    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 20, clientY: 100,
     }));
     const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
@@ -186,7 +183,7 @@ test('min >= max のとき Apply でエラーメッセージが表示される',
         xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
     }]);
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
-    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 20, clientY: 100,
     }));
     const minInput = dom.window.document.getElementById('range-min') as HTMLInputElement;
@@ -208,7 +205,7 @@ test('Auto ボタンでオーバーライドが解除される', () => {
         xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
     }]);
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
-    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 20, clientY: 100,
     }));
     // Apply でオーバーライドをセット
@@ -217,7 +214,7 @@ test('Auto ボタンでオーバーライドが解除される', () => {
     (dom.window.document.getElementById('range-apply') as HTMLElement).click();
 
     // 再度開いて Auto
-    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 20, clientY: 100,
     }));
     (dom.window.document.getElementById('range-auto') as HTMLElement).click();
@@ -227,7 +224,6 @@ test('Auto ボタンでオーバーライドが解除される', () => {
     dom.window.close();
 });
 
-// Fix 6: Test verifying redraw actually receives override (fillText spy)
 test('Apply で redraw に override が渡される（fillText で軸ラベルが変化）', () => {
     const filledTexts: string[] = [];
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
@@ -248,7 +244,7 @@ test('Apply で redraw に override が渡される（fillText で軸ラベル�
     dom.window.document.body.appendChild(script);
 
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
-    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 20, clientY: 100,
     }));
 
@@ -262,5 +258,204 @@ test('Apply で redraw に override が渡される（fillText で軸ラベル�
     const hasMinValue = filledTexts.some(t => t.includes('-50') || t.includes('-50.00'));
     const hasMaxValue = filledTexts.some(t => t.includes('200') || t.includes('200.00'));
     assert.ok(hasMinValue || hasMaxValue, `override の値 (-50, 200) が fillText で描画されること。実際: ${JSON.stringify(filledTexts.slice(0, 10))}`);
+    dom.window.close();
+});
+
+test('Line チャートの Y 軸エリアへのシングルクリックではポップアップが開かない', () => {
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    canvas.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
+    assert.equal(popup.style.display, 'none', 'シングルクリックではポップアップが開かないこと');
+    dom.window.close();
+});
+
+test('Line チャートの X 軸エリアをダブルクリックするとポップアップが開く', () => {
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    // X 軸ゾーン: cy > plot.y + plot.h = 206, cx ∈ [50, 710]
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 300, clientY: 220,
+    }));
+    const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
+    assert.notEqual(popup.style.display, 'none', 'X 軸ポップアップが表示されること');
+    dom.window.close();
+});
+
+test('Line チャートの X 軸ポップアップには X 軸バッジが表示される', () => {
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 300, clientY: 220,
+    }));
+    const badge = dom.window.document.getElementById('popup-axis-badge') as HTMLElement;
+    assert.ok(badge, '#popup-axis-badge が存在すること');
+    assert.ok(
+        badge.textContent && badge.textContent.includes('X'),
+        `X 軸バッジのテキストが "X" を含むこと。実際: ${badge.textContent}`,
+    );
+    dom.window.close();
+});
+
+test('Line チャートの Y 軸ポップアップには Y 軸バッジが表示される', () => {
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    const badge = dom.window.document.getElementById('popup-axis-badge') as HTMLElement;
+    assert.ok(badge, '#popup-axis-badge が存在すること');
+    assert.ok(
+        badge.textContent && badge.textContent.includes('Y'),
+        `Y 軸バッジのテキストが "Y" を含むこと。実際: ${badge.textContent}`,
+    );
+    dom.window.close();
+});
+
+test('Line チャートのプロット内部ダブルクリックで Y レンジがリセットされる', () => {
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    const doc = dom.window.document;
+
+    // Y 軸レンジをセット
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    (doc.getElementById('range-max') as HTMLInputElement).value = '100';
+    (doc.getElementById('range-min') as HTMLInputElement).value = '10';
+    (doc.getElementById('range-apply') as HTMLElement).click();
+
+    // プロット内部 dblclick でリセット: cx=300 ∈ [50,710], cy=100 ∈ [16,206]
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 300, clientY: 100,
+    }));
+
+    // 再度 Y 軸 dblclick でポップアップを開いて入力が空であることを確認
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    const maxInput = doc.getElementById('range-max') as HTMLInputElement;
+    assert.equal(maxInput.value, '', 'リセット後 range-max が空であること');
+    dom.window.close();
+});
+
+test('Heatmap のプロット内部ダブルクリックでカラーレンジがリセットされる', () => {
+    const dom = setupChartEnv([{
+        kind: 'heatmap', title: 'H', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], ys: [0, 1],
+        matrix: [[0, 50], [50, 100]],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    const doc = dom.window.document;
+
+    // カラーバー dblclick でレンジをセット: cx=690 > 680
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 690, clientY: 100,
+    }));
+    (doc.getElementById('range-max') as HTMLInputElement).value = '-10';
+    (doc.getElementById('range-min') as HTMLInputElement).value = '-60';
+    (doc.getElementById('range-apply') as HTMLElement).click();
+
+    // プロット内部 dblclick でリセット: cx=300 ∈ [50,680], cy=100 ∈ [16,206]
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 300, clientY: 100,
+    }));
+
+    // カラーバー dblclick で再度確認
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 690, clientY: 100,
+    }));
+    const maxInput = doc.getElementById('range-max') as HTMLInputElement;
+    assert.equal(maxInput.value, '', 'リセット後 range-max が空であること');
+    dom.window.close();
+});
+
+test('Bar チャートのプロット内部ダブルクリックで Y レンジがリセットされる', () => {
+    const dom = setupChartEnv([{
+        kind: 'bar', title: 'T', xLabel: 'X', yLabel: 'Y',
+        categories: ['A', 'B'], series: [{ name: 's', values: [1, 2] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    const doc = dom.window.document;
+
+    // Y 軸 dblclick でレンジをセット
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    (doc.getElementById('range-max') as HTMLInputElement).value = '50';
+    (doc.getElementById('range-min') as HTMLInputElement).value = '0';
+    (doc.getElementById('range-apply') as HTMLElement).click();
+
+    // プロット内部 dblclick: cx=300 ∈ [50,710], cy=100 ∈ [16,206]
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 300, clientY: 100,
+    }));
+
+    // 再度 Y 軸 dblclick で確認
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+    const maxInput = doc.getElementById('range-max') as HTMLInputElement;
+    assert.equal(maxInput.value, '', 'リセット後 range-max が空であること');
+    dom.window.close();
+});
+
+test('Line チャートの X 軸 Apply→override→プロット内部リセットの一連の動作', () => {
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1], series: [{ name: 's', ys: [0, 10] }],
+    }]);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    const doc = dom.window.document;
+
+    // X 軸エリア dblclick でポップアップを開く: cy=220 > 206, cx=300 ∈ [50,710]
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 300, clientY: 220,
+    }));
+    const minX = doc.getElementById('range-min-x') as HTMLInputElement;
+    const maxX = doc.getElementById('range-max-x') as HTMLInputElement;
+    assert.ok(minX, '#range-min-x が存在すること');
+    assert.ok(maxX, '#range-max-x が存在すること');
+
+    // X レンジを 0 〜 5 に設定して Apply
+    minX.value = '0';
+    maxX.value = '5';
+    (doc.getElementById('range-apply') as HTMLElement).click();
+
+    // 再度 X 軸 dblclick でポップアップを開いて入力値が反映されていることを確認
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 300, clientY: 220,
+    }));
+    assert.equal((doc.getElementById('range-min-x') as HTMLInputElement).value, '0', 'range-min-x が 0 であること');
+    assert.equal((doc.getElementById('range-max-x') as HTMLInputElement).value, '5', 'range-max-x が 5 であること');
+
+    // プロット内部 dblclick でリセット: cx=300 ∈ [50,710], cy=100 ∈ [16,206]
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 300, clientY: 100,
+    }));
+
+    // X 軸 dblclick で再度確認 → 入力が空であること
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 300, clientY: 220,
+    }));
+    assert.equal((doc.getElementById('range-max-x') as HTMLInputElement).value, '', 'リセット後 range-max-x が空であること');
+    assert.equal((doc.getElementById('range-min-x') as HTMLInputElement).value, '', 'リセット後 range-min-x が空であること');
     dom.window.close();
 });
