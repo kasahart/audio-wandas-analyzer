@@ -314,11 +314,11 @@ test('directory selection mode renders a Python environment button in the select
 
     assert.ok(selectionButton instanceof dom.window.HTMLButtonElement);
     assert.equal(selectionButton.textContent, 'Python: python3');
-    assert.equal(selectionButton.title, 'Click to select Python interpreter');
+    assert.equal(selectionButton.title, 'python3 — Click to select Python interpreter');
 
     assert.ok(mainToolbarButton instanceof dom.window.HTMLButtonElement);
     assert.equal(mainToolbarButton.textContent, 'Python: python3');
-    assert.equal(mainToolbarButton.title, 'Click to select Python interpreter');
+    assert.equal(mainToolbarButton.title, 'python3 — Click to select Python interpreter');
 });
 
 test('selection Python button posts select-python-environment when clicked', () => {
@@ -347,8 +347,8 @@ test('python-environment-state message updates the selection toolbar button stat
         },
     }));
 
-    assert.equal(button.textContent, 'Python: /tmp/missing-python ⚠');
-    assert.equal(button.title, 'Python interpreter was not found. Click to select another interpreter.');
+    assert.equal(button.textContent, 'Python: missing-python ⚠');
+    assert.equal(button.title, '/tmp/missing-python — Python interpreter was not found. Click to select another interpreter.');
     assert.equal(button.classList.contains('is-warning'), true);
 });
 
