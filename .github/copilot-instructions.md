@@ -13,6 +13,20 @@ A change is only finished when `npm run verify` exits 0. That script runs:
 
 E2E (`npm run verify:e2e`) is a separate, slower job.
 
+## Worktree isolation
+
+**Before making any code change, always work in a git worktree — never edit files directly on `main`.**
+
+Use `scripts/worktree-new.sh <feature-slug>` to create an isolated worktree under `.worktrees/`:
+
+```bash
+bash scripts/worktree-new.sh my-feature   # → .worktrees/my-feature/ (branches from origin/main)
+```
+
+The check logic lives in `scripts/check-worktree.sh`.  
+Claude Code enforces this automatically via a `PreToolUse` hook in `.claude/settings.json`.  
+Copilot has no equivalent hook — this rule is enforced by convention here.
+
 ## Read-only paths
 
 Never suggest edits to these directories — they are generated, vendored, or environment-local:
