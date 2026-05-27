@@ -307,6 +307,77 @@ test('directory selection mode renders file tree checkboxes for audio files', ()
     assert.match(dom.window.document.body.textContent || '', /b\.flac/);
 });
 
+test('ファイルツリーにフィルタ入力が存在する', () => {
+    const env = setupSelectionEnv();
+    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput, 'tree-filter-input が存在すること');
+    assert.equal(filterInput!.tagName.toLowerCase(), 'input', 'input 要素であること');
+    env.dom.window.close();
+});
+
+test('ファイルツリーにリサイザーが存在する', () => {
+    const env = setupSelectionEnv();
+    const resizer = env.dom.window.document.getElementById('tree-resizer');
+    assert.ok(resizer, 'tree-resizer が存在すること');
+    env.dom.window.close();
+});
+
+test('ファイルツリーフィルタでファイルが絞り込まれる', () => {
+    const env = setupSelectionEnv();
+    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput, 'tree-filter-input が存在すること');
+
+    const checkboxesBefore = env.dom.window.document.querySelectorAll('.selection-file-checkbox');
+    assert.equal(checkboxesBefore.length, 2, 'フィルタ前に 2 件のファイルが表示されること');
+
+    // "flac" でフィルタ → b.flac のみ表示
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+
+    const visibleRows = Array.from(env.dom.window.document.querySelectorAll('.selection-file-row'))
+        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
+    assert.equal(visibleRows.length, 1, 'flac でフィルタすると 1 件だけ表示されること');
+    assert.ok(
+        visibleRows[0].textContent?.includes('b.flac'),
+        '表示されるのが b.flac であること',
+    );
+
+    // フィルタをクリア → 全件表示
+    filterInput!.value = '';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    const rowsAfterClear = Array.from(env.dom.window.document.querySelectorAll('.selection-file-row'))
+        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
+    assert.equal(rowsAfterClear.length, 2, 'フィルタクリア後に 2 件に戻ること');
+
+    env.dom.window.close();
+});
+
+test('フィルタ適用後も選択状態が維持される', () => {
+    const env = setupSelectionEnv();
+    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+
+    // a.wav にチェックを入れる
+    const checkboxA = env.dom.window.document.querySelector(
+        '.selection-file-checkbox[data-file-path="/tmp/session/a.wav"]',
+    ) as HTMLInputElement | null;
+    assert.ok(checkboxA);
+    checkboxA!.checked = true;
+    checkboxA!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
+
+    // "flac" でフィルタ（a.wav は非表示になる）
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+
+    // チェック状態は維持されていること
+    const checkboxAAfter = env.dom.window.document.querySelector(
+        '.selection-file-checkbox[data-file-path="/tmp/session/a.wav"]',
+    ) as HTMLInputElement | null;
+    assert.ok(checkboxAAfter!.checked, 'フィルタ後も a.wav のチェック状態が維持されること');
+
+    env.dom.window.close();
+});
+
 test('directory selection mode renders a Python environment button in the selection toolbar and results toolbar', () => {
     const { dom } = setupSelectionEnv();
     const selectionButton = dom.window.document.getElementById('selection-python-environment');

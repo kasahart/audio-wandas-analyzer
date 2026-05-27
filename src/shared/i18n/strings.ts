@@ -27,6 +27,7 @@ export interface UiStrings {
     btnClear: string;
     selectionCountLabel: string;
     selectionNoSupported: string;
+    treeFilterPlaceholder: string;
     spectrumSectionTitle: string;
     toolbarMain: string;
     toolbarTrackLabel: string;
@@ -162,6 +163,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnClear: 'Clear',
         selectionCountLabel: 'selected',
         selectionNoSupported: 'No supported audio files found.',
+        treeFilterPlaceholder: 'Filter files...',
         spectrumSectionTitle: 'Power spectrum at cursor (all tracks overlaid)',
         toolbarMain: '⚡ Main',
         toolbarTrackLabel: 'Track:',
@@ -294,6 +296,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnClear: 'クリア',
         selectionCountLabel: '件を選択中',
         selectionNoSupported: '対応する音声ファイルは見つかりませんでした。',
+        treeFilterPlaceholder: 'ファイルを絞り込む...',
         spectrumSectionTitle: 'カーソル時刻のパワースペクトル（全トラック重ね合わせ）',
         toolbarMain: '⚡ メイン',
         toolbarTrackLabel: 'トラック:',
