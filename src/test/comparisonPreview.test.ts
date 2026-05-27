@@ -46,6 +46,14 @@ test('results preview includes dummy audio and autoplay demo hooks', () => {
     assert.match(html, /playButton\.click\(\)/);
 });
 
+test('results preview demo does not wait for the window load event', () => {
+    const html = buildComparisonPreviewHtml('results');
+
+    assert.match(html, /document\.readyState === 'loading'/);
+    assert.match(html, /document\.addEventListener\('DOMContentLoaded'/);
+    assert.doesNotMatch(html, /window\.addEventListener\('load'/);
+});
+
 test('selection preview does not inject playback demo hooks', () => {
     const html = buildComparisonPreviewHtml('selection');
 

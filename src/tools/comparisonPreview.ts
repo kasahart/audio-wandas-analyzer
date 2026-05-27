@@ -91,7 +91,7 @@ window.acquireVsCodeApi = function() {
 function buildPreviewDemoScript(nonce: string): string {
     return `<script nonce="${nonce}">
 window.__comparisonPreviewDemo = true;
-window.addEventListener('load', function() {
+function startPreviewDemoWhenReady() {
     window.setTimeout(function startPreviewDemo() {
         const audio = document.getElementById('track-audio-0');
         const playButton = document.querySelector('[data-action="toggle-playback"][data-track-index="0"]');
@@ -100,7 +100,12 @@ window.addEventListener('load', function() {
         audio.loop = true;
         playButton.click();
     }, 150);
-});
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startPreviewDemoWhenReady, { once: true });
+} else {
+    startPreviewDemoWhenReady();
+}
 </script>`;
 }
 
