@@ -63,7 +63,7 @@ export function getChartSpecRenderScript(): string {
         pop.style.display = 'block';
 
         // フォーカス自動移動: Y・カラー軸 → Max 入力、X 軸 → Min 入力（左）
-        var focusEl = document.getElementById(isX ? 'range-min-x' : 'range-max');
+        const focusEl = document.getElementById(isX ? 'range-min-x' : 'range-max');
         if (focusEl) { focusEl.focus(); }
     }
 
@@ -185,7 +185,7 @@ export function getChartSpecRenderScript(): string {
 
         // ポップアップ外クリックで閉じる
         document.addEventListener('mousedown', function(e) {
-            var pop = document.getElementById('range-popup');
+            const pop = document.getElementById('range-popup');
             if (pop && pop.style.display !== 'none' && !pop.contains(e.target)) {
                 closePopup();
             }
