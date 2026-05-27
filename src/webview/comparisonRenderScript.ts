@@ -577,7 +577,6 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="zoom-in" aria-label="' + escHtml(STR.ariaZoomIn) + '">＋</button>'
                     + '<button class="tb-btn" data-action="zoom-reset" aria-label="' + escHtml(STR.ariaZoomReset) + '">' + escHtml(STR.btnZoomReset) + '</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<button class="tb-btn" id="btn-wave-mode-loop" data-action="wave-mode-loop" aria-pressed="true">' + escHtml(STR.waveModeLabelLoop) + '</button>'
                     + '<button class="tb-btn" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom" aria-pressed="false">' + escHtml(STR.waveModeLabelRectZoom) + '</button>'
                     + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection" title="' + escHtml(STR.btnZoomToSelectionTitle) + '" disabled>' + escHtml(STR.btnZoomToSelection) + '</button>'
                     + '<button class="tb-btn" data-action="toggle-follow-cursor" title="' + escHtml(STR.btnFollowCursorTitle) + '">' + escHtml(STR.btnFollowCursor) + '</button>'
@@ -1883,18 +1882,10 @@ export function getComparisonRenderScript(): string {
                     specZoomOut();
                 } else if (action === 'spec-zoom-reset') {
                     specZoomReset();
-                } else if (action === 'wave-mode-loop') {
-                    waveformMode = 'loop';
-                    const btnL = document.getElementById('btn-wave-mode-loop');
-                    const btnZ = document.getElementById('btn-wave-mode-rect-zoom');
-                    if (btnL) { btnL.setAttribute('aria-pressed', 'true'); }
-                    if (btnZ) { btnZ.setAttribute('aria-pressed', 'false'); }
                 } else if (action === 'wave-mode-rect-zoom') {
-                    waveformMode = 'rect-zoom';
-                    const btnL = document.getElementById('btn-wave-mode-loop');
+                    waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
                     const btnZ = document.getElementById('btn-wave-mode-rect-zoom');
-                    if (btnL) { btnL.setAttribute('aria-pressed', 'false'); }
-                    if (btnZ) { btnZ.setAttribute('aria-pressed', 'true'); }
+                    if (btnZ) { btnZ.setAttribute('aria-pressed', waveformMode === 'rect-zoom' ? 'true' : 'false'); }
                 } else if (action === 'toggle-follow-cursor') {
                     followCursor = !followCursor;
                     const btn = document.querySelector('[data-action="toggle-follow-cursor"]');

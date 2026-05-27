@@ -963,10 +963,48 @@ test('スペクトルズームツールバーのボタンが生成される', ()
 
 test('波形モードボタンが生成される', () => {
     const { dom } = setupEnv();
-    const loopBtn    = dom.window.document.querySelector('[data-action="wave-mode-loop"]');
     const rectZoomBtn = dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]');
-    assert.ok(loopBtn,     'wave-mode-loop ボタンが存在すること');
     assert.ok(rectZoomBtn, 'wave-mode-rect-zoom ボタンが存在すること');
+    assert.strictEqual(
+        dom.window.document.querySelector('[data-action="wave-mode-loop"]'),
+        null,
+        'wave-mode-loop ボタンは存在しないこと',
+    );
+});
+
+test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => {
+    const env = setupEnv();
+    const btn = env.dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]') as HTMLButtonElement | null;
+    assert.ok(btn, 'wave-mode-rect-zoom ボタンが存在すること');
+
+    // 初期状態: aria-pressed=false, waveformMode=loop
+    assert.strictEqual(btn!.getAttribute('aria-pressed'), 'false', '初期状態の aria-pressed は false であること');
+
+    // 1 回目クリック → rect-zoom に切り替わること
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: ['wave-mode-rect-zoom'], actionId: 'toggle-on' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+
+    const snap1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.strictEqual(snap1?.renderedUi?.waveformMode, 'rect-zoom', '1 回目クリック後に waveformMode が rect-zoom になること');
+    assert.strictEqual(btn!.getAttribute('aria-pressed'), 'true',  '1 回目クリック後に aria-pressed が true になること');
+
+    // 2 回目クリック → loop に戻ること
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: ['wave-mode-rect-zoom'], actionId: 'toggle-off' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+
+    const snap2 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.strictEqual(snap2?.renderedUi?.waveformMode, 'loop',     '2 回目クリック後に waveformMode が loop に戻ること');
+    assert.strictEqual(btn!.getAttribute('aria-pressed'), 'false', '2 回目クリック後に aria-pressed が false に戻ること');
+
+    env.dom.window.close();
 });
 
 test('初期スペクトルズーム状態が全域である', async () => {

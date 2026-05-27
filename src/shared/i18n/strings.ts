@@ -144,7 +144,6 @@ export interface UiStrings {
     btnSpecZoomReset: string;
     helpRowSpectrumDrag: string;
     helpRowWaveRectZoom: string;
-    waveModeLabelLoop: string;
     waveModeLabelRectZoom: string;
 }
 
@@ -279,8 +278,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnSpecZoomReset: 'All',
         helpRowSpectrumDrag: 'drag zoom (spectrum)',
         helpRowWaveRectZoom: 'drag zoom (waveform zoom mode)',
-        waveModeLabelLoop: '🔁 Loop',
-        waveModeLabelRectZoom: '🔲 Zoom',
+        waveModeLabelRectZoom: 'Rect Zoom',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -412,8 +410,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnSpecZoomReset: '全域',
         helpRowSpectrumDrag: '矩形ズーム (スペクトル)',
         helpRowWaveRectZoom: '矩形ズーム (波形ズームモード時)',
-        waveModeLabelLoop: '🔁 ループ',
-        waveModeLabelRectZoom: '🔲 ズーム',
+        waveModeLabelRectZoom: '矩形ズーム',
     },
 };
 
