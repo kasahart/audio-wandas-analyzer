@@ -961,6 +961,7 @@ test('スペクトルズームツールバーのボタンが生成される', ()
     assert.ok(reset,   'spec-zoom-reset ボタンが存在すること');
 });
 
+
 test('波形モードボタンが生成される', () => {
     const { dom } = setupEnv();
     const rectZoomBtn = dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]');

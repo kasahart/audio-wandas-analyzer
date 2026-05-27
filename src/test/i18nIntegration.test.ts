@@ -106,3 +106,10 @@ test('i18n: __APP_LOCALE__ も注入される', () => {
     assert.match(renderHtmlWith('ja-JP'), /const __APP_LOCALE__\s*=\s*"ja";/);
     assert.match(renderHtmlWith('fr'), /const __APP_LOCALE__\s*=\s*"en";/);
 });
+
+test('i18n: toolbarMain ラベルが "Files" (en) / "ファイル" (ja) であること', () => {
+    assert.match(renderHtmlWith('en'), /"toolbarMain":\s*"Files"/);
+    assert.match(renderHtmlWith('ja'), /"toolbarMain":\s*"ファイル"/);
+    assert.doesNotMatch(renderHtmlWith('en'), /"toolbarMain":\s*"[^"]*Main[^"]*"/);
+    assert.doesNotMatch(renderHtmlWith('ja'), /"toolbarMain":\s*"[^"]*メイン[^"]*"/);
+});
