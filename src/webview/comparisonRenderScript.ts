@@ -111,7 +111,6 @@ export function getComparisonRenderScript(): string {
             let playbackEl = null;
             let playbackRafId = null;
             let playbackTrackIndex = null;
-            let soloTrackIndex = null; // null = solo off, number = solo track
             let followCursor = false;
             let spectrumRafPending = false;
 
@@ -191,7 +190,6 @@ export function getComparisonRenderScript(): string {
                 let startSec = Infinity, endSec = -Infinity;
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden || result.error) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const off = trackRuntime[i].offsetSeconds;
                     const dur = result.durationSeconds || 0;
                     if (off < startSec) { startSec = off; }
@@ -257,7 +255,6 @@ export function getComparisonRenderScript(): string {
                 const idx = typeof entry.trackIndex === 'number' ? entry.trackIndex : -1;
                 if (entry.action === 'offset-up' && idx >= 0) { adjustOffset(idx, 0.01); }
                 if (entry.action === 'offset-down' && idx >= 0) { adjustOffset(idx, -0.01); }
-                if (entry.action === 'toggle-mute' && idx >= 0) { toggleMute(idx); }
                 if (entry.action === 'remove-track' && idx >= 0) { removeTrack(idx); }
                 if (entry.action === 'open-spectrogram-settings') {
                     const gear = document.querySelector('[data-action="spectrogram-settings"]');
@@ -296,7 +293,6 @@ export function getComparisonRenderScript(): string {
                 const OVERVIEW_PTS = 1200;
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden || result.error) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const canvas = document.getElementById('track-canvas-' + i);
                     const W = (canvas ? canvas.width : 0) || 800;
                     const visibleOverview = OVERVIEW_PTS * (zoomEnd - zoomStart);
@@ -675,8 +671,6 @@ export function getComparisonRenderScript(): string {
                     + '  <div class="track-meta">Ch: ' + result.channelCount + ' &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
                     + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
-                    + '    <button class="track-btn" data-action="toggle-mute" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaToggleMute) + '" aria-pressed="false">M</button>'
-                    + '    <button class="track-btn" data-action="toggle-solo" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaToggleSolo) + '" aria-pressed="false">S</button>'
                     + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
                     + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
                     + '    <button class="track-btn" data-action="remove-track" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaRemoveTrack) + '">✕</button>'
@@ -794,7 +788,6 @@ export function getComparisonRenderScript(): string {
                 displayOrder.forEach(function(i) {
                     const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     // 前回のエラーオーバーレイを除去
                     const existingOverlay = document.getElementById('track-error-overlay-' + i);
                     if (existingOverlay) { existingOverlay.remove(); }
@@ -1129,13 +1122,12 @@ export function getComparisonRenderScript(): string {
 
 
             function updateVisibility() {
-                // まず各行の display を更新する (ソロ中は solo track 以外を非表示)
+                // まず各行の display を更新する
                 document.querySelectorAll('.track-row').forEach(function(row) {
                     const idx = parseInt(row.getAttribute('data-track-index'), 10);
                     if (!isNaN(idx) && trackRuntime[idx]) {
                         var isMuted = trackRuntime[idx].hidden;
-                        var isSoloFiltered = soloTrackIndex !== null && soloTrackIndex !== idx;
-                        row.style.display = (isMuted || isSoloFiltered) ? 'none' : 'flex';
+                        row.style.display = isMuted ? 'none' : 'flex';
                     }
                 });
                 // 次に空状態を判定する（削除済み or 全非表示）
@@ -1416,8 +1408,6 @@ export function getComparisonRenderScript(): string {
                     const tgt = e.target;
                     const action = tgt.getAttribute ? tgt.getAttribute('data-action') : null;
                     const idx = parseInt(tgt.getAttribute ? tgt.getAttribute('data-track-index') : 'NaN', 10);
-                    if (action === 'toggle-mute' && !isNaN(idx)) { toggleMute(idx); }
-                    if (action === 'toggle-solo' && !isNaN(idx)) { toggleSolo(idx); }
                     if (action === 'toggle-playback' && !isNaN(idx)) { togglePlayback(idx); }
                     if (action === 'stop-playback' && !isNaN(idx)) { stopPlayback(idx); }
                     if (action === 'remove-track' && !isNaN(idx)) { removeTrack(idx); }
@@ -1626,20 +1616,6 @@ export function getComparisonRenderScript(): string {
                         if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); return; }
                         if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomOut(); return; }
                         if (e.key === '0') { e.preventDefault(); resetZoom(); return; }
-
-                        // M/S → フォーカス中 or 最後に再生したトラックの mute/solo
-                        if (e.key === 'm' || e.key === 'M') {
-                            e.preventDefault();
-                            const tidx = resolveActiveTrackIndex(active);
-                            if (tidx !== null) { toggleMute(tidx); }
-                            return;
-                        }
-                        if (e.key === 's' || e.key === 'S') {
-                            e.preventDefault();
-                            const tidx = resolveActiveTrackIndex(active);
-                            if (tidx !== null) { toggleSolo(tidx); }
-                            return;
-                        }
 
                         // F → follow-cursor トグル
                         if (e.key === 'f' || e.key === 'F') {
@@ -2239,7 +2215,6 @@ export function getComparisonRenderScript(): string {
                 const tracks = [];
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i] && trackRuntime[i].hidden) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (!slice || !slice.values || slice.values.length === 0) { return; }
                     tracks.push({ name: result.fileName || ('track' + (i + 1)), slice: slice });
@@ -2285,7 +2260,6 @@ export function getComparisonRenderScript(): string {
                 var visiblePaths = [];
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i] && trackRuntime[i].hidden) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     visiblePaths.push(result.filePath);
                 });
                 if (visiblePaths.length === 0) { return; }
@@ -2848,7 +2822,6 @@ export function getComparisonRenderScript(): string {
                     const W = canvas.width, H = canvas.height;
                     ctx.clearRect(0, 0, W, H);
                     if (trackRuntime[i].hidden) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (!slice) {
                         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
@@ -2913,7 +2886,6 @@ export function getComparisonRenderScript(): string {
                 displayOrder.forEach(function(i) {
                     const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, name: result.fileName }); }
                 });
@@ -3110,47 +3082,6 @@ export function getComparisonRenderScript(): string {
                 }
                 if (playbackTrackIndex !== null) { return playbackTrackIndex; }
                 return (state.results && state.results.length > 0) ? 0 : null;
-            }
-
-            function toggleMute(idx) {
-                if (idx === playbackTrackIndex) { stopPlayback(idx); }
-                trackRuntime[idx].hidden = !trackRuntime[idx].hidden;
-                var mutePos = displayOrder.indexOf(idx);
-                var n = mutePos !== -1 ? mutePos + 1 : idx + 1;
-                announce(trackRuntime[idx].hidden
-                    ? (STR.announceMuted || 'Track {n} muted').replace('{n}', String(n))
-                    : (STR.announceUnmuted || 'Track {n} unmuted').replace('{n}', String(n)));
-                const btn = document.querySelector('[data-action="toggle-mute"][data-track-index="' + idx + '"]');
-                if (btn) {
-                    btn.classList.toggle('is-muted', trackRuntime[idx].hidden);
-                    btn.setAttribute('aria-pressed', trackRuntime[idx].hidden ? 'true' : 'false');
-                }
-                updateVisibility();
-                scheduleRender();
-                scheduleSpectrumRefresh();
-            }
-
-            function toggleSolo(idx) {
-                soloTrackIndex = (soloTrackIndex === idx) ? null : idx;
-                var soloPos = displayOrder.indexOf(idx);
-                var n = soloPos !== -1 ? soloPos + 1 : idx + 1;
-                announce(soloTrackIndex === idx
-                    ? (STR.announceSoloed || 'Track {n} solo').replace('{n}', String(n))
-                    : (STR.announceUnsoloed || 'Track {n} solo off').replace('{n}', String(n)));
-                // ソロ有効化時、再生中トラックがソロ対象外なら停止
-                if (soloTrackIndex !== null && playbackTrackIndex !== null && playbackTrackIndex !== soloTrackIndex) {
-                    stopPlayback(playbackTrackIndex, { keepCursor: true });
-                }
-                // Solo ボタンの表示と aria-pressed を更新
-                document.querySelectorAll('[data-action="toggle-solo"]').forEach(function(btn) {
-                    var i = parseInt(btn.getAttribute('data-track-index'), 10);
-                    var active = soloTrackIndex === i;
-                    btn.classList.toggle('is-solo', active);
-                    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-                });
-                updateVisibility();
-                scheduleRender();
-                scheduleSpectrumRefresh();
             }
 
             function removeTrack(idx) {
