@@ -4,7 +4,6 @@ export const SHORTCUT_ROWS = [
     { shortcut: 'Space', labelKey: 'helpRowSpace' },
     { shortcut: '← / →', labelKey: 'helpRowArrow' },
     { shortcut: '+ / − / 0', labelKey: 'helpRowZoomKeys' },
-    { shortcut: 'M / S', labelKey: 'helpRowMuteSolo' },
     { shortcut: 'F', labelKey: 'helpRowFollowCursor' },
     { shortcut: 'L', labelKey: 'helpRowZoomToSelection' },
     { shortcut: 'Wheel', labelKey: 'helpRowWheel' },

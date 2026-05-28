@@ -59,8 +59,6 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'export-wav',
     'export-report',
     'pick-color',
-    'toggle-mute',
-    'toggle-solo',
     'toggle-playback',
     'stop-playback',
     'remove-track',
@@ -72,7 +70,6 @@ export const GUI_TRIGGERABILITY_SCOPED_SHORTCUTS = [
     'Space',
     '← / →',
     '+ / − / 0',
-    'M / S',
     'F',
     'L',
     'Wheel',
@@ -194,8 +191,8 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     {
         id: 'track-visual-controls',
         label: 'Control track color, visibility, and ordering aids',
-        entryPoints: ['track-control', 'keyboard'],
-        triggers: ['pick-color', 'toggle-mute', 'toggle-solo', 'remove-track', 'M / S'],
+        entryPoints: ['track-control'],
+        triggers: ['pick-color', 'remove-track'],
         regressionLayers: ['node:test', 'planned'],
     },
     {
