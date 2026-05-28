@@ -742,36 +742,26 @@ async function buildDirectoryTree(rootUri: vscode.Uri, currentUri: vscode.Uri): 
         return leftName.localeCompare(rightName);
     });
 
-    const nodes: DirectoryTreeNode[] = [];
-
-    for (const [name, type] of sortedEntries) {
+    const nodePromises = sortedEntries.map(async ([name, type]) => {
         const entryUri = vscode.Uri.joinPath(currentUri, name);
         const relativePath = path.relative(rootUri.fsPath, entryUri.fsPath).split(path.sep).join('/');
 
         if ((type & vscode.FileType.Directory) !== 0) {
             const children = await buildDirectoryTree(rootUri, entryUri);
             if (children.length > 0) {
-                nodes.push({
-                    type: 'directory',
-                    name,
-                    relativePath,
-                    children,
-                });
+                return { type: 'directory' as const, name, relativePath, children };
             }
-            continue;
+            return null;
         }
 
         if ((type & vscode.FileType.File) !== 0 && isSupportedAudioFile(name)) {
-            nodes.push({
-                type: 'file',
-                name,
-                relativePath,
-                filePath: entryUri.fsPath,
-            });
+            return { type: 'file' as const, name, relativePath, filePath: entryUri.fsPath };
         }
-    }
+        return null;
+    });
 
-    return nodes;
+    const results = await Promise.all(nodePromises);
+    return results.filter((n): n is NonNullable<typeof n> => n !== null);
 }
 
 async function pickAudioTarget(targetKind?: SelectionTargetKind): Promise<vscode.Uri | undefined> {
