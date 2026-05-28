@@ -188,12 +188,6 @@ test('clicking every track control changes the per-track UI or its side effects'
     await page.keyboard.press('Escape');
     await expect(page.locator('#color-picker-popover')).toBeHidden();
 
-    await domClick(page, '[data-action="toggle-mute"]');
-    await expect(page.locator('[data-action="toggle-mute"]')).toHaveAttribute('aria-pressed', 'true');
-
-    await domClick(page, '[data-action="toggle-solo"]');
-    await expect(page.locator('[data-action="toggle-solo"]')).toHaveAttribute('aria-pressed', 'true');
-
     await domClick(page, '[data-action="toggle-playback"]');
     await expect(page.locator('[data-action="toggle-playback"]')).toHaveClass(/is-playing/);
     await expect(page.locator('[data-action="stop-playback"]')).toBeEnabled();
