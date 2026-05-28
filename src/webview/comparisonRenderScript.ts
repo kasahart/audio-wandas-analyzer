@@ -1895,14 +1895,18 @@ export function getComparisonRenderScript(): string {
                                 if (toggle) { toggle.textContent = expanded ? '▼' : '▶'; }
                                 dirHeader.setAttribute('aria-expanded', expanded ? 'true' : 'false');
                             });
+                            syncSelectionSummary();
                             return;
                         }
 
                         // フィルタ適用前: レイジー未展開の子要素を全てレンダリングする (#90 との連携)
-                        var safety = 20;
-                        while (safety-- > 0) {
+                        // 1 回のループでは新たに挿入された子ノードに data-lazy が残るため、
+                        // lazy ノードがなくなるか進捗がなくなるまで繰り返す
+                        var prevLazyCount = -1;
+                        while (true) {
                             var lazyLists = document.querySelectorAll('#selection-tree [data-lazy="true"]');
-                            if (!lazyLists.length) { break; }
+                            if (!lazyLists.length || lazyLists.length === prevLazyCount) { break; }
+                            prevLazyCount = lazyLists.length;
                             lazyLists.forEach(function(lazyList) {
                                 var dh = lazyList.previousElementSibling;
                                 if (!dh || !dh.classList.contains('selection-tree-directory')) { return; }
