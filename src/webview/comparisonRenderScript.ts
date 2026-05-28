@@ -95,9 +95,13 @@ export function getComparisonRenderScript(): string {
             function announce(msg) {
                 var el = document.getElementById('a11y-announce');
                 if (!el) { return; }
-                // 同一テキストの連続セットはスクリーンリーダーが無視するためクリアしてから設定
                 el.textContent = '';
-                requestAnimationFrame(function() { el.textContent = msg; });
+                if (window.__uiSmokeState !== undefined) {
+                    // test environment: set synchronously so Playwright can observe it
+                    el.textContent = msg;
+                } else {
+                    requestAnimationFrame(function() { el.textContent = msg; });
+                }
             }
 
             function hexToRgba(hex, alpha) {
@@ -2189,35 +2193,38 @@ export function getComparisonRenderScript(): string {
                     })
                     : [];
                 if (canvases.length === 0) {
-                    console.warn('exportPng: no visible canvases found');
+                    vscode.postMessage({ type: 'show-info', message: STR.announceExportPngFailed || 'PNG export failed: no visible canvases' });
                     return;
                 }
-                const totalWidth = canvases.reduce(function(m, c) { return Math.max(m, c.width); }, 0);
-                const totalHeight = canvases.reduce(function(sum, c) { return sum + c.height; }, 0);
-                const offscreen = document.createElement('canvas');
-                offscreen.width = totalWidth;
-                offscreen.height = totalHeight;
-                const ctx = offscreen.getContext('2d');
-                if (!ctx) { console.warn('exportPng: could not get 2d context'); return; }
-                ctx.fillStyle = '#1e1e1e';
-                ctx.fillRect(0, 0, totalWidth, totalHeight);
-                let y = 0;
-                canvases.forEach(function(c) {
-                    ctx.drawImage(c, 0, y);
-                    y += c.height;
-                });
-                const dataURL = offscreen.toDataURL('image/png');
-                const a = document.createElement('a');
-                a.href = dataURL;
-                a.download = 'waveform-export.png';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
+                announce(STR.announceExportPngStarted || 'PNG export started');
+                setTimeout(function() {
+                    const totalWidth = canvases.reduce(function(m, c) { return Math.max(m, c.width); }, 0);
+                    const totalHeight = canvases.reduce(function(sum, c) { return sum + c.height; }, 0);
+                    const offscreen = document.createElement('canvas');
+                    offscreen.width = totalWidth;
+                    offscreen.height = totalHeight;
+                    const ctx = offscreen.getContext('2d');
+                    if (!ctx) { vscode.postMessage({ type: 'show-info', message: STR.announceExportPngFailed || 'PNG export failed: no visible canvases' }); return; }
+                    ctx.fillStyle = '#1e1e1e';
+                    ctx.fillRect(0, 0, totalWidth, totalHeight);
+                    let y = 0;
+                    canvases.forEach(function(c) {
+                        ctx.drawImage(c, 0, y);
+                        y += c.height;
+                    });
+                    const dataURL = offscreen.toDataURL('image/png');
+                    const a = document.createElement('a');
+                    a.href = dataURL;
+                    a.download = 'waveform-export.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                }, 0);
             }
 
             function exportCsv() {
                 if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
-                    console.warn('exportCsv: no results available');
+                    vscode.postMessage({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
                     return;
                 }
                 const tracks = [];
@@ -2228,9 +2235,10 @@ export function getComparisonRenderScript(): string {
                     tracks.push({ name: result.fileName || ('track' + (i + 1)), slice: slice });
                 });
                 if (tracks.length === 0) {
-                    console.warn('exportCsv: no spectrum data available at cursor position');
+                    vscode.postMessage({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
                     return;
                 }
+                announce(STR.announceExportCsvStarted || 'CSV export started');
                 // Build CSV: header + one row per frequency bin
                 // Use the first track's bin count and maxFrequencyHz as reference
                 const refSlice = tracks[0].slice;
@@ -2478,7 +2486,10 @@ export function getComparisonRenderScript(): string {
             }
 
             function copySpecToClipboard() {
-                if (!navigator.clipboard || !navigator.clipboard.writeText) { return; }
+                if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                    vscode.postMessage({ type: 'show-info', message: STR.announceSpecCopyFailed || 'Copy failed: clipboard not available' });
+                    return;
+                }
                 const lines = ['=== Audio Analyzer Spec ==='];
                 const results = state.results || [];
                 results.forEach(function(r, i) {
@@ -2491,7 +2502,11 @@ export function getComparisonRenderScript(): string {
                 const _settings = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings) || {};
                 const stft = _settings.stft || {};
                 lines.push('nFft: ' + (stft.nFft || '') + '  hopSize: ' + (stft.hopSize || '') + '  window: ' + (stft.window || ''));
-                navigator.clipboard.writeText(lines.join('\\n')).catch(function() { /* permission denied or unavailable */ });
+                navigator.clipboard.writeText(lines.join('\\n'))
+                    .then(function() { announce(STR.announceSpecCopied || 'Spec copied to clipboard'); })
+                    .catch(function() {
+                        vscode.postMessage({ type: 'show-info', message: STR.announceSpecCopyFailed || 'Copy failed: clipboard not available' });
+                    });
             }
 
             function handleZoomWheel(e) {

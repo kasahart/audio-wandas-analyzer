@@ -151,6 +151,31 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     ]));
 });
 
+test('copy-spec / export-png / export-csv ボタンが #a11y-announce を更新する', async ({ page }) => {
+    await loadResultsUi(page);
+    const toolbar = page.locator('#toolbar');
+
+    // copy-spec: クリック後に a11y-announce に成功メッセージが出る
+    await toolbar.locator('[data-action="copy-spec"]').click({ force: true });
+    await expect(page.locator('#a11y-announce')).not.toBeEmpty();
+
+    // export-png: クリック後に announce が更新される
+    await page.evaluate(() => {
+        const el = document.getElementById('a11y-announce');
+        if (el) { el.textContent = ''; }
+    });
+    await toolbar.locator('[data-action="export-png"]').click({ force: true });
+    await expect(page.locator('#a11y-announce')).not.toBeEmpty();
+
+    // export-csv: クリック後に announce が更新される
+    await page.evaluate(() => {
+        const el = document.getElementById('a11y-announce');
+        if (el) { el.textContent = ''; }
+    });
+    await toolbar.locator('[data-action="export-csv"]').click({ force: true });
+    await expect(page.locator('#a11y-announce')).not.toBeEmpty();
+});
+
 test('clicking every selection-toolbar button produces the expected GUI-side reaction', async ({ page }) => {
     await loadSelectionUi(page);
 
