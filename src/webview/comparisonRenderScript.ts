@@ -87,6 +87,8 @@ export function getComparisonRenderScript(): string {
                 tooltip: 'Click to select Python interpreter',
             };
 
+            const AXIS_W = 32;
+
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc',
                                    '#f0c040','#40b0d0','#d09060','#80c080','#a0a0ff'];
 
@@ -547,7 +549,7 @@ export function getComparisonRenderScript(): string {
 
                 return '<div id="toolbar" role="toolbar" aria-label="' + escHtml(STR.ariaToolbar) + '">' + buildToolbar() + '</div>'
                     + '<div id="tracks-wrapper">'
-                    + '  <div id="ruler-row"><div id="ruler-spacer"></div><canvas id="ruler-canvas"></canvas></div>'
+                    + '  <div id="ruler-row"><div id="ruler-spacer"></div><div id="ruler-axis-spacer" style="width:' + AXIS_W + 'px;flex:none"></div><canvas id="ruler-canvas"></canvas></div>'
                     + '  <div id="stacked-wrap">' + tracks + '</div>'
                     + '  <div id="empty-state"><p>' + escHtml(emptyMessage) + '</p></div>'
                     + '</div>'
@@ -682,7 +684,8 @@ export function getComparisonRenderScript(): string {
                     + '  </div>'
                     + '</div>'
                     + '<div class="track-canvas-wrap" id="track-canvas-wrap-' + i + '">'
-                    + '  <canvas class="track-canvas" id="track-canvas-' + i + '" data-track-index="' + i + '" tabindex="0" style="outline:none"></canvas>'
+                    + '  <canvas class="track-axis-canvas" id="track-axis-canvas-' + i + '" style="width:' + AXIS_W + 'px" data-track-index="' + i + '"></canvas>'
+                    + '  <canvas class="track-canvas" id="track-canvas-' + i + '" data-track-index="' + i + '" tabindex="0" style="outline:none;flex:1"></canvas>'
                     + '</div>'
                     + '<div class="track-spectrum-wrap" id="track-spectrum-wrap-' + i + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
                     + '  <canvas class="track-spectrum-canvas" id="track-spectrum-' + i + '" data-track-index="' + i + '"></canvas>'
@@ -731,13 +734,15 @@ export function getComparisonRenderScript(): string {
                     const newW = wrap.clientWidth || 800;
                     if (canvasWidthCache[i] === newW) { return; }
                     canvasWidthCache[i] = newW;
-                    canvas.width = newW;
+                    canvas.width = Math.max(1, newW - AXIS_W);
                     canvas.height = 80;
+                    const axisCanvas = document.getElementById('track-axis-canvas-' + i);
+                    if (axisCanvas) { axisCanvas.width = AXIS_W; axisCanvas.height = 80; }
                 });
                 const rulerCanvas = document.getElementById('ruler-canvas');
                 if (rulerCanvas) {
                     const row = document.getElementById('ruler-row');
-                    if (row) { rulerCanvas.width = row.clientWidth - 130; }
+                    if (row) { rulerCanvas.width = Math.max(1, row.clientWidth - 130 - AXIS_W); }
                     rulerCanvas.height = 20;
                 }
             }
@@ -828,6 +833,8 @@ export function getComparisonRenderScript(): string {
                         drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     } else {
                         drawSpectrogram(canvas, result, trackRuntime[i].offsetSeconds);
+                        const axisC = document.getElementById('track-axis-canvas-' + i);
+                        if (axisC) { const ac = axisC.getContext('2d'); if (ac) { ac.clearRect(0, 0, axisC.width, axisC.height); } }
                     }
                 });
             }
@@ -890,9 +897,6 @@ export function getComparisonRenderScript(): string {
                         return originalLineTo(x, y);
                     };
                     ctx.save();
-                    ctx.beginPath();
-                    ctx.rect(32, 0, W - 32, H);
-                    ctx.clip();
                     try {
                         window.renderWaveformPipeline(ctx, W, H, src.waveform, {
                             zoomStart,
@@ -927,7 +931,11 @@ export function getComparisonRenderScript(): string {
                     drawHoverLineOnCanvas(ctx, W, H);
                 }
 
-                drawWaveformAmplitudeAxis(ctx, W, H);
+                const axisCanvas = document.getElementById('track-axis-canvas-' + trackIndex);
+                if (axisCanvas) {
+                    const axisCtx = axisCanvas.getContext('2d');
+                    if (axisCtx) { drawWaveformAmplitudeAxis(axisCtx, AXIS_W, H); }
+                }
             }
 
             function drawWaveformAmplitudeAxis(ctx, W, H) {

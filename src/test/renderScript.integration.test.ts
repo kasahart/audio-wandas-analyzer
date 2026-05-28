@@ -666,11 +666,11 @@ test('renderScript: mouseup click commits cursor and re-draws spectrum', async (
     env.dom.window.close();
 });
 
-test('axes: 波形キャンバスに振幅軸ラベル (+1.0 / 0 / -1.0 と Amp 単位) が描かれる', async () => {
+test('axes: 振幅軸ラベル (+1.0 / 0 / -1.0 と Amp 単位) が track-axis-canvas に描かれる', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const spy = env.domCanvasContexts.get('track-canvas-0');
-    assert.ok(spy, 'track-canvas-0 のスパイが取得できること');
+    const spy = env.domCanvasContexts.get('track-axis-canvas-0');
+    assert.ok(spy, 'track-axis-canvas-0 のスパイが取得できること');
     const labels = spy!.fillTextCalls;
     assert.ok(labels.includes('+1.0'), '+1.0 ラベルが描かれること: ' + JSON.stringify(labels));
     assert.ok(labels.includes('-1.0'), '-1.0 ラベルが描かれること');
