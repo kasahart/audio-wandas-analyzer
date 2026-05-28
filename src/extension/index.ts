@@ -729,6 +729,32 @@ function getDebugTargetUri(extensionUri: vscode.Uri): vscode.Uri | undefined {
     return vscode.Uri.joinPath(extensionUri, debugFilePath);
 }
 
+/** 同時に発行できる readDirectory 数の上限（リモート FS の過負荷を防ぐ） */
+const DIR_READ_CONCURRENCY = 8;
+
+/**
+ * 同時実行数を cap した非同期実行ヘルパー。
+ * tasks は引数なしの非同期関数の配列。最大 concurrency 個を並列実行する。
+ */
+async function mapWithConcurrency<T>(
+    tasks: Array<() => Promise<T>>,
+    concurrency: number,
+): Promise<T[]> {
+    const results: T[] = new Array(tasks.length);
+    let nextIndex = 0;
+
+    async function worker(): Promise<void> {
+        while (nextIndex < tasks.length) {
+            const index = nextIndex++;
+            results[index] = await tasks[index]();
+        }
+    }
+
+    const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker());
+    await Promise.all(workers);
+    return results;
+}
+
 async function buildDirectoryTree(rootUri: vscode.Uri, currentUri: vscode.Uri): Promise<DirectoryTreeNode[]> {
     const entries = await vscode.workspace.fs.readDirectory(currentUri);
     const sortedEntries = [...entries].sort(([leftName, leftType], [rightName, rightType]) => {
@@ -742,36 +768,26 @@ async function buildDirectoryTree(rootUri: vscode.Uri, currentUri: vscode.Uri): 
         return leftName.localeCompare(rightName);
     });
 
-    const nodes: DirectoryTreeNode[] = [];
-
-    for (const [name, type] of sortedEntries) {
+    const tasks = sortedEntries.map(([name, type]) => async () => {
         const entryUri = vscode.Uri.joinPath(currentUri, name);
         const relativePath = path.relative(rootUri.fsPath, entryUri.fsPath).split(path.sep).join('/');
 
         if ((type & vscode.FileType.Directory) !== 0) {
             const children = await buildDirectoryTree(rootUri, entryUri);
             if (children.length > 0) {
-                nodes.push({
-                    type: 'directory',
-                    name,
-                    relativePath,
-                    children,
-                });
+                return { type: 'directory' as const, name, relativePath, children };
             }
-            continue;
+            return null;
         }
 
         if ((type & vscode.FileType.File) !== 0 && isSupportedAudioFile(name)) {
-            nodes.push({
-                type: 'file',
-                name,
-                relativePath,
-                filePath: entryUri.fsPath,
-            });
+            return { type: 'file' as const, name, relativePath, filePath: entryUri.fsPath };
         }
-    }
+        return null;
+    });
 
-    return nodes;
+    const results = await mapWithConcurrency(tasks, DIR_READ_CONCURRENCY);
+    return results.filter((n): n is NonNullable<typeof n> => n !== null);
 }
 
 async function pickAudioTarget(targetKind?: SelectionTargetKind): Promise<vscode.Uri | undefined> {
