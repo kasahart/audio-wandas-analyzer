@@ -131,6 +131,12 @@ export interface UiStrings {
     announceAnalyzing: string;
     announceAnalysisDone: string;
     announceTrackRemoved: string;
+    announceSpecCopied: string;
+    announceSpecCopyFailed: string;
+    announceExportPngStarted: string;
+    announceExportPngFailed: string;
+    announceExportCsvStarted: string;
+    announceExportCsvFailed: string;
     spectrumZoomLabel: string;
     ariaSpecZoomIn: string;
     ariaSpecZoomOut: string;
@@ -259,6 +265,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceAnalyzing: 'Analyzing: {msg}',
         announceAnalysisDone: 'Analysis complete: {count} tracks',
         announceTrackRemoved: 'Track {n} removed',
+        announceSpecCopied: 'Spec copied to clipboard',
+        announceSpecCopyFailed: 'Copy failed: clipboard not available',
+        announceExportPngStarted: 'PNG export started',
+        announceExportPngFailed: 'PNG export failed: no visible canvases',
+        announceExportCsvStarted: 'CSV export started',
+        announceExportCsvFailed: 'CSV export failed: no spectrum data at cursor',
         spectrumZoomLabel: 'Spectrum',
         ariaSpecZoomIn: 'Spectrum zoom in',
         ariaSpecZoomOut: 'Spectrum zoom out',
@@ -385,6 +397,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceAnalyzing: '解析中: {msg}',
         announceAnalysisDone: '解析完了: {count}件',
         announceTrackRemoved: 'トラック{n}を削除',
+        announceSpecCopied: 'スペックをクリップボードにコピーしました',
+        announceSpecCopyFailed: 'コピー失敗：クリップボードが利用できません',
+        announceExportPngStarted: 'PNG 出力を開始しました',
+        announceExportPngFailed: 'PNG 出力失敗：表示中のキャンバスがありません',
+        announceExportCsvStarted: 'CSV 出力を開始しました',
+        announceExportCsvFailed: 'CSV 出力失敗：カーソル位置にスペクトルデータがありません',
         spectrumZoomLabel: 'スペクトル',
         ariaSpecZoomIn: 'スペクトル拡大',
         ariaSpecZoomOut: 'スペクトル縮小',
