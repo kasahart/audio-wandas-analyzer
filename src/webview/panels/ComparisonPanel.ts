@@ -623,11 +623,14 @@ export function renderComparisonStyles(): string {
             font-size: 18px;
             font-weight: 700;
         }
-        #selection-tree {
+        #vs-tree-viewport {
             flex: 1;
             overflow: auto;
-            padding: 8px 10px 16px;
+            padding: 0;
             font-size: 12px;
+        }
+        #vs-tree-inner {
+            padding: 8px 10px 16px;
         }
         .selection-tree-list {
             list-style: none;

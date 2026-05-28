@@ -39,6 +39,21 @@ export function getComparisonRenderScript(): string {
             // ディレクトリ折りたたみ状態を保持 (relativePath → expanded: boolean)
             // webview.html 再代入後も vscode.getState() で復元する
             var directoryCollapseState = (vscode.getState() || {}).directoryCollapseState || {};
+            // ── Virtual scroll state ──
+            var flatNodes = [];        // {nodeType:'file'|'dir', name, relativePath, filePath, depth, isExpanded}
+            var flatOffsets = [];      // flatNodes[i] の Y オフセット (px)
+            var flatTotalHeight = 0;   // 全アイテムの合計高さ (px)
+            var ITEM_HEIGHT_DIR = 26;
+            var ITEM_HEIGHT_FILE = 36;
+            var VBUFFER = 5;
+            var vsRafPending = false;
+            var vsLastStart = -1;
+            var vsLastEnd = -1;
+            // ── Filter state ──
+            var filterQuery = '';
+            var filteredNodes = [];
+            var filteredOffsets = [];
+            var filteredTotalHeight = 0;
             let selectionMessageSeq = 0;
             let pythonEnvironmentState = state.pythonEnvironmentState || {
                 pythonCommand: 'python3',
@@ -483,7 +498,12 @@ export function getComparisonRenderScript(): string {
                     + '        <button class="tb-btn" data-action="selection-select-all">' + escHtml(STR.btnSelectAll) + '</button>'
                     + '        <button class="tb-btn" data-action="selection-clear-all">' + escHtml(STR.btnClear) + '</button>'
                     + '      </div>'
-                    + '      <div id="selection-tree" role="group" aria-label="' + escHtml(STR.ariaSelectionTree) + '">' + buildSelectionTree(state.directoryTree || [], true, 0) + '</div>'
+                    + '      <div id="vs-tree-viewport" role="group" aria-label="' + escHtml(STR.ariaSelectionTree) + '"'
+                    + '           style="flex:1;overflow:auto;position:relative;font-size:12px;">'
+                    + '        <div id="vs-tree-inner" style="position:relative;min-height:100%;">'
+                    + '          <div id="vs-tree-sizer" style="height:0;pointer-events:none;"></div>'
+                    + '        </div>'
+                    + '      </div>'
                     + '    </div>'
                     + '    <div class="tree-resizer" id="tree-resizer" role="separator" aria-orientation="vertical"></div>'
                     + '    <div id="selection-results-pane">'
@@ -571,6 +591,158 @@ export function getComparisonRenderScript(): string {
                 return '<ul class="selection-tree-list' + (isRoot ? ' is-root' : '') + '">'
                     + buildSelectionTreeItems(nodes, depth)
                     + '</ul>';
+            }
+
+            // ── Virtual scroll helpers ──
+
+            function buildFlatNodes(nodes, depth) {
+                var result = [];
+                for (var i = 0; i < nodes.length; i++) {
+                    var node = nodes[i];
+                    if (node.type === 'directory') {
+                        var savedExpanded = directoryCollapseState[node.relativePath];
+                        var isExp = (savedExpanded !== undefined) ? savedExpanded : (depth === 0);
+                        result.push({ nodeType: 'dir', name: node.name, relativePath: node.relativePath, depth: depth, isExpanded: isExp });
+                        if (isExp) {
+                            var children = buildFlatNodes(node.children || [], depth + 1);
+                            for (var j = 0; j < children.length; j++) { result.push(children[j]); }
+                        }
+                    } else {
+                        result.push({ nodeType: 'file', name: node.name, relativePath: node.relativePath, filePath: node.filePath || '', depth: depth });
+                    }
+                }
+                return result;
+            }
+
+            function refreshFlatNodes() {
+                flatNodes = buildFlatNodes(state.directoryTree || [], 0);
+                flatOffsets = [];
+                var offset = 0;
+                for (var i = 0; i < flatNodes.length; i++) {
+                    flatOffsets[i] = offset;
+                    offset += (flatNodes[i].nodeType === 'dir') ? ITEM_HEIGHT_DIR : ITEM_HEIGHT_FILE;
+                }
+                flatTotalHeight = offset;
+                vsLastStart = -1;
+                vsLastEnd = -1;
+            }
+
+            function renderVsRow(node, yOffset) {
+                var indentPx = 8 + node.depth * 16;
+                var h = (node.nodeType === 'dir') ? ITEM_HEIGHT_DIR : ITEM_HEIGHT_FILE;
+                var style = 'position:absolute;top:' + yOffset + 'px;left:0;right:0;height:' + h + 'px;'
+                    + 'box-sizing:border-box;padding-left:' + indentPx + 'px;display:flex;align-items:center;gap:4px;';
+                if (node.nodeType === 'dir') {
+                    var tog = node.isExpanded ? '▼' : '▶';
+                    return '<div class="selection-tree-directory" style="' + style + 'font-weight:600;cursor:pointer;user-select:none;"'
+                        + ' data-action="toggle-directory"'
+                        + ' data-relative-path="' + escHtml(node.relativePath) + '"'
+                        + ' role="button" tabindex="0"'
+                        + ' aria-expanded="' + (node.isExpanded ? 'true' : 'false') + '"'
+                        + ' aria-label="' + escHtml(STR.ariaSelectionTreeDir || 'Directory') + ': ' + escHtml(node.name) + '">'
+                        + '<span class="dir-toggle" aria-hidden="true" style="font-size:10px;width:12px;text-align:center;">' + tog + '</span>'
+                        + '<span class="dir-name">' + escHtml(node.name) + '</span>'
+                        + '</div>';
+                }
+                var checked = selectedFilePaths.has(node.filePath) ? ' checked' : '';
+                return '<label class="selection-file-row" style="' + style + 'cursor:pointer;">'
+                    + '<input class="selection-file-checkbox" type="checkbox" style="width:14px;height:14px;accent-color:var(--accent);" data-file-path="' + escHtml(node.filePath) + '"' + checked + '>'
+                    + '<span class="selection-file-label" style="display:flex;flex-direction:column;gap:1px;overflow:hidden;">'
+                    + '<span class="selection-file-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(node.name) + '</span>'
+                    + '<span class="selection-file-path" style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(node.relativePath) + '</span>'
+                    + '</span>'
+                    + '</label>';
+            }
+
+            function doVsRender() {
+                vsRafPending = false;
+                var container = document.getElementById('vs-tree-viewport');
+                var inner = document.getElementById('vs-tree-inner');
+                if (!container || !inner) { return; }
+
+                var nodes = filterQuery ? filteredNodes : flatNodes;
+                var offsets = filterQuery ? filteredOffsets : flatOffsets;
+                var totalH = filterQuery ? filteredTotalHeight : flatTotalHeight;
+
+                var scrollTop = container.scrollTop;
+                var containerH = container.clientHeight;
+
+                // 表示範囲のインデックスを二分探索で求める
+                var lo = 0, hi = nodes.length - 1;
+                while (lo <= hi) {
+                    var mid = (lo + hi) >> 1;
+                    if (offsets[mid] < scrollTop) { lo = mid + 1; } else { hi = mid - 1; }
+                }
+                var start = Math.max(0, lo - VBUFFER);
+                var end = start;
+                while (end < nodes.length && offsets[end] < scrollTop + containerH) { end++; }
+                end = Math.min(nodes.length, end + VBUFFER);
+
+                if (start === vsLastStart && end === vsLastEnd) { return; }
+                vsLastStart = start;
+                vsLastEnd = end;
+
+                // inner の高さを全アイテム合計高に設定
+                inner.style.height = totalH + 'px';
+
+                // 既存の行を削除して新しい行を描画 (#vs-tree-sizer 以外の子要素を削除)
+                var children = inner.children;
+                while (children.length > 1) { inner.removeChild(inner.lastChild); }
+
+                var frag = document.createDocumentFragment();
+                var tmp = document.createElement('div');
+                for (var i = start; i < end; i++) {
+                    tmp.innerHTML = renderVsRow(nodes[i], offsets[i]);
+                    while (tmp.firstChild) { frag.appendChild(tmp.firstChild); }
+                }
+                inner.appendChild(frag);
+            }
+
+            function scheduleVsRender() {
+                if (!vsRafPending) {
+                    vsRafPending = true;
+                    requestAnimationFrame(doVsRender);
+                }
+            }
+
+            function applyFilter(query) {
+                filterQuery = query.toLowerCase();
+                if (!filterQuery) {
+                    filteredNodes = [];
+                    filteredOffsets = [];
+                    filteredTotalHeight = 0;
+                    vsLastStart = -1; vsLastEnd = -1;
+                    scheduleVsRender();
+                    return;
+                }
+                // 一致ファイルのルートまでのディレクトリを収集
+                var matchedRelPaths = {};
+                flatNodes.forEach(function(n) {
+                    if (n.nodeType !== 'file') { return; }
+                    var fp = n.filePath.toLowerCase();
+                    var nm = n.name.toLowerCase();
+                    if (fp.indexOf(filterQuery) >= 0 || nm.indexOf(filterQuery) >= 0) {
+                        matchedRelPaths[n.relativePath] = true;
+                        // 祖先ディレクトリも含める
+                        var parts = n.relativePath.split('/');
+                        for (var i = 1; i < parts.length; i++) {
+                            matchedRelPaths[parts.slice(0, i).join('/')] = true;
+                        }
+                    }
+                });
+                filteredNodes = flatNodes.filter(function(n) {
+                    return !!matchedRelPaths[n.relativePath];
+                });
+                // フィルタ中はディレクトリをすべて展開状態として扱う（オフセット計算用）
+                filteredOffsets = [];
+                var off = 0;
+                filteredNodes.forEach(function(n) {
+                    filteredOffsets.push(off);
+                    off += (n.nodeType === 'dir') ? ITEM_HEIGHT_DIR : ITEM_HEIGHT_FILE;
+                });
+                filteredTotalHeight = off;
+                vsLastStart = -1; vsLastEnd = -1;
+                scheduleVsRender();
             }
 
             function buildAudioElements() {
@@ -1754,23 +1926,22 @@ export function getComparisonRenderScript(): string {
                 if (!layout) { return; }
 
                 function toggleDirectoryHeader(dirHeader) {
-                    const list = dirHeader.nextElementSibling;
-                    const toggle = dirHeader.querySelector('.dir-toggle');
-                    if (list && list.classList && list.classList.contains('selection-tree-list')) {
-                        const isCollapsed = list.style.display === 'none';
-                        list.style.display = isCollapsed ? '' : 'none';
-                        if (toggle) {
-                            toggle.textContent = isCollapsed ? '▼' : '▶';
-                        }
-                        dirHeader.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
-                        // 折りたたみ状態を保存し vscode.setState() で永続化する
-                        // (isCollapsed=true → 展開に戻った → expanded=true)
-                        const relativePath = dirHeader.getAttribute('data-relative-path');
-                        if (relativePath) {
-                            directoryCollapseState[relativePath] = isCollapsed;
-                            vscode.setState({ directoryCollapseState: directoryCollapseState });
+                    var relativePath = dirHeader.getAttribute('data-relative-path');
+                    if (!relativePath) { return; }
+                    // 現在の展開状態を反転
+                    var currentNodes = filterQuery ? filteredNodes : flatNodes;
+                    var node = null;
+                    for (var i = 0; i < currentNodes.length; i++) {
+                        if (currentNodes[i].nodeType === 'dir' && currentNodes[i].relativePath === relativePath) {
+                            node = currentNodes[i]; break;
                         }
                     }
+                    if (!node) { return; }
+                    var newExpanded = !node.isExpanded;
+                    directoryCollapseState[relativePath] = newExpanded;
+                    vscode.setState({ directoryCollapseState: directoryCollapseState });
+                    refreshFlatNodes();
+                    if (filterQuery) { applyFilter(filterQuery); } else { scheduleVsRender(); }
                 }
 
                 layout.addEventListener('click', function(e) {
@@ -1820,76 +1991,25 @@ export function getComparisonRenderScript(): string {
                 // ── Tree filter ──
                 var treeFilterInput = document.getElementById('tree-filter-input');
                 if (treeFilterInput) {
+                    var filterDebounceTimer = null;
                     treeFilterInput.addEventListener('input', function() {
-                        var query = treeFilterInput.value.toLowerCase();
-
-                        if (!query) {
-                            // フィルタ解除: 全ファイル <li> を表示し、折りたたみ状態を復元する
-                            document.querySelectorAll('#selection-tree li').forEach(function(li) {
-                                li.style.display = '';
-                            });
-                            document.querySelectorAll('.selection-tree-directory').forEach(function(dirHeader) {
-                                var relativePath = dirHeader.getAttribute('data-relative-path');
-                                var list = dirHeader.nextElementSibling;
-                                if (!list || !list.classList.contains('selection-tree-list')) { return; }
-                                var savedExpanded = relativePath ? directoryCollapseState[relativePath] : undefined;
-                                // 保存済み状態があればそれを、なければ depth=0 かどうかで判断（ルート直下要素は expanded）
-                                // data-depth が付いていない場合はデフォルト展開
-                                var expanded = (savedExpanded !== undefined) ? savedExpanded : true;
-                                list.style.display = expanded ? '' : 'none';
-                                var toggle = dirHeader.querySelector('.dir-toggle');
-                                if (toggle) { toggle.textContent = expanded ? '▼' : '▶'; }
-                                dirHeader.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-                            });
-                            return;
-                        }
-
-                        // フィルタ適用: ファイル名・パスで一致する <li> のみ表示
-                        var allLis = document.querySelectorAll('#selection-tree li');
-                        for (var i = 0; i < allLis.length; i++) {
-                            var li = allLis[i];
-                            var fileRow = li.querySelector('.selection-file-row');
-                            if (!fileRow) { continue; }
-                            var checkbox = li.querySelector('.selection-file-checkbox');
-                            var fp = checkbox ? (checkbox.getAttribute('data-file-path') || '') : '';
-                            var nameEl = li.querySelector('.selection-file-name');
-                            var nm = nameEl ? (nameEl.textContent || '') : '';
-                            var match = fp.toLowerCase().indexOf(query) >= 0 || nm.toLowerCase().indexOf(query) >= 0;
-                            li.style.display = match ? '' : 'none';
-
-                            // 一致したファイルの祖先ディレクトリを全て展開する
-                            if (match) {
-                                var ancestor = li.parentElement;
-                                while (ancestor && ancestor.id !== 'selection-tree') {
-                                    if (ancestor.classList && ancestor.classList.contains('selection-tree-list')) {
-                                        ancestor.style.display = '';
-                                        var dh = ancestor.previousElementSibling;
-                                        if (dh && dh.classList.contains('selection-tree-directory')) {
-                                            dh.setAttribute('aria-expanded', 'true');
-                                            var tog = dh.querySelector('.dir-toggle');
-                                            if (tog) { tog.textContent = '▼'; }
-                                        }
-                                    }
-                                    ancestor = ancestor.parentElement;
-                                }
-                            }
-                        }
-
-                        // 一致ファイルを持たないディレクトリ <li> を非表示にする（葉から順に評価）
-                        var dirLis = document.querySelectorAll('#selection-tree li');
-                        for (var j = dirLis.length - 1; j >= 0; j--) {
-                            var dirLi = dirLis[j];
-                            var subList = dirLi.querySelector('.selection-tree-list');
-                            if (!subList) { continue; }
-                            var visCount = 0;
-                            var children = subList.querySelectorAll('li');
-                            for (var k = 0; k < children.length; k++) {
-                                if (children[k].style.display !== 'none') { visCount++; }
-                            }
-                            dirLi.style.display = visCount > 0 ? '' : 'none';
-                        }
+                        clearTimeout(filterDebounceTimer);
+                        filterDebounceTimer = setTimeout(function() {
+                            applyFilter(treeFilterInput.value);
+                            syncSelectionSummary();
+                        }, 150);
                     });
                 }
+
+                // ── Virtual scroll viewport ──
+                var vsViewport = document.getElementById('vs-tree-viewport');
+                if (vsViewport) {
+                    vsViewport.addEventListener('scroll', function() { scheduleVsRender(); });
+                }
+
+                // 初期描画
+                refreshFlatNodes();
+                scheduleVsRender();
 
                 // ── Tree resizer ──
                 var resizerEl = document.getElementById('tree-resizer');
@@ -1935,12 +2055,10 @@ export function getComparisonRenderScript(): string {
                 }
                 if (action === 'selection-select-all') {
                     selectedFilePaths.clear();
-                    // 可視状態のチェックボックスのみを対象にする
-                    document.querySelectorAll('.selection-file-checkbox').forEach(function(input) {
-                        if (isVisibleInTree(input)) {
-                            const filePath = input.getAttribute('data-file-path');
-                            if (filePath) { selectedFilePaths.add(filePath); }
-                        }
+                    // 仮想スクロール環境では flatNodes/filteredNodes から可視ファイルを収集する
+                    var visNodes = filterQuery ? filteredNodes : flatNodes;
+                    visNodes.forEach(function(n) {
+                        if (n.nodeType === 'file' && n.filePath) { selectedFilePaths.add(n.filePath); }
                     });
                     syncSelectionCheckboxes();
                     syncSelectionSummary();
@@ -1969,24 +2087,23 @@ export function getComparisonRenderScript(): string {
             }
 
             function isVisibleInTree(el) {
-                // el から #selection-tree までの祖先を辿り、display:none が設定された要素があれば非表示と判定する
-                var node = el;
-                while (node && node.id !== 'selection-tree') {
-                    if (node.style && node.style.display === 'none') { return false; }
-                    node = node.parentElement;
+                // 仮想スクロール環境では DOM が動的なため relativePath で判定
+                var fp = el.getAttribute('data-file-path');
+                if (!fp) { return false; }
+                var nodes = filterQuery ? filteredNodes : flatNodes;
+                for (var i = 0; i < nodes.length; i++) {
+                    if (nodes[i].nodeType === 'file' && nodes[i].filePath === fp) { return true; }
                 }
-                return true;
+                return false;
             }
 
             function syncSelectionSummary() {
                 const countEl = document.getElementById('selection-count');
                 const count = selectedFilePaths.size;
-                // 可視チェックボックスの数を分母にする
-                const visibleCount = Array.from(document.querySelectorAll('.selection-file-checkbox')).filter(function(el) {
-                    return isVisibleInTree(el);
-                }).length;
+                var nodes = filterQuery ? filteredNodes : flatNodes;
+                var visibleFileCount = nodes.filter(function(n) { return n.nodeType === 'file'; }).length;
                 if (countEl) {
-                    countEl.textContent = count + ' / ' + visibleCount + ' ' + STR.selectionCountLabel;
+                    countEl.textContent = count + ' / ' + visibleFileCount + ' ' + (STR.selectionCountLabel || '');
                 }
             }
 
