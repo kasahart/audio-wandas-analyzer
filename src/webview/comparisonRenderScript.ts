@@ -39,6 +39,48 @@ export function getComparisonRenderScript(): string {
             // ディレクトリ折りたたみ状態を保持 (relativePath → expanded: boolean)
             // webview.html 再代入後も vscode.getState() で復元する
             var directoryCollapseState = (vscode.getState() || {}).directoryCollapseState || {};
+
+            // ─── ファイルパス一覧からディレクトリツリーを webview 側で組み立てる (#91) ───
+            // __selectionDirMap: relativePath → ディレクトリノード（レイジーレンダリング用）
+            var __selectionDirMap = {};
+            function buildSelectionTreeFromPaths(rootPath, allFilePaths) {
+                var normRoot = rootPath ? rootPath.replace(/\\\\/g, '/') : '';
+                if (normRoot && !normRoot.endsWith('/')) { normRoot += '/'; }
+                var dirMap = __selectionDirMap;
+                var roots = [];
+
+                function ensureDir(parts) {
+                    var key = parts.join('/');
+                    if (dirMap[key]) { return dirMap[key]; }
+                    var node = { type: 'directory', name: parts[parts.length - 1], relativePath: key, children: [] };
+                    dirMap[key] = node;
+                    if (parts.length === 1) {
+                        roots.push(node);
+                    } else {
+                        var parent = ensureDir(parts.slice(0, -1));
+                        parent.children.push(node);
+                    }
+                    return node;
+                }
+
+                allFilePaths.forEach(function(filePath) {
+                    var norm = filePath.replace(/\\\\/g, '/');
+                    var rel = (normRoot && norm.startsWith(normRoot)) ? norm.slice(normRoot.length) : norm;
+                    var parts = rel.split('/');
+                    var fileNode = { type: 'file', name: parts[parts.length - 1], filePath: filePath, relativePath: rel };
+                    if (parts.length === 1) {
+                        roots.push(fileNode);
+                    } else {
+                        var dir = ensureDir(parts.slice(0, -1));
+                        dir.children.push(fileNode);
+                    }
+                });
+
+                return roots;
+            }
+            var __directoryTree = isSelectionMode
+                ? buildSelectionTreeFromPaths(state.rootPath || '', allSelectableFilePaths)
+                : [];
             let selectionMessageSeq = 0;
             let pythonEnvironmentState = state.pythonEnvironmentState || {
                 pythonCommand: 'python3',
@@ -483,7 +525,7 @@ export function getComparisonRenderScript(): string {
                     + '        <button class="tb-btn" data-action="selection-select-all">' + escHtml(STR.btnSelectAll) + '</button>'
                     + '        <button class="tb-btn" data-action="selection-clear-all">' + escHtml(STR.btnClear) + '</button>'
                     + '      </div>'
-                    + '      <div id="selection-tree" role="group" aria-label="' + escHtml(STR.ariaSelectionTree) + '">' + buildSelectionTree(state.directoryTree || [], true, 0) + '</div>'
+                    + '      <div id="selection-tree" role="group" aria-label="' + escHtml(STR.ariaSelectionTree) + '">' + buildSelectionTree(__directoryTree, true, 0) + '</div>'
                     + '    </div>'
                     + '    <div class="tree-resizer" id="tree-resizer" role="separator" aria-orientation="vertical"></div>'
                     + '    <div id="selection-results-pane">'
@@ -534,17 +576,21 @@ export function getComparisonRenderScript(): string {
                         // 保存済み状態があればそれを使う、なければ depth === 0 のみ展開
                         var savedExpanded = directoryCollapseState[node.relativePath];
                         var isExpanded = (savedExpanded !== undefined) ? savedExpanded : (depth === 0);
+                        // 折りたたみ時は子要素をレンダリングしない（#90 レイジーレンダリング）
+                        var childrenHtml = isExpanded ? buildSelectionTreeItems(node.children || [], depth + 1) : '';
+                        var lazyAttr = isExpanded ? '' : ' data-lazy="true"';
                         return '<li>'
                             + '<div class="selection-tree-directory" data-action="toggle-directory"'
                             + ' data-relative-path="' + escHtml(node.relativePath) + '"'
+                            + ' data-depth="' + depth + '"'
                             + ' role="button" tabindex="0"'
                             + ' aria-expanded="' + (isExpanded ? 'true' : 'false') + '"'
                             + ' aria-label="' + escHtml(STR.ariaSelectionTreeDir) + ': ' + escHtml(node.name) + '">'
                             + '<span class="dir-toggle" aria-hidden="true">' + (isExpanded ? '▼' : '▶') + '</span>'
                             + '<span class="dir-name">' + escHtml(node.name) + '</span>'
                             + '</div>'
-                            + '<ul class="selection-tree-list" style="' + (isExpanded ? '' : 'display:none') + '">'
-                            + buildSelectionTreeItems(node.children || [], depth + 1)
+                            + '<ul class="selection-tree-list"' + lazyAttr + ' style="' + (isExpanded ? '' : 'display:none') + '">'
+                            + childrenHtml
                             + '</ul>'
                             + '</li>';
                     }
@@ -1758,6 +1804,16 @@ export function getComparisonRenderScript(): string {
                     const toggle = dirHeader.querySelector('.dir-toggle');
                     if (list && list.classList && list.classList.contains('selection-tree-list')) {
                         const isCollapsed = list.style.display === 'none';
+                        // 展開時: data-lazy な子要素を初めてレンダリングする (#90)
+                        if (isCollapsed && list.getAttribute('data-lazy') === 'true') {
+                            const relPath = dirHeader.getAttribute('data-relative-path');
+                            const depth = parseInt(dirHeader.getAttribute('data-depth') || '0', 10);
+                            const node = __selectionDirMap[relPath];
+                            if (node && node.children) {
+                                list.innerHTML = buildSelectionTreeItems(node.children, depth + 1);
+                                list.removeAttribute('data-lazy');
+                            }
+                        }
                         list.style.display = isCollapsed ? '' : 'none';
                         if (toggle) {
                             toggle.textContent = isCollapsed ? '▼' : '▶';
@@ -1820,9 +1876,7 @@ export function getComparisonRenderScript(): string {
                 // ── Tree filter ──
                 var treeFilterInput = document.getElementById('tree-filter-input');
                 if (treeFilterInput) {
-                    treeFilterInput.addEventListener('input', function() {
-                        var query = treeFilterInput.value.toLowerCase();
-
+                    function applyTreeFilter(query) {
                         if (!query) {
                             // フィルタ解除: 全ファイル <li> を表示し、折りたたみ状態を復元する
                             document.querySelectorAll('#selection-tree li').forEach(function(li) {
@@ -1841,7 +1895,29 @@ export function getComparisonRenderScript(): string {
                                 if (toggle) { toggle.textContent = expanded ? '▼' : '▶'; }
                                 dirHeader.setAttribute('aria-expanded', expanded ? 'true' : 'false');
                             });
+                            syncSelectionSummary();
                             return;
+                        }
+
+                        // フィルタ適用前: レイジー未展開の子要素を全てレンダリングする (#90 との連携)
+                        // 1 回のループでは新たに挿入された子ノードに data-lazy が残るため、
+                        // lazy ノードがなくなるか進捗がなくなるまで繰り返す
+                        var prevLazyCount = -1;
+                        while (true) {
+                            var lazyLists = document.querySelectorAll('#selection-tree [data-lazy="true"]');
+                            if (!lazyLists.length || lazyLists.length === prevLazyCount) { break; }
+                            prevLazyCount = lazyLists.length;
+                            lazyLists.forEach(function(lazyList) {
+                                var dh = lazyList.previousElementSibling;
+                                if (!dh || !dh.classList.contains('selection-tree-directory')) { return; }
+                                var relPath = dh.getAttribute('data-relative-path');
+                                var depth = parseInt(dh.getAttribute('data-depth') || '0', 10);
+                                var node = __selectionDirMap[relPath];
+                                if (node && node.children) {
+                                    lazyList.innerHTML = buildSelectionTreeItems(node.children, depth + 1);
+                                    lazyList.removeAttribute('data-lazy');
+                                }
+                            });
                         }
 
                         // フィルタ適用: ファイル名・パスで一致する <li> のみ表示
@@ -1888,7 +1964,23 @@ export function getComparisonRenderScript(): string {
                             }
                             dirLi.style.display = visCount > 0 ? '' : 'none';
                         }
+                        syncSelectionSummary();
+                    }
+
+                    // debounce: 150ms (#92)
+                    var treeFilterTimer = null;
+                    treeFilterInput.addEventListener('input', function() {
+                        clearTimeout(treeFilterTimer);
+                        treeFilterTimer = setTimeout(function() {
+                            applyTreeFilter(treeFilterInput.value.toLowerCase());
+                        }, 150);
                     });
+                    // テスト環境からデバウンスを即時フラッシュできるようにする
+                    window.__treeFilterFlush = function() {
+                        clearTimeout(treeFilterTimer);
+                        treeFilterTimer = null;
+                        applyTreeFilter(treeFilterInput.value.toLowerCase());
+                    };
                 }
 
                 // ── Tree resizer ──
