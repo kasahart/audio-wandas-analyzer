@@ -267,6 +267,16 @@ export function getChartSpecRenderScript(): string {
         ctx.restore();
     }
 
+    function toCanvasCoords(e, canvas, cv) {
+        var rect = canvas.getBoundingClientRect();
+        var scaleX = cv.width / (rect.width || cv.width);
+        var scaleY = cv.height / (rect.height || cv.height);
+        return {
+            cx: (e.clientX - rect.left) * scaleX,
+            cy: (e.clientY - rect.top)  * scaleY,
+        };
+    }
+
     function drawLine(spec, chartIdx) {
         const cv = setupCanvas(720, 240);
         const ctx = cv.ctx;
@@ -361,9 +371,9 @@ export function getChartSpecRenderScript(): string {
 
         // ゾーン別ダブルクリック
         cv.canvas.addEventListener('dblclick', function(e) {
-            const rect = cv.canvas.getBoundingClientRect();
-            const cx = e.clientX - rect.left;
-            const cy = e.clientY - rect.top;
+            var coords = toCanvasCoords(e, cv.canvas, cv);
+            var cx = coords.cx;
+            var cy = coords.cy;
             if (cx < plot.x) {
                 // Y 軸エリア → Y レンジ設定
                 openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
@@ -479,9 +489,9 @@ export function getChartSpecRenderScript(): string {
 
         // ゾーン別ダブルクリック
         cv.canvas.addEventListener('dblclick', function(e) {
-            const rect = cv.canvas.getBoundingClientRect();
-            const cx = e.clientX - rect.left;
-            const cy = e.clientY - rect.top;
+            var coords = toCanvasCoords(e, cv.canvas, cv);
+            var cx = coords.cx;
+            var cy = coords.cy;
             if (cx > plot.x + plot.w) {
                 // カラーバーエリア → カラーレンジ設定
                 openRangePopup(chartIdx, e.clientX, e.clientY, 'color');
@@ -587,9 +597,9 @@ export function getChartSpecRenderScript(): string {
 
         // ゾーン別ダブルクリック（bar は Y 軸のみ、X 軸はカテゴリ軸のため対象外）
         cv.canvas.addEventListener('dblclick', function(e) {
-            const rect = cv.canvas.getBoundingClientRect();
-            const cx = e.clientX - rect.left;
-            const cy = e.clientY - rect.top;
+            var coords = toCanvasCoords(e, cv.canvas, cv);
+            var cx = coords.cx;
+            var cy = coords.cy;
             if (cx < plot.x) {
                 // Y 軸エリア → Y レンジ設定
                 openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
