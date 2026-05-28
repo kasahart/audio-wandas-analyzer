@@ -270,7 +270,6 @@ async function analyzeAudioTarget(
         const comparisonPanel = showDirectorySelectionPanel(
             context,
             targetUri.fsPath,
-            tree,
             filePaths,
             [],
             [],
@@ -337,7 +336,6 @@ function registerPanelMessageHandler(
                     showDirectorySelectionPanel(
                         context,
                         selection.rootPath,
-                        selection.tree,
                         selection.allFilePaths,
                         selectedFilePaths,
                         [],
@@ -387,7 +385,6 @@ function registerPanelMessageHandler(
                 showDirectorySelectionPanel(
                     context,
                     currentSelection.rootPath,
-                    currentSelection.tree,
                     currentSelection.allFilePaths,
                     currentSelection.selectedFilePaths,
                     results,
@@ -567,7 +564,6 @@ function registerPanelMessageHandler(
 function showDirectorySelectionPanel(
     context: vscode.ExtensionContext,
     rootPath: string,
-    directoryTree: DirectoryTreeNode[],
     allFilePaths: string[],
     selectedFilePaths: string[],
     results: AnalysisResultWithError[],
@@ -576,7 +572,6 @@ function showDirectorySelectionPanel(
     const panel = ComparisonPanel.showDirectorySelection(
         context.extensionUri,
         rootPath,
-        directoryTree,
         allFilePaths,
         selectedFilePaths,
         results,

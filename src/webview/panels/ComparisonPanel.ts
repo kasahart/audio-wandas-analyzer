@@ -6,7 +6,6 @@ import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import {
     DEFAULT_SPECTROGRAM_SETTINGS,
     type AnalysisResultWithError,
-    type DirectoryTreeNode,
     type SpectrogramSettings,
 } from '../../shared/analysis/analysisTypes';
 
@@ -24,7 +23,6 @@ interface DirectorySelectionState {
     mode: 'directory-selection';
     results: ComparisonTrackState[];
     rootPath: string;
-    directoryTree: DirectoryTreeNode[];
     allFilePaths: string[];
     selectedFilePaths: string[];
     pythonEnvironmentState: {
@@ -183,7 +181,6 @@ export class ComparisonPanel {
     public static showDirectorySelection(
         extensionUri: vscode.Uri,
         rootPath: string,
-        directoryTree: DirectoryTreeNode[],
         allFilePaths: string[],
         selectedFilePaths: string[],
         results: AnalysisResultWithError[],
@@ -239,7 +236,6 @@ export class ComparisonPanel {
                 audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
             })),
             rootPath,
-            directoryTree,
             allFilePaths,
             selectedFilePaths,
             pythonEnvironmentState,

@@ -212,27 +212,6 @@ function buildSelectionPreviewHtmlInternal(options?: { injectVsCodeApiStub?: boo
             status: 'normal',
             tooltip: 'Click to select Python interpreter',
         },
-        directoryTree: [
-            {
-                type: 'file',
-                name: 'a.wav',
-                relativePath: 'a.wav',
-                filePath: '/tmp/session/a.wav',
-            },
-            {
-                type: 'directory',
-                name: 'sub',
-                relativePath: 'sub',
-                children: [
-                    {
-                        type: 'file',
-                        name: 'b.flac',
-                        relativePath: 'sub/b.flac',
-                        filePath: '/tmp/session/sub/b.flac',
-                    },
-                ],
-            },
-        ],
     }), options);
 }
 

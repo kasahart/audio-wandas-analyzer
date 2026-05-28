@@ -88,27 +88,6 @@ const DUMMY_SELECTION_STATE = JSON.stringify({
         status: 'normal',
         tooltip: 'Click to select Python interpreter',
     },
-    directoryTree: [
-        {
-            type: 'file',
-            name: 'a.wav',
-            relativePath: 'a.wav',
-            filePath: '/tmp/session/a.wav',
-        },
-        {
-            type: 'directory',
-            name: 'sub',
-            relativePath: 'sub',
-            children: [
-                {
-                    type: 'file',
-                    name: 'b.flac',
-                    relativePath: 'sub/b.flac',
-                    filePath: '/tmp/session/sub/b.flac',
-                },
-            ],
-        },
-    ],
 });
 
 const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
@@ -143,27 +122,6 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
                     maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
                 },
             }],
-        },
-    ],
-    directoryTree: [
-        {
-            type: 'file',
-            name: 'a.wav',
-            relativePath: 'a.wav',
-            filePath: '/tmp/session/a.wav',
-        },
-        {
-            type: 'directory',
-            name: 'sub',
-            relativePath: 'sub',
-            children: [
-                {
-                    type: 'file',
-                    name: 'b.flac',
-                    relativePath: 'sub/b.flac',
-                    filePath: '/tmp/session/sub/b.flac',
-                },
-            ],
         },
     ],
 });
@@ -326,6 +284,7 @@ test('ファイルツリーフィルタでファイルが絞り込まれる', ()
     const env = setupSelectionEnv();
     const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
     assert.ok(filterInput, 'tree-filter-input が存在すること');
+    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
 
     const checkboxesBefore = env.dom.window.document.querySelectorAll('.selection-file-checkbox');
     assert.equal(checkboxesBefore.length, 2, 'フィルタ前に 2 件のファイルが表示されること');
@@ -333,6 +292,7 @@ test('ファイルツリーフィルタでファイルが絞り込まれる', ()
     // "flac" でフィルタ → b.flac のみ表示
     filterInput!.value = 'flac';
     filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
 
     const visibleRows = Array.from(env.dom.window.document.querySelectorAll('.selection-file-row'))
         .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
@@ -345,6 +305,7 @@ test('ファイルツリーフィルタでファイルが絞り込まれる', ()
     // フィルタをクリア → 全件表示
     filterInput!.value = '';
     filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
     const rowsAfterClear = Array.from(env.dom.window.document.querySelectorAll('.selection-file-row'))
         .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
     assert.equal(rowsAfterClear.length, 2, 'フィルタクリア後に 2 件に戻ること');
@@ -356,6 +317,7 @@ test('フィルタ適用後も選択状態が維持される', () => {
     const env = setupSelectionEnv();
     const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
     assert.ok(filterInput);
+    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
 
     // a.wav にチェックを入れる
     const checkboxA = env.dom.window.document.querySelector(
@@ -368,6 +330,7 @@ test('フィルタ適用後も選択状態が維持される', () => {
     // "flac" でフィルタ（a.wav は非表示になる）
     filterInput!.value = 'flac';
     filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
 
     // チェック状態は維持されていること
     const checkboxAAfter = env.dom.window.document.querySelector(
