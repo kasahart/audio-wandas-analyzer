@@ -2940,6 +2940,7 @@ export function getComparisonRenderScript(): string {
                 const visFreqMaxO = specFreqEnd   * maxF;
                 const visDbMinO   = (specDbMin != null) ? specDbMin : minDb;
                 const visDbMaxO   = (specDbMax != null) ? specDbMax : maxDb;
+                _lastSpectrumMaxF = maxF;
                 _lastVisDbMin = visDbMinO;
                 _lastVisDbMax = visDbMaxO;
                 const sharedAxis = { values: [], frequencyBins: 1, maxFrequencyHz: maxF, minDb: visDbMinO, maxDb: visDbMaxO };
