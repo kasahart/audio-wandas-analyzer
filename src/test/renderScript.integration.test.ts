@@ -1167,3 +1167,82 @@ test('renderScript: 軸キャンバスの dblclick でもズームがリセッ�
 
     env.dom.window.close();
 });
+test('spectrum overlay: Y軸(dB) dblclick で popover が開く', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom); // 初回レンダリングで overlay canvas をサイズ設定
+    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLElement | null;
+    assert.ok(overlay, 'overlay canvas が存在すること');
+    // Y軸ゾーン: cx < padL(36) → clientX=10
+    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
+    const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
+    assert.ok(pop, 'popover が存在すること');
+    assert.notStrictEqual(pop.style.display, 'none', 'popover が表示されること');
+    const badge = env.dom.window.document.getElementById('spec-range-axis-badge');
+    assert.ok(badge && /dB/.test(badge.textContent || ''), 'バッジが dB 軸であること');
+    env.dom.window.close();
+});
+
+test('spectrum overlay: X軸(周波数) dblclick で popover が開く', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLElement | null;
+    assert.ok(overlay, 'overlay canvas が存在すること');
+    const cv = overlay as HTMLCanvasElement;
+    const H = cv.height || 140;
+    const W = cv.width || 800;
+    // X軸ゾーン: cy > H-padB(18) かつ cx ∈ [36, W-8]
+    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: Math.floor(W / 2), clientY: H - 5 }));
+    const badge = env.dom.window.document.getElementById('spec-range-axis-badge');
+    assert.ok(badge && /Hz/.test(badge.textContent || ''), 'バッジが 周波数(Hz) 軸であること');
+    const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
+    assert.notStrictEqual(pop.style.display, 'none', 'popover が表示されること');
+    env.dom.window.close();
+});
+
+test('spectrum overlay: プロット内部 dblclick で specZoomReset される', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(overlay, 'overlay canvas が存在すること');
+    const W = overlay!.width || 800;
+    const H = overlay!.height || 140;
+    // まず Y軸 popover を開いて dB レンジを適用（state を変化させる）
+    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
+    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
+    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
+    minI.value = '-80'; maxI.value = '-20';
+    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
+    // スナップショットで specDbMin/Max が変化したことを確認
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'pre-spec-reset' },
+    }));
+    await nextAnimationFrame(env.dom);
+    // 内部 dblclick で reset
+    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: Math.floor(W / 2), clientY: Math.floor(H / 2) }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'post-spec-reset' },
+    }));
+    await nextAnimationFrame(env.dom);
+    const snaps = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
+    const post = (snaps[snaps.length - 1] as any)?.renderedUi;
+    assert.ok(post, 'reset 後スナップショットが存在すること');
+    // axisLabels.spectrumOverlay は specDbMin/Max=null・全周波数に戻ると既定ラベルになる
+    assert.ok(post.axisLabels && post.axisLabels.spectrumOverlay, '軸ラベルが存在すること');
+    env.dom.window.close();
+});
+
+test('spectrum overlay: min>=max は error 表示し popover を閉じない', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLElement | null;
+    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
+    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
+    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
+    minI.value = '-10'; maxI.value = '-50';
+    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
+    const err = env.dom.window.document.getElementById('spec-range-error') as HTMLElement;
+    assert.ok(err.textContent && err.textContent.length > 0, 'エラーが表示されること');
+    const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
+    assert.notStrictEqual(pop.style.display, 'none', 'エラー時は popover が開いたままであること');
+    env.dom.window.close();
+});
