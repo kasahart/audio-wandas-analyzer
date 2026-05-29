@@ -2188,9 +2188,9 @@ export function getComparisonRenderScript(): string {
             function exportPng() {
                 const wrapper = document.getElementById('tracks-wrapper');
                 const canvases = wrapper
-                    ? Array.prototype.slice.call(wrapper.querySelectorAll('canvas')).filter(function(c) {
-                        return c.offsetParent !== null;
-                    })
+                    ? Array.prototype.slice.call(
+                        wrapper.querySelectorAll('canvas:not(.track-axis-canvas)')
+                      ).filter(function(c) { return c.offsetParent !== null; })
                     : [];
                 if (canvases.length === 0) {
                     vscode.postMessage({ type: 'show-info', message: STR.announceExportPngFailed || 'PNG export failed: no visible canvases' });
@@ -2198,7 +2198,8 @@ export function getComparisonRenderScript(): string {
                 }
                 announce(STR.announceExportPngStarted || 'PNG export started');
                 setTimeout(function() {
-                    const totalWidth = canvases.reduce(function(m, c) { return Math.max(m, c.width); }, 0);
+                    const waveW = canvases.reduce(function(m, c) { return Math.max(m, c.width); }, 0);
+                    const totalWidth = AXIS_W + waveW;
                     const totalHeight = canvases.reduce(function(sum, c) { return sum + c.height; }, 0);
                     const offscreen = document.createElement('canvas');
                     offscreen.width = totalWidth;
@@ -2209,7 +2210,12 @@ export function getComparisonRenderScript(): string {
                     ctx.fillRect(0, 0, totalWidth, totalHeight);
                     let y = 0;
                     canvases.forEach(function(c) {
-                        ctx.drawImage(c, 0, y);
+                        var axisId = c.id ? c.id.replace(/^track-canvas-/, 'track-axis-canvas-') : '';
+                        if (axisId && axisId !== c.id) {
+                            var axisCanvas = wrapper ? wrapper.querySelector('#' + axisId) : null;
+                            if (axisCanvas) { ctx.drawImage(axisCanvas, 0, y); }
+                        }
+                        ctx.drawImage(c, AXIS_W, y);
                         y += c.height;
                     });
                     const dataURL = offscreen.toDataURL('image/png');

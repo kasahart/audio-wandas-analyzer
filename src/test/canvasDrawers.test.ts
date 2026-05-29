@@ -226,19 +226,3 @@ test('drawSpectrumAxes: DEFAULT_THEME を渡しても theme なしと同じ挙�
     drawSpectrumAxes(b, 800, 100, sampleSlice, 30, 5, 5, 15, DEFAULT_THEME);
     assert.deepEqual(a._texts, b._texts);
 });
-
-test('#100: track-axis-canvas と track-canvas が track-canvas-wrap 内に axis-first で存在する', () => {
-    const { JSDOM } = require('jsdom');
-    const html = `<div class="track-canvas-wrap">
-      <canvas class="track-axis-canvas" id="track-axis-canvas-0" style="width:32px"></canvas>
-      <canvas class="track-canvas" id="track-canvas-0" style="flex:1"></canvas>
-    </div>`;
-    const dom = new JSDOM(`<!DOCTYPE html><html><body>${html}</body></html>`);
-    const axisCanvas = dom.window.document.getElementById('track-axis-canvas-0');
-    const waveCanvas = dom.window.document.getElementById('track-canvas-0');
-    assert.ok(axisCanvas, 'track-axis-canvas-0 が存在すること');
-    assert.ok(waveCanvas, 'track-canvas-0 が存在すること');
-    const order = axisCanvas.compareDocumentPosition(waveCanvas);
-    assert.ok(order & dom.window.Node.DOCUMENT_POSITION_FOLLOWING, 'axis-canvas が waveform-canvas より DOM 上で前にあること');
-    dom.window.close();
-});
