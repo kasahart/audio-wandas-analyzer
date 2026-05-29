@@ -4,7 +4,6 @@ export const SHORTCUT_ROWS = [
     { shortcut: 'Space', labelKey: 'helpRowSpace' },
     { shortcut: '← / →', labelKey: 'helpRowArrow' },
     { shortcut: '+ / − / 0', labelKey: 'helpRowZoomKeys' },
-    { shortcut: 'M / S', labelKey: 'helpRowMuteSolo' },
     { shortcut: 'F', labelKey: 'helpRowFollowCursor' },
     { shortcut: 'L', labelKey: 'helpRowZoomToSelection' },
     { shortcut: 'Wheel', labelKey: 'helpRowWheel' },
@@ -88,15 +87,21 @@ export function getComparisonRenderScript(): string {
                 tooltip: 'Click to select Python interpreter',
             };
 
+            const AXIS_W = 32;
+
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc',
                                    '#f0c040','#40b0d0','#d09060','#80c080','#a0a0ff'];
 
             function announce(msg) {
                 var el = document.getElementById('a11y-announce');
                 if (!el) { return; }
-                // 同一テキストの連続セットはスクリーンリーダーが無視するためクリアしてから設定
                 el.textContent = '';
-                requestAnimationFrame(function() { el.textContent = msg; });
+                if (window.__uiSmokeState !== undefined) {
+                    // test environment: set synchronously so Playwright can observe it
+                    el.textContent = msg;
+                } else {
+                    requestAnimationFrame(function() { el.textContent = msg; });
+                }
             }
 
             function hexToRgba(hex, alpha) {
@@ -112,7 +117,6 @@ export function getComparisonRenderScript(): string {
             let playbackEl = null;
             let playbackRafId = null;
             let playbackTrackIndex = null;
-            let soloTrackIndex = null; // null = solo off, number = solo track
             let followCursor = false;
             let spectrumRafPending = false;
 
@@ -192,7 +196,6 @@ export function getComparisonRenderScript(): string {
                 let startSec = Infinity, endSec = -Infinity;
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden || result.error) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const off = trackRuntime[i].offsetSeconds;
                     const dur = result.durationSeconds || 0;
                     if (off < startSec) { startSec = off; }
@@ -258,7 +261,6 @@ export function getComparisonRenderScript(): string {
                 const idx = typeof entry.trackIndex === 'number' ? entry.trackIndex : -1;
                 if (entry.action === 'offset-up' && idx >= 0) { adjustOffset(idx, 0.01); }
                 if (entry.action === 'offset-down' && idx >= 0) { adjustOffset(idx, -0.01); }
-                if (entry.action === 'toggle-mute' && idx >= 0) { toggleMute(idx); }
                 if (entry.action === 'remove-track' && idx >= 0) { removeTrack(idx); }
                 if (entry.action === 'open-spectrogram-settings') {
                     const gear = document.querySelector('[data-action="spectrogram-settings"]');
@@ -297,7 +299,6 @@ export function getComparisonRenderScript(): string {
                 const OVERVIEW_PTS = 1200;
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden || result.error) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const canvas = document.getElementById('track-canvas-' + i);
                     const W = (canvas ? canvas.width : 0) || 800;
                     const visibleOverview = OVERVIEW_PTS * (zoomEnd - zoomStart);
@@ -552,7 +553,7 @@ export function getComparisonRenderScript(): string {
 
                 return '<div id="toolbar" role="toolbar" aria-label="' + escHtml(STR.ariaToolbar) + '">' + buildToolbar() + '</div>'
                     + '<div id="tracks-wrapper">'
-                    + '  <div id="ruler-row"><div id="ruler-spacer"></div><canvas id="ruler-canvas"></canvas></div>'
+                    + '  <div id="ruler-row"><div id="ruler-spacer"></div><div id="ruler-axis-spacer" style="width:' + AXIS_W + 'px;flex:none"></div><canvas id="ruler-canvas"></canvas></div>'
                     + '  <div id="stacked-wrap">' + tracks + '</div>'
                     + '  <div id="empty-state"><p>' + escHtml(emptyMessage) + '</p></div>'
                     + '</div>'
@@ -676,8 +677,6 @@ export function getComparisonRenderScript(): string {
                     + '  <div class="track-meta">Ch: ' + result.channelCount + ' &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
                     + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
-                    + '    <button class="track-btn" data-action="toggle-mute" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaToggleMute) + '" aria-pressed="false">M</button>'
-                    + '    <button class="track-btn" data-action="toggle-solo" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaToggleSolo) + '" aria-pressed="false">S</button>'
                     + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
                     + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
                     + '    <button class="track-btn" data-action="remove-track" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaRemoveTrack) + '">✕</button>'
@@ -689,7 +688,8 @@ export function getComparisonRenderScript(): string {
                     + '  </div>'
                     + '</div>'
                     + '<div class="track-canvas-wrap" id="track-canvas-wrap-' + i + '">'
-                    + '  <canvas class="track-canvas" id="track-canvas-' + i + '" data-track-index="' + i + '" tabindex="0" style="outline:none"></canvas>'
+                    + '  <canvas class="track-axis-canvas" id="track-axis-canvas-' + i + '" style="width:' + AXIS_W + 'px" data-track-index="' + i + '"></canvas>'
+                    + '  <canvas class="track-canvas" id="track-canvas-' + i + '" data-track-index="' + i + '" tabindex="0" style="outline:none;flex:1"></canvas>'
                     + '</div>'
                     + '<div class="track-spectrum-wrap" id="track-spectrum-wrap-' + i + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
                     + '  <canvas class="track-spectrum-canvas" id="track-spectrum-' + i + '" data-track-index="' + i + '"></canvas>'
@@ -738,13 +738,15 @@ export function getComparisonRenderScript(): string {
                     const newW = wrap.clientWidth || 800;
                     if (canvasWidthCache[i] === newW) { return; }
                     canvasWidthCache[i] = newW;
-                    canvas.width = newW;
+                    canvas.width = Math.max(1, newW - AXIS_W);
                     canvas.height = 80;
+                    const axisCanvas = document.getElementById('track-axis-canvas-' + i);
+                    if (axisCanvas) { axisCanvas.width = AXIS_W; axisCanvas.height = 80; }
                 });
                 const rulerCanvas = document.getElementById('ruler-canvas');
                 if (rulerCanvas) {
                     const row = document.getElementById('ruler-row');
-                    if (row) { rulerCanvas.width = row.clientWidth - 130; }
+                    if (row) { rulerCanvas.width = Math.max(1, row.clientWidth - 130 - AXIS_W); }
                     rulerCanvas.height = 20;
                 }
             }
@@ -795,7 +797,6 @@ export function getComparisonRenderScript(): string {
                 displayOrder.forEach(function(i) {
                     const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     // 前回のエラーオーバーレイを除去
                     const existingOverlay = document.getElementById('track-error-overlay-' + i);
                     if (existingOverlay) { existingOverlay.remove(); }
@@ -836,6 +837,8 @@ export function getComparisonRenderScript(): string {
                         drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     } else {
                         drawSpectrogram(canvas, result, trackRuntime[i].offsetSeconds);
+                        const axisC = document.getElementById('track-axis-canvas-' + i);
+                        if (axisC) { const ac = axisC.getContext('2d'); if (ac) { ac.clearRect(0, 0, axisC.width, axisC.height); } }
                     }
                 });
             }
@@ -898,9 +901,6 @@ export function getComparisonRenderScript(): string {
                         return originalLineTo(x, y);
                     };
                     ctx.save();
-                    ctx.beginPath();
-                    ctx.rect(32, 0, W - 32, H);
-                    ctx.clip();
                     try {
                         window.renderWaveformPipeline(ctx, W, H, src.waveform, {
                             zoomStart,
@@ -935,7 +935,11 @@ export function getComparisonRenderScript(): string {
                     drawHoverLineOnCanvas(ctx, W, H);
                 }
 
-                drawWaveformAmplitudeAxis(ctx, W, H);
+                const axisCanvas = document.getElementById('track-axis-canvas-' + trackIndex);
+                if (axisCanvas) {
+                    const axisCtx = axisCanvas.getContext('2d');
+                    if (axisCtx) { drawWaveformAmplitudeAxis(axisCtx, AXIS_W, H); }
+                }
             }
 
             function drawWaveformAmplitudeAxis(ctx, W, H) {
@@ -1130,13 +1134,12 @@ export function getComparisonRenderScript(): string {
 
 
             function updateVisibility() {
-                // まず各行の display を更新する (ソロ中は solo track 以外を非表示)
+                // まず各行の display を更新する
                 document.querySelectorAll('.track-row').forEach(function(row) {
                     const idx = parseInt(row.getAttribute('data-track-index'), 10);
                     if (!isNaN(idx) && trackRuntime[idx]) {
                         var isMuted = trackRuntime[idx].hidden;
-                        var isSoloFiltered = soloTrackIndex !== null && soloTrackIndex !== idx;
-                        row.style.display = (isMuted || isSoloFiltered) ? 'none' : 'flex';
+                        row.style.display = isMuted ? 'none' : 'flex';
                     }
                 });
                 // 次に空状態を判定する（削除済み or 全非表示）
@@ -1417,8 +1420,6 @@ export function getComparisonRenderScript(): string {
                     const tgt = e.target;
                     const action = tgt.getAttribute ? tgt.getAttribute('data-action') : null;
                     const idx = parseInt(tgt.getAttribute ? tgt.getAttribute('data-track-index') : 'NaN', 10);
-                    if (action === 'toggle-mute' && !isNaN(idx)) { toggleMute(idx); }
-                    if (action === 'toggle-solo' && !isNaN(idx)) { toggleSolo(idx); }
                     if (action === 'toggle-playback' && !isNaN(idx)) { togglePlayback(idx); }
                     if (action === 'stop-playback' && !isNaN(idx)) { stopPlayback(idx); }
                     if (action === 'remove-track' && !isNaN(idx)) { removeTrack(idx); }
@@ -1627,20 +1628,6 @@ export function getComparisonRenderScript(): string {
                         if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); return; }
                         if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomOut(); return; }
                         if (e.key === '0') { e.preventDefault(); resetZoom(); return; }
-
-                        // M/S → フォーカス中 or 最後に再生したトラックの mute/solo
-                        if (e.key === 'm' || e.key === 'M') {
-                            e.preventDefault();
-                            const tidx = resolveActiveTrackIndex(active);
-                            if (tidx !== null) { toggleMute(tidx); }
-                            return;
-                        }
-                        if (e.key === 's' || e.key === 'S') {
-                            e.preventDefault();
-                            const tidx = resolveActiveTrackIndex(active);
-                            if (tidx !== null) { toggleSolo(tidx); }
-                            return;
-                        }
 
                         // F → follow-cursor トグル
                         if (e.key === 'f' || e.key === 'F') {
@@ -2201,54 +2188,63 @@ export function getComparisonRenderScript(): string {
             function exportPng() {
                 const wrapper = document.getElementById('tracks-wrapper');
                 const canvases = wrapper
-                    ? Array.prototype.slice.call(wrapper.querySelectorAll('canvas')).filter(function(c) {
-                        return c.offsetParent !== null;
-                    })
+                    ? Array.prototype.slice.call(
+                        wrapper.querySelectorAll('canvas:not(.track-axis-canvas)')
+                      ).filter(function(c) { return c.offsetParent !== null; })
                     : [];
                 if (canvases.length === 0) {
-                    console.warn('exportPng: no visible canvases found');
+                    vscode.postMessage({ type: 'show-info', message: STR.announceExportPngFailed || 'PNG export failed: no visible canvases' });
                     return;
                 }
-                const totalWidth = canvases.reduce(function(m, c) { return Math.max(m, c.width); }, 0);
-                const totalHeight = canvases.reduce(function(sum, c) { return sum + c.height; }, 0);
-                const offscreen = document.createElement('canvas');
-                offscreen.width = totalWidth;
-                offscreen.height = totalHeight;
-                const ctx = offscreen.getContext('2d');
-                if (!ctx) { console.warn('exportPng: could not get 2d context'); return; }
-                ctx.fillStyle = '#1e1e1e';
-                ctx.fillRect(0, 0, totalWidth, totalHeight);
-                let y = 0;
-                canvases.forEach(function(c) {
-                    ctx.drawImage(c, 0, y);
-                    y += c.height;
-                });
-                const dataURL = offscreen.toDataURL('image/png');
-                const a = document.createElement('a');
-                a.href = dataURL;
-                a.download = 'waveform-export.png';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
+                announce(STR.announceExportPngStarted || 'PNG export started');
+                setTimeout(function() {
+                    const waveW = canvases.reduce(function(m, c) { return Math.max(m, c.width); }, 0);
+                    const totalWidth = AXIS_W + waveW;
+                    const totalHeight = canvases.reduce(function(sum, c) { return sum + c.height; }, 0);
+                    const offscreen = document.createElement('canvas');
+                    offscreen.width = totalWidth;
+                    offscreen.height = totalHeight;
+                    const ctx = offscreen.getContext('2d');
+                    if (!ctx) { vscode.postMessage({ type: 'show-info', message: STR.announceExportPngFailed || 'PNG export failed: no visible canvases' }); return; }
+                    ctx.fillStyle = '#1e1e1e';
+                    ctx.fillRect(0, 0, totalWidth, totalHeight);
+                    let y = 0;
+                    canvases.forEach(function(c) {
+                        var axisId = c.id ? c.id.replace(/^track-canvas-/, 'track-axis-canvas-') : '';
+                        if (axisId && axisId !== c.id) {
+                            var axisCanvas = wrapper ? wrapper.querySelector('#' + axisId) : null;
+                            if (axisCanvas) { ctx.drawImage(axisCanvas, 0, y); }
+                        }
+                        ctx.drawImage(c, AXIS_W, y);
+                        y += c.height;
+                    });
+                    const dataURL = offscreen.toDataURL('image/png');
+                    const a = document.createElement('a');
+                    a.href = dataURL;
+                    a.download = 'waveform-export.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                }, 0);
             }
 
             function exportCsv() {
                 if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
-                    console.warn('exportCsv: no results available');
+                    vscode.postMessage({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
                     return;
                 }
                 const tracks = [];
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i] && trackRuntime[i].hidden) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (!slice || !slice.values || slice.values.length === 0) { return; }
                     tracks.push({ name: result.fileName || ('track' + (i + 1)), slice: slice });
                 });
                 if (tracks.length === 0) {
-                    console.warn('exportCsv: no spectrum data available at cursor position');
+                    vscode.postMessage({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
                     return;
                 }
+                announce(STR.announceExportCsvStarted || 'CSV export started');
                 // Build CSV: header + one row per frequency bin
                 // Use the first track's bin count and maxFrequencyHz as reference
                 const refSlice = tracks[0].slice;
@@ -2286,7 +2282,6 @@ export function getComparisonRenderScript(): string {
                 var visiblePaths = [];
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i] && trackRuntime[i].hidden) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     visiblePaths.push(result.filePath);
                 });
                 if (visiblePaths.length === 0) { return; }
@@ -2497,7 +2492,10 @@ export function getComparisonRenderScript(): string {
             }
 
             function copySpecToClipboard() {
-                if (!navigator.clipboard || !navigator.clipboard.writeText) { return; }
+                if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                    vscode.postMessage({ type: 'show-info', message: STR.announceSpecCopyFailed || 'Copy failed: clipboard not available' });
+                    return;
+                }
                 const lines = ['=== Audio Analyzer Spec ==='];
                 const results = state.results || [];
                 results.forEach(function(r, i) {
@@ -2510,7 +2508,11 @@ export function getComparisonRenderScript(): string {
                 const _settings = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings) || {};
                 const stft = _settings.stft || {};
                 lines.push('nFft: ' + (stft.nFft || '') + '  hopSize: ' + (stft.hopSize || '') + '  window: ' + (stft.window || ''));
-                navigator.clipboard.writeText(lines.join('\\n')).catch(function() { /* permission denied or unavailable */ });
+                navigator.clipboard.writeText(lines.join('\\n'))
+                    .then(function() { announce(STR.announceSpecCopied || 'Spec copied to clipboard'); })
+                    .catch(function() {
+                        vscode.postMessage({ type: 'show-info', message: STR.announceSpecCopyFailed || 'Copy failed: clipboard not available' });
+                    });
             }
 
             function handleZoomWheel(e) {
@@ -2849,7 +2851,6 @@ export function getComparisonRenderScript(): string {
                     const W = canvas.width, H = canvas.height;
                     ctx.clearRect(0, 0, W, H);
                     if (trackRuntime[i].hidden) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (!slice) {
                         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
@@ -2914,7 +2915,6 @@ export function getComparisonRenderScript(): string {
                 displayOrder.forEach(function(i) {
                     const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
-                    if (soloTrackIndex !== null && soloTrackIndex !== i) { return; }
                     const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, name: result.fileName }); }
                 });
@@ -3111,47 +3111,6 @@ export function getComparisonRenderScript(): string {
                 }
                 if (playbackTrackIndex !== null) { return playbackTrackIndex; }
                 return (state.results && state.results.length > 0) ? 0 : null;
-            }
-
-            function toggleMute(idx) {
-                if (idx === playbackTrackIndex) { stopPlayback(idx); }
-                trackRuntime[idx].hidden = !trackRuntime[idx].hidden;
-                var mutePos = displayOrder.indexOf(idx);
-                var n = mutePos !== -1 ? mutePos + 1 : idx + 1;
-                announce(trackRuntime[idx].hidden
-                    ? (STR.announceMuted || 'Track {n} muted').replace('{n}', String(n))
-                    : (STR.announceUnmuted || 'Track {n} unmuted').replace('{n}', String(n)));
-                const btn = document.querySelector('[data-action="toggle-mute"][data-track-index="' + idx + '"]');
-                if (btn) {
-                    btn.classList.toggle('is-muted', trackRuntime[idx].hidden);
-                    btn.setAttribute('aria-pressed', trackRuntime[idx].hidden ? 'true' : 'false');
-                }
-                updateVisibility();
-                scheduleRender();
-                scheduleSpectrumRefresh();
-            }
-
-            function toggleSolo(idx) {
-                soloTrackIndex = (soloTrackIndex === idx) ? null : idx;
-                var soloPos = displayOrder.indexOf(idx);
-                var n = soloPos !== -1 ? soloPos + 1 : idx + 1;
-                announce(soloTrackIndex === idx
-                    ? (STR.announceSoloed || 'Track {n} solo').replace('{n}', String(n))
-                    : (STR.announceUnsoloed || 'Track {n} solo off').replace('{n}', String(n)));
-                // ソロ有効化時、再生中トラックがソロ対象外なら停止
-                if (soloTrackIndex !== null && playbackTrackIndex !== null && playbackTrackIndex !== soloTrackIndex) {
-                    stopPlayback(playbackTrackIndex, { keepCursor: true });
-                }
-                // Solo ボタンの表示と aria-pressed を更新
-                document.querySelectorAll('[data-action="toggle-solo"]').forEach(function(btn) {
-                    var i = parseInt(btn.getAttribute('data-track-index'), 10);
-                    var active = soloTrackIndex === i;
-                    btn.classList.toggle('is-solo', active);
-                    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-                });
-                updateVisibility();
-                scheduleRender();
-                scheduleSpectrumRefresh();
             }
 
             function removeTrack(idx) {

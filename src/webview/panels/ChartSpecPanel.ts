@@ -48,7 +48,7 @@ h2 { font-size: 14px; margin: 0 0 12px; color: var(--accent); }
 .scalar-table { border-collapse: collapse; font-size: 12px; }
 .scalar-table th, .scalar-table td { border-bottom: 1px solid var(--line); padding: 4px 12px 4px 0; text-align: left; }
 .scalar-table th { color: var(--muted); font-weight: 600; }
-canvas { display: block; }
+canvas { display: block; max-width: 100%; }
 </style>
 </head>
 <body>

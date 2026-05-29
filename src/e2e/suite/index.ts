@@ -373,30 +373,6 @@ export async function run(): Promise<void> {
             },
         },
         {
-            name: 'muting a track removes it from the cursor spectrum overlay',
-            requires: 'multi-track-all',
-            run: async ({ snapshot: baseline }) => {
-                assert.ok(baseline.renderedUi);
-                const baselineVisible = baseline.renderedUi.visibleSpectrumTrackCount;
-                assert.ok(baselineVisible >= 1, 'baseline should have at least one visible spectrum slice');
-
-                const muteActionId = `spectrum-mute-${Date.now()}`;
-                await ComparisonPanel.postTestActions(muteActionId, [
-                    { action: 'toggle-mute', trackIndex: 0 },
-                ]);
-                const muted = await waitForSnapshot(muteActionId);
-                assert.ok(muted.renderedUi);
-                assert.equal(
-                    muted.renderedUi.visibleSpectrumTrackCount,
-                    Math.max(0, baselineVisible - 1),
-                    'muting one track should drop the overlay slice count by one',
-                );
-                // ミュート状態を残すと次の multi-track-all ケースの前提が崩れるため、
-                // フィクスチャキャッシュを無効化して次回確実に再ロードさせる。
-                invalidateFixtureCache();
-            },
-        },
-        {
             name: 'track offset changes visible range on multi-track view',
             requires: 'multi-track-all',
             run: async () => {

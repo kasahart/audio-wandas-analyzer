@@ -666,17 +666,33 @@ test('renderScript: mouseup click commits cursor and re-draws spectrum', async (
     env.dom.window.close();
 });
 
-test('axes: 波形キャンバスに振幅軸ラベル (+1.0 / 0 / -1.0 と Amp 単位) が描かれる', async () => {
+test('axes: 振幅軸ラベル (+1.0 / 0 / -1.0 と Amp 単位) が track-axis-canvas に描かれる', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const spy = env.domCanvasContexts.get('track-canvas-0');
-    assert.ok(spy, 'track-canvas-0 のスパイが取得できること');
+    const spy = env.domCanvasContexts.get('track-axis-canvas-0');
+    assert.ok(spy, 'track-axis-canvas-0 のスパイが取得できること');
     const labels = spy!.fillTextCalls;
     assert.ok(labels.includes('+1.0'), '+1.0 ラベルが描かれること: ' + JSON.stringify(labels));
     assert.ok(labels.includes('-1.0'), '-1.0 ラベルが描かれること');
     assert.ok(labels.includes('0'), '0 ラベルが描かれること');
     assert.ok(labels.some((s) => s.includes('Amp')), '振幅軸タイトル (Amp) が描かれること');
     assert.ok(spy!.fillRectCalls > 0, 'ラベル用の半透明バックプレートが描かれること');
+    env.dom.window.close();
+});
+
+test('#100: buildTrackRow が track-axis-canvas を track-canvas の前に生成すること', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const doc = env.dom.window.document;
+    const axisCanvas = doc.getElementById('track-axis-canvas-0');
+    const waveCanvas = doc.getElementById('track-canvas-0');
+    assert.ok(axisCanvas, 'track-axis-canvas-0 が DOM に存在すること');
+    assert.ok(waveCanvas, 'track-canvas-0 が DOM に存在すること');
+    const order = axisCanvas!.compareDocumentPosition(waveCanvas!);
+    assert.ok(
+        order & env.dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+        'track-axis-canvas-0 が track-canvas-0 より DOM 上で前にあること',
+    );
     env.dom.window.close();
 });
 

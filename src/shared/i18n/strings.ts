@@ -71,7 +71,6 @@ export interface UiStrings {
     helpRowShiftDrag: string;
     helpRowQuestion: string;
     helpRowEsc: string;
-    helpRowMuteSolo: string;
     helpRowZoomKeys: string;
     playbackTimePrefix: string;
     playbackDisplayTitle: string;
@@ -109,8 +108,6 @@ export interface UiStrings {
     ariaZoomOut: string;
     ariaZoomIn: string;
     ariaZoomReset: string;
-    ariaToggleMute: string;
-    ariaToggleSolo: string;
     ariaRemoveTrack: string;
     ariaTrackPlay: string;
     ariaTrackStop: string;
@@ -134,10 +131,12 @@ export interface UiStrings {
     announceAnalyzing: string;
     announceAnalysisDone: string;
     announceTrackRemoved: string;
-    announceMuted: string;
-    announceUnmuted: string;
-    announceSoloed: string;
-    announceUnsoloed: string;
+    announceSpecCopied: string;
+    announceSpecCopyFailed: string;
+    announceExportPngStarted: string;
+    announceExportPngFailed: string;
+    announceExportCsvStarted: string;
+    announceExportCsvFailed: string;
     spectrumZoomLabel: string;
     ariaSpecZoomIn: string;
     ariaSpecZoomOut: string;
@@ -207,7 +206,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowShiftDrag: 'adjust track offset',
         helpRowQuestion: 'toggle this help',
         helpRowEsc: 'close popover / help',
-        helpRowMuteSolo: 'mute / solo active track (focused, last played, or first)',
         helpRowZoomKeys: 'zoom in / out / reset',
         playbackTimePrefix: '▶',
         playbackDisplayTitle: 'Playback position',
@@ -244,8 +242,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaZoomOut: 'Zoom out',
         ariaZoomIn: 'Zoom in',
         ariaZoomReset: 'Reset zoom',
-        ariaToggleMute: 'Toggle mute',
-        ariaToggleSolo: 'Toggle solo',
         ariaRemoveTrack: 'Remove track',
         ariaTrackPlay: 'Play / pause track',
         ariaTrackStop: 'Stop track',
@@ -269,10 +265,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceAnalyzing: 'Analyzing: {msg}',
         announceAnalysisDone: 'Analysis complete: {count} tracks',
         announceTrackRemoved: 'Track {n} removed',
-        announceMuted: 'Track {n} muted',
-        announceUnmuted: 'Track {n} unmuted',
-        announceSoloed: 'Track {n} solo',
-        announceUnsoloed: 'Track {n} solo off',
+        announceSpecCopied: 'Spec copied to clipboard',
+        announceSpecCopyFailed: 'Copy failed: clipboard not available',
+        announceExportPngStarted: 'PNG export started',
+        announceExportPngFailed: 'PNG export failed: no visible canvases',
+        announceExportCsvStarted: 'CSV export started',
+        announceExportCsvFailed: 'CSV export failed: no spectrum data at cursor',
         spectrumZoomLabel: 'Spectrum',
         ariaSpecZoomIn: 'Spectrum zoom in',
         ariaSpecZoomOut: 'Spectrum zoom out',
@@ -340,7 +338,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowShiftDrag: 'トラックのオフセット調整',
         helpRowQuestion: 'このヘルプを開閉',
         helpRowEsc: 'ポップオーバー / ヘルプを閉じる',
-        helpRowMuteSolo: 'アクティブなトラックをミュート / ソロ（フォーカス中・最後に再生・先頭）',
         helpRowZoomKeys: 'ズームイン / アウト / リセット',
         playbackTimePrefix: '▶',
         playbackDisplayTitle: '再生位置',
@@ -377,8 +374,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaZoomOut: 'ズームアウト',
         ariaZoomIn: 'ズームイン',
         ariaZoomReset: 'ズームリセット',
-        ariaToggleMute: 'ミュート切替',
-        ariaToggleSolo: 'ソロ切替',
         ariaRemoveTrack: 'トラックを削除',
         ariaTrackPlay: 'トラックを再生／一時停止',
         ariaTrackStop: 'トラックを停止',
@@ -402,10 +397,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceAnalyzing: '解析中: {msg}',
         announceAnalysisDone: '解析完了: {count}件',
         announceTrackRemoved: 'トラック{n}を削除',
-        announceMuted: 'トラック{n}ミュート',
-        announceUnmuted: 'トラック{n}ミュート解除',
-        announceSoloed: 'トラック{n}ソロ',
-        announceUnsoloed: 'トラック{n}ソロ解除',
+        announceSpecCopied: 'スペックをクリップボードにコピーしました',
+        announceSpecCopyFailed: 'コピー失敗：クリップボードが利用できません',
+        announceExportPngStarted: 'PNG 出力を開始しました',
+        announceExportPngFailed: 'PNG 出力失敗：表示中のキャンバスがありません',
+        announceExportCsvStarted: 'CSV 出力を開始しました',
+        announceExportCsvFailed: 'CSV 出力失敗：カーソル位置にスペクトルデータがありません',
         spectrumZoomLabel: 'スペクトル',
         ariaSpecZoomIn: 'スペクトル拡大',
         ariaSpecZoomOut: 'スペクトル縮小',
