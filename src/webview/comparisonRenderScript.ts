@@ -1458,9 +1458,11 @@ export function getComparisonRenderScript(): string {
                     }
                 });
 
-                // 波形キャンバスのダブルクリック → ズームリセット
+                // 波形キャンバス・軸キャンバスのダブルクリック → ズームリセット
                 document.getElementById('tracks-wrapper').addEventListener('dblclick', function(e) {
-                    const targetCanvas = e.target.closest ? e.target.closest('.track-canvas') : null;
+                    const targetCanvas = e.target.closest
+                        ? (e.target.closest('.track-canvas') || e.target.closest('.track-axis-canvas'))
+                        : null;
                     if (!targetCanvas) { return; }
                     resetZoom();
                 });

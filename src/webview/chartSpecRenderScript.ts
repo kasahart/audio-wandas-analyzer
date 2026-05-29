@@ -436,6 +436,15 @@ export function getChartSpecRenderScript(): string {
             const vMax = (colorOv && colorOv.max != null) ? colorOv.max : dataVmax;
             const vRange = vMax - vMin || 1;
 
+            const yOv = override && override.y;
+            const _yMin = (yOv && yOv.min != null) ? yOv.min : yMinAxis;
+            let _yMax   = (yOv && yOv.max != null) ? yOv.max : yMaxAxis;
+            if (_yMax <= _yMin) { _yMax = _yMin + 1; }
+            const xOv = override && override.x;
+            const _xMin = (xOv && xOv.min != null) ? xOv.min : xMinAxis;
+            let _xMax   = (xOv && xOv.max != null) ? xOv.max : xMaxAxis;
+            if (_xMax <= _xMin) { _xMax = _xMin + 1; }
+
             const cellW = plot.w / Math.max(cols, 1);
             const cellH = plot.h / Math.max(rows, 1);
             for (let r = 0; r < rows; r++) {
@@ -449,9 +458,13 @@ export function getChartSpecRenderScript(): string {
                 }
             }
 
+            // Y 軸クリックヒント
+            ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            ctx.fillRect(0, plot.y, plot.x, plot.h);
+
             drawAxisLabels(ctx, plot, spec,
-                { min: xMinAxis, max: xMaxAxis },
-                { min: yMinAxis, max: yMaxAxis },
+                { min: _xMin, max: _xMax },
+                { min: _yMin, max: _yMax },
                 { xDecimals: 2, yDecimals: 0 });
 
             // カラーバー
@@ -492,13 +505,21 @@ export function getChartSpecRenderScript(): string {
             var coords = toCanvasCoords(e, cv.canvas, cv);
             var cx = coords.cx;
             var cy = coords.cy;
-            if (cx > plot.x + plot.w) {
+            if (cx < plot.x) {
+                // Y 軸エリア → Y レンジ設定
+                openRangePopup(chartIdx, e.clientX, e.clientY, 'y');
+            } else if (cx >= plot.x && cx <= plot.x + plot.w && cy > plot.y + plot.h) {
+                // X 軸エリア → X レンジ設定
+                openRangePopup(chartIdx, e.clientX, e.clientY, 'x');
+            } else if (cx > plot.x + plot.w) {
                 // カラーバーエリア → カラーレンジ設定
                 openRangePopup(chartIdx, e.clientX, e.clientY, 'color');
             } else if (cx >= plot.x && cx <= plot.x + plot.w && cy >= plot.y && cy <= plot.y + plot.h) {
-                // プロット内部 → カラーレンジをリセット
+                // プロット内部 → X・Y・カラー全レンジをリセット
                 if (rangeOverrides[chartIdx]) {
                     delete rangeOverrides[chartIdx].color;
+                    delete rangeOverrides[chartIdx].x;
+                    delete rangeOverrides[chartIdx].y;
                 }
                 if (typeof chartRedraws[chartIdx] === 'function') {
                     chartRedraws[chartIdx](rangeOverrides[chartIdx]);
