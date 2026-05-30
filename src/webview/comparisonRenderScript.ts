@@ -2569,6 +2569,17 @@ export function getComparisonRenderScript(): string {
                 pop.style.left = (clientX + 8) + 'px';
                 pop.style.top  = (clientY + 8) + 'px';
                 pop.style.display = 'block';
+                // ビューポート外（特に X 軸 dblclick はパネル下端なので下に隠れる）に
+                // はみ出す場合はカーソルの反対側へ寄せて収める。
+                var _vw = window.innerWidth || 0;
+                var _vh = window.innerHeight || 0;
+                var _r = pop.getBoundingClientRect();
+                if (_r.height > 0 && _vh > 0 && _r.bottom > _vh) {
+                    pop.style.top = Math.max(4, clientY - _r.height - 8) + 'px';
+                }
+                if (_r.width > 0 && _vw > 0 && _r.right > _vw) {
+                    pop.style.left = Math.max(4, clientX - _r.width - 8) + 'px';
+                }
                 if (maxInput) { maxInput.focus(); }
             }
 
