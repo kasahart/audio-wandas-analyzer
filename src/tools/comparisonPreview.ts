@@ -210,7 +210,7 @@ function buildSelectionPreviewHtmlInternal(options?: { injectVsCodeApiStub?: boo
         pythonEnvironmentState: {
             pythonCommand: 'python3',
             status: 'normal',
-            tooltip: 'Click to select Python interpreter',
+            tooltip: 'Click to select Python environment',
         },
     }), options);
 }

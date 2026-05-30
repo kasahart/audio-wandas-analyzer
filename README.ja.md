@@ -39,11 +39,11 @@ source .venv/bin/activate
 pip install wandas numpy soundfile
 ```
 
-### 3. VS Code に Python のパスを伝える
+### 3. VS Code に Python 環境を伝える
 
-設定画面で `audioWandasAnalyzer.pythonCommand` を上の仮想環境の Python に変更してください。例: `/path/to/your/.venv/bin/python`。
+設定画面で `audioWandasAnalyzer.pythonCommand` を上の仮想環境フォルダに変更してください。例: `/path/to/your/.venv`。既存の `/path/to/your/.venv/bin/python` のような Python 実行ファイル指定も引き続き動作します。
 
-または、コマンドパレット (`Ctrl+Shift+P` / `Cmd+Shift+P`) から **Audio Analyzer: Select Python Environment** を実行して GUI で選択できます。
+または、コマンドパレット (`Ctrl+Shift+P` / `Cmd+Shift+P`) から **Audio Analyzer: Select Python Environment** を実行して GUI で仮想環境フォルダを選択できます。
 
 ## 使い方
 
@@ -78,13 +78,13 @@ pip install wandas numpy soundfile
 
 | 設定キー | 既定値 | 説明 |
 |---------|------|------|
-| `audioWandasAnalyzer.pythonCommand` | `python3` | バックエンドを起動する Python の実行パス |
+| `audioWandasAnalyzer.pythonCommand` | `python3` | バックエンドを起動する Python 環境フォルダ。既存の実行ファイル指定も引き続き利用可能 |
 | `audioWandasAnalyzer.defaultPeakCount` | `5` | チャンネルごとに表示する周波数ピーク数 (1–20) |
 | `audioWandasAnalyzer.debugFilePath` | `media/debug` | **Audio Analyzer: Analyze Debug Path** で開くデフォルトのパス。相対パスはワークスペースルートから解決 |
 
 ## トラブルシューティング
 
-- **「Python interpreter was not found」** — 上記の手順で wandas をインストールした Python の絶対パスを `audioWandasAnalyzer.pythonCommand` に設定してください。
+- **「Python interpreter was not found」** — `wandas` をインストールした仮想環境フォルダを `audioWandasAnalyzer.pythonCommand` に設定するか、**Audio Analyzer: Select Python Environment** から選択してください。
 - **「analyze failed」のエラー** — VS Code の **Output** パネルで **Audio Wandas Analyzer** チャンネルを確認すると、Python 側のスタックトレースが表示されます。`wandas` / `numpy` / `soundfile` がインストールされているか確認してください。
 - **音声ファイルが読み込めない** — 現状は WAV / FLAC / OGG / AIFF のみ対応。MP3 / M4A 等は非対応です。
 - **大きなファイルで重い** — 波形はズームに応じてリクエスト範囲だけ高解像度で再取得する仕組みになっており、初回読み込み後はズームしても表示は素早く更新されます。スペクトログラムの FFT 長を小さくすると更新が速くなります。

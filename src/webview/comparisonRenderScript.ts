@@ -84,7 +84,7 @@ export function getComparisonRenderScript(): string {
             let pythonEnvironmentState = state.pythonEnvironmentState || {
                 pythonCommand: 'python3',
                 status: 'normal',
-                tooltip: 'Click to select Python interpreter',
+                tooltip: 'Click to select Python environment',
             };
 
             const AXIS_W = 32;
@@ -232,7 +232,7 @@ export function getComparisonRenderScript(): string {
                 pythonEnvironmentState = {
                     pythonCommand: typeof msg.pythonCommand === 'string' ? msg.pythonCommand : 'python3',
                     status: msg.status === 'warning' ? 'warning' : 'normal',
-                    tooltip: typeof msg.tooltip === 'string' ? msg.tooltip : 'Click to select Python interpreter',
+                    tooltip: typeof msg.tooltip === 'string' ? msg.tooltip : 'Click to select Python environment',
                 };
                 syncPythonEnvironmentButton();
             });
@@ -2099,7 +2099,7 @@ export function getComparisonRenderScript(): string {
                 const buttonText = buildPythonButtonText(pythonCommand, isWarning);
                 const rawTooltip = pythonEnvironmentState && typeof pythonEnvironmentState.tooltip === 'string'
                     ? pythonEnvironmentState.tooltip
-                    : 'Click to select Python interpreter';
+                    : 'Click to select Python environment';
                 const tooltip = buildPythonTooltip(pythonCommand, rawTooltip);
 
                 if (selectionButton) {
