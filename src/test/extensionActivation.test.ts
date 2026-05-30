@@ -117,7 +117,7 @@ test('activate keeps analyze commands available when workspace test registration
                 getCurrentPythonEnvironmentState: () => ({
                     pythonCommand: 'python3',
                     status: 'normal',
-                    tooltip: 'Click to select Python interpreter',
+                    tooltip: 'Click to select Python environment',
                 }),
                 onDidChangePythonEnvironmentState: () => ({ dispose() {} }),
                 setStatusBarNormal: () => {},

@@ -86,7 +86,7 @@ const DUMMY_SELECTION_STATE = JSON.stringify({
     pythonEnvironmentState: {
         pythonCommand: 'python3',
         status: 'normal',
-        tooltip: 'Click to select Python interpreter',
+        tooltip: 'Click to select Python environment',
     },
 });
 
@@ -98,7 +98,7 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
     pythonEnvironmentState: {
         pythonCommand: '.venv/bin/python',
         status: 'normal',
-        tooltip: 'Click to select Python interpreter',
+        tooltip: 'Click to select Python environment',
     },
     results: [
         {
@@ -348,11 +348,11 @@ test('directory selection mode renders a Python environment button in the select
 
     assert.ok(selectionButton instanceof dom.window.HTMLButtonElement);
     assert.equal(selectionButton.textContent, 'Python: python3');
-    assert.equal(selectionButton.title, 'python3 — Click to select Python interpreter');
+    assert.equal(selectionButton.title, 'python3 — Click to select Python environment');
 
     assert.ok(mainToolbarButton instanceof dom.window.HTMLButtonElement);
     assert.equal(mainToolbarButton.textContent, 'Python: python3');
-    assert.equal(mainToolbarButton.title, 'python3 — Click to select Python interpreter');
+    assert.equal(mainToolbarButton.title, 'python3 — Click to select Python environment');
 });
 
 test('selection Python button posts select-python-environment when clicked', () => {
@@ -377,12 +377,12 @@ test('python-environment-state message updates the selection toolbar button stat
             type: 'python-environment-state',
             pythonCommand: '/tmp/missing-python',
             status: 'warning',
-            tooltip: 'Python interpreter was not found. Click to select another interpreter.',
+            tooltip: 'Python interpreter was not found. Click to select another environment.',
         },
     }));
 
     assert.equal(button.textContent, 'Python: missing-python ⚠');
-    assert.equal(button.title, '/tmp/missing-python — Python interpreter was not found. Click to select another interpreter.');
+    assert.equal(button.title, '/tmp/missing-python — Python interpreter was not found. Click to select another environment.');
     assert.equal(button.classList.contains('is-warning'), true);
 });
 
@@ -397,12 +397,12 @@ test('python-environment-state message shortens Windows-style path in button lab
             type: 'python-environment-state',
             pythonCommand: 'C:\\Python311\\python.exe',
             status: 'ok',
-            tooltip: 'Click to select Python interpreter',
+            tooltip: 'Click to select Python environment',
         },
     }));
 
     assert.equal(button.textContent, 'Python: python.exe');
-    assert.equal(button.title, 'C:\\Python311\\python.exe — Click to select Python interpreter');
+    assert.equal(button.title, 'C:\\Python311\\python.exe — Click to select Python environment');
 });
 
 test('directory selection mode posts analyze-selected-files immediately when a checkbox is checked', () => {
@@ -1281,6 +1281,37 @@ test('spectrum overlay: min>=max は適用されず popover を閉じない', as
     await nextAnimationFrame(env.dom);
     const after = latestSpectrumOverlayLabels(env);
     assert.deepStrictEqual(after, baseline, '不正値は適用されず軸ラベルが不変であること');
+    env.dom.window.close();
+});
+
+
+test('spectrum overlay: clamp 後にゼロ幅になる周波数レンジは適用されない', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(overlay, 'overlay canvas が存在すること');
+    const H = overlay!.height || 140;
+    const W = overlay!.width || 800;
+    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', {
+        bubbles: true, clientX: Math.floor(W / 2), clientY: H - 5,
+    }));
+
+    requestSpectrumSnapshot(env, 'pre-out-of-range-freq');
+    await nextAnimationFrame(env.dom);
+    const baseline = latestSpectrumOverlayLabels(env);
+
+    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
+    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
+    minI.value = '999999';
+    maxI.value = '1000000';
+    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
+
+    const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
+    assert.notStrictEqual(pop.style.display, 'none', 'clamp 後にゼロ幅になる入力では popover が開いたままであること');
+    requestSpectrumSnapshot(env, 'post-out-of-range-freq');
+    await nextAnimationFrame(env.dom);
+    const after = latestSpectrumOverlayLabels(env);
+    assert.deepStrictEqual(after, baseline, 'clamp 後にゼロ幅になる周波数レンジは state に反映されないこと');
     env.dom.window.close();
 });
 

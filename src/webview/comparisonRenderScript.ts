@@ -84,7 +84,7 @@ export function getComparisonRenderScript(): string {
             let pythonEnvironmentState = state.pythonEnvironmentState || {
                 pythonCommand: 'python3',
                 status: 'normal',
-                tooltip: 'Click to select Python interpreter',
+                tooltip: 'Click to select Python environment',
             };
 
             const AXIS_W = 32;
@@ -232,7 +232,7 @@ export function getComparisonRenderScript(): string {
                 pythonEnvironmentState = {
                     pythonCommand: typeof msg.pythonCommand === 'string' ? msg.pythonCommand : 'python3',
                     status: msg.status === 'warning' ? 'warning' : 'normal',
-                    tooltip: typeof msg.tooltip === 'string' ? msg.tooltip : 'Click to select Python interpreter',
+                    tooltip: typeof msg.tooltip === 'string' ? msg.tooltip : 'Click to select Python environment',
                 };
                 syncPythonEnvironmentButton();
             });
@@ -2099,7 +2099,7 @@ export function getComparisonRenderScript(): string {
                 const buttonText = buildPythonButtonText(pythonCommand, isWarning);
                 const rawTooltip = pythonEnvironmentState && typeof pythonEnvironmentState.tooltip === 'string'
                     ? pythonEnvironmentState.tooltip
-                    : 'Click to select Python interpreter';
+                    : 'Click to select Python environment';
                 const tooltip = buildPythonTooltip(pythonCommand, rawTooltip);
 
                 if (selectionButton) {
@@ -2617,8 +2617,14 @@ export function getComparisonRenderScript(): string {
                     specDbMax = max;
                 } else {
                     const mf = _lastSpectrumMaxF || 1;
-                    specFreqStart = (min === null) ? 0 : Math.max(0, Math.min(1, min / mf));
-                    specFreqEnd   = (max === null) ? 1 : Math.max(0, Math.min(1, max / mf));
+                    const nextFreqStart = (min === null) ? 0 : Math.max(0, Math.min(1, min / mf));
+                    const nextFreqEnd   = (max === null) ? 1 : Math.max(0, Math.min(1, max / mf));
+                    if (nextFreqStart >= nextFreqEnd) {
+                        if (err) { err.textContent = STR.specRangeErrorMinMax; }
+                        return;
+                    }
+                    specFreqStart = nextFreqStart;
+                    specFreqEnd = nextFreqEnd;
                 }
                 refreshSpectrumViews();
                 closeSpectrumRangePopover();

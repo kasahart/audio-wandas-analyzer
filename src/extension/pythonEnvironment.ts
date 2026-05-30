@@ -1,13 +1,14 @@
 import { spawn } from 'child_process';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 const REQUIRED_PACKAGES: readonly string[] = ['numpy', 'wandas'];
 const BROWSE_LABEL = '$(folder) Browse...';
-export const SELECT_PYTHON_INTERPRETER_TOOLTIP = 'Click to select Python interpreter';
+export const SELECT_PYTHON_INTERPRETER_TOOLTIP = 'Click to select Python environment';
 export const MISSING_DEPENDENCIES_TOOLTIP = 'Python dependencies are missing. Click to select or install.';
-export const MISSING_INTERPRETER_TOOLTIP = 'Python interpreter was not found. Click to select another interpreter.';
-export const PIP_UNAVAILABLE_TOOLTIP = 'pip is not available in this interpreter. Click to select another interpreter.';
-export const CHECK_FAILED_TOOLTIP = 'Python environment check failed. Click to select another interpreter.';
+export const MISSING_INTERPRETER_TOOLTIP = 'Python interpreter was not found. Click to select another environment.';
+export const PIP_UNAVAILABLE_TOOLTIP = 'pip is not available in this environment. Click to select another environment.';
+export const CHECK_FAILED_TOOLTIP = 'Python environment check failed. Click to select another environment.';
 
 export interface PythonEnvironmentState {
     pythonCommand: string;
@@ -57,6 +58,25 @@ interface PythonQuickPickItem extends vscode.QuickPickItem {
     pythonCommand?: string;
 }
 
+function isPythonExecutablePath(value: string): boolean {
+    return /(^|[/\\])python(?:\d+(?:\.\d+)?)?(?:\.exe)?$/iu.test(value);
+}
+
+function isLikelyCommand(value: string): boolean {
+    return /^(?:python(?:\d+(?:\.\d+)?)?|py(?:\.exe)?|python(?:\d+(?:\.\d+)?)?\.exe)$/iu.test(value);
+}
+
+export function resolvePythonCommand(
+    pythonCommand: string,
+    platform: NodeJS.Platform = process.platform,
+): string {
+    if (isPythonExecutablePath(pythonCommand) || isLikelyCommand(pythonCommand)) {
+        return pythonCommand;
+    }
+    const pathApi = platform === 'win32' ? path.win32 : path.posix;
+    return pathApi.join(pythonCommand, platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+}
+
 export function setStatusBarNormal(item: vscode.StatusBarItem, pythonCommand: string): void {
     item.text = `Python: ${pythonCommand}`;
     item.tooltip = SELECT_PYTHON_INTERPRETER_TOOLTIP;
@@ -89,14 +109,12 @@ export function setStatusBarWarning(
 
 export async function selectPythonEnvironment(statusBarItem: vscode.StatusBarItem): Promise<void> {
     const selectedItem = await vscode.window.showQuickPick<PythonQuickPickItem>([
-        { label: '.venv/bin/python', pythonCommand: '.venv/bin/python' },
-        { label: 'venv/bin/python', pythonCommand: 'venv/bin/python' },
-        { label: 'python3', pythonCommand: 'python3' },
-        { label: 'python', pythonCommand: 'python' },
+        { label: '.venv', pythonCommand: '.venv' },
+        { label: 'venv', pythonCommand: 'venv' },
         { label: 'Custom', kind: vscode.QuickPickItemKind.Separator },
         { label: BROWSE_LABEL },
     ], {
-        placeHolder: 'Select Python interpreter',
+        placeHolder: 'Select Python environment folder',
     });
 
     if (!selectedItem) {
@@ -105,13 +123,13 @@ export async function selectPythonEnvironment(statusBarItem: vscode.StatusBarIte
 
     let chosen = selectedItem.pythonCommand;
     if (selectedItem.label === BROWSE_LABEL) {
-        const selectedFile = await vscode.window.showOpenDialog({
+        const selectedFolder = await vscode.window.showOpenDialog({
             canSelectMany: false,
-            canSelectFiles: true,
-            canSelectFolders: false,
-            openLabel: 'Select Python interpreter',
+            canSelectFiles: false,
+            canSelectFolders: true,
+            openLabel: 'Select Python environment',
         });
-        chosen = selectedFile?.[0]?.fsPath;
+        chosen = selectedFolder?.[0]?.fsPath;
     }
 
     if (!chosen) {
@@ -177,9 +195,10 @@ export async function checkAndPromptInstallDependencies(
 export async function checkMissingDependencies(
     pythonCommand: string,
 ): Promise<{ missingPackages: string[] }> {
+    const resolvedPythonCommand = resolvePythonCommand(pythonCommand);
     return new Promise((resolve, reject) => {
         const process = spawn(
-            pythonCommand,
+            resolvedPythonCommand,
             ['-m', 'pip', 'show', ...REQUIRED_PACKAGES],
             {
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -199,7 +218,7 @@ export async function checkMissingDependencies(
 
         process.on('error', (error: NodeJS.ErrnoException) => {
             if (error.code === 'ENOENT' || error.code === 'EACCES') {
-                reject(new PythonNotFoundError(pythonCommand, error.message));
+                reject(new PythonNotFoundError(resolvedPythonCommand, error.message));
                 return;
             }
             reject(error);
@@ -277,9 +296,10 @@ async function promptAndInstallDependencies(
 }
 
 async function installPackages(pythonCommand: string, packages: string[]): Promise<void> {
+    const resolvedPythonCommand = resolvePythonCommand(pythonCommand);
     return new Promise((resolve, reject) => {
         const process = spawn(
-            pythonCommand,
+            resolvedPythonCommand,
             ['-m', 'pip', 'install', ...packages],
             {
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -298,7 +318,7 @@ async function installPackages(pythonCommand: string, packages: string[]): Promi
         });
 
         process.on('error', (error: Error) => {
-            reject(new Error(`Failed to start Python process (${pythonCommand}): ${error.message}`));
+            reject(new Error(`Failed to start Python process (${resolvedPythonCommand}): ${error.message}`));
         });
 
         process.on('close', (code: number | null) => {

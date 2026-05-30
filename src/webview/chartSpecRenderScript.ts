@@ -445,16 +445,31 @@ export function getChartSpecRenderScript(): string {
             let _xMax   = (xOv && xOv.max != null) ? xOv.max : xMaxAxis;
             if (_xMax <= _xMin) { _xMax = _xMin + 1; }
 
-            const cellW = plot.w / Math.max(cols, 1);
-            const cellH = plot.h / Math.max(rows, 1);
+            const xAxisRange = xMaxAxis - xMinAxis || 1;
+            const yAxisRange = yMaxAxis - yMinAxis || 1;
+            const visibleXRange = _xMax - _xMin || 1;
+            const visibleYRange = _yMax - _yMin || 1;
             for (let r = 0; r < rows; r++) {
-                const yPx = plot.y + plot.h - (r + 1) * cellH;
+                const rowY0 = yMinAxis + (r / Math.max(rows, 1)) * yAxisRange;
+                const rowY1 = yMinAxis + ((r + 1) / Math.max(rows, 1)) * yAxisRange;
+                const visY0 = Math.max(rowY0, _yMin);
+                const visY1 = Math.min(rowY1, _yMax);
+                if (visY1 <= visY0) { continue; }
+                const yPx = plot.y + plot.h - ((visY1 - _yMin) / visibleYRange) * plot.h;
+                const cellH = ((visY1 - visY0) / visibleYRange) * plot.h;
                 const row = matrix[r];
                 for (let c = 0; c < cols; c++) {
+                    const colX0 = xMinAxis + (c / Math.max(cols, 1)) * xAxisRange;
+                    const colX1 = xMinAxis + ((c + 1) / Math.max(cols, 1)) * xAxisRange;
+                    const visX0 = Math.max(colX0, _xMin);
+                    const visX1 = Math.min(colX1, _xMax);
+                    if (visX1 <= visX0) { continue; }
                     const v = row[c];
                     const t = Number.isFinite(v) ? Math.max(0, Math.min(1, (v - vMin) / vRange)) : 0;
                     ctx.fillStyle = sampleColormap(spec.colormap, t);
-                    ctx.fillRect(plot.x + c * cellW, yPx, cellW + 0.5, cellH + 0.5);
+                    const xPx = plot.x + ((visX0 - _xMin) / visibleXRange) * plot.w;
+                    const cellW = ((visX1 - visX0) / visibleXRange) * plot.w;
+                    ctx.fillRect(xPx, yPx, cellW + 0.5, cellH + 0.5);
                 }
             }
 

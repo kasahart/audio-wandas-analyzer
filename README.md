@@ -39,11 +39,11 @@ source .venv/bin/activate
 pip install wandas numpy soundfile
 ```
 
-### 3. Point VS Code at your Python interpreter
+### 3. Point VS Code at your Python environment
 
-In VS Code settings, set `audioWandasAnalyzer.pythonCommand` to the Python in the venv you just created. Example: `/path/to/your/.venv/bin/python`.
+In VS Code settings, set `audioWandasAnalyzer.pythonCommand` to the venv folder you just created. Example: `/path/to/your/.venv`. Existing Python executable values such as `/path/to/your/.venv/bin/python` still work.
 
-Or, from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`), run **Audio Analyzer: Select Python Environment** to pick it via a GUI.
+Or, from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`), run **Audio Analyzer: Select Python Environment** to pick the venv folder via a GUI.
 
 ## Usage
 
@@ -78,13 +78,13 @@ Each track's toolbar lets you flip between **Waveform** and **Spectrogram**.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `audioWandasAnalyzer.pythonCommand` | `python3` | Python executable path used to launch the analysis backend |
+| `audioWandasAnalyzer.pythonCommand` | `python3` | Python environment folder used to launch the analysis backend. Existing executable values are still accepted |
 | `audioWandasAnalyzer.defaultPeakCount` | `5` | Number of dominant frequency peaks shown per channel (1–20) |
 | `audioWandasAnalyzer.debugFilePath` | `media/debug` | Default path opened by **Audio Analyzer: Analyze Debug Path**. Relative paths resolve against the workspace root |
 
 ## Troubleshooting
 
-- **"Python interpreter was not found"** — set `audioWandasAnalyzer.pythonCommand` to the absolute path of the Python that has `wandas` installed.
+- **"Python interpreter was not found"** — set `audioWandasAnalyzer.pythonCommand` to the venv folder that has `wandas` installed, or run **Audio Analyzer: Select Python Environment**.
 - **"analyze failed" errors** — open the **Output** panel and select the **Audio Wandas Analyzer** channel to see the Python stack trace. Confirm `wandas`, `numpy`, and `soundfile` are installed.
 - **File won't load** — only WAV / FLAC / OGG / AIFF are supported. MP3 / M4A are not.
 - **Slow on large files** — the waveform requests a high-resolution slice only for the visible zoom range, so subsequent zooming is fast. Smaller FFT sizes also speed up spectrogram updates.

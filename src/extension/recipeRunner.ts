@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { RecipeRunnerResult } from '../shared/chartSpec';
+import { resolvePythonCommand } from './pythonEnvironment';
 
 const RECIPE_RUNNER_SCRIPT = 'recipe_runner.py';
 const RUN_TIMEOUT_MS = 120_000;
@@ -20,7 +21,7 @@ export interface RunRecipeOptions {
  */
 export async function runRecipe(opts: RunRecipeOptions): Promise<RecipeRunnerResult> {
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-    const pythonCommand = opts.pythonCommand ?? config.get<string>('pythonCommand', 'python3');
+    const pythonCommand = resolvePythonCommand(opts.pythonCommand ?? config.get<string>('pythonCommand', 'python3'));
     const scriptDir = path.join(opts.extensionPath, 'python-backend');
     const scriptPath = path.join(scriptDir, RECIPE_RUNNER_SCRIPT);
 

@@ -5,6 +5,7 @@ type PostedMessage = {
     type?: string;
     targetKind?: string;
     filePaths?: string[];
+    message?: string;
 };
 
 async function loadResultsUi(page: Page) {
@@ -22,6 +23,14 @@ async function getPostedMessages(page: Page): Promise<PostedMessage[]> {
         return ((window as typeof window & {
             __uiSmokePostedMessages?: PostedMessage[];
         }).__uiSmokePostedMessages ?? []);
+    });
+}
+
+async function clearPostedMessages(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        (window as typeof window & {
+            __uiSmokePostedMessages?: PostedMessage[];
+        }).__uiSmokePostedMessages = [];
     });
 }
 
@@ -134,12 +143,12 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
 
     await expect(toolbar.locator('[data-action="zoom-to-selection"]')).toBeDisabled();
 
-    await toolbar.locator('[data-action="run-recipe"]').click({ force: true });
-    await toolbar.locator('[data-action="copy-spec"]').click({ force: true });
-    await toolbar.locator('[data-action="export-png"]').click({ force: true });
-    await toolbar.locator('[data-action="export-csv"]').click({ force: true });
-    await toolbar.locator('[data-action="export-wav"]').click({ force: true });
-    await toolbar.locator('[data-action="export-report"]').click({ force: true });
+    await domClick(page, '#toolbar [data-action="run-recipe"]');
+    await domClick(page, '#toolbar [data-action="copy-spec"]');
+    await domClick(page, '#toolbar [data-action="export-png"]');
+    await domClick(page, '#toolbar [data-action="export-csv"]');
+    await domClick(page, '#toolbar [data-action="export-wav"]');
+    await domClick(page, '#toolbar [data-action="export-report"]');
 
     const messages = await getPostedMessages(page);
     expect(messages).toEqual(expect.arrayContaining([
@@ -148,6 +157,21 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
         expect.objectContaining({ type: 'select-python-environment' }),
         expect.objectContaining({ type: 'request-reanalyze' }),
         expect.objectContaining({ type: 'export-report-options' }),
+    ]));
+});
+
+test('export-wav without a loop posts a visible info message', async ({ page }) => {
+    await loadResultsUi(page);
+    await clearPostedMessages(page);
+
+    await page.locator('#toolbar [data-action="export-wav"]').click({ force: true });
+
+    const messages = await getPostedMessages(page);
+    expect(messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+            type: 'show-info',
+            message: expect.stringContaining('No loop region selected'),
+        }),
     ]));
 });
 

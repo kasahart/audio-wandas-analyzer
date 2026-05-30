@@ -21,6 +21,8 @@ function loadPythonEnvironmentModule(options: {
     const warningMessages: string[] = [];
     const errorMessages: string[] = [];
     const themeColors: string[] = [];
+    const quickPickCalls: Array<{ items: unknown[]; options: unknown }> = [];
+    const openDialogCalls: unknown[] = [];
     class EventEmitter<T> {
         private listeners: Array<(event: T) => void> = [];
 
@@ -42,8 +44,14 @@ function loadPythonEnvironmentModule(options: {
 
     const vscodeStub = {
         window: {
-            showQuickPick: async () => options.showQuickPickResult,
-            showOpenDialog: async () => options.showOpenDialogResult,
+            showQuickPick: async (items: unknown[], quickPickOptions: unknown) => {
+                quickPickCalls.push({ items, options: quickPickOptions });
+                return options.showQuickPickResult;
+            },
+            showOpenDialog: async (openDialogOptions: unknown) => {
+                openDialogCalls.push(openDialogOptions);
+                return options.showOpenDialogResult;
+            },
             showWarningMessage: async (message: string) => {
                 warningMessages.push(message);
                 return 'Dismiss';
@@ -112,6 +120,8 @@ function loadPythonEnvironmentModule(options: {
         warningMessages,
         errorMessages,
         themeColors,
+        quickPickCalls,
+        openDialogCalls,
         restore: () => {
             NodeModule._load = originalLoad;
             delete require.cache[require.resolve('../extension/pythonEnvironment')];
@@ -134,7 +144,7 @@ test('setStatusBarNormal clears warning state and shows the item', () => {
     try {
         pythonEnvironment.setStatusBarNormal(item as never, '.venv/bin/python');
         assert.equal(item.text, 'Python: .venv/bin/python');
-        assert.equal(item.tooltip, 'Click to select Python interpreter');
+        assert.equal(item.tooltip, 'Click to select Python environment');
         assert.equal(item.backgroundColor, undefined);
         assert.equal(item.showCalls, 1);
     } finally {
@@ -159,12 +169,12 @@ test('setStatusBarNormal updates the shared Python environment state', () => {
         assert.deepEqual(pythonEnvironment.getCurrentPythonEnvironmentState(), {
             pythonCommand: '.venv/bin/python',
             status: 'normal',
-            tooltip: 'Click to select Python interpreter',
+            tooltip: 'Click to select Python environment',
         });
         assert.deepEqual(emittedStates, [{
             pythonCommand: '.venv/bin/python',
             status: 'normal',
-            tooltip: 'Click to select Python interpreter',
+            tooltip: 'Click to select Python environment',
         }]);
     } finally {
         disposable.dispose();
@@ -226,11 +236,49 @@ test('setStatusBarWarning updates the shared Python environment state', () => {
     }
 });
 
-test('selectPythonEnvironment updates workspace pythonCommand from quick pick selection', async () => {
+test('resolvePythonCommand maps virtual environment folders and keeps existing interpreter values', () => {
+    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({});
+
+    try {
+        assert.equal(pythonEnvironment.resolvePythonCommand('.venv', 'linux'), '.venv/bin/python');
+        assert.equal(pythonEnvironment.resolvePythonCommand('venv', 'linux'), 'venv/bin/python');
+        assert.equal(pythonEnvironment.resolvePythonCommand('C:\\work\\.venv', 'win32'), 'C:\\work\\.venv\\Scripts\\python.exe');
+        assert.equal(pythonEnvironment.resolvePythonCommand('.venv/bin/python', 'linux'), '.venv/bin/python');
+        assert.equal(pythonEnvironment.resolvePythonCommand('python3', 'linux'), 'python3');
+    } finally {
+        restore();
+    }
+});
+
+test('selectPythonEnvironment shows virtual environment folder choices only', async () => {
+    const { pythonEnvironment, quickPickCalls, restore } = loadPythonEnvironmentModule({});
+
+    try {
+        await pythonEnvironment.selectPythonEnvironment({
+            text: '',
+            tooltip: '',
+            backgroundColor: undefined,
+            show() {},
+        } as never);
+        assert.deepEqual(quickPickCalls, [{
+            items: [
+                { label: '.venv', pythonCommand: '.venv' },
+                { label: 'venv', pythonCommand: 'venv' },
+                { label: 'Custom', kind: -1 },
+                { label: '$(folder) Browse...' },
+            ],
+            options: { placeHolder: 'Select Python environment folder' },
+        }]);
+    } finally {
+        restore();
+    }
+});
+
+test('selectPythonEnvironment updates workspace pythonCommand from quick pick environment folder', async () => {
     const { pythonEnvironment, updates, restore } = loadPythonEnvironmentModule({
-        showQuickPickResult: { label: 'python3', pythonCommand: 'python3' },
+        showQuickPickResult: { label: '.venv', pythonCommand: '.venv' },
         workspaceFolders: [{}],
-        currentPythonCommand: 'python',
+        currentPythonCommand: 'python3',
     });
 
     try {
@@ -240,19 +288,19 @@ test('selectPythonEnvironment updates workspace pythonCommand from quick pick se
             backgroundColor: undefined,
             show() {},
         } as never);
-        assert.deepEqual(updates, [{ key: 'pythonCommand', value: 'python3', target: 'workspace' }]);
+        assert.deepEqual(updates, [{ key: 'pythonCommand', value: '.venv', target: 'workspace' }]);
     } finally {
         restore();
     }
 });
 
-test('selectPythonEnvironment re-checks immediately when the selected interpreter is already configured', async () => {
-    let spawnCalls = 0;
+test('selectPythonEnvironment re-checks immediately when the selected environment folder is already configured', async () => {
+    let spawnedCommand = '';
     const { pythonEnvironment, updates, restore } = loadPythonEnvironmentModule({
-        showQuickPickResult: { label: 'python3', pythonCommand: 'python3' },
-        currentPythonCommand: 'python3',
-        spawnImpl: () => {
-            spawnCalls += 1;
+        showQuickPickResult: { label: '.venv', pythonCommand: '.venv' },
+        currentPythonCommand: '.venv',
+        spawnImpl: (pythonCommand?: unknown) => {
+            spawnedCommand = String(pythonCommand);
             const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
             proc.stdout = new EventEmitter();
             proc.stderr = new EventEmitter();
@@ -271,15 +319,15 @@ test('selectPythonEnvironment re-checks immediately when the selected interprete
             backgroundColor: undefined,
             show() {},
         } as never);
-        assert.equal(spawnCalls, 1);
+        assert.equal(spawnedCommand, '.venv/bin/python');
         assert.deepEqual(updates, []);
     } finally {
         restore();
     }
 });
 
-test('selectPythonEnvironment falls back to global config for browsed interpreter without workspace', async () => {
-    const { pythonEnvironment, updates, restore } = loadPythonEnvironmentModule({
+test('selectPythonEnvironment falls back to global config for browsed environment folder without workspace', async () => {
+    const { pythonEnvironment, updates, openDialogCalls, restore } = loadPythonEnvironmentModule({
         showQuickPickResult: { label: '$(folder) Browse...' },
         showOpenDialogResult: [{ fsPath: '/tmp/custom-python' }],
         currentPythonCommand: 'python3',
@@ -293,6 +341,12 @@ test('selectPythonEnvironment falls back to global config for browsed interprete
             show() {},
         } as never);
         assert.deepEqual(updates, [{ key: 'pythonCommand', value: '/tmp/custom-python', target: 'global' }]);
+        assert.deepEqual(openDialogCalls, [{
+            canSelectMany: false,
+            canSelectFiles: false,
+            canSelectFolders: true,
+            openLabel: 'Select Python environment',
+        }]);
     } finally {
         restore();
     }
@@ -392,9 +446,9 @@ test('checkAndPromptInstallDependencies warns when interpreter is missing', asyn
     try {
         await pythonEnvironment.checkAndPromptInstallDependencies('missing-python', item as never);
         assert.equal(item.text, 'Python: missing-python $(warning)');
-        assert.equal(item.tooltip, 'Python interpreter was not found. Click to select another interpreter.');
+        assert.equal(item.tooltip, 'Python interpreter was not found. Click to select another environment.');
         assert.equal(warningMessages.length, 1);
-        assert.match(warningMessages[0], /Python interpreter not found: missing-python/u);
+        assert.match(warningMessages[0], /Python interpreter not found: missing-python\/bin\/python/u);
     } finally {
         restore();
     }
@@ -422,7 +476,7 @@ test('checkAndPromptInstallDependencies shows pip-specific warning state', async
 
     try {
         await pythonEnvironment.checkAndPromptInstallDependencies('python3', item as never);
-        assert.equal(item.tooltip, 'pip is not available in this interpreter. Click to select another interpreter.');
+        assert.equal(item.tooltip, 'pip is not available in this environment. Click to select another environment.');
         assert.deepEqual(warningMessages, ['pip is not available in python3']);
     } finally {
         restore();
@@ -453,7 +507,7 @@ test('checkAndPromptInstallDependencies treats unexpected pip show exit as check
 
     try {
         await assert.doesNotReject(() => pythonEnvironment.checkAndPromptInstallDependencies('python3', item as never));
-        assert.equal(item.tooltip, 'Python environment check failed. Click to select another interpreter.');
+        assert.equal(item.tooltip, 'Python environment check failed. Click to select another environment.');
         assert.deepEqual(errorMessages, ['Failed to check Python dependencies: ERROR: internal pip failure']);
     } finally {
         console.error = originalConsoleError;
@@ -470,9 +524,9 @@ test('checkAndPromptInstallDependencies ignores stale results from older request
             proc.stdout = new EventEmitter();
             proc.stderr = new EventEmitter();
 
-            if (pythonCommand === 'python-old') {
+            if (pythonCommand === 'old-env/bin/python') {
                 oldProc = proc;
-            } else if (pythonCommand === 'python-new') {
+            } else if (pythonCommand === 'new-env/bin/python') {
                 newProc = proc;
             }
 
@@ -491,8 +545,8 @@ test('checkAndPromptInstallDependencies ignores stale results from older request
     });
 
     try {
-        const oldCheck = pythonEnvironment.checkAndPromptInstallDependencies('python-old', item as never);
-        const newCheck = pythonEnvironment.checkAndPromptInstallDependencies('python-new', item as never);
+        const oldCheck = pythonEnvironment.checkAndPromptInstallDependencies('old-env', item as never);
+        const newCheck = pythonEnvironment.checkAndPromptInstallDependencies('new-env', item as never);
 
         assert.ok(oldProc);
         assert.ok(newProc);
@@ -506,13 +560,13 @@ test('checkAndPromptInstallDependencies ignores stale results from older request
 
         await Promise.all([oldCheck, newCheck]);
 
-        assert.equal(item.text, 'Python: python-new');
-        assert.equal(item.tooltip, 'Click to select Python interpreter');
+        assert.equal(item.text, 'Python: new-env');
+        assert.equal(item.tooltip, 'Click to select Python environment');
         assert.equal(warningMessages.length, 0);
         assert.deepEqual(emittedStates, [{
-            pythonCommand: 'python-new',
+            pythonCommand: 'new-env',
             status: 'normal',
-            tooltip: 'Click to select Python interpreter',
+            tooltip: 'Click to select Python environment',
         }]);
     } finally {
         disposable.dispose();
@@ -544,7 +598,7 @@ test('checkAndPromptInstallDependencies swallows unexpected errors and shows an 
 
     try {
         await assert.doesNotReject(() => pythonEnvironment.checkAndPromptInstallDependencies('python3', item as never));
-        assert.equal(item.tooltip, 'Python environment check failed. Click to select another interpreter.');
+        assert.equal(item.tooltip, 'Python environment check failed. Click to select another environment.');
         assert.deepEqual(errorMessages, ['Failed to check Python dependencies: boom']);
     } finally {
         console.error = originalConsoleError;
