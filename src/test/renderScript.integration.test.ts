@@ -1246,3 +1246,4 @@ test('spectrum overlay: min>=max は error 表示し popover を閉じない', a
     assert.notStrictEqual(pop.style.display, 'none', 'エラー時は popover が開いたままであること');
     env.dom.window.close();
 });
+
