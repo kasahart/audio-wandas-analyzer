@@ -4,6 +4,14 @@
 
 -
 
+## GUI reachability
+
+- [ ] GUI entry point is present for every changed user-facing feature
+- [ ] Changed command/action/shortcut is listed in `src/shared/gui/guiTriggerabilityInventory.ts`
+- [ ] User-visible feedback exists for every changed GUI action
+- [ ] Regression layer is `node:test`, `ui-smoke`, or `vscode-e2e`
+- [ ] Related Issue state is updated or explicitly left open
+
 ## Verification
 
 - [ ] `npm run verify` passes locally

@@ -84,6 +84,8 @@ scripts/worktree-new.sh <feature-slug> [base-branch]   # base 既定: main
 
 `npm run compile` は実行前に `scripts/clean-dist.js` で **対応する `src/**/*.ts` が存在しない tsc 出力 (`.js` / `.js.map`)** を自動削除する。ブランチ切替や rebase 後に古いテスト .js が node:test に拾われる事故 (stale dist) を防ぐ。`.json` や画像など tsc が emit しないファイルは対象外で誤削除されない。別 build スクリプトが生成する成果物 (現状は将来予定の `dist/webview/comparisonWaveform.js`) は `PROTECTED_RELATIVE` で保護する。
 
+TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.js` が compile で生成される実行物。Webview のバンドル生成物も手で編集せず、元の TS と build script を直す。
+
 ---
 
 ## 4. Architecture — key files
@@ -164,6 +166,8 @@ trackDurRatio  = durationSeconds / globalSpanSec
   - startup debug automation and environment-variable-only flows
   - test-only actions / snapshots / internal diagnostics
 - When adding a new GUI feature, update the inventory and the matching regression layer in the same change
+- A user-facing GUI feature is not complete until it has a reachable entry point, a perceptible result or feedback, and at least one real regression layer: `node:test`, `ui-smoke`, or `vscode-e2e`
+- `planned` is not a valid regression layer; temporary uncovered work must carry `coverageDebt: { issue, reason }` with `issue` as `#123` or a GitHub issue URL
 
 ---
 
