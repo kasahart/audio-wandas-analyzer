@@ -159,6 +159,7 @@ export function getComparisonRenderScript(): string {
             let specDbMax = null;
             let _lastVisDbMin = null;   // 前回レンダリング時の visDbMin キャッシュ
             let _lastVisDbMax = null;
+            let _lastSpectrumMaxF = 0;   // overlay の最大周波数(Hz) キャッシュ（freq popover 用）
             let specDragAnchor  = null; // { freqNorm, dbNorm } | null
             let specDragCurrent = null; // { freqNorm, dbNorm } | null
             // ── 波形モード ────────────────────────────────────────
@@ -1776,6 +1777,23 @@ export function getComparisonRenderScript(): string {
                             }
                             refreshSpectrumViews();
                         });
+                        overlayCanvas.addEventListener('dblclick', function(e) {
+                            const rect = overlayCanvas.getBoundingClientRect();
+                            const scaleX = overlayCanvas.width  / (rect.width  || overlayCanvas.width);
+                            const scaleY = overlayCanvas.height / (rect.height || overlayCanvas.height);
+                            const cx = (e.clientX - rect.left) * scaleX;
+                            const cy = (e.clientY - rect.top)  * scaleY;
+                            const padL = 36, padR = 8, padT = 8, padB = 18;
+                            const W = overlayCanvas.width, H = overlayCanvas.height;
+                            if (_lastSpectrumMaxF <= 0) { return; } // データ無し
+                            if (cx < padL) {
+                                openSpectrumRangePopup('db', e.clientX, e.clientY);
+                            } else if (cx >= padL && cx <= W - padR && cy > H - padB) {
+                                openSpectrumRangePopup('freq', e.clientX, e.clientY);
+                            } else if (cx >= padL && cx <= W - padR && cy >= padT && cy <= H - padB) {
+                                specZoomReset();
+                            }
+                        });
                     }
                     document.querySelectorAll('.track-spectrum-canvas').forEach(function(c) {
                         c.addEventListener('mousemove', function(e) { onSpectrumMove(32, 6, c, e); });
@@ -2492,6 +2510,122 @@ export function getComparisonRenderScript(): string {
                 specDbMax     = null;
                 refreshSpectrumViews();
             }
+
+            // ── スペクトル overlay レンジ popover ──
+            let _specRangeAxis = 'freq'; // 'freq' | 'db'
+
+            (function buildSpectrumRangePopover() {
+                if (document.getElementById('spectrum-range-popover')) { return; }
+                const pop = document.createElement('div');
+                pop.id = 'spectrum-range-popover';
+                pop.style.cssText = 'display:none;position:fixed;z-index:9999;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-size:12px;color:var(--text);box-shadow:0 4px 12px rgba(0,0,0,.4);min-width:180px;';
+                const inputStyle = 'width:90px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;';
+                const labelStyle = 'width:42px;font-size:11px;color:var(--muted);';
+                pop.innerHTML =
+                    '<div style="margin-bottom:8px;font-weight:600;font-size:11px;color:var(--muted);">'
+                    + escHtml(STR.specRangeTitle)
+                    + ' <span id="spec-range-axis-badge" style="padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;color:#fff;background:#0e639c;"></span>'
+                    + '</div>'
+                    + '<div style="display:flex;flex-direction:column;gap:4px;">'
+                    + '<label style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escHtml(STR.specRangeMin) + '</span><input id="spec-range-min" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
+                    + '<label style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escHtml(STR.specRangeMax) + '</span><input id="spec-range-max" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
+                    + '</div>'
+                    + '<div style="display:flex;gap:6px;margin-top:8px;">'
+                    + '<button class="tb-btn" id="spec-range-apply" style="flex:1;">' + escHtml(STR.specRangeApply) + '</button>'
+                    + '<button class="tb-btn" id="spec-range-auto" style="flex:1;">' + escHtml(STR.specRangeAuto) + '</button>'
+                    + '<button class="tb-btn" id="spec-range-close" aria-label="Close">×</button>'
+                    + '</div>'
+                    + '<div id="spec-range-error" style="color:#f48771;font-size:11px;margin-top:4px;min-height:14px;"></div>';
+                document.body.appendChild(pop);
+            })();
+
+            function closeSpectrumRangePopover() {
+                const pop = document.getElementById('spectrum-range-popover');
+                if (pop) { pop.style.display = 'none'; }
+                const err = document.getElementById('spec-range-error');
+                if (err) { err.textContent = ''; }
+            }
+
+            function openSpectrumRangePopup(axis, clientX, clientY) {
+                _specRangeAxis = axis;
+                const pop = document.getElementById('spectrum-range-popover');
+                if (!pop) { return; }
+                const badge = document.getElementById('spec-range-axis-badge');
+                const minInput = document.getElementById('spec-range-min');
+                const maxInput = document.getElementById('spec-range-max');
+                const err = document.getElementById('spec-range-error');
+                if (err) { err.textContent = ''; }
+                if (axis === 'db') {
+                    if (badge) { badge.textContent = STR.specRangeAxisDb; }
+                    minInput.value = (specDbMin != null) ? String(specDbMin)
+                        : (_lastVisDbMin != null ? String(Math.round(_lastVisDbMin)) : '');
+                    maxInput.value = (specDbMax != null) ? String(specDbMax)
+                        : (_lastVisDbMax != null ? String(Math.round(_lastVisDbMax)) : '');
+                } else {
+                    if (badge) { badge.textContent = STR.specRangeAxisFreq; }
+                    minInput.value = String(Math.round(specFreqStart * _lastSpectrumMaxF));
+                    maxInput.value = String(Math.round(specFreqEnd * _lastSpectrumMaxF));
+                }
+                pop.style.left = (clientX + 8) + 'px';
+                pop.style.top  = (clientY + 8) + 'px';
+                pop.style.display = 'block';
+                if (maxInput) { maxInput.focus(); }
+            }
+
+            function applySpectrumRange() {
+                const minInput = document.getElementById('spec-range-min');
+                const maxInput = document.getElementById('spec-range-max');
+                const err = document.getElementById('spec-range-error');
+                if (!minInput || !maxInput) { return; }
+                const minVal = minInput.value.trim();
+                const maxVal = maxInput.value.trim();
+                const min = minVal === '' ? null : Number(minVal);
+                const max = maxVal === '' ? null : Number(maxVal);
+                if (err) { err.textContent = ''; }
+                if (min !== null && !isFinite(min)) { if (err) { err.textContent = STR.specRangeErrorMinMax; } return; }
+                if (max !== null && !isFinite(max)) { if (err) { err.textContent = STR.specRangeErrorMinMax; } return; }
+                if (min !== null && max !== null && min >= max) { if (err) { err.textContent = STR.specRangeErrorMinMax; } return; }
+                if (_specRangeAxis === 'db') {
+                    specDbMin = min;
+                    specDbMax = max;
+                } else {
+                    const mf = _lastSpectrumMaxF || 1;
+                    specFreqStart = (min === null) ? 0 : Math.max(0, Math.min(1, min / mf));
+                    specFreqEnd   = (max === null) ? 1 : Math.max(0, Math.min(1, max / mf));
+                }
+                refreshSpectrumViews();
+                closeSpectrumRangePopover();
+            }
+
+            function autoSpectrumRange() {
+                if (_specRangeAxis === 'db') {
+                    specDbMin = null;
+                    specDbMax = null;
+                } else {
+                    specFreqStart = 0;
+                    specFreqEnd = 1;
+                }
+                refreshSpectrumViews();
+                closeSpectrumRangePopover();
+            }
+
+            (function wireSpectrumRangeHandlers() {
+                const applyBtn = document.getElementById('spec-range-apply');
+                const autoBtn  = document.getElementById('spec-range-auto');
+                const closeBtn = document.getElementById('spec-range-close');
+                if (applyBtn) { applyBtn.addEventListener('click', applySpectrumRange); }
+                if (autoBtn)  { autoBtn.addEventListener('click', autoSpectrumRange); }
+                if (closeBtn) { closeBtn.addEventListener('click', closeSpectrumRangePopover); }
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') { closeSpectrumRangePopover(); }
+                });
+                document.addEventListener('mousedown', function(e) {
+                    const pop = document.getElementById('spectrum-range-popover');
+                    if (pop && pop.style.display !== 'none' && !pop.contains(e.target)) {
+                        closeSpectrumRangePopover();
+                    }
+                });
+            })();
 
             function copySpecToClipboard() {
                 if (!navigator.clipboard || !navigator.clipboard.writeText) {

@@ -142,6 +142,14 @@ export interface UiStrings {
     ariaSpecZoomOut: string;
     ariaSpecZoomReset: string;
     btnSpecZoomReset: string;
+    specRangeTitle: string;
+    specRangeAxisFreq: string;
+    specRangeAxisDb: string;
+    specRangeMin: string;
+    specRangeMax: string;
+    specRangeApply: string;
+    specRangeAuto: string;
+    specRangeErrorMinMax: string;
     helpRowSpectrumDrag: string;
     helpRowWaveRectZoom: string;
     waveModeLabelRectZoom: string;
