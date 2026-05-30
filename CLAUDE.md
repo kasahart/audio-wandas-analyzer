@@ -28,3 +28,4 @@ Prefer these over recreating DSP code by hand.
 - Use `TodoWrite` for any task with 3+ steps.
 - Use the `Explore` subagent for codebase-wide questions; use direct `Read`/`Grep` for known paths.
 - Before declaring done, run `npm run verify`. If the change touches Webview runtime behavior, also run `npm run test:ui`. If either command can't run in your sandbox, say so explicitly rather than claiming success.
+- Edit TS sources, not generated JS under `dist/`. For GUI work, keep command/action/shortcut entry points in `src/shared/gui/guiTriggerabilityInventory.ts` and pair them with visible feedback plus a real regression layer. `planned` is not allowed.

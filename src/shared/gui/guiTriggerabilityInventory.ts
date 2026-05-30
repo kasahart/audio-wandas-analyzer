@@ -12,7 +12,12 @@ export type GuiEntryPointKind =
     | 'keyboard'
     | 'dialog';
 
-export type GuiRegressionLayer = 'node:test' | 'ui-smoke' | 'vscode-e2e' | 'planned';
+export type GuiRegressionLayer = 'node:test' | 'ui-smoke' | 'vscode-e2e';
+
+export interface GuiCoverageDebt {
+    issue: string;
+    reason: string;
+}
 
 export interface GuiTriggerabilityFeature {
     id: string;
@@ -20,6 +25,7 @@ export interface GuiTriggerabilityFeature {
     entryPoints: readonly GuiEntryPointKind[];
     triggers: readonly string[];
     regressionLayers: readonly GuiRegressionLayer[];
+    coverageDebt?: GuiCoverageDebt;
 }
 
 export const GUI_TRIGGERABILITY_SCOPED_COMMAND_IDS = [
@@ -88,21 +94,21 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Open analysis target from the welcome view',
         entryPoints: ['welcome-view', 'drag-and-drop', 'command'],
         triggers: ['audioWandasAnalyzer.analyzeFile', 'welcome-drop-target'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'vscode-e2e'],
     },
     {
         id: 'explorer-open-target',
         label: 'Open analysis target from the explorer context menu',
         entryPoints: ['explorer-context', 'command'],
         triggers: ['audioWandasAnalyzer.analyzeThisTarget'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'vscode-e2e'],
     },
     {
         id: 'python-environment-selection',
         label: 'Select the Python interpreter from GUI surfaces',
         entryPoints: ['status-bar', 'selection-toolbar', 'results-toolbar', 'quick-pick', 'command'],
         triggers: ['audioWandasAnalyzer.selectPythonEnvironment', 'select-python-environment'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'directory-selection',
@@ -137,84 +143,84 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Zoom the spectrogram frequency range',
         entryPoints: ['results-toolbar', 'canvas-gesture'],
         triggers: ['spec-zoom-out', 'spec-zoom-in', 'spec-zoom-reset', 'Drag (spectrum)'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'waveform-mode',
         label: 'Switch waveform interaction mode',
         entryPoints: ['results-toolbar'],
         triggers: ['wave-mode-rect-zoom'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'recipe-runner',
         label: 'Run a wandas recipe from the comparison panel',
         entryPoints: ['results-toolbar', 'command', 'dialog'],
         triggers: ['audioWandasAnalyzer.runRecipe', 'run-recipe'],
-        regressionLayers: ['planned'],
+        regressionLayers: ['ui-smoke'],
     },
     {
         id: 'copy-spec',
         label: 'Copy the analysis spec to the clipboard',
         entryPoints: ['results-toolbar'],
         triggers: ['copy-spec'],
-        regressionLayers: ['planned'],
+        regressionLayers: ['ui-smoke'],
     },
     {
         id: 'export-png',
         label: 'Export the current view as PNG',
         entryPoints: ['results-toolbar'],
         triggers: ['export-png'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'export-csv',
         label: 'Export the current spectrum slice as CSV',
         entryPoints: ['results-toolbar'],
         triggers: ['export-csv'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'export-wav',
         label: 'Export the current loop region as WAV',
         entryPoints: ['results-toolbar', 'dialog'],
         triggers: ['export-wav'],
-        regressionLayers: ['planned'],
+        regressionLayers: ['ui-smoke'],
     },
     {
         id: 'export-report',
         label: 'Export a Markdown or notebook report',
         entryPoints: ['results-toolbar', 'dialog'],
         triggers: ['export-report'],
-        regressionLayers: ['planned'],
+        regressionLayers: ['ui-smoke'],
     },
     {
         id: 'track-visual-controls',
         label: 'Control track color, visibility, and ordering aids',
         entryPoints: ['track-control'],
         triggers: ['pick-color', 'remove-track'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'track-playback',
         label: 'Start and stop per-track playback',
         entryPoints: ['track-control', 'keyboard'],
         triggers: ['toggle-playback', 'stop-playback', 'Space'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'track-offset',
         label: 'Adjust per-track offset with buttons and drag gestures',
         entryPoints: ['track-control', 'canvas-gesture', 'keyboard'],
         triggers: ['offset-up', 'offset-down', 'Drag', 'Shift+Drag', '← / →'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'waveform-canvas-gestures',
         label: 'Create, resize, clear, and reuse loop regions from the waveform canvas',
         entryPoints: ['canvas-gesture', 'keyboard'],
         triggers: ['Drag', 'Drag (zoom mode)', 'Shift+Drag', 'L'],
-        regressionLayers: ['node:test', 'planned'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'help-overlay',

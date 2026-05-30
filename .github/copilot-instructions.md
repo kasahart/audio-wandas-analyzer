@@ -41,6 +41,10 @@ Never suggest edits to these directories — they are generated, vendored, or en
 
 `src/webview/waveform/waveformRenderer.ts` is the single source of truth for the comparison panel's waveform rendering. `scripts/build-webview.js` (run automatically by `npm run compile`) wraps its CJS output in an IIFE and emits `dist/webview/comparisonWaveform.js`, which the Webview loads via `<script src>`. Do not hand-edit the generated file.
 
+## GUI completion
+
+User-facing GUI changes are complete only when the command/action/shortcut is reachable from the GUI, produces a perceptible result or feedback, is listed in `src/shared/gui/guiTriggerabilityInventory.ts`, and has a real regression layer: `node:test`, `ui-smoke`, or `vscode-e2e`. Do not use `planned` as a coverage placeholder.
+
 ## Python style
 
 - Use `ruff` (configured in `pyproject.toml`). Run `ruff format python-backend` before suggesting a commit.

@@ -18,8 +18,9 @@ Fill every section. Vague briefs produce vague work.
 
 <!-- Concrete, testable bullets. Avoid adjectives like "better" or "cleaner". -->
 
-- [ ]
-- [ ]
+- [ ] User-facing GUI changes have a reachable GUI entry point
+- [ ] Every changed GUI action has a perceptible user-visible result
+- [ ] Regression coverage is listed as `node:test`, `ui-smoke`, or `vscode-e2e`
 
 ## Relevant files
 

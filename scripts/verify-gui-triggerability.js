@@ -53,18 +53,72 @@ function loadInventory(repoRoot) {
     return requireBuiltModule(repoRoot, path.join('dist', 'shared', 'gui', 'guiTriggerabilityInventory.js'));
 }
 
+const ALLOWED_REGRESSION_LAYERS = ['node:test', 'ui-smoke', 'vscode-e2e'];
+const COVERAGE_DEBT_ISSUE_PATTERN = /^(#\d+|https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/\d+)$/u;
+const EXTRA_INVENTORY_TRIGGERS = ['analyze-selected-files', 'welcome-drop-target'];
+
+function collectFeatureTriggers(features) {
+    return sortUnique(features.flatMap((feature) => Array.isArray(feature.triggers) ? feature.triggers : []));
+}
+
+function collectInvalidRegressionLayers(features) {
+    return features.flatMap((feature) => {
+        const layers = Array.isArray(feature.regressionLayers) ? feature.regressionLayers : [];
+        return layers
+            .filter((layer) => !ALLOWED_REGRESSION_LAYERS.includes(layer))
+            .map((layer) => feature.id + ': ' + layer);
+    }).sort();
+}
+
+function collectFeaturesWithoutRegressionCoverage(features) {
+    return features
+        .filter((feature) => {
+            const layers = Array.isArray(feature.regressionLayers) ? feature.regressionLayers : [];
+            return layers.length === 0 && !feature.coverageDebt;
+        })
+        .map((feature) => feature.id)
+        .sort();
+}
+
+function collectInvalidCoverageDebt(features) {
+    return features
+        .filter((feature) => feature.coverageDebt)
+        .filter((feature) => {
+            const debt = feature.coverageDebt;
+            return typeof debt.issue !== 'string'
+                || !COVERAGE_DEBT_ISSUE_PATTERN.test(debt.issue)
+                || typeof debt.reason !== 'string'
+                || debt.reason.trim().length === 0;
+        })
+        .map((feature) => feature.id)
+        .sort();
+}
+
 function verifyGuiTriggerability(repoRoot) {
     const inventory = loadInventory(repoRoot);
+    const scopedCommands = sortUnique(inventory.GUI_TRIGGERABILITY_SCOPED_COMMAND_IDS);
+    const excludedCommands = sortUnique(inventory.GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS);
     const knownCommands = sortUnique([
-        ...inventory.GUI_TRIGGERABILITY_SCOPED_COMMAND_IDS,
-        ...inventory.GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS,
+        ...scopedCommands,
+        ...excludedCommands,
     ]);
     const knownWebviewActions = sortUnique(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS);
     const knownShortcuts = sortUnique(inventory.GUI_TRIGGERABILITY_SCOPED_SHORTCUTS);
+    const features = Array.isArray(inventory.GUI_TRIGGERABILITY_FEATURES)
+        ? inventory.GUI_TRIGGERABILITY_FEATURES
+        : [];
+    const featureTriggers = collectFeatureTriggers(features);
+    const knownFeatureTriggers = sortUnique([
+        ...scopedCommands,
+        ...knownWebviewActions,
+        ...knownShortcuts,
+        ...EXTRA_INVENTORY_TRIGGERS,
+    ]);
 
     const commandDiff = diff(knownCommands, collectPackageCommands(repoRoot));
     const actionDiff = diff(knownWebviewActions, collectWebviewActionIds(repoRoot));
     const shortcutDiff = diff(knownShortcuts, collectShortcutLabels(repoRoot));
+    const featureTriggerDiff = diff(knownFeatureTriggers, featureTriggers);
 
     return {
         missingCommands: commandDiff.missing,
@@ -73,6 +127,13 @@ function verifyGuiTriggerability(repoRoot) {
         unexpectedWebviewActions: actionDiff.unexpected,
         missingShortcuts: shortcutDiff.missing,
         unexpectedShortcuts: shortcutDiff.unexpected,
+        orphanScopedCommands: scopedCommands.filter((command) => !featureTriggers.includes(command)),
+        orphanWebviewActions: knownWebviewActions.filter((action) => !featureTriggers.includes(action)),
+        orphanScopedShortcuts: knownShortcuts.filter((shortcut) => !featureTriggers.includes(shortcut)),
+        unknownFeatureTriggers: featureTriggerDiff.unexpected,
+        featuresWithoutRegressionCoverage: collectFeaturesWithoutRegressionCoverage(features),
+        invalidRegressionLayers: collectInvalidRegressionLayers(features),
+        invalidCoverageDebt: collectInvalidCoverageDebt(features),
     };
 }
 
@@ -88,6 +149,13 @@ function printReport(report) {
         ['unexpectedWebviewActions', report.unexpectedWebviewActions],
         ['missingShortcuts', report.missingShortcuts],
         ['unexpectedShortcuts', report.unexpectedShortcuts],
+        ['orphanScopedCommands', report.orphanScopedCommands],
+        ['orphanWebviewActions', report.orphanWebviewActions],
+        ['orphanScopedShortcuts', report.orphanScopedShortcuts],
+        ['unknownFeatureTriggers', report.unknownFeatureTriggers],
+        ['featuresWithoutRegressionCoverage', report.featuresWithoutRegressionCoverage],
+        ['invalidRegressionLayers', report.invalidRegressionLayers],
+        ['invalidCoverageDebt', report.invalidCoverageDebt],
     ];
 
     for (const [label, values] of lines) {
