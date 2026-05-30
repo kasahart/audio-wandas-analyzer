@@ -2526,9 +2526,9 @@ export function getComparisonRenderScript(): string {
                     + escHtml(STR.specRangeTitle)
                     + ' <span id="spec-range-axis-badge" style="padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;color:#fff;background:#0e639c;"></span>'
                     + '</div>'
-                    + '<div style="display:flex;flex-direction:column;gap:4px;">'
-                    + '<label style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escHtml(STR.specRangeMin) + '</span><input id="spec-range-min" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
-                    + '<label style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escHtml(STR.specRangeMax) + '</span><input id="spec-range-max" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
+                    + '<div id="spec-range-inputs" style="display:flex;flex-direction:column;gap:4px;align-items:center;">'
+                    + '<label id="spec-range-min-label" style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escHtml(STR.specRangeMin) + '</span><input id="spec-range-min" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
+                    + '<label id="spec-range-max-label" style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escHtml(STR.specRangeMax) + '</span><input id="spec-range-max" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
                     + '</div>'
                     + '<div style="display:flex;gap:6px;margin-top:8px;">'
                     + '<button class="tb-btn" id="spec-range-apply" style="flex:1;">' + escHtml(STR.specRangeApply) + '</button>'
@@ -2565,6 +2565,22 @@ export function getComparisonRenderScript(): string {
                     if (badge) { badge.textContent = STR.specRangeAxisFreq; }
                     minInput.value = String(Math.round(specFreqStart * _lastSpectrumMaxF));
                     maxInput.value = String(Math.round(specFreqEnd * _lastSpectrumMaxF));
+                }
+                // レイアウト: Y(dB) 軸は縦並びで Max 上 / Min 下、
+                // X(周波数) 軸は横並びで Min 左 / Max 右。
+                var inputsBox = document.getElementById('spec-range-inputs');
+                var minLabel = document.getElementById('spec-range-min-label');
+                var maxLabel = document.getElementById('spec-range-max-label');
+                if (inputsBox && minLabel && maxLabel) {
+                    if (axis === 'db') {
+                        inputsBox.style.flexDirection = 'column';
+                        maxLabel.style.order = '0'; // Max 上
+                        minLabel.style.order = '1'; // Min 下
+                    } else {
+                        inputsBox.style.flexDirection = 'row';
+                        minLabel.style.order = '0'; // Min 左
+                        maxLabel.style.order = '1'; // Max 右
+                    }
                 }
                 pop.style.left = (clientX + 8) + 'px';
                 pop.style.top  = (clientY + 8) + 'px';
