@@ -2617,8 +2617,14 @@ export function getComparisonRenderScript(): string {
                     specDbMax = max;
                 } else {
                     const mf = _lastSpectrumMaxF || 1;
-                    specFreqStart = (min === null) ? 0 : Math.max(0, Math.min(1, min / mf));
-                    specFreqEnd   = (max === null) ? 1 : Math.max(0, Math.min(1, max / mf));
+                    const nextFreqStart = (min === null) ? 0 : Math.max(0, Math.min(1, min / mf));
+                    const nextFreqEnd   = (max === null) ? 1 : Math.max(0, Math.min(1, max / mf));
+                    if (nextFreqStart >= nextFreqEnd) {
+                        if (err) { err.textContent = STR.specRangeErrorMinMax; }
+                        return;
+                    }
+                    specFreqStart = nextFreqStart;
+                    specFreqEnd = nextFreqEnd;
                 }
                 refreshSpectrumViews();
                 closeSpectrumRangePopover();

@@ -4,7 +4,11 @@ import { JSDOM } from 'jsdom';
 import { getChartSpecRenderScript } from '../webview/chartSpecRenderScript';
 
 // Shared canvas stub helper to avoid duplication across tests
-function applyCanvasStub(doc: Document, fillTextSpy?: (text: string) => void) {
+function applyCanvasStub(
+    doc: Document,
+    fillTextSpy?: (text: string) => void,
+    fillRectSpy?: (x: number, y: number, width: number, height: number) => void,
+) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const origCreate = (doc as any).createElement.bind(doc);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -17,6 +21,7 @@ function applyCanvasStub(doc: Document, fillTextSpy?: (text: string) => void) {
                     if (p === 'canvas') { return el; }
                     if (p === 'measureText') { return () => ({ width: 0 }); }
                     if (p === 'fillText') { return (text: string) => { if (fillTextSpy) { fillTextSpy(String(text)); } }; }
+                    if (p === 'fillRect') { return (x: number, y: number, width: number, height: number) => { if (fillRectSpy) { fillRectSpy(x, y, width, height); } }; }
                     return () => undefined;
                 },
                 set() { return true; },
@@ -592,5 +597,88 @@ test('Heatmap の X レンジを Apply すると軸ラベルが変化する', ()
     const has20 = filledTexts.some(t => t.includes('20'));
     const has60 = filledTexts.some(t => t.includes('60'));
     assert.ok(has20 || has60, `X レンジ (20, 60) が軸ラベルに反映されること。実際: ${JSON.stringify(filledTexts.slice(0, 10))}`);
+    dom.window.close();
+});
+
+
+test('Heatmap の X レンジを Apply すると描画セルも表示範囲に合わせて拡大される', () => {
+    const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+    const dom = new JSDOM(`<!DOCTYPE html><html><body>
+        <div id="charts"></div>
+    </body></html>`, { runScripts: 'dangerously' });
+    const win = dom.window as unknown as Record<string, unknown>;
+    win.__CHART_SPECS__ = [{
+        kind: 'heatmap', title: 'H', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 100], ys: [0, 100],
+        matrix: [
+            [0, 1, 2, 3],
+            [4, 5, 6, 7],
+            [8, 9, 10, 11],
+            [12, 13, 14, 15],
+        ],
+    }];
+    win.__CHART_NO_RESULTS_LABEL__ = 'No results';
+    win.__CHART_SCALAR_HEADERS__ = ['Label', 'Value', 'Unit'];
+
+    applyCanvasStub(dom.window.document, undefined, (x, y, width, height) => { rects.push({ x, y, width, height }); });
+
+    const script = dom.window.document.createElement('script');
+    script.textContent = getChartSpecRenderScript();
+    dom.window.document.body.appendChild(script);
+
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 300, clientY: 220,
+    }));
+
+    rects.length = 0;
+    (dom.window.document.getElementById('range-min-x') as HTMLInputElement).value = '25';
+    (dom.window.document.getElementById('range-max-x') as HTMLInputElement).value = '75';
+    (dom.window.document.getElementById('range-apply') as HTMLElement).click();
+
+    const heatmapRects = rects.filter((r) => r.x >= 50 && r.x <= 680 && r.y >= 16 && r.y <= 206 && r.width > 1 && r.height > 1);
+    assert.equal(heatmapRects.length, 8, 'X レンジ適用後は表示範囲内の 2 列だけを描画すること');
+    assert.ok(heatmapRects.every((r) => r.width > 300), `表示範囲に合わせてセル幅が拡大されること: ${JSON.stringify(heatmapRects.slice(0, 4))}`);
+    dom.window.close();
+});
+
+test('Heatmap の Y レンジを Apply すると描画セルも表示範囲に合わせて拡大される', () => {
+    const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+    const dom = new JSDOM(`<!DOCTYPE html><html><body>
+        <div id="charts"></div>
+    </body></html>`, { runScripts: 'dangerously' });
+    const win = dom.window as unknown as Record<string, unknown>;
+    win.__CHART_SPECS__ = [{
+        kind: 'heatmap', title: 'H', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 100], ys: [0, 100],
+        matrix: [
+            [0, 1, 2, 3],
+            [4, 5, 6, 7],
+            [8, 9, 10, 11],
+            [12, 13, 14, 15],
+        ],
+    }];
+    win.__CHART_NO_RESULTS_LABEL__ = 'No results';
+    win.__CHART_SCALAR_HEADERS__ = ['Label', 'Value', 'Unit'];
+
+    applyCanvasStub(dom.window.document, undefined, (x, y, width, height) => { rects.push({ x, y, width, height }); });
+
+    const script = dom.window.document.createElement('script');
+    script.textContent = getChartSpecRenderScript();
+    dom.window.document.body.appendChild(script);
+
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
+    }));
+
+    rects.length = 0;
+    (dom.window.document.getElementById('range-min') as HTMLInputElement).value = '25';
+    (dom.window.document.getElementById('range-max') as HTMLInputElement).value = '75';
+    (dom.window.document.getElementById('range-apply') as HTMLElement).click();
+
+    const heatmapRects = rects.filter((r) => r.x >= 50 && r.x <= 680 && r.y >= 16 && r.y <= 206 && r.width > 1 && r.height > 1);
+    assert.equal(heatmapRects.length, 8, 'Y レンジ適用後は表示範囲内の 2 行だけを描画すること');
+    assert.ok(heatmapRects.every((r) => r.height > 80), `表示範囲に合わせてセル高が拡大されること: ${JSON.stringify(heatmapRects.slice(0, 4))}`);
     dom.window.close();
 });
