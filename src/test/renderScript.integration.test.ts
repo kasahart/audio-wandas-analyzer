@@ -1284,3 +1284,34 @@ test('spectrum overlay: min>=max は適用されず popover を閉じない', as
     env.dom.window.close();
 });
 
+
+test('spectrum overlay: clamp 後にゼロ幅になる周波数レンジは適用されない', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(overlay, 'overlay canvas が存在すること');
+    const H = overlay!.height || 140;
+    const W = overlay!.width || 800;
+    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', {
+        bubbles: true, clientX: Math.floor(W / 2), clientY: H - 5,
+    }));
+
+    requestSpectrumSnapshot(env, 'pre-out-of-range-freq');
+    await nextAnimationFrame(env.dom);
+    const baseline = latestSpectrumOverlayLabels(env);
+
+    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
+    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
+    minI.value = '999999';
+    maxI.value = '1000000';
+    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
+
+    const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
+    assert.notStrictEqual(pop.style.display, 'none', 'clamp 後にゼロ幅になる入力では popover が開いたままであること');
+    requestSpectrumSnapshot(env, 'post-out-of-range-freq');
+    await nextAnimationFrame(env.dom);
+    const after = latestSpectrumOverlayLabels(env);
+    assert.deepStrictEqual(after, baseline, 'clamp 後にゼロ幅になる周波数レンジは state に反映されないこと');
+    env.dom.window.close();
+});
+
