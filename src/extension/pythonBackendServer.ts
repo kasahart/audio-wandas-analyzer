@@ -37,7 +37,18 @@ export class PythonBackendServer {
     }
 
     async analyze(filePath: string, options: AnalyzeOptions): Promise<unknown> {
-        return this.request('analyze', {
+        return this.analyzeDetail(filePath, options);
+    }
+
+    async analyzeSummary(filePath: string, options: AnalyzeOptions): Promise<unknown> {
+        return this.request('analyze-summary', {
+            filePath,
+            peakCount: options.peakCount,
+        });
+    }
+
+    async analyzeDetail(filePath: string, options: AnalyzeOptions): Promise<unknown> {
+        return this.request('analyze-detail', {
             filePath,
             peakCount: options.peakCount,
             ...(options.stftOptions ? { stftOptions: options.stftOptions } : {}),

@@ -186,7 +186,7 @@ export function getComparisonRenderScript(): string {
             let playbackStartNorm = 0;    // 再生開始位置の記憶
             let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag, isShift, startNorm, dragType }
             let loopRegion = null;        // null or { start: number, end: number }（正規化グローバル時間）
-            const lastWaveformCoverage = state.results.map(function() { return null; });
+            let lastWaveformCoverage = state.results.map(function() { return null; });
 
             const trackRuntime = state.results.map(function() {
                 return { offsetSeconds: 0, hidden: false, color: null };
@@ -228,9 +228,11 @@ export function getComparisonRenderScript(): string {
 
             // ── On-demand range cache ──
             // Per track: { startNorm, endNorm, channels[] } once a range response arrives
-            const rangeCache = state.results.map(function() { return null; });
+            let rangeCache = state.results.map(function() { return null; });
             // Per track: requestId of the in-flight request (null = no pending request)
-            const pendingRequests = state.results.map(function() { return null; });
+            let pendingRequests = state.results.map(function() { return null; });
+            let detailRequests = state.results.map(function() { return null; });
+            let detailRequestSeq = 0;
             let rangeRequestTimer = null;
 
             // Receive high-res range data from Extension Host
@@ -243,6 +245,24 @@ export function getComparisonRenderScript(): string {
                 pendingRequests[i] = null;
                 rangeCache[i] = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
                 renderAll();
+            });
+
+            window.addEventListener('message', function(event) {
+                const msg = event.data;
+                if (!msg || msg.type !== 'track-detail-result') { return; }
+                const i = msg.trackIndex;
+                if (i < 0 || i >= detailRequests.length) { return; }
+                if (detailRequests[i] !== msg.requestId) { return; }
+                detailRequests[i] = null;
+                if (msg.result) {
+                    const old = state.results[i] || {};
+                    state.results[i] = Object.assign({}, msg.result, { audioSource: old.audioSource || msg.result.audioSource || '' });
+                    rangeCache[i] = null;
+                    lastWaveformCoverage[i] = null;
+                }
+                renderAll();
+                refreshSpectrumViews();
+                requestAnimationFrame(function() { publishTestSnapshot(); });
             });
 
             window.addEventListener('message', function(event) {
@@ -325,6 +345,41 @@ export function getComparisonRenderScript(): string {
                 }
             }
 
+            function trackNeedsDetail(result) {
+                const ch = result && result.channels && result.channels[0];
+                return !!result && !result.error && !(ch && ch.spectrogram);
+            }
+
+            function requestTrackDetail(i) {
+                const result = state.results[i];
+                if (!trackNeedsDetail(result) || detailRequests[i]) { return; }
+                const requestId = 'detail-' + i + '-' + (++detailRequestSeq);
+                detailRequests[i] = requestId;
+                vscode.postMessage({
+                    type: 'request-track-detail',
+                    requestId: requestId,
+                    trackIndex: i,
+                    filePath: result.filePath,
+                });
+            }
+
+            function isTrackRowInViewport(i) {
+                const wrapper = document.getElementById('tracks-wrapper');
+                const row = document.getElementById('track-row-' + i);
+                if (!wrapper || !row || !row.getBoundingClientRect || !wrapper.getBoundingClientRect) { return true; }
+                const wr = wrapper.getBoundingClientRect();
+                const rr = row.getBoundingClientRect();
+                if ((wr.height || 0) <= 0 || (rr.height || 0) <= 0) { return true; }
+                return rr.bottom >= wr.top && rr.top <= wr.bottom;
+            }
+
+            function requestVisibleTrackDetails() {
+                state.results.forEach(function(result, i) {
+                    if (trackRuntime[i].hidden || result.error || !isTrackRowInViewport(i)) { return; }
+                    requestTrackDetail(i);
+                });
+            }
+
             function scheduleRangeRequests() {
                 if (rangeRequestTimer) { clearTimeout(rangeRequestTimer); }
                 rangeRequestTimer = setTimeout(function() { checkAndRequestRanges(); }, 80);
@@ -333,12 +388,13 @@ export function getComparisonRenderScript(): string {
             function checkAndRequestRanges() {
                 const OVERVIEW_PTS = 1200;
                 state.results.forEach(function(result, i) {
-                    if (trackRuntime[i].hidden || result.error) { return; }
+                    if (trackRuntime[i].hidden || result.error || pendingRequests[i]) { return; }
                     const canvas = document.getElementById('track-canvas-' + i);
                     const W = (canvas ? canvas.width : 0) || 800;
-                    const visibleOverview = OVERVIEW_PTS * (zoomEnd - zoomStart);
-                    // Request when overview resolution is insufficient: < 0.5 pts per pixel
-                    if (visibleOverview >= W * 1.0) { return; }
+                    const hasOverview = !!(result.channels && result.channels[0] && result.channels[0].waveform);
+                    const visibleOverview = hasOverview ? OVERVIEW_PTS * (zoomEnd - zoomStart) : 0;
+                    // Request when overview resolution is insufficient, or when a summary-only result has no overview.
+                    if (hasOverview && visibleOverview >= W * 1.0) { return; }
 
                     const dur = result.durationSeconds || 1;
                     const gs = computeGlobalSpan();
@@ -477,10 +533,16 @@ export function getComparisonRenderScript(): string {
                         };
                     }
                 } catch (e) { /* ignore */ }
+                const specSettings = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings)
+                    ? __spectrogramSettings
+                    : { auto: true, stft: { nFft: 1024, hopSize: 256, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
+                const specStft = specSettings.stft || {};
+                const specDisplay = specSettings.display || {};
                 vscode.postMessage({
                     type: 'comparison-panel-test-snapshot',
                     actionId: actionId,
                     renderedUi: {
+                        resultCount: state.results.length,
                         hasToolbar: !!toolbar,
                         toolbarActions: Array.from(document.querySelectorAll('#toolbar [data-action]')).map(function(el) {
                             return el.getAttribute('data-action');
@@ -497,6 +559,15 @@ export function getComparisonRenderScript(): string {
                         spectrumTrackCanvasCount: document.querySelectorAll('.track-spectrum-canvas').length,
                         visibleSpectrumTrackCount: visibleSpectrumTrackCount,
                         latestSpectrogram: latestSpectrogram,
+                        spectrogramSettings: {
+                            auto: !!specSettings.auto,
+                            nFft: Number(specStft.nFft),
+                            hopSize: Number(specStft.hopSize),
+                            window: String(specStft.window || ''),
+                            dbMin: specDisplay.dbMin == null ? null : Number(specDisplay.dbMin),
+                            dbMax: specDisplay.dbMax == null ? null : Number(specDisplay.dbMax),
+                            maxFrequencyHz: specDisplay.maxFrequencyHz == null ? null : Number(specDisplay.maxFrequencyHz),
+                        },
                         axisLabels: {
                             spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayMinDb)
                                 ? (function() {
@@ -769,6 +840,7 @@ export function getComparisonRenderScript(): string {
             function renderAll() {
                 resizeAllCanvases();
                 renderRuler();
+                if (contentType === 'spectrogram') { requestVisibleTrackDetails(); }
                 renderStackedTracks();
                 updateVisibility();
                 updateOffsetDisplays();
@@ -1623,6 +1695,10 @@ export function getComparisonRenderScript(): string {
                     else if (e.shiftKey) { handlePanWheel(e); }
                 }, { passive: false });
 
+                document.getElementById('tracks-wrapper').addEventListener('scroll', function() {
+                    requestVisibleTrackDetails();
+                });
+
                 var stackedWrap = document.getElementById('stacked-wrap');
                 if (stackedWrap) {
                     stackedWrap.addEventListener('dragstart', function(e) {
@@ -2232,6 +2308,7 @@ export function getComparisonRenderScript(): string {
                     document.querySelector('[data-action="content-waveform"]').classList.remove('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.add('is-active');
                     __updateSpecGearVisibility();
+                    requestVisibleTrackDetails();
                     scheduleRender();
                 } else if (action === 'zoom-in') {
                     zoomIn();
@@ -3427,6 +3504,7 @@ export function getComparisonRenderScript(): string {
 
             function refreshSpectrumViews() {
                 const uiSmokeState = (typeof window !== 'undefined') ? window.__uiSmokeState : null;
+                requestVisibleTrackDetails();
                 renderTrackSpectra();
                 renderOverlaySpectrum();
                 if (uiSmokeState) {
@@ -3724,6 +3802,10 @@ export function getComparisonRenderScript(): string {
                         return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
                     });
                     displayOrder = state.results.map(function(_, i) { return i; });
+                    rangeCache = state.results.map(function() { return null; });
+                    pendingRequests = state.results.map(function() { return null; });
+                    detailRequests = state.results.map(function() { return null; });
+                    lastWaveformCoverage = state.results.map(function() { return null; });
                     announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
                     scheduleRender();
                     refreshSpectrumViews();

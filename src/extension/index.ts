@@ -18,6 +18,7 @@ import {
     isSelectTargetMessage,
     isSupportedAudioFile,
     isRequestWaveformRangeMessage,
+    isRequestTrackDetailMessage,
     isExportReportOptionsMessage,
     type SelectionTargetKind,
 } from '../shared/utils/audioTarget';
@@ -440,6 +441,40 @@ function registerPanelMessageHandler(
                 return;
             }
 
+            if (isRequestTrackDetailMessage(message)) {
+                const req = message;
+                try {
+                    const result = await runAnalysisDetail(
+                        context.extensionPath,
+                        vscode.Uri.file(req.filePath),
+                        loadPersistedStftOptions(context),
+                    );
+                    await panel.webview.postMessage({
+                        type: 'track-detail-result',
+                        requestId: req.requestId,
+                        trackIndex: req.trackIndex,
+                        result,
+                    });
+                } catch (err) {
+                    await panel.webview.postMessage({
+                        type: 'track-detail-result',
+                        requestId: req.requestId,
+                        trackIndex: req.trackIndex,
+                        result: {
+                            filePath: req.filePath,
+                            fileName: path.basename(req.filePath),
+                            sampleRateHz: 0,
+                            durationSeconds: 0,
+                            channelCount: 0,
+                            sampleCount: 0,
+                            channels: [],
+                            error: err instanceof Error ? err.message : String(err),
+                        },
+                    });
+                }
+                return;
+            }
+
             if (isRequestWaveformRangeMessage(message)) {
                 const req = message;
                 backendServer?.requestRange(
@@ -857,7 +892,7 @@ async function analyzeFilesWithProgress(
                     fileName,
                 });
                 try {
-                    const result = await runAnalysis(context.extensionPath, vscode.Uri.file(filePaths[i]), stftOptions);
+                    const result = await runAnalysisSummary(context.extensionPath, vscode.Uri.file(filePaths[i]), stftOptions);
                     results.push(result);
                 } catch (err) {
                     results.push({
@@ -878,25 +913,47 @@ async function analyzeFilesWithProgress(
     );
 }
 
-async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptions?: StftOptions): Promise<AnalysisResult> {
+async function runAnalysisSummary(
+    extensionPath: string,
+    fileUri: vscode.Uri,
+    _stftOptions?: StftOptions,
+): Promise<AnalysisResult> {
     const peakCount = vscode.workspace.getConfiguration('audioWandasAnalyzer').get<number>('defaultPeakCount', 5);
     if (!backendServer) {
         backendServer = new PythonBackendServer(extensionPath, (line) => logPerf(`[py] ${line.slice(7)}`));
     }
     const fileLabel = path.basename(fileUri.fsPath);
     const tReq = Date.now();
-    logPerf(`[ts] analyze start file=${fileLabel}`);
+    logPerf(`[ts] analyze-summary start file=${fileLabel}`);
     try {
-        const result = await backendServer.analyze(fileUri.fsPath, {
+        const result = await backendServer.analyzeSummary(fileUri.fsPath, { peakCount }) as AnalysisResult;
+        logPerf(`[ts] analyze-summary done  file=${fileLabel} total_ms=${Date.now() - tReq}`);
+        return result;
+    } catch (err) {
+        logPerf(`[ts] analyze-summary fail  file=${fileLabel} total_ms=${Date.now() - tReq}`);
+        throw err;
+    }
+}
+
+async function runAnalysisDetail(extensionPath: string, fileUri: vscode.Uri, stftOptions?: StftOptions): Promise<AnalysisResult> {
+    const peakCount = vscode.workspace.getConfiguration('audioWandasAnalyzer').get<number>('defaultPeakCount', 5);
+    if (!backendServer) {
+        backendServer = new PythonBackendServer(extensionPath, (line) => logPerf(`[py] ${line.slice(7)}`));
+    }
+    const fileLabel = path.basename(fileUri.fsPath);
+    const tReq = Date.now();
+    logPerf(`[ts] analyze-detail start file=${fileLabel}`);
+    try {
+        const result = await backendServer.analyzeDetail(fileUri.fsPath, {
             peakCount,
             stftOptions: stftOptions
                 ? { nFft: stftOptions.nFft, hopSize: stftOptions.hopSize, window: stftOptions.window }
                 : undefined,
         }) as AnalysisResult;
-        logPerf(`[ts] analyze done  file=${fileLabel} total_ms=${Date.now() - tReq}`);
+        logPerf(`[ts] analyze-detail done  file=${fileLabel} total_ms=${Date.now() - tReq}`);
         return result;
     } catch (err) {
-        logPerf(`[ts] analyze fail  file=${fileLabel} total_ms=${Date.now() - tReq}`);
+        logPerf(`[ts] analyze-detail fail  file=${fileLabel} total_ms=${Date.now() - tReq}`);
         throw err;
     }
 }

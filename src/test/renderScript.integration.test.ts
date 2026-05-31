@@ -126,6 +126,29 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
     ],
 });
 
+const DUMMY_SUMMARY_STATE = JSON.stringify({
+    mode: 'results',
+    results: [
+        {
+            filePath: '/tmp/lazy.wav',
+            fileName: 'lazy.wav',
+            audioSource: 'vscode-resource:/tmp/lazy.wav',
+            sampleRateHz: 44100,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 44100,
+            detailLoaded: false,
+            channels: [{
+                label: 'L',
+                rms: 0.1,
+                peakAbsolute: 0.5,
+                dominantFrequencies: [],
+                peaks: [],
+            }],
+        },
+    ],
+});
+
 function setupEnv() {
     const script = getRenderScript();
     const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_APP_STATE);
@@ -146,6 +169,14 @@ function setupSelectionEnv() {
 function setupSelectionResultsEnv() {
     const script = getRenderScript();
     const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_SELECTION_WITH_RESULTS_STATE);
+    evalScript(dom, WAVEFORM_PIPELINE_JS);
+    evalScript(dom, script);
+    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+}
+
+function setupSummaryEnv() {
+    const script = getRenderScript();
+    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_SUMMARY_STATE);
     evalScript(dom, WAVEFORM_PIPELINE_JS);
     evalScript(dom, script);
     return { dom, postedMessages, offscreenInstances, domCanvasContexts };
@@ -504,6 +535,41 @@ test('renderWaveformPipeline が ctx.stroke() を呼び出す', () => {
     });
     assert.ok(calls.includes('stroke'), 'stroke() が呼ばれること');
     assert.ok(calls.includes('beginPath'), 'beginPath() が呼ばれること');
+});
+
+test('summary-only tracks request waveform range instead of requiring embedded waveform payload', async () => {
+    const { dom, postedMessages } = setupSummaryEnv();
+    await nextAnimationFrame(dom);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const request = postedMessages.find((message): message is { type: string; filePath: string; trackIndex: number } => {
+        return typeof message === 'object'
+            && message !== null
+            && (message as { type?: unknown }).type === 'request-waveform-range';
+    });
+
+    assert.ok(request, 'summary-only waveform should trigger an on-demand range request');
+    assert.equal(request.filePath, '/tmp/lazy.wav');
+    assert.equal(request.trackIndex, 0);
+});
+
+test('switching a summary-only track to spectrogram requests track detail lazily', async () => {
+    const { dom, postedMessages } = setupSummaryEnv();
+    const button = dom.window.document.querySelector('[data-action="content-spectrogram"]');
+    assert.ok(button instanceof dom.window.HTMLButtonElement);
+
+    button.click();
+    await nextAnimationFrame(dom);
+
+    const request = postedMessages.find((message): message is { type: string; filePath: string; trackIndex: number } => {
+        return typeof message === 'object'
+            && message !== null
+            && (message as { type?: unknown }).type === 'request-track-detail';
+    });
+
+    assert.ok(request, 'spectrogram mode should request the missing heavy detail payload');
+    assert.equal(request.filePath, '/tmp/lazy.wav');
+    assert.equal(request.trackIndex, 0);
 });
 
 test('waveform-range-result メッセージを受信しても例外が起きない', () => {

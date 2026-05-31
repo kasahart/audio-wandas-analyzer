@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import soundfile as sf
 import wandas as wd
 
 from analyzer import _build_waveform_envelope, analyze_from_frame
@@ -92,15 +93,67 @@ def _stft_options_from_payload(payload: dict) -> dict | None:
     }
 
 
-def handle_analyze(cmd: dict) -> dict:
+def _analyze_summary(file_path: str) -> dict[str, object]:
+    t = time.perf_counter()
+    target = Path(file_path)
+    with sf.SoundFile(file_path) as f:
+        sample_rate_hz = int(f.samplerate)
+        sample_count = int(f.frames)
+        channel_count = int(f.channels)
+        sum_squares = np.zeros(channel_count, dtype=np.float64)
+        peak_absolute = np.zeros(channel_count, dtype=np.float64)
+        total_frames = 0
+        for block in f.blocks(blocksize=65536, dtype="float32", always_2d=True):
+            if block.size == 0:
+                continue
+            total_frames += int(block.shape[0])
+            sum_squares += np.sum(np.square(block, dtype=np.float64), axis=0)
+            peak_absolute = np.maximum(peak_absolute, np.max(np.abs(block), axis=0))
+
+    denom = max(total_frames, 1)
+    rms_values = np.sqrt(sum_squares / denom)
+    channels = [
+        {
+            "label": f"Channel {index + 1}",
+            "rms": float(rms_values[index]),
+            "peakAbsolute": float(peak_absolute[index]),
+            "dominantFrequencies": [],
+            "peaks": [],
+        }
+        for index in range(channel_count)
+    ]
+    _perf("summary", t, file=target.name, channels=channel_count, samples=sample_count)
+    return {
+        "filePath": str(target),
+        "fileName": target.name,
+        "sampleRateHz": sample_rate_hz,
+        "durationSeconds": float(sample_count / sample_rate_hz) if sample_rate_hz > 0 else 0.0,
+        "channelCount": channel_count,
+        "sampleCount": sample_count,
+        "channels": channels,
+        "detailLoaded": False,
+    }
+
+
+def handle_analyze_summary(cmd: dict) -> dict:
+    return _analyze_summary(str(cmd["filePath"]))
+
+
+def handle_analyze_detail(cmd: dict) -> dict:
     file_path = str(cmd["filePath"])
     entry = _get_cached(file_path)
-    return analyze_from_frame(
+    result = analyze_from_frame(
         entry.frame,
         file_path,
         peak_count=int(cmd.get("peakCount", 5)),
         stft_options=_stft_options_from_payload(cmd),
     )
+    result["detailLoaded"] = True
+    return result
+
+
+def handle_analyze(cmd: dict) -> dict:
+    return handle_analyze_detail(cmd)
 
 
 def handle_range(cmd: dict) -> dict:
@@ -166,6 +219,8 @@ def handle_export_wav_loop(cmd: dict) -> dict:
 
 COMMANDS: dict[str, Callable[[dict], dict]] = {
     "analyze": handle_analyze,
+    "analyze-summary": handle_analyze_summary,
+    "analyze-detail": handle_analyze_detail,
     "range": handle_range,
     "export-wav-loop": handle_export_wav_loop,
 }

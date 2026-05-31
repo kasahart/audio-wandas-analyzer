@@ -74,6 +74,26 @@ export function isRequestWaveformRangeMessage(message: unknown): message is Wave
     );
 }
 
+
+export interface TrackDetailRequest {
+    type: 'request-track-detail';
+    requestId: string;
+    trackIndex: number;
+    filePath: string;
+}
+
+export function isRequestTrackDetailMessage(message: unknown): message is TrackDetailRequest {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+    const m = message as Record<string, unknown>;
+    return m['type'] === 'request-track-detail'
+        && typeof m['requestId'] === 'string'
+        && typeof m['trackIndex'] === 'number'
+        && typeof m['filePath'] === 'string'
+        && (m['filePath'] as string).length > 0;
+}
+
 export interface ExportWavLoopMessage {
     type: 'export-wav-loop';
     filePaths: string[];

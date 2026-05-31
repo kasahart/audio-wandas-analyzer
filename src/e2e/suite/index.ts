@@ -33,6 +33,15 @@ interface TestSnapshot {
             dbMaxApplied: number | null;
             maxFrequencyHzApplied: number | null;
         };
+        spectrogramSettings: {
+            auto: boolean;
+            nFft: number;
+            hopSize: number;
+            window: string;
+            dbMin: number | null;
+            dbMax: number | null;
+            maxFrequencyHz: number | null;
+        };
         axisLabels: {
             spectrumOverlay: string[];
             spectrogramPerTrack: string[][];
@@ -299,29 +308,43 @@ export async function run(): Promise<void> {
                     512,
                     'changing display range should not re-analyze STFT',
                 );
-                const reopened = await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+                await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+                const reopened = await waitForSnapshotWhere((snapshot) => {
+                    const settings = snapshot.renderedUi?.spectrogramSettings;
+                    return settings?.nFft === 512
+                        && settings.hopSize === 128
+                        && settings.window === 'hamming'
+                        && settings.dbMin === -60
+                        && settings.dbMax === 0
+                        && settings.maxFrequencyHz === null;
+                });
                 assert.equal(
-                    reopened.renderedUi?.latestSpectrogram?.windowSize,
+                    reopened.renderedUi?.spectrogramSettings?.nFft,
                     512,
-                    'reopened panel should restore persisted spectrogram window size',
+                    'reopened panel should restore persisted spectrogram FFT size',
                 );
                 assert.equal(
-                    reopened.renderedUi?.latestSpectrogram?.hopSize,
+                    reopened.renderedUi?.spectrogramSettings?.hopSize,
                     128,
                     'reopened panel should restore persisted spectrogram hop size',
                 );
                 assert.equal(
-                    reopened.renderedUi?.latestSpectrogram?.dbMinApplied,
+                    reopened.renderedUi?.spectrogramSettings?.window,
+                    'hamming',
+                    'reopened panel should restore persisted spectrogram window function',
+                );
+                assert.equal(
+                    reopened.renderedUi?.spectrogramSettings?.dbMin,
                     -60,
                     'reopened panel should restore persisted spectrogram min dB',
                 );
                 assert.equal(
-                    reopened.renderedUi?.latestSpectrogram?.dbMaxApplied,
+                    reopened.renderedUi?.spectrogramSettings?.dbMax,
                     0,
                     'reopened panel should restore persisted spectrogram max dB',
                 );
                 assert.equal(
-                    reopened.renderedUi?.latestSpectrogram?.maxFrequencyHzApplied,
+                    reopened.renderedUi?.spectrogramSettings?.maxFrequencyHz,
                     null,
                     'reopened panel should restore persisted spectrogram max frequency',
                 );
@@ -362,9 +385,17 @@ export async function run(): Promise<void> {
         {
             name: 'cursor power spectrum section is rendered for each track',
             requires: 'multi-track-all',
-            run: async ({ snapshot }) => {
-                assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist');
-                const ui = snapshot.renderedUi;
+            run: async () => {
+                const spectrumSnapshot = await waitForSnapshotWhere((snapshot) => {
+                    const ui = snapshot.renderedUi;
+                    return !!ui
+                        && ui.spectrumOverlayPresent
+                        && ui.spectrumTrackCanvasCount === ui.trackRowCount
+                        && ui.visibleSpectrumTrackCount >= 1;
+                });
+                currentSnapshot = spectrumSnapshot;
+                const ui = spectrumSnapshot.renderedUi;
+                assert.ok(ui, 'Rendered UI snapshot should exist');
                 assert.equal(ui.spectrumOverlayPresent, true, 'overlay spectrum canvas should be rendered');
                 assert.equal(ui.spectrumTrackCanvasCount, ui.trackRowCount,
                     'each visible track row should have a spectrum canvas');
@@ -395,9 +426,24 @@ export async function run(): Promise<void> {
         {
             name: 'axis labels with units are emitted for waveform / spectrogram / spectrum',
             requires: 'single-track',
-            run: async ({ snapshot }) => {
-                assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist');
-                const axes = snapshot.renderedUi.axisLabels;
+            run: async () => {
+                const axisSnapshot = await waitForSnapshotWhere((snapshot) => {
+                    const axes = snapshot.renderedUi?.axisLabels;
+                    if (!axes) { return false; }
+                    const sg = axes.spectrogramPerTrack[0] ?? [];
+                    const sp = axes.spectrumPerTrack[0] ?? [];
+                    const overlay = axes.spectrumOverlay;
+                    return sg.includes('0 Hz')
+                        && sg.some((s) => /Hz$/.test(s) && s !== '0 Hz')
+                        && sg.some((s) => /dB$/.test(s))
+                        && sp.includes('0 Hz')
+                        && sp.some((s) => /dB$/.test(s))
+                        && overlay.includes('0 Hz')
+                        && overlay.some((s) => /dB$/.test(s));
+                });
+                currentSnapshot = axisSnapshot;
+                assert.ok(axisSnapshot.renderedUi, 'Rendered UI snapshot should exist');
+                const axes = axisSnapshot.renderedUi.axisLabels;
                 assert.ok(axes, 'axisLabels must be present in snapshot');
 
                 const wf = axes.waveformPerTrack[0] ?? [];
@@ -466,14 +512,6 @@ async function analyzeDebugPath(
         await waitForSnapshot();
         const actionId = `selection-select-all-${Date.now()}`;
         await ComparisonPanel.postTestActions(actionId, ['selection-select-all']);
-        const snapshotAfterAction = await waitForSnapshot(actionId);
-        if (
-            snapshotAfterAction.resultCount > 0
-            && !!snapshotAfterAction.renderedUi
-            && snapshotAfterAction.renderedUi.trackRowCount > 0
-        ) {
-            return snapshotAfterAction;
-        }
         return waitForSnapshotWhere((snapshot) => {
             return snapshot.resultCount > 0
                 && !!snapshot.renderedUi
@@ -485,14 +523,19 @@ async function analyzeDebugPath(
 }
 
 async function runZoomRecoveryScenario(): Promise<TestSnapshot> {
-    const actionId = `zoom-recovery-${Date.now()}`;
+    const actionId = "zoom-recovery-" + Date.now();
     await ComparisonPanel.postTestActions(actionId, [
         'zoom-in',
         'zoom-in',
         'zoom-out',
         'zoom-out',
     ]);
-    return waitForSnapshot(actionId);
+    await delay(250);
+    return waitForSnapshotWhere((snapshot) => {
+        return !!snapshot.renderedUi
+            && snapshot.renderedUi.zoomStart === 0
+            && snapshot.renderedUi.zoomEnd === 1;
+    });
 }
 
 async function runZoomInEdgeCoverageScenario(): Promise<TestSnapshot> {

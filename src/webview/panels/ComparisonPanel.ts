@@ -56,12 +56,22 @@ interface ComparisonPanelRenderedUi {
     spectrumOverlayPresent: boolean;
     spectrumTrackCanvasCount: number;
     visibleSpectrumTrackCount: number;
+    resultCount: number;
     latestSpectrogram?: {
         windowSize: number;
         hopSize: number;
         dbMinApplied: number | null;
         dbMaxApplied: number | null;
         maxFrequencyHzApplied: number | null;
+    };
+    spectrogramSettings: {
+        auto: boolean;
+        nFft: number;
+        hopSize: number;
+        window: string;
+        dbMin: number | null;
+        dbMax: number | null;
+        maxFrequencyHz: number | null;
     };
     axisLabels: {
         spectrumOverlay: string[];
@@ -150,6 +160,9 @@ export class ComparisonPanel {
             if (!ComparisonPanel.testSnapshot) {
                 return;
             }
+            if (message.renderedUi.resultCount !== ComparisonPanel.testSnapshot.resultCount) {
+                return;
+            }
 
             ComparisonPanel.testSnapshot = {
                 ...ComparisonPanel.testSnapshot,
@@ -168,13 +181,13 @@ export class ComparisonPanel {
             spectrogramSettings,
         };
         const html = renderComparisonHtml(panel.webview, state, extensionUri);
-        panel.webview.html = html;
         ComparisonPanel.testSnapshot = {
             title,
             html,
             fileNames: state.results.map((result) => result.fileName),
             resultCount: state.results.length,
         };
+        panel.webview.html = html;
         return panel;
     }
 
@@ -220,6 +233,9 @@ export class ComparisonPanel {
             if (!ComparisonPanel.testSnapshot) {
                 return;
             }
+            if (message.renderedUi.resultCount !== ComparisonPanel.testSnapshot.resultCount) {
+                return;
+            }
 
             ComparisonPanel.testSnapshot = {
                 ...ComparisonPanel.testSnapshot,
@@ -242,13 +258,13 @@ export class ComparisonPanel {
             spectrogramSettings,
         };
         const html = renderComparisonHtml(panel.webview, state, extensionUri);
-        panel.webview.html = html;
         ComparisonPanel.testSnapshot = {
             title,
             html,
             fileNames: state.results.map((result) => result.fileName),
             resultCount: state.results.length,
         };
+        panel.webview.html = html;
         return panel;
     }
 

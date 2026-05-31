@@ -103,6 +103,34 @@ def test_analyze_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
     assert resp["channels"][0]["spectrogram"]["windowSize"] > 0
 
 
+def test_analyze_summary_omits_heavy_waveform_and_spectrogram_payloads(server: _ServerHandle, tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    resp = server.request({"cmd": "analyze-summary", "filePath": str(wav), "peakCount": 3})
+    assert "error" not in resp, resp
+    assert resp["fileName"] == "tone.wav"
+    assert resp["detailLoaded"] is False
+    assert resp["channelCount"] == 1
+    assert len(resp["channels"]) == 1
+    channel = resp["channels"][0]
+    assert channel["rms"] > 0
+    assert channel["peakAbsolute"] > 0
+    assert "waveform" not in channel
+    assert "spectrogram" not in channel
+
+
+def test_analyze_detail_returns_lazy_heavy_payloads(server: _ServerHandle, tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    resp = server.request({"cmd": "analyze-detail", "filePath": str(wav), "peakCount": 3})
+    assert "error" not in resp, resp
+    assert resp["detailLoaded"] is True
+    channel = resp["channels"][0]
+    assert "waveform" in channel
+    assert "spectrogram" in channel
+    assert channel["spectrogram"]["windowSize"] > 0
+
+
 def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)

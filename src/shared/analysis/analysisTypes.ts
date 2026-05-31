@@ -32,8 +32,8 @@ export interface ChannelSummary {
     peakAbsolute: number;
     dominantFrequencies: FrequencyPeak[];
     peaks?: SpectrumPeak[];
-    waveform: WaveformEnvelope;
-    spectrogram: SpectrogramData;
+    waveform?: WaveformEnvelope;
+    spectrogram?: SpectrogramData;
 }
 
 export interface AnalysisResult {
@@ -44,6 +44,7 @@ export interface AnalysisResult {
     channelCount: number;
     sampleCount: number;
     channels: ChannelSummary[];
+    detailLoaded?: boolean;
 }
 
 export interface AnalysisResultWithError extends AnalysisResult {
