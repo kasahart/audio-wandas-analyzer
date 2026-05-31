@@ -36,6 +36,16 @@ export interface UiStrings {
     btnSpectrogramSettingsTitle: string;
     toolbarZoomLabel: string;
     btnZoomReset: string;
+    toolbarHeightLabel: string;
+    heightTrackLabel: string;
+    heightSpectrumLabel: string;
+    btnHeightReset: string;
+    ariaTrackHeightUp: string;
+    ariaTrackHeightDown: string;
+    ariaTrackHeightReset: string;
+    ariaSpectrumHeightUp: string;
+    ariaSpectrumHeightDown: string;
+    ariaSpectrumHeightReset: string;
     btnRunRecipe: string;
     chartSpecNoResults: string;
     chartSpecScalarLabelHeader: string;
@@ -179,6 +189,16 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnSpectrogramSettingsTitle: 'Spectrogram settings',
         toolbarZoomLabel: 'Zoom:',
         btnZoomReset: 'Reset',
+        toolbarHeightLabel: 'Height:',
+        heightTrackLabel: 'Track',
+        heightSpectrumLabel: 'Spectrum',
+        btnHeightReset: 'Reset',
+        ariaTrackHeightUp: 'Increase track height',
+        ariaTrackHeightDown: 'Decrease track height',
+        ariaTrackHeightReset: 'Reset track height',
+        ariaSpectrumHeightUp: 'Increase power spectrum height',
+        ariaSpectrumHeightDown: 'Decrease power spectrum height',
+        ariaSpectrumHeightReset: 'Reset power spectrum height',
         btnRunRecipe: 'Run recipe',
         chartSpecNoResults: 'Recipe returned no charts.',
         chartSpecScalarLabelHeader: 'Label',
@@ -319,6 +339,16 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnSpectrogramSettingsTitle: 'スペクトログラム設定',
         toolbarZoomLabel: 'ズーム:',
         btnZoomReset: 'リセット',
+        toolbarHeightLabel: '高さ:',
+        heightTrackLabel: 'トラック',
+        heightSpectrumLabel: 'スペクトル',
+        btnHeightReset: '戻す',
+        ariaTrackHeightUp: 'トラックを高くする',
+        ariaTrackHeightDown: 'トラックを低くする',
+        ariaTrackHeightReset: 'トラックの高さをリセット',
+        ariaSpectrumHeightUp: 'パワースペクトルを高くする',
+        ariaSpectrumHeightDown: 'パワースペクトルを低くする',
+        ariaSpectrumHeightReset: 'パワースペクトルの高さをリセット',
         btnRunRecipe: 'レシピ実行',
         chartSpecNoResults: 'レシピは何もチャートを返しませんでした。',
         chartSpecScalarLabelHeader: '項目',

@@ -1031,6 +1031,65 @@ test('スペクトルズームツールバーのボタンが生成される', ()
 });
 
 
+test('高さ調整ボタンが生成される', () => {
+    const { dom } = setupEnv();
+    assert.ok(dom.window.document.querySelector('[data-action="track-height-down"]'));
+    assert.ok(dom.window.document.querySelector('[data-action="track-height-up"]'));
+    assert.ok(dom.window.document.querySelector('[data-action="track-height-reset"]'));
+    assert.ok(dom.window.document.querySelector('[data-action="spectrum-height-down"]'));
+    assert.ok(dom.window.document.querySelector('[data-action="spectrum-height-up"]'));
+    assert.ok(dom.window.document.querySelector('[data-action="spectrum-height-reset"]'));
+});
+
+
+test('高さ調整ボタンがトラックとパワースペクトルの canvas 高さを変更する', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: {
+                type: 'comparison-panel-test-action',
+                actions: ['track-height-up', 'spectrum-height-up'],
+                actionId: 'height-up',
+            },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+
+    const trackCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    const trackSpectrumCanvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
+    const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(trackCanvas);
+    assert.ok(trackSpectrumCanvas);
+    assert.ok(overlayCanvas);
+    assert.strictEqual(trackCanvas.height, 96);
+    assert.strictEqual(trackSpectrumCanvas.height, 96);
+    assert.strictEqual(overlayCanvas.height, 160);
+
+    const snap1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.strictEqual(snap1?.renderedUi?.trackHeight, 96);
+    assert.strictEqual(snap1?.renderedUi?.spectrumOverlayHeight, 160);
+
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: {
+                type: 'comparison-panel-test-action',
+                actions: ['track-height-reset', 'spectrum-height-reset'],
+                actionId: 'height-reset',
+            },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+
+    assert.strictEqual(trackCanvas.height, 80);
+    assert.strictEqual(trackSpectrumCanvas.height, 80);
+    assert.strictEqual(overlayCanvas.height, 140);
+
+    env.dom.window.close();
+});
+
+
 test('波形モードボタンが生成される', () => {
     const { dom } = setupEnv();
     const rectZoomBtn = dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]');

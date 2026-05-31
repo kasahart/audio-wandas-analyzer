@@ -88,6 +88,14 @@ export function getComparisonRenderScript(): string {
             };
 
             const AXIS_W = 32;
+            const TRACK_HEIGHT_DEFAULT = 80;
+            const TRACK_HEIGHT_MIN = 48;
+            const TRACK_HEIGHT_MAX = 220;
+            const TRACK_HEIGHT_STEP = 16;
+            const SPECTRUM_HEIGHT_DEFAULT = 140;
+            const SPECTRUM_HEIGHT_MIN = 80;
+            const SPECTRUM_HEIGHT_MAX = 320;
+            const SPECTRUM_HEIGHT_STEP = 20;
 
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc',
                                    '#f0c040','#40b0d0','#d09060','#80c080','#a0a0ff'];
@@ -132,6 +140,8 @@ export function getComparisonRenderScript(): string {
                     uiSmokeState.spectrumZoom = {
                         specFreqStart: specFreqStart,
                         specFreqEnd: specFreqEnd,
+                        trackHeight: trackHeight,
+                        spectrumOverlayHeight: spectrumOverlayHeight,
                         specDbMin: specDbMin,
                         specDbMax: specDbMax,
                     };
@@ -152,6 +162,8 @@ export function getComparisonRenderScript(): string {
             let spectrumHoverNorm = null;  // スペクトルカーソル（正規化周波数 0..1、null = 非表示）
             let spectrumHoverYFrac = null; // スペクトルカーソルy（canvas高さに対する比率 0..1）
             let spectrumHasMouse = false;  // マウスがスペクトルキャンバス上にある間 true
+            let trackHeight = TRACK_HEIGHT_DEFAULT;
+            let spectrumOverlayHeight = SPECTRUM_HEIGHT_DEFAULT;
             // ── スペクトルズーム ───────────────────────────────────
             let specFreqStart = 0;      // 0..1 正規化周波数（0=0Hz, 1=maxFreq）
             let specFreqEnd   = 1;
@@ -485,6 +497,8 @@ export function getComparisonRenderScript(): string {
                         displayOrder: displayOrder.slice(),
                         specFreqStart: specFreqStart,
                         specFreqEnd: specFreqEnd,
+                        trackHeight: trackHeight,
+                        spectrumOverlayHeight: spectrumOverlayHeight,
                         waveformMode: waveformMode,
                         lastAnnounce: (function() {
                             var el = document.getElementById('a11y-announce');
@@ -648,6 +662,16 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="zoom-in" aria-label="' + escHtml(STR.ariaZoomIn) + '">＋</button>'
                     + '<button class="tb-btn" data-action="zoom-reset" aria-label="' + escHtml(STR.ariaZoomReset) + '">' + escHtml(STR.btnZoomReset) + '</button>'
                     + '<div class="tb-sep"></div>'
+                    + '<span class="tb-label">' + escHtml(STR.toolbarHeightLabel) + '</span>'
+                    + '<span class="tb-label">' + escHtml(STR.heightTrackLabel) + '</span>'
+                    + '<button class="tb-btn" data-action="track-height-down" aria-label="' + escHtml(STR.ariaTrackHeightDown) + '">－</button>'
+                    + '<button class="tb-btn" data-action="track-height-up" aria-label="' + escHtml(STR.ariaTrackHeightUp) + '">＋</button>'
+                    + '<button class="tb-btn" data-action="track-height-reset" aria-label="' + escHtml(STR.ariaTrackHeightReset) + '">' + escHtml(STR.btnHeightReset) + '</button>'
+                    + '<span class="tb-label">' + escHtml(STR.heightSpectrumLabel) + '</span>'
+                    + '<button class="tb-btn" data-action="spectrum-height-down" aria-label="' + escHtml(STR.ariaSpectrumHeightDown) + '">－</button>'
+                    + '<button class="tb-btn" data-action="spectrum-height-up" aria-label="' + escHtml(STR.ariaSpectrumHeightUp) + '">＋</button>'
+                    + '<button class="tb-btn" data-action="spectrum-height-reset" aria-label="' + escHtml(STR.ariaSpectrumHeightReset) + '">' + escHtml(STR.btnHeightReset) + '</button>'
+                    + '<div class="tb-sep"></div>'
                     + '<button class="tb-btn" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom" aria-pressed="false">' + escHtml(STR.waveModeLabelRectZoom) + '</button>'
                     + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection" title="' + escHtml(STR.btnZoomToSelectionTitle) + '" disabled>' + escHtml(STR.btnZoomToSelection) + '</button>'
                     + '<button class="tb-btn" data-action="toggle-follow-cursor" title="' + escHtml(STR.btnFollowCursorTitle) + '">' + escHtml(STR.btnFollowCursor) + '</button>'
@@ -737,12 +761,18 @@ export function getComparisonRenderScript(): string {
                     const wrap = document.getElementById('track-canvas-wrap-' + i);
                     if (!wrap) { return; }
                     const newW = wrap.clientWidth || 800;
-                    if (canvasWidthCache[i] === newW) { return; }
-                    canvasWidthCache[i] = newW;
+                    const cacheKey = newW + 'x' + trackHeight;
+                    if (canvasWidthCache[i] === cacheKey) { return; }
+                    canvasWidthCache[i] = cacheKey;
+                    canvas.style.height = trackHeight + 'px';
                     canvas.width = Math.max(1, newW - AXIS_W);
-                    canvas.height = 80;
+                    canvas.height = trackHeight;
                     const axisCanvas = document.getElementById('track-axis-canvas-' + i);
-                    if (axisCanvas) { axisCanvas.width = AXIS_W; axisCanvas.height = 80; }
+                    if (axisCanvas) {
+                        axisCanvas.style.height = trackHeight + 'px';
+                        axisCanvas.width = AXIS_W;
+                        axisCanvas.height = trackHeight;
+                    }
                 });
                 const rulerCanvas = document.getElementById('ruler-canvas');
                 if (rulerCanvas) {
@@ -2157,6 +2187,18 @@ export function getComparisonRenderScript(): string {
                     specZoomOut();
                 } else if (action === 'spec-zoom-reset') {
                     specZoomReset();
+                } else if (action === 'track-height-up') {
+                    adjustTrackHeight(TRACK_HEIGHT_STEP);
+                } else if (action === 'track-height-down') {
+                    adjustTrackHeight(-TRACK_HEIGHT_STEP);
+                } else if (action === 'track-height-reset') {
+                    setTrackHeight(TRACK_HEIGHT_DEFAULT);
+                } else if (action === 'spectrum-height-up') {
+                    adjustSpectrumHeight(SPECTRUM_HEIGHT_STEP);
+                } else if (action === 'spectrum-height-down') {
+                    adjustSpectrumHeight(-SPECTRUM_HEIGHT_STEP);
+                } else if (action === 'spectrum-height-reset') {
+                    setSpectrumHeight(SPECTRUM_HEIGHT_DEFAULT);
                 } else if (action === 'wave-mode-rect-zoom') {
                     waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
                     const btnZ = document.getElementById('btn-wave-mode-rect-zoom');
@@ -2181,6 +2223,36 @@ export function getComparisonRenderScript(): string {
                 } else if (action === 'export-report') {
                     exportReport();
                 }
+            }
+
+            function clampHeight(value, minValue, maxValue) {
+                return Math.max(minValue, Math.min(maxValue, value));
+            }
+
+            function setTrackHeight(value) {
+                const next = clampHeight(value, TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX);
+                if (trackHeight === next) { return; }
+                trackHeight = next;
+                Object.keys(canvasWidthCache).forEach(function(key) { delete canvasWidthCache[key]; });
+                scheduleRender();
+                refreshSpectrumViews();
+                scheduleSpectrumRefresh();
+            }
+
+            function adjustTrackHeight(delta) {
+                setTrackHeight(trackHeight + delta);
+            }
+
+            function setSpectrumHeight(value) {
+                const next = clampHeight(value, SPECTRUM_HEIGHT_MIN, SPECTRUM_HEIGHT_MAX);
+                if (spectrumOverlayHeight === next) { return; }
+                spectrumOverlayHeight = next;
+                refreshSpectrumViews();
+                scheduleSpectrumRefresh();
+            }
+
+            function adjustSpectrumHeight(delta) {
+                setSpectrumHeight(spectrumOverlayHeight + delta);
             }
 
             function disableFollowCursor() {
@@ -3015,7 +3087,11 @@ export function getComparisonRenderScript(): string {
                         : null;
                     if (wrapStyle && wrapStyle.display === 'none') { return; }
                     const w = wrap.clientWidth || 180;
-                    if (canvas.width !== w) { canvas.width = w; canvas.height = 80; }
+                    if (canvas.width !== w || canvas.height !== trackHeight) {
+                        canvas.width = w;
+                        canvas.height = trackHeight;
+                    }
+                    canvas.style.height = trackHeight + 'px';
                     const ctx = canvas.getContext('2d');
                     const W = canvas.width, H = canvas.height;
                     ctx.clearRect(0, 0, W, H);
@@ -3075,7 +3151,11 @@ export function getComparisonRenderScript(): string {
                 if (!canvas) { return; }
                 const wrap = document.getElementById('spectrum-overlay-wrap');
                 const w = (wrap && wrap.clientWidth) || 800;
-                if (canvas.width !== w) { canvas.width = w; canvas.height = 140; }
+                if (canvas.width !== w || canvas.height !== spectrumOverlayHeight) {
+                    canvas.width = w;
+                    canvas.height = spectrumOverlayHeight;
+                }
+                canvas.style.height = spectrumOverlayHeight + 'px';
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width, H = canvas.height;
                 ctx.clearRect(0, 0, W, H);
