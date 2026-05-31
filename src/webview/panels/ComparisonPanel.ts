@@ -433,6 +433,11 @@ export function renderComparisonStyles(): string {
         }
         .tb-btn.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
         .tb-btn:disabled { opacity: 0.4; cursor: default; }
+        .tb-number {
+            width: 54px; min-width: 54px; font-size: 11px; padding: 2px 4px;
+            border-radius: 3px; border: 1px solid var(--line); background: var(--surface);
+            color: var(--text); font-family: var(--font-mono); text-align: right;
+        }
         .tb-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
         #cursor-display { font-size: 11px; font-family: var(--font-mono); color: var(--muted); min-width: 80px; }
         #playback-display { font-size: 11px; font-family: var(--font-mono); color: #64a0ff; min-width: 70px; display: none; }
@@ -458,7 +463,7 @@ export function renderComparisonStyles(): string {
         #ruler-spacer { width: 130px; flex-shrink: 0; border-right: 1px solid var(--line); background: var(--track-header-bg); }
         #ruler-canvas { flex: 1; height: 20px; display: block; }
 
-        .track-row { display: flex; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+        .track-row { display: flex; border-bottom: 1px solid var(--line); flex-shrink: 0; position: relative; }
         .track-header {
             width: 130px; flex-shrink: 0; border-right: 1px solid var(--line);
             padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 9px; background: var(--track-header-bg);
@@ -489,6 +494,10 @@ export function renderComparisonStyles(): string {
         .track-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
         .track-spectrum-wrap { width: 180px; flex-shrink: 0; border-left: 1px solid var(--line); background: var(--track-bg); }
         .track-spectrum-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
+        .height-resizer { position: absolute; z-index: 5; cursor: row-resize; background: transparent; }
+        .height-resizer:hover,
+        body.is-height-resizing .height-resizer { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+        .track-height-resizer { left: 130px; right: 0; bottom: -3px; height: 6px; }
 
         /* ── Responsive power spectrum ── */
         @media (max-width: 900px) {
@@ -510,7 +519,8 @@ export function renderComparisonStyles(): string {
             display: flex; align-items: center; gap: 8px; padding: 4px 10px;
             font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line);
         }
-        #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); }
+        #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); position: relative; }
+        .spectrum-height-resizer { left: 0; right: 0; top: -3px; height: 6px; }
         #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; cursor: crosshair; }
 
         /* ── Metrics bar ── */

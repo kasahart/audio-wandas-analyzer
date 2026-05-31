@@ -129,16 +129,14 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     await toolbar.locator('[data-action="zoom-reset"]').click({ force: true });
 
     const heightBefore = await getUiSmokeState(page);
-    await toolbar.locator('[data-action="track-height-up"]').click({ force: true });
-    await toolbar.locator('[data-action="spectrum-height-up"]').click({ force: true });
+    await toolbar.locator('[data-action="track-height-input"]').fill('112');
+    await toolbar.locator('[data-action="spectrum-height-input"]').fill('180');
     await page.waitForTimeout(100);
     const heightAfter = await getUiSmokeState(page);
     expect(heightAfter.spectrumZoom?.trackHeight).toBeGreaterThan(heightBefore.spectrumZoom?.trackHeight ?? 0);
     expect(heightAfter.spectrumZoom?.spectrumOverlayHeight).toBeGreaterThan(heightBefore.spectrumZoom?.spectrumOverlayHeight ?? 0);
     await toolbar.locator('[data-action="track-height-reset"]').click({ force: true });
     await toolbar.locator('[data-action="spectrum-height-reset"]').click({ force: true });
-    await toolbar.locator('[data-action="track-height-down"]').click({ force: true });
-    await toolbar.locator('[data-action="spectrum-height-down"]').click({ force: true });
 
     await toolbar.locator('[data-action="content-spectrogram"]').click({ force: true });
     await expect(toolbar.locator('[data-action="content-spectrogram"]')).toHaveClass(/is-active/);

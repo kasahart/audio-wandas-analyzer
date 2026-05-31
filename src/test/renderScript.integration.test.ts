@@ -1031,14 +1031,16 @@ test('スペクトルズームツールバーのボタンが生成される', ()
 });
 
 
-test('高さ調整ボタンが生成される', () => {
+test('高さ調整UIは数値入力とリセットボタンだけをツールバーに生成する', () => {
     const { dom } = setupEnv();
-    assert.ok(dom.window.document.querySelector('[data-action="track-height-down"]'));
-    assert.ok(dom.window.document.querySelector('[data-action="track-height-up"]'));
+    assert.ok(dom.window.document.querySelector('[data-action="track-height-input"]'));
     assert.ok(dom.window.document.querySelector('[data-action="track-height-reset"]'));
-    assert.ok(dom.window.document.querySelector('[data-action="spectrum-height-down"]'));
-    assert.ok(dom.window.document.querySelector('[data-action="spectrum-height-up"]'));
+    assert.ok(dom.window.document.querySelector('[data-action="spectrum-height-input"]'));
     assert.ok(dom.window.document.querySelector('[data-action="spectrum-height-reset"]'));
+    assert.equal(dom.window.document.querySelector('[data-action="track-height-down"]'), null);
+    assert.equal(dom.window.document.querySelector('[data-action="track-height-up"]'), null);
+    assert.equal(dom.window.document.querySelector('[data-action="spectrum-height-down"]'), null);
+    assert.equal(dom.window.document.querySelector('[data-action="spectrum-height-up"]'), null);
 });
 
 
@@ -1050,8 +1052,8 @@ test('トラック高さはヘッダー実寸より低くならない', async ()
         new env.dom.window.MessageEvent('message', {
             data: {
                 type: 'comparison-panel-test-action',
-                actions: ['track-height-down', 'track-height-down'],
-                actionId: 'height-down',
+                inputValues: { 'track-height-input': '48' },
+                actionId: 'height-input-min',
             },
         }),
     );
@@ -1068,7 +1070,7 @@ test('トラック高さはヘッダー実寸より低くならない', async ()
 });
 
 
-test('高さ調整ボタンがトラックとパワースペクトルの canvas 高さを変更する', async () => {
+test('高さの数値入力がトラックとパワースペクトルの canvas 高さを変更する', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
 
@@ -1076,8 +1078,11 @@ test('高さ調整ボタンがトラックとパワースペクトルの canvas 
         new env.dom.window.MessageEvent('message', {
             data: {
                 type: 'comparison-panel-test-action',
-                actions: ['track-height-up', 'spectrum-height-up'],
-                actionId: 'height-up',
+                inputValues: {
+                    'track-height-input': '112',
+                    'spectrum-height-input': '180',
+                },
+                actionId: 'height-input',
             },
         }),
     );
@@ -1089,13 +1094,13 @@ test('高さ調整ボタンがトラックとパワースペクトルの canvas 
     assert.ok(trackCanvas);
     assert.ok(trackSpectrumCanvas);
     assert.ok(overlayCanvas);
-    assert.strictEqual(trackCanvas.height, 96);
-    assert.strictEqual(trackSpectrumCanvas.height, 96);
-    assert.strictEqual(overlayCanvas.height, 160);
+    assert.strictEqual(trackCanvas.height, 112);
+    assert.strictEqual(trackSpectrumCanvas.height, 112);
+    assert.strictEqual(overlayCanvas.height, 180);
 
     const snap1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.strictEqual(snap1?.renderedUi?.trackHeight, 96);
-    assert.strictEqual(snap1?.renderedUi?.spectrumOverlayHeight, 160);
+    assert.strictEqual(snap1?.renderedUi?.trackHeight, 112);
+    assert.strictEqual(snap1?.renderedUi?.spectrumOverlayHeight, 180);
 
     env.dom.window.dispatchEvent(
         new env.dom.window.MessageEvent('message', {
@@ -1111,6 +1116,44 @@ test('高さ調整ボタンがトラックとパワースペクトルの canvas 
     assert.strictEqual(trackCanvas.height, 80);
     assert.strictEqual(trackSpectrumCanvas.height, 80);
     assert.strictEqual(overlayCanvas.height, 140);
+
+    env.dom.window.close();
+});
+
+
+test('高さリサイズハンドルのドラッグがトラックとパワースペクトルの高さを変更する', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+
+    const trackHandle = env.dom.window.document.querySelector('[data-action="track-height-drag"]') as HTMLElement | null;
+    assert.ok(trackHandle);
+    const spectrumHandle = env.dom.window.document.querySelector('[data-action="spectrum-height-drag"]') as HTMLElement | null;
+    assert.ok(spectrumHandle);
+
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: {
+                type: 'comparison-panel-test-action',
+                actions: [
+                    { action: 'resize-height-drag', payload: { kind: 'track', startY: 100, endY: 124 } },
+                    { action: 'resize-height-drag', payload: { kind: 'spectrum', startY: 200, endY: 230 } },
+                ],
+                actionId: 'height-drag',
+            },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+
+    const trackCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(trackCanvas);
+    assert.ok(overlayCanvas);
+    assert.strictEqual(trackCanvas.height, 104);
+    assert.strictEqual(overlayCanvas.height, 170);
+
+    const snap = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.strictEqual(snap?.renderedUi?.trackHeight, 104);
+    assert.strictEqual(snap?.renderedUi?.spectrumOverlayHeight, 170);
 
     env.dom.window.close();
 });
