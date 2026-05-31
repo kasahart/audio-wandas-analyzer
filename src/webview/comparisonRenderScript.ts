@@ -89,7 +89,7 @@ export function getComparisonRenderScript(): string {
 
             const AXIS_W = 32;
             const TRACK_HEIGHT_DEFAULT = 80;
-            const TRACK_HEIGHT_MIN = 48;
+            const TRACK_HEIGHT_MIN = TRACK_HEIGHT_DEFAULT;
             const TRACK_HEIGHT_MAX = 220;
             const TRACK_HEIGHT_STEP = 16;
             const SPECTRUM_HEIGHT_DEFAULT = 140;

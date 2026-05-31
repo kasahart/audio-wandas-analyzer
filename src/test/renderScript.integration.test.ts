@@ -1042,6 +1042,32 @@ test('高さ調整ボタンが生成される', () => {
 });
 
 
+test('トラック高さはヘッダー実寸より低くならない', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: {
+                type: 'comparison-panel-test-action',
+                actions: ['track-height-down', 'track-height-down'],
+                actionId: 'height-down',
+            },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+
+    const trackCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(trackCanvas);
+    assert.strictEqual(trackCanvas.height, 80);
+
+    const snap = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.strictEqual(snap?.renderedUi?.trackHeight, 80);
+
+    env.dom.window.close();
+});
+
+
 test('高さ調整ボタンがトラックとパワースペクトルの canvas 高さを変更する', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
