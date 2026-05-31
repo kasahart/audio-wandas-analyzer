@@ -88,6 +88,14 @@ export function getComparisonRenderScript(): string {
             };
 
             const AXIS_W = 32;
+            const TRACK_HEIGHT_DEFAULT = 80;
+            const TRACK_HEIGHT_MIN = TRACK_HEIGHT_DEFAULT;
+            const TRACK_HEIGHT_MAX = 220;
+            const TRACK_HEIGHT_STEP = 16;
+            const SPECTRUM_HEIGHT_DEFAULT = 140;
+            const SPECTRUM_HEIGHT_MIN = 80;
+            const SPECTRUM_HEIGHT_MAX = 320;
+            const SPECTRUM_HEIGHT_STEP = 20;
 
             const TRACK_COLORS = ['#4ec994','#ff8c4a','#4a9eff','#e8637a','#c084fc',
                                    '#f0c040','#40b0d0','#d09060','#80c080','#a0a0ff'];
@@ -126,12 +134,21 @@ export function getComparisonRenderScript(): string {
                 requestAnimationFrame(function() { rafPending = false; renderAll(); });
             }
 
+            function syncHeightInputs() {
+                const trackInput = document.querySelector('[data-action="track-height-input"]');
+                if (trackInput) { trackInput.value = String(trackHeight); }
+                const spectrumInput = document.querySelector('[data-action="spectrum-height-input"]');
+                if (spectrumInput) { spectrumInput.value = String(spectrumOverlayHeight); }
+            }
+
             function scheduleSpectrumRefresh() {
                 const uiSmokeState = (typeof window !== 'undefined') ? window.__uiSmokeState : null;
                 if (uiSmokeState) {
                     uiSmokeState.spectrumZoom = {
                         specFreqStart: specFreqStart,
                         specFreqEnd: specFreqEnd,
+                        trackHeight: trackHeight,
+                        spectrumOverlayHeight: spectrumOverlayHeight,
                         specDbMin: specDbMin,
                         specDbMax: specDbMax,
                     };
@@ -152,6 +169,8 @@ export function getComparisonRenderScript(): string {
             let spectrumHoverNorm = null;  // スペクトルカーソル（正規化周波数 0..1、null = 非表示）
             let spectrumHoverYFrac = null; // スペクトルカーソルy（canvas高さに対する比率 0..1）
             let spectrumHasMouse = false;  // マウスがスペクトルキャンバス上にある間 true
+            let trackHeight = TRACK_HEIGHT_DEFAULT;
+            let spectrumOverlayHeight = SPECTRUM_HEIGHT_DEFAULT;
             // ── スペクトルズーム ───────────────────────────────────
             let specFreqStart = 0;      // 0..1 正規化周波数（0=0Hz, 1=maxFreq）
             let specFreqEnd   = 1;
@@ -239,10 +258,17 @@ export function getComparisonRenderScript(): string {
 
             window.addEventListener('message', function(event) {
                 const msg = event.data;
-                if (!msg || msg.type !== 'comparison-panel-test-action' || !Array.isArray(msg.actions)) { return; }
-                msg.actions.forEach(function(entry) {
-                    handleTestAction(entry);
-                });
+                if (!msg || msg.type !== 'comparison-panel-test-action') { return; }
+                if (msg.inputValues && typeof msg.inputValues === 'object') {
+                    Object.keys(msg.inputValues).forEach(function(action) {
+                        applyHeightInput(action, msg.inputValues[action]);
+                    });
+                }
+                if (Array.isArray(msg.actions)) {
+                    msg.actions.forEach(function(entry) {
+                        handleTestAction(entry);
+                    });
+                }
                 requestAnimationFrame(function() {
                     publishTestSnapshot(msg.actionId);
                 });
@@ -263,6 +289,14 @@ export function getComparisonRenderScript(): string {
                 if (entry.action === 'offset-up' && idx >= 0) { adjustOffset(idx, 0.01); }
                 if (entry.action === 'offset-down' && idx >= 0) { adjustOffset(idx, -0.01); }
                 if (entry.action === 'remove-track' && idx >= 0) { removeTrack(idx); }
+                if (entry.action === 'resize-height-drag' && entry.payload) {
+                    const kind = entry.payload.kind === 'spectrum' ? 'spectrum' : 'track';
+                    const startY = Number(entry.payload.startY || 0);
+                    const endY = Number(entry.payload.endY || startY);
+                    beginHeightResize(kind, startY);
+                    updateHeightResize(endY);
+                    endHeightResize();
+                }
                 if (entry.action === 'open-spectrogram-settings') {
                     const gear = document.querySelector('[data-action="spectrogram-settings"]');
                     if (gear) { gear.click(); }
@@ -485,6 +519,8 @@ export function getComparisonRenderScript(): string {
                         displayOrder: displayOrder.slice(),
                         specFreqStart: specFreqStart,
                         specFreqEnd: specFreqEnd,
+                        trackHeight: trackHeight,
+                        spectrumOverlayHeight: spectrumOverlayHeight,
                         waveformMode: waveformMode,
                         lastAnnounce: (function() {
                             var el = document.getElementById('a11y-announce');
@@ -566,7 +602,7 @@ export function getComparisonRenderScript(): string {
                     + '    <button class="tb-btn" data-action="spec-zoom-in" aria-label="' + escHtml(STR.ariaSpecZoomIn) + '">＋</button>'
                     + '    <button class="tb-btn" data-action="spec-zoom-reset" aria-label="' + escHtml(STR.ariaSpecZoomReset) + '">' + escHtml(STR.btnSpecZoomReset) + '</button>'
                     + '  </div>'
-                    + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas"></canvas></div>'
+                    + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escHtml(STR.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas"></canvas></div>'
                     + '</div>'
                     + '<div id="audio-host">' + buildAudioElements() + '</div>'
                     + '<div id="metrics-bar">' + metrics + '</div>';
@@ -648,6 +684,14 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="zoom-in" aria-label="' + escHtml(STR.ariaZoomIn) + '">＋</button>'
                     + '<button class="tb-btn" data-action="zoom-reset" aria-label="' + escHtml(STR.ariaZoomReset) + '">' + escHtml(STR.btnZoomReset) + '</button>'
                     + '<div class="tb-sep"></div>'
+                    + '<span class="tb-label">' + escHtml(STR.toolbarHeightLabel) + '</span>'
+                    + '<span class="tb-label">' + escHtml(STR.heightTrackLabel) + '</span>'
+                    + '<input class="tb-number" type="number" min="' + TRACK_HEIGHT_MIN + '" max="' + TRACK_HEIGHT_MAX + '" step="1" value="' + trackHeight + '" data-action="track-height-input" aria-label="' + escHtml(STR.heightTrackLabel + ' px') + '">'
+                    + '<button class="tb-btn" data-action="track-height-reset" aria-label="' + escHtml(STR.ariaTrackHeightReset) + '">' + escHtml(STR.btnHeightReset) + '</button>'
+                    + '<span class="tb-label">' + escHtml(STR.heightSpectrumLabel) + '</span>'
+                    + '<input class="tb-number" type="number" min="' + SPECTRUM_HEIGHT_MIN + '" max="' + SPECTRUM_HEIGHT_MAX + '" step="1" value="' + spectrumOverlayHeight + '" data-action="spectrum-height-input" aria-label="' + escHtml(STR.heightSpectrumLabel + ' px') + '">'
+                    + '<button class="tb-btn" data-action="spectrum-height-reset" aria-label="' + escHtml(STR.ariaSpectrumHeightReset) + '">' + escHtml(STR.btnHeightReset) + '</button>'
+                    + '<div class="tb-sep"></div>'
                     + '<button class="tb-btn" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom" aria-pressed="false">' + escHtml(STR.waveModeLabelRectZoom) + '</button>'
                     + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection" title="' + escHtml(STR.btnZoomToSelectionTitle) + '" disabled>' + escHtml(STR.btnZoomToSelection) + '</button>'
                     + '<button class="tb-btn" data-action="toggle-follow-cursor" title="' + escHtml(STR.btnFollowCursorTitle) + '">' + escHtml(STR.btnFollowCursor) + '</button>'
@@ -695,6 +739,7 @@ export function getComparisonRenderScript(): string {
                     + '<div class="track-spectrum-wrap" id="track-spectrum-wrap-' + i + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
                     + '  <canvas class="track-spectrum-canvas" id="track-spectrum-' + i + '" data-track-index="' + i + '"></canvas>'
                     + '</div>'
+                    + '<div class="height-resizer track-height-resizer" data-action="track-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escHtml(STR.heightTrackLabel + ' resize') + '"></div>'
                     + '</div>';
             }
 
@@ -737,12 +782,18 @@ export function getComparisonRenderScript(): string {
                     const wrap = document.getElementById('track-canvas-wrap-' + i);
                     if (!wrap) { return; }
                     const newW = wrap.clientWidth || 800;
-                    if (canvasWidthCache[i] === newW) { return; }
-                    canvasWidthCache[i] = newW;
+                    const cacheKey = newW + 'x' + trackHeight;
+                    if (canvasWidthCache[i] === cacheKey) { return; }
+                    canvasWidthCache[i] = cacheKey;
+                    canvas.style.height = trackHeight + 'px';
                     canvas.width = Math.max(1, newW - AXIS_W);
-                    canvas.height = 80;
+                    canvas.height = trackHeight;
                     const axisCanvas = document.getElementById('track-axis-canvas-' + i);
-                    if (axisCanvas) { axisCanvas.width = AXIS_W; axisCanvas.height = 80; }
+                    if (axisCanvas) {
+                        axisCanvas.style.height = trackHeight + 'px';
+                        axisCanvas.width = AXIS_W;
+                        axisCanvas.height = trackHeight;
+                    }
                 });
                 const rulerCanvas = document.getElementById('ruler-canvas');
                 if (rulerCanvas) {
@@ -1397,13 +1448,50 @@ export function getComparisonRenderScript(): string {
                     container.addEventListener('click', function(e) {
                         const target = e.target && e.target.closest ? e.target.closest('[data-action]') : e.target;
                         const action = target && target.getAttribute ? target.getAttribute('data-action') : null;
-                        if (!action) { return; }
+                        if (!action || action === 'track-height-input' || action === 'spectrum-height-input') { return; }
                         handleToolbarAction(action);
+                    });
+                    container.addEventListener('input', function(e) {
+                        const target = e.target;
+                        const action = target && target.getAttribute ? target.getAttribute('data-action') : null;
+                        applyHeightInput(action, target ? target.value : null);
+                    });
+                    container.addEventListener('change', function(e) {
+                        const target = e.target;
+                        const action = target && target.getAttribute ? target.getAttribute('data-action') : null;
+                        applyHeightInput(action, target ? target.value : null);
                     });
                 }
 
                 attachToolbarActions('toolbar');
                 attachToolbarActions('spectrum-zoom-toolbar');
+
+                function handleHeightResizeStart(e) {
+                    const target = e.target && e.target.closest
+                        ? e.target.closest('[data-action="track-height-drag"], [data-action="spectrum-height-drag"]')
+                        : null;
+                    if (!target) { return; }
+                    const action = target.getAttribute('data-action');
+                    beginHeightResize(action === 'track-height-drag' ? 'track' : 'spectrum', e.clientY || 0);
+                    e.preventDefault();
+                }
+                const tracksWrapperForHeight = document.getElementById('tracks-wrapper');
+                if (tracksWrapperForHeight) { tracksWrapperForHeight.addEventListener('mousedown', handleHeightResizeStart); }
+                const spectrumSectionForHeight = document.getElementById('spectrum-section');
+                if (spectrumSectionForHeight) { spectrumSectionForHeight.addEventListener('mousedown', handleHeightResizeStart); }
+                document.addEventListener('mousedown', handleHeightResizeStart);
+                window.addEventListener('mousedown', handleHeightResizeStart, true);
+                function handleHeightResizeMove(e) {
+                    updateHeightResize(e.clientY || 0);
+                    if (heightResizeDrag) { e.preventDefault(); }
+                }
+                function handleHeightResizeEnd() {
+                    endHeightResize();
+                }
+                document.addEventListener('mousemove', handleHeightResizeMove);
+                window.addEventListener('mousemove', handleHeightResizeMove, true);
+                document.addEventListener('mouseup', handleHeightResizeEnd);
+                window.addEventListener('mouseup', handleHeightResizeEnd, true);
 
                 const loopTimeDisplayEl = document.getElementById('loop-time-display');
                 if (loopTimeDisplayEl) {
@@ -2157,6 +2245,10 @@ export function getComparisonRenderScript(): string {
                     specZoomOut();
                 } else if (action === 'spec-zoom-reset') {
                     specZoomReset();
+                } else if (action === 'track-height-reset') {
+                    setTrackHeight(TRACK_HEIGHT_DEFAULT);
+                } else if (action === 'spectrum-height-reset') {
+                    setSpectrumHeight(SPECTRUM_HEIGHT_DEFAULT);
                 } else if (action === 'wave-mode-rect-zoom') {
                     waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
                     const btnZ = document.getElementById('btn-wave-mode-rect-zoom');
@@ -2181,6 +2273,78 @@ export function getComparisonRenderScript(): string {
                 } else if (action === 'export-report') {
                     exportReport();
                 }
+            }
+
+            function clampHeight(value, minValue, maxValue) {
+                return Math.max(minValue, Math.min(maxValue, value));
+            }
+
+            function parseHeightValue(value) {
+                const next = Number(value);
+                return Number.isFinite(next) ? Math.round(next) : null;
+            }
+
+            function applyHeightInput(action, value) {
+                const next = parseHeightValue(value);
+                if (next === null) { return; }
+                if (action === 'track-height-input') {
+                    setTrackHeight(next);
+                } else if (action === 'spectrum-height-input') {
+                    setSpectrumHeight(next);
+                }
+            }
+
+            function setTrackHeight(value) {
+                const next = clampHeight(value, TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX);
+                if (trackHeight === next) {
+                    syncHeightInputs();
+                    return;
+                }
+                trackHeight = next;
+                syncHeightInputs();
+                Object.keys(canvasWidthCache).forEach(function(key) { delete canvasWidthCache[key]; });
+                scheduleRender();
+                refreshSpectrumViews();
+                scheduleSpectrumRefresh();
+            }
+
+            function setSpectrumHeight(value) {
+                const next = clampHeight(value, SPECTRUM_HEIGHT_MIN, SPECTRUM_HEIGHT_MAX);
+                if (spectrumOverlayHeight === next) {
+                    syncHeightInputs();
+                    return;
+                }
+                spectrumOverlayHeight = next;
+                syncHeightInputs();
+                refreshSpectrumViews();
+                scheduleSpectrumRefresh();
+            }
+
+            let heightResizeDrag = null;
+
+            function beginHeightResize(kind, clientY) {
+                heightResizeDrag = {
+                    kind: kind,
+                    startY: clientY,
+                    startHeight: kind === 'track' ? trackHeight : spectrumOverlayHeight,
+                };
+                document.body.classList.add('is-height-resizing');
+            }
+
+            function updateHeightResize(clientY) {
+                if (!heightResizeDrag) { return; }
+                const delta = clientY - heightResizeDrag.startY;
+                if (heightResizeDrag.kind === 'track') {
+                    setTrackHeight(heightResizeDrag.startHeight + delta);
+                } else {
+                    setSpectrumHeight(heightResizeDrag.startHeight - delta);
+                }
+            }
+
+            function endHeightResize() {
+                if (!heightResizeDrag) { return; }
+                heightResizeDrag = null;
+                document.body.classList.remove('is-height-resizing');
             }
 
             function disableFollowCursor() {
@@ -3015,7 +3179,11 @@ export function getComparisonRenderScript(): string {
                         : null;
                     if (wrapStyle && wrapStyle.display === 'none') { return; }
                     const w = wrap.clientWidth || 180;
-                    if (canvas.width !== w) { canvas.width = w; canvas.height = 80; }
+                    if (canvas.width !== w || canvas.height !== trackHeight) {
+                        canvas.width = w;
+                        canvas.height = trackHeight;
+                    }
+                    canvas.style.height = trackHeight + 'px';
                     const ctx = canvas.getContext('2d');
                     const W = canvas.width, H = canvas.height;
                     ctx.clearRect(0, 0, W, H);
@@ -3075,7 +3243,11 @@ export function getComparisonRenderScript(): string {
                 if (!canvas) { return; }
                 const wrap = document.getElementById('spectrum-overlay-wrap');
                 const w = (wrap && wrap.clientWidth) || 800;
-                if (canvas.width !== w) { canvas.width = w; canvas.height = 140; }
+                if (canvas.width !== w || canvas.height !== spectrumOverlayHeight) {
+                    canvas.width = w;
+                    canvas.height = spectrumOverlayHeight;
+                }
+                canvas.style.height = spectrumOverlayHeight + 'px';
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width, H = canvas.height;
                 ctx.clearRect(0, 0, W, H);
