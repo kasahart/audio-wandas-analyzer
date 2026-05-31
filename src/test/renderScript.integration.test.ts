@@ -1136,7 +1136,7 @@ test('高さリサイズハンドルのドラッグがトラックとパワー�
                 type: 'comparison-panel-test-action',
                 actions: [
                     { action: 'resize-height-drag', payload: { kind: 'track', startY: 100, endY: 124 } },
-                    { action: 'resize-height-drag', payload: { kind: 'spectrum', startY: 200, endY: 230 } },
+                    { action: 'resize-height-drag', payload: { kind: 'spectrum', startY: 200, endY: 170 } },
                 ],
                 actionId: 'height-drag',
             },

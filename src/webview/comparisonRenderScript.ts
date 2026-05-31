@@ -2333,11 +2333,11 @@ export function getComparisonRenderScript(): string {
 
             function updateHeightResize(clientY) {
                 if (!heightResizeDrag) { return; }
-                const next = heightResizeDrag.startHeight + clientY - heightResizeDrag.startY;
+                const delta = clientY - heightResizeDrag.startY;
                 if (heightResizeDrag.kind === 'track') {
-                    setTrackHeight(next);
+                    setTrackHeight(heightResizeDrag.startHeight + delta);
                 } else {
-                    setSpectrumHeight(next);
+                    setSpectrumHeight(heightResizeDrag.startHeight - delta);
                 }
             }
 
