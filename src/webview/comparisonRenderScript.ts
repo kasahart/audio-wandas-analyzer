@@ -1618,9 +1618,13 @@ export function getComparisonRenderScript(): string {
                 document.addEventListener('mouseup', function(e) { handleDocMouseUp(e); });
 
                 document.getElementById('tracks-wrapper').addEventListener('wheel', function(e) {
-                    e.preventDefault();
-                    if (e.ctrlKey) { handleZoomWheel(e); }
-                    else if (e.shiftKey) { handlePanWheel(e); }
+                    if (e.ctrlKey) {
+                        e.preventDefault();
+                        handleZoomWheel(e);
+                    } else if (e.shiftKey) {
+                        e.preventDefault();
+                        handlePanWheel(e);
+                    }
                 }, { passive: false });
 
                 var stackedWrap = document.getElementById('stacked-wrap');

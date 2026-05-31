@@ -1020,6 +1020,67 @@ test('renderScript: ショートカットキーは修飾キー (Ctrl/Meta/Alt) �
     env.dom.window.close();
 });
 
+
+test('renderScript: 修飾キーなし wheel はトラック領域の標準スクロールに渡すこと', async () => {
+    const env = setupEnv();
+    const wrapper = env.dom.window.document.getElementById('tracks-wrapper') as HTMLElement | null;
+    assert.ok(wrapper, '#tracks-wrapper が存在すること');
+
+    const event = new env.dom.window.WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaY: 120,
+    });
+    const wasNotCanceled = wrapper!.dispatchEvent(event);
+
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'plain-wheel-snapshot' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+    const snapshots = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
+    const snap = (snapshots[snapshots.length - 1] as any)?.renderedUi;
+
+    assert.equal(wasNotCanceled, true, '標準 wheel は preventDefault されないこと');
+    assert.equal(event.defaultPrevented, false, '標準 wheel はブラウザの縦スクロールに渡ること');
+    assert.ok(snap, 'wheel 後のスナップショットが存在すること');
+    assert.strictEqual(snap.zoomStart, 0, '標準 wheel では zoomStart が変わらないこと');
+    assert.strictEqual(snap.zoomEnd, 1, '標準 wheel では zoomEnd が変わらないこと');
+
+    env.dom.window.close();
+});
+
+test('renderScript: Ctrl+wheel は従来どおり波形ズームを実行すること', async () => {
+    const env = setupEnv();
+    const wrapper = env.dom.window.document.getElementById('tracks-wrapper') as HTMLElement | null;
+    assert.ok(wrapper, '#tracks-wrapper が存在すること');
+
+    const event = new env.dom.window.WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -120,
+    });
+    const wasNotCanceled = wrapper!.dispatchEvent(event);
+
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'ctrl-wheel-snapshot' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+    const snapshots = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
+    const snap = (snapshots[snapshots.length - 1] as any)?.renderedUi;
+
+    assert.equal(wasNotCanceled, false, 'Ctrl+wheel は preventDefault されること');
+    assert.equal(event.defaultPrevented, true, 'Ctrl+wheel は標準スクロールへ渡さないこと');
+    assert.ok(snap, 'Ctrl+wheel 後のスナップショットが存在すること');
+    assert.ok(snap.zoomStart > 0 || snap.zoomEnd < 1, 'Ctrl+wheel で zoomStart/zoomEnd が変化すること');
+
+    env.dom.window.close();
+});
+
 test('スペクトルズームツールバーのボタンが生成される', () => {
     const { dom } = setupEnv();
     const zoomIn  = dom.window.document.querySelector('[data-action="spec-zoom-in"]');
