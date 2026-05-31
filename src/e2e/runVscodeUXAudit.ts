@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
+import { runTests } from '@vscode/test-electron';
 import {
-    VSCODE_VERSION,
     DEVCONTAINER_EXTENSION_HOST_ENV_KEYS,
+    downloadVSCodeForE2E,
     resolveNlsMessagesFile,
     withFilteredStderr,
 } from './runnerHelpers';
@@ -15,7 +15,7 @@ async function main(): Promise<void> {
     const extensionTestsPath = path.resolve(__dirname, 'suite', 'uxAudit.js');
     const userDataDir = mkdtempSync(path.join(os.tmpdir(), 'audio-wandas-analyzer-vscode-ux-audit-'));
 
-    const vscodeExecutablePath = await downloadAndUnzipVSCode(VSCODE_VERSION);
+    const vscodeExecutablePath = await downloadVSCodeForE2E();
     const nlsMessagesFile = resolveNlsMessagesFile(vscodeExecutablePath);
     const nlsConfig = nlsMessagesFile
         ? JSON.stringify({ defaultMessagesFile: nlsMessagesFile, resolvedLanguage: 'en', userLocale: 'en', osLocale: 'en' })

@@ -1,7 +1,9 @@
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
+import { downloadAndUnzipVSCode } from '@vscode/test-electron';
 
-export const VSCODE_VERSION = 'stable';
+export const VSCODE_VERSION = process.env['AUDIO_WANDAS_E2E_VSCODE_VERSION'] || '1.122.1';
+const VSCODE_DOWNLOAD_ATTEMPTS = 3;
 
 export const SUPPRESSED_STDERR_PATTERNS = [
     /ERROR:dbus\/bus\.cc:408/u,
@@ -51,4 +53,23 @@ export function withFilteredStderr<T>(action: () => Promise<T>): Promise<T> {
     return action().finally(() => {
         process.stderr.write = originalWrite;
     });
+}
+
+export async function downloadVSCodeForE2E(): Promise<string> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= VSCODE_DOWNLOAD_ATTEMPTS; attempt++) {
+        try {
+            return await downloadAndUnzipVSCode(VSCODE_VERSION);
+        } catch (error) {
+            lastError = error;
+            if (attempt === VSCODE_DOWNLOAD_ATTEMPTS) {
+                break;
+            }
+            const delayMs = attempt * 2000;
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(`VS Code download failed on attempt ${attempt}/${VSCODE_DOWNLOAD_ATTEMPTS}: ${message}`);
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+    }
+    throw lastError;
 }
