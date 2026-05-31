@@ -2,34 +2,43 @@
 
 **English** | [日本語](https://github.com/kasahart/audio-wandas-analyzer/blob/main/README.ja.md)
 
-A VS Code extension to open audio files and compare them side-by-side via waveform, spectrogram, and power spectrum views. Heavy DSP runs in a Python child process powered by the [wandas](https://github.com/kasahart/wandas) library; the UI is implemented as a VS Code Webview.
+Turn VS Code into a focused audio inspection desk. Audio Wandas Analyzer lets you open audio files, compare takes on one timeline, zoom into waveform detail, inspect spectrograms and cursor-time spectra, and export the evidence you need without switching tools.
 
-## Features
+## Screenshot
 
-- **Multi-track comparison** — open multiple audio files at once and compare them via waveform / spectrogram / power spectrum
-- **Waveform view** — high-resolution re-decimation on zoom, with amplitude axis (±1.0 FS) and time axis always visible
-- **Spectrogram view** — frequency axis (Hz / kHz) with a dB colorbar overlay. STFT parameters (FFT size, hop length, window function) and display range (dB min/max, max frequency) are configurable from an in-panel settings popover
-- **Cursor-time power spectrum** — overlay across all tracks at the cursor position, plus a per-track spectrum strip next to each row
-- **Playback / loop** — play each track individually, mute it, or constrain playback to a loop region
-- **Track offsets** — shift each track along the time axis to align them
-- **Directory picker UI** — open a folder to see a tree of supported audio files; check the boxes to add tracks (uncheck to remove)
-- **Explorer integration** — right-click audio files / folders or drag-and-drop them onto the sidebar to start analysis
+![Audio Wandas Analyzer screenshot](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
+
+## Why Use It
+
+Audio comparison often means bouncing between a DAW, a notebook, a file browser, and a plotting script. This extension keeps that loop inside VS Code:
+
+- Line up multiple recordings and check timing differences at a glance
+- Move between waveform, spectrogram, and power spectrum views without reloading files
+- Zoom into a range and fetch high-resolution waveform data only for what is visible
+- Listen, mute, loop, and nudge tracks while you inspect them
+- Export images, CSV spectrum data, loop audio, or a Markdown-friendly report for handoff
+- Run bundled or custom [wandas](https://github.com/kasahart/wandas) recipes for deeper analysis
 
 Supported formats: **WAV / FLAC / OGG / AIFF / AIF / SND**
 
-UI language: **English** and **日本語**. Automatically follows VS Code's display language (`Configure Display Language`); `ja*` shows Japanese, anything else falls back to English.
+The UI follows VS Code's display language. Japanese is used for `ja*`; all other languages fall back to English.
 
-## Requirements
+## A Good Fit For
 
-This extension calls a Python backend that depends on `wandas`. You need to set up Python before using it.
+- Comparing model outputs, recorded takes, renders, or before/after processing results
+- Checking noise, frequency balance, transients, silence, clipping, and alignment
+- Reviewing a folder of audio assets without leaving your editor
+- Capturing visual and numeric evidence for issues, reports, notebooks, or pull requests
+
+## Quick Start
 
 ### 1. Install Python 3.11+
 
 ```bash
-python3 --version   # 3.11 or newer recommended
+python3 --version
 ```
 
-### 2. Install wandas
+### 2. Install the Python audio dependencies
 
 A virtual environment is recommended:
 
@@ -39,60 +48,69 @@ source .venv/bin/activate
 pip install wandas numpy soundfile
 ```
 
-### 3. Point VS Code at your Python environment
+### 3. Select the Python environment in VS Code
 
-In VS Code settings, set `audioWandasAnalyzer.pythonCommand` to the venv folder you just created. Example: `/path/to/your/.venv`. Existing Python executable values such as `/path/to/your/.venv/bin/python` still work.
+Open the Command Palette and run:
 
-Or, from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`), run **Audio Analyzer: Select Python Environment** to pick the venv folder via a GUI.
+```text
+Audio Analyzer: Select Python Environment
+```
 
-## Usage
+Choose the virtual environment folder, for example `/path/to/your/.venv`. You can also set `audioWandasAnalyzer.pythonCommand` manually in Settings. Both venv folders and direct Python executable paths are accepted.
 
-### Opening files
+## Opening Audio
 
-| Method | How |
-|--------|-----|
-| Command Palette | **Audio Analyzer: Analyze File or Folder** |
-| Context menu | Right-click an audio file / folder in the Explorer → **Analyze with Audio Analyzer** |
-| Sidebar | Open the **Audio Analyzer** view in the Activity Bar → click *Select files / folder to analyze* |
-| Drag-and-drop | Drop audio files or folders onto the *Drop audio files or folders here* row in the sidebar |
+| Method | Action |
+| --- | --- |
+| Command Palette | Run **Audio Analyzer: Analyze File or Folder** |
+| Explorer context menu | Right-click an audio file or folder, then choose **Analyze with Audio Analyzer** |
+| Activity Bar | Open the **Audio Analyzer** view and select files or a folder |
+| Drag and drop | Drop audio files or folders onto the Audio Analyzer sidebar view |
 
-### Opening a folder
+When you open a folder, supported audio files appear in a tree. Check a file to add it to the comparison panel; uncheck it to remove that track.
 
-A tree of the supported audio files appears. All entries start unchecked; checking a file adds a track instantly, unchecking removes it.
+## Working In The Panel
 
-### Controls
+- **Compare:** view tracks on one shared timeline and switch each row between waveform and spectrogram
+- **Zoom:** use the toolbar `+ / - / 0` buttons, keyboard shortcuts, or the mouse wheel over a plot
+- **Inspect:** click a waveform, spectrogram, or spectrum panel to move the cursor and update spectra
+- **Loop:** drag on the waveform to create a loop region; clear it with a click
+- **Listen:** use the per-track play button; mute tracks with `M`
+- **Align:** nudge track offsets with the `▲ / ▼` controls or double-click the offset value to reset it
+- **Tune spectrograms:** open the gear popover to change FFT size, hop length, window function, dB range, and max frequency
+- **Get help:** press `?` inside the panel to see keyboard shortcuts
 
-- **Zoom**: the `+ / -` buttons in the toolbar, or scroll over the waveform
-- **Move cursor**: click on the waveform or spectrogram
-- **Loop region**: drag to select / click to clear
-- **Track offset**: `▲ / ▼` buttons on the track header for ±0.01 s steps; double-click the value to reset
-- **Playback**: `▶` to start, `■` to stop
-- **Mute**: `M` button (excludes the track from the cursor spectrum overlay too)
-- **Spectrogram settings**: gear icon in the toolbar opens a popover for FFT size, hop length, window function, and display range
+## Exports And Recipes
 
-### View modes
+The comparison toolbar includes export actions for everyday handoff work:
 
-Each track's toolbar lets you flip between **Waveform** and **Spectrogram**.
+| Action | Output |
+| --- | --- |
+| **Export PNG** | Current visible tracks as an image |
+| **Export CSV** | Spectrum data at the current cursor position |
+| **Export WAV** | Audio from the selected loop region |
+| **Export Report** | Markdown / notebook-ready analysis report |
+| **Run recipe** | A wandas recipe result rendered in VS Code |
 
 ## Settings
 
 | Key | Default | Description |
-|-----|---------|-------------|
-| `audioWandasAnalyzer.pythonCommand` | `python3` | Python environment folder used to launch the analysis backend. Existing executable values are still accepted |
-| `audioWandasAnalyzer.defaultPeakCount` | `5` | Number of dominant frequency peaks shown per channel (1–20) |
-| `audioWandasAnalyzer.debugFilePath` | `media/debug` | Default path opened by **Audio Analyzer: Analyze Debug Path**. Relative paths resolve against the workspace root |
+| --- | --- | --- |
+| `audioWandasAnalyzer.pythonCommand` | `python3` | Python environment folder or executable used for the backend |
+| `audioWandasAnalyzer.defaultPeakCount` | `5` | Number of dominant frequency peaks shown per channel, from 1 to 20 |
+| `audioWandasAnalyzer.cacheMemoryMb` | `1024` | Maximum audio cache size used by the persistent Python waveform backend |
+| `audioWandasAnalyzer.debugFilePath` | `media/debug` | Default path for **Audio Analyzer: Analyze Debug Path** |
 
 ## Troubleshooting
 
-- **"Python interpreter was not found"** — set `audioWandasAnalyzer.pythonCommand` to the venv folder that has `wandas` installed, or run **Audio Analyzer: Select Python Environment**.
-- **"analyze failed" errors** — open the **Output** panel and select the **Audio Wandas Analyzer** channel to see the Python stack trace. Confirm `wandas`, `numpy`, and `soundfile` are installed.
-- **File won't load** — only WAV / FLAC / OGG / AIFF are supported. MP3 / M4A are not.
-- **Slow on large files** — the waveform requests a high-resolution slice only for the visible zoom range, so subsequent zooming is fast. Smaller FFT sizes also speed up spectrogram updates.
+- **Python interpreter was not found:** select the venv that has `wandas` installed, or update `audioWandasAnalyzer.pythonCommand`.
+- **Analysis failed:** open **Output: Audio Wandas Analyzer** and check the Python error. Confirm `wandas`, `numpy`, and `soundfile` are installed in the selected environment.
+- **A file does not load:** confirm the extension is one of WAV, FLAC, OGG, AIFF, AIF, or SND. MP3 and M4A are not supported yet.
+- **Large files feel slow:** zoomed waveform requests are fetched only for the visible range. For spectrogram-heavy work, try a smaller FFT size or hop length.
 
-## Source & License
+## Links
 
 - Repository: https://github.com/kasahart/audio-wandas-analyzer
-- Backend: [wandas](https://github.com/kasahart/wandas)
+- Backend library: [wandas](https://github.com/kasahart/wandas)
 - Developer guide: [docs/developer-guide.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.md)
-- For setup & architecture details, see [`AGENTS.md`](https://github.com/kasahart/audio-wandas-analyzer/blob/main/AGENTS.md).
-- Bug reports / feature requests: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues).
+- Issues and feature requests: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues)

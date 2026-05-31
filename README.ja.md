@@ -2,36 +2,45 @@
 
 [English](https://github.com/kasahart/audio-wandas-analyzer/blob/main/README.md) | **日本語**
 
-VS Code 上で音声ファイルを開き、波形・スペクトログラム・パワースペクトルを並べて比較・解析できる拡張機能です。DSP の重い部分は Python 側の [wandas](https://github.com/kasahart/wandas) ライブラリが担い、UI は VS Code Webview で動きます。
+VS Code を、そのまま音声確認の作業台に。Audio Wandas Analyzer は、音声ファイルを開き、複数テイクを同じタイムラインで比較し、波形の細部、スペクトログラム、カーソル位置のパワースペクトルを確認しながら、必要な証跡をその場で出力できる拡張機能です。
 
-## 主な機能
+## スクリーンショット
 
-- **マルチトラック比較** — 複数の音声ファイルを同時に開き、波形 / スペクトログラム / パワースペクトルを並べて比較
-- **波形表示** — ズームに応じた高解像度再描画。振幅軸 (±1.0 FS) と時間軸を常時表示
-- **スペクトログラム** — 周波数軸 (Hz / kHz) と dB カラーバー付き。STFT パラメータ (FFT 長 / ホップ長 / 窓関数) と表示範囲 (dB 最小・最大、最大周波数) を設定パネルから変更可能
-- **カーソル時刻のパワースペクトル** — 全トラック横断のオーバーレイと、トラック行ごとの per-track スペクトル
-- **再生 / ループ** — 各トラックを単独再生、ミュート、再生位置をループ範囲に拘束
-- **トラックオフセット** — 各トラックを時間軸方向にずらして整列
-- **ディレクトリ選択 UI** — フォルダを開くと対応音声ファイルのツリーが表示され、チェックでトラックを追加 / 削除
-- **エクスプローラ統合** — 音声ファイルやフォルダの右クリック、サイドバーへのドラッグ＆ドロップで解析開始
+![Audio Wandas Analyzer のスクリーンショット](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
+
+## なぜ便利か
+
+音声比較では、DAW、ノートブック、ファイルブラウザ、プロット用スクリプトを行き来しがちです。この拡張は、その確認ループを VS Code の中にまとめます。
+
+- 複数の録音や生成結果を並べ、タイミング差をすぐ確認
+- ファイルを読み直さずに、波形、スペクトログラム、パワースペクトルを行き来
+- ズーム中の範囲だけを高解像度で再取得して、細部を軽快に確認
+- 再生、ミュート、ループ、トラックの時間オフセット調整を同じ画面で操作
+- 画像、CSV スペクトル、ループ音声、Markdown 向けレポートを出力
+- [wandas](https://github.com/kasahart/wandas) の同梱 / カスタムレシピでさらに深い解析を実行
 
 対応フォーマット: **WAV / FLAC / OGG / AIFF / AIF / SND**
 
-UI 言語: **日本語** / **English** に対応。VS Code の表示言語 (`Configure Display Language`) に自動追従し、`ja*` で日本語、それ以外は英語にフォールバックします。
+UI は VS Code の表示言語に追従します。`ja*` では日本語、それ以外では英語で表示されます。
 
-## 必要な環境
+## こんな用途に
 
-この拡張は Python の `wandas` をバックエンドとして呼び出します。事前に Python 環境の準備が必要です。
+- モデル出力、録音テイク、レンダー、処理前後の音声比較
+- ノイズ、周波数バランス、トランジェント、無音、クリッピング、位置ずれの確認
+- フォルダ内の音声アセットを、エディタから離れずにレビュー
+- Issue、レポート、Notebook、Pull Request に貼るための画像や数値データ作成
 
-### 1. Python 3.11 を用意
+## クイックスタート
+
+### 1. Python 3.11 以上を用意
 
 ```bash
-python3 --version   # 3.11 以上を推奨
+python3 --version
 ```
 
-### 2. wandas をインストール
+### 2. Python の音声解析依存関係をインストール
 
-仮想環境推奨:
+仮想環境の利用をおすすめします。
 
 ```bash
 python3 -m venv .venv
@@ -39,60 +48,69 @@ source .venv/bin/activate
 pip install wandas numpy soundfile
 ```
 
-### 3. VS Code に Python 環境を伝える
+### 3. VS Code で Python 環境を選択
 
-設定画面で `audioWandasAnalyzer.pythonCommand` を上の仮想環境フォルダに変更してください。例: `/path/to/your/.venv`。既存の `/path/to/your/.venv/bin/python` のような Python 実行ファイル指定も引き続き動作します。
+コマンドパレットから次を実行します。
 
-または、コマンドパレット (`Ctrl+Shift+P` / `Cmd+Shift+P`) から **Audio Analyzer: Select Python Environment** を実行して GUI で仮想環境フォルダを選択できます。
+```text
+Audio Analyzer: Select Python Environment
+```
 
-## 使い方
+作成した仮想環境フォルダを選んでください。例: `/path/to/your/.venv`。設定 `audioWandasAnalyzer.pythonCommand` に手動で指定することもできます。仮想環境フォルダと Python 実行ファイルのどちらも利用できます。
 
-### ファイルを開く
+## 音声を開く
 
 | 方法 | 操作 |
-|------|------|
-| コマンドパレット | **Audio Analyzer: Analyze File or Folder** |
-| 右クリックメニュー | エクスプローラ上で音声ファイル / フォルダを右クリック → **Analyze with Audio Analyzer** |
-| サイドバー | アクティビティバーの **Audio Analyzer** アイコン → *ファイル・フォルダを選択して解析* |
-| ドラッグ＆ドロップ | サイドバーの *Drop audio files or folders here* 行へドロップ |
+| --- | --- |
+| コマンドパレット | **Audio Analyzer: Analyze File or Folder** を実行 |
+| エクスプローラの右クリック | 音声ファイルまたはフォルダを右クリックし、**Analyze with Audio Analyzer** を選択 |
+| アクティビティバー | **Audio Analyzer** ビューを開き、ファイルまたはフォルダを選択 |
+| ドラッグ＆ドロップ | Audio Analyzer サイドバーへ音声ファイルまたはフォルダをドロップ |
 
-### ディレクトリを開いた場合
+フォルダを開くと、対応音声ファイルがツリー表示されます。チェックを入れると比較パネルに追加され、チェックを外すとそのトラックが削除されます。
 
-対応ファイルのツリーが表示されます。最初は未選択状態で、チェックを入れたファイルだけが右側のトラック領域に即時追加されます。チェックを外せばそのトラックも即時に消えます。
+## パネルでの操作
 
-### 操作
+- **比較:** 複数トラックを共通タイムラインに並べ、行ごとに波形 / スペクトログラムを切り替え
+- **ズーム:** ツールバーの `+ / - / 0`、キーボードショートカット、またはプロット上のホイール操作
+- **確認:** 波形、スペクトログラム、スペクトル上をクリックしてカーソルを動かし、スペクトルを更新
+- **ループ:** 波形上をドラッグしてループ範囲を作成し、クリックで解除
+- **再生:** トラックごとの再生ボタンを使用。`M` でミュート
+- **位置合わせ:** `▲ / ▼` でトラックの時間オフセットを調整。値をダブルクリックするとリセット
+- **スペクトログラム調整:** 歯車ポップオーバーから FFT 長、ホップ長、窓関数、dB 範囲、最大周波数を変更
+- **ヘルプ:** パネル内で `?` を押すとキーボードショートカットを表示
 
-- **ズーム**: ツールバーの `+ / -`、または波形上でスクロール
-- **カーソル移動**: 波形 / スペクトログラム上をクリック
-- **ループ範囲**: ドラッグして選択 / クリックで解除
-- **トラックオフセット**: トラック左側の `▲ / ▼` ボタンで ±0.01 秒ずつ調整、表示をダブルクリックでリセット
-- **再生**: トラック行の `▶` ボタン、`■` で停止
-- **ミュート**: トラック行の `M` ボタン (パワースペクトルのオーバーレイからも除外される)
-- **スペクトログラム設定**: ツールバー右の歯車アイコンから FFT 長・ホップ長・窓関数・表示範囲を変更
+## エクスポートとレシピ
 
-### 表示モード切替
+比較ツールバーから、解析結果をそのまま外部作業へ渡せます。
 
-トラック単位のツールバーで **波形 / スペクトログラム** を切り替えられます。
+| 操作 | 出力 |
+| --- | --- |
+| **PNG 出力** | 表示中のトラック画像 |
+| **CSV 出力** | 現在のカーソル位置のスペクトルデータ |
+| **WAV 出力** | 選択したループ範囲の音声 |
+| **レポート出力** | Markdown / Notebook 向け解析レポート |
+| **レシピ実行** | wandas レシピの結果を VS Code 内に表示 |
 
 ## 設定
 
 | 設定キー | 既定値 | 説明 |
-|---------|------|------|
-| `audioWandasAnalyzer.pythonCommand` | `python3` | バックエンドを起動する Python 環境フォルダ。既存の実行ファイル指定も引き続き利用可能 |
-| `audioWandasAnalyzer.defaultPeakCount` | `5` | チャンネルごとに表示する周波数ピーク数 (1–20) |
-| `audioWandasAnalyzer.debugFilePath` | `media/debug` | **Audio Analyzer: Analyze Debug Path** で開くデフォルトのパス。相対パスはワークスペースルートから解決 |
+| --- | --- | --- |
+| `audioWandasAnalyzer.pythonCommand` | `python3` | バックエンドに使う Python 環境フォルダまたは実行ファイル |
+| `audioWandasAnalyzer.defaultPeakCount` | `5` | チャンネルごとに表示する主要周波数ピーク数。1 から 20 まで |
+| `audioWandasAnalyzer.cacheMemoryMb` | `1024` | 常駐 Python 波形バックエンドが使う音声キャッシュの上限 MB |
+| `audioWandasAnalyzer.debugFilePath` | `media/debug` | **Audio Analyzer: Analyze Debug Path** で開く既定パス |
 
 ## トラブルシューティング
 
-- **「Python interpreter was not found」** — `wandas` をインストールした仮想環境フォルダを `audioWandasAnalyzer.pythonCommand` に設定するか、**Audio Analyzer: Select Python Environment** から選択してください。
-- **「analyze failed」のエラー** — VS Code の **Output** パネルで **Audio Wandas Analyzer** チャンネルを確認すると、Python 側のスタックトレースが表示されます。`wandas` / `numpy` / `soundfile` がインストールされているか確認してください。
-- **音声ファイルが読み込めない** — 現状は WAV / FLAC / OGG / AIFF のみ対応。MP3 / M4A 等は非対応です。
-- **大きなファイルで重い** — 波形はズームに応じてリクエスト範囲だけ高解像度で再取得する仕組みになっており、初回読み込み後はズームしても表示は素早く更新されます。スペクトログラムの FFT 長を小さくすると更新が速くなります。
+- **Python interpreter was not found:** `wandas` を入れた仮想環境を選択するか、`audioWandasAnalyzer.pythonCommand` を更新してください。
+- **解析に失敗する:** **Output: Audio Wandas Analyzer** を開き、Python 側のエラーを確認してください。選択中の環境に `wandas`、`numpy`、`soundfile` が入っているか確認します。
+- **ファイルが読み込めない:** 拡張子が WAV、FLAC、OGG、AIFF、AIF、SND のいずれかか確認してください。MP3 / M4A はまだ非対応です。
+- **大きなファイルが重い:** 波形は表示中のズーム範囲だけを取得します。スペクトログラムが重い場合は FFT 長やホップ長を小さくしてください。
 
-## ソースコードとライセンス
+## リンク
 
 - リポジトリ: https://github.com/kasahart/audio-wandas-analyzer
-- バックエンド: [wandas](https://github.com/kasahart/wandas)
+- バックエンドライブラリ: [wandas](https://github.com/kasahart/wandas)
 - 開発者ガイド: [docs/developer-guide.ja.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.ja.md)
-- 開発者向けセットアップとアーキテクチャ詳細は [`AGENTS.md`](https://github.com/kasahart/audio-wandas-analyzer/blob/main/AGENTS.md) を参照してください。
-- バグ報告 / 機能要望は [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues) へお願いします。
+- バグ報告 / 機能要望: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues)
