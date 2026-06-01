@@ -8,6 +8,8 @@ VS Code を、そのまま音声確認の作業台に。Audio Wandas Analyzer �
 
 ![Audio Wandas Analyzer のスクリーンショット](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
 
+![Audio Wandas Analyzer のスペクトログラム表示スクリーンショット](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer_stft.png)
+
 ## なぜ便利か
 
 音声比較では、DAW、ノートブック、ファイルブラウザ、プロット用スクリプトを行き来しがちです。この拡張は、その確認ループを VS Code の中にまとめます。
