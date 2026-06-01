@@ -26,6 +26,8 @@ interface TestSnapshot {
         spectrumOverlayPresent: boolean;
         spectrumTrackCanvasCount: number;
         visibleSpectrumTrackCount: number;
+        contentType: 'waveform' | 'spectrogram';
+        reanalyzeBusy: boolean;
         latestSpectrogram?: {
             windowSize: number;
             hopSize: number;
@@ -275,7 +277,8 @@ export async function run(): Promise<void> {
                 const applied = await waitForSnapshotWhere((snapshot) => {
                     return !!snapshot.renderedUi?.latestSpectrogram
                         && snapshot.renderedUi.latestSpectrogram.windowSize === 512
-                        && snapshot.renderedUi.latestSpectrogram.hopSize === 128;
+                        && snapshot.renderedUi.latestSpectrogram.hopSize === 128
+                        && snapshot.renderedUi.reanalyzeBusy === false;
                 });
                 assert.equal(applied.renderedUi?.latestSpectrogram?.windowSize, 512);
                 assert.equal(applied.renderedUi?.latestSpectrogram?.hopSize, 128);
@@ -505,6 +508,9 @@ async function runZoomInEdgeCoverageScenario(): Promise<TestSnapshot> {
 async function runViewModeScenario(actions: string[]): Promise<TestSnapshot> {
     const actionId = `view-mode-${Date.now()}-${actions.join('-')}`;
     await ComparisonPanel.postTestActions(actionId, actions);
+    if (actions.includes('content-spectrogram')) {
+        return waitForSnapshotWhere((snapshot) => snapshot.renderedUi?.contentType === 'spectrogram');
+    }
     return waitForSnapshot(actionId);
 }
 
@@ -534,7 +540,16 @@ async function waitForSnapshotWhere(predicate: (snapshot: TestSnapshot) => boole
         await delay(250);
     }
 
-    throw new Error(`ComparisonPanel snapshot was not captured within ${COMMAND_TIMEOUT_MS}ms`);
+    const snapshot = ComparisonPanel.getTestSnapshot();
+    const latest = snapshot?.renderedUi?.latestSpectrogram;
+    throw new Error(
+        `ComparisonPanel snapshot was not captured within ${COMMAND_TIMEOUT_MS}ms; `
+        + `title=${snapshot?.title ?? 'none'} resultCount=${snapshot?.resultCount ?? 'none'} `
+        + `lastActionId=${snapshot?.lastActionId ?? 'none'} `
+        + `contentType=${snapshot?.renderedUi?.contentType ?? 'none'} `
+        + `trackRowCount=${snapshot?.renderedUi?.trackRowCount ?? 'none'} `
+        + `latestSpectrogram=${JSON.stringify(latest ?? null)}`
+    );
 }
 
 function delay(ms: number): Promise<void> {

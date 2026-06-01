@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     isAnalyzeSelectedFilesMessage,
+    isRequestSpectrumSliceMessage,
+    isRequestTrackDetailMessage,
     isSelectPythonEnvironmentMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
@@ -35,4 +37,45 @@ test('isSelectPythonEnvironmentMessage only accepts the dedicated message type',
     assert.equal(isSelectPythonEnvironmentMessage({ type: 'select-python-environment' }), true);
     assert.equal(isSelectPythonEnvironmentMessage({ type: 'select-target', targetKind: 'file' }), false);
     assert.equal(isSelectPythonEnvironmentMessage(undefined), false);
+});
+
+
+test('isRequestTrackDetailMessage accepts lazy spectrogram detail requests', () => {
+    assert.equal(isRequestTrackDetailMessage({
+        type: 'request-track-detail',
+        requestId: 'detail-1',
+        analysisId: 'analysis-1',
+        settingsSignature: 'settings-1',
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+    }), true);
+    assert.equal(isRequestTrackDetailMessage({
+        type: 'request-track-detail',
+        requestId: 'detail-1',
+        analysisId: 'analysis-1',
+        settingsSignature: 'settings-1',
+        trackIndex: '0',
+        filePath: '/tmp/a.wav',
+    }), false);
+});
+
+test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () => {
+    assert.equal(isRequestSpectrumSliceMessage({
+        type: 'request-spectrum-slice',
+        requestId: 'slice-1',
+        analysisId: 'analysis-1',
+        settingsSignature: 'settings-1',
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        cursorNorm: 0.25,
+    }), true);
+    assert.equal(isRequestSpectrumSliceMessage({
+        type: 'request-spectrum-slice',
+        requestId: 'slice-1',
+        analysisId: 'analysis-1',
+        settingsSignature: 'settings-1',
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        cursorNorm: '0.25',
+    }), false);
 });

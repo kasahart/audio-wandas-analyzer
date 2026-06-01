@@ -24,10 +24,12 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import soundfile as sf
 import wandas as wd
 
 from analyzer import _build_waveform_envelope, analyze_from_frame
@@ -47,14 +49,15 @@ def _perf(phase: str, started: float, **extra: object) -> None:
 _cache_limit_bytes = int(os.environ.get("AWA_CACHE_MB", "1024")) * 1024 * 1024
 
 
+@dataclass(slots=True)
 class CachedFile:
-    __slots__ = ("frame",)
-
-    def __init__(self, frame: wd.ChannelFrame) -> None:
-        self.frame = frame
+    sample_rate_hz: int
+    sample_count: int
+    channel_count: int
+    duration_seconds: float
 
     def nbytes(self) -> int:
-        return int(self.frame._data.nbytes)
+        return 128
 
 
 _cache: OrderedDict[str, CachedFile] = OrderedDict()
@@ -65,11 +68,14 @@ def _get_cached(file_path: str) -> CachedFile:
         _cache.move_to_end(file_path)
         return _cache[file_path]
     t = time.perf_counter()
-    frame = wd.read_wav(file_path).persist()
-    # Force materialization so subsequent .data accesses are cheap and nbytes is accurate.
-    _ = frame.data
-    _perf("cache_load", t, file=Path(file_path).name, bytes=int(frame._data.nbytes))
-    entry = CachedFile(frame)
+    info = sf.info(file_path)
+    entry = CachedFile(
+        sample_rate_hz=int(info.samplerate),
+        sample_count=int(info.frames),
+        channel_count=int(info.channels),
+        duration_seconds=float(info.duration),
+    )
+    _perf("cache_metadata", t, file=Path(file_path).name, frames=entry.sample_count, channels=entry.channel_count)
     _cache[file_path] = entry
     _evict()
     return entry
@@ -94,13 +100,61 @@ def _stft_options_from_payload(payload: dict) -> dict | None:
 
 def handle_analyze(cmd: dict) -> dict:
     file_path = str(cmd["filePath"])
-    entry = _get_cached(file_path)
+    _get_cached(file_path)
+    frame = wd.read_wav(file_path)
     return analyze_from_frame(
-        entry.frame,
+        frame,
         file_path,
         peak_count=int(cmd.get("peakCount", 5)),
         stft_options=_stft_options_from_payload(cmd),
+        include_spectrogram=False,
     )
+
+
+def handle_track_detail(cmd: dict) -> dict:
+    file_path = str(cmd["filePath"])
+    _get_cached(file_path)
+    frame = wd.read_wav(file_path)
+    result = analyze_from_frame(
+        frame,
+        file_path,
+        peak_count=int(cmd.get("peakCount", 5)),
+        stft_options=_stft_options_from_payload(cmd),
+        include_spectrogram=True,
+    )
+    return {
+        "trackIndex": int(cmd.get("trackIndex", -1)),
+        "analysisId": cmd.get("analysisId"),
+        "settingsSignature": cmd.get("settingsSignature"),
+        "filePath": file_path,
+        "channels": result["channels"],
+    }
+
+
+def handle_spectrum_slice(cmd: dict) -> dict:
+    detail = handle_track_detail(cmd)
+    channels = detail.get("channels", [])
+    if not channels:
+        raise ValueError("no channels available for spectrum slice")
+    spec = channels[0].get("spectrogram")
+    if not spec or spec.get("timeBins", 0) <= 0:
+        raise ValueError("no spectrogram available for spectrum slice")
+    cursor_norm = float(cmd.get("cursorNorm", cmd.get("trackLocalNorm", 0.0)))
+    t_idx = int(np.floor(max(0.0, min(1.0, cursor_norm)) * int(spec["timeBins"])))
+    if t_idx >= int(spec["timeBins"]):
+        t_idx = int(spec["timeBins"]) - 1
+    values = spec["values"][t_idx]
+    return {
+        "trackIndex": detail["trackIndex"],
+        "analysisId": detail.get("analysisId"),
+        "settingsSignature": detail.get("settingsSignature"),
+        "filePath": detail["filePath"],
+        "values": values,
+        "frequencyBins": spec["frequencyBins"],
+        "maxFrequencyHz": spec["maxFrequencyHz"],
+        "minDb": spec["minDb"],
+        "maxDb": spec["maxDb"],
+    }
 
 
 def handle_range(cmd: dict) -> dict:
@@ -110,20 +164,19 @@ def handle_range(cmd: dict) -> dict:
     point_count = int(cmd.get("points", 2000))
 
     entry = _get_cached(file_path)
-    frame = entry.frame
-    n_total = int(frame.n_samples)
+    n_total = entry.sample_count
     start_idx = max(0, int(start_norm * n_total))
     end_idx = min(n_total, int(end_norm * n_total))
 
     channels: list[dict] = []
     if end_idx > start_idx:
-        data = np.asarray(frame.data)
-        if data.ndim == 1:
-            data = data.reshape(1, -1)
-        for ch_data in data:
+        with sf.SoundFile(file_path) as f:
+            f.seek(start_idx)
+            data = f.read(end_idx - start_idx, dtype="float64", always_2d=True)
+        for ch_idx in range(data.shape[1]):
             channels.append(
                 _build_waveform_envelope(
-                    ch_data[start_idx:end_idx],
+                    data[:, ch_idx],
                     point_count,
                     start_sample=start_idx,
                     total_samples=n_total,
@@ -167,6 +220,8 @@ def handle_export_wav_loop(cmd: dict) -> dict:
 COMMANDS: dict[str, Callable[[dict], dict]] = {
     "analyze": handle_analyze,
     "range": handle_range,
+    "track-detail": handle_track_detail,
+    "spectrum-slice": handle_spectrum_slice,
     "export-wav-loop": handle_export_wav_loop,
 }
 

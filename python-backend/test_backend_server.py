@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from backend_server import handle_export_wav_loop
+from backend_server import handle_export_wav_loop, handle_spectrum_slice, handle_track_detail
 
 ROOT = Path(__file__).parent
 
@@ -100,7 +100,70 @@ def test_analyze_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
     assert resp["fileName"] == "tone.wav"
     assert resp["channelCount"] == 1
     assert len(resp["channels"]) == 1
-    assert resp["channels"][0]["spectrogram"]["windowSize"] > 0
+    assert resp["channels"][0]["spectrogram"] is None
+
+
+def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+
+    resp = handle_track_detail(
+        {
+            "filePath": str(wav),
+            "trackIndex": 2,
+            "analysisId": "a1",
+            "settingsSignature": "sig1",
+            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+        }
+    )
+
+    assert resp["trackIndex"] == 2
+    assert resp["analysisId"] == "a1"
+    assert resp["settingsSignature"] == "sig1"
+    spec = resp["channels"][0]["spectrogram"]
+    assert spec["windowSize"] == 256
+    assert spec["hopSize"] == 128
+    assert spec["timeBins"] > 0
+    assert spec["frequencyBins"] > 0
+
+
+def test_spectrum_slice_matches_track_detail_row(tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    opts = {"nFft": 256, "hopSize": 128, "window": "hann"}
+    detail = handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts})
+    spec = detail["channels"][0]["spectrogram"]
+
+    resp = handle_spectrum_slice(
+        {
+            "filePath": str(wav),
+            "trackIndex": 0,
+            "cursorNorm": 0.0,
+            "stftOptions": opts,
+        }
+    )
+
+    assert resp["trackIndex"] == 0
+    assert resp["frequencyBins"] == spec["frequencyBins"]
+    assert resp["maxFrequencyHz"] == spec["maxFrequencyHz"]
+    np.testing.assert_allclose(resp["values"], spec["values"][0])
+
+
+def test_cached_file_keeps_metadata_without_materialized_frame(tmp_path: Path) -> None:
+    import importlib
+
+    import backend_server
+
+    importlib.reload(backend_server)
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+
+    entry = backend_server._get_cached(str(wav))
+
+    assert not hasattr(entry, "frame")
+    assert entry.sample_rate_hz == 16000
+    assert entry.sample_count == 8000
+    assert entry.nbytes() < 4096
 
 
 def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
@@ -273,6 +336,6 @@ def test_lru_evicts_oldest_when_over_limit(tmp_path: Path, monkeypatch: pytest.M
         backend_server._get_cached(paths[-1])
 
     assert paths[-1] in backend_server._cache
-    assert paths[0] not in backend_server._cache
     total = sum(e.nbytes() for e in backend_server._cache.values())
-    assert total <= backend_server._cache_limit_bytes or len(backend_server._cache) == 1
+    assert total <= backend_server._cache_limit_bytes
+    assert all(not hasattr(entry, "frame") for entry in backend_server._cache.values())

@@ -126,13 +126,25 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
     ],
 });
 
-function setupEnv() {
+function setupEnvWithState(stateJson: string) {
     const script = getRenderScript();
-    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_APP_STATE);
+    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(stateJson);
     // comparisonWaveform.js を先に eval して window.renderWaveformPipeline を登録する
     evalScript(dom, WAVEFORM_PIPELINE_JS);
     evalScript(dom, script);
     return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+}
+
+function setupEnv() {
+    return setupEnvWithState(DUMMY_APP_STATE);
+}
+
+function makeLazySpectrogramState(): string {
+    const state = JSON.parse(DUMMY_APP_STATE);
+    state.results.forEach((result: any) => {
+        result.channels[0].spectrogram = null;
+    });
+    return JSON.stringify(state);
 }
 
 function setupSelectionEnv() {
@@ -524,6 +536,97 @@ test('waveform-range-result メッセージを受信しても例外が起きな�
     });
 });
 
+test('renderScript: spectrogram mode requests track detail when spectrogram is null', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(button);
+    button.click();
+    await nextAnimationFrame(env.dom);
+
+    const detailRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
+    assert.ok(detailRequests.length >= 1, 'request-track-detail should be posted');
+    assert.equal(detailRequests[0].trackIndex, 0);
+    assert.equal(detailRequests[0].filePath, '/tmp/a.wav');
+    assert.equal(typeof detailRequests[0].analysisId, 'string');
+    assert.equal(typeof detailRequests[0].settingsSignature, 'string');
+});
+
+test('renderScript: track-detail-result merges spectrogram and stale detail is ignored', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(button);
+    button.click();
+    await nextAnimationFrame(env.dom);
+    const req = env.postedMessages.find((msg: any) => msg.type === 'request-track-detail') as any;
+    assert.ok(req);
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'track-detail-result',
+        requestId: req.requestId,
+        analysisId: 'stale',
+        settingsSignature: req.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ spectrogram: { values: [[-10]], timeBins: 1, frequencyBins: 1, windowSize: 512, hopSize: 256, maxFrequencyHz: 22050, minDb: -90, maxDb: 0 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-120 dB'));
+    assert.equal(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-90 dB'), false);
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'track-detail-result',
+        requestId: req.requestId,
+        analysisId: req.analysisId,
+        settingsSignature: req.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ spectrogram: { values: [[-10]], timeBins: 1, frequencyBins: 1, windowSize: 512, hopSize: 256, maxFrequencyHz: 22050, minDb: -90, maxDb: 0 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-90 dB'));
+});
+
+test('renderScript: removing a detailed track releases its spectrogram detail', () => {
+    const env = setupEnv();
+    const removeButton = env.dom.window.document.querySelector('[data-action="remove-track"][data-track-index="0"]') as HTMLButtonElement | null;
+    assert.ok(removeButton);
+    removeButton.click();
+
+    const release = env.postedMessages.find((msg: any) => msg.type === 'release-track-detail' && msg.trackIndex === 0) as any;
+    assert.ok(release, 'release-track-detail should be posted');
+    assert.equal(release.filePath, '/tmp/a.wav');
+});
+
+test('renderScript: analysis-update in spectrogram mode requests fresh detail for new settings', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(button);
+    button.click();
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'analysis-update',
+        results: JSON.parse(makeLazySpectrogramState()).results,
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const detailRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
+    assert.ok(detailRequests.length >= 2, 'analysis-update should trigger a fresh detail request in spectrogram mode');
+});
+
+test('renderScript: missing spectrogram requests a spectrum slice at cursor', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    await nextAnimationFrame(env.dom);
+
+    const sliceRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    assert.ok(sliceRequests.length >= 1, 'request-spectrum-slice should be posted');
+    assert.equal(sliceRequests[0].trackIndex, 0);
+    assert.equal(sliceRequests[0].filePath, '/tmp/a.wav');
+    assert.equal(typeof sliceRequests[0].cursorNorm, 'number');
+});
+
 test('再生ボタンで play 状態に切り替わる', async () => {
     const { dom } = setupEnv();
     const playButton = dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]');
@@ -681,6 +784,18 @@ function setupSpectrumEnv() {
 function setupMismatchedDeltaFSpectrumEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(MISMATCHED_DELTA_F_SPECTRUM_STATE);
+    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, script);
+    return env;
+}
+
+function setupSpectrumEnvWithClock(clock: { now: number }) {
+    const script = getRenderScript();
+    const env = createWebviewEnv(SPECTRUM_APP_STATE);
+    Object.defineProperty(env.dom.window.performance, 'now', {
+        configurable: true,
+        value: () => clock.now,
+    });
     evalScript(env.dom, WAVEFORM_PIPELINE_JS);
     evalScript(env.dom, script);
     return env;
@@ -957,6 +1072,66 @@ test('renderScript: spectrum canvases are redrawn during playback as cursor adva
     assert.ok(trackSpy!.strokeCalls > trackBefore,
         '再生中の tick で per-track spectrum が再描画されること '
         + '(before=' + trackBefore + ', after=' + trackSpy!.strokeCalls + ')');
+    env.dom.window.close();
+});
+
+test('renderScript: playback spectrum refresh is throttled and then catches up', async () => {
+    const clock = { now: 1000 };
+    const env = setupSpectrumEnvWithClock(clock);
+    await nextAnimationFrame(env.dom);
+
+    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
+
+    const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
+    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
+    assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
+    assert.ok(stopButton instanceof env.dom.window.HTMLButtonElement);
+
+    (audio as HTMLAudioElement & { duration: number }).duration = 1;
+    playButton.click();
+    await Promise.resolve();
+    await nextAnimationFrame(env.dom);
+
+    const afterStart = overlaySpy!.clearRectCalls;
+    clock.now = 1001;
+    (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.2;
+    await nextAnimationFrame(env.dom);
+    assert.equal(overlaySpy!.clearRectCalls, afterStart,
+        '66ms 未満の playback tick では spectrum 再描画を増やさないこと');
+
+    clock.now = 1070;
+    (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.5;
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
+    assert.ok(overlaySpy!.clearRectCalls > afterStart,
+        '66ms 経過後の playback tick では spectrum が再描画されること');
+
+    stopButton.click();
+    env.dom.window.close();
+});
+
+test('renderScript: spectrum hover mousemoves are coalesced to one animation frame', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    assert.ok(overlay instanceof env.dom.window.HTMLCanvasElement);
+    assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
+
+    const before = overlaySpy!.clearRectCalls;
+    overlay.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 20 }));
+    overlay.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 120, clientY: 22 }));
+    overlay.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 140, clientY: 24 }));
+    assert.equal(overlaySpy!.clearRectCalls, before,
+        'mousemove handler 内では同期的に spectrum を再描画しないこと');
+
+    await nextAnimationFrame(env.dom);
+    assert.equal(overlaySpy!.clearRectCalls, before + 1,
+        '同一フレーム内の mousemove 連打は 1 回の spectrum 更新に畳まれること');
     env.dom.window.close();
 });
 

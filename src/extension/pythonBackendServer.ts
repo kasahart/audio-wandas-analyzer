@@ -58,6 +58,43 @@ export class PythonBackendServer {
         ) as Promise<{ channels: unknown[] }>;
     }
 
+    async requestTrackDetail(
+        filePath: string,
+        payload: { trackIndex: number; analysisId: string; settingsSignature: string; stftOptions?: AnalyzeStftOptions },
+        requestId: string,
+    ): Promise<{ channels: unknown[]; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }> {
+        return this.request(
+            'track-detail',
+            {
+                filePath,
+                trackIndex: payload.trackIndex,
+                analysisId: payload.analysisId,
+                settingsSignature: payload.settingsSignature,
+                ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
+            },
+            requestId,
+        ) as Promise<{ channels: unknown[]; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }>;
+    }
+
+    async requestSpectrumSlice(
+        filePath: string,
+        payload: { trackIndex: number; analysisId: string; settingsSignature: string; cursorNorm: number; stftOptions?: AnalyzeStftOptions },
+        requestId: string,
+    ): Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }> {
+        return this.request(
+            'spectrum-slice',
+            {
+                filePath,
+                trackIndex: payload.trackIndex,
+                analysisId: payload.analysisId,
+                settingsSignature: payload.settingsSignature,
+                cursorNorm: payload.cursorNorm,
+                ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
+            },
+            requestId,
+        ) as Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }>;
+    }
+
     async exportWavLoop(
         filePath: string,
         startNorm: number,

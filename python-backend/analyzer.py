@@ -256,8 +256,9 @@ def analyze_from_frame(
     peak_count: int = 5,
     *,
     stft_options: dict | None = None,
+    include_spectrogram: bool = True,
 ) -> dict[str, object]:
-    """Build the AnalysisResult JSON payload from a (typically persisted) ChannelFrame."""
+    """Build the AnalysisResult JSON payload from a ChannelFrame."""
     peak_count = max(0, int(peak_count))  # guard against negative/zero from user config
     target = Path(file_path)
     t_frame = time.perf_counter()
@@ -276,16 +277,21 @@ def analyze_from_frame(
     _perf("fft", t_fft, bins=fft_freqs.size)
 
     window_size, hop_size, window_name = _resolve_stft_params(sample_count, stft_options)
-    t_stft = time.perf_counter()
-    stft = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
-    stft_db = np.asarray(stft.dB, dtype=np.float64)
-    _perf("stft", t_stft, n_fft=window_size, hop=hop_size, shape="x".join(str(s) for s in stft_db.shape))
+    stft_db: np.ndarray | None = None
+    if include_spectrogram:
+        t_stft = time.perf_counter()
+        stft = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
+        stft_db = np.asarray(stft.dB, dtype=np.float64)
+        _perf("stft", t_stft, n_fft=window_size, hop=hop_size, shape="x".join(str(s) for s in stft_db.shape))
 
     t_channels = time.perf_counter()
     channels: list[dict[str, object]] = []
     for index in range(channel_count):
         samples = data[index]
-        spectrogram_db = np.transpose(stft_db[index], (1, 0))
+        spectrogram = None
+        if stft_db is not None:
+            spectrogram_db = np.transpose(stft_db[index], (1, 0))
+            spectrogram = _build_spectrogram(spectrogram_db, sample_rate_hz, window_size, hop_size)
         channels.append(
             {
                 "label": labels[index] if index < len(labels) else f"Channel {index + 1}",
@@ -299,7 +305,7 @@ def analyze_from_frame(
                     start_sample=0,
                     total_samples=sample_count,
                 ),
-                "spectrogram": _build_spectrogram(spectrogram_db, sample_rate_hz, window_size, hop_size),
+                "spectrogram": spectrogram,
             }
         )
 
