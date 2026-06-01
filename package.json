@@ -18,6 +18,7 @@
         "onStartupFinished"
     ],
     "main": "./dist/extension/index.js",
+    "icon": "media/Marketplace-icon.png",
     "contributes": {
         "commands": [
             {

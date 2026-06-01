@@ -8,6 +8,8 @@ Turn VS Code into a focused audio inspection desk. Audio Wandas Analyzer lets yo
 
 ![Audio Wandas Analyzer screenshot](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
 
+![Audio Wandas Analyzer spectrogram screenshot](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer_stft.png)
+
 ## Why Use It
 
 Audio comparison often means bouncing between a DAW, a notebook, a file browser, and a plotting script. This extension keeps that loop inside VS Code:
