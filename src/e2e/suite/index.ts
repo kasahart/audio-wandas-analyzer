@@ -466,14 +466,6 @@ async function analyzeDebugPath(
         await waitForSnapshot();
         const actionId = `selection-select-all-${Date.now()}`;
         await ComparisonPanel.postTestActions(actionId, ['selection-select-all']);
-        const snapshotAfterAction = await waitForSnapshot(actionId);
-        if (
-            snapshotAfterAction.resultCount > 0
-            && !!snapshotAfterAction.renderedUi
-            && snapshotAfterAction.renderedUi.trackRowCount > 0
-        ) {
-            return snapshotAfterAction;
-        }
         return waitForSnapshotWhere((snapshot) => {
             return snapshot.resultCount > 0
                 && !!snapshot.renderedUi

@@ -608,9 +608,79 @@ const SPECTRUM_APP_STATE = JSON.stringify({
     })),
 });
 
+
+const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
+    mode: 'results',
+    results: [
+        {
+            filePath: '/tmp/coarse.wav',
+            fileName: 'coarse.wav',
+            audioSource: 'vscode-resource:/tmp/coarse.wav',
+            sampleRateHz: 1200,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 1200,
+            error: undefined,
+            channels: [{
+                label: 'L',
+                rms: 0.1,
+                peakAbsolute: 0.5,
+                dominantFrequencies: [],
+                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
+                spectrogram: {
+                    values: [[-80, -60, -40, -20]],
+                    timeBins: 1,
+                    frequencyBins: 4,
+                    windowSize: 512,
+                    hopSize: 256,
+                    maxFrequencyHz: 600,
+                    minDb: -90,
+                    maxDb: 0,
+                },
+            }],
+        },
+        {
+            filePath: '/tmp/fine.wav',
+            fileName: 'fine.wav',
+            audioSource: 'vscode-resource:/tmp/fine.wav',
+            sampleRateHz: 1800,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 1800,
+            error: undefined,
+            channels: [{
+                label: 'L',
+                rms: 0.1,
+                peakAbsolute: 0.5,
+                dominantFrequencies: [],
+                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
+                spectrogram: {
+                    values: [[-20, -35, -50, -65, -80, -85]],
+                    timeBins: 1,
+                    frequencyBins: 6,
+                    windowSize: 512,
+                    hopSize: 256,
+                    maxFrequencyHz: 900,
+                    minDb: -90,
+                    maxDb: 0,
+                },
+            }],
+        },
+    ],
+});
+
 function setupSpectrumEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(SPECTRUM_APP_STATE);
+    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, script);
+    return env;
+}
+
+
+function setupMismatchedDeltaFSpectrumEnv() {
+    const script = getRenderScript();
+    const env = createWebviewEnv(MISMATCHED_DELTA_F_SPECTRUM_STATE);
     evalScript(env.dom, WAVEFORM_PIPELINE_JS);
     evalScript(env.dom, script);
     return env;
@@ -740,6 +810,76 @@ test('axes: スペクトル (per-track / overlay) に Hz と dB のラベルが�
         overlayLabels.some((s) => s !== '0 Hz' && (/kHz$/.test(s) || /Hz$/.test(s))),
         'overlay: 0 以外の周波数ラベル (Hz/kHz) が描かれること: ' + JSON.stringify(overlayLabels),
     );
+    env.dom.window.close();
+});
+
+
+test('spectrum cursor: per-track readout snaps to the hovered track frequency bin', async () => {
+    const env = setupMismatchedDeltaFSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'track-spectrum-0 が存在すること');
+    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.ok(readout, 'spectrum-freq-readout が存在すること');
+    assert.match(readout!.textContent || '', /^200 Hz\s+-60\.0 dB$/,
+        'coarse track ΔF=200 Hz の最寄りbinへ吸着すること');
+    env.dom.window.close();
+});
+
+test('spectrum cursor: overlay snaps to the nearest visible series bin when delta F differs', async () => {
+    const env = setupMismatchedDeltaFSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
+    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 73, clientY: 52 }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.ok(readout, 'spectrum-freq-readout が存在すること');
+    assert.match(readout!.textContent || '', /^180 Hz\s+-35\.0 dB$/,
+        'fine track ΔF=180 Hz の最寄りbinへ吸着すること');
+    env.dom.window.close();
+});
+
+
+test('spectrum cursor: overlay remains snapped after frequency zoom changes the visible range', async () => {
+    const env = setupMismatchedDeltaFSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
+    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 100, clientY: 135 }));
+    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
+    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
+    minI.value = '100';
+    maxI.value = '500';
+    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
+    await nextAnimationFrame(env.dom);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 81, clientY: 52 }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.ok(readout, 'spectrum-freq-readout が存在すること');
+    assert.match(readout!.textContent || '', /^180 Hz\s+-35\.0 dB$/,
+        '周波数ズーム後もfine trackの実binへ吸着すること');
     env.dom.window.close();
 });
 
