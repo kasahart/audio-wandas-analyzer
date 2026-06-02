@@ -168,6 +168,7 @@ export function getComparisonRenderScript(): string {
             let hoverNorm = null;         // ホバープレビュー位置（null = 非表示）
             let spectrumHoverNorm = null;  // スペクトルカーソル（正規化周波数 0..1、null = 非表示）
             let spectrumHoverYFrac = null; // スペクトルカーソルy（canvas高さに対する比率 0..1）
+            let spectrumHoverTrackIndex = null; // -1 = overlay, number = per-track, null = none
             let spectrumHasMouse = false;  // マウスがスペクトルキャンバス上にある間 true
             let trackHeight = TRACK_HEIGHT_DEFAULT;
             let spectrumOverlayHeight = SPECTRUM_HEIGHT_DEFAULT;
@@ -1697,12 +1698,7 @@ export function getComparisonRenderScript(): string {
                     // ── スペクトルカーソル操作（マウスがスペクトル上にある間）──
                     if (spectrumHasMouse && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
                         e.preventDefault();
-                        const overlayC = document.getElementById('spectrum-overlay-canvas');
-                        const plotW = overlayC ? Math.max(1, overlayC.width - 36 - 8) : 800;
-                        const step = e.shiftKey ? (10 / plotW) : (1 / plotW);
-                        const delta = e.code === 'ArrowLeft' ? -step : step;
-                        if (spectrumHoverNorm === null) { spectrumHoverNorm = 0.5; }
-                        spectrumHoverNorm = Math.max(0, Math.min(1, spectrumHoverNorm + delta));
+                        moveSpectrumHoverByBin(e.code === 'ArrowLeft' ? -1 : 1);
                         refreshSpectrumViews();
                         return;
                     }
@@ -1788,16 +1784,23 @@ export function getComparisonRenderScript(): string {
 
                 // スペクトルカーソルイベント（オーバーレイ＋各トラック）
                 (function attachSpectrumCursorEvents() {
-                    function onSpectrumMove(padL, padR, canvasEl, e) {
+                    function onSpectrumMove(padL, padR, canvasEl, e, trackIndex) {
                         const rect = canvasEl.getBoundingClientRect();
                         const x = e.clientX - rect.left;
                         const y = e.clientY - rect.top;
                         const plotW = canvasEl.width - padL - padR;
                         const canvasH = canvasEl.height || 140;
-                        if (plotW > 0) {
-                            spectrumHoverNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
-                            spectrumHoverYFrac = Math.max(0, Math.min(1, y / canvasH));
+                        if (plotW <= 0) {
+                            spectrumHasMouse = false;
+                            spectrumHoverNorm = null;
+                            spectrumHoverYFrac = null;
+                            spectrumHoverTrackIndex = null;
+                            refreshSpectrumViews();
+                            return;
                         }
+                        spectrumHoverNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
+                        spectrumHoverYFrac = Math.max(0, Math.min(1, y / canvasH));
+                        spectrumHoverTrackIndex = trackIndex;
                         spectrumHasMouse = true;
                         refreshSpectrumViews();
                     }
@@ -1805,13 +1808,14 @@ export function getComparisonRenderScript(): string {
                         spectrumHasMouse = false;
                         spectrumHoverNorm = null;
                         spectrumHoverYFrac = null;
+                        spectrumHoverTrackIndex = null;
                         refreshSpectrumViews();
                     }
                     const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
                     if (overlayCanvas) {
                         overlayCanvas.addEventListener('mousemove', function(e) {
                             if (specDragAnchor !== null) { return; }  // ドラッグ中はホバー不要
-                            onSpectrumMove(36, 8, overlayCanvas, e);
+                            onSpectrumMove(36, 8, overlayCanvas, e, -1);
                         });
                         overlayCanvas.addEventListener('mouseleave', onSpectrumLeave);
                         overlayCanvas.addEventListener('mousedown', function(e) {
@@ -1888,7 +1892,10 @@ export function getComparisonRenderScript(): string {
                         });
                     }
                     document.querySelectorAll('.track-spectrum-canvas').forEach(function(c) {
-                        c.addEventListener('mousemove', function(e) { onSpectrumMove(32, 6, c, e); });
+                        c.addEventListener('mousemove', function(e) {
+                            const idx = parseInt(c.getAttribute('data-track-index'), 10);
+                            onSpectrumMove(32, 6, c, e, isNaN(idx) ? null : idx);
+                        });
                         c.addEventListener('mouseleave', onSpectrumLeave);
                     });
                 })();
@@ -3104,6 +3111,114 @@ export function getComparisonRenderScript(): string {
                 };
             }
 
+            function spectrumBinAtFrequency(slice, targetFreqHz, padL, plotW, padT, plotH, visFreqMin, visFreqMax, visDbMin, visDbMax) {
+                const fBins = slice.frequencyBins;
+                const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
+                const visFreqRange = visFreqMax - visFreqMin;
+                const dbRange = visDbMax - visDbMin;
+                if (fBins <= 0 || originalMaxFreq <= 0 || visFreqRange <= 0) { return null; }
+                const maxVisibleFreq = Math.min(visFreqMax, slice.maxFrequencyHz);
+                let minIdx = Math.ceil((Math.max(0, visFreqMin) / originalMaxFreq) * Math.max(fBins - 1, 1));
+                let maxIdx = Math.floor((maxVisibleFreq / originalMaxFreq) * Math.max(fBins - 1, 1));
+                minIdx = Math.max(0, Math.min(fBins - 1, minIdx));
+                maxIdx = Math.max(0, Math.min(fBins - 1, maxIdx));
+                if (maxIdx < minIdx) {
+                    minIdx = 0;
+                    maxIdx = fBins - 1;
+                }
+                let binIdx = Math.round((targetFreqHz / originalMaxFreq) * Math.max(fBins - 1, 1));
+                binIdx = Math.max(minIdx, Math.min(maxIdx, binIdx));
+                const freqHz = (binIdx / Math.max(fBins - 1, 1)) * originalMaxFreq;
+                const dbVal = slice.values[binIdx];
+                const x = padL + ((freqHz - visFreqMin) / visFreqRange) * plotW;
+                let y = null;
+                if (dbVal !== undefined && dbRange > 0) {
+                    const norm = Math.max(0, Math.min(1, (dbVal - visDbMin) / dbRange));
+                    y = padT + (1 - norm) * plotH;
+                }
+                return { binIdx: binIdx, freqHz: freqHz, x: x, dbVal: dbVal, y: y };
+            }
+
+            function spectrumBinAtHover(slice, hoverNormValue, padL, plotW, padT, plotH, visFreqMin, visFreqMax, visDbMin, visDbMax) {
+                const targetFreqHz = visFreqMin + hoverNormValue * (visFreqMax - visFreqMin);
+                return spectrumBinAtFrequency(slice, targetFreqHz, padL, plotW, padT, plotH, visFreqMin, visFreqMax, visDbMin, visDbMax);
+            }
+
+            function hoverNormForFrequency(freqHz, visFreqMin, visFreqMax) {
+                const range = visFreqMax - visFreqMin;
+                if (range <= 0) { return 0; }
+                return Math.max(0, Math.min(1, (freqHz - visFreqMin) / range));
+            }
+
+            function visibleSpectrumSlices() {
+                const slices = [];
+                displayOrder.forEach(function(i) {
+                    const result = state.results[i];
+                    if (trackRuntime[i].hidden) { return; }
+                    const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
+                    if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, name: result.fileName }); }
+                });
+                return slices;
+            }
+
+            function chooseOverlaySpectrumSnap(slices, hoverNormValue, mouseY, padL, plotW, padT, plotH, visFreqMin, visFreqMax, visDbMin, visDbMax) {
+                let nearest = null;
+                let minDist = Infinity;
+                slices.forEach(function(s) {
+                    const snap = spectrumBinAtHover(s.slice, hoverNormValue, padL, plotW, padT, plotH, visFreqMin, visFreqMax, visDbMin, visDbMax);
+                    if (!snap || snap.dbVal === undefined || snap.y === null) { return; }
+                    const item = { s: s, snap: snap, dbVal: snap.dbVal, snapY: snap.y };
+                    if (mouseY === null) {
+                        if (!nearest) { nearest = item; }
+                        return;
+                    }
+                    const dist = Math.abs(snap.y - mouseY);
+                    if (dist < minDist) { minDist = dist; nearest = item; }
+                });
+                return nearest;
+            }
+
+            function moveSpectrumHoverByBin(deltaIdx) {
+                if (spectrumHoverNorm === null) { spectrumHoverNorm = 0.5; }
+                if (spectrumHoverTrackIndex !== null && spectrumHoverTrackIndex >= 0) {
+                    const result = state.results[spectrumHoverTrackIndex];
+                    const slice = result ? extractSpectrumAtCursor(result, trackRuntime[spectrumHoverTrackIndex].offsetSeconds, cursorNorm) : null;
+                    if (!slice) { return; }
+                    const visFreqMin = specFreqStart * slice.maxFrequencyHz;
+                    const visFreqMax = specFreqEnd * slice.maxFrequencyHz;
+                    const snap = spectrumBinAtHover(slice, spectrumHoverNorm, 0, 1, 0, 1, visFreqMin, visFreqMax, slice.minDb, slice.maxDb);
+                    if (!snap) { return; }
+                    const nextIdx = Math.max(0, Math.min(slice.frequencyBins - 1, snap.binIdx + deltaIdx));
+                    const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
+                    const freqHz = (nextIdx / Math.max(slice.frequencyBins - 1, 1)) * originalMaxFreq;
+                    spectrumHoverNorm = hoverNormForFrequency(freqHz, visFreqMin, visFreqMax);
+                    return;
+                }
+                const slices = visibleSpectrumSlices();
+                if (slices.length === 0) { return; }
+                let maxF = 0, minDb = Infinity, maxDb = -Infinity;
+                slices.forEach(function(s) {
+                    if (s.slice.maxFrequencyHz > maxF) { maxF = s.slice.maxFrequencyHz; }
+                    if (s.slice.minDb < minDb) { minDb = s.slice.minDb; }
+                    if (s.slice.maxDb > maxDb) { maxDb = s.slice.maxDb; }
+                });
+                const visFreqMin = specFreqStart * maxF;
+                const visFreqMax = specFreqEnd * maxF;
+                const visDbMin = (specDbMin != null) ? specDbMin : minDb;
+                const visDbMax = (specDbMax != null) ? specDbMax : maxDb;
+                const overlayC = document.getElementById('spectrum-overlay-canvas');
+                const mouseY = spectrumHoverYFrac !== null && overlayC ? spectrumHoverYFrac * overlayC.height : null;
+                const nearest = chooseOverlaySpectrumSnap(slices, spectrumHoverNorm, mouseY, 0, 1, 0, 1, visFreqMin, visFreqMax, visDbMin, visDbMax);
+                const chosen = nearest ? nearest.s : slices[0];
+                const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, spectrumHoverNorm, 0, 1, 0, 1, visFreqMin, visFreqMax, visDbMin, visDbMax);
+                if (!snap) { return; }
+                const nextIdx = Math.max(0, Math.min(chosen.slice.frequencyBins - 1, snap.binIdx + deltaIdx));
+                const originalMaxFreq = chosen.slice.originalMaxFrequencyHz || chosen.slice.maxFrequencyHz;
+                const freqHz = (nextIdx / Math.max(chosen.slice.frequencyBins - 1, 1)) * originalMaxFreq;
+                spectrumHoverNorm = hoverNormForFrequency(freqHz, visFreqMin, visFreqMax);
+                spectrumHoverTrackIndex = -1;
+            }
+
             function drawSpectrumLine(ctx, W, H, slice, color, opts, visFreqMin, visFreqMax, visDbMin, visDbMax) {
                 const fBins = slice.frequencyBins;
                 const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
@@ -3207,37 +3322,32 @@ export function getComparisonRenderScript(): string {
                     const visDbMaxT   = (specDbMax != null) ? specDbMax : slice.maxDb;
                     drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
                     drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 }, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
-                    // スペクトル十字カーソル（縦線＋スペクトルにスナップした横線）
-                    if (spectrumHoverNorm !== null) {
+                    if (spectrumHoverNorm !== null && spectrumHoverTrackIndex === i) {
                         const padL2 = 32, padR2 = 6, padT2 = 4, padB2 = 14;
                         const plotW2 = W - padL2 - padR2;
                         const plotH2 = H - padT2 - padB2;
-                        const curX = padL2 + spectrumHoverNorm * plotW2;
-                        const origMaxF2 = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
-                        const fHz2 = visFreqMinT + spectrumHoverNorm * (visFreqMaxT - visFreqMinT);
-                        const binF2 = (fHz2 / Math.max(origMaxF2, 1)) * Math.max(slice.frequencyBins - 1, 1);
-                        const binIdx2 = Math.max(0, Math.min(slice.frequencyBins - 1, Math.round(binF2)));
-                        const dbVal2 = slice.values[binIdx2];
-                        const range2 = visDbMaxT - visDbMinT;
+                        const snap = spectrumBinAtHover(slice, spectrumHoverNorm, padL2, plotW2, padT2, plotH2, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
+                        if (!snap) { return; }
                         ctx.save();
                         ctx.lineWidth = 1;
                         ctx.setLineDash([3, 3]);
-                        // 縦線
                         ctx.strokeStyle = 'rgba(255,255,255,0.75)';
                         ctx.beginPath();
-                        ctx.moveTo(curX, padT2); ctx.lineTo(curX, H - padB2);
+                        ctx.moveTo(snap.x, padT2); ctx.lineTo(snap.x, H - padB2);
                         ctx.stroke();
-                        // 横線（スペクトル値にスナップ）
-                        if (dbVal2 !== undefined && range2 > 0) {
-                            const norm2 = Math.max(0, Math.min(1, (dbVal2 - visDbMinT) / range2));
-                            const snapY = padT2 + (1 - norm2) * plotH2;
+                        if (snap.dbVal !== undefined && snap.y !== null) {
                             ctx.strokeStyle = color;
                             ctx.beginPath();
-                            ctx.moveTo(padL2, snapY); ctx.lineTo(W - padR2, snapY);
+                            ctx.moveTo(padL2, snap.y); ctx.lineTo(W - padR2, snap.y);
                             ctx.stroke();
                         }
                         ctx.setLineDash([]);
                         ctx.restore();
+                        const readoutEl = document.getElementById('spectrum-freq-readout');
+                        if (readoutEl) {
+                            readoutEl.style.color = color;
+                            readoutEl.textContent = formatHz(snap.freqHz) + (snap.dbVal !== undefined ? '  ' + snap.dbVal.toFixed(1) + ' dB' : '');
+                        }
                     }
                 });
             }
@@ -3318,39 +3428,10 @@ export function getComparisonRenderScript(): string {
                 });
                 ctx.restore();
 
-                // 十字カーソル描画（最近傍スペクトルにスナップ）
-                if (spectrumHoverNorm !== null) {
-                    const curX = padL + spectrumHoverNorm * plotW;
-                    const fHz = visFreqMinO + spectrumHoverNorm * (visFreqMaxO - visFreqMinO);
-
-                    // 各スライスのカーソル周波数でのy座標とdB値を計算
-                    const sliceSnaps = [];
-                    slices.forEach(function(s) {
-                        if (range <= 0) { return; }
-                        const origMaxF = s.slice.originalMaxFrequencyHz || s.slice.maxFrequencyHz;
-                        const binF = (fHz / Math.max(origMaxF, 1)) * Math.max(s.slice.frequencyBins - 1, 1);
-                        const binIdx = Math.max(0, Math.min(s.slice.frequencyBins - 1, Math.round(binF)));
-                        const dbVal = s.slice.values[binIdx];
-                        if (dbVal === undefined) { return; }
-                        const norm = Math.max(0, Math.min(1, (dbVal - visDbMinO) / range));
-                        const snapY = padT + (1 - norm) * plotH;
-                        sliceSnaps.push({ s: s, dbVal: dbVal, snapY: snapY });
-                    });
-
-                    // マウスy位置に最も近いスライスを選択
+                if (spectrumHoverNorm !== null && spectrumHoverTrackIndex === -1) {
                     const mouseY = spectrumHoverYFrac !== null ? spectrumHoverYFrac * H : null;
-                    let nearest = null;
-                    if (mouseY !== null && sliceSnaps.length > 0) {
-                        let minDist = Infinity;
-                        sliceSnaps.forEach(function(item) {
-                            const dist = Math.abs(item.snapY - mouseY);
-                            if (dist < minDist) { minDist = dist; nearest = item; }
-                        });
-                    } else if (sliceSnaps.length > 0) {
-                        nearest = sliceSnaps[0];
-                    }
+                    const nearest = chooseOverlaySpectrumSnap(slices, spectrumHoverNorm, mouseY, padL, plotW, padT, plotH, visFreqMinO, visFreqMaxO, visDbMinO, visDbMaxO);
 
-                    // 最近傍スライスを太い線で再描画（ハイライト）
                     if (nearest) {
                         ctx.save();
                         ctx.beginPath();
@@ -3374,16 +3455,14 @@ export function getComparisonRenderScript(): string {
                         ctx.restore();
                     }
 
-                    // 十字カーソル
                     ctx.save();
                     ctx.lineWidth = 1;
                     ctx.setLineDash([3, 3]);
-                    // 縦線（周波数軸）
                     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+                    const curX = nearest ? nearest.snap.x : padL + spectrumHoverNorm * plotW;
                     ctx.beginPath();
                     ctx.moveTo(curX, padT); ctx.lineTo(curX, H - padB);
                     ctx.stroke();
-                    // 横線（最近傍スペクトルのdB値にスナップ）
                     if (nearest) {
                         ctx.strokeStyle = nearest.s.color;
                         ctx.beginPath();
@@ -3393,19 +3472,17 @@ export function getComparisonRenderScript(): string {
                     ctx.setLineDash([]);
                     ctx.restore();
 
-                    // 周波数・dB 読み取り値をヘッダースパンに表示（canvas 上には描かない）
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl) {
-                        let txt = formatHz(fHz);
                         if (nearest) {
-                            txt += '  ' + nearest.dbVal.toFixed(1) + ' dB';
+                            readoutEl.textContent = formatHz(nearest.snap.freqHz) + '  ' + nearest.dbVal.toFixed(1) + ' dB';
                             readoutEl.style.color = nearest.s.color;
                         } else {
+                            readoutEl.textContent = '';
                             readoutEl.style.color = '';
                         }
-                        readoutEl.textContent = txt;
                     }
-                } else {
+                } else if (spectrumHoverNorm === null) {
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl) { readoutEl.textContent = ''; readoutEl.style.color = ''; }
                 }
