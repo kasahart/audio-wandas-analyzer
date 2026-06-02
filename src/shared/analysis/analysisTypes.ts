@@ -33,7 +33,7 @@ export interface ChannelSummary {
     dominantFrequencies: FrequencyPeak[];
     peaks?: SpectrumPeak[];
     waveform: WaveformEnvelope;
-    spectrogram: SpectrogramData;
+    spectrogram: SpectrogramData | null;
 }
 
 export interface AnalysisResult {

@@ -56,6 +56,8 @@ interface ComparisonPanelRenderedUi {
     spectrumOverlayPresent: boolean;
     spectrumTrackCanvasCount: number;
     visibleSpectrumTrackCount: number;
+    contentType: 'waveform' | 'spectrogram';
+    reanalyzeBusy: boolean;
     latestSpectrogram?: {
         windowSize: number;
         hopSize: number;

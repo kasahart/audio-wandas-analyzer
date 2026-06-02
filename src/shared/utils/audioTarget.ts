@@ -74,6 +74,78 @@ export function isRequestWaveformRangeMessage(message: unknown): message is Wave
     );
 }
 
+export interface TrackDetailRequest {
+    type: 'request-track-detail';
+    requestId: string;
+    analysisId: string;
+    settingsSignature: string;
+    trackIndex: number;
+    filePath: string;
+}
+
+export function isRequestTrackDetailMessage(message: unknown): message is TrackDetailRequest {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+    const m = message as Record<string, unknown>;
+    return (
+        m['type'] === 'request-track-detail' &&
+        typeof m['requestId'] === 'string' &&
+        typeof m['analysisId'] === 'string' &&
+        typeof m['settingsSignature'] === 'string' &&
+        typeof m['trackIndex'] === 'number' &&
+        typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0
+    );
+}
+
+export interface SpectrumSliceRequest {
+    type: 'request-spectrum-slice';
+    requestId: string;
+    analysisId: string;
+    settingsSignature: string;
+    trackIndex: number;
+    filePath: string;
+    cursorNorm: number;
+}
+
+export function isRequestSpectrumSliceMessage(message: unknown): message is SpectrumSliceRequest {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+    const m = message as Record<string, unknown>;
+    return (
+        m['type'] === 'request-spectrum-slice' &&
+        typeof m['requestId'] === 'string' &&
+        typeof m['analysisId'] === 'string' &&
+        typeof m['settingsSignature'] === 'string' &&
+        typeof m['trackIndex'] === 'number' &&
+        typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0 &&
+        typeof m['cursorNorm'] === 'number'
+    );
+}
+
+export interface TrackDetailReleaseMessage {
+    type: 'release-track-detail';
+    analysisId: string;
+    settingsSignature: string;
+    trackIndex: number;
+    filePath: string;
+}
+
+export function isReleaseTrackDetailMessage(message: unknown): message is TrackDetailReleaseMessage {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+    const m = message as Record<string, unknown>;
+    return (
+        m['type'] === 'release-track-detail' &&
+        typeof m['analysisId'] === 'string' &&
+        typeof m['settingsSignature'] === 'string' &&
+        typeof m['trackIndex'] === 'number' &&
+        typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0
+    );
+}
+
 export interface ExportWavLoopMessage {
     type: 'export-wav-loop';
     filePaths: string[];

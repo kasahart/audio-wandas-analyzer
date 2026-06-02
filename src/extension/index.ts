@@ -17,6 +17,9 @@ import {
     isSelectPythonEnvironmentMessage,
     isSelectTargetMessage,
     isSupportedAudioFile,
+    isReleaseTrackDetailMessage,
+    isRequestSpectrumSliceMessage,
+    isRequestTrackDetailMessage,
     isRequestWaveformRangeMessage,
     isExportReportOptionsMessage,
     type SelectionTargetKind,
@@ -459,6 +462,86 @@ function registerPanelMessageHandler(
                     });
                 }).catch(() => {
                     // Silently ignore — WebView falls back to overview data
+                });
+                return;
+            }
+
+
+            if (isRequestTrackDetailMessage(message)) {
+                const req = message;
+                backendServer?.requestTrackDetail(
+                    req.filePath,
+                    {
+                        trackIndex: req.trackIndex,
+                        analysisId: req.analysisId,
+                        settingsSignature: req.settingsSignature,
+                        stftOptions: loadPersistedStftOptions(context),
+                    },
+                    req.requestId,
+                ).then((result) => {
+                    void panel.webview.postMessage({
+                        type: 'track-detail-result',
+                        requestId: req.requestId,
+                        analysisId: req.analysisId,
+                        settingsSignature: req.settingsSignature,
+                        trackIndex: req.trackIndex,
+                        filePath: req.filePath,
+                        channels: result.channels,
+                    });
+                }).catch((err) => {
+                    void panel.webview.postMessage({
+                        type: 'track-detail-error',
+                        requestId: req.requestId,
+                        analysisId: req.analysisId,
+                        settingsSignature: req.settingsSignature,
+                        trackIndex: req.trackIndex,
+                        filePath: req.filePath,
+                        error: err instanceof Error ? err.message : String(err),
+                    });
+                });
+                return;
+            }
+
+            if (isReleaseTrackDetailMessage(message)) {
+                return;
+            }
+
+            if (isRequestSpectrumSliceMessage(message)) {
+                const req = message;
+                backendServer?.requestSpectrumSlice(
+                    req.filePath,
+                    {
+                        trackIndex: req.trackIndex,
+                        analysisId: req.analysisId,
+                        settingsSignature: req.settingsSignature,
+                        cursorNorm: req.cursorNorm,
+                        stftOptions: loadPersistedStftOptions(context),
+                    },
+                    req.requestId,
+                ).then((result) => {
+                    void panel.webview.postMessage({
+                        type: 'spectrum-slice-result',
+                        requestId: req.requestId,
+                        analysisId: req.analysisId,
+                        settingsSignature: req.settingsSignature,
+                        trackIndex: req.trackIndex,
+                        filePath: req.filePath,
+                        values: result.values,
+                        frequencyBins: result.frequencyBins,
+                        maxFrequencyHz: result.maxFrequencyHz,
+                        minDb: result.minDb,
+                        maxDb: result.maxDb,
+                    });
+                }).catch((err) => {
+                    void panel.webview.postMessage({
+                        type: 'spectrum-slice-error',
+                        requestId: req.requestId,
+                        analysisId: req.analysisId,
+                        settingsSignature: req.settingsSignature,
+                        trackIndex: req.trackIndex,
+                        filePath: req.filePath,
+                        error: err instanceof Error ? err.message : String(err),
+                    });
                 });
                 return;
             }

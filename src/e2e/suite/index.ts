@@ -26,6 +26,8 @@ interface TestSnapshot {
         spectrumOverlayPresent: boolean;
         spectrumTrackCanvasCount: number;
         visibleSpectrumTrackCount: number;
+        contentType: 'waveform' | 'spectrogram';
+        reanalyzeBusy: boolean;
         latestSpectrogram?: {
             windowSize: number;
             hopSize: number;
@@ -275,7 +277,8 @@ export async function run(): Promise<void> {
                 const applied = await waitForSnapshotWhere((snapshot) => {
                     return !!snapshot.renderedUi?.latestSpectrogram
                         && snapshot.renderedUi.latestSpectrogram.windowSize === 512
-                        && snapshot.renderedUi.latestSpectrogram.hopSize === 128;
+                        && snapshot.renderedUi.latestSpectrogram.hopSize === 128
+                        && snapshot.renderedUi.reanalyzeBusy === false;
                 });
                 assert.equal(applied.renderedUi?.latestSpectrogram?.windowSize, 512);
                 assert.equal(applied.renderedUi?.latestSpectrogram?.hopSize, 128);
@@ -362,9 +365,17 @@ export async function run(): Promise<void> {
         {
             name: 'cursor power spectrum section is rendered for each track',
             requires: 'multi-track-all',
-            run: async ({ snapshot }) => {
-                assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist');
-                const ui = snapshot.renderedUi;
+            run: async () => {
+                const spectrumSnapshot = await waitForSnapshotWhere((snapshot) => {
+                    const ui = snapshot.renderedUi;
+                    return !!ui
+                        && ui.spectrumOverlayPresent === true
+                        && ui.spectrumTrackCanvasCount === ui.trackRowCount
+                        && ui.visibleSpectrumTrackCount >= 1
+                        && ui.tracks.every((track) => track.spectrumCanvasPresent === true);
+                });
+                const ui = spectrumSnapshot.renderedUi;
+                assert.ok(ui, 'Rendered UI snapshot should exist');
                 assert.equal(ui.spectrumOverlayPresent, true, 'overlay spectrum canvas should be rendered');
                 assert.equal(ui.spectrumTrackCanvasCount, ui.trackRowCount,
                     'each visible track row should have a spectrum canvas');
@@ -395,9 +406,28 @@ export async function run(): Promise<void> {
         {
             name: 'axis labels with units are emitted for waveform / spectrogram / spectrum',
             requires: 'single-track',
-            run: async ({ snapshot }) => {
-                assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist');
-                const axes = snapshot.renderedUi.axisLabels;
+            run: async () => {
+                const axisSnapshot = await waitForSnapshotWhere((snapshot) => {
+                    const axes = snapshot.renderedUi?.axisLabels;
+                    if (!axes) { return false; }
+                    const wf = axes.waveformPerTrack[0] ?? [];
+                    const sg = axes.spectrogramPerTrack[0] ?? [];
+                    const sp = axes.spectrumPerTrack[0] ?? [];
+                    const overlay = axes.spectrumOverlay;
+                    return wf.includes('+1.0')
+                        && wf.includes('-1.0')
+                        && wf.includes('0')
+                        && wf.some((s) => s.includes('Amp'))
+                        && sg.includes('0 Hz')
+                        && sg.some((s) => /Hz$/.test(s) && s !== '0 Hz')
+                        && sg.some((s) => /dB$/.test(s))
+                        && sp.includes('0 Hz')
+                        && sp.some((s) => /dB$/.test(s))
+                        && overlay.includes('0 Hz')
+                        && overlay.some((s) => /dB$/.test(s));
+                });
+                assert.ok(axisSnapshot.renderedUi, 'Rendered UI snapshot should exist');
+                const axes = axisSnapshot.renderedUi.axisLabels;
                 assert.ok(axes, 'axisLabels must be present in snapshot');
 
                 const wf = axes.waveformPerTrack[0] ?? [];
@@ -484,7 +514,17 @@ async function runZoomRecoveryScenario(): Promise<TestSnapshot> {
         'zoom-out',
         'zoom-out',
     ]);
-    return waitForSnapshot(actionId);
+    await delay(250);
+    return waitForSnapshotWhere((snapshot) => {
+        const track = snapshot.renderedUi?.tracks[0];
+        return !!snapshot.renderedUi
+            && snapshot.renderedUi.zoomStart === 0
+            && snapshot.renderedUi.zoomEnd === 1
+            && !!track
+            && track.visibleFileStartNorm === 0
+            && track.visibleFileEndNorm === 1
+            && track.waveformFullyVisible === true;
+    });
 }
 
 async function runZoomInEdgeCoverageScenario(): Promise<TestSnapshot> {
@@ -499,12 +539,26 @@ async function runZoomInEdgeCoverageScenario(): Promise<TestSnapshot> {
         'zoom-in',
         'zoom-in',
     ]);
-    return waitForSnapshot(actionId);
+    await delay(250);
+    return waitForSnapshotWhere((snapshot) => {
+        const track = snapshot.renderedUi?.tracks[0];
+        return !!snapshot.renderedUi
+            && snapshot.renderedUi.zoomStart > 0
+            && snapshot.renderedUi.zoomEnd < 1
+            && !!track
+            && track.visibleFileStartNorm > 0
+            && track.visibleFileEndNorm < 1
+            && track.waveformCoversViewportLeft === true
+            && track.waveformCoversViewportRight === true;
+    });
 }
 
 async function runViewModeScenario(actions: string[]): Promise<TestSnapshot> {
     const actionId = `view-mode-${Date.now()}-${actions.join('-')}`;
     await ComparisonPanel.postTestActions(actionId, actions);
+    if (actions.includes('content-spectrogram')) {
+        return waitForSnapshotWhere((snapshot) => snapshot.renderedUi?.contentType === 'spectrogram');
+    }
     return waitForSnapshot(actionId);
 }
 
@@ -534,7 +588,16 @@ async function waitForSnapshotWhere(predicate: (snapshot: TestSnapshot) => boole
         await delay(250);
     }
 
-    throw new Error(`ComparisonPanel snapshot was not captured within ${COMMAND_TIMEOUT_MS}ms`);
+    const snapshot = ComparisonPanel.getTestSnapshot();
+    const latest = snapshot?.renderedUi?.latestSpectrogram;
+    throw new Error(
+        `ComparisonPanel snapshot was not captured within ${COMMAND_TIMEOUT_MS}ms; `
+        + `title=${snapshot?.title ?? 'none'} resultCount=${snapshot?.resultCount ?? 'none'} `
+        + `lastActionId=${snapshot?.lastActionId ?? 'none'} `
+        + `contentType=${snapshot?.renderedUi?.contentType ?? 'none'} `
+        + `trackRowCount=${snapshot?.renderedUi?.trackRowCount ?? 'none'} `
+        + `latestSpectrogram=${JSON.stringify(latest ?? null)}`
+    );
 }
 
 function delay(ms: number): Promise<void> {
