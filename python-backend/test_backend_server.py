@@ -127,7 +127,7 @@ def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> 
     assert spec["frequencyBins"] > 0
 
 
-def test_spectrum_slice_matches_track_detail_row(tmp_path: Path) -> None:
+def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     opts = {"nFft": 256, "hopSize": 128, "window": "hann"}
@@ -146,7 +146,31 @@ def test_spectrum_slice_matches_track_detail_row(tmp_path: Path) -> None:
     assert resp["trackIndex"] == 0
     assert resp["frequencyBins"] == spec["frequencyBins"]
     assert resp["maxFrequencyHz"] == spec["maxFrequencyHz"]
-    np.testing.assert_allclose(resp["values"], spec["values"][0])
+    assert int(np.argmax(resp["values"])) == int(np.argmax(spec["values"][0]))
+    assert abs(float(resp["maxDb"]) - float(np.max(spec["values"][0]))) < 5.0
+
+
+def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path) -> None:
+    import backend_server
+
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+
+    def fail_track_detail(_cmd: dict) -> dict:
+        raise AssertionError("spectrum slice must not compute full track detail")
+
+    monkeypatch.setattr(backend_server, "handle_track_detail", fail_track_detail)
+    resp = backend_server.handle_spectrum_slice(
+        {
+            "filePath": str(wav),
+            "trackIndex": 0,
+            "cursorNorm": 0.5,
+            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+        }
+    )
+
+    assert resp["frequencyBins"] > 0
+    assert len(resp["values"]) == resp["frequencyBins"]
 
 
 def test_cached_file_keeps_metadata_without_materialized_frame(tmp_path: Path) -> None:

@@ -66,6 +66,7 @@ export interface UiStrings {
     tooltipLoopOrShift: string;
     canvasOutOfRange: string;
     spectrumNoData: string;
+    spectrogramLoading: string;
     settingsApplyHint: string;
     reanalyzingStft: string;
     reanalyzingDefault: string;
@@ -219,6 +220,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         tooltipLoopOrShift: 'Drag: set loop region\\nShift+Drag: shift track in time',
         canvasOutOfRange: 'Out of range',
         spectrumNoData: 'No track has data at the cursor position',
+        spectrogramLoading: 'Loading spectrogram...',
         settingsApplyHint: 'Click Apply to commit changes',
         reanalyzingStft: 'Recomputing STFT…',
         reanalyzingDefault: 'Recomputing…',
@@ -369,6 +371,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         tooltipLoopOrShift: 'ドラッグ: ループ区間を設定\\nShift+ドラッグ: トラックの時間をずらす',
         canvasOutOfRange: '範囲外',
         spectrumNoData: 'カーソル位置にデータがあるトラックがありません',
+        spectrogramLoading: 'スペクトログラムを読み込み中...',
         settingsApplyHint: '変更は「適用」で反映',
         reanalyzingStft: 'STFT を再計算中…',
         reanalyzingDefault: '再計算中…',

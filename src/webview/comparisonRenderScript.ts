@@ -255,6 +255,13 @@ export function getComparisonRenderScript(): string {
                 try { return JSON.stringify(__spectrogramSettings || {}); } catch (e) { return 'settings'; }
             }
 
+            function currentSpectrumDataSignature() {
+                try {
+                    const settings = __spectrogramSettings || {};
+                    return JSON.stringify({ auto: settings.auto, stft: settings.stft });
+                } catch (e) { return 'spectrum-data-settings'; }
+            }
+
             function trackLocalCursorNorm(i) {
                 const result = state.results[i];
                 if (!result || result.error) { return null; }
@@ -290,9 +297,12 @@ export function getComparisonRenderScript(): string {
             function releaseTrackDetail(i) {
                 const result = state.results[i];
                 if (!result) { return; }
-                const ch = result.channels && result.channels[0];
-                const hadSpectrogram = !!(ch && ch.spectrogram);
-                if (ch) { ch.spectrogram = null; }
+                let hadSpectrogram = false;
+                if (result.channels) {
+                    result.channels.forEach(function(channel) {
+                        if (channel && channel.spectrogram) { hadSpectrogram = true; channel.spectrogram = null; }
+                    });
+                }
                 detailRequests[i] = null;
                 spectrumSliceRequests[i] = null;
                 spectrumSliceCache[i] = null;
@@ -315,7 +325,7 @@ export function getComparisonRenderScript(): string {
                 if (localNorm === null) { return; }
                 const ch = result.channels && result.channels[0];
                 if (ch && ch.spectrogram) { return; }
-                const settingsSignature = currentSettingsSignature();
+                const settingsSignature = currentSpectrumDataSignature();
                 const cached = spectrumSliceCache[i];
                 if (cached && cached.settingsSignature === settingsSignature && Math.abs(cached.cursorNorm - localNorm) < 0.002) { return; }
                 const pending = spectrumSliceRequests[i];
@@ -330,6 +340,23 @@ export function getComparisonRenderScript(): string {
                     trackIndex: i,
                     filePath: result.filePath,
                     cursorNorm: localNorm,
+                });
+            }
+
+            function applySpectrumDisplaySettings(slice) {
+                const displaySettings = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display) || {};
+                const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : slice.minDb;
+                const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : slice.maxDb;
+                const requestedMaxFreq = displaySettings.maxFrequencyHz;
+                let maxFrequencyHz = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
+                if (requestedMaxFreq != null && Number.isFinite(requestedMaxFreq) && requestedMaxFreq > 0) {
+                    maxFrequencyHz = Math.min(requestedMaxFreq, maxFrequencyHz);
+                }
+                return Object.assign({}, slice, {
+                    originalMaxFrequencyHz: slice.originalMaxFrequencyHz || slice.maxFrequencyHz,
+                    maxFrequencyHz: maxFrequencyHz,
+                    minDb: minDb,
+                    maxDb: maxDb,
                 });
             }
 
@@ -1282,7 +1309,7 @@ export function getComparisonRenderScript(): string {
                     ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                     ctx.font = '11px sans-serif';
                     ctx.textAlign = 'center';
-                    ctx.fillText('Loading spectrogram...', W / 2, H / 2);
+                    ctx.fillText(STR.spectrogramLoading, W / 2, H / 2);
                     return;
                 }
                 const spec = ch.spectrogram;
@@ -3340,8 +3367,8 @@ export function getComparisonRenderScript(): string {
                     if (idx >= 0) {
                         requestSpectrumSlice(idx);
                         const cached = spectrumSliceCache[idx];
-                        if (cached && cached.settingsSignature === currentSettingsSignature()) {
-                            return cached;
+                        if (cached && cached.settingsSignature === currentSpectrumDataSignature()) {
+                            return applySpectrumDisplaySettings(cached);
                         }
                     }
                     return null;
@@ -3358,23 +3385,14 @@ export function getComparisonRenderScript(): string {
                 const slice = spec.values[tIdx];
                 if (!slice || slice.length === 0) { return null; }
 
-                const displaySettings = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display) || {};
-                const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : spec.minDb;
-                const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : spec.maxDb;
-                const requestedMaxFreq = displaySettings.maxFrequencyHz;
-                let maxFrequencyHz = spec.maxFrequencyHz;
-                if (requestedMaxFreq != null && Number.isFinite(requestedMaxFreq) && requestedMaxFreq > 0) {
-                    maxFrequencyHz = Math.min(requestedMaxFreq, spec.maxFrequencyHz);
-                }
-
-                return {
+                return applySpectrumDisplaySettings({
                     values: slice,
                     frequencyBins: spec.frequencyBins,
                     originalMaxFrequencyHz: spec.maxFrequencyHz,
-                    maxFrequencyHz: maxFrequencyHz,
-                    minDb: minDb,
-                    maxDb: maxDb,
-                };
+                    maxFrequencyHz: spec.maxFrequencyHz,
+                    minDb: spec.minDb,
+                    maxDb: spec.maxDb,
+                });
             }
 
             function spectrumBinAtFrequency(slice, targetFreqHz, padL, plotW, padT, plotH, visFreqMin, visFreqMax, visDbMin, visDbMax) {
@@ -3917,6 +3935,7 @@ export function getComparisonRenderScript(): string {
                     __spectrogramSettings.display = __readDisplayFromForm();
                     vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
                     scheduleRender();
+                    scheduleSpectrumRefresh('immediate');
                     requestAnimationFrame(function() { publishTestSnapshot(); });
                 });
             });

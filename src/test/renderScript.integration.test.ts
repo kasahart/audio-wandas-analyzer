@@ -627,6 +627,54 @@ test('renderScript: missing spectrogram requests a spectrum slice at cursor', as
     assert.equal(typeof sliceRequests[0].cursorNorm, 'number');
 });
 
+test('renderScript: lazy spectrum slices apply display range settings', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    await nextAnimationFrame(env.dom);
+
+    let req = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
+    assert.ok(req, 'initial request-spectrum-slice should be posted');
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: req.requestId,
+        analysisId: req.analysisId,
+        settingsSignature: req.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        values: [-120, -20, 10],
+        frequencyBins: 3,
+        maxFrequencyHz: 22050,
+        minDb: -120,
+        maxDb: 10,
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const requestCountBeforeDisplayChange = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice').length;
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        actionId: 'lazy-slice-display',
+        actions: [{ action: 'set-spectrogram-display', payload: { dbMin: -60, dbMax: 0, maxFrequencyHz: 1000 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
+
+    const requestCountAfterDisplayChange = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice').length;
+    assert.equal(requestCountAfterDisplayChange, requestCountBeforeDisplayChange, 'display-only changes should reuse the cached lazy slice');
+
+    const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
+    let snap: any = null;
+    for (let i = snapshots.length - 1; i >= 0; i--) {
+        if ((snapshots[i].renderedUi.axisLabels.spectrumOverlay as string[]).length > 0) {
+            snap = snapshots[i];
+            break;
+        }
+    }
+    assert.ok(snap, 'a spectrum snapshot with overlay labels should be published');
+    const overlay = snap.renderedUi.axisLabels.spectrumOverlay as string[];
+    assert.ok(overlay.includes('0 dB'), `overlay should use configured max dB: ${JSON.stringify(overlay)}`);
+    assert.ok(overlay.includes('-60 dB'), `overlay should use configured min dB: ${JSON.stringify(overlay)}`);
+    assert.ok(overlay.some((label) => label === '1.0 kHz'), `overlay should use configured max frequency: ${JSON.stringify(overlay)}`);
+});
+
 test('再生ボタンで play 状態に切り替わる', async () => {
     const { dom } = setupEnv();
     const playButton = dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]');

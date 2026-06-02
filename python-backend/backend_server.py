@@ -31,8 +31,15 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 import wandas as wd
+from scipy.signal import ShortTimeFFT, get_window
 
-from analyzer import _build_waveform_envelope, analyze_from_frame
+from analyzer import (
+    SPECTROGRAM_FREQUENCY_BIN_LIMIT,
+    _build_waveform_envelope,
+    _resample_frequency_bins,
+    _resolve_stft_params,
+    analyze_from_frame,
+)
 
 _PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
 
@@ -131,29 +138,73 @@ def handle_track_detail(cmd: dict) -> dict:
     }
 
 
-def handle_spectrum_slice(cmd: dict) -> dict:
-    detail = handle_track_detail(cmd)
-    channels = detail.get("channels", [])
-    if not channels:
-        raise ValueError("no channels available for spectrum slice")
-    spec = channels[0].get("spectrogram")
-    if not spec or spec.get("timeBins", 0) <= 0:
+def _read_centered_window(file_path: str, channel_index: int, center_sample: int, window_size: int) -> np.ndarray:
+    start_sample = center_sample - window_size // 2
+    read_start = max(0, start_sample)
+    read_end = max(read_start, start_sample + window_size)
+    with sf.SoundFile(file_path) as sound_file:
+        read_end = min(read_end, int(sound_file.frames))
+        sound_file.seek(read_start)
+        block = sound_file.read(read_end - read_start, dtype="float64", always_2d=True)
+
+    samples = np.zeros(window_size, dtype=np.float64)
+    if block.size == 0:
+        return samples
+    dst_start = read_start - start_sample
+    channel = min(max(0, channel_index), block.shape[1] - 1)
+    samples[dst_start : dst_start + block.shape[0]] = block[:, channel]
+    return samples
+
+
+def _spectrum_slice_values(
+    file_path: str,
+    entry: CachedFile,
+    cursor_norm: float,
+    stft_options: dict | None,
+) -> dict[str, object]:
+    window_size, hop_size, window_name = _resolve_stft_params(entry.sample_count, stft_options)
+    sft = ShortTimeFFT(
+        win=get_window(window_name, window_size),
+        hop=hop_size,
+        fs=entry.sample_rate_hz,
+        mfft=window_size,
+        scale_to="magnitude",
+    )
+    time_bins = int(sft.p_num(entry.sample_count))
+    if time_bins <= 0:
         raise ValueError("no spectrogram available for spectrum slice")
-    cursor_norm = float(cmd.get("cursorNorm", cmd.get("trackLocalNorm", 0.0)))
-    t_idx = int(np.floor(max(0.0, min(1.0, cursor_norm)) * int(spec["timeBins"])))
-    if t_idx >= int(spec["timeBins"]):
-        t_idx = int(spec["timeBins"]) - 1
-    values = spec["values"][t_idx]
+
+    clipped_norm = max(0.0, min(1.0, cursor_norm))
+    time_index = int(np.floor(clipped_norm * time_bins))
+    if time_index >= time_bins:
+        time_index = time_bins - 1
+
+    center_sample = time_index * hop_size
+    samples = _read_centered_window(file_path, 0, center_sample, window_size)
+    magnitudes = np.abs(np.fft.rfft(samples * sft.win, n=window_size))
+    values = 20.0 * np.log10(np.maximum(magnitudes / 2e-5, 1e-12))
+    values_2d = _resample_frequency_bins(values.reshape(1, -1), SPECTROGRAM_FREQUENCY_BIN_LIMIT)
+    row = values_2d[0]
     return {
-        "trackIndex": detail["trackIndex"],
-        "analysisId": detail.get("analysisId"),
-        "settingsSignature": detail.get("settingsSignature"),
-        "filePath": detail["filePath"],
-        "values": values,
-        "frequencyBins": spec["frequencyBins"],
-        "maxFrequencyHz": spec["maxFrequencyHz"],
-        "minDb": spec["minDb"],
-        "maxDb": spec["maxDb"],
+        "values": row.tolist(),
+        "frequencyBins": int(row.shape[0]),
+        "maxFrequencyHz": float(entry.sample_rate_hz / 2),
+        "minDb": float(np.min(row)),
+        "maxDb": float(np.max(row)),
+    }
+
+
+def handle_spectrum_slice(cmd: dict) -> dict:
+    file_path = str(cmd["filePath"])
+    entry = _get_cached(file_path)
+    cursor_norm = float(cmd.get("cursorNorm", cmd.get("trackLocalNorm", 0.0)))
+    slice_data = _spectrum_slice_values(file_path, entry, cursor_norm, _stft_options_from_payload(cmd))
+    return {
+        "trackIndex": int(cmd.get("trackIndex", -1)),
+        "analysisId": cmd.get("analysisId"),
+        "settingsSignature": cmd.get("settingsSignature"),
+        "filePath": file_path,
+        **slice_data,
     }
 
 
