@@ -532,11 +532,11 @@ export function getComparisonRenderScript(): string {
                     function __setN(id, v) {
                         const el = document.getElementById(id);
                         el.value = (v == null) ? '' : String(v);
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                     __setN('spec-dbmin', p.dbMin);
                     __setN('spec-dbmax', p.dbMax);
                     __setN('spec-maxfreq', p.maxFrequencyHz);
+                    __setSpectrogramDisplay({ dbMin: p.dbMin, dbMax: p.dbMax, maxFrequencyHz: p.maxFrequencyHz });
                 }
             }
 
@@ -3916,6 +3916,19 @@ export function getComparisonRenderScript(): string {
                 return { dbMin: n('spec-dbmin'), dbMax: n('spec-dbmax'), maxFrequencyHz: n('spec-maxfreq') };
             }
 
+            function __setSpectrogramDisplay(display) {
+                function n(v) { return v == null ? null : Number(v); }
+                __spectrogramSettings.display = {
+                    dbMin: n(display.dbMin),
+                    dbMax: n(display.dbMax),
+                    maxFrequencyHz: n(display.maxFrequencyHz),
+                };
+                vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+                scheduleRender();
+                scheduleSpectrumRefresh('immediate');
+                requestAnimationFrame(function() { publishTestSnapshot(); });
+            }
+
             function __openSpecPopover() {
                 const btn = document.querySelector('[data-action="spectrogram-settings"]');
                 if (!btn || !__specPopover) { return; }
@@ -3932,11 +3945,7 @@ export function getComparisonRenderScript(): string {
 
             ['spec-dbmin','spec-dbmax','spec-maxfreq'].forEach(function(id) {
                 document.getElementById(id).addEventListener('change', function() {
-                    __spectrogramSettings.display = __readDisplayFromForm();
-                    vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
-                    scheduleRender();
-                    scheduleSpectrumRefresh('immediate');
-                    requestAnimationFrame(function() { publishTestSnapshot(); });
+                    __setSpectrogramDisplay(__readDisplayFromForm());
                 });
             });
 
