@@ -1790,11 +1790,17 @@ export function getComparisonRenderScript(): string {
                         const y = e.clientY - rect.top;
                         const plotW = canvasEl.width - padL - padR;
                         const canvasH = canvasEl.height || 140;
-                        if (plotW > 0) {
-                            spectrumHoverNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
-                            spectrumHoverYFrac = Math.max(0, Math.min(1, y / canvasH));
-                            spectrumHoverTrackIndex = trackIndex;
+                        if (plotW <= 0) {
+                            spectrumHasMouse = false;
+                            spectrumHoverNorm = null;
+                            spectrumHoverYFrac = null;
+                            spectrumHoverTrackIndex = null;
+                            refreshSpectrumViews();
+                            return;
                         }
+                        spectrumHoverNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
+                        spectrumHoverYFrac = Math.max(0, Math.min(1, y / canvasH));
+                        spectrumHoverTrackIndex = trackIndex;
                         spectrumHasMouse = true;
                         refreshSpectrumViews();
                     }

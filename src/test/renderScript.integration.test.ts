@@ -834,6 +834,38 @@ test('spectrum cursor: per-track readout snaps to the hovered track frequency bi
     env.dom.window.close();
 });
 
+
+test('spectrum cursor: narrow canvas hover clears stale spectrum target', async () => {
+    const env = setupMismatchedDeltaFSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const trackCanvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
+    assert.ok(trackCanvas, 'track-spectrum-0 が存在すること');
+    Object.defineProperty(trackCanvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(trackCanvas, 'height', { configurable: true, value: 140 });
+    trackCanvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    trackCanvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.match(readout!.textContent || '', /^200 Hz\s+-60\.0 dB$/,
+        '事前条件としてper-track hoverのreadoutが表示されること');
+
+    const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(overlayCanvas, 'spectrum-overlay-canvas が存在すること');
+    Object.defineProperty(overlayCanvas, 'width', { configurable: true, value: 20 });
+    Object.defineProperty(overlayCanvas, 'height', { configurable: true, value: 140 });
+    overlayCanvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 20, bottom: 140, width: 20, height: 140 } as DOMRect);
+
+    overlayCanvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 30 }));
+    await nextAnimationFrame(env.dom);
+
+    assert.equal(readout!.textContent || '', '',
+        'plot幅がないcanvasでは前のスペクトルhover対象を持ち越さないこと');
+    env.dom.window.close();
+});
+
 test('spectrum cursor: overlay snaps to the nearest visible series bin when delta F differs', async () => {
     const env = setupMismatchedDeltaFSpectrumEnv();
     await nextAnimationFrame(env.dom);
