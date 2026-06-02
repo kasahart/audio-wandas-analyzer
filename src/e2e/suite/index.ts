@@ -365,9 +365,17 @@ export async function run(): Promise<void> {
         {
             name: 'cursor power spectrum section is rendered for each track',
             requires: 'multi-track-all',
-            run: async ({ snapshot }) => {
-                assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist');
-                const ui = snapshot.renderedUi;
+            run: async () => {
+                const spectrumSnapshot = await waitForSnapshotWhere((snapshot) => {
+                    const ui = snapshot.renderedUi;
+                    return !!ui
+                        && ui.spectrumOverlayPresent === true
+                        && ui.spectrumTrackCanvasCount === ui.trackRowCount
+                        && ui.visibleSpectrumTrackCount >= 1
+                        && ui.tracks.every((track) => track.spectrumCanvasPresent === true);
+                });
+                const ui = spectrumSnapshot.renderedUi;
+                assert.ok(ui, 'Rendered UI snapshot should exist');
                 assert.equal(ui.spectrumOverlayPresent, true, 'overlay spectrum canvas should be rendered');
                 assert.equal(ui.spectrumTrackCanvasCount, ui.trackRowCount,
                     'each visible track row should have a spectrum canvas');
@@ -398,9 +406,28 @@ export async function run(): Promise<void> {
         {
             name: 'axis labels with units are emitted for waveform / spectrogram / spectrum',
             requires: 'single-track',
-            run: async ({ snapshot }) => {
-                assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should exist');
-                const axes = snapshot.renderedUi.axisLabels;
+            run: async () => {
+                const axisSnapshot = await waitForSnapshotWhere((snapshot) => {
+                    const axes = snapshot.renderedUi?.axisLabels;
+                    if (!axes) { return false; }
+                    const wf = axes.waveformPerTrack[0] ?? [];
+                    const sg = axes.spectrogramPerTrack[0] ?? [];
+                    const sp = axes.spectrumPerTrack[0] ?? [];
+                    const overlay = axes.spectrumOverlay;
+                    return wf.includes('+1.0')
+                        && wf.includes('-1.0')
+                        && wf.includes('0')
+                        && wf.some((s) => s.includes('Amp'))
+                        && sg.includes('0 Hz')
+                        && sg.some((s) => /Hz$/.test(s) && s !== '0 Hz')
+                        && sg.some((s) => /dB$/.test(s))
+                        && sp.includes('0 Hz')
+                        && sp.some((s) => /dB$/.test(s))
+                        && overlay.includes('0 Hz')
+                        && overlay.some((s) => /dB$/.test(s));
+                });
+                assert.ok(axisSnapshot.renderedUi, 'Rendered UI snapshot should exist');
+                const axes = axisSnapshot.renderedUi.axisLabels;
                 assert.ok(axes, 'axisLabels must be present in snapshot');
 
                 const wf = axes.waveformPerTrack[0] ?? [];
