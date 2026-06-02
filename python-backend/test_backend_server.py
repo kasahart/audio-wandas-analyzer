@@ -399,7 +399,8 @@ def test_lru_evicts_oldest_when_over_limit(tmp_path: Path, monkeypatch: pytest.M
     import backend_server
 
     importlib.reload(backend_server)
-    monkeypatch.setattr(backend_server, "_cache_limit_bytes", 8 * 1024)
+    monkeypatch.setattr(backend_server.CachedFile, "nbytes", lambda _entry: 128)
+    monkeypatch.setattr(backend_server, "_cache_limit_bytes", 256)
     backend_server._cache.clear()
 
     paths: list[str] = []
@@ -409,7 +410,7 @@ def test_lru_evicts_oldest_when_over_limit(tmp_path: Path, monkeypatch: pytest.M
         paths.append(str(p))
         backend_server._get_cached(paths[-1])
 
-    assert paths[-1] in backend_server._cache
+    assert list(backend_server._cache.keys()) == paths[-2:]
     total = sum(e.nbytes() for e in backend_server._cache.values())
     assert total <= backend_server._cache_limit_bytes
     assert all(not hasattr(entry, "frame") for entry in backend_server._cache.values())

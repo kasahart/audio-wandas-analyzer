@@ -599,6 +599,32 @@ test('renderScript: removing a detailed track releases its spectrogram detail', 
     assert.equal(release.filePath, '/tmp/a.wav');
 });
 
+
+test('renderScript: display-only spectrogram changes do not request fresh track detail', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    await nextAnimationFrame(env.dom);
+
+    const specButton = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(specButton, 'spectrogram button should exist');
+    specButton!.click();
+    await nextAnimationFrame(env.dom);
+
+    const requestCountBefore = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail').length;
+    assert.ok(requestCountBefore > 0, 'spectrogram mode should request lazy track detail');
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        actionId: 'display-only-detail-signature',
+        actions: [{ action: 'set-spectrogram-display', payload: { dbMin: -70, dbMax: -5, maxFrequencyHz: 8000 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
+
+    const requestCountAfter = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail').length;
+    assert.equal(requestCountAfter, requestCountBefore, 'display-only settings should not invalidate pending track-detail requests');
+    env.dom.window.close();
+});
+
 test('renderScript: analysis-update in spectrogram mode requests fresh detail for new settings', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;

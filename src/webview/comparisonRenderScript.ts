@@ -252,9 +252,15 @@ export function getComparisonRenderScript(): string {
             const detailRequests = state.results.map(function() { return null; });
             const spectrumSliceRequests = state.results.map(function() { return null; });
             const spectrumSliceCache = state.results.map(function() { return null; });
+            let lazyRequestCounter = 0;
+
+            function nextLazyRequestId(prefix, i) {
+                lazyRequestCounter += 1;
+                return prefix + '-' + i + '-' + Date.now() + '-' + lazyRequestCounter.toString(36);
+            }
 
             function currentSettingsSignature() {
-                try { return JSON.stringify(__spectrogramSettings || {}); } catch (e) { return 'settings'; }
+                return currentSpectrumDataSignature();
             }
 
             function currentSpectrumDataSignature() {
@@ -284,7 +290,7 @@ export function getComparisonRenderScript(): string {
                 const settingsSignature = currentSettingsSignature();
                 const pending = detailRequests[i];
                 if (pending && pending.settingsSignature === settingsSignature) { return; }
-                const requestId = 'detail-' + i + '-' + Date.now();
+                const requestId = nextLazyRequestId('detail', i);
                 detailRequests[i] = { requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature };
                 vscode.postMessage({
                     type: 'request-track-detail',
@@ -338,7 +344,7 @@ export function getComparisonRenderScript(): string {
                 if (cached && cached.settingsSignature === settingsSignature && Math.abs(cached.cursorNorm - localNorm) < spectrumCursorTolerance(result)) { return; }
                 const pending = spectrumSliceRequests[i];
                 if (pending && pending.settingsSignature === settingsSignature && Math.abs(pending.cursorNorm - localNorm) < spectrumCursorTolerance(result)) { return; }
-                const requestId = 'slice-' + i + '-' + Date.now();
+                const requestId = nextLazyRequestId('slice', i);
                 spectrumSliceRequests[i] = { requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature, cursorNorm: localNorm };
                 vscode.postMessage({
                     type: 'request-spectrum-slice',
@@ -643,7 +649,7 @@ export function getComparisonRenderScript(): string {
                     const spectrumCanvas = document.getElementById('track-spectrum-' + trackIndex);
                     const slice = trackRuntime[trackIndex].hidden
                         ? null
-                        : extractSpectrumAtCursor(result, trackRuntime[trackIndex].offsetSeconds, spectrumCursorNorm);
+                        : extractSpectrumAtCursor(result, trackIndex, trackRuntime[trackIndex].offsetSeconds, spectrumCursorNorm);
                     if (slice) {
                         visibleSpectrumTrackCount++;
                         if (slice.minDb < overlayMinDb) { overlayMinDb = slice.minDb; }
@@ -1177,7 +1183,7 @@ export function getComparisonRenderScript(): string {
                     if (contentType === 'waveform') {
                         drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     } else {
-                        drawSpectrogram(canvas, result, trackRuntime[i].offsetSeconds);
+                        drawSpectrogram(canvas, result, i, trackRuntime[i].offsetSeconds);
                         const axisC = document.getElementById('track-axis-canvas-' + i);
                         if (axisC) { const ac = axisC.getContext('2d'); if (ac) { ac.clearRect(0, 0, axisC.width, axisC.height); } }
                     }
@@ -1311,7 +1317,7 @@ export function getComparisonRenderScript(): string {
                 ctx.restore();
             }
 
-            function drawSpectrogram(canvas, result, offsetSeconds) {
+            function drawSpectrogram(canvas, result, trackIndex, offsetSeconds) {
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width;
                 const H = canvas.height;
@@ -1319,7 +1325,7 @@ export function getComparisonRenderScript(): string {
 
                 const ch = result.channels[0];
                 if (!ch || !ch.spectrogram) {
-                    requestTrackDetail(state.results.indexOf(result));
+                    requestTrackDetail(trackIndex);
                     ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                     ctx.font = '11px sans-serif';
                     ctx.textAlign = 'center';
@@ -2728,7 +2734,7 @@ export function getComparisonRenderScript(): string {
                 const tracks = [];
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i] && trackRuntime[i].hidden) { return; }
-                    const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
+                    const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (!slice || !slice.values || slice.values.length === 0) { return; }
                     tracks.push({ name: result.fileName || ('track' + (i + 1)), slice: slice });
                 });
@@ -3387,7 +3393,7 @@ export function getComparisonRenderScript(): string {
                 });
             }
 
-            function extractSpectrumAtCursor(result, offsetSeconds, cursorNormValue) {
+            function extractSpectrumAtCursor(result, trackIndex, offsetSeconds, cursorNormValue) {
                 if (!result || result.error) { return null; }
                 const dur = result.durationSeconds || 0;
                 if (dur <= 0) { return null; }
@@ -3398,7 +3404,7 @@ export function getComparisonRenderScript(): string {
 
                 const ch = result.channels && result.channels[0];
                 const spec = ch && ch.spectrogram;
-                const idx = state.results.indexOf(result);
+                const idx = trackIndex;
                 const cached = idx >= 0 ? spectrumSliceCache[idx] : null;
                 if (trackLocalSec >= dur) {
                     return makeSilentSpectrumSlice(result, spec, cached);
@@ -3474,7 +3480,7 @@ export function getComparisonRenderScript(): string {
                 displayOrder.forEach(function(i) {
                     const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
-                    const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, cursorNorm);
+                    const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, name: result.fileName }); }
                 });
                 return slices;
@@ -3501,7 +3507,7 @@ export function getComparisonRenderScript(): string {
                 if (spectrumHoverNorm === null) { spectrumHoverNorm = 0.5; }
                 if (spectrumHoverTrackIndex !== null && spectrumHoverTrackIndex >= 0) {
                     const result = state.results[spectrumHoverTrackIndex];
-                    const slice = result ? extractSpectrumAtCursor(result, trackRuntime[spectrumHoverTrackIndex].offsetSeconds, cursorNorm) : null;
+                    const slice = result ? extractSpectrumAtCursor(result, spectrumHoverTrackIndex, trackRuntime[spectrumHoverTrackIndex].offsetSeconds, cursorNorm) : null;
                     if (!slice) { return; }
                     const visFreqMin = specFreqStart * slice.maxFrequencyHz;
                     const visFreqMax = specFreqEnd * slice.maxFrequencyHz;
@@ -3626,7 +3632,7 @@ export function getComparisonRenderScript(): string {
                     const W = canvas.width, H = canvas.height;
                     ctx.clearRect(0, 0, W, H);
                     if (trackRuntime[i].hidden) { return; }
-                    const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, spectrumCursorNorm);
+                    const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, spectrumCursorNorm);
                     if (!slice) {
                         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                         ctx.font = '9px sans-serif';
@@ -3689,7 +3695,7 @@ export function getComparisonRenderScript(): string {
                 displayOrder.forEach(function(i) {
                     const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
-                    const slice = extractSpectrumAtCursor(result, trackRuntime[i].offsetSeconds, spectrumCursorNorm);
+                    const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, spectrumCursorNorm);
                     if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, name: result.fileName }); }
                 });
 

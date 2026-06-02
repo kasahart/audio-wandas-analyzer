@@ -8,6 +8,10 @@ Commands:
      "stftOptions":{"nFft":2048,"hopSize":96,"window":"hann"}}
     {"cmd":"range","requestId":"...","filePath":"...",
      "startNorm":0.2,"endNorm":0.4,"points":1600}
+    {"cmd":"track-detail","requestId":"...","filePath":"...","trackIndex":0,
+     "stftOptions":{"nFft":2048,"hopSize":96,"window":"hann"}}
+    {"cmd":"spectrum-slice","requestId":"...","filePath":"...","trackIndex":0,
+     "cursorNorm":0.5,"stftOptions":{"nFft":2048,"hopSize":96,"window":"hann"}}
 
 All responses include the originating requestId. Errors come back as
 {"requestId":"...","error":"<message>"}.
