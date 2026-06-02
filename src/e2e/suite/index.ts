@@ -487,7 +487,17 @@ async function runZoomRecoveryScenario(): Promise<TestSnapshot> {
         'zoom-out',
         'zoom-out',
     ]);
-    return waitForSnapshot(actionId);
+    await delay(250);
+    return waitForSnapshotWhere((snapshot) => {
+        const track = snapshot.renderedUi?.tracks[0];
+        return !!snapshot.renderedUi
+            && snapshot.renderedUi.zoomStart === 0
+            && snapshot.renderedUi.zoomEnd === 1
+            && !!track
+            && track.visibleFileStartNorm === 0
+            && track.visibleFileEndNorm === 1
+            && track.waveformFullyVisible === true;
+    });
 }
 
 async function runZoomInEdgeCoverageScenario(): Promise<TestSnapshot> {
@@ -502,7 +512,18 @@ async function runZoomInEdgeCoverageScenario(): Promise<TestSnapshot> {
         'zoom-in',
         'zoom-in',
     ]);
-    return waitForSnapshot(actionId);
+    await delay(250);
+    return waitForSnapshotWhere((snapshot) => {
+        const track = snapshot.renderedUi?.tracks[0];
+        return !!snapshot.renderedUi
+            && snapshot.renderedUi.zoomStart > 0
+            && snapshot.renderedUi.zoomEnd < 1
+            && !!track
+            && track.visibleFileStartNorm > 0
+            && track.visibleFileEndNorm < 1
+            && track.waveformCoversViewportLeft === true
+            && track.waveformCoversViewportRight === true;
+    });
 }
 
 async function runViewModeScenario(actions: string[]): Promise<TestSnapshot> {
