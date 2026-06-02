@@ -134,20 +134,23 @@ def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> N
     detail = handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts})
     spec = detail["channels"][0]["spectrogram"]
 
+    cursor_norm = 0.5
     resp = handle_spectrum_slice(
         {
             "filePath": str(wav),
             "trackIndex": 0,
-            "cursorNorm": 0.0,
+            "cursorNorm": cursor_norm,
             "stftOptions": opts,
         }
     )
+    time_index = min(spec["timeBins"] - 1, int(np.floor(cursor_norm * spec["timeBins"])))
+    expected_row = spec["values"][time_index]
 
     assert resp["trackIndex"] == 0
     assert resp["frequencyBins"] == spec["frequencyBins"]
     assert resp["maxFrequencyHz"] == spec["maxFrequencyHz"]
-    assert int(np.argmax(resp["values"])) == int(np.argmax(spec["values"][0]))
-    assert abs(float(resp["maxDb"]) - float(np.max(spec["values"][0]))) < 5.0
+    assert int(np.argmax(resp["values"])) == int(np.argmax(expected_row))
+    assert abs(float(resp["maxDb"]) - float(np.max(expected_row))) < 1.0
 
 
 def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path) -> None:
@@ -171,6 +174,53 @@ def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path)
 
     assert resp["frequencyBins"] > 0
     assert len(resp["values"]) == resp["frequencyBins"]
+
+
+def test_spectrum_slice_uses_wandas_frame_fft(monkeypatch, tmp_path: Path) -> None:
+    import backend_server
+
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    calls: list[tuple[int, slice]] = []
+
+    def fail_numpy_rfft(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("spectrum slice should use wandas frame.fft(), not numpy.fft.rfft()")
+
+    class FakeSpectrum:
+        freqs = np.array([0.0, 1000.0, 2000.0], dtype=np.float64)
+        dB = np.array([[-120.0, -20.0, -60.0]], dtype=np.float64)
+
+    class FakeSlice:
+        def fft(self, *, n_fft: int | None = None, window: str = "hann") -> FakeSpectrum:
+            assert n_fft == 256
+            assert window == "hann"
+            return FakeSpectrum()
+
+    class FakeFrame:
+        def __getitem__(self, key: tuple[int, slice]) -> FakeSlice:
+            channel, sample_slice = key
+            assert channel == 0
+            assert isinstance(sample_slice, slice)
+            calls.append((channel, sample_slice))
+            return FakeSlice()
+
+    monkeypatch.setattr(backend_server.np.fft, "rfft", fail_numpy_rfft)
+    monkeypatch.setattr(backend_server.wd, "read_wav", lambda _path: FakeFrame())
+
+    resp = backend_server.handle_spectrum_slice(
+        {
+            "filePath": str(wav),
+            "trackIndex": 0,
+            "cursorNorm": 0.5,
+            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+        }
+    )
+
+    assert calls, "spectrum slice should slice the wandas frame before fft()"
+    assert calls[0][1].start is not None
+    assert calls[0][1].stop is not None
+    assert resp["frequencyBins"] == 3
+    assert resp["values"] == [-120.0, -20.0, -60.0]
 
 
 def test_cached_file_keeps_metadata_without_materialized_frame(tmp_path: Path) -> None:
