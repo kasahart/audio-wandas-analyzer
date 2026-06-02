@@ -675,6 +675,62 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
     assert.ok(overlay.some((label) => label === '1.0 kHz'), `overlay should use configured max frequency: ${JSON.stringify(overlay)}`);
 });
 
+test('renderScript: lazy spectrum cache is scoped to the current cursor', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    await nextAnimationFrame(env.dom);
+
+    const initialReq = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any;
+    assert.ok(initialReq, 'initial lazy slice request should be posted');
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: initialReq.requestId,
+        analysisId: initialReq.analysisId,
+        settingsSignature: initialReq.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        values: [-120, -20, 10],
+        frequencyBins: 3,
+        maxFrequencyHz: 22050,
+        minDb: -120,
+        maxDb: 10,
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        actionId: 'lazy-cache-cursor',
+        actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.5 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
+    const latestReq = requests[requests.length - 1];
+    assert.ok(latestReq.cursorNorm > 0.45 && latestReq.cursorNorm < 0.55, 'cursor move should request a slice for the new cursor: ' + latestReq.cursorNorm);
+
+    const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
+    const lastSnap = snapshots[snapshots.length - 1];
+    assert.equal(lastSnap.renderedUi.visibleSpectrumTrackCount, 0, 'stale lazy slice should not be reused for a different cursor');
+    env.dom.window.close();
+});
+
+test('renderScript: spectrum at exact track end renders silence instead of the last STFT bin', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        actionId: 'spectrum-end-cursor',
+        actions: [{ action: 'set-cursor', payload: { cursorNorm: 1 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
+    const snap = snapshots[snapshots.length - 1];
+    assert.equal(snap.renderedUi.cursorNorm, 1);
+    assert.ok(snap.renderedUi.axisLabels.spectrumOverlay.includes('-90 dB'), 'end cursor should use the silent floor: ' + JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
+    env.dom.window.close();
+});
+
 test('再生ボタンで play 状態に切り替わる', async () => {
     const { dom } = setupEnv();
     const playButton = dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]');
@@ -1092,6 +1148,9 @@ test('renderScript: spectrum canvases are redrawn during playback as cursor adva
 
     const overlayBefore = overlaySpy!.strokeCalls;
     const trackBefore = trackSpy!.strokeCalls;
+    const waveformSpy = env.domCanvasContexts.get('track-canvas-0');
+    assert.ok(waveformSpy, 'track-canvas-0 のスパイが取得できること');
+    const waveformBefore = waveformSpy!.clearRectCalls;
 
     const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
     const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
@@ -1114,6 +1173,9 @@ test('renderScript: spectrum canvases are redrawn during playback as cursor adva
     // すぐに停止してループを止める（rAF はループ内で再スケジュールされ続けるため）。
     stopButton!.click();
 
+    assert.ok(waveformSpy!.clearRectCalls > waveformBefore,
+        '再生中の tick で waveform canvas が再描画され、カーソル線が進むこと '
+        + '(before=' + waveformBefore + ', after=' + waveformSpy!.clearRectCalls + ')');
     assert.ok(overlaySpy!.strokeCalls > overlayBefore,
         '再生中の tick で overlay spectrum が再描画されること '
         + '(before=' + overlayBefore + ', after=' + overlaySpy!.strokeCalls + ')');
