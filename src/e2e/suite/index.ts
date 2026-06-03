@@ -264,11 +264,10 @@ export async function run(): Promise<void> {
                 await runViewModeScenario(['content-spectrogram']);
 
                 const openId = `spec-open-${Date.now()}`;
-                await ComparisonPanel.postTestActions(openId, ['open-spectrogram-settings']);
-                await waitForSnapshot(openId);
+                await postActionsAndWait(openId, ['open-spectrogram-settings']);
 
                 const applyId = `spec-apply-${Date.now()}`;
-                await ComparisonPanel.postTestActions(applyId, [
+                await postActionsAndWait(applyId, [
                     {
                         action: 'apply-spectrogram-settings',
                         payload: { auto: false, nFft: 512, hopSize: 128, window: 'hamming' },
@@ -284,13 +283,12 @@ export async function run(): Promise<void> {
                 assert.equal(applied.renderedUi?.latestSpectrogram?.hopSize, 128);
 
                 const displayId = `spec-display-${Date.now()}`;
-                await ComparisonPanel.postTestActions(displayId, [
+                const displayed = await postActionsAndWait(displayId, [
                     {
                         action: 'set-spectrogram-display',
                         payload: { dbMin: -60, dbMax: 0, maxFrequencyHz: null },
                     },
-                ]);
-                const displayed = await waitForSnapshotWhere((snapshot) => {
+                ], (snapshot) => {
                     return snapshot.renderedUi?.latestSpectrogram?.dbMinApplied === -60
                         && snapshot.renderedUi?.latestSpectrogram?.dbMaxApplied === 0;
                 });
@@ -495,8 +493,7 @@ async function analyzeDebugPath(
     if (options?.selectAllDirectoryFiles) {
         await waitForSnapshot();
         const actionId = `selection-select-all-${Date.now()}`;
-        await ComparisonPanel.postTestActions(actionId, ['selection-select-all']);
-        return waitForSnapshotWhere((snapshot) => {
+        return postActionsAndWait(actionId, ['selection-select-all'], (snapshot) => {
             return snapshot.resultCount > 0
                 && !!snapshot.renderedUi
                 && snapshot.renderedUi.trackRowCount > 0;
@@ -555,11 +552,10 @@ async function runZoomInEdgeCoverageScenario(): Promise<TestSnapshot> {
 
 async function runViewModeScenario(actions: string[]): Promise<TestSnapshot> {
     const actionId = `view-mode-${Date.now()}-${actions.join('-')}`;
-    await ComparisonPanel.postTestActions(actionId, actions);
     if (actions.includes('content-spectrogram')) {
-        return waitForSnapshotWhere((snapshot) => snapshot.renderedUi?.contentType === 'spectrogram');
+        return postActionsAndWait(actionId, actions, (snapshot) => snapshot.renderedUi?.contentType === 'spectrogram');
     }
-    return waitForSnapshot(actionId);
+    return postActionsAndWait(actionId, actions);
 }
 
 async function runMultiTrackOffsetScenario(): Promise<TestSnapshot> {
@@ -571,13 +567,47 @@ async function runMultiTrackOffsetScenario(): Promise<TestSnapshot> {
     return waitForSnapshot(actionId);
 }
 
-async function waitForSnapshot(expectedActionId?: string): Promise<TestSnapshot> {
+type TestAction = string | { action: string; trackIndex?: number; payload?: Record<string, unknown> };
+
+async function postActionsAndWait(
+    actionId: string,
+    actions: TestAction[],
+    predicate?: (snapshot: TestSnapshot) => boolean,
+): Promise<TestSnapshot> {
+    await ComparisonPanel.postTestActions(actionId, actions);
+    const acknowledged = await waitForSnapshot(actionId);
+    if (!predicate) {
+        return acknowledged;
+    }
+    if (predicate(acknowledged)) {
+        return acknowledged;
+    }
     return waitForSnapshotWhere((snapshot) => {
-        return !!snapshot.renderedUi && (!expectedActionId || snapshot.lastActionId === expectedActionId);
-    });
+        return !!snapshot.renderedUi && predicate(snapshot);
+    }, actionId);
 }
 
-async function waitForSnapshotWhere(predicate: (snapshot: TestSnapshot) => boolean): Promise<TestSnapshot> {
+async function waitForSnapshot(expectedActionId?: string): Promise<TestSnapshot> {
+    if (!expectedActionId) {
+        return waitForSnapshotWhere((snapshot) => !!snapshot.renderedUi);
+    }
+
+    const deadline = Date.now() + COMMAND_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        const snapshot: TestSnapshot | undefined = ComparisonPanel.getTestSnapshotForAction(expectedActionId)
+            ?? ComparisonPanel.getTestSnapshot();
+        if (snapshot && snapshot.renderedUi && snapshot.lastActionId === expectedActionId) {
+            return snapshot;
+        }
+        await delay(250);
+    }
+    throwSnapshotTimeout(expectedActionId);
+}
+
+async function waitForSnapshotWhere(
+    predicate: (snapshot: TestSnapshot) => boolean,
+    expectedActionId?: string,
+): Promise<TestSnapshot> {
     const deadline = Date.now() + COMMAND_TIMEOUT_MS;
 
     while (Date.now() < deadline) {
@@ -588,13 +618,21 @@ async function waitForSnapshotWhere(predicate: (snapshot: TestSnapshot) => boole
         await delay(250);
     }
 
-    const snapshot = ComparisonPanel.getTestSnapshot();
+    throwSnapshotTimeout(expectedActionId);
+}
+
+function throwSnapshotTimeout(expectedActionId?: string): never {
+    const snapshot: TestSnapshot | undefined = expectedActionId
+        ? ComparisonPanel.getTestSnapshotForAction(expectedActionId) ?? ComparisonPanel.getTestSnapshot()
+        : ComparisonPanel.getTestSnapshot();
     const latest = snapshot?.renderedUi?.latestSpectrogram;
     throw new Error(
         `ComparisonPanel snapshot was not captured within ${COMMAND_TIMEOUT_MS}ms; `
         + `title=${snapshot?.title ?? 'none'} resultCount=${snapshot?.resultCount ?? 'none'} `
+        + `expectedActionId=${expectedActionId ?? 'none'} `
         + `lastActionId=${snapshot?.lastActionId ?? 'none'} `
         + `contentType=${snapshot?.renderedUi?.contentType ?? 'none'} `
+        + `reanalyzeBusy=${snapshot?.renderedUi?.reanalyzeBusy ?? 'none'} `
         + `trackRowCount=${snapshot?.renderedUi?.trackRowCount ?? 'none'} `
         + `latestSpectrogram=${JSON.stringify(latest ?? null)}`
     );
