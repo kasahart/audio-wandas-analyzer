@@ -107,6 +107,7 @@ interface ComparisonPanelTestActionMessage {
 
 export class ComparisonPanel {
     private static testSnapshot: ComparisonPanelTestSnapshot | undefined;
+    private static testSnapshotsByActionId = new Map<string, ComparisonPanelTestSnapshot>();
     private static activePanel: vscode.WebviewPanel | undefined;
     private static testMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 
@@ -145,19 +146,7 @@ export class ComparisonPanel {
         });
         ComparisonPanel.testMessageDisposables.get(panel)?.dispose();
         const testMessageDisposable = panel.webview.onDidReceiveMessage((message: unknown) => {
-            if (!ComparisonPanel.isRenderedUiMessage(message)) {
-                return;
-            }
-
-            if (!ComparisonPanel.testSnapshot) {
-                return;
-            }
-
-            ComparisonPanel.testSnapshot = {
-                ...ComparisonPanel.testSnapshot,
-                lastActionId: message.actionId,
-                renderedUi: message.renderedUi,
-            };
+            ComparisonPanel.captureRenderedUiSnapshot(message);
         });
         ComparisonPanel.testMessageDisposables.set(panel, testMessageDisposable);
 
@@ -215,19 +204,7 @@ export class ComparisonPanel {
         });
         ComparisonPanel.testMessageDisposables.get(panel)?.dispose();
         const testMessageDisposable = panel.webview.onDidReceiveMessage((message: unknown) => {
-            if (!ComparisonPanel.isRenderedUiMessage(message)) {
-                return;
-            }
-
-            if (!ComparisonPanel.testSnapshot) {
-                return;
-            }
-
-            ComparisonPanel.testSnapshot = {
-                ...ComparisonPanel.testSnapshot,
-                lastActionId: message.actionId,
-                renderedUi: message.renderedUi,
-            };
+            ComparisonPanel.captureRenderedUiSnapshot(message);
         });
         ComparisonPanel.testMessageDisposables.set(panel, testMessageDisposable);
 
@@ -258,8 +235,13 @@ export class ComparisonPanel {
         return ComparisonPanel.testSnapshot;
     }
 
+    public static getTestSnapshotForAction(actionId: string): ComparisonPanelTestSnapshot | undefined {
+        return ComparisonPanel.testSnapshotsByActionId.get(actionId);
+    }
+
     public static clearTestSnapshot(): void {
         ComparisonPanel.testSnapshot = undefined;
+        ComparisonPanel.testSnapshotsByActionId.clear();
     }
 
     public static async postTestActions(
@@ -278,6 +260,29 @@ export class ComparisonPanel {
 
         if (!delivered) {
             throw new Error('ComparisonPanel test actions could not be delivered to the webview');
+        }
+    }
+
+    private static captureRenderedUiSnapshot(message: unknown): void {
+        if (!ComparisonPanel.isRenderedUiMessage(message) || !ComparisonPanel.testSnapshot) {
+            return;
+        }
+
+        const snapshot = {
+            ...ComparisonPanel.testSnapshot,
+            lastActionId: message.actionId,
+            renderedUi: message.renderedUi,
+        };
+        ComparisonPanel.testSnapshot = snapshot;
+
+        if (message.actionId) {
+            ComparisonPanel.testSnapshotsByActionId.set(message.actionId, snapshot);
+            if (ComparisonPanel.testSnapshotsByActionId.size > 50) {
+                const oldest = ComparisonPanel.testSnapshotsByActionId.keys().next().value;
+                if (oldest) {
+                    ComparisonPanel.testSnapshotsByActionId.delete(oldest);
+                }
+            }
         }
     }
 

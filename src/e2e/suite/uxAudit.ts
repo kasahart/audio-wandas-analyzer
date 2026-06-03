@@ -24,7 +24,9 @@ type TestSnapshot = NonNullable<ReturnType<typeof ComparisonPanel.getTestSnapsho
 async function waitForSnapshot(expectedActionId?: string): Promise<TestSnapshot> {
     const deadline = Date.now() + COMMAND_TIMEOUT_MS;
     while (Date.now() < deadline) {
-        const snapshot = ComparisonPanel.getTestSnapshot();
+        const snapshot = expectedActionId
+            ? ComparisonPanel.getTestSnapshotForAction(expectedActionId) ?? ComparisonPanel.getTestSnapshot()
+            : ComparisonPanel.getTestSnapshot();
         if (snapshot && snapshot.renderedUi && (!expectedActionId || snapshot.lastActionId === expectedActionId)) {
             return snapshot;
         }
