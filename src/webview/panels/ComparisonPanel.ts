@@ -423,15 +423,16 @@ export function renderComparisonStyles(): string {
 
         /* ── Toolbar ── */
         #toolbar {
-            display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+            display: flex; align-items: center; gap: 6px; padding: 4px 10px;
             background: var(--panel); border-bottom: 1px solid var(--line);
-            flex-shrink: 0; flex-wrap: wrap;
+            flex-shrink: 0; flex-wrap: wrap; overflow: visible; position: relative; z-index: 20;
         }
-        .tb-label { font-size: 11px; color: var(--muted); }
+        .tb-section-title { font-weight: 700; font-size: 12px; color: var(--accent); margin-right: 2px; }
+        .tb-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
         .tb-btn {
             font-size: 11px; padding: 2px 8px; border-radius: 3px;
             border: 1px solid var(--line); background: var(--surface);
-            color: var(--text); cursor: pointer;
+            color: var(--text); cursor: pointer; white-space: nowrap;
         }
         .tb-btn.is-warning {
             background: var(--vscode-statusBarItem-warningBackground, #b89500);
@@ -446,6 +447,21 @@ export function renderComparisonStyles(): string {
             color: var(--text); font-family: var(--font-mono); text-align: right;
         }
         .tb-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
+        .tb-menu { position: relative; display: inline-flex; }
+        .tb-menu > summary { list-style: none; }
+        .tb-menu > summary::-webkit-details-marker { display: none; }
+        .tb-menu[open] > summary { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .tb-menu-popover {
+            position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+            min-width: 190px; max-width: min(320px, 90vw); padding: 6px;
+            display: flex; flex-direction: column; gap: 6px;
+            background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
+        }
+        .tb-menu-popover .tb-btn { width: 100%; text-align: left; }
+        .tb-menu-row { display: flex; align-items: center; gap: 6px; }
+        .tb-menu-row .tb-label:first-child { width: 58px; }
+        .tb-menu-row .tb-btn { width: auto; }
         #cursor-display { font-size: 11px; font-family: var(--font-mono); color: var(--muted); min-width: 80px; }
         #playback-display { font-size: 11px; font-family: var(--font-mono); color: #64a0ff; min-width: 70px; display: none; }
         #loop-time-display { font-size: 0.85em; font-family: var(--font-mono); color: #64a0ff; margin-left: 6px; cursor: pointer; }

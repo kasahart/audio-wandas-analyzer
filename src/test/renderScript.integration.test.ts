@@ -212,12 +212,21 @@ test('toolbar が生成される', () => {
     assert.ok(toolbar, '#toolbar が存在すること');
 });
 
-test('toolbar にファイルとフォルダを開く導線がある', () => {
+test('results toolbar does not duplicate file or Python entry points', () => {
     const { dom } = setupEnv();
-    const openFileButton = dom.window.document.querySelector('[data-action="open-file"]');
-    const openFolderButton = dom.window.document.querySelector('[data-action="open-folder"]');
-    assert.ok(openFileButton, 'open-file ボタンが存在すること');
-    assert.ok(openFolderButton, 'open-folder ボタンが存在すること');
+    const toolbar = dom.window.document.getElementById('toolbar');
+    assert.ok(toolbar, '#toolbar が存在すること');
+    assert.equal(toolbar.querySelector('[data-action="open-file"]'), null);
+    assert.equal(toolbar.querySelector('[data-action="open-folder"]'), null);
+    assert.equal(toolbar.querySelector('[data-action="select-python-environment"]'), null);
+});
+
+test('selection toolbar にファイルとフォルダを開く導線がある', () => {
+    const { dom } = setupSelectionEnv();
+    const toolbar = dom.window.document.getElementById('selection-toolbar');
+    assert.ok(toolbar, '#selection-toolbar が存在すること');
+    assert.ok(toolbar.querySelector('[data-action="open-file"]'), 'open-file ボタンが存在すること');
+    assert.ok(toolbar.querySelector('[data-action="open-folder"]'), 'open-folder ボタンが存在すること');
 });
 
 test('各トラックに再生系のボタンと audio 要素が生成される', () => {
@@ -244,8 +253,8 @@ test('acquireVsCodeApi().postMessage が postedMessages を記録する', () => 
     assert.deepEqual((postedMessages[0] as any).type, 'test');
 });
 
-test('open-file ボタンが select-target(file) を送信する', () => {
-    const { dom, postedMessages } = setupEnv();
+test('selection open-file ボタンが select-target(file) を送信する', () => {
+    const { dom, postedMessages } = setupSelectionEnv();
     const button = dom.window.document.querySelector('[data-action="open-file"]');
     assert.ok(button instanceof dom.window.HTMLButtonElement);
     button.click();
@@ -254,8 +263,8 @@ test('open-file ボタンが select-target(file) を送信する', () => {
     assert.equal(message.targetKind, 'file');
 });
 
-test('open-folder ボタンが select-target(directory) を送信する', () => {
-    const { dom, postedMessages } = setupEnv();
+test('selection open-folder ボタンが select-target(directory) を送信する', () => {
+    const { dom, postedMessages } = setupSelectionEnv();
     const button = dom.window.document.querySelector('[data-action="open-folder"]');
     assert.ok(button instanceof dom.window.HTMLButtonElement);
     button.click();
@@ -353,7 +362,7 @@ test('フィルタ適用後も選択状態が維持される', () => {
     env.dom.window.close();
 });
 
-test('directory selection mode renders a Python environment button in the selection toolbar and results toolbar', () => {
+test('directory selection mode renders a Python environment button only in the selection toolbar', () => {
     const { dom } = setupSelectionEnv();
     const selectionButton = dom.window.document.getElementById('selection-python-environment');
     const mainToolbarButton = dom.window.document.getElementById('toolbar-python-environment');
@@ -361,10 +370,7 @@ test('directory selection mode renders a Python environment button in the select
     assert.ok(selectionButton instanceof dom.window.HTMLButtonElement);
     assert.equal(selectionButton.textContent, 'Python: python3');
     assert.equal(selectionButton.title, 'python3 — Click to select Python environment');
-
-    assert.ok(mainToolbarButton instanceof dom.window.HTMLButtonElement);
-    assert.equal(mainToolbarButton.textContent, 'Python: python3');
-    assert.equal(mainToolbarButton.title, 'python3 — Click to select Python environment');
+    assert.equal(mainToolbarButton, null);
 });
 
 test('selection Python button posts select-python-environment when clicked', () => {

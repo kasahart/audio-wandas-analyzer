@@ -115,20 +115,23 @@ async function domClick(page: Page, selector: string): Promise<void> {
     });
 }
 
+async function openToolbarMenu(page: Page, index: number): Promise<void> {
+    await page.locator('#toolbar details.tb-menu').nth(index).evaluate((element) => {
+        (element as HTMLDetailsElement).open = true;
+    });
+}
+
 test('results-toolbar buttons either change UI state or emit a VS Code side effect', async ({ page }) => {
     await loadResultsUi(page);
 
     const toolbar = page.locator('#toolbar');
-
-    await toolbar.locator('[data-action="open-file"]').click({ force: true });
-    await toolbar.locator('[data-action="open-folder"]').click({ force: true });
-    await toolbar.locator('[data-action="select-python-environment"]').click({ force: true });
 
     await toolbar.locator('[data-action="zoom-in"]').click({ force: true });
     await toolbar.locator('[data-action="zoom-out"]').click({ force: true });
     await toolbar.locator('[data-action="zoom-reset"]').click({ force: true });
 
     const heightBefore = await getUiSmokeState(page);
+    await openToolbarMenu(page, 0);
     await toolbar.locator('[data-action="track-height-input"]').fill('112');
     await toolbar.locator('[data-action="spectrum-height-input"]').fill('180');
     await page.waitForTimeout(100);
@@ -157,8 +160,10 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
 
     await expect(toolbar.locator('[data-action="zoom-to-selection"]')).toBeDisabled();
 
+    await openToolbarMenu(page, 1);
     await domClick(page, '#toolbar [data-action="run-recipe"]');
     await domClick(page, '#toolbar [data-action="copy-spec"]');
+    await openToolbarMenu(page, 2);
     await domClick(page, '#toolbar [data-action="export-png"]');
     await domClick(page, '#toolbar [data-action="export-csv"]');
     await domClick(page, '#toolbar [data-action="export-wav"]');
@@ -166,9 +171,6 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
 
     const messages = await getPostedMessages(page);
     expect(messages).toEqual(expect.arrayContaining([
-        expect.objectContaining({ type: 'select-target', targetKind: 'file' }),
-        expect.objectContaining({ type: 'select-target', targetKind: 'directory' }),
-        expect.objectContaining({ type: 'select-python-environment' }),
         expect.objectContaining({ type: 'request-reanalyze' }),
         expect.objectContaining({ type: 'export-report-options' }),
     ]));
@@ -178,6 +180,7 @@ test('export-wav without a loop posts a visible info message', async ({ page }) 
     await loadResultsUi(page);
     await clearPostedMessages(page);
 
+    await openToolbarMenu(page, 2);
     await page.locator('#toolbar [data-action="export-wav"]').click({ force: true });
 
     const messages = await getPostedMessages(page);
@@ -193,8 +196,11 @@ test('copy-spec / export-png / export-csv ボタンが #a11y-announce を更新�
     await loadResultsUi(page);
     const toolbar = page.locator('#toolbar');
 
+    await openToolbarMenu(page, 1);
+
     // copy-spec: クリック後に a11y-announce に成功メッセージが出る
     await toolbar.locator('[data-action="copy-spec"]').click({ force: true });
+    await openToolbarMenu(page, 2);
     await expect(page.locator('#a11y-announce')).not.toBeEmpty();
 
     // export-png: クリック後に announce が更新される

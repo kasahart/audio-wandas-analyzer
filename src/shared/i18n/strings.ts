@@ -36,6 +36,9 @@ export interface UiStrings {
     btnSpectrogramSettingsTitle: string;
     toolbarZoomLabel: string;
     btnZoomReset: string;
+    toolbarAdjustLabel: string;
+    toolbarWorkflowLabel: string;
+    toolbarExportLabel: string;
     toolbarHeightLabel: string;
     heightTrackLabel: string;
     heightSpectrumLabel: string;
@@ -190,6 +193,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnSpectrogramSettingsTitle: 'Spectrogram settings',
         toolbarZoomLabel: 'Zoom:',
         btnZoomReset: 'Reset',
+        toolbarAdjustLabel: 'Adjust',
+        toolbarWorkflowLabel: 'Workflow',
+        toolbarExportLabel: 'Export',
         toolbarHeightLabel: 'Height:',
         heightTrackLabel: 'Track',
         heightSpectrumLabel: 'Spectrum',
@@ -341,6 +347,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnSpectrogramSettingsTitle: 'スペクトログラム設定',
         toolbarZoomLabel: 'ズーム:',
         btnZoomReset: 'リセット',
+        toolbarAdjustLabel: '調整',
+        toolbarWorkflowLabel: 'ワークフロー',
+        toolbarExportLabel: '書き出し',
         toolbarHeightLabel: '高さ:',
         heightTrackLabel: 'トラック',
         heightSpectrumLabel: 'スペクトル',

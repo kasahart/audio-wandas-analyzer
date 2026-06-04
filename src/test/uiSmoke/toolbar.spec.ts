@@ -16,6 +16,12 @@ async function getPostedActionTypes(page: Page): Promise<string[]> {
     });
 }
 
+async function openToolbarMenu(page: Page, index: number): Promise<void> {
+    await page.locator('#toolbar details.tb-menu').nth(index).evaluate((element) => {
+        (element as HTMLDetailsElement).open = true;
+    });
+}
+
 test('toolbar message assertions ignore initial comparison-panel test snapshots', async ({ page }) => {
     await loadUi(page);
     await page.evaluate(() => {
@@ -24,26 +30,26 @@ test('toolbar message assertions ignore initial comparison-panel test snapshots'
         }).__uiSmokePostedMessages = [{ type: 'comparison-panel-test-snapshot' }];
     });
 
-    await page.locator('[data-action="select-python-environment"]').click({ force: true });
+    await openToolbarMenu(page, 1);
     await page.locator('[data-action="run-recipe"]').click({ force: true });
+    await openToolbarMenu(page, 2);
     await page.locator('[data-action="export-report"]').click({ force: true });
 
     expect(await getPostedActionTypes(page)).toEqual([
-        'select-python-environment',
         'run-recipe',
         'export-report-options',
     ]);
 });
 
-test('results toolbar posts VS Code messages for Python selection, recipe run, and report export', async ({ page }) => {
+test('results toolbar posts VS Code messages for recipe run and report export', async ({ page }) => {
     await loadUi(page);
 
-    await page.locator('[data-action="select-python-environment"]').click({ force: true });
+    await openToolbarMenu(page, 1);
     await page.locator('[data-action="run-recipe"]').click({ force: true });
+    await openToolbarMenu(page, 2);
     await page.locator('[data-action="export-report"]').click({ force: true });
 
     expect(await getPostedActionTypes(page)).toEqual([
-        'select-python-environment',
         'run-recipe',
         'export-report-options',
     ]);

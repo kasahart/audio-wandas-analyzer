@@ -960,16 +960,23 @@ export function getComparisonRenderScript(): string {
             }
 
             function buildToolbar() {
-                const pythonButtonText = buildPythonButtonText(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.status === 'warning');
-                const pythonButtonTooltip = buildPythonTooltip(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.tooltip);
-                const pythonButtonClass = 'tb-btn' + (pythonEnvironmentState.status === 'warning' ? ' is-warning' : '');
-                return '<span style="font-weight:700;font-size:12px;color:var(--accent)">' + escHtml(STR.toolbarMain) + '</span>'
-                    + '<div class="tb-sep"></div>'
-                    + '<button class="tb-btn" data-action="open-file">' + escHtml(STR.btnOpenFile) + '</button>'
-                    + '<button class="tb-btn" data-action="open-folder">' + escHtml(STR.btnOpenFolder) + '</button>'
-                    + '<button class="' + pythonButtonClass + '" id="toolbar-python-environment" data-action="select-python-environment" title="' + escHtml(pythonButtonTooltip) + '">' + escHtml(pythonButtonText) + '</button>'
-                    + '<div class="tb-sep"></div>'
-                    + '<span class="tb-label">' + escHtml(STR.toolbarTrackLabel) + '</span>'
+                function toolbarMenu(label, content) {
+                    return '<details class="tb-menu"><summary class="tb-btn">' + escHtml(label) + '</summary><div class="tb-menu-popover">' + content + '</div></details>';
+                }
+                const adjustMenu = '<div class="tb-menu-row"><span class="tb-label">' + escHtml(STR.toolbarHeightLabel) + '</span></div>'
+                    + '<div class="tb-menu-row"><span class="tb-label">' + escHtml(STR.heightTrackLabel) + '</span>'
+                    + '<input class="tb-number" type="number" min="' + TRACK_HEIGHT_MIN + '" max="' + TRACK_HEIGHT_MAX + '" step="1" value="' + trackHeight + '" data-action="track-height-input" aria-label="' + escHtml(STR.heightTrackLabel + ' px') + '">'
+                    + '<button class="tb-btn" data-action="track-height-reset" aria-label="' + escHtml(STR.ariaTrackHeightReset) + '">' + escHtml(STR.heightTrackLabel + ' ' + STR.btnHeightReset) + '</button></div>'
+                    + '<div class="tb-menu-row"><span class="tb-label">' + escHtml(STR.heightSpectrumLabel) + '</span>'
+                    + '<input class="tb-number" type="number" min="' + SPECTRUM_HEIGHT_MIN + '" max="' + SPECTRUM_HEIGHT_MAX + '" step="1" value="' + spectrumOverlayHeight + '" data-action="spectrum-height-input" aria-label="' + escHtml(STR.heightSpectrumLabel + ' px') + '">'
+                    + '<button class="tb-btn" data-action="spectrum-height-reset" aria-label="' + escHtml(STR.ariaSpectrumHeightReset) + '">' + escHtml(STR.heightSpectrumLabel + ' ' + STR.btnHeightReset) + '</button></div>';
+                const workflowMenu = '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
+                    + '<button class="tb-btn" data-action="copy-spec">' + escHtml(STR.btnCopySpec) + '</button>';
+                const exportMenu = '<button class="tb-btn" data-action="export-png" title="' + escHtml(STR.btnExportPngTitle) + '">' + escHtml(STR.btnExportPng) + '</button>'
+                    + '<button class="tb-btn" data-action="export-csv" title="' + escHtml(STR.btnExportCsvTitle) + '">' + escHtml(STR.btnExportCsv) + '</button>'
+                    + '<button class="tb-btn" data-action="export-wav" title="' + escHtml(STR.btnExportWavTitle) + '">' + escHtml(STR.btnExportWav) + '</button>'
+                    + '<button class="tb-btn" data-action="export-report" title="' + escHtml(STR.btnExportReportTitle) + '">' + escHtml(STR.btnExportReport) + '</button>';
+                return '<span class="tb-label">' + escHtml(STR.toolbarTrackLabel) + '</span>'
                     + '<button class="tb-btn is-active" data-action="content-waveform">' + escHtml(STR.btnWaveform) + '</button>'
                     + '<button class="tb-btn" data-action="content-spectrogram">' + escHtml(STR.btnSpectrogram) + '</button>'
                     + '<button class="tb-btn" data-action="spectrogram-settings" title="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" aria-label="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" style="display:none">⚙</button>'
@@ -978,26 +985,13 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="zoom-out" aria-label="' + escHtml(STR.ariaZoomOut) + '">－</button>'
                     + '<button class="tb-btn" data-action="zoom-in" aria-label="' + escHtml(STR.ariaZoomIn) + '">＋</button>'
                     + '<button class="tb-btn" data-action="zoom-reset" aria-label="' + escHtml(STR.ariaZoomReset) + '">' + escHtml(STR.btnZoomReset) + '</button>'
-                    + '<div class="tb-sep"></div>'
-                    + '<span class="tb-label">' + escHtml(STR.toolbarHeightLabel) + '</span>'
-                    + '<span class="tb-label">' + escHtml(STR.heightTrackLabel) + '</span>'
-                    + '<input class="tb-number" type="number" min="' + TRACK_HEIGHT_MIN + '" max="' + TRACK_HEIGHT_MAX + '" step="1" value="' + trackHeight + '" data-action="track-height-input" aria-label="' + escHtml(STR.heightTrackLabel + ' px') + '">'
-                    + '<button class="tb-btn" data-action="track-height-reset" aria-label="' + escHtml(STR.ariaTrackHeightReset) + '">' + escHtml(STR.btnHeightReset) + '</button>'
-                    + '<span class="tb-label">' + escHtml(STR.heightSpectrumLabel) + '</span>'
-                    + '<input class="tb-number" type="number" min="' + SPECTRUM_HEIGHT_MIN + '" max="' + SPECTRUM_HEIGHT_MAX + '" step="1" value="' + spectrumOverlayHeight + '" data-action="spectrum-height-input" aria-label="' + escHtml(STR.heightSpectrumLabel + ' px') + '">'
-                    + '<button class="tb-btn" data-action="spectrum-height-reset" aria-label="' + escHtml(STR.ariaSpectrumHeightReset) + '">' + escHtml(STR.btnHeightReset) + '</button>'
-                    + '<div class="tb-sep"></div>'
                     + '<button class="tb-btn" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom" aria-pressed="false">' + escHtml(STR.waveModeLabelRectZoom) + '</button>'
                     + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection" title="' + escHtml(STR.btnZoomToSelectionTitle) + '" disabled>' + escHtml(STR.btnZoomToSelection) + '</button>'
                     + '<button class="tb-btn" data-action="toggle-follow-cursor" title="' + escHtml(STR.btnFollowCursorTitle) + '">' + escHtml(STR.btnFollowCursor) + '</button>'
                     + '<div class="tb-sep"></div>'
-                    + '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
-                    + '<button class="tb-btn" data-action="copy-spec">' + escHtml(STR.btnCopySpec) + '</button>'
-                    + '<div class="tb-sep"></div>'
-                    + '<button class="tb-btn" data-action="export-png" title="' + escHtml(STR.btnExportPngTitle) + '">' + escHtml(STR.btnExportPng) + '</button>'
-                    + '<button class="tb-btn" data-action="export-csv" title="' + escHtml(STR.btnExportCsvTitle) + '">' + escHtml(STR.btnExportCsv) + '</button>'
-                    + '<button class="tb-btn" data-action="export-wav" title="' + escHtml(STR.btnExportWavTitle) + '">' + escHtml(STR.btnExportWav) + '</button>'
-                    + '<button class="tb-btn" data-action="export-report" title="' + escHtml(STR.btnExportReportTitle) + '">' + escHtml(STR.btnExportReport) + '</button>'
+                    + toolbarMenu(STR.toolbarAdjustLabel, adjustMenu)
+                    + toolbarMenu(STR.toolbarWorkflowLabel, workflowMenu)
+                    + toolbarMenu(STR.toolbarExportLabel, exportMenu)
                     + '<div class="tb-sep"></div>'
                     + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
                     + '<span id="playback-display" title="' + escHtml(STR.playbackDisplayTitle) + '"></span>'
