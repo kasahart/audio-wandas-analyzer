@@ -1765,6 +1765,17 @@ export function getComparisonRenderScript(): string {
 
                 attachToolbarActions('toolbar');
                 attachToolbarActions('spectrum-zoom-toolbar');
+                const toolbarForMenus = document.getElementById('toolbar');
+                if (toolbarForMenus) {
+                    toolbarForMenus.querySelectorAll('details.tb-menu').forEach(function(menu) {
+                        menu.addEventListener('toggle', function() {
+                            if (!menu.open) { return; }
+                            toolbarForMenus.querySelectorAll('details.tb-menu[open]').forEach(function(otherMenu) {
+                                if (otherMenu !== menu) { otherMenu.open = false; }
+                            });
+                        });
+                    });
+                }
 
                 function handleHeightResizeStart(e) {
                     const target = e.target && e.target.closest

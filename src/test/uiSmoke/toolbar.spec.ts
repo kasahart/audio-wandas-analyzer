@@ -17,9 +17,11 @@ async function getPostedActionTypes(page: Page): Promise<string[]> {
 }
 
 async function openToolbarMenu(page: Page, index: number): Promise<void> {
-    await page.locator('#toolbar details.tb-menu').nth(index).evaluate((element) => {
-        (element as HTMLDetailsElement).open = true;
+    const menu = page.locator('#toolbar details.tb-menu').nth(index);
+    await menu.locator('summary').evaluate((element) => {
+        (element as HTMLElement).click();
     });
+    await expect(menu).toHaveAttribute('open', '');
 }
 
 test('toolbar message assertions ignore initial comparison-panel test snapshots', async ({ page }) => {

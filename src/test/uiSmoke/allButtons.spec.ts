@@ -116,9 +116,11 @@ async function domClick(page: Page, selector: string): Promise<void> {
 }
 
 async function openToolbarMenu(page: Page, index: number): Promise<void> {
-    await page.locator('#toolbar details.tb-menu').nth(index).evaluate((element) => {
-        (element as HTMLDetailsElement).open = true;
+    const menu = page.locator('#toolbar details.tb-menu').nth(index);
+    await menu.locator('summary').evaluate((element) => {
+        (element as HTMLElement).click();
     });
+    await expect(menu).toHaveAttribute('open', '');
 }
 
 test('results-toolbar buttons either change UI state or emit a VS Code side effect', async ({ page }) => {

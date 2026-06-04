@@ -427,7 +427,6 @@ export function renderComparisonStyles(): string {
             background: var(--panel); border-bottom: 1px solid var(--line);
             flex-shrink: 0; flex-wrap: wrap; overflow: visible; position: relative; z-index: 20;
         }
-        .tb-section-title { font-weight: 700; font-size: 12px; color: var(--accent); margin-right: 2px; }
         .tb-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
         .tb-btn {
             font-size: 11px; padding: 2px 8px; border-radius: 3px;
