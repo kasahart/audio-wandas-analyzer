@@ -1070,13 +1070,25 @@ export function getComparisonRenderScript(): string {
                 if (contentType === 'waveform') { scheduleRangeRequests(); }
             }
 
-            function syncCanvasSize(canvas, width, height) {
+            function syncCanvasSize(canvas, width, height, options) {
                 const w = Math.max(1, Math.round(width));
                 const h = Math.max(1, Math.round(height));
-                canvas.style.width = w + 'px';
-                canvas.style.height = h + 'px';
+                const syncStyle = !options || options.syncStyle !== false;
+                if (syncStyle && canvas.style.width !== w + 'px') { canvas.style.width = w + 'px'; }
+                if (syncStyle && canvas.style.height !== h + 'px') { canvas.style.height = h + 'px'; }
                 if (canvas.width !== w) { canvas.width = w; }
                 if (canvas.height !== h) { canvas.height = h; }
+            }
+
+            function contentBoxWidth(el, fallback) {
+                if (!el) { return fallback; }
+                const style = typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+                    ? window.getComputedStyle(el)
+                    : null;
+                if (!el.clientWidth) { return fallback; }
+                const padL = style ? parseFloat(style.paddingLeft || '0') || 0 : 0;
+                const padR = style ? parseFloat(style.paddingRight || '0') || 0 : 0;
+                return Math.max(1, el.clientWidth - padL - padR);
             }
 
             function resizeAllCanvases() {
@@ -1979,7 +1991,7 @@ export function getComparisonRenderScript(): string {
                 }
 
                 function handleLayoutResize() {
-                    renderAll();
+                    scheduleRender();
                     scheduleSpectrumRefresh('interactive');
                 }
                 window.addEventListener('resize', handleLayoutResize);
@@ -3698,8 +3710,8 @@ export function getComparisonRenderScript(): string {
                 const canvas = document.getElementById('spectrum-overlay-canvas');
                 if (!canvas) { return; }
                 const wrap = document.getElementById('spectrum-overlay-wrap');
-                const w = (wrap && wrap.clientWidth) || 800;
-                syncCanvasSize(canvas, w, spectrumOverlayHeight);
+                const w = contentBoxWidth(wrap, 800);
+                syncCanvasSize(canvas, w, spectrumOverlayHeight, { syncStyle: false });
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width, H = canvas.height;
                 ctx.clearRect(0, 0, W, H);
