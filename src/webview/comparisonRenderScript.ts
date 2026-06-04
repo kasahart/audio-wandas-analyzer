@@ -252,6 +252,8 @@ export function getComparisonRenderScript(): string {
             const detailRequests = state.results.map(function() { return null; });
             const spectrumSliceRequests = state.results.map(function() { return null; });
             const spectrumSliceCache = state.results.map(function() { return null; });
+            const trackSpectrumPainted = state.results.map(function() { return false; });
+            let overlaySpectrumPainted = false;
             let lazyRequestCounter = 0;
 
             function nextLazyRequestId(prefix, i) {
@@ -314,6 +316,8 @@ export function getComparisonRenderScript(): string {
                 detailRequests[i] = null;
                 spectrumSliceRequests[i] = null;
                 spectrumSliceCache[i] = null;
+                trackSpectrumPainted[i] = false;
+                overlaySpectrumPainted = false;
                 if (hadSpectrogram) {
                     vscode.postMessage({
                         type: 'release-track-detail',
@@ -3677,19 +3681,28 @@ export function getComparisonRenderScript(): string {
                         : null;
                     if (wrapStyle && wrapStyle.display === 'none') { return; }
                     const w = wrap.clientWidth || 180;
+                    const sizeChanged = canvas.width !== w || canvas.height !== trackHeight;
                     syncCanvasSize(canvas, w, trackHeight);
+                    if (sizeChanged) { trackSpectrumPainted[i] = false; }
                     const ctx = canvas.getContext('2d');
                     const W = canvas.width, H = canvas.height;
-                    ctx.clearRect(0, 0, W, H);
-                    if (trackRuntime[i].hidden) { return; }
+                    if (trackRuntime[i].hidden) {
+                        ctx.clearRect(0, 0, W, H);
+                        trackSpectrumPainted[i] = false;
+                        return;
+                    }
                     const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, spectrumCursorNorm);
                     if (!slice) {
+                        if (trackSpectrumPainted[i] && spectrumSliceRequests[i]) { return; }
+                        ctx.clearRect(0, 0, W, H);
                         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                         ctx.font = '9px sans-serif';
                         ctx.textAlign = 'center';
                         ctx.fillText(STR.canvasOutOfRange, W / 2, H / 2);
+                        trackSpectrumPainted[i] = false;
                         return;
                     }
+                    ctx.clearRect(0, 0, W, H);
                     const color = trackColor(i);
                     const visFreqMinT = specFreqStart * slice.maxFrequencyHz;
                     const visFreqMaxT = specFreqEnd   * slice.maxFrequencyHz;
@@ -3697,6 +3710,7 @@ export function getComparisonRenderScript(): string {
                     const visDbMaxT   = (specDbMax != null) ? specDbMax : slice.maxDb;
                     drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
                     drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 }, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
+                    trackSpectrumPainted[i] = true;
                     if (spectrumHoverNorm !== null && spectrumHoverTrackIndex === i) {
                         const padL2 = 32, padR2 = 6, padT2 = 4, padB2 = 14;
                         const plotW2 = W - padL2 - padR2;
@@ -3732,26 +3746,33 @@ export function getComparisonRenderScript(): string {
                 if (!canvas) { return; }
                 const wrap = document.getElementById('spectrum-overlay-wrap');
                 const w = contentBoxWidth(wrap, 800);
+                const sizeChanged = canvas.width !== w || canvas.height !== spectrumOverlayHeight;
                 syncCanvasSize(canvas, w, spectrumOverlayHeight, { syncStyle: false });
+                if (sizeChanged) { overlaySpectrumPainted = false; }
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width, H = canvas.height;
-                ctx.clearRect(0, 0, W, H);
 
                 const slices = [];
+                let pendingVisibleSlice = false;
                 displayOrder.forEach(function(i) {
                     const result = state.results[i];
                     if (trackRuntime[i].hidden) { return; }
                     const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, spectrumCursorNorm);
                     if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, name: result.fileName }); }
+                    else if (spectrumSliceRequests[i]) { pendingVisibleSlice = true; }
                 });
 
                 if (slices.length === 0) {
+                    if (overlaySpectrumPainted && pendingVisibleSlice) { return; }
+                    ctx.clearRect(0, 0, W, H);
                     ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                     ctx.font = '11px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.fillText(STR.spectrumNoData, W / 2, H / 2);
+                    overlaySpectrumPainted = false;
                     return;
                 }
+                ctx.clearRect(0, 0, W, H);
 
                 let minDb = Infinity, maxDb = -Infinity, maxF = 0;
                 slices.forEach(function(s) {
@@ -3875,6 +3896,7 @@ export function getComparisonRenderScript(): string {
                     ctx.strokeRect(rx, ry, rw, rh);
                     ctx.restore();
                 }
+                overlaySpectrumPainted = true;
             }
 
             function refreshSpectrumViews() {
@@ -4191,7 +4213,13 @@ export function getComparisonRenderScript(): string {
                         detailRequests[detailIdx] = null;
                         spectrumSliceRequests[detailIdx] = null;
                         spectrumSliceCache[detailIdx] = null;
+                        trackSpectrumPainted[detailIdx] = false;
                     }
+                    detailRequests.length = state.results.length;
+                    spectrumSliceRequests.length = state.results.length;
+                    spectrumSliceCache.length = state.results.length;
+                    trackSpectrumPainted.length = state.results.length;
+                    overlaySpectrumPainted = false;
                     announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
                     scheduleRender();
                     scheduleSpectrumRefresh('immediate');

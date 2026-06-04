@@ -745,6 +745,49 @@ test('renderScript: lazy spectrum cache is scoped to the current cursor', async 
     env.dom.window.close();
 });
 
+test('renderScript: lazy spectrum keeps previous drawing while a new cursor slice is pending', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    await nextAnimationFrame(env.dom);
+
+    const initialReq = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any;
+    assert.ok(initialReq, 'initial lazy slice request should be posted');
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: initialReq.requestId,
+        analysisId: initialReq.analysisId,
+        settingsSignature: initialReq.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        values: [-120, -20, 10],
+        frequencyBins: 3,
+        maxFrequencyHz: 22050,
+        minDb: -120,
+        maxDb: 10,
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
+    assert.ok(overlaySpy, 'overlay canvas spy should exist');
+    assert.ok(trackSpy, 'track spectrum canvas spy should exist');
+    const overlayClearBefore = overlaySpy!.clearRectCalls;
+    const trackClearBefore = trackSpy!.clearRectCalls;
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        actionId: 'lazy-spectrum-pending-hold',
+        actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.5 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
+    const latestReq = requests[requests.length - 1];
+    assert.ok(latestReq.cursorNorm > 0.45 && latestReq.cursorNorm < 0.55, 'cursor move should request a new lazy slice');
+    assert.equal(trackSpy!.clearRectCalls, trackClearBefore, 'per-track spectrum should keep its previous pixels while the new slice is pending');
+    assert.equal(overlaySpy!.clearRectCalls, overlayClearBefore, 'overlay spectrum should keep its previous pixels while the new slice is pending');
+    env.dom.window.close();
+});
+
 test('renderScript: spectrum at exact track end renders silence instead of the last STFT bin', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
