@@ -1184,8 +1184,6 @@ export function getComparisonRenderScript(): string {
                         drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     } else {
                         drawSpectrogram(canvas, result, i, trackRuntime[i].offsetSeconds);
-                        const axisC = document.getElementById('track-axis-canvas-' + i);
-                        if (axisC) { const ac = axisC.getContext('2d'); if (ac) { ac.clearRect(0, 0, axisC.width, axisC.height); } }
                     }
                 });
             }
@@ -1323,6 +1321,10 @@ export function getComparisonRenderScript(): string {
                 const H = canvas.height;
                 ctx.clearRect(0, 0, W, H);
 
+                const axisCanvas = document.getElementById('track-axis-canvas-' + trackIndex);
+                const axisCtx = axisCanvas ? axisCanvas.getContext('2d') : null;
+                if (axisCtx) { axisCtx.clearRect(0, 0, axisCanvas.width, axisCanvas.height); }
+
                 const ch = result.channels[0];
                 if (!ch || !ch.spectrogram) {
                     requestTrackDetail(trackIndex);
@@ -1372,39 +1374,35 @@ export function getComparisonRenderScript(): string {
                     }
                 }
                 ctx.putImageData(imageData, 0, 0);
-                drawSpectrogramAxes(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi, maxFreq: maxFreq });
+                if (axisCtx) {
+                    drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq });
+                }
+                drawSpectrogramColorbar(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi });
                 drawLoopRegionOnCanvas(ctx, W, H);
                 drawCursorOnCanvas(ctx, W, H);
                 drawHoverLineOnCanvas(ctx, W, H);
             }
 
-            // 軸とカラーバーは半透明オーバーレイとして全幅キャンバスの上に描画する。
-            // これによりカーソル/ループ/ホバー線とマウス入力は従来通り canvas.width 基準のままで済む。
-            function drawSpectrogramAxes(ctx, W, H, spec, opts) {
+            function drawSpectrogramFrequencyAxis(ctx, W, H, spec, opts) {
                 const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                 const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
-                const labelW = 36;
-                const cbStripW = 50;
                 const o = opts || {};
                 const maxHz = (o.maxFreq != null) ? o.maxFreq : spec.maxFrequencyHz;
-                const dbLo = (o.dbLo != null) ? o.dbLo : spec.minDb;
-                const dbHi = (o.dbHi != null) ? o.dbHi : spec.maxDb;
 
                 ctx.save();
                 ctx.fillStyle = bgColor;
                 ctx.globalAlpha = 0.7;
-                ctx.fillRect(0, 0, labelW, H);
-                ctx.fillRect(W - cbStripW, 0, cbStripW, H);
+                ctx.fillRect(0, 0, W, H);
                 ctx.globalAlpha = 1;
                 ctx.fillStyle = mutedColor;
                 ctx.font = '9px monospace';
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'top';
-                ctx.fillText(formatHz(maxHz), labelW - 2, 1);
+                ctx.fillText(formatHz(maxHz), W - 2, 1);
                 ctx.textBaseline = 'middle';
-                ctx.fillText(formatHz(maxHz / 2), labelW - 2, H / 2);
+                ctx.fillText(formatHz(maxHz / 2), W - 2, H / 2);
                 ctx.textBaseline = 'bottom';
-                ctx.fillText('0 Hz', labelW - 2, H - 1);
+                ctx.fillText('0 Hz', W - 2, H - 1);
                 ctx.save();
                 ctx.translate(9, H / 2);
                 ctx.rotate(-Math.PI / 2);
@@ -1412,7 +1410,22 @@ export function getComparisonRenderScript(): string {
                 ctx.textBaseline = 'middle';
                 ctx.fillText('Freq', 0, 0);
                 ctx.restore();
+                ctx.restore();
+            }
 
+            function drawSpectrogramColorbar(ctx, W, H, spec, opts) {
+                const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
+                const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
+                const cbStripW = 50;
+                const o = opts || {};
+                const dbLo = (o.dbLo != null) ? o.dbLo : spec.minDb;
+                const dbHi = (o.dbHi != null) ? o.dbHi : spec.maxDb;
+
+                ctx.save();
+                ctx.fillStyle = bgColor;
+                ctx.globalAlpha = 0.7;
+                ctx.fillRect(W - cbStripW, 0, cbStripW, H);
+                ctx.globalAlpha = 1;
                 const cbW = 10;
                 const cbX = W - cbStripW + 6;
                 const cbY = 2;
@@ -1428,6 +1441,7 @@ export function getComparisonRenderScript(): string {
                 }
                 ctx.putImageData(grad, cbX, cbY);
                 ctx.fillStyle = mutedColor;
+                ctx.font = '9px monospace';
                 ctx.textAlign = 'left';
                 ctx.textBaseline = 'top';
                 ctx.fillText(dbHi.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
