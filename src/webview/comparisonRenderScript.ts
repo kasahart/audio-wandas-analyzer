@@ -1225,15 +1225,17 @@ export function getComparisonRenderScript(): string {
                 const trackDurRatio = dur / gs.spanSec;
                 const fileAtZoomStart = (zoomStart - trackStart) / trackDurRatio;
                 const fileAtZoomEnd   = (zoomEnd   - trackStart) / trackDurRatio;
+                const ch = result.channels[0];
+                const fullWaveform = ch && ch.waveform ? ch.waveform : null;
+                const amplitudeScale = fullWaveform ? fullWaveform.absolutePeak : undefined;
                 const c = rangeCache[trackIndex];
                 if (c && c.channels && c.channels[0] && c.channels[0].samples &&
                     c.startNorm <= Math.max(0, fileAtZoomStart) &&
                     c.endNorm   >= Math.min(1, fileAtZoomEnd)) {
-                    return { waveform: c.channels[0], dataStart: c.startNorm, dataEnd: c.endNorm };
+                    return { waveform: c.channels[0], dataStart: c.startNorm, dataEnd: c.endNorm, amplitudeScale: amplitudeScale };
                 }
-                const ch = result.channels[0];
-                return ch && ch.waveform
-                    ? { waveform: ch.waveform, dataStart: 0, dataEnd: 1 }
+                return fullWaveform
+                    ? { waveform: fullWaveform, dataStart: 0, dataEnd: 1, amplitudeScale: amplitudeScale }
                     : null;
             }
 
@@ -1285,6 +1287,7 @@ export function getComparisonRenderScript(): string {
                             dataStart: src.dataStart,
                             dataEnd: src.dataEnd,
                             color,
+                            amplitudeScale: src.amplitudeScale,
                         });
                     } finally {
                         ctx.restore();
