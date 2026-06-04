@@ -3762,8 +3762,8 @@ export function getComparisonRenderScript(): string {
                     else if (spectrumSliceRequests[i]) { pendingVisibleSlice = true; }
                 });
 
+                if (overlaySpectrumPainted && pendingVisibleSlice) { return; }
                 if (slices.length === 0) {
-                    if (overlaySpectrumPainted && pendingVisibleSlice) { return; }
                     ctx.clearRect(0, 0, W, H);
                     ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                     ctx.font = '11px sans-serif';
