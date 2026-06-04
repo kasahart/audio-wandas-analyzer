@@ -64,3 +64,33 @@ test('help overlay closes when the backdrop is clicked', async ({ page }) => {
     await helpOverlay.click({ position: { x: 8, y: 8 }, force: true });
     await expect(helpOverlay).toBeHidden();
 });
+
+
+test('track canvas width follows layout changes without a window resize event', async ({ page }) => {
+    await loadUi(page);
+
+    await expect.poll(async () => page.evaluate(() => {
+        const wrap = document.getElementById('track-canvas-wrap-0');
+        const canvas = document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+        const axis = document.getElementById('track-axis-canvas-0') as HTMLCanvasElement | null;
+        if (!wrap || !canvas || !axis) { return false; }
+        const expected = Math.max(1, Math.round(wrap.clientWidth - axis.width));
+        return Math.abs(canvas.width - expected) <= 1;
+    })).toBe(true);
+
+    await page.evaluate(() => {
+        document.querySelectorAll<HTMLElement>('.track-spectrum-wrap').forEach((el) => {
+            el.style.width = '320px';
+        });
+    });
+
+    await expect.poll(async () => page.evaluate(() => {
+        const wrap = document.getElementById('track-canvas-wrap-0');
+        const canvas = document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+        const axis = document.getElementById('track-axis-canvas-0') as HTMLCanvasElement | null;
+        if (!wrap || !canvas || !axis) { return false; }
+        const expected = Math.max(1, Math.round(wrap.clientWidth - axis.width));
+        const renderedWidth = Math.round(canvas.getBoundingClientRect().width);
+        return Math.abs(canvas.width - expected) <= 1 && Math.abs(renderedWidth - expected) <= 1;
+    })).toBe(true);
+});
