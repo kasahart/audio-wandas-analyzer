@@ -112,7 +112,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     {
         id: 'python-environment-selection',
         label: 'Select the Python interpreter from GUI surfaces',
-        entryPoints: ['status-bar', 'selection-toolbar', 'results-toolbar', 'quick-pick', 'command'],
+        entryPoints: ['status-bar', 'selection-toolbar', 'quick-pick', 'command'],
         triggers: ['audioWandasAnalyzer.selectPythonEnvironment', 'select-python-environment'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
@@ -125,8 +125,8 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'open-another-target',
-        label: 'Open another file or folder from the comparison panel',
-        entryPoints: ['results-toolbar'],
+        label: 'Open another file or folder from directory-selection mode',
+        entryPoints: ['selection-toolbar'],
         triggers: ['open-file', 'open-folder'],
         regressionLayers: ['node:test', 'vscode-e2e'],
     },
