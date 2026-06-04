@@ -1028,15 +1028,20 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
     // フレーム駆動の再描画を待つ
     await new Promise((r) => win.setTimeout(r, 0));
 
+    const axisSpy = env.domCanvasContexts.get('track-axis-canvas-0');
+    assert.ok(axisSpy, 'track-axis-canvas-0 のスパイが取得できること');
+    const axisLabels = axisSpy!.fillTextCalls;
+    assert.ok(axisLabels.includes('0 Hz'), '0 Hz ラベルが描かれること: ' + JSON.stringify(axisLabels));
+    assert.ok(
+        axisLabels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)),
+        'Hz または kHz の周波数ラベルが axis canvas に描かれること',
+    );
+
     const spy = env.domCanvasContexts.get('track-canvas-0');
     assert.ok(spy, 'track-canvas-0 のスパイが取得できること');
     const labels = spy!.fillTextCalls;
-    assert.ok(labels.includes('0 Hz'), '0 Hz ラベルが描かれること: ' + JSON.stringify(labels));
-    assert.ok(
-        labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)),
-        'Hz または kHz の周波数ラベルが描かれること',
-    );
     assert.ok(labels.some((s) => /\d+\s*dB$/.test(s)), 'カラーバーの dB ラベルが描かれること');
+    assert.equal(labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)), false, '周波数ラベルはプロット canvas に描かれないこと');
     assert.ok(spy!.putImageDataCalls >= 2,
         'プロット領域とカラーバーで putImageData が複数回呼ばれること');
     env.dom.window.close();

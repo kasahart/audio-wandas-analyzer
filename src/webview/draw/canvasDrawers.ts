@@ -61,6 +61,12 @@ export interface SpectrogramSpecLike {
     maxFrequencyHz: number;
 }
 
+export interface SpectrogramAxesOpts {
+    dbLo?: number;
+    dbHi?: number;
+    maxFreq?: number;
+}
+
 export function formatHz(hz: number): string {
     if (hz >= 1000) {
         return (hz / 1000).toFixed(hz >= 10000 ? 0 : 1) + ' kHz';
@@ -135,33 +141,30 @@ export function drawWaveformAmplitudeAxis(
     ctx.restore();
 }
 
-/** スペクトログラムの上に左軸 (Hz) と右側カラーバー (dB) をオーバーレイ描画する。 */
-export function drawSpectrogramAxes(
+export function drawSpectrogramFrequencyAxis(
     ctx: CanvasDrawCtx,
     W: number,
     H: number,
     spec: SpectrogramSpecLike,
+    opts: SpectrogramAxesOpts = {},
     theme: DrawTheme = DEFAULT_THEME,
 ): void {
-    const labelW = 36;
-    const cbStripW = 50;
-    const maxHz = spec.maxFrequencyHz;
+    const maxHz = opts.maxFreq ?? spec.maxFrequencyHz;
 
     ctx.save();
     ctx.fillStyle = theme.bgColor;
     ctx.globalAlpha = 0.7;
-    ctx.fillRect(0, 0, labelW, H);
-    ctx.fillRect(W - cbStripW, 0, cbStripW, H);
+    ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = 1;
     ctx.fillStyle = theme.mutedColor;
     ctx.font = '9px monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText(formatHz(maxHz), labelW - 2, 1);
+    ctx.fillText(formatHz(maxHz), W - 2, 1);
     ctx.textBaseline = 'middle';
-    ctx.fillText(formatHz(maxHz / 2), labelW - 2, H / 2);
+    ctx.fillText(formatHz(maxHz / 2), W - 2, H / 2);
     ctx.textBaseline = 'bottom';
-    ctx.fillText('0 Hz', labelW - 2, H - 1);
+    ctx.fillText('0 Hz', W - 2, H - 1);
     ctx.save();
     ctx.translate(9, H / 2);
     ctx.rotate(-Math.PI / 2);
@@ -169,7 +172,26 @@ export function drawSpectrogramAxes(
     ctx.textBaseline = 'middle';
     ctx.fillText('Freq', 0, 0);
     ctx.restore();
+    ctx.restore();
+}
 
+export function drawSpectrogramColorbar(
+    ctx: CanvasDrawCtx,
+    W: number,
+    H: number,
+    spec: SpectrogramSpecLike,
+    opts: SpectrogramAxesOpts = {},
+    theme: DrawTheme = DEFAULT_THEME,
+): void {
+    const cbStripW = 50;
+    const dbLo = opts.dbLo ?? spec.minDb;
+    const dbHi = opts.dbHi ?? spec.maxDb;
+
+    ctx.save();
+    ctx.fillStyle = theme.bgColor;
+    ctx.globalAlpha = 0.7;
+    ctx.fillRect(W - cbStripW, 0, cbStripW, H);
+    ctx.globalAlpha = 1;
     const cbW = 10;
     const cbX = W - cbStripW + 6;
     const cbY = 2;
@@ -185,12 +207,25 @@ export function drawSpectrogramAxes(
     }
     ctx.putImageData(grad, cbX, cbY);
     ctx.fillStyle = theme.mutedColor;
+    ctx.font = '9px monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(spec.maxDb.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
+    ctx.fillText(dbHi.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
     ctx.textBaseline = 'bottom';
-    ctx.fillText(spec.minDb.toFixed(0) + ' dB', cbX + cbW + 2, cbY + cbH);
+    ctx.fillText(dbLo.toFixed(0) + ' dB', cbX + cbW + 2, cbY + cbH);
     ctx.restore();
+}
+
+/** スペクトログラム軸を、左周波数軸と右カラーバーに分けて描画する。 */
+export function drawSpectrogramAxes(
+    ctx: CanvasDrawCtx,
+    W: number,
+    H: number,
+    spec: SpectrogramSpecLike,
+    theme: DrawTheme = DEFAULT_THEME,
+): void {
+    drawSpectrogramFrequencyAxis(ctx, 36, H, spec, {}, theme);
+    drawSpectrogramColorbar(ctx, W, H, spec, {}, theme);
 }
 
 export interface SpectrumLineOpts {

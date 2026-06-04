@@ -12,6 +12,8 @@ import {
     dbToRgb,
     drawWaveformAmplitudeAxis,
     drawSpectrogramAxes,
+    drawSpectrogramFrequencyAxis,
+    drawSpectrogramColorbar,
     drawSpectrumLine,
     drawSpectrumAxes,
     DEFAULT_THEME,
@@ -155,6 +157,27 @@ test('drawSpectrogramAxes: 左ラベル領域と右カラーバー領域に fill
     drawSpectrogramAxes(ctx, 800, 80, sampleSpec);
     const rects = ctx._ops.filter((o) => o.op === 'fillRect');
     assert.equal(rects.length, 2, 'left strip + right strip');
+});
+
+test('drawSpectrogramFrequencyAxis: 渡された axis canvas 幅だけを背景として塗る', () => {
+    const ctx = makeMockCtx();
+    drawSpectrogramFrequencyAxis(ctx, 32, 80, sampleSpec);
+    const rects = ctx._ops.filter((o) => o.op === 'fillRect');
+    assert.deepEqual(rects.map((r) => r.args), [[0, 0, 32, 80]]);
+    const textXs = ctx._ops
+        .filter((o) => o.op === 'fillText' && o.args[0] !== 'Freq')
+        .map((o) => o.args[1]);
+    assert.ok(textXs.every((x) => x === 30));
+});
+
+test('drawSpectrogramColorbar: 右カラーバー領域だけに fillRect し、周波数ラベルを描画しない', () => {
+    const ctx = makeMockCtx();
+    drawSpectrogramColorbar(ctx, 800, 80, sampleSpec, { dbLo: -70, dbHi: -5 });
+    const rects = ctx._ops.filter((o) => o.op === 'fillRect');
+    assert.deepEqual(rects.map((r) => r.args), [[750, 0, 50, 80]]);
+    assert.equal(ctx._texts.includes('0 Hz'), false);
+    assert.ok(ctx._texts.includes('-5 dB'));
+    assert.ok(ctx._texts.includes('-70 dB'));
 });
 
 test('drawSpectrogramAxes: putImageData を 1 回 (カラーバー) 呼ぶ', () => {
