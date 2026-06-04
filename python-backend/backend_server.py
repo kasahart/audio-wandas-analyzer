@@ -111,8 +111,8 @@ def _stft_options_from_payload(payload: dict) -> dict | None:
 
 def handle_analyze(cmd: dict) -> dict:
     file_path = str(cmd["filePath"])
-    _get_cached(file_path)
     frame, resolved_path = load_audio_frame(file_path)
+    _get_cached(str(resolved_path))
     return analyze_from_frame(
         frame,
         resolved_path,
@@ -124,8 +124,8 @@ def handle_analyze(cmd: dict) -> dict:
 
 def handle_track_detail(cmd: dict) -> dict:
     file_path = str(cmd["filePath"])
-    _get_cached(file_path)
     frame, resolved_path = load_audio_frame(file_path)
+    _get_cached(str(resolved_path))
     result = analyze_from_frame(
         frame,
         resolved_path,
@@ -137,7 +137,7 @@ def handle_track_detail(cmd: dict) -> dict:
         "trackIndex": int(cmd.get("trackIndex", -1)),
         "analysisId": cmd.get("analysisId"),
         "settingsSignature": cmd.get("settingsSignature"),
-        "filePath": file_path,
+        "filePath": str(resolved_path),
         "channels": result["channels"],
     }
 

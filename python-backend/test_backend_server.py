@@ -121,6 +121,45 @@ def test_analyze_round_trip_accepts_flac_from_supported_ui_formats(server: _Serv
     assert resp["channels"][0]["spectrogram"] is None
 
 
+def test_analyze_caches_metadata_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
+    import backend_server
+
+    raw_path = tmp_path / "subdir" / ".." / "tone.wav"
+    resolved_path = raw_path.resolve()
+    calls: list[str] = []
+
+    monkeypatch.setattr(backend_server, "load_audio_frame", lambda path: (object(), resolved_path))
+    monkeypatch.setattr(backend_server, "_get_cached", lambda path: calls.append(path))
+    monkeypatch.setattr(
+        backend_server,
+        "analyze_from_frame",
+        lambda *_args, **_kwargs: {"filePath": str(resolved_path), "channels": []},
+    )
+
+    resp = backend_server.handle_analyze({"filePath": str(raw_path)})
+
+    assert calls == [str(resolved_path)]
+    assert resp["filePath"] == str(resolved_path)
+
+
+def test_track_detail_caches_metadata_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
+    import backend_server
+
+    raw_path = tmp_path / "subdir" / ".." / "tone.wav"
+    resolved_path = raw_path.resolve()
+    calls: list[str] = []
+
+    monkeypatch.setattr(backend_server, "load_audio_frame", lambda path: (object(), resolved_path))
+    monkeypatch.setattr(backend_server, "_get_cached", lambda path: calls.append(path))
+    monkeypatch.setattr(backend_server, "analyze_from_frame", lambda *_args, **_kwargs: {"channels": []})
+
+    resp = backend_server.handle_track_detail({"filePath": str(raw_path), "trackIndex": 4})
+
+    assert calls == [str(resolved_path)]
+    assert resp["trackIndex"] == 4
+    assert resp["filePath"] == str(resolved_path)
+
+
 def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
