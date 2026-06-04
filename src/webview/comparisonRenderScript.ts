@@ -1070,6 +1070,15 @@ export function getComparisonRenderScript(): string {
                 if (contentType === 'waveform') { scheduleRangeRequests(); }
             }
 
+            function syncCanvasSize(canvas, width, height) {
+                const w = Math.max(1, Math.round(width));
+                const h = Math.max(1, Math.round(height));
+                canvas.style.width = w + 'px';
+                canvas.style.height = h + 'px';
+                if (canvas.width !== w) { canvas.width = w; }
+                if (canvas.height !== h) { canvas.height = h; }
+            }
+
             function resizeAllCanvases() {
                 state.results.forEach(function(_, i) {
                     const canvas = document.getElementById('track-canvas-' + i);
@@ -1080,21 +1089,16 @@ export function getComparisonRenderScript(): string {
                     const cacheKey = newW + 'x' + trackHeight;
                     if (canvasWidthCache[i] === cacheKey) { return; }
                     canvasWidthCache[i] = cacheKey;
-                    canvas.style.height = trackHeight + 'px';
-                    canvas.width = Math.max(1, newW - AXIS_W);
-                    canvas.height = trackHeight;
+                    syncCanvasSize(canvas, newW - AXIS_W, trackHeight);
                     const axisCanvas = document.getElementById('track-axis-canvas-' + i);
                     if (axisCanvas) {
-                        axisCanvas.style.height = trackHeight + 'px';
-                        axisCanvas.width = AXIS_W;
-                        axisCanvas.height = trackHeight;
+                        syncCanvasSize(axisCanvas, AXIS_W, trackHeight);
                     }
                 });
                 const rulerCanvas = document.getElementById('ruler-canvas');
                 if (rulerCanvas) {
                     const row = document.getElementById('ruler-row');
-                    if (row) { rulerCanvas.width = Math.max(1, row.clientWidth - 130 - AXIS_W); }
-                    rulerCanvas.height = 20;
+                    if (row) { syncCanvasSize(rulerCanvas, row.clientWidth - 130 - AXIS_W, 20); }
                 }
             }
 
@@ -1974,7 +1978,24 @@ export function getComparisonRenderScript(): string {
                     });
                 }
 
-                window.addEventListener('resize', function() { scheduleRender(); });
+                function handleLayoutResize() {
+                    renderAll();
+                    scheduleSpectrumRefresh('interactive');
+                }
+                window.addEventListener('resize', handleLayoutResize);
+                if (typeof ResizeObserver === 'function') {
+                    const layoutObserver = new ResizeObserver(function() { handleLayoutResize(); });
+                    ['tracks-wrapper', 'ruler-row', 'spectrum-overlay-wrap'].forEach(function(id) {
+                        const el = document.getElementById(id);
+                        if (el) { layoutObserver.observe(el); }
+                    });
+                    state.results.forEach(function(_, i) {
+                        const waveWrap = document.getElementById('track-canvas-wrap-' + i);
+                        if (waveWrap) { layoutObserver.observe(waveWrap); }
+                        const spectrumWrap = document.getElementById('track-spectrum-wrap-' + i);
+                        if (spectrumWrap) { layoutObserver.observe(spectrumWrap); }
+                    });
+                }
                 attachAudioEvents();
                 updatePlaybackButtons();
 
@@ -3623,11 +3644,7 @@ export function getComparisonRenderScript(): string {
                         : null;
                     if (wrapStyle && wrapStyle.display === 'none') { return; }
                     const w = wrap.clientWidth || 180;
-                    if (canvas.width !== w || canvas.height !== trackHeight) {
-                        canvas.width = w;
-                        canvas.height = trackHeight;
-                    }
-                    canvas.style.height = trackHeight + 'px';
+                    syncCanvasSize(canvas, w, trackHeight);
                     const ctx = canvas.getContext('2d');
                     const W = canvas.width, H = canvas.height;
                     ctx.clearRect(0, 0, W, H);
@@ -3682,11 +3699,7 @@ export function getComparisonRenderScript(): string {
                 if (!canvas) { return; }
                 const wrap = document.getElementById('spectrum-overlay-wrap');
                 const w = (wrap && wrap.clientWidth) || 800;
-                if (canvas.width !== w || canvas.height !== spectrumOverlayHeight) {
-                    canvas.width = w;
-                    canvas.height = spectrumOverlayHeight;
-                }
-                canvas.style.height = spectrumOverlayHeight + 'px';
+                syncCanvasSize(canvas, w, spectrumOverlayHeight);
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width, H = canvas.height;
                 ctx.clearRect(0, 0, W, H);
