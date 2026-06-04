@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import soundfile as sf
 
 from analyzer import analyze_audio
 
@@ -27,6 +28,22 @@ def test_analyze_audio_defaults(tmp_path: Path) -> None:
     spec = result["channels"][0]["spectrogram"]
     assert spec["windowSize"] > 0
     assert spec["hopSize"] > 0
+
+
+def test_analyze_audio_accepts_flac_from_supported_ui_formats(tmp_path: Path) -> None:
+    flac = tmp_path / "tone.flac"
+    sr = 16000
+    seconds = 0.5
+    t = np.linspace(0, seconds, int(seconds * sr), endpoint=False)
+    samples = (0.5 * np.sin(2 * math.pi * 440.0 * t)).astype(np.float32)
+    sf.write(flac, samples, sr, format="FLAC")
+
+    result = analyze_audio(flac, peak_count=3)
+
+    assert result["fileName"] == "tone.flac"
+    assert result["sampleRateHz"] == sr
+    assert result["channelCount"] == 1
+    assert len(result["channels"][0]["peaks"]) > 0
 
 
 def test_analyze_audio_with_stft_options(tmp_path: Path) -> None:
