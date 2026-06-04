@@ -746,7 +746,9 @@ test('renderScript: lazy spectrum cache is scoped to the current cursor', async 
 });
 
 test('renderScript: lazy spectrum keeps previous drawing while a new cursor slice is pending', async () => {
-    const env = setupEnvWithState(makeLazySpectrogramState());
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
 
     const initialReq = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any;
@@ -785,6 +787,20 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     assert.ok(latestReq.cursorNorm > 0.45 && latestReq.cursorNorm < 0.55, 'cursor move should request a new lazy slice');
     assert.equal(trackSpy!.clearRectCalls, trackClearBefore, 'per-track spectrum should keep its previous pixels while the new slice is pending');
     assert.equal(overlaySpy!.clearRectCalls, overlayClearBefore, 'overlay spectrum should keep its previous pixels while the new slice is pending');
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-error',
+        requestId: latestReq.requestId,
+        analysisId: latestReq.analysisId,
+        settingsSignature: latestReq.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        error: 'slice failed',
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    assert.ok(trackSpy!.clearRectCalls > trackClearBefore, 'per-track spectrum should clear stale pixels after the pending slice fails');
+    assert.ok(overlaySpy!.clearRectCalls > overlayClearBefore, 'overlay spectrum should clear stale pixels after the pending slice fails');
     env.dom.window.close();
 });
 

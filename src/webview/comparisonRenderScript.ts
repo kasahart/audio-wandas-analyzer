@@ -459,7 +459,11 @@ export function getComparisonRenderScript(): string {
                 const pending = spectrumSliceRequests[i];
                 if (!pending || pending.requestId !== msg.requestId || pending.analysisId !== msg.analysisId || pending.settingsSignature !== msg.settingsSignature) { return; }
                 spectrumSliceRequests[i] = null;
-                if (msg.type === 'spectrum-slice-error') { return; }
+                if (msg.type === 'spectrum-slice-error') {
+                    runSpectrumRefresh(false, false);
+                    requestAnimationFrame(function() { publishTestSnapshot(); });
+                    return;
+                }
                 spectrumSliceCache[i] = {
                     settingsSignature: msg.settingsSignature,
                     cursorNorm: pending.cursorNorm,
