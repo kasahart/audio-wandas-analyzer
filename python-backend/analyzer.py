@@ -328,10 +328,15 @@ def analyze_audio(
     *,
     stft_options: dict | None = None,
 ) -> dict[str, object]:
+    frame, target = load_audio_frame(file_path)
+    return analyze_from_frame(frame, target, peak_count=peak_count, stft_options=stft_options)
+
+
+def load_audio_frame(file_path: str | Path) -> tuple[wd.ChannelFrame, Path]:
     target = Path(file_path).expanduser().resolve()
     if not target.exists():
         raise FileNotFoundError(f"Audio file not found: {target}")
     t0 = time.perf_counter()
-    frame = wd.read_wav(str(target))
-    _perf("read_wav", t0)
-    return analyze_from_frame(frame, target, peak_count=peak_count, stft_options=stft_options)
+    frame = wd.ChannelFrame.from_file(str(target))
+    _perf("read_audio", t0)
+    return frame, target

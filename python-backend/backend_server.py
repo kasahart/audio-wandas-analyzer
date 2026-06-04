@@ -34,7 +34,6 @@ from typing import Any
 
 import numpy as np
 import soundfile as sf
-import wandas as wd
 from scipy.signal import ShortTimeFFT, get_window
 
 from analyzer import (
@@ -43,6 +42,7 @@ from analyzer import (
     _resample_frequency_bins,
     _resolve_stft_params,
     analyze_from_frame,
+    load_audio_frame,
 )
 
 _PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
@@ -112,10 +112,10 @@ def _stft_options_from_payload(payload: dict) -> dict | None:
 def handle_analyze(cmd: dict) -> dict:
     file_path = str(cmd["filePath"])
     _get_cached(file_path)
-    frame = wd.read_wav(file_path)
+    frame, resolved_path = load_audio_frame(file_path)
     return analyze_from_frame(
         frame,
-        file_path,
+        resolved_path,
         peak_count=int(cmd.get("peakCount", 5)),
         stft_options=_stft_options_from_payload(cmd),
         include_spectrogram=False,
@@ -125,10 +125,10 @@ def handle_analyze(cmd: dict) -> dict:
 def handle_track_detail(cmd: dict) -> dict:
     file_path = str(cmd["filePath"])
     _get_cached(file_path)
-    frame = wd.read_wav(file_path)
+    frame, resolved_path = load_audio_frame(file_path)
     result = analyze_from_frame(
         frame,
-        file_path,
+        resolved_path,
         peak_count=int(cmd.get("peakCount", 5)),
         stft_options=_stft_options_from_payload(cmd),
         include_spectrogram=True,
@@ -169,7 +169,7 @@ def _spectrum_slice_values(
     start_sample = center_sample - window_size // 2
     read_start = max(0, start_sample)
     read_stop = min(entry.sample_count, max(read_start, start_sample + window_size))
-    frame = wd.read_wav(file_path)
+    frame, _resolved_path = load_audio_frame(file_path)
     sliced_frame = frame[0, read_start:read_stop]
     spectrum = sliced_frame.fft(n_fft=window_size, window=window_name)
     values = np.asarray(spectrum.dB, dtype=np.float64)
