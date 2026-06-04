@@ -375,6 +375,7 @@ export interface WaveformPipelineParams {
     color: string;
     trackDurRatio?: number;
     lineWidth?: number;
+    amplitudeScale?: number;
 }
 
 /**
@@ -399,7 +400,8 @@ export function renderWaveformPipeline(
     const { zoomStart, zoomEnd, offsetNorm, dataStart, dataEnd, color } = params;
     const trackDurRatio = params.trackDurRatio ?? 1;
     const lineWidth = params.lineWidth ?? 1.5;
-    const peak = env.absolutePeak || 1;
+    const requestedPeak = params.amplitudeScale ?? env.absolutePeak;
+    const peak = Number.isFinite(requestedPeak) && requestedPeak > 0 ? requestedPeak : 1;
     const minArr = env.min || [];
     const maxArr = env.max || [];
     const samplesArr = env.samples || [];

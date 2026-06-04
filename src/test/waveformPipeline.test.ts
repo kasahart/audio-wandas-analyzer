@@ -101,6 +101,51 @@ test('renderWaveformPipeline: y 座標は absolutePeak で正規化され H 内�
     }
 });
 
+test('renderWaveformPipeline: explicit amplitudeScale keeps Y stable for range waveform data', () => {
+    const overviewCtx = makeCtx();
+    const rangeCtx = makeCtx();
+    const H = 100;
+    const overviewEnv = {
+        min: [-1.0, -0.25, -0.25],
+        max: [1.0, 0.25, 0.25],
+        minT: [0.0, 0.5, 0.75],
+        maxT: [0.0, 0.5, 0.75],
+        absolutePeak: 1.0,
+    };
+    const rangeEnv = {
+        min: [-0.25],
+        max: [0.25],
+        minT: [0.5],
+        maxT: [0.5],
+        absolutePeak: 0.25,
+    };
+
+    renderWaveformPipeline(overviewCtx, 800, H, overviewEnv, defaultParams({
+        zoomStart: 0.45,
+        zoomEnd: 0.55,
+        amplitudeScale: 1.0,
+    }));
+    renderWaveformPipeline(rangeCtx, 800, H, rangeEnv, defaultParams({
+        zoomStart: 0.45,
+        zoomEnd: 0.55,
+        dataStart: 0.45,
+        dataEnd: 0.55,
+        amplitudeScale: 1.0,
+    }));
+
+    const overviewYs = overviewCtx.ops
+        .filter((o) => o.op === 'moveTo' || o.op === 'lineTo')
+        .map((o) => o.args[1]);
+    const rangeYs = rangeCtx.ops
+        .filter((o) => o.op === 'moveTo' || o.op === 'lineTo')
+        .map((o) => o.args[1]);
+
+    assert.ok(overviewYs.includes(61));
+    assert.ok(overviewYs.includes(39));
+    assert.deepEqual(rangeYs, [61, 39]);
+});
+
+
 test('renderWaveformPipeline: i1 < i0 のとき何も描画しない (zoom 外)', () => {
     // データ範囲が描画範囲外
     const ctx = makeCtx();
