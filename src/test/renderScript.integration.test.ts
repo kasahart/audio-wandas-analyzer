@@ -1035,7 +1035,7 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
     assert.ok(spy, 'track-canvas-0 のスパイが取得できること');
     const labels = spy!.fillTextCalls;
     assert.ok(labels.some((s) => /\d+\s*dB$/.test(s)), 'カラーバーの dB ラベルが描かれること');
-    assert.equal(labels.some((s) => /\bHz\b/.test(s)), false, '周波数ラベルはプロット canvas に描かれないこと');
+    assert.equal(labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)), false, '周波数ラベルはプロット canvas に描かれないこと');
     assert.ok(spy!.putImageDataCalls >= 2,
         'プロット領域とカラーバーで putImageData が複数回呼ばれること');
     env.dom.window.close();

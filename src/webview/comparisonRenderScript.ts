@@ -1181,6 +1181,8 @@ export function getComparisonRenderScript(): string {
                     if (!canvas) { return; }
                     const color = trackColor(i);
                     if (contentType === 'waveform') {
+                        const axisC = document.getElementById('track-axis-canvas-' + i);
+                        if (axisC) { const ac = axisC.getContext('2d'); if (ac) { ac.clearRect(0, 0, axisC.width, axisC.height); } }
                         drawTrackWaveform(canvas, result, i, trackRuntime[i].offsetSeconds, color);
                     } else {
                         drawSpectrogram(canvas, result, i, trackRuntime[i].offsetSeconds);
