@@ -335,6 +335,16 @@ export function getComparisonRenderScript(): string {
                 return Math.min(0.002, 0.02 / dur);
             }
 
+            function isSpectrumSliceRequestPendingForCursor(i, cursorNormValue) {
+                const pending = spectrumSliceRequests[i];
+                if (!pending) { return false; }
+                const result = state.results[i];
+                const localNorm = trackLocalCursorNorm(i, cursorNormValue);
+                if (localNorm === null) { return false; }
+                return pending.settingsSignature === currentSpectrumDataSignature()
+                    && Math.abs(pending.cursorNorm - localNorm) < spectrumCursorTolerance(result);
+            }
+
             function requestSpectrumSlice(i, cursorNormValue) {
                 if (!spectrumAllowsSliceRequests) { return; }
                 const result = state.results[i];
@@ -3685,9 +3695,10 @@ export function getComparisonRenderScript(): string {
                         : null;
                     if (wrapStyle && wrapStyle.display === 'none') { return; }
                     const w = wrap.clientWidth || 180;
-                    const sizeChanged = canvas.width !== w || canvas.height !== trackHeight;
+                    const prevW = canvas.width;
+                    const prevH = canvas.height;
                     syncCanvasSize(canvas, w, trackHeight);
-                    if (sizeChanged) { trackSpectrumPainted[i] = false; }
+                    if (canvas.width !== prevW || canvas.height !== prevH) { trackSpectrumPainted[i] = false; }
                     const ctx = canvas.getContext('2d');
                     const W = canvas.width, H = canvas.height;
                     if (trackRuntime[i].hidden) {
@@ -3697,7 +3708,7 @@ export function getComparisonRenderScript(): string {
                     }
                     const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, spectrumCursorNorm);
                     if (!slice) {
-                        if (trackSpectrumPainted[i] && spectrumSliceRequests[i]) { return; }
+                        if (trackSpectrumPainted[i] && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) { return; }
                         ctx.clearRect(0, 0, W, H);
                         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                         ctx.font = '9px sans-serif';
@@ -3750,9 +3761,10 @@ export function getComparisonRenderScript(): string {
                 if (!canvas) { return; }
                 const wrap = document.getElementById('spectrum-overlay-wrap');
                 const w = contentBoxWidth(wrap, 800);
-                const sizeChanged = canvas.width !== w || canvas.height !== spectrumOverlayHeight;
+                const prevW = canvas.width;
+                const prevH = canvas.height;
                 syncCanvasSize(canvas, w, spectrumOverlayHeight, { syncStyle: false });
-                if (sizeChanged) { overlaySpectrumPainted = false; }
+                if (canvas.width !== prevW || canvas.height !== prevH) { overlaySpectrumPainted = false; }
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width, H = canvas.height;
 
@@ -3763,7 +3775,7 @@ export function getComparisonRenderScript(): string {
                     if (trackRuntime[i].hidden) { return; }
                     const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, spectrumCursorNorm);
                     if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, name: result.fileName }); }
-                    else if (spectrumSliceRequests[i]) { pendingVisibleSlice = true; }
+                    else if (isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) { pendingVisibleSlice = true; }
                 });
 
                 if (overlaySpectrumPainted && pendingVisibleSlice) { return; }
