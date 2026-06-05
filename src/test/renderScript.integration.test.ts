@@ -1570,6 +1570,23 @@ test('renderScript: multichannel report names the displayed RMS peak and spectru
     env.dom.window.close();
 });
 
+test('renderScript: multichannel report sanitizes displayed channel markdown', async () => {
+    const state = JSON.parse(MULTICHANNEL_APP_STATE);
+    state.results[0].channels[0].label = 'Left | unsafe\n## injected';
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.document.querySelector('[data-action="export-report"]')?.dispatchEvent(
+        new env.dom.window.MouseEvent('click', { bubbles: true }),
+    );
+
+    const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
+    assert.ok(msg, 'report export message が送信されること');
+    assert.match(msg.markdownContent, /Channel 1 \/ 2 \(Left \\| unsafe ## injected\)/);
+    assert.doesNotMatch(msg.markdownContent, /\n## injected/);
+    env.dom.window.close();
+});
+
 // ── Zoom-to-Selection (⇔) & F/L shortcuts ────────────────────────────────────
 
 test('renderScript: zoom-to-selection ボタンがツールバーに存在すること', () => {

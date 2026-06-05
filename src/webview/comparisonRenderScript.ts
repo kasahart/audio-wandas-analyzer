@@ -2892,6 +2892,14 @@ export function getComparisonRenderScript(): string {
                 return (20 * Math.log10(Math.max(rms, 1e-9))).toFixed(1) + ' dBFS';
             }
 
+            function _markdownInline(value) {
+                return String(value).replace(/[\\r\\n]+/g, ' ').replace(/\\s+/g, ' ').trim();
+            }
+
+            function _markdownTableCell(value) {
+                return _markdownInline(value).split('|').join('\\|');
+            }
+
             function buildMarkdownReport() {
                 var now = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
                 var lines = [
@@ -2910,7 +2918,7 @@ export function getComparisonRenderScript(): string {
                     var peak = ch0 ? _dbfs(ch0.peakAbsolute) : '-';
                     var dur = r.durationSeconds ? _fmtSec(r.durationSeconds) : '-';
                     var bt = String.fromCharCode(96);
-                    lines.push('| ' + bt + r.fileName + bt + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + displayedChannelLabel(r) + ' | ' + rms + ' | ' + peak + ' |');
+                    lines.push('| ' + bt + r.fileName + bt + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + _markdownTableCell(displayedChannelLabel(r)) + ' | ' + rms + ' | ' + peak + ' |');
                 });
                 lines.push('');
 
@@ -2935,7 +2943,7 @@ export function getComparisonRenderScript(): string {
                     var firstChannel = displayedChannel(firstResult);
                     var peaks = firstChannel ? firstChannel.peaks : undefined;
                     if (peaks && peaks.length > 0) {
-                        lines.push('## Spectral Peaks (first track, ' + displayedChannelLabel(firstResult) + ')');
+                        lines.push('## Spectral Peaks (first track, ' + _markdownTableCell(displayedChannelLabel(firstResult)) + ')');
                         lines.push('');
                         lines.push('| Frequency (Hz) | Level (dB) |');
                         lines.push('|---------------|------------|');
