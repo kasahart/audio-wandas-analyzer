@@ -101,6 +101,30 @@ test('renderWaveformPipeline: y 座標は absolutePeak で正規化され H 内�
     }
 });
 
+test('renderWaveformPipeline: invalid amplitudeScale falls back to env absolutePeak', () => {
+    const fallbackCtx = makeCtx();
+    const env = {
+        min: [-0.25],
+        max: [0.25],
+        minT: [0.5],
+        maxT: [0.5],
+        absolutePeak: 0.5,
+    };
+    renderWaveformPipeline(fallbackCtx, 800, 100, env, defaultParams());
+    const fallbackYs = fallbackCtx.ops
+        .filter((o) => o.op === 'moveTo' || o.op === 'lineTo')
+        .map((o) => o.args[1]);
+
+    for (const amplitudeScale of [Number.NaN, 0, -1]) {
+        const ctx = makeCtx();
+        renderWaveformPipeline(ctx, 800, 100, env, defaultParams({ amplitudeScale }));
+        const ys = ctx.ops
+            .filter((o) => o.op === 'moveTo' || o.op === 'lineTo')
+            .map((o) => o.args[1]);
+        assert.deepEqual(ys, fallbackYs);
+    }
+});
+
 test('renderWaveformPipeline: explicit amplitudeScale keeps Y stable for range waveform data', () => {
     const overviewCtx = makeCtx();
     const rangeCtx = makeCtx();

@@ -400,8 +400,10 @@ export function renderWaveformPipeline(
     const { zoomStart, zoomEnd, offsetNorm, dataStart, dataEnd, color } = params;
     const trackDurRatio = params.trackDurRatio ?? 1;
     const lineWidth = params.lineWidth ?? 1.5;
-    const requestedPeak = params.amplitudeScale ?? env.absolutePeak;
-    const peak = Number.isFinite(requestedPeak) && requestedPeak > 0 ? requestedPeak : 1;
+    const scalePeak = Number.isFinite(params.amplitudeScale) && params.amplitudeScale !== undefined && params.amplitudeScale > 0
+        ? params.amplitudeScale
+        : env.absolutePeak;
+    const peak = Number.isFinite(scalePeak) && scalePeak > 0 ? scalePeak : 1;
     const minArr = env.min || [];
     const maxArr = env.max || [];
     const samplesArr = env.samples || [];
