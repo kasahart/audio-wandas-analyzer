@@ -84,3 +84,28 @@ def test_analyze_audio_peaks_contains_440hz(tmp_path: Path) -> None:
     # At least one peak should be near 440 Hz
     freq_values = [p["freqHz"] for p in peaks]
     assert any(abs(f - 440.0) <= 20.0 for f in freq_values), f"Expected a peak near 440 Hz, got: {freq_values}"
+
+
+def test_analyze_audio_keeps_multichannel_metrics_and_peaks_separate(tmp_path: Path) -> None:
+    wav = tmp_path / "stereo.wav"
+    sr = 16000
+    seconds = 1.0
+    t = np.linspace(0, seconds, int(seconds * sr), endpoint=False)
+    left = 0.2 * np.sin(2 * math.pi * 440.0 * t)
+    right = 0.8 * np.sin(2 * math.pi * 880.0 * t)
+    sf.write(wav, np.column_stack([left, right]).astype(np.float32), sr)
+
+    result = analyze_audio(wav, peak_count=5)
+
+    assert result["channelCount"] == 2
+    assert len(result["channels"]) == 2
+    left_ch, right_ch = result["channels"]
+    assert left_ch["label"] in {"Channel 1", "Left", "L", "ch0"}
+    assert right_ch["label"] in {"Channel 2", "Right", "R", "ch1"}
+    assert left_ch["rms"] < right_ch["rms"]
+    assert left_ch["peakAbsolute"] < right_ch["peakAbsolute"]
+
+    left_freqs = [peak["freqHz"] for peak in left_ch["peaks"]]
+    right_freqs = [peak["freqHz"] for peak in right_ch["peaks"]]
+    assert any(abs(freq - 440.0) <= 20.0 for freq in left_freqs), left_freqs
+    assert any(abs(freq - 880.0) <= 20.0 for freq in right_freqs), right_freqs
