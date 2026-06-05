@@ -77,6 +77,50 @@ const DUMMY_APP_STATE = JSON.stringify({
     ],
 });
 
+const MULTICHANNEL_APP_STATE = JSON.stringify({
+    mode: 'results',
+    results: [
+        {
+            filePath: '/tmp/stereo.wav',
+            fileName: 'stereo.wav',
+            audioSource: 'vscode-resource:/tmp/stereo.wav',
+            sampleRateHz: 44100,
+            durationSeconds: 1.0,
+            channelCount: 2,
+            sampleCount: 44100,
+            error: undefined,
+            channels: [
+                {
+                    label: 'Left',
+                    rms: 0.1,
+                    peakAbsolute: 0.5,
+                    dominantFrequencies: [{ frequencyHz: 440, magnitude: 1 }],
+                    peaks: [{ freqHz: 440, amplitudeDb: -12 }],
+                    waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
+                    spectrogram: {
+                        values: [[-12, -48, -72]], timeBins: 1, frequencyBins: 3,
+                        windowSize: 512, hopSize: 256,
+                        maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+                    },
+                },
+                {
+                    label: 'Right',
+                    rms: 0.8,
+                    peakAbsolute: 0.95,
+                    dominantFrequencies: [{ frequencyHz: 880, magnitude: 1 }],
+                    peaks: [{ freqHz: 880, amplitudeDb: -3 }],
+                    waveform: { min: [-0.95], max: [0.95], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.95 },
+                    spectrogram: {
+                        values: [[-72, -48, -3]], timeBins: 1, frequencyBins: 3,
+                        windowSize: 512, hopSize: 256,
+                        maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+                    },
+                },
+            ],
+        },
+    ],
+});
+
 const DUMMY_SELECTION_STATE = JSON.stringify({
     mode: 'directory-selection',
     results: [],
@@ -137,6 +181,10 @@ function setupEnvWithState(stateJson: string) {
 
 function setupEnv() {
     return setupEnvWithState(DUMMY_APP_STATE);
+}
+
+function setupMultichannelEnv() {
+    return setupEnvWithState(MULTICHANNEL_APP_STATE);
 }
 
 function makeLazySpectrogramState(): string {
@@ -1453,6 +1501,90 @@ test('renderScript: export-csv creates a download anchor with data URI', async (
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();
     }
+});
+
+test('renderScript: multichannel track UI labels the displayed channel', async () => {
+    const env = setupMultichannelEnv();
+    await nextAnimationFrame(env.dom);
+
+    const rowText = env.dom.window.document.querySelector('#track-row-0')?.textContent || '';
+    assert.match(rowText, /Displayed: Channel 1 \/ 2 \(Left\)/);
+    assert.match(rowText, /RMS \(Channel 1 \/ 2 \(Left\)\): -20\.0 dBFS/);
+    assert.doesNotMatch(rowText, /Right/);
+
+    const metricsText = env.dom.window.document.querySelector('#metrics-item-0')?.textContent || '';
+    assert.match(metricsText, /stereo\.wav \[Channel 1 \/ 2 \(Left\)\]: RMS -20\.0 dBFS \/ Peak -6\.0 dBFS \/ 440 Hz/);
+    env.dom.window.close();
+});
+
+function decodeDataUriPayload(uri: string): string {
+    const comma = uri.indexOf(',');
+    assert.ok(comma >= 0, 'data URI に payload があること');
+    return decodeURIComponent(uri.slice(comma + 1));
+}
+
+test('renderScript: multichannel CSV names the displayed spectrum channel', async () => {
+    const env = setupMultichannelEnv();
+    await nextAnimationFrame(env.dom);
+
+    const created: HTMLAnchorElement[] = [];
+    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
+    env.dom.window.document.createElement = function(tag: string) {
+        const el = origCreate(tag);
+        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
+        return el;
+    } as typeof document.createElement;
+
+    try {
+        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
+            new env.dom.window.MouseEvent('click', { bubbles: true }),
+        );
+
+        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
+        assert.ok(anchor, 'CSV download anchor が作られること');
+        const csv = decodeDataUriPayload(anchor!.href);
+        assert.equal(csv.split('\n')[0], 'frequency_hz,stereo.wav Channel 1 / 2 (Left)');
+        assert.doesNotMatch(csv, /Right/);
+    } finally {
+        env.dom.window.document.createElement = origCreate;
+        env.dom.window.close();
+    }
+});
+
+test('renderScript: multichannel report names the displayed RMS peak and spectrum channel', async () => {
+    const env = setupMultichannelEnv();
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.document.querySelector('[data-action="export-report"]')?.dispatchEvent(
+        new env.dom.window.MouseEvent('click', { bubbles: true }),
+    );
+
+    const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
+    assert.ok(msg, 'report export message が送信されること');
+    assert.match(msg.markdownContent, /\| File \| Sample Rate \| Duration \| Channels \| Displayed Channel \| RMS \| Peak \|/);
+    assert.match(msg.markdownContent, /\| `stereo\.wav` \| 44100 Hz \| 1\.000s \| 2 \| Channel 1 \/ 2 \(Left\) \| -20\.0 dBFS \| -6\.0 dBFS \|/);
+    assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 1 \/ 2 \(Left\)\)/);
+    assert.match(msg.markdownContent, /\| 440\.0 \| -12\.0 \|/);
+    assert.doesNotMatch(msg.markdownContent, /Right/);
+    assert.doesNotMatch(msg.markdownContent, /880\.0/);
+    env.dom.window.close();
+});
+
+test('renderScript: multichannel report sanitizes displayed channel markdown', async () => {
+    const state = JSON.parse(MULTICHANNEL_APP_STATE);
+    state.results[0].channels[0].label = 'Left | unsafe\n## injected';
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.document.querySelector('[data-action="export-report"]')?.dispatchEvent(
+        new env.dom.window.MouseEvent('click', { bubbles: true }),
+    );
+
+    const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
+    assert.ok(msg, 'report export message が送信されること');
+    assert.match(msg.markdownContent, /Channel 1 \/ 2 \(Left \\| unsafe ## injected\)/);
+    assert.doesNotMatch(msg.markdownContent, /\n## injected/);
+    env.dom.window.close();
 });
 
 // ── Zoom-to-Selection (⇔) & F/L shortcuts ────────────────────────────────────

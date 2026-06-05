@@ -272,6 +272,17 @@ export function getComparisonRenderScript(): string {
                 } catch (e) { return 'spectrum-data-settings'; }
             }
 
+            function displayedChannel(result) {
+                return result && result.channels && result.channels[0] ? result.channels[0] : null;
+            }
+
+            function displayedChannelLabel(result) {
+                const count = result && Number.isFinite(result.channelCount) ? result.channelCount : 0;
+                const base = 'Channel 1' + (count > 1 ? ' / ' + count : '');
+                const ch = displayedChannel(result);
+                return ch && ch.label && ch.label !== 'Channel 1' ? base + ' (' + ch.label + ')' : base;
+            }
+
             function trackLocalCursorNorm(i, cursorNormValue) {
                 const result = state.results[i];
                 if (!result || result.error) { return null; }
@@ -892,13 +903,14 @@ export function getComparisonRenderScript(): string {
                 }).join('');
                 const metrics = displayOrder.map(function(stateIdx) {
                     const result = state.results[stateIdx];
-                    const ch = result.channels[0];
+                    const ch = displayedChannel(result);
+                    const channelLabel = displayedChannelLabel(result);
                     const rmsDb = ch ? (20 * Math.log10(Math.max(ch.rms, 1e-9))).toFixed(1) + ' dBFS' : '—';
                     const peakDb = ch ? (20 * Math.log10(Math.max(ch.peakAbsolute, 1e-9))).toFixed(1) + ' dBFS' : '—';
                     const domHz = ch && ch.dominantFrequencies && ch.dominantFrequencies[0]
                         ? Math.round(ch.dominantFrequencies[0].frequencyHz) + ' Hz' : '—';
                     return '<div class="metrics-item" id="metrics-item-' + stateIdx + '"><div class="metrics-swatch" id="metrics-swatch-' + stateIdx + '" style="background:' + trackColor(stateIdx) + '"></div>'
-                        + '<span>' + escHtml(result.fileName) + ': RMS ' + rmsDb + ' / Peak ' + peakDb + ' / ' + domHz + '</span></div>';
+                        + '<span>' + escHtml(result.fileName) + ' [' + escHtml(channelLabel) + ']: RMS ' + rmsDb + ' / Peak ' + peakDb + ' / ' + domHz + '</span></div>';
                 }).join('');
 
                 return '<div id="toolbar" role="toolbar" aria-label="' + escHtml(STR.ariaToolbar) + '">' + buildToolbar() + '</div>'
@@ -1018,16 +1030,18 @@ export function getComparisonRenderScript(): string {
             }
 
             function buildTrackRow(result, i) {
+                const ch = displayedChannel(result);
+                const channelLabel = displayedChannelLabel(result);
                 return '<div class="track-row" id="track-row-' + i + '" data-track-index="' + i + '">'
                     + '<div class="track-header">'
                     + '  <div class="track-title-row">'
                     + '    <div class="track-drag-handle" draggable="true" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaDragHandle) + '" title="' + escHtml(STR.ariaDragHandle) + '">≡</div>'
                     + '    <div class="track-color-swatch" data-action="pick-color" data-track-index="' + i + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escHtml(STR.ariaPickColor) + '" title="' + escHtml(STR.trackPickColor) + '"></div>'
                     + '    <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
-                    + (result.channels && result.channels[0] && result.channels[0].peakAbsolute >= 0.99 ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+                    + (ch && ch.peakAbsolute >= 0.99 ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
                     + '  </div>'
-                    + '  <div class="track-meta">Ch: ' + result.channelCount + ' &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
-                    + '  <div class="track-meta">RMS: ' + (result.channels[0] ? (20 * Math.log10(Math.max(result.channels[0].rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
+                    + '  <div class="track-meta">Displayed: ' + escHtml(channelLabel) + ' &nbsp; Total: ' + result.channelCount + ' ch &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
+                    + '  <div class="track-meta">RMS (' + escHtml(channelLabel) + '): ' + (ch ? (20 * Math.log10(Math.max(ch.rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
                     + '  <div class="track-btns">'
                     + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
                     + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
@@ -2811,7 +2825,7 @@ export function getComparisonRenderScript(): string {
                     if (trackRuntime[i] && trackRuntime[i].hidden) { return; }
                     const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, cursorNorm);
                     if (!slice || !slice.values || slice.values.length === 0) { return; }
-                    tracks.push({ name: result.fileName || ('track' + (i + 1)), slice: slice });
+                    tracks.push({ name: (result.fileName || ('track' + (i + 1))) + ' ' + displayedChannelLabel(result), slice: slice });
                 });
                 if (tracks.length === 0) {
                     vscode.postMessage({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
@@ -2878,6 +2892,14 @@ export function getComparisonRenderScript(): string {
                 return (20 * Math.log10(Math.max(rms, 1e-9))).toFixed(1) + ' dBFS';
             }
 
+            function _markdownInline(value) {
+                return String(value).replace(/[\\r\\n]+/g, ' ').replace(/\\s+/g, ' ').trim();
+            }
+
+            function _markdownTableCell(value) {
+                return _markdownInline(value).split('|').join('\\|');
+            }
+
             function buildMarkdownReport() {
                 var now = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
                 var lines = [
@@ -2887,16 +2909,16 @@ export function getComparisonRenderScript(): string {
                     '',
                     '## Tracks',
                     '',
-                    '| File | Sample Rate | Duration | Channels | RMS | Peak |',
-                    '|------|-------------|----------|----------|-----|------|',
+                    '| File | Sample Rate | Duration | Channels | Displayed Channel | RMS | Peak |',
+                    '|------|-------------|----------|----------|-------------------|-----|------|',
                 ];
                 (state.results || []).forEach(function(r) {
-                    var ch0 = r.channels && r.channels[0];
+                    var ch0 = displayedChannel(r);
                     var rms = ch0 ? _dbfs(ch0.rms) : '-';
                     var peak = ch0 ? _dbfs(ch0.peakAbsolute) : '-';
                     var dur = r.durationSeconds ? _fmtSec(r.durationSeconds) : '-';
                     var bt = String.fromCharCode(96);
-                    lines.push('| ' + bt + r.fileName + bt + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + rms + ' | ' + peak + ' |');
+                    lines.push('| ' + bt + r.fileName + bt + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + _markdownTableCell(displayedChannelLabel(r)) + ' | ' + rms + ' | ' + peak + ' |');
                 });
                 lines.push('');
 
@@ -2917,13 +2939,12 @@ export function getComparisonRenderScript(): string {
 
                 // Spectrum peaks
                 if (state.results && state.results.length > 0) {
-                    lines.push('## Spectral Peaks (first track)');
-                    lines.push('');
                     var firstResult = state.results[0];
-                    var peaks = firstResult.channels && firstResult.channels.length > 0
-                        ? firstResult.channels[0].peaks
-                        : undefined;
+                    var firstChannel = displayedChannel(firstResult);
+                    var peaks = firstChannel ? firstChannel.peaks : undefined;
                     if (peaks && peaks.length > 0) {
+                        lines.push('## Spectral Peaks (first track, ' + _markdownTableCell(displayedChannelLabel(firstResult)) + ')');
+                        lines.push('');
                         lines.push('| Frequency (Hz) | Level (dB) |');
                         lines.push('|---------------|------------|');
                         peaks.forEach(function(p) {
