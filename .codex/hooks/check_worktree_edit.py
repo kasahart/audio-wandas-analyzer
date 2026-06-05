@@ -6,17 +6,20 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 
-def git_path(*args: str) -> str | None:
+def git_path(*args: str) -> Path | None:
     try:
-        return subprocess.check_output(
+        raw = subprocess.check_output(
             ["git", "rev-parse", *args],
             stderr=subprocess.DEVNULL,
             text=True,
         ).strip()
-    except subprocess.CalledProcessError:
+    except (OSError, subprocess.CalledProcessError):
         return None
+
+    return Path(raw).resolve()
 
 
 def main() -> int:

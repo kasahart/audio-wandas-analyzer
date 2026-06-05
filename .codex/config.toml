@@ -6,6 +6,6 @@ matcher = "Edit|Write|^apply_patch$"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = '/usr/bin/python3 "$(git rev-parse --show-toplevel)/.codex/hooks/check_worktree_edit.py"'
+command = 'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/check_worktree_edit.py"'
 timeout = 10
 statusMessage = "Checking worktree isolation"
