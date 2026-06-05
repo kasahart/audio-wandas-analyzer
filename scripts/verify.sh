@@ -16,6 +16,10 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+if [ -d "$repo_root/.venv/bin" ]; then
+    PATH="$repo_root/.venv/bin:$PATH"
+fi
+
 echo "==> tsc compile"
 npm run compile
 

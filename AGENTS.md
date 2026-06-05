@@ -3,6 +3,7 @@
 Canonical project guide for any AI coding agent (Claude Code, GitHub Copilot, Cursor, Codex, etc.) working in this repository. Human contributors should also read this first.
 
 > Agent-specific addenda live in:
+> - [CODEX.md](CODEX.md) — Codex only (project config, skills, hooks, permissions)
 > - [CLAUDE.md](CLAUDE.md) — Claude Code only (skills, hooks, permissions)
 > - [.github/copilot-instructions.md](.github/copilot-instructions.md) — GitHub Copilot only
 
@@ -186,4 +187,5 @@ trackDurRatio  = durationSeconds / globalSpanSec
 ## 8. Agent-specific notes
 
 - **Claude Code**: also read [CLAUDE.md](CLAUDE.md). It documents the available `wandas-*` skills and `.claude/settings.json` permissions.
+- **Codex**: also read [CODEX.md](CODEX.md). It documents the project `.codex/config.toml`, repo skills under `.agents/skills/`, and the worktree edit hook.
 - **GitHub Copilot**: also read [.github/copilot-instructions.md](.github/copilot-instructions.md). It restates the completion bar and the waveform-mirror invariant in a form Copilot picks up automatically.
