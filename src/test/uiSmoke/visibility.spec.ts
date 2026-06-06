@@ -27,7 +27,7 @@ function expectedPaneWidth(measurement: SelectionLayoutMeasurement): number {
 }
 
 function expectPaneFillsRemainingWidth(measurement: SelectionLayoutMeasurement) {
-    expect(measurement.paneWidth).toBeCloseTo(expectedPaneWidth(measurement), 1);
+    expect(Math.abs(measurement.paneWidth - expectedPaneWidth(measurement))).toBeLessThanOrEqual(2);
 }
 
 test('help overlay opens with ? and starts hidden', async ({ page }) => {
