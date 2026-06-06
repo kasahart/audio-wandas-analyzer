@@ -720,7 +720,9 @@ export function renderComparisonStyles(): string {
         }
         #selection-results-pane {
             display: flex;
+            flex: 1 1 auto;
             flex-direction: column;
+            min-width: 0;
             min-height: 0;
             background:
                 radial-gradient(circle at top right, rgba(15,123,108,0.14), transparent 34%),

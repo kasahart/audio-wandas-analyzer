@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { buildUiSmokeHtml } from './buildHtml';
+import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
 
 async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
@@ -8,6 +8,11 @@ async function loadUi(page: Page) {
 
 async function openHelp(page: Page) {
     await page.keyboard.press('?');
+}
+
+async function loadSelectionUi(page: Page, viewportWidth: number) {
+    await page.setViewportSize({ width: viewportWidth, height: 900 });
+    await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
 }
 
 test('help overlay opens with ? and starts hidden', async ({ page }) => {
@@ -93,4 +98,36 @@ test('track canvas width follows layout changes without a window resize event', 
         const renderedWidth = Math.round(canvas.getBoundingClientRect().width);
         return Math.abs(canvas.width - expected) <= 1 && Math.abs(renderedWidth - expected) <= 1;
     })).toBe(true);
+});
+
+test('directory selection results pane flexes with viewport width', async ({ page }) => {
+    await loadSelectionUi(page, 1600);
+
+    const measure = async () => page.evaluate(() => {
+        const body = document.getElementById('selection-body');
+        const sidebar = document.getElementById('selection-sidebar');
+        const resizer = document.getElementById('tree-resizer');
+        const pane = document.getElementById('selection-results-pane');
+        if (!body || !sidebar || !resizer || !pane) {
+            throw new Error('selection layout elements are missing');
+        }
+        return {
+            bodyWidth: body.getBoundingClientRect().width,
+            sidebarWidth: sidebar.getBoundingClientRect().width,
+            resizerWidth: resizer.getBoundingClientRect().width,
+            paneWidth: pane.getBoundingClientRect().width,
+        };
+    });
+
+    const initial = await measure();
+    expect(initial.paneWidth).toBeCloseTo(initial.bodyWidth - initial.sidebarWidth - initial.resizerWidth, 1);
+
+    await page.setViewportSize({ width: 1800, height: 900 });
+    await expect.poll(async () => {
+        const resized = await measure();
+        return resized.paneWidth - initial.paneWidth;
+    }).toBeGreaterThan(150);
+
+    const resized = await measure();
+    expect(resized.paneWidth).toBeCloseTo(resized.bodyWidth - resized.sidebarWidth - resized.resizerWidth, 1);
 });
