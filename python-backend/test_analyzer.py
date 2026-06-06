@@ -7,8 +7,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
+import wandas as wd
 
-from analyzer import _build_spectrogram, analyze_audio, analyze_range
+from analyzer import _build_spectrogram, analyze_audio, analyze_from_frame, analyze_range
 
 
 def _mean_power_db(values_db: list[float]) -> float:
@@ -29,9 +30,24 @@ def test_analyze_audio_defaults(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     result = analyze_audio(wav)
-    spec = result["channels"][0]["spectrogram"]
+    ch = result["channels"][0]
+    spec = ch["spectrogram"]
     assert spec["windowSize"] > 0
     assert spec["hopSize"] > 0
+    assert ch["unit"] is None
+
+
+def test_analyze_from_frame_includes_channel_unit(tmp_path: Path) -> None:
+    frame = wd.ChannelFrame.from_numpy(
+        np.array([[0.1, -0.5, 0.25]], dtype=np.float64),
+        sampling_rate=1000,
+        ch_units=["Pa"],
+    )
+
+    result = analyze_from_frame(frame, tmp_path / "pressure.wav", include_spectrogram=False)
+
+    assert result["channels"][0]["unit"] == "Pa"
+    assert result["channels"][0]["waveform"]["absolutePeak"] == pytest.approx(0.5)
 
 
 def test_analyze_range_uses_same_pcm_scale_as_overview(tmp_path: Path) -> None:

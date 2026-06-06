@@ -262,6 +262,17 @@ def _resolve_stft_params(
     return n_fft, hop, window
 
 
+def _channel_unit(frame: wd.ChannelFrame, index: int) -> str | None:
+    channels = getattr(frame, "channels", [])
+    if index >= len(channels):
+        return None
+    unit = getattr(channels[index], "unit", None)
+    if unit is None:
+        return None
+    unit_text = str(unit).strip()
+    return unit_text or None
+
+
 def analyze_from_frame(
     frame: wd.ChannelFrame,
     file_path: str | Path,
@@ -307,6 +318,7 @@ def analyze_from_frame(
         channels.append(
             {
                 "label": labels[index] if index < len(labels) else f"Channel {index + 1}",
+                "unit": _channel_unit(frame, index),
                 "rms": float(rms_values[index]),
                 "peakAbsolute": float(np.max(np.abs(samples))),
                 "dominantFrequencies": _dominant_frequencies(fft_magnitudes[index], fft_freqs, peak_count),

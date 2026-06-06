@@ -87,7 +87,7 @@ export function getComparisonRenderScript(): string {
                 tooltip: 'Click to select Python environment',
             };
 
-            const AXIS_W = 32;
+            const AXIS_W = 64;
             const TRACK_HEIGHT_DEFAULT = 80;
             const TRACK_HEIGHT_MIN = TRACK_HEIGHT_DEFAULT;
             const TRACK_HEIGHT_MAX = 220;
@@ -678,6 +678,28 @@ export function getComparisonRenderScript(): string {
                 return !!overlay && overlay.style.display !== 'none';
             }
 
+            function formatAmplitudeValue(value) {
+                const absValue = Math.abs(value);
+                if (absValue >= 100) { return absValue.toFixed(0); }
+                if (absValue >= 1) { return absValue.toFixed(1); }
+                if (absValue >= 0.01) { return absValue.toFixed(2); }
+                return absValue.toPrecision(2);
+            }
+
+            function formatWaveformAxisLabels(absolutePeak, unit) {
+                const rawPeak = typeof absolutePeak === 'number' ? absolutePeak : NaN;
+                const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
+                const value = formatAmplitudeValue(peak);
+                const unitText = typeof unit === 'string' && unit.trim() ? unit.trim() : null;
+                return ['+' + value, '0', '-' + value, unitText ? 'Amp (' + unitText + ')' : 'Amp'];
+            }
+
+            function waveformAxisLabelsForResult(result) {
+                const ch0 = result && result.channels && result.channels[0];
+                const waveform = ch0 && ch0.waveform;
+                return formatWaveformAxisLabels(waveform && waveform.absolutePeak, ch0 && ch0.unit);
+            }
+
             function publishTestSnapshot(actionId) {
                 const toolbar = document.getElementById('toolbar');
                 const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
@@ -704,7 +726,7 @@ export function getComparisonRenderScript(): string {
                         if (slice.maxDb > overlayMaxDb) { overlayMaxDb = slice.maxDb; }
                         if (slice.maxFrequencyHz > overlayMaxF) { overlayMaxF = slice.maxFrequencyHz; }
                     }
-                    waveformPerTrack.push(['+1.0', '0', '-1.0', 'Amp (FS)']);
+                    waveformPerTrack.push(waveformAxisLabelsForResult(result));
                     const ch0 = result.channels && result.channels[0];
                     const spec = ch0 && ch0.spectrogram;
                     const dispCfg2 = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings && __spectrogramSettings.display) || {};
@@ -1349,14 +1371,15 @@ export function getComparisonRenderScript(): string {
                 const axisCanvas = document.getElementById('track-axis-canvas-' + trackIndex);
                 if (axisCanvas) {
                     const axisCtx = axisCanvas.getContext('2d');
-                    if (axisCtx) { drawWaveformAmplitudeAxis(axisCtx, AXIS_W, H); }
+                    if (axisCtx) { drawWaveformAmplitudeAxis(axisCtx, AXIS_W, H, waveformAxisLabelsForResult(result)); }
                 }
             }
 
-            function drawWaveformAmplitudeAxis(ctx, W, H) {
+            function drawWaveformAmplitudeAxis(ctx, W, H, labels) {
                 const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                 const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
-                const labelW = 30;
+                const axisLabels = labels || formatWaveformAxisLabels(null, null);
+                const labelW = Math.max(30, Math.min(W, 64));
                 ctx.save();
                 ctx.fillStyle = bgColor;
                 ctx.globalAlpha = 0.7;
@@ -1366,17 +1389,17 @@ export function getComparisonRenderScript(): string {
                 ctx.font = '9px monospace';
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'top';
-                ctx.fillText('+1.0', labelW - 2, 1);
+                ctx.fillText(axisLabels[0], labelW - 2, 1);
                 ctx.textBaseline = 'middle';
-                ctx.fillText('0', labelW - 2, H / 2);
+                ctx.fillText(axisLabels[1], labelW - 2, H / 2);
                 ctx.textBaseline = 'bottom';
-                ctx.fillText('-1.0', labelW - 2, H - 1);
+                ctx.fillText(axisLabels[2], labelW - 2, H - 1);
                 ctx.save();
                 ctx.translate(8, H / 2);
                 ctx.rotate(-Math.PI / 2);
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText('Amp (FS)', 0, 0);
+                ctx.fillText(axisLabels[3], 0, 0);
                 ctx.restore();
                 ctx.restore();
             }

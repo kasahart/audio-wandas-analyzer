@@ -409,8 +409,8 @@ export async function run(): Promise<void> {
                     const sg = axes.spectrogramPerTrack[0] ?? [];
                     const sp = axes.spectrumPerTrack[0] ?? [];
                     const overlay = axes.spectrumOverlay;
-                    return wf.includes('+1.0')
-                        && wf.includes('-1.0')
+                    return wf.some((s) => /^\+/.test(s))
+                        && wf.some((s) => /^-/.test(s))
                         && wf.includes('0')
                         && wf.some((s) => s.includes('Amp'))
                         && sg.includes('0 Hz')
@@ -426,7 +426,7 @@ export async function run(): Promise<void> {
                 assert.ok(axes, 'axisLabels must be present in snapshot');
 
                 const wf = axes.waveformPerTrack[0] ?? [];
-                assert.ok(wf.includes('+1.0') && wf.includes('-1.0') && wf.includes('0'),
+                assert.ok(wf.some((s) => /^\+/.test(s)) && wf.some((s) => /^-/.test(s)) && wf.includes('0'),
                     `waveform axis labels missing: ${JSON.stringify(wf)}`);
                 assert.ok(wf.some((s) => s.includes('Amp')),
                     `waveform axis title (Amp) missing: ${JSON.stringify(wf)}`);
