@@ -955,6 +955,40 @@ const SPECTRUM_APP_STATE = JSON.stringify({
 });
 
 
+const HIGH_FREQUENCY_READOUT_STATE = JSON.stringify({
+    mode: 'results',
+    results: [
+        {
+            filePath: '/tmp/high.wav',
+            fileName: 'high.wav',
+            audioSource: 'vscode-resource:/tmp/high.wav',
+            sampleRateHz: 7200,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 7200,
+            error: undefined,
+            channels: [{
+                label: 'L',
+                rms: 0.1,
+                peakAbsolute: 0.5,
+                dominantFrequencies: [],
+                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
+                spectrogram: {
+                    values: [[-80, -60, -40, -20]],
+                    timeBins: 1,
+                    frequencyBins: 4,
+                    windowSize: 512,
+                    hopSize: 256,
+                    maxFrequencyHz: 3600,
+                    minDb: -90,
+                    maxDb: 0,
+                },
+            }],
+        },
+    ],
+});
+
+
 const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
     mode: 'results',
     results: [
@@ -1027,6 +1061,14 @@ function setupSpectrumEnv() {
 function setupMismatchedDeltaFSpectrumEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(MISMATCHED_DELTA_F_SPECTRUM_STATE);
+    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, script);
+    return env;
+}
+
+function setupHighFrequencyReadoutEnv() {
+    const script = getRenderScript();
+    const env = createWebviewEnv(HIGH_FREQUENCY_READOUT_STATE);
     evalScript(env.dom, WAVEFORM_PIPELINE_JS);
     evalScript(env.dom, script);
     return env;
@@ -1173,6 +1215,50 @@ test('axes: スペクトル (per-track / overlay) に Hz と dB のラベルが�
         overlayLabels.some((s) => s !== '0 Hz' && (/kHz$/.test(s) || /Hz$/.test(s))),
         'overlay: 0 以外の周波数ラベル (Hz/kHz) が描かれること: ' + JSON.stringify(overlayLabels),
     );
+    env.dom.window.close();
+});
+
+
+test('spectrum cursor: per-track readout formats focused frequency in Hz', async () => {
+    const env = setupHighFrequencyReadoutEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'track-spectrum-0 が存在すること');
+    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.ok(readout, 'spectrum-freq-readout が存在すること');
+    assert.match(readout!.textContent || '', /^1200 Hz\s+-60\.0 dB$/,
+        'カーソル読み値は kHz 省略ではなく Hz 固定で表示すること');
+    assert.doesNotMatch(readout!.textContent || '', /kHz/);
+    env.dom.window.close();
+});
+
+
+test('spectrum cursor: overlay readout formats focused frequency in Hz', async () => {
+    const env = setupHighFrequencyReadoutEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
+    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.ok(readout, 'spectrum-freq-readout が存在すること');
+    assert.match(readout!.textContent || '', /^1200 Hz\s+-60\.0 dB$/,
+        'overlay のカーソル読み値も kHz 省略ではなく Hz 固定で表示すること');
+    assert.doesNotMatch(readout!.textContent || '', /kHz/);
     env.dom.window.close();
 });
 
