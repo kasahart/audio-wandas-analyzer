@@ -575,6 +575,22 @@ export function getComparisonRenderScript(): string {
                     scheduleRender();
                     scheduleSpectrumRefresh('immediate');
                 }
+                if (entry.action === 'set-track-offset' && idx >= 0 && entry.payload) {
+                    trackRuntime[idx].offsetSeconds = Number(entry.payload.offsetSeconds || 0);
+                    updateLoopTimeDisplay();
+                    scheduleRender();
+                    scheduleSpectrumRefresh('immediate');
+                }
+                if (entry.action === 'set-loop-region' && entry.payload) {
+                    const start = Math.max(0, Math.min(1, Number(entry.payload.start)));
+                    const end = Math.max(0, Math.min(1, Number(entry.payload.end)));
+                    if (end > start) {
+                        loopRegion = { start: start, end: end };
+                        updateLoopTimeDisplay();
+                        updateZoomToSelectionBtn();
+                        scheduleRender();
+                    }
+                }
                 if (entry.action === 'set-spectrogram-display' && entry.payload) {
                     const p = entry.payload;
                     if (__specPopover && __specPopover.hidden) { __openSpecPopover(); }
@@ -2924,16 +2940,36 @@ export function getComparisonRenderScript(): string {
 
                 // Loop region
                 if (loopRegion && state.results && state.results.length > 0) {
-                    var refResult = state.results[0];
-                    var dur = refResult.durationSeconds || 0;
-                    var ls = (loopRegion.start * dur).toFixed(3);
-                    var le = (loopRegion.end * dur).toFixed(3);
-                    var ld = ((loopRegion.end - loopRegion.start) * dur).toFixed(3);
+                    var gs = computeGlobalSpan();
+                    var globalStartSec = gs.startSec + loopRegion.start * gs.spanSec;
+                    var globalEndSec = gs.startSec + loopRegion.end * gs.spanSec;
+                    var globalDurationSec = Math.max(0, globalEndSec - globalStartSec);
                     lines.push('## Loop Region');
                     lines.push('');
-                    lines.push('- Start: ' + ls + ' s');
-                    lines.push('- End: ' + le + ' s');
-                    lines.push('- Duration: ' + ld + ' s');
+                    lines.push('- Time basis: global comparison timeline (offset-adjusted)');
+                    lines.push('- Global Start: ' + globalStartSec.toFixed(3) + ' s');
+                    lines.push('- Global End: ' + globalEndSec.toFixed(3) + ' s');
+                    lines.push('- Global Duration: ' + globalDurationSec.toFixed(3) + ' s');
+                    lines.push('');
+                    lines.push('| Track | Offset | Local Start | Local End | Local Duration | Status |');
+                    lines.push('|-------|--------|-------------|-----------|----------------|--------|');
+                    (state.results || []).forEach(function(r, i) {
+                        var dur = r.durationSeconds || 0;
+                        var offset = trackRuntime[i] ? trackRuntime[i].offsetSeconds : 0;
+                        var localStart = globalStartSec - offset;
+                        var localEnd = globalEndSec - offset;
+                        var coveredStart = Math.max(0, localStart);
+                        var coveredEnd = Math.min(dur, localEnd);
+                        var inRange = dur > 0 && coveredEnd > coveredStart;
+                        var status = inRange
+                            ? ((localStart < 0 || localEnd > dur) ? 'Partial' : 'In range')
+                            : 'Out of range';
+                        var localStartText = inRange ? coveredStart.toFixed(3) + ' s' : '-';
+                        var localEndText = inRange ? coveredEnd.toFixed(3) + ' s' : '-';
+                        var localDurationText = inRange ? (coveredEnd - coveredStart).toFixed(3) + ' s' : '-';
+                        var bt = String.fromCharCode(96);
+                        lines.push('| ' + bt + r.fileName + bt + ' | ' + offset.toFixed(3) + ' s | ' + localStartText + ' | ' + localEndText + ' | ' + localDurationText + ' | ' + status + ' |');
+                    });
                     lines.push('');
                 }
 
