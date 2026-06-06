@@ -16,7 +16,13 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from backend_server import handle_export_wav_loop, handle_range, handle_spectrum_slice, handle_track_detail
+from backend_server import (
+    handle_analyze,
+    handle_export_wav_loop,
+    handle_range,
+    handle_spectrum_slice,
+    handle_track_detail,
+)
 
 ROOT = Path(__file__).parent
 
@@ -188,9 +194,11 @@ def test_handle_range_uses_same_pcm_scale_as_analysis(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav, seconds=1.0)
 
+    overview = handle_analyze({"filePath": str(wav), "peakCount": 3})["channels"][0]["waveform"]
     response = handle_range({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.75, "points": 128})
     waveform = response["channels"][0]
 
+    assert waveform["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
     assert waveform["absolutePeak"] > 1000
     assert min(waveform["minT"]) >= 0.24
     assert max(waveform["maxT"]) <= 0.76

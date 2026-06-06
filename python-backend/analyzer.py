@@ -213,7 +213,7 @@ def analyze_range(
     frame, _target = load_audio_frame(file_path)
     channel_count = int(frame.n_channels)
     sample_count = int(frame.n_samples)
-    data = _channels_first(np.asarray(frame.data), channel_count, sample_count)
+    data = _channels_first(frame.data, channel_count, sample_count)
     start_idx = max(0, int(start_norm * sample_count))
     end_idx = min(sample_count, int(end_norm * sample_count))
 

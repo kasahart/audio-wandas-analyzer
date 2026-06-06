@@ -1,12 +1,27 @@
 import { expect, test, type Page } from '@playwright/test';
 import { buildUiSmokeHtml } from './buildHtml';
 
+const PCM_SCALE = 13106;
+
 async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     await page.mouse.click(20, 20);
 }
 
-function buildRangeWaveform(pointCount: number, startNorm: number, endNorm: number) {
+async function forceOverviewWaveformScale(page: Page, scale: number) {
+    await page.evaluate((targetScale) => {
+        const state = eval('__APP_STATE__') as {
+            results: Array<{ channels: Array<{ waveform: { min: number[]; max: number[]; absolutePeak: number } }> }>;
+        };
+        const waveform = state.results[0].channels[0].waveform;
+        const ratio = targetScale / waveform.absolutePeak;
+        waveform.min = waveform.min.map((value) => value * ratio);
+        waveform.max = waveform.max.map((value) => value * ratio);
+        waveform.absolutePeak = targetScale;
+    }, scale);
+}
+
+function buildRangeWaveform(pointCount: number, startNorm: number, endNorm: number, scale: number) {
     const min: number[] = [];
     const max: number[] = [];
     const minT: number[] = [];
@@ -16,18 +31,19 @@ function buildRangeWaveform(pointCount: number, startNorm: number, endNorm: numb
     for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
         const center = startNorm + ((pointIndex + 0.5) / pointCount) * (endNorm - startNorm);
         const amp = 0.35 + 0.3 * Math.abs(Math.sin(pointIndex * 0.65));
-        min.push(-amp);
-        max.push(amp);
+        min.push(-amp * scale);
+        max.push(amp * scale);
         minT.push(center);
         maxT.push(center);
         samples.push(0);
     }
 
-    return { min, max, minT, maxT, samples, absolutePeak: 0.65 };
+    return { min, max, minT, maxT, samples, absolutePeak: 0.65 * scale };
 }
 
 test('zoomed waveform remains non-flat after high-resolution range data arrives', async ({ page }) => {
     await loadUi(page);
+    await forceOverviewWaveformScale(page, PCM_SCALE);
 
     await page.evaluate(() => {
         const win = window as unknown as {
@@ -100,7 +116,7 @@ test('zoomed waveform remains non-flat after high-resolution range data arrives'
         throw new Error('request-waveform-range was not posted');
     });
 
-    const waveform = buildRangeWaveform(512, request.startNorm, request.endNorm);
+    const waveform = buildRangeWaveform(512, request.startNorm, request.endNorm, PCM_SCALE);
 
     await page.evaluate(({ rangeRequest, rangeWaveform }) => {
         window.postMessage({
