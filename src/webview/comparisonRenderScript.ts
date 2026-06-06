@@ -575,8 +575,11 @@ export function getComparisonRenderScript(): string {
                     scheduleRender();
                     scheduleSpectrumRefresh('immediate');
                 }
-                if (entry.action === 'set-track-offset' && idx >= 0 && entry.payload) {
-                    trackRuntime[idx].offsetSeconds = Number(entry.payload.offsetSeconds || 0);
+                if (entry.action === 'set-track-offset' && idx >= 0 && trackRuntime[idx] && entry.payload) {
+                    const offsetSeconds = Number(entry.payload.offsetSeconds ?? 0);
+                    if (!Number.isFinite(offsetSeconds)) { return; }
+                    trackRuntime[idx].offsetSeconds = offsetSeconds;
+                    updateOffsetDisplays();
                     updateLoopTimeDisplay();
                     scheduleRender();
                     scheduleSpectrumRefresh('immediate');
@@ -2913,7 +2916,7 @@ export function getComparisonRenderScript(): string {
             }
 
             function _markdownTableCell(value) {
-                return _markdownInline(value).split('|').join('\\|');
+                return _markdownInline(value).split('|').join('\\\\|');
             }
 
             function buildMarkdownReport() {
@@ -2933,8 +2936,7 @@ export function getComparisonRenderScript(): string {
                     var rms = ch0 ? _dbfs(ch0.rms) : '-';
                     var peak = ch0 ? _dbfs(ch0.peakAbsolute) : '-';
                     var dur = r.durationSeconds ? _fmtSec(r.durationSeconds) : '-';
-                    var bt = String.fromCharCode(96);
-                    lines.push('| ' + bt + r.fileName + bt + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + _markdownTableCell(displayedChannelLabel(r)) + ' | ' + rms + ' | ' + peak + ' |');
+                    lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + _markdownTableCell(displayedChannelLabel(r)) + ' | ' + rms + ' | ' + peak + ' |');
                 });
                 lines.push('');
 
@@ -2967,8 +2969,7 @@ export function getComparisonRenderScript(): string {
                         var localStartText = inRange ? coveredStart.toFixed(3) + ' s' : '-';
                         var localEndText = inRange ? coveredEnd.toFixed(3) + ' s' : '-';
                         var localDurationText = inRange ? (coveredEnd - coveredStart).toFixed(3) + ' s' : '-';
-                        var bt = String.fromCharCode(96);
-                        lines.push('| ' + bt + r.fileName + bt + ' | ' + offset.toFixed(3) + ' s | ' + localStartText + ' | ' + localEndText + ' | ' + localDurationText + ' | ' + status + ' |');
+                        lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + offset.toFixed(3) + ' s | ' + localStartText + ' | ' + localEndText + ' | ' + localDurationText + ' | ' + status + ' |');
                     });
                     lines.push('');
                 }
