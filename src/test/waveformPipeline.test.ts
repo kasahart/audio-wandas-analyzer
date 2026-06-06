@@ -194,6 +194,35 @@ test('renderWaveformPipeline: explicit amplitudeScale keeps Y stable for range w
 });
 
 
+test('renderWaveformPipeline: range waveform minT/maxT are full-file normalized', () => {
+    const ctx = makeCtx();
+    const H = 100;
+    const rangeEnv = {
+        min: [-0.25],
+        max: [0.25],
+        minT: [0.5],
+        maxT: [0.5],
+        absolutePeak: 0.25,
+    };
+
+    renderWaveformPipeline(ctx, 800, H, rangeEnv, defaultParams({
+        zoomStart: 0.45,
+        zoomEnd: 0.55,
+        dataStart: 0.45,
+        dataEnd: 0.55,
+        amplitudeScale: 1.0,
+    }));
+
+    const points = ctx.ops.filter((o) => o.op === 'moveTo' || o.op === 'lineTo');
+    const xs = points.map((o) => o.args[0]);
+    const ys = points.map((o) => o.args[1]);
+
+    assert.equal(xs.length, 2);
+    assert.ok(xs.every((x) => Math.abs(x - 400) < 1e-9), `xs=${JSON.stringify(xs)}`);
+    assert.deepEqual(ys, [61, 39]);
+});
+
+
 test('renderWaveformPipeline: i1 < i0 のとき何も描画しない (zoom 外)', () => {
     // データ範囲が描画範囲外
     const ctx = makeCtx();

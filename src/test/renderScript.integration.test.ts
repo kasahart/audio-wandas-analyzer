@@ -590,6 +590,53 @@ test('waveform-range-result メッセージを受信しても例外が起きな�
     });
 });
 
+
+test('waveform-range-result は min/max envelope payload を range source として描画する', async () => {
+    const env = setupEnv();
+    const win = env.dom.window as any;
+    const calls: Array<{ env: any; params: any }> = [];
+    const originalRender = win.renderWaveformPipeline;
+    win.renderWaveformPipeline = (ctx: any, w: number, h: number, waveform: any, params: any) => {
+        calls.push({ env: waveform, params });
+        return originalRender(ctx, w, h, waveform, params);
+    };
+
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: '+' }),
+    );
+    env.dom.window.document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: '+' }),
+    );
+    await nextAnimationFrame(env.dom);
+    await new Promise((resolve) => win.setTimeout(resolve, 100));
+
+    const req = env.postedMessages.find((msg: any) => msg.type === 'request-waveform-range' && msg.trackIndex === 0) as any;
+    assert.ok(req, 'ズーム後に track 0 の range request が送信されること');
+
+    calls.length = 0;
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'waveform-range-result',
+        requestId: req.requestId,
+        trackIndex: 0,
+        startNorm: req.startNorm,
+        endNorm: req.endNorm,
+        channels: [{
+            min: [-0.25],
+            max: [0.25],
+            minT: [(req.startNorm + req.endNorm) / 2],
+            maxT: [(req.startNorm + req.endNorm) / 2],
+            absolutePeak: 0.25,
+        }],
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    assert.ok(
+        calls.some((call) => call.env.absolutePeak === 0.25 && call.env.min?.[0] === -0.25 && call.env.max?.[0] === 0.25),
+        'range envelope が renderWaveformPipeline に渡されること',
+    );
+    env.dom.window.close();
+});
+
 test('renderScript: spectrogram mode requests track detail when spectrogram is null', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;

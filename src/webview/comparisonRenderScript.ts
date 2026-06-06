@@ -1262,10 +1262,15 @@ export function getComparisonRenderScript(): string {
                 const fullWaveform = ch && ch.waveform ? ch.waveform : null;
                 const amplitudeScale = fullWaveform ? fullWaveform.absolutePeak : undefined;
                 const c = rangeCache[trackIndex];
-                if (c && c.channels && c.channels[0] && c.channels[0].samples &&
+                const cachedWaveform = c && c.channels ? c.channels[0] : null;
+                const hasCachedWaveform = cachedWaveform && (
+                    (cachedWaveform.min && cachedWaveform.min.length) ||
+                    (cachedWaveform.samples && cachedWaveform.samples.length)
+                );
+                if (hasCachedWaveform &&
                     c.startNorm <= Math.max(0, fileAtZoomStart) &&
                     c.endNorm   >= Math.min(1, fileAtZoomEnd)) {
-                    return { waveform: c.channels[0], dataStart: c.startNorm, dataEnd: c.endNorm, amplitudeScale: amplitudeScale };
+                    return { waveform: cachedWaveform, dataStart: c.startNorm, dataEnd: c.endNorm, amplitudeScale: amplitudeScale };
                 }
                 return fullWaveform
                     ? { waveform: fullWaveform, dataStart: 0, dataEnd: 1, amplitudeScale: amplitudeScale }
