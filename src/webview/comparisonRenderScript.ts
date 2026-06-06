@@ -1521,6 +1521,12 @@ export function getComparisonRenderScript(): string {
                 return Math.round(hz) + ' Hz';
             }
 
+            function formatReadoutHz(hz) {
+                const rounded = Math.round(hz);
+                const value = Math.abs(hz - rounded) < 0.05 ? String(rounded) : hz.toFixed(1);
+                return value + ' Hz';
+            }
+
             function dbToRgb(norm) {
                 if (norm < 0.25) { const t = norm / 0.25; return [Math.floor(68 + t * (59 - 68)), Math.floor(1 + t * (82 - 1)), Math.floor(84 + t * (139 - 84))]; }
                 if (norm < 0.5)  { const t = (norm - 0.25) / 0.25; return [Math.floor(59 + t * (33 - 59)), Math.floor(82 + t * (145 - 82)), Math.floor(139 + t * (140 - 139))]; }
@@ -3811,7 +3817,7 @@ export function getComparisonRenderScript(): string {
                         const readoutEl = document.getElementById('spectrum-freq-readout');
                         if (readoutEl) {
                             readoutEl.style.color = color;
-                            readoutEl.textContent = formatHz(snap.freqHz) + (snap.dbVal !== undefined ? '  ' + snap.dbVal.toFixed(1) + ' dB' : '');
+                            readoutEl.textContent = formatReadoutHz(snap.freqHz) + (snap.dbVal !== undefined ? '  ' + snap.dbVal.toFixed(1) + ' dB' : '');
                         }
                     }
                 });
@@ -3944,7 +3950,7 @@ export function getComparisonRenderScript(): string {
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl) {
                         if (nearest) {
-                            readoutEl.textContent = formatHz(nearest.snap.freqHz) + '  ' + nearest.dbVal.toFixed(1) + ' dB';
+                            readoutEl.textContent = formatReadoutHz(nearest.snap.freqHz) + '  ' + nearest.dbVal.toFixed(1) + ' dB';
                             readoutEl.style.color = nearest.s.color;
                         } else {
                             readoutEl.textContent = '';
