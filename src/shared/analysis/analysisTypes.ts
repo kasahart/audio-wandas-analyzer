@@ -28,6 +28,7 @@ export interface SpectrogramData {
 
 export interface ChannelSummary {
     label: string;
+    unit?: string | null;
     rms: number;
     peakAbsolute: number;
     dominantFrequencies: FrequencyPeak[];

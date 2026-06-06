@@ -954,6 +954,50 @@ const SPECTRUM_APP_STATE = JSON.stringify({
     })),
 });
 
+const REAL_SCALE_AXIS_APP_STATE = JSON.stringify({
+    mode: 'results',
+    results: [
+        {
+            filePath: '/tmp/int16.wav',
+            fileName: 'int16.wav',
+            audioSource: 'vscode-resource:/tmp/int16.wav',
+            sampleRateHz: 44100,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 44100,
+            error: undefined,
+            channels: [{
+                label: 'L',
+                rms: 1024,
+                peakAbsolute: 16383,
+                dominantFrequencies: [],
+                unit: null,
+                waveform: { min: [-16383], max: [16383], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 16383 },
+                spectrogram: null,
+            }],
+        },
+        {
+            filePath: '/tmp/pa.wav',
+            fileName: 'pa.wav',
+            audioSource: 'vscode-resource:/tmp/pa.wav',
+            sampleRateHz: 44100,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 44100,
+            error: undefined,
+            channels: [{
+                label: 'L',
+                rms: 0.1,
+                peakAbsolute: 0.5,
+                dominantFrequencies: [],
+                unit: 'Pa',
+                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
+                spectrogram: null,
+            }],
+        },
+    ],
+});
+
 
 const HIGH_FREQUENCY_READOUT_STATE = JSON.stringify({
     mode: 'results',
@@ -1136,17 +1180,35 @@ test('renderScript: mouseup click commits cursor and re-draws spectrum', async (
     env.dom.window.close();
 });
 
-test('axes: 振幅軸ラベル (+1.0 / 0 / -1.0 と Amp 単位) が track-axis-canvas に描かれる', async () => {
-    const env = setupSpectrumEnv();
+test('axes: 振幅軸ラベルが absolutePeak と unit から track-axis-canvas に描かれる', async () => {
+    const env = setupEnvWithState(REAL_SCALE_AXIS_APP_STATE);
     await nextAnimationFrame(env.dom);
-    const spy = env.domCanvasContexts.get('track-axis-canvas-0');
-    assert.ok(spy, 'track-axis-canvas-0 のスパイが取得できること');
-    const labels = spy!.fillTextCalls;
-    assert.ok(labels.includes('+1.0'), '+1.0 ラベルが描かれること: ' + JSON.stringify(labels));
-    assert.ok(labels.includes('-1.0'), '-1.0 ラベルが描かれること');
-    assert.ok(labels.includes('0'), '0 ラベルが描かれること');
-    assert.ok(labels.some((s) => s.includes('Amp')), '振幅軸タイトル (Amp) が描かれること');
-    assert.ok(spy!.fillRectCalls > 0, 'ラベル用の半透明バックプレートが描かれること');
+
+    const int16Spy = env.domCanvasContexts.get('track-axis-canvas-0');
+    assert.ok(int16Spy, 'track-axis-canvas-0 のスパイが取得できること');
+    assert.ok(int16Spy!.fillTextCalls.includes('+16383'), '+16383 ラベルが描かれること');
+    assert.ok(int16Spy!.fillTextCalls.includes('-16383'), '-16383 ラベルが描かれること');
+    assert.ok(int16Spy!.fillTextCalls.includes('0'), '0 ラベルが描かれること');
+    assert.ok(int16Spy!.fillTextCalls.includes('Amp'), '単位なし Amp タイトルが描かれること');
+    assert.ok(int16Spy!.fillRectCalls > 0, 'ラベル用の半透明バックプレートが描かれること');
+
+    const paSpy = env.domCanvasContexts.get('track-axis-canvas-1');
+    assert.ok(paSpy, 'track-axis-canvas-1 のスパイが取得できること');
+    assert.ok(paSpy!.fillTextCalls.includes('+0.50'), '+0.50 ラベルが描かれること');
+    assert.ok(paSpy!.fillTextCalls.includes('-0.50'), '-0.50 ラベルが描かれること');
+    assert.ok(paSpy!.fillTextCalls.includes('Amp (Pa)'), 'Amp (Pa) タイトルが描かれること');
+    env.dom.window.close();
+});
+
+test('snapshot: waveformPerTrack が absolutePeak と unit から生成される', async () => {
+    const env = setupEnvWithState(REAL_SCALE_AXIS_APP_STATE);
+    await nextAnimationFrame(env.dom);
+    const snap = env.postedMessages
+        .filter((msg: any) => msg.type === 'comparison-panel-test-snapshot')
+        .at(-1) as any;
+
+    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[0]), ['+16383', '0', '-16383', 'Amp']);
+    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[1]), ['+0.50', '0', '-0.50', 'Amp (Pa)']);
     env.dom.window.close();
 });
 

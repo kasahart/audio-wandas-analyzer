@@ -67,6 +67,24 @@ export interface SpectrogramAxesOpts {
     maxFreq?: number;
 }
 
+export interface WaveformAmplitudeAxisOpts {
+    absolutePeak?: number | null;
+    unit?: string | null;
+}
+
+export function formatAmplitudeAxisLabels(opts: WaveformAmplitudeAxisOpts = {}): string[] {
+    const rawPeak = typeof opts.absolutePeak === 'number' ? opts.absolutePeak : Number.NaN;
+    const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
+    const absPeak = Math.abs(peak);
+    const value = absPeak >= 100
+        ? absPeak.toFixed(0)
+        : absPeak >= 1
+            ? absPeak.toFixed(1)
+            : absPeak.toFixed(2);
+    const unit = typeof opts.unit === 'string' && opts.unit.trim() ? opts.unit.trim() : null;
+    return ['+' + value, '0', '-' + value, unit ? 'Amp (' + unit + ')' : 'Amp'];
+}
+
 export function formatHz(hz: number): string {
     if (hz >= 1000) {
         return (hz / 1000).toFixed(hz >= 10000 ? 0 : 1) + ' kHz';
@@ -108,14 +126,16 @@ export function dbToRgb(norm: number): [number, number, number] {
     ];
 }
 
-/** 波形キャンバスの左端に振幅軸 (+1.0 / 0 / -1.0 と 'Amp (FS)') を描画する。 */
+/** 波形キャンバスの左端に振幅軸を描画する。 */
 export function drawWaveformAmplitudeAxis(
     ctx: CanvasDrawCtx,
     W: number,
     H: number,
     theme: DrawTheme = DEFAULT_THEME,
+    opts: WaveformAmplitudeAxisOpts = {},
 ): void {
     void W;
+    const [topLabel, zeroLabel, bottomLabel, titleLabel] = formatAmplitudeAxisLabels(opts);
     const labelW = 30;
     ctx.save();
     ctx.fillStyle = theme.bgColor;
@@ -126,17 +146,17 @@ export function drawWaveformAmplitudeAxis(
     ctx.font = '9px monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText('+1.0', labelW - 2, 1);
+    ctx.fillText(topLabel, labelW - 2, 1);
     ctx.textBaseline = 'middle';
-    ctx.fillText('0', labelW - 2, H / 2);
+    ctx.fillText(zeroLabel, labelW - 2, H / 2);
     ctx.textBaseline = 'bottom';
-    ctx.fillText('-1.0', labelW - 2, H - 1);
+    ctx.fillText(bottomLabel, labelW - 2, H - 1);
     ctx.save();
     ctx.translate(8, H / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Amp (FS)', 0, 0);
+    ctx.fillText(titleLabel, 0, 0);
     ctx.restore();
     ctx.restore();
 }

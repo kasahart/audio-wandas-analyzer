@@ -114,13 +114,29 @@ test('dbToRgb: 各セグメント境界で連続している', () => {
 
 // ── drawWaveformAmplitudeAxis ──
 
-test('drawWaveformAmplitudeAxis: 振幅ラベル (+1.0 / 0 / -1.0) と Amp タイトルを描画', () => {
+test('drawWaveformAmplitudeAxis: absolutePeak の実スケールで振幅ラベルを描画', () => {
     const ctx = makeMockCtx();
-    drawWaveformAmplitudeAxis(ctx, 800, 80);
-    assert.ok(ctx._texts.includes('+1.0'));
+    drawWaveformAmplitudeAxis(ctx, 800, 80, DEFAULT_THEME, { absolutePeak: 16383 });
+    assert.ok(ctx._texts.includes('+16383'));
     assert.ok(ctx._texts.includes('0'));
+    assert.ok(ctx._texts.includes('-16383'));
+    assert.ok(ctx._texts.includes('Amp'));
+});
+
+test('drawWaveformAmplitudeAxis: unit がある場合は Amp タイトルに表示', () => {
+    const ctx = makeMockCtx();
+    drawWaveformAmplitudeAxis(ctx, 800, 80, DEFAULT_THEME, { absolutePeak: 0.5, unit: 'Pa' });
+    assert.ok(ctx._texts.includes('+0.50'));
+    assert.ok(ctx._texts.includes('-0.50'));
+    assert.ok(ctx._texts.includes('Amp (Pa)'));
+});
+
+test('drawWaveformAmplitudeAxis: invalid absolutePeak は 1 にフォールバック', () => {
+    const ctx = makeMockCtx();
+    drawWaveformAmplitudeAxis(ctx, 800, 80, DEFAULT_THEME, { absolutePeak: 0, unit: null });
+    assert.ok(ctx._texts.includes('+1.0'));
     assert.ok(ctx._texts.includes('-1.0'));
-    assert.ok(ctx._texts.some((t) => t.includes('Amp')));
+    assert.ok(ctx._texts.includes('Amp'));
 });
 
 test('drawWaveformAmplitudeAxis: 半透明バックプレートとして fillRect を呼ぶ', () => {
