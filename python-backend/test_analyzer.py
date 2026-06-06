@@ -8,7 +8,11 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from analyzer import analyze_audio
+from analyzer import _build_spectrogram, analyze_audio
+
+
+def _mean_power_db(values_db: list[float]) -> float:
+    return float(10.0 * np.log10(np.mean(np.power(10.0, np.asarray(values_db) / 10.0))))
 
 
 def _write_sine_wav(path: Path, freq_hz: float = 440.0, seconds: float = 1.0, sr: int = 16000) -> None:
@@ -56,6 +60,63 @@ def test_analyze_audio_with_stft_options(tmp_path: Path) -> None:
     spec = result["channels"][0]["spectrogram"]
     assert spec["windowSize"] == 512
     assert spec["hopSize"] == 128
+
+
+def test_spectrogram_time_reduction_averages_linear_power() -> None:
+    spec = _build_spectrogram(
+        np.array([[-60.0, -20.0], [0.0, -40.0]], dtype=np.float64),
+        sample_rate_hz=48_000,
+        window_size=512,
+        hop_size=128,
+        time_bin_limit=1,
+        frequency_bin_limit=2,
+    )
+
+    assert spec["timeBins"] == 1
+    assert spec["frequencyBins"] == 2
+    assert spec["values"][0] == pytest.approx(
+        [
+            _mean_power_db([-60.0, 0.0]),
+            _mean_power_db([-20.0, -40.0]),
+        ]
+    )
+
+
+def test_spectrogram_frequency_reduction_averages_linear_power() -> None:
+    spec = _build_spectrogram(
+        np.array([[-60.0, 0.0], [-20.0, -40.0]], dtype=np.float64),
+        sample_rate_hz=48_000,
+        window_size=512,
+        hop_size=128,
+        time_bin_limit=2,
+        frequency_bin_limit=1,
+    )
+
+    assert spec["timeBins"] == 2
+    assert spec["frequencyBins"] == 1
+    assert [row[0] for row in spec["values"]] == pytest.approx(
+        [
+            _mean_power_db([-60.0, 0.0]),
+            _mean_power_db([-20.0, -40.0]),
+        ]
+    )
+
+
+def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
+    spec = _build_spectrogram(
+        np.full((2, 2), -np.inf, dtype=np.float64),
+        sample_rate_hz=48_000,
+        window_size=512,
+        hop_size=128,
+        time_bin_limit=1,
+        frequency_bin_limit=1,
+    )
+
+    value = spec["values"][0][0]
+    assert np.isfinite(value)
+    assert value == pytest.approx(-120.0)
+    assert spec["minDb"] == pytest.approx(-120.0)
+    assert spec["maxDb"] == pytest.approx(-120.0)
 
 
 def test_analyze_audio_rejects_bad_options(tmp_path: Path) -> None:
