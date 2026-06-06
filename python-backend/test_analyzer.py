@@ -102,6 +102,23 @@ def test_spectrogram_frequency_reduction_averages_linear_power() -> None:
     )
 
 
+def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
+    spec = _build_spectrogram(
+        np.full((2, 2), -np.inf, dtype=np.float64),
+        sample_rate_hz=48_000,
+        window_size=512,
+        hop_size=128,
+        time_bin_limit=1,
+        frequency_bin_limit=1,
+    )
+
+    value = spec["values"][0][0]
+    assert np.isfinite(value)
+    assert value == pytest.approx(-120.0)
+    assert spec["minDb"] == pytest.approx(-120.0)
+    assert spec["maxDb"] == pytest.approx(-120.0)
+
+
 def test_analyze_audio_rejects_bad_options(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)

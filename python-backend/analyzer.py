@@ -136,9 +136,8 @@ def _pick_window_size(sample_count: int) -> int:
 
 def _mean_power_db(values_db: np.ndarray, axis: int) -> np.ndarray:
     powers = np.power(10.0, values_db / 10.0)
-    mean_power = np.mean(powers, axis=axis)
-    with np.errstate(divide="ignore"):
-        return 10.0 * np.log10(mean_power)
+    mean_power = np.maximum(np.mean(powers, axis=axis), 1e-12)
+    return 10.0 * np.log10(mean_power)
 
 
 def _resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.ndarray:
