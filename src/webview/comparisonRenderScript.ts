@@ -223,7 +223,7 @@ export function getComparisonRenderScript(): string {
             let spectrumHoverNorm = null;  // スペクトルカーソル（正規化周波数 0..1、null = 非表示）
             let spectrumHoverYFrac = null; // スペクトルカーソルy（canvas高さに対する比率 0..1）
             let spectrumHoverTrackIndex = null; // -1 = overlay, number = per-track, null = none
-            let spectrumHasMouse = false;  // マウスがスペクトルキャンバス上にある間 true
+            let spectrumCursorActive = false;  // スペクトルキャンバスが hover/focus 中の間 true
             let trackHeight = TRACK_HEIGHT_DEFAULT;
             let spectrumOverlayHeight = SPECTRUM_HEIGHT_DEFAULT;
             // ── スペクトルズーム ───────────────────────────────────
@@ -968,7 +968,7 @@ export function getComparisonRenderScript(): string {
                     + '    <button class="tb-btn" data-action="spec-zoom-in" aria-label="' + escHtml(STR.ariaSpecZoomIn) + '">＋</button>'
                     + '    <button class="tb-btn" data-action="spec-zoom-reset" aria-label="' + escHtml(STR.ariaSpecZoomReset) + '">' + escHtml(STR.btnSpecZoomReset) + '</button>'
                     + '  </div>'
-                    + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escHtml(STR.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas"></canvas></div>'
+                    + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escHtml(STR.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escHtml(STR.spectrumSectionTitle) + '"></canvas></div>'
                     + '</div>'
                     + '<div id="audio-host">' + buildAudioElements() + '</div>'
                     + '<div id="metrics-bar">' + metrics + '</div>';
@@ -1099,7 +1099,7 @@ export function getComparisonRenderScript(): string {
                     + '  <canvas class="track-canvas" id="track-canvas-' + i + '" data-track-index="' + i + '" tabindex="0" style="outline:none;flex:1"></canvas>'
                     + '</div>'
                     + '<div class="track-spectrum-wrap" id="track-spectrum-wrap-' + i + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
-                    + '  <canvas class="track-spectrum-canvas" id="track-spectrum-' + i + '" data-track-index="' + i + '"></canvas>'
+                    + '  <canvas class="track-spectrum-canvas" id="track-spectrum-' + i + '" data-track-index="' + i + '" tabindex="0" aria-label="' + escHtml(result.fileName + ' ' + STR.trackSpectrumTitle) + '"></canvas>'
                     + '</div>'
                     + '<div class="height-resizer track-height-resizer" data-action="track-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escHtml(STR.heightTrackLabel + ' resize') + '"></div>'
                     + '</div>';
@@ -2138,7 +2138,7 @@ export function getComparisonRenderScript(): string {
                 document.addEventListener('keydown', function(e) {
                     if (e.ctrlKey || e.metaKey || e.altKey) { return; }
                     // ── スペクトルカーソル操作（マウスがスペクトル上にある間）──
-                    if (spectrumHasMouse && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
+                    if (spectrumCursorActive && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
                         e.preventDefault();
                         moveSpectrumHoverByBin(e.code === 'ArrowLeft' ? -1 : 1);
                         scheduleSpectrumRefresh('hover');
@@ -2233,7 +2233,7 @@ export function getComparisonRenderScript(): string {
                         const plotW = canvasEl.width - padL - padR;
                         const canvasH = canvasEl.height || 140;
                         if (plotW <= 0) {
-                            spectrumHasMouse = false;
+                            spectrumCursorActive = false;
                             spectrumHoverNorm = null;
                             spectrumHoverYFrac = null;
                             spectrumHoverTrackIndex = null;
@@ -2243,15 +2243,30 @@ export function getComparisonRenderScript(): string {
                         spectrumHoverNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
                         spectrumHoverYFrac = Math.max(0, Math.min(1, y / canvasH));
                         spectrumHoverTrackIndex = trackIndex;
-                        spectrumHasMouse = true;
+                        spectrumCursorActive = true;
                         scheduleSpectrumRefresh('hover');
                     }
-                    function onSpectrumLeave() {
-                        spectrumHasMouse = false;
+                    function clearSpectrumFocus() {
+                        spectrumCursorActive = false;
                         spectrumHoverNorm = null;
                         spectrumHoverYFrac = null;
                         spectrumHoverTrackIndex = null;
                         scheduleSpectrumRefresh('hover');
+                    }
+                    function onSpectrumLeave() {
+                        clearSpectrumFocus();
+                    }
+                    function onSpectrumFocus(canvasEl, trackIndex) {
+                        if (spectrumHoverNorm === null) { spectrumHoverNorm = 0.5; }
+                        spectrumHoverYFrac = null;
+                        spectrumHoverTrackIndex = trackIndex;
+                        spectrumCursorActive = true;
+                        canvasEl.style.outline = '1px solid rgba(100, 160, 255, 0.55)';
+                        scheduleSpectrumRefresh('hover');
+                    }
+                    function onSpectrumBlur(canvasEl) {
+                        canvasEl.style.outline = 'none';
+                        clearSpectrumFocus();
                     }
                     const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
                     if (overlayCanvas) {
@@ -2260,6 +2275,8 @@ export function getComparisonRenderScript(): string {
                             onSpectrumMove(36, 8, overlayCanvas, e, -1);
                         });
                         overlayCanvas.addEventListener('mouseleave', onSpectrumLeave);
+                        overlayCanvas.addEventListener('focus', function() { onSpectrumFocus(overlayCanvas, -1); });
+                        overlayCanvas.addEventListener('blur', function() { onSpectrumBlur(overlayCanvas); });
                         overlayCanvas.addEventListener('mousedown', function(e) {
                             if (e.button !== 0) { return; }
                             const rect = overlayCanvas.getBoundingClientRect();
@@ -2339,6 +2356,11 @@ export function getComparisonRenderScript(): string {
                             onSpectrumMove(32, 6, c, e, isNaN(idx) ? null : idx);
                         });
                         c.addEventListener('mouseleave', onSpectrumLeave);
+                        c.addEventListener('focus', function() {
+                            const idx = parseInt(c.getAttribute('data-track-index'), 10);
+                            onSpectrumFocus(c, isNaN(idx) ? null : idx);
+                        });
+                        c.addEventListener('blur', function() { onSpectrumBlur(c); });
                     });
                 })();
             }
@@ -3774,6 +3796,37 @@ export function getComparisonRenderScript(): string {
                 ctx.fillText(formatHz(_visFreqMax), W - padR, H - 1);
             }
 
+            function spectrumLegendLabel(name, freqHz, dbVal) {
+                const base = String(name || 'Track');
+                const shortName = base.length > 36 ? base.slice(0, 33) + '...' : base;
+                return shortName + '  ' + formatReadoutHz(freqHz) + (dbVal !== undefined ? '  ' + dbVal.toFixed(1) + ' dB' : '');
+            }
+
+            function drawFocusedSpectrumLegend(ctx, W, color, label, x, y) {
+                const text = String(label || '');
+                if (!text) { return; }
+                const pad = 5;
+                const swatch = 7;
+                const maxTextW = Math.max(40, W - 48);
+                const metrics = ctx.measureText(text);
+                const textW = Math.min(maxTextW, Math.ceil(metrics.width || text.length * 6));
+                const boxW = Math.min(W - 12, textW + swatch + pad * 4);
+                const boxH = 19;
+                const boxX = Math.max(6, Math.min(W - boxW - 6, Math.round(x + 8)));
+                const boxY = Math.max(6, Math.round(y));
+                ctx.save();
+                ctx.fillStyle = 'rgba(0,0,0,0.68)';
+                ctx.fillRect(boxX, boxY, boxW, boxH);
+                ctx.fillStyle = color;
+                ctx.fillRect(boxX + pad, boxY + 6, swatch, swatch);
+                ctx.fillStyle = 'rgba(255,255,255,0.94)';
+                ctx.font = '11px sans-serif';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, boxX + pad * 2 + swatch, boxY + boxH / 2, maxTextW);
+                ctx.restore();
+            }
+
             function renderTrackSpectra() {
                 state.results.forEach(function(result, i) {
                     const canvas = document.getElementById('track-spectrum-' + i);
@@ -3837,6 +3890,7 @@ export function getComparisonRenderScript(): string {
                         }
                         ctx.setLineDash([]);
                         ctx.restore();
+                        drawFocusedSpectrumLegend(ctx, W, color, spectrumLegendLabel(result.fileName, snap.freqHz, snap.dbVal), snap.x, padT2 + 4);
                         const readoutEl = document.getElementById('spectrum-freq-readout');
                         if (readoutEl) {
                             readoutEl.style.color = color;
@@ -3969,6 +4023,10 @@ export function getComparisonRenderScript(): string {
                     }
                     ctx.setLineDash([]);
                     ctx.restore();
+
+                    if (nearest) {
+                        drawFocusedSpectrumLegend(ctx, W, nearest.s.color, spectrumLegendLabel(nearest.s.name, nearest.snap.freqHz, nearest.dbVal), curX, padT + 4);
+                    }
 
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl) {

@@ -1282,6 +1282,39 @@ test('axes: スペクトル (per-track / overlay) に Hz と dB のラベルが�
 });
 
 
+test('spectrum legend: keyboard focus labels one per-track spectrum', async () => {
+    const env = setupMismatchedDeltaFSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'track-spectrum-0 が存在すること');
+    assert.equal(canvas!.getAttribute('tabindex'), '0', 'per-track spectrum canvas can receive keyboard focus');
+    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.FocusEvent('focus'));
+    await nextAnimationFrame(env.dom);
+
+    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
+    assert.ok(trackSpy, 'track spectrum canvas spy should exist');
+    const legendCalls = trackSpy!.fillTextCalls.filter((text) => text.includes('.wav'));
+    assert.equal(legendCalls.some((text) => text.includes('coarse.wav') && text.includes('400 Hz') && text.includes('-40.0 dB')), true,
+        'keyboard focus 中の per-track spectrum だけ凡例を表示すること');
+    assert.equal(legendCalls.some((text) => text.includes('fine.wav')), false,
+        'フォーカス対象でないトラック名を per-track 凡例に表示しないこと');
+
+    canvas!.dispatchEvent(new env.dom.window.FocusEvent('blur'));
+    await nextAnimationFrame(env.dom);
+    const afterBlurCount = trackSpy!.fillTextCalls.filter((text) => text.includes('coarse.wav')).length;
+    canvas!.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
+    await nextAnimationFrame(env.dom);
+    assert.equal(trackSpy!.fillTextCalls.filter((text) => text.includes('coarse.wav')).length, afterBlurCount,
+        'blur 後はキーボード操作で stale な凡例を増やさないこと');
+    env.dom.window.close();
+});
+
+
 test('spectrum cursor: per-track readout formats focused frequency in Hz', async () => {
     const env = setupHighFrequencyReadoutEnv();
     await nextAnimationFrame(env.dom);
@@ -1377,6 +1410,33 @@ test('spectrum cursor: narrow canvas hover clears stale spectrum target', async 
         'plot幅がないcanvasでは前のスペクトルhover対象を持ち越さないこと');
     env.dom.window.close();
 });
+
+test('spectrum legend: overlay only labels the focused series', async () => {
+    const env = setupMismatchedDeltaFSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
+    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    assert.ok(overlaySpy, 'overlay spectrum canvas spy should exist');
+    assert.equal(overlaySpy!.fillTextCalls.some((text) => text.includes('coarse.wav') || text.includes('fine.wav')), false,
+        '未フォーカス時に全トラック凡例を常時表示しないこと');
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 73, clientY: 52 }));
+    await nextAnimationFrame(env.dom);
+
+    const legendCalls = overlaySpy!.fillTextCalls.filter((text) => text.includes('.wav'));
+    assert.equal(legendCalls.some((text) => text.includes('fine.wav') && text.includes('180 Hz') && text.includes('-35.0 dB')), true,
+        'hover 対象のトラック名・値だけを凡例に表示すること');
+    assert.equal(legendCalls.some((text) => text.includes('coarse.wav')), false,
+        'hover 対象でないトラック名を凡例に表示しないこと');
+    env.dom.window.close();
+});
+
 
 test('spectrum cursor: overlay snaps to the nearest visible series bin when delta F differs', async () => {
     const env = setupMismatchedDeltaFSpectrumEnv();
