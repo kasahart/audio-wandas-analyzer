@@ -37,7 +37,9 @@ import soundfile as sf
 from scipy.signal import ShortTimeFFT, get_window
 
 from analyzer import (
+    DB_UNIT,
     SPECTROGRAM_FREQUENCY_BIN_LIMIT,
+    SPECTRUM_LEVEL_AXIS_LABEL,
     _build_waveform_envelope,
     _resample_frequency_bins,
     _resolve_stft_params,
@@ -183,6 +185,8 @@ def _spectrum_slice_values(
         "maxFrequencyHz": float(entry.sample_rate_hz / 2),
         "minDb": float(np.min(row)),
         "maxDb": float(np.max(row)),
+        "unit": DB_UNIT,
+        "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
     }
 
 

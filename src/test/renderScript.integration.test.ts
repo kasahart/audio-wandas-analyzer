@@ -1692,7 +1692,7 @@ test('renderScript: multichannel CSV names the displayed spectrum channel', asyn
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const csv = decodeDataUriPayload(anchor!.href);
-        assert.equal(csv.split('\n')[0], 'frequency_hz,stereo.wav Channel 1 / 2 (Left)');
+        assert.equal(csv.split('\n')[0], 'frequency_hz,stereo.wav Channel 1 / 2 (Left) Spectrum level [dB]');
         assert.doesNotMatch(csv, /Right/);
     } finally {
         env.dom.window.document.createElement = origCreate;

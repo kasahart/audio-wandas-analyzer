@@ -35,6 +35,8 @@ def test_analyze_audio_defaults(tmp_path: Path) -> None:
     assert spec["windowSize"] > 0
     assert spec["hopSize"] > 0
     assert ch["unit"] is None
+    assert result["units"]["spectrumLevel"]["axisLabel"] == "Spectrum level [dB]"
+    assert result["units"]["spectrogramLevel"]["unit"] == "dB"
 
 
 def test_analyze_from_frame_includes_channel_unit(tmp_path: Path) -> None:
@@ -148,6 +150,8 @@ def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
     assert value == pytest.approx(-120.0)
     assert spec["minDb"] == pytest.approx(-120.0)
     assert spec["maxDb"] == pytest.approx(-120.0)
+    assert spec["unit"] == "dB"
+    assert spec["axisLabel"] == "Spectrum level [dB]"
 
 
 def test_analyze_audio_rejects_bad_options(tmp_path: Path) -> None:

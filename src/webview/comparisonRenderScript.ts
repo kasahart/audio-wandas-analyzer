@@ -494,6 +494,8 @@ export function getComparisonRenderScript(): string {
                     maxFrequencyHz: msg.maxFrequencyHz,
                     minDb: msg.minDb,
                     maxDb: msg.maxDb,
+                    unit: msg.unit,
+                    axisLabel: msg.axisLabel,
                 };
                 runSpectrumRefresh(false, false);
                 requestAnimationFrame(function() { publishTestSnapshot(); });
@@ -743,7 +745,7 @@ export function getComparisonRenderScript(): string {
                         : originalSpecMaxF;
                     spectrogramPerTrack.push(specMaxF > 0
                         ? ['0 Hz', formatHz(specMaxF / 2), formatHz(specMaxF),
-                           specDbLo.toFixed(0) + ' dB', specDbHi.toFixed(0) + ' dB', 'Freq']
+                           formatDbLevel(specDbLo, spec), formatDbLevel(specDbHi, spec), 'Freq']
                         : []);
                     if (slice) {
                         const visSliceDbMin  = (specDbMin != null) ? specDbMin : slice.minDb;
@@ -751,9 +753,9 @@ export function getComparisonRenderScript(): string {
                         const visSliceFreqMin = specFreqStart * slice.maxFrequencyHz;
                         const visSliceFreqMax = specFreqEnd   * slice.maxFrequencyHz;
                         spectrumPerTrack.push([
-                            visSliceDbMax.toFixed(0) + ' dB',
-                            ((visSliceDbMax + visSliceDbMin) / 2).toFixed(0) + ' dB',
-                            visSliceDbMin.toFixed(0) + ' dB',
+                            formatDbLevel(visSliceDbMax, slice),
+                            formatDbLevel((visSliceDbMax + visSliceDbMin) / 2, slice),
+                            formatDbLevel(visSliceDbMin, slice),
                             formatHz(visSliceFreqMin), formatHz((visSliceFreqMin + visSliceFreqMax) / 2), formatHz(visSliceFreqMax),
                         ]);
                     } else {
@@ -831,9 +833,9 @@ export function getComparisonRenderScript(): string {
                                     const visOvFMin   = specFreqStart * overlayMaxF;
                                     const visOvFMax   = specFreqEnd   * overlayMaxF;
                                     return [
-                                        visOvDbMax.toFixed(0) + ' dB',
-                                        ((visOvDbMax + visOvDbMin) / 2).toFixed(0) + ' dB',
-                                        visOvDbMin.toFixed(0) + ' dB',
+                                        formatDbLevel(visOvDbMax, null),
+                                        formatDbLevel((visOvDbMax + visOvDbMin) / 2, null),
+                                        formatDbLevel(visOvDbMin, null),
                                         formatHz(visOvFMin), formatHz((visOvFMin + visOvFMax) / 2), formatHz(visOvFMax),
                                     ];
                                 })()
@@ -1533,10 +1535,31 @@ export function getComparisonRenderScript(): string {
                 ctx.font = '9px monospace';
                 ctx.textAlign = 'left';
                 ctx.textBaseline = 'top';
-                ctx.fillText(dbHi.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
+                const unit = dbLevelUnitFor(spec);
+                ctx.fillText(dbHi.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY);
                 ctx.textBaseline = 'bottom';
-                ctx.fillText(dbLo.toFixed(0) + ' dB', cbX + cbW + 2, cbY + cbH);
+                ctx.fillText(dbLo.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY + cbH);
                 ctx.restore();
+            }
+
+
+
+            function dbLevelUnitFor(value) {
+                return value && value.unit ? value.unit : 'dB';
+            }
+
+            function dbLevelAxisLabelFor(value) {
+                return value && value.axisLabel ? value.axisLabel : 'Spectrum level [dB]';
+            }
+
+            function formatDbLevel(value, source) {
+                return value.toFixed(0) + ' ' + dbLevelUnitFor(source);
+            }
+
+            function spectrumLevelAxisLabel(result) {
+                return result && result.units && result.units.spectrumLevel && result.units.spectrumLevel.axisLabel
+                    ? result.units.spectrumLevel.axisLabel
+                    : 'Spectrum level [dB]';
             }
 
             function formatHz(hz) {
@@ -2886,7 +2909,7 @@ export function getComparisonRenderScript(): string {
                 const fBins = refSlice.frequencyBins;
                 const maxHz = refSlice.maxFrequencyHz;
                 function csvCell(s) { return /[,"\\r\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
-                const headers = ['frequency_hz'].concat(tracks.map(function(t) { return csvCell(t.name); }));
+                const headers = ['frequency_hz'].concat(tracks.map(function(t) { return csvCell(t.name + ' ' + dbLevelAxisLabelFor(t.slice)); }));
                 const rows = [headers.join(',')];
                 for (let bin = 0; bin < fBins; bin++) {
                     const fHz = (bin / Math.max(fBins - 1, 1)) * maxHz;
@@ -3011,7 +3034,7 @@ export function getComparisonRenderScript(): string {
                     if (peaks && peaks.length > 0) {
                         lines.push('## Spectral Peaks (first track, ' + _markdownTableCell(displayedChannelLabel(firstResult)) + ')');
                         lines.push('');
-                        lines.push('| Frequency (Hz) | Level (dB) |');
+                        lines.push('| Frequency (Hz) | ' + _markdownTableCell(spectrumLevelAxisLabel(firstResult)) + ' |');
                         lines.push('|---------------|------------|');
                         peaks.forEach(function(p) {
                             lines.push('| ' + p.freqHz.toFixed(1) + ' | ' + p.amplitudeDb.toFixed(1) + ' |');
@@ -3552,6 +3575,8 @@ export function getComparisonRenderScript(): string {
                     maxFrequencyHz: fallbackMaxF,
                     minDb: floorDb,
                     maxDb: Math.max(topDb, floorDb + 1),
+                    unit: (spec && spec.unit) || (cached && cached.unit),
+                    axisLabel: (spec && spec.axisLabel) || (cached && cached.axisLabel),
                 });
             }
 
@@ -3595,6 +3620,8 @@ export function getComparisonRenderScript(): string {
                     maxFrequencyHz: spec.maxFrequencyHz,
                     minDb: spec.minDb,
                     maxDb: spec.maxDb,
+                    unit: spec.unit,
+                    axisLabel: spec.axisLabel,
                 });
             }
 
@@ -3762,11 +3789,11 @@ export function getComparisonRenderScript(): string {
                 ctx.font = '9px monospace';
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'top';
-                ctx.fillText(_visDbMax.toFixed(0) + ' dB', padL - 2, padT);
+                ctx.fillText(formatDbLevel(_visDbMax, slice), padL - 2, padT);
                 ctx.textBaseline = 'middle';
-                ctx.fillText(((_visDbMax + _visDbMin) / 2).toFixed(0) + ' dB', padL - 2, padT + plotH / 2);
+                ctx.fillText(formatDbLevel((_visDbMax + _visDbMin) / 2, slice), padL - 2, padT + plotH / 2);
                 ctx.textBaseline = 'bottom';
-                ctx.fillText(_visDbMin.toFixed(0) + ' dB', padL - 2, H - padB);
+                ctx.fillText(formatDbLevel(_visDbMin, slice), padL - 2, H - padB);
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'bottom';
                 ctx.fillText(formatHz(_visFreqMin), padL, H - 1);
@@ -3840,7 +3867,7 @@ export function getComparisonRenderScript(): string {
                         const readoutEl = document.getElementById('spectrum-freq-readout');
                         if (readoutEl) {
                             readoutEl.style.color = color;
-                            readoutEl.textContent = formatReadoutHz(snap.freqHz) + (snap.dbVal !== undefined ? '  ' + snap.dbVal.toFixed(1) + ' dB' : '');
+                            readoutEl.textContent = formatReadoutHz(snap.freqHz) + (snap.dbVal !== undefined ? '  ' + snap.dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice) : '');
                         }
                     }
                 });
@@ -3973,7 +4000,7 @@ export function getComparisonRenderScript(): string {
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl) {
                         if (nearest) {
-                            readoutEl.textContent = formatReadoutHz(nearest.snap.freqHz) + '  ' + nearest.dbVal.toFixed(1) + ' dB';
+                            readoutEl.textContent = formatReadoutHz(nearest.snap.freqHz) + '  ' + nearest.dbVal.toFixed(1) + ' ' + dbLevelUnitFor(nearest.s.slice);
                             readoutEl.style.color = nearest.s.color;
                         } else {
                             readoutEl.textContent = '';
