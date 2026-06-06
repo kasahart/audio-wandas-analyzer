@@ -39,6 +39,7 @@ from scipy.signal import ShortTimeFFT, get_window
 from analyzer import (
     SPECTROGRAM_FREQUENCY_BIN_LIMIT,
     _build_waveform_envelope,
+    _channels_first,
     _resample_frequency_bins,
     _resolve_stft_params,
     analyze_from_frame,
@@ -206,23 +207,23 @@ def handle_range(cmd: dict) -> dict:
     end_norm = float(cmd["endNorm"])
     point_count = int(cmd.get("points", 2000))
 
-    entry = _get_cached(file_path)
-    n_total = entry.sample_count
-    start_idx = max(0, int(start_norm * n_total))
-    end_idx = min(n_total, int(end_norm * n_total))
+    frame, resolved_path = load_audio_frame(file_path)
+    _get_cached(str(resolved_path))
+    channel_count = int(frame.n_channels)
+    sample_count = int(frame.n_samples)
+    data = _channels_first(np.asarray(frame.data), channel_count, sample_count)
+    start_idx = max(0, int(start_norm * sample_count))
+    end_idx = min(sample_count, int(end_norm * sample_count))
 
     channels: list[dict] = []
     if end_idx > start_idx:
-        with sf.SoundFile(file_path) as f:
-            f.seek(start_idx)
-            data = f.read(end_idx - start_idx, dtype="float64", always_2d=True)
-        for ch_idx in range(data.shape[1]):
+        for ch_idx in range(channel_count):
             channels.append(
                 _build_waveform_envelope(
-                    data[:, ch_idx],
+                    data[ch_idx, start_idx:end_idx],
                     point_count,
                     start_sample=start_idx,
-                    total_samples=n_total,
+                    total_samples=sample_count,
                 )
             )
 

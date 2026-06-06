@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from backend_server import handle_export_wav_loop, handle_spectrum_slice, handle_track_detail
+from backend_server import handle_export_wav_loop, handle_range, handle_spectrum_slice, handle_track_detail
 
 ROOT = Path(__file__).parent
 
@@ -182,6 +182,18 @@ def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> 
     assert spec["hopSize"] == 128
     assert spec["timeBins"] > 0
     assert spec["frequencyBins"] > 0
+
+
+def test_handle_range_uses_same_pcm_scale_as_analysis(tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav, seconds=1.0)
+
+    response = handle_range({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.75, "points": 128})
+    waveform = response["channels"][0]
+
+    assert waveform["absolutePeak"] > 1000
+    assert min(waveform["minT"]) >= 0.24
+    assert max(waveform["maxT"]) <= 0.76
 
 
 def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> None:

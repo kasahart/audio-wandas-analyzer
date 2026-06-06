@@ -210,21 +210,27 @@ def analyze_range(
     end_norm: float,
     point_count: int = 2000,
 ) -> dict[str, object]:
-    """Return high-resolution waveform for a normalized time range using soundfile (fast path)."""
-    import soundfile as sf  # noqa: PLC0415
-
-    data, _sr = sf.read(str(file_path), always_2d=True)  # shape: (samples, channels)
-    n_total = len(data)
-    start_idx = max(0, int(start_norm * n_total))
-    end_idx = min(n_total, int(end_norm * n_total))
+    frame, _target = load_audio_frame(file_path)
+    channel_count = int(frame.n_channels)
+    sample_count = int(frame.n_samples)
+    data = _channels_first(np.asarray(frame.data), channel_count, sample_count)
+    start_idx = max(0, int(start_norm * sample_count))
+    end_idx = min(sample_count, int(end_norm * sample_count))
 
     if end_idx <= start_idx:
         return {"startNorm": start_norm, "endNorm": end_norm, "channels": []}
 
     channels: list[dict[str, object]] = []
-    for ch_idx in range(data.shape[1]):
-        ch_slice = data[start_idx:end_idx, ch_idx].astype(np.float64)
-        channels.append(_build_waveform_envelope(ch_slice, point_count))
+    for ch_idx in range(channel_count):
+        ch_slice = data[ch_idx, start_idx:end_idx]
+        channels.append(
+            _build_waveform_envelope(
+                ch_slice,
+                point_count,
+                start_sample=start_idx,
+                total_samples=sample_count,
+            )
+        )
 
     return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
 

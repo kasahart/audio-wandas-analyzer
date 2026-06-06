@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from analyzer import _build_spectrogram, analyze_audio
+from analyzer import _build_spectrogram, analyze_audio, analyze_range
 
 
 def _mean_power_db(values_db: list[float]) -> float:
@@ -32,6 +32,21 @@ def test_analyze_audio_defaults(tmp_path: Path) -> None:
     spec = result["channels"][0]["spectrogram"]
     assert spec["windowSize"] > 0
     assert spec["hopSize"] > 0
+
+
+def test_analyze_range_uses_same_pcm_scale_as_overview(tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav, seconds=1.0)
+
+    overview = analyze_audio(wav)["channels"][0]["waveform"]
+    range_result = analyze_range(wav, 0.25, 0.75, point_count=128)
+    range_waveform = range_result["channels"][0]
+
+    assert overview["absolutePeak"] > 1000
+    assert range_waveform["absolutePeak"] > 1000
+    assert range_waveform["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
+    assert min(range_waveform["minT"]) >= 0.24
+    assert max(range_waveform["maxT"]) <= 0.76
 
 
 def test_analyze_audio_accepts_flac_from_supported_ui_formats(tmp_path: Path) -> None:
