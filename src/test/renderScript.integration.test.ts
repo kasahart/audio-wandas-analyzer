@@ -1562,7 +1562,7 @@ test('renderScript: multichannel report names the displayed RMS peak and spectru
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message が送信されること');
     assert.match(msg.markdownContent, /\| File \| Sample Rate \| Duration \| Channels \| Displayed Channel \| RMS \| Peak \|/);
-    assert.match(msg.markdownContent, /\| `stereo\.wav` \| 44100 Hz \| 1\.000s \| 2 \| Channel 1 \/ 2 \(Left\) \| -20\.0 dBFS \| -6\.0 dBFS \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| 44100 Hz \| 1\.000s \| 2 \| Channel 1 \/ 2 \(Left\) \| -20\.0 dBFS \| -6\.0 dBFS \|/);
     assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 1 \/ 2 \(Left\)\)/);
     assert.match(msg.markdownContent, /\| 440\.0 \| -12\.0 \|/);
     assert.doesNotMatch(msg.markdownContent, /Right/);
@@ -1584,6 +1584,44 @@ test('renderScript: multichannel report sanitizes displayed channel markdown', a
     assert.ok(msg, 'report export message が送信されること');
     assert.match(msg.markdownContent, /Channel 1 \/ 2 \(Left \\| unsafe ## injected\)/);
     assert.doesNotMatch(msg.markdownContent, /\n## injected/);
+    env.dom.window.close();
+});
+
+test('renderScript: loop report uses global timeline and per-track local ranges with offsets', async () => {
+    const state = JSON.parse(MULTICHANNEL_APP_STATE);
+    const lateTrack = JSON.parse(JSON.stringify(state.results[0]));
+    lateTrack.filePath = '/tmp/late.wav';
+    lateTrack.fileName = 'late | unsafe\n`tick`.wav';
+    lateTrack.audioSource = 'vscode-resource:/tmp/late.wav';
+    state.results.push(lateTrack);
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: {
+            type: 'comparison-panel-test-action',
+            actionId: 'loop-report-offsets',
+            actions: [
+                { action: 'set-track-offset', trackIndex: 1, payload: { offsetSeconds: 2 } },
+                { action: 'set-loop-region', payload: { start: 0.5, end: 0.75 } },
+            ],
+        },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.document.querySelector('[data-action="export-report"]')?.dispatchEvent(
+        new env.dom.window.MouseEvent('click', { bubbles: true }),
+    );
+
+    const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
+    assert.ok(msg, 'report export message が送信されること');
+    assert.match(msg.markdownContent, /- Time basis: global comparison timeline \(offset-adjusted\)/);
+    assert.match(msg.markdownContent, /- Global Start: 1\.500 s/);
+    assert.match(msg.markdownContent, /- Global End: 2\.250 s/);
+    assert.match(msg.markdownContent, /\| Track \| Offset \| Local Start \| Local End \| Local Duration \| Status \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| 0\.000 s \| - \| - \| - \| Out of range \|/);
+    assert.match(msg.markdownContent, /\| late [\\]\| unsafe `tick`\.wav \| 2\.000 s \| 0\.000 s \| 0\.250 s \| 0\.250 s \| Partial \|/);
+    assert.doesNotMatch(msg.markdownContent, /- Start: 0\.500 s/);
     env.dom.window.close();
 });
 
