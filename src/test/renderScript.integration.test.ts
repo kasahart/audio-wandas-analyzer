@@ -1293,7 +1293,7 @@ test('spectrum legend: keyboard focus labels one per-track spectrum', async () =
     Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
     canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
-    canvas!.dispatchEvent(new env.dom.window.FocusEvent('focus'));
+    canvas!.focus();
     await nextAnimationFrame(env.dom);
 
     const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
@@ -1304,10 +1304,17 @@ test('spectrum legend: keyboard focus labels one per-track spectrum', async () =
     assert.equal(legendCalls.some((text) => text.includes('fine.wav')), false,
         'フォーカス対象でないトラック名を per-track 凡例に表示しないこと');
 
-    canvas!.dispatchEvent(new env.dom.window.FocusEvent('blur'));
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mouseleave', { bubbles: true }));
+    await nextAnimationFrame(env.dom);
+    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
+    await nextAnimationFrame(env.dom);
+    assert.equal(trackSpy!.fillTextCalls.some((text) => text.includes('coarse.wav') && text.includes('600 Hz') && text.includes('-20.0 dB')), true,
+        'focus が残っている場合は mouseleave 後もキーボード操作で凡例が追従すること');
+
+    canvas!.blur();
     await nextAnimationFrame(env.dom);
     const afterBlurCount = trackSpy!.fillTextCalls.filter((text) => text.includes('coarse.wav')).length;
-    canvas!.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
     await nextAnimationFrame(env.dom);
     assert.equal(trackSpy!.fillTextCalls.filter((text) => text.includes('coarse.wav')).length, afterBlurCount,
         'blur 後はキーボード操作で stale な凡例を増やさないこと');

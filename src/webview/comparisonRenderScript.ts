@@ -2253,8 +2253,28 @@ export function getComparisonRenderScript(): string {
                         spectrumHoverTrackIndex = null;
                         scheduleSpectrumRefresh('hover');
                     }
+                    function focusedSpectrumTrackIndex() {
+                        const active = document.activeElement;
+                        if (!active) { return null; }
+                        if (active.id === 'spectrum-overlay-canvas') { return -1; }
+                        if (active.classList && active.classList.contains('track-spectrum-canvas')) {
+                            const idx = parseInt(active.getAttribute('data-track-index'), 10);
+                            return isNaN(idx) ? null : idx;
+                        }
+                        return null;
+                    }
+                    function restoreFocusedSpectrumCursor() {
+                        const focusedTrackIndex = focusedSpectrumTrackIndex();
+                        if (focusedTrackIndex === null) { return false; }
+                        if (spectrumHoverNorm === null) { spectrumHoverNorm = 0.5; }
+                        spectrumHoverYFrac = null;
+                        spectrumHoverTrackIndex = focusedTrackIndex;
+                        spectrumCursorActive = true;
+                        scheduleSpectrumRefresh('hover');
+                        return true;
+                    }
                     function onSpectrumLeave() {
-                        clearSpectrumFocus();
+                        if (!restoreFocusedSpectrumCursor()) { clearSpectrumFocus(); }
                     }
                     function onSpectrumFocus(canvasEl, trackIndex) {
                         if (spectrumHoverNorm === null) { spectrumHoverNorm = 0.5; }
@@ -3808,19 +3828,19 @@ export function getComparisonRenderScript(): string {
                 const pad = 5;
                 const swatch = 7;
                 const maxTextW = Math.max(40, W - 48);
+                ctx.save();
+                ctx.font = '11px sans-serif';
                 const metrics = ctx.measureText(text);
                 const textW = Math.min(maxTextW, Math.ceil(metrics.width || text.length * 6));
                 const boxW = Math.min(W - 12, textW + swatch + pad * 4);
                 const boxH = 19;
                 const boxX = Math.max(6, Math.min(W - boxW - 6, Math.round(x + 8)));
                 const boxY = Math.max(6, Math.round(y));
-                ctx.save();
                 ctx.fillStyle = 'rgba(0,0,0,0.68)';
                 ctx.fillRect(boxX, boxY, boxW, boxH);
                 ctx.fillStyle = color;
                 ctx.fillRect(boxX + pad, boxY + 6, swatch, swatch);
                 ctx.fillStyle = 'rgba(255,255,255,0.94)';
-                ctx.font = '11px sans-serif';
                 ctx.textAlign = 'left';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(text, boxX + pad * 2 + swatch, boxY + boxH / 2, maxTextW);
