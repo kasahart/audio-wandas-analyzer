@@ -131,7 +131,7 @@ def _spectrum_peaks(
     result = []
     for idx in top_idx:
         amplitude_db = 20.0 * np.log10(float(mag[idx]) + eps)
-        result.append({"freqHz": float(fr[idx]), "amplitudeDb": round(amplitude_db, 2)})
+        result.append({"freqHz": float(fr[idx]), "amplitudeDb": float(round(amplitude_db, 2))})
     return result
 
 
