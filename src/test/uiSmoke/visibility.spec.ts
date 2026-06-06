@@ -10,9 +10,24 @@ async function openHelp(page: Page) {
     await page.keyboard.press('?');
 }
 
+type SelectionLayoutMeasurement = {
+    bodyWidth: number;
+    sidebarWidth: number;
+    resizerWidth: number;
+    paneWidth: number;
+};
+
 async function loadSelectionUi(page: Page, viewportWidth: number) {
     await page.setViewportSize({ width: viewportWidth, height: 900 });
     await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
+}
+
+function expectedPaneWidth(measurement: SelectionLayoutMeasurement): number {
+    return measurement.bodyWidth - measurement.sidebarWidth - measurement.resizerWidth;
+}
+
+function expectPaneFillsRemainingWidth(measurement: SelectionLayoutMeasurement) {
+    expect(measurement.paneWidth).toBeCloseTo(expectedPaneWidth(measurement), 1);
 }
 
 test('help overlay opens with ? and starts hidden', async ({ page }) => {
@@ -103,7 +118,7 @@ test('track canvas width follows layout changes without a window resize event', 
 test('directory selection results pane flexes with viewport width', async ({ page }) => {
     await loadSelectionUi(page, 1600);
 
-    const measure = async () => page.evaluate(() => {
+    const measure = async (): Promise<SelectionLayoutMeasurement> => page.evaluate(() => {
         const body = document.getElementById('selection-body');
         const sidebar = document.getElementById('selection-sidebar');
         const resizer = document.getElementById('tree-resizer');
@@ -120,7 +135,7 @@ test('directory selection results pane flexes with viewport width', async ({ pag
     });
 
     const initial = await measure();
-    expect(initial.paneWidth).toBeCloseTo(initial.bodyWidth - initial.sidebarWidth - initial.resizerWidth, 1);
+    expectPaneFillsRemainingWidth(initial);
 
     await page.setViewportSize({ width: 1800, height: 900 });
     await expect.poll(async () => {
@@ -129,5 +144,5 @@ test('directory selection results pane flexes with viewport width', async ({ pag
     }).toBeGreaterThan(150);
 
     const resized = await measure();
-    expect(resized.paneWidth).toBeCloseTo(resized.bodyWidth - resized.sidebarWidth - resized.resizerWidth, 1);
+    expectPaneFillsRemainingWidth(resized);
 });
