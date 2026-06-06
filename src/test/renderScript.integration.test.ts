@@ -1209,6 +1209,7 @@ test('snapshot: waveformPerTrack が absolutePeak と unit から生成される
 
     assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[0]), ['+16383', '0', '-16383', 'Amp']);
     assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[1]), ['+0.50', '0', '-0.50', 'Amp (Pa)']);
+    assert.equal((env.dom.window.document.getElementById('track-axis-canvas-0') as HTMLCanvasElement).width, 64);
     env.dom.window.close();
 });
 

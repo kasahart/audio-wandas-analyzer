@@ -200,6 +200,14 @@ def handle_spectrum_slice(cmd: dict) -> dict:
     }
 
 
+def _range_read_dtype(subtype: str) -> str:
+    if subtype == "PCM_16":
+        return "int16"
+    if subtype in {"PCM_24", "PCM_32"}:
+        return "int32"
+    return "float64"
+
+
 def handle_range(cmd: dict) -> dict:
     file_path = str(cmd["filePath"])
     start_norm = float(cmd["startNorm"])
@@ -207,22 +215,22 @@ def handle_range(cmd: dict) -> dict:
     point_count = int(cmd.get("points", 2000))
 
     entry = _get_cached(file_path)
-    n_total = entry.sample_count
-    start_idx = max(0, int(start_norm * n_total))
-    end_idx = min(n_total, int(end_norm * n_total))
+    sample_count = entry.sample_count
+    start_idx = max(0, int(start_norm * sample_count))
+    end_idx = min(sample_count, int(end_norm * sample_count))
 
     channels: list[dict] = []
     if end_idx > start_idx:
         with sf.SoundFile(file_path) as f:
             f.seek(start_idx)
-            data = f.read(end_idx - start_idx, dtype="float64", always_2d=True)
-        for ch_idx in range(data.shape[1]):
+            data = f.read(end_idx - start_idx, dtype=_range_read_dtype(f.subtype), always_2d=True)
+        for ch_idx in range(entry.channel_count):
             channels.append(
                 _build_waveform_envelope(
                     data[:, ch_idx],
                     point_count,
                     start_sample=start_idx,
-                    total_samples=n_total,
+                    total_samples=sample_count,
                 )
             )
 

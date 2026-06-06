@@ -87,7 +87,7 @@ export function getComparisonRenderScript(): string {
                 tooltip: 'Click to select Python environment',
             };
 
-            const AXIS_W = 32;
+            const AXIS_W = 64;
             const TRACK_HEIGHT_DEFAULT = 80;
             const TRACK_HEIGHT_MIN = TRACK_HEIGHT_DEFAULT;
             const TRACK_HEIGHT_MAX = 220;
@@ -682,7 +682,8 @@ export function getComparisonRenderScript(): string {
                 const absValue = Math.abs(value);
                 if (absValue >= 100) { return absValue.toFixed(0); }
                 if (absValue >= 1) { return absValue.toFixed(1); }
-                return absValue.toFixed(2);
+                if (absValue >= 0.01) { return absValue.toFixed(2); }
+                return absValue.toPrecision(2);
             }
 
             function formatWaveformAxisLabels(absolutePeak, unit) {
@@ -1378,7 +1379,7 @@ export function getComparisonRenderScript(): string {
                 const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                 const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
                 const axisLabels = labels || formatWaveformAxisLabels(null, null);
-                const labelW = 30;
+                const labelW = Math.max(30, Math.min(W, 64));
                 ctx.save();
                 ctx.fillStyle = bgColor;
                 ctx.globalAlpha = 0.7;

@@ -72,15 +72,18 @@ export interface WaveformAmplitudeAxisOpts {
     unit?: string | null;
 }
 
+function formatAmplitudeAxisValue(value: number): string {
+    const absValue = Math.abs(value);
+    if (absValue >= 100) { return absValue.toFixed(0); }
+    if (absValue >= 1) { return absValue.toFixed(1); }
+    if (absValue >= 0.01) { return absValue.toFixed(2); }
+    return absValue.toPrecision(2);
+}
+
 export function formatAmplitudeAxisLabels(opts: WaveformAmplitudeAxisOpts = {}): string[] {
     const rawPeak = typeof opts.absolutePeak === 'number' ? opts.absolutePeak : Number.NaN;
     const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
-    const absPeak = Math.abs(peak);
-    const value = absPeak >= 100
-        ? absPeak.toFixed(0)
-        : absPeak >= 1
-            ? absPeak.toFixed(1)
-            : absPeak.toFixed(2);
+    const value = formatAmplitudeAxisValue(peak);
     const unit = typeof opts.unit === 'string' && opts.unit.trim() ? opts.unit.trim() : null;
     return ['+' + value, '0', '-' + value, unit ? 'Amp (' + unit + ')' : 'Amp'];
 }
@@ -136,7 +139,7 @@ export function drawWaveformAmplitudeAxis(
 ): void {
     void W;
     const [topLabel, zeroLabel, bottomLabel, titleLabel] = formatAmplitudeAxisLabels(opts);
-    const labelW = 30;
+    const labelW = Math.max(30, Math.min(W, 64));
     ctx.save();
     ctx.fillStyle = theme.bgColor;
     ctx.globalAlpha = 0.7;

@@ -131,6 +131,13 @@ test('drawWaveformAmplitudeAxis: unit がある場合は Amp タイトルに表�
     assert.ok(ctx._texts.includes('Amp (Pa)'));
 });
 
+test('drawWaveformAmplitudeAxis: very small absolutePeak は 0.00 に丸めない', () => {
+    const ctx = makeMockCtx();
+    drawWaveformAmplitudeAxis(ctx, 64, 80, DEFAULT_THEME, { absolutePeak: 0.005 });
+    assert.ok(ctx._texts.includes('+0.0050'));
+    assert.ok(ctx._texts.includes('-0.0050'));
+});
+
 test('drawWaveformAmplitudeAxis: invalid absolutePeak は 1 にフォールバック', () => {
     const ctx = makeMockCtx();
     drawWaveformAmplitudeAxis(ctx, 800, 80, DEFAULT_THEME, { absolutePeak: 0, unit: null });
@@ -144,7 +151,7 @@ test('drawWaveformAmplitudeAxis: 半透明バックプレートとして fillRec
     drawWaveformAmplitudeAxis(ctx, 800, 80);
     const rects = ctx._ops.filter((o) => o.op === 'fillRect');
     assert.equal(rects.length, 1);
-    assert.deepEqual(rects[0].args, [0, 0, 30, 80]);
+    assert.deepEqual(rects[0].args, [0, 0, 64, 80]);
 });
 
 test('drawWaveformAmplitudeAxis: save/restore はペアで呼ばれる', () => {
