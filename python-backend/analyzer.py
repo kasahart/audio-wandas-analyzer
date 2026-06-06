@@ -134,13 +134,20 @@ def _pick_window_size(sample_count: int) -> int:
     return window_size
 
 
+def _mean_power_db(values_db: np.ndarray, axis: int) -> np.ndarray:
+    powers = np.power(10.0, values_db / 10.0)
+    mean_power = np.mean(powers, axis=axis)
+    with np.errstate(divide="ignore"):
+        return 10.0 * np.log10(mean_power)
+
+
 def _resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.ndarray:
     if spectrogram.shape[1] <= target_bin_count:
         return spectrogram
 
     reduced = np.empty((spectrogram.shape[0], target_bin_count), dtype=np.float64)
     for index, band in enumerate(np.array_split(spectrogram, target_bin_count, axis=1)):
-        reduced[:, index] = np.mean(band, axis=1)
+        reduced[:, index] = _mean_power_db(band, axis=1)
 
     return reduced
 
@@ -151,7 +158,7 @@ def _resample_time_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.nd
 
     reduced = np.empty((target_bin_count, spectrogram.shape[1]), dtype=np.float64)
     for index, frame_group in enumerate(np.array_split(spectrogram, target_bin_count, axis=0)):
-        reduced[index] = np.mean(frame_group, axis=0)
+        reduced[index] = _mean_power_db(frame_group, axis=0)
 
     return reduced
 
