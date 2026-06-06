@@ -224,7 +224,14 @@ def analyze_range(
     channels: list[dict[str, object]] = []
     for ch_idx in range(data.shape[1]):
         ch_slice = data[start_idx:end_idx, ch_idx].astype(np.float64)
-        channels.append(_build_waveform_envelope(ch_slice, point_count))
+        channels.append(
+            _build_waveform_envelope(
+                ch_slice,
+                point_count,
+                start_sample=start_idx,
+                total_samples=n_total,
+            )
+        )
 
     return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
 

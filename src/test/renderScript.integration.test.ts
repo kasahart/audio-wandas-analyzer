@@ -591,14 +591,24 @@ test('waveform-range-result メッセージを受信しても例外が起きな�
 });
 
 
-test('waveform-range-result は min/max envelope payload を range source として描画する', async () => {
+test('waveform-range-result は min/max envelope payload を 0 線に潰さず描画する', async () => {
     const env = setupEnv();
     const win = env.dom.window as any;
-    const calls: Array<{ env: any; params: any }> = [];
+    const calls: Array<{ env: any; params: any; ys: number[] }> = [];
     const originalRender = win.renderWaveformPipeline;
     win.renderWaveformPipeline = (ctx: any, w: number, h: number, waveform: any, params: any) => {
-        calls.push({ env: waveform, params });
-        return originalRender(ctx, w, h, waveform, params);
+        const ys: number[] = [];
+        const originalMoveTo = ctx.moveTo.bind(ctx);
+        const originalLineTo = ctx.lineTo.bind(ctx);
+        ctx.moveTo = (x: number, y: number) => { ys.push(y); return originalMoveTo(x, y); };
+        ctx.lineTo = (x: number, y: number) => { ys.push(y); return originalLineTo(x, y); };
+        try {
+            return originalRender(ctx, w, h, waveform, params);
+        } finally {
+            ctx.moveTo = originalMoveTo;
+            ctx.lineTo = originalLineTo;
+            calls.push({ env: waveform, params, ys });
+        }
     };
 
     env.dom.window.document.dispatchEvent(
@@ -630,10 +640,10 @@ test('waveform-range-result は min/max envelope payload を range source とし
     } }));
     await nextAnimationFrame(env.dom);
 
-    assert.ok(
-        calls.some((call) => call.env.absolutePeak === 0.25 && call.env.min?.[0] === -0.25 && call.env.max?.[0] === 0.25),
-        'range envelope が renderWaveformPipeline に渡されること',
-    );
+    const rangeCall = calls.find((call) => call.env.absolutePeak === 0.25 && call.env.min?.[0] === -0.25 && call.env.max?.[0] === 0.25);
+    assert.ok(rangeCall, 'range envelope が renderWaveformPipeline に渡されること');
+    assert.ok(rangeCall.ys.some((y) => y < 40), `range waveform should draw above zero line: ${JSON.stringify(rangeCall.ys)}`);
+    assert.ok(rangeCall.ys.some((y) => y > 40), `range waveform should draw below zero line: ${JSON.stringify(rangeCall.ys)}`);
     env.dom.window.close();
 });
 

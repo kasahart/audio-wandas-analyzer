@@ -170,3 +170,21 @@ def test_analyze_audio_keeps_multichannel_metrics_and_peaks_separate(tmp_path: P
     right_freqs = [peak["freqHz"] for peak in right_ch["peaks"]]
     assert any(abs(freq - 440.0) <= 20.0 for freq in left_freqs), left_freqs
     assert any(abs(freq - 880.0) <= 20.0 for freq in right_freqs), right_freqs
+
+
+def test_analyze_range_returns_full_file_normalized_times(tmp_path: Path) -> None:
+    import soundfile as sf
+
+    from analyzer import analyze_range
+
+    sr = 100
+    samples = np.linspace(-1.0, 1.0, sr, dtype=np.float32)
+    wav = tmp_path / "ramp.wav"
+    sf.write(wav, samples, sr)
+
+    result = analyze_range(wav, 0.25, 0.75, point_count=4)
+    ch = result["channels"][0]
+
+    assert min(ch["minT"]) >= 0.25
+    assert max(ch["maxT"]) <= 0.75
+    assert ch["minT"][0] == pytest.approx(25 / 99)
