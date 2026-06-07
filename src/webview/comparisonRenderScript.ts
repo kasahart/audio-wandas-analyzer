@@ -223,6 +223,7 @@ export function getComparisonRenderScript(): string {
             let spectrumHoverNorm = null;  // スペクトルカーソル（正規化周波数 0..1、null = 非表示）
             let spectrumHoverYFrac = null; // スペクトルカーソルy（canvas高さに対する比率 0..1）
             let spectrumHoverTrackIndex = null; // -1 = overlay, number = per-track, null = none
+            let spectrumHoverChannelIndex = null; // number = per-track channel, null = overlay/none
             let spectrumHasMouse = false;  // マウスがスペクトルキャンバス上にある間 true
             let trackHeight = TRACK_HEIGHT_DEFAULT;
             let spectrumOverlayHeight = SPECTRUM_HEIGHT_DEFAULT;
@@ -2325,7 +2326,7 @@ export function getComparisonRenderScript(): string {
 
                 // スペクトルカーソルイベント（オーバーレイ＋各トラック）
                 (function attachSpectrumCursorEvents() {
-                    function onSpectrumMove(padL, padR, canvasEl, e, trackIndex) {
+                    function onSpectrumMove(padL, padR, canvasEl, e, trackIndex, channelIndex) {
                         const rect = canvasEl.getBoundingClientRect();
                         const x = e.clientX - rect.left;
                         const y = e.clientY - rect.top;
@@ -2336,12 +2337,14 @@ export function getComparisonRenderScript(): string {
                             spectrumHoverNorm = null;
                             spectrumHoverYFrac = null;
                             spectrumHoverTrackIndex = null;
+                            spectrumHoverChannelIndex = null;
                             scheduleSpectrumRefresh('hover');
                             return;
                         }
                         spectrumHoverNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
                         spectrumHoverYFrac = Math.max(0, Math.min(1, y / canvasH));
                         spectrumHoverTrackIndex = trackIndex;
+                        spectrumHoverChannelIndex = Number.isInteger(channelIndex) ? channelIndex : null;
                         spectrumHasMouse = true;
                         scheduleSpectrumRefresh('hover');
                     }
@@ -2350,13 +2353,14 @@ export function getComparisonRenderScript(): string {
                         spectrumHoverNorm = null;
                         spectrumHoverYFrac = null;
                         spectrumHoverTrackIndex = null;
+                        spectrumHoverChannelIndex = null;
                         scheduleSpectrumRefresh('hover');
                     }
                     const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
                     if (overlayCanvas) {
                         overlayCanvas.addEventListener('mousemove', function(e) {
                             if (specDragAnchor !== null) { return; }  // ドラッグ中はホバー不要
-                            onSpectrumMove(36, 8, overlayCanvas, e, -1);
+                            onSpectrumMove(36, 8, overlayCanvas, e, -1, null);
                         });
                         overlayCanvas.addEventListener('mouseleave', onSpectrumLeave);
                         overlayCanvas.addEventListener('mousedown', function(e) {
@@ -2435,7 +2439,8 @@ export function getComparisonRenderScript(): string {
                     document.querySelectorAll('.track-spectrum-canvas').forEach(function(c) {
                         c.addEventListener('mousemove', function(e) {
                             const idx = parseInt(c.getAttribute('data-track-index'), 10);
-                            onSpectrumMove(32, 6, c, e, isNaN(idx) ? null : idx);
+                            const channelIndex = parseInt(c.getAttribute('data-channel-index'), 10);
+                            onSpectrumMove(32, 6, c, e, isNaN(idx) ? null : idx, isNaN(channelIndex) ? null : channelIndex);
                         });
                         c.addEventListener('mouseleave', onSpectrumLeave);
                     });
@@ -3778,7 +3783,8 @@ export function getComparisonRenderScript(): string {
                 if (spectrumHoverNorm === null) { spectrumHoverNorm = 0.5; }
                 if (spectrumHoverTrackIndex !== null && spectrumHoverTrackIndex >= 0) {
                     const result = state.results[spectrumHoverTrackIndex];
-                    const slice = result ? extractSpectrumAtCursor(result, spectrumHoverTrackIndex, trackRuntime[spectrumHoverTrackIndex].offsetSeconds, cursorNorm, 0) : null;
+                    const channelIndex = Number.isInteger(spectrumHoverChannelIndex) ? spectrumHoverChannelIndex : 0;
+                    const slice = result ? extractSpectrumAtCursor(result, spectrumHoverTrackIndex, trackRuntime[spectrumHoverTrackIndex].offsetSeconds, cursorNorm, channelIndex) : null;
                     if (!slice) { return; }
                     const visFreqMin = specFreqStart * slice.maxFrequencyHz;
                     const visFreqMax = specFreqEnd * slice.maxFrequencyHz;
@@ -3813,6 +3819,7 @@ export function getComparisonRenderScript(): string {
                 const freqHz = (nextIdx / Math.max(chosen.slice.frequencyBins - 1, 1)) * originalMaxFreq;
                 spectrumHoverNorm = hoverNormForFrequency(freqHz, visFreqMin, visFreqMax);
                 spectrumHoverTrackIndex = -1;
+                spectrumHoverChannelIndex = null;
             }
 
             function drawSpectrumLine(ctx, W, H, slice, color, opts, visFreqMin, visFreqMax, visDbMin, visDbMax) {
@@ -3927,7 +3934,7 @@ export function getComparisonRenderScript(): string {
                         drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
                         drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 }, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
                         paintedByChannel[channelIndex] = true;
-                        if (spectrumHoverNorm !== null && spectrumHoverTrackIndex === i) {
+                        if (spectrumHoverNorm !== null && spectrumHoverTrackIndex === i && spectrumHoverChannelIndex === channelIndex) {
                             const padL2 = 32, padR2 = 6, padT2 = 4, padB2 = 14;
                             const plotW2 = W - padL2 - padR2;
                             const plotH2 = H - padT2 - padB2;

@@ -1408,6 +1408,40 @@ test('spectrum cursor: per-track readout snaps to the hovered track frequency bi
 });
 
 
+
+test('spectrum cursor: per-track keyboard stepping uses the hovered channel bins', async () => {
+    const state = JSON.parse(MULTICHANNEL_APP_STATE);
+    state.results[0].channels[0].spectrogram = {
+        values: [[-12, -48, -72]], timeBins: 1, frequencyBins: 3,
+        windowSize: 512, hopSize: 256,
+        maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+    };
+    state.results[0].channels[1].spectrogram = {
+        values: [[-80, -60, -40, -20, -10]], timeBins: 1, frequencyBins: 5,
+        windowSize: 512, hopSize: 256,
+        maxFrequencyHz: 4000, minDb: -90, maxDb: 0,
+    };
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    const trackCanvas = env.dom.window.document.getElementById('track-spectrum-0-1') as HTMLCanvasElement | null;
+    assert.ok(trackCanvas, 'track-spectrum-0-1 が存在すること');
+    Object.defineProperty(trackCanvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(trackCanvas, 'height', { configurable: true, value: 140 });
+    trackCanvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    trackCanvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 113, clientY: 30 }));
+    await nextAnimationFrame(env.dom);
+    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.ok(readout, 'spectrum-freq-readout が存在すること');
+    assert.match(readout!.textContent || '', /^3000 Hz\s+-20\.0 dB$/,
+        'ch1 の ΔF=1000 Hz の次binへ移動すること');
+    env.dom.window.close();
+});
+
 test('spectrum cursor: narrow canvas hover clears stale spectrum target', async () => {
     const env = setupMismatchedDeltaFSpectrumEnv();
     await nextAnimationFrame(env.dom);
