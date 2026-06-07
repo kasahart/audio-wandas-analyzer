@@ -86,6 +86,14 @@ test('help overlay closes when the backdrop is clicked', async ({ page }) => {
 });
 
 
+
+test('results preview does not render the bottom metrics legend', async ({ page }) => {
+    await loadUi(page);
+
+    await expect(page.locator('#metrics-bar')).toHaveCount(0);
+    await expect(page.locator('.metrics-item')).toHaveCount(0);
+});
+
 test('track canvas width follows layout changes without a window resize event', async ({ page }) => {
     await loadUi(page);
 

@@ -286,6 +286,16 @@ export function getComparisonRenderScript(): string {
                 return ch && ch.label && ch.label !== ('Channel ' + channelNumber) ? base + ' (' + ch.label + ')' : base;
             }
 
+            function spectrumReadoutTrackLabel(result, channelIndex) {
+                const channels = channelsForResult(result);
+                const name = result && result.fileName ? result.fileName : '';
+                return channels.length > 1 ? name + ' ' + channelLabel(result, channelIndex) : name;
+            }
+
+            function spectrumCursorReadoutText(label, freqHz, dbVal, unit) {
+                return label + ' ' + formatReadoutHz(freqHz) + (dbVal !== undefined ? '  ' + dbVal.toFixed(1) + ' ' + unit : '');
+            }
+
             function displayedChannelIndex(result, trackIndex) {
                 return channelsForResult(result).length > 0 ? 0 : -1;
             }
@@ -1004,22 +1014,9 @@ export function getComparisonRenderScript(): string {
                 }).join('');
             }
 
-            function buildMetricsHtml() {
-                return displayOrder.map(function(stateIdx) {
-                    const result = state.results[stateIdx];
-                    const parts = channelsForResult(result).map(function(ch, channelIndex) {
-                        return channelLabel(result, channelIndex) + ' RMS ' + channelDb(ch.rms) + ' / Peak ' + channelDb(ch.peakAbsolute) + ' / ' + channelDominantFrequencyLabel(ch);
-                    });
-                    return '<div class="metrics-item" id="metrics-item-' + stateIdx + '"><div class="metrics-swatch" id="metrics-swatch-' + stateIdx + '" style="background:' + trackColor(stateIdx) + '"></div>'
-                        + '<span>' + escHtml(result.fileName) + ': ' + escHtml(parts.join('; ')) + '</span></div>';
-                }).join('');
-            }
-
             function rebuildResultsPane() {
                 const stacked = document.getElementById('stacked-wrap');
                 if (stacked) { stacked.innerHTML = buildTrackRowsHtml(); }
-                const metricsBar = document.getElementById('metrics-bar');
-                if (metricsBar) { metricsBar.innerHTML = buildMetricsHtml(); }
                 updateVisibility();
                 updateOffsetDisplays();
                 syncHeightInputs();
@@ -1029,7 +1026,6 @@ export function getComparisonRenderScript(): string {
 
             function buildResultsPane(emptyMessage) {
                 const tracks = buildTrackRowsHtml();
-                const metrics = buildMetricsHtml();
 
                 return '<div id="toolbar" role="toolbar" aria-label="' + escHtml(STR.ariaToolbar) + '">' + buildToolbar() + '</div>'
                     + '<div id="tracks-wrapper">'
@@ -1047,8 +1043,7 @@ export function getComparisonRenderScript(): string {
                     + '  </div>'
                     + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escHtml(STR.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas"></canvas></div>'
                     + '</div>'
-                    + '<div id="audio-host">' + buildAudioElements() + '</div>'
-                    + '<div id="metrics-bar">' + metrics + '</div>';
+                    + '<div id="audio-host">' + buildAudioElements() + '</div>';
             }
 
             function buildSelectionTreeItems(nodes, depth) {
@@ -3793,7 +3788,7 @@ export function getComparisonRenderScript(): string {
                     channelsForResult(result).forEach(function(_, channelIndex) {
                         const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, cursorNorm, channelIndex);
                         if (slice) {
-                            slices.push({ slice: slice, color: trackColor(i), index: i, channelIndex: channelIndex, name: result.fileName + ' ' + channelLabel(result, channelIndex) });
+                            slices.push({ slice: slice, color: trackColor(i), index: i, channelIndex: channelIndex, name: spectrumReadoutTrackLabel(result, channelIndex) });
                         }
                     });
                 });
@@ -3996,7 +3991,7 @@ export function getComparisonRenderScript(): string {
                             const readoutEl = document.getElementById('spectrum-freq-readout');
                             if (readoutEl) {
                                 readoutEl.style.color = color;
-                                readoutEl.textContent = formatReadoutHz(snap.freqHz) + (snap.dbVal !== undefined ? '  ' + snap.dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice) : '');
+                                readoutEl.textContent = spectrumCursorReadoutText(spectrumReadoutTrackLabel(result, channelIndex), snap.freqHz, snap.dbVal, dbLevelUnitFor(slice));
                             }
                         }
                     });
@@ -4022,7 +4017,7 @@ export function getComparisonRenderScript(): string {
                     if (trackRuntime[i].hidden) { return; }
                     channelsForResult(result).forEach(function(_, channelIndex) {
                         const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, spectrumCursorNorm, channelIndex);
-                        if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, channelIndex: channelIndex, name: result.fileName + ' ' + channelLabel(result, channelIndex) }); }
+                        if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, channelIndex: channelIndex, name: spectrumReadoutTrackLabel(result, channelIndex) }); }
                         else if (isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm, channelIndex)) { pendingVisibleSlice = true; }
                     });
                 });
@@ -4132,7 +4127,7 @@ export function getComparisonRenderScript(): string {
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl) {
                         if (nearest) {
-                            readoutEl.textContent = formatReadoutHz(nearest.snap.freqHz) + '  ' + nearest.dbVal.toFixed(1) + ' ' + dbLevelUnitFor(nearest.s.slice);
+                            readoutEl.textContent = spectrumCursorReadoutText(nearest.s.name, nearest.snap.freqHz, nearest.dbVal, dbLevelUnitFor(nearest.s.slice));
                             readoutEl.style.color = nearest.s.color;
                         } else {
                             readoutEl.textContent = '';
@@ -4198,8 +4193,6 @@ export function getComparisonRenderScript(): string {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }
                 const row = document.getElementById('track-row-' + idx);
                 if (row) { row.remove(); }
-                var metricsItem = document.getElementById('metrics-item-' + idx);
-                if (metricsItem) { metricsItem.remove(); }
                 const audio = getTrackAudio(idx);
                 if (audio) { audio.remove(); }
                 releaseTrackDetail(idx);
@@ -4509,13 +4502,6 @@ export function getComparisonRenderScript(): string {
                         if (row) { wrap.appendChild(row); }
                     });
                 }
-                var metricsBar = document.getElementById('metrics-bar');
-                if (metricsBar) {
-                    displayOrder.forEach(function(idx) {
-                        var item = document.getElementById('metrics-item-' + idx);
-                        if (item) { metricsBar.appendChild(item); }
-                    });
-                }
                 scheduleRender();
                 scheduleSpectrumRefresh('immediate');
             }
@@ -4592,8 +4578,6 @@ export function getComparisonRenderScript(): string {
                         trackRuntime[__colorPickTarget].color = hex;
                         var hs = document.querySelector('[data-action="pick-color"][data-track-index="' + __colorPickTarget + '"]');
                         if (hs) { hs.style.background = hex; }
-                        var ms = document.getElementById('metrics-swatch-' + __colorPickTarget);
-                        if (ms) { ms.style.background = hex; }
                         scheduleRender();
                         scheduleSpectrumRefresh('immediate');
                         closeColorPicker();
@@ -4604,8 +4588,6 @@ export function getComparisonRenderScript(): string {
                         var def = trackColor(__colorPickTarget);
                         var hs2 = document.querySelector('[data-action="pick-color"][data-track-index="' + __colorPickTarget + '"]');
                         if (hs2) { hs2.style.background = def; }
-                        var ms2 = document.getElementById('metrics-swatch-' + __colorPickTarget);
-                        if (ms2) { ms2.style.background = def; }
                         scheduleRender();
                         scheduleSpectrumRefresh('immediate');
                         closeColorPicker();
