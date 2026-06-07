@@ -11,10 +11,6 @@ export interface SpectrumPeak {
 export interface DbScaleMetadata {
     unit: string;
     axisLabel: string;
-    referenceValue: number;
-    referenceUnit: string | null;
-    expression: string;
-    source: string;
 }
 
 export interface AnalysisUnits {

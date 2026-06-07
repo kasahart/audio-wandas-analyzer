@@ -27,20 +27,14 @@ SPECTROGRAM_TIME_BIN_LIMIT = 720
 SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
 SPECTROGRAM_DB_RANGE = 90.0
 DB_UNIT = "dB"
-DB_REFERENCE_VALUE = 1.0
 SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum level [dB]"
 AMPLITUDE_LEVEL_AXIS_LABEL = "Amplitude level [dB]"
-DB_SCALE_EXPRESSION = f"20 * log10(value / {DB_REFERENCE_VALUE})"
 
 
-def _db_scale_metadata(axis_label: str) -> dict[str, object]:
+def _db_scale_metadata(axis_label: str) -> dict[str, str]:
     return {
         "unit": DB_UNIT,
         "axisLabel": axis_label,
-        "referenceValue": DB_REFERENCE_VALUE,
-        "referenceUnit": None,
-        "expression": DB_SCALE_EXPRESSION,
-        "source": "wandas dB plotting convention",
     }
 
 

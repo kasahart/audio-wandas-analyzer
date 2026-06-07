@@ -35,10 +35,9 @@ def test_analyze_audio_defaults(tmp_path: Path) -> None:
     assert spec["windowSize"] > 0
     assert spec["hopSize"] > 0
     assert ch["unit"] is None
-    assert result["units"]["spectrumLevel"]["axisLabel"] == "Spectrum level [dB]"
-    assert result["units"]["spectrogramLevel"]["unit"] == "dB"
-    assert result["units"]["spectrumLevel"]["expression"] == "20 * log10(value / 1.0)"
-    assert str(result["units"]["spectrumLevel"]["referenceValue"]) in result["units"]["spectrumLevel"]["expression"]
+    assert result["units"]["spectrumLevel"] == {"unit": "dB", "axisLabel": "Spectrum level [dB]"}
+    assert result["units"]["spectrogramLevel"] == {"unit": "dB", "axisLabel": "Spectrum level [dB]"}
+    assert result["units"]["amplitudeLevel"] == {"unit": "dB", "axisLabel": "Amplitude level [dB]"}
 
 
 def test_analyze_from_frame_includes_channel_unit(tmp_path: Path) -> None:
