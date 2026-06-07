@@ -121,6 +121,11 @@ export interface CoordTransform {
     toY(v: number): number;
 }
 
+export interface AmplitudeViewport {
+    minNorm: number;
+    maxNorm: number;
+}
+
 /**
  * 座標変換オブジェクトを生成する。
  * offsetNorm = offsetSeconds / durationSeconds（呼び元が計算する）。
@@ -134,15 +139,23 @@ export function makeCoordTransform(
     H: number,
     peak: number,
     trackDurRatio: number = 1,
+    amplitudeViewport?: AmplitudeViewport,
 ): CoordTransform {
     const span = Math.max(zoomEnd - zoomStart, 1e-9);
+    const ampSpan = amplitudeViewport
+        ? Math.max(amplitudeViewport.maxNorm - amplitudeViewport.minNorm, 1e-9)
+        : null;
     return {
         toX(tNorm: number): number {
             const raw = ((offsetNorm + tNorm * trackDurRatio - zoomStart) / span) * W;
             return Math.round(raw * 1e10) / 1e10;
         },
         toY(v: number): number {
-            return H / 2 - (v / (peak || 1)) * (H * 0.44);
+            const valueNorm = v / (peak || 1);
+            if (amplitudeViewport && ampSpan !== null) {
+                return ((amplitudeViewport.maxNorm - valueNorm) / ampSpan) * H;
+            }
+            return H / 2 - valueNorm * (H * 0.44);
         },
     };
 }
@@ -376,6 +389,8 @@ export interface WaveformPipelineParams {
     trackDurRatio?: number;
     lineWidth?: number;
     amplitudeScale?: number;
+    amplitudeMinNorm?: number;
+    amplitudeMaxNorm?: number;
 }
 
 /**
@@ -405,6 +420,15 @@ export function renderWaveformPipeline(
         ? amplitudeScale
         : env.absolutePeak;
     const peak = Number.isFinite(scalePeak) && scalePeak > 0 ? scalePeak : 1;
+    const rawAmpMin = params.amplitudeMinNorm;
+    const rawAmpMax = params.amplitudeMaxNorm;
+    const amplitudeViewport = typeof rawAmpMin === 'number'
+        && typeof rawAmpMax === 'number'
+        && Number.isFinite(rawAmpMin)
+        && Number.isFinite(rawAmpMax)
+        && rawAmpMin < rawAmpMax
+        ? { minNorm: rawAmpMin, maxNorm: rawAmpMax }
+        : null;
     const minArr = env.min || [];
     const maxArr = env.max || [];
     const samplesArr = env.samples || [];
@@ -439,7 +463,13 @@ export function renderWaveformPipeline(
         : dataStart + (idx / n) * dataRange);
 
     const toX = (t: number): number => ((offsetNorm + t * trackDurRatio - zoomStart) / span) * W;
-    const toY = (v: number): number => H / 2 - (v / peak) * (H * 0.44);
+    const toY = (v: number): number => {
+        const valueNorm = v / peak;
+        if (amplitudeViewport) {
+            return ((amplitudeViewport.maxNorm - valueNorm) / (amplitudeViewport.maxNorm - amplitudeViewport.minNorm)) * H;
+        }
+        return H / 2 - valueNorm * (H * 0.44);
+    };
 
     ctx.lineWidth = lineWidth;
     ctx.strokeStyle = color;

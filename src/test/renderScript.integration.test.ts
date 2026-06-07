@@ -2103,6 +2103,60 @@ test('波形モードボタンが生成される', () => {
     );
 });
 
+test('renderScript: rect-zoom ドラッグはループではなくラバーバンドから時間・振幅ズームを適用すること', async () => {
+    const env = setupEnv();
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'track-canvas-0 が存在すること');
+
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: ['wave-mode-rect-zoom'], actionId: 'rect-mode-on' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+
+    canvas!.width = 400;
+    canvas!.height = 100;
+    canvas!.getBoundingClientRect = () => ({
+        left: 0, top: 0, right: 400, bottom: 100, width: 400, height: 100, x: 0, y: 0,
+        toJSON: () => ({}),
+    } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 20, buttons: 1 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, button: 0, clientX: 300, clientY: 80, buttons: 1 }));
+
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'rect-dragging' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+    const dragging = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.ok(dragging.renderedUi.rectZoomSelection, 'ドラッグ中は rectZoomSelection が存在すること');
+
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 300, clientY: 80 }));
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'rect-drag-complete' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+
+    const completed = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    const ui = completed.renderedUi;
+    assert.equal(ui.rectZoomSelection, null, 'ドラッグ完了後はラバーバンドが消えること');
+    assert.ok(ui.zoomStart > 0.24 && ui.zoomStart < 0.26, '矩形の左端が zoomStart になること');
+    assert.ok(ui.zoomEnd > 0.74 && ui.zoomEnd < 0.76, '矩形の右端が zoomEnd になること');
+    assert.ok(ui.amplitudeZoomMinNorm < -0.6 && ui.amplitudeZoomMinNorm > -0.8, '矩形の下端が振幅ズーム下限になること');
+    assert.ok(ui.amplitudeZoomMaxNorm > 0.6 && ui.amplitudeZoomMaxNorm < 0.8, '矩形の上端が振幅ズーム上限になること');
+
+    const zoomBtn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    assert.ok(zoomBtn, 'zoom-to-selection ボタンが存在すること');
+    assert.equal(zoomBtn!.disabled, true, 'rect-zoom ドラッグではループ選択を作らないこと');
+
+    env.dom.window.close();
+});
+
 test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => {
     const env = setupEnv();
     const btn = env.dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]') as HTMLButtonElement | null;

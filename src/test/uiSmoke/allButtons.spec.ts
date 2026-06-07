@@ -51,6 +51,11 @@ async function getClipboardWrites(page: Page): Promise<string[]> {
 }
 
 async function getUiSmokeState(page: Page): Promise<{
+    zoomStart?: number;
+    zoomEnd?: number;
+    amplitudeZoomMinNorm?: number;
+    amplitudeZoomMaxNorm?: number;
+    rectZoomSelection?: unknown;
     spectrumZoom?: {
         specFreqStart?: number;
         specFreqEnd?: number;
@@ -61,6 +66,11 @@ async function getUiSmokeState(page: Page): Promise<{
     return page.evaluate(() => {
         return ((window as typeof window & {
             __uiSmokeState?: {
+                zoomStart?: number;
+                zoomEnd?: number;
+                amplitudeZoomMinNorm?: number;
+                amplitudeZoomMaxNorm?: number;
+                rectZoomSelection?: unknown;
                 spectrumZoom?: {
                     specFreqStart?: number;
                     specFreqEnd?: number;
@@ -186,6 +196,36 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
         expect.objectContaining({ type: 'request-reanalyze' }),
         expect.objectContaining({ type: 'export-report-options' }),
     ]));
+});
+
+test('waveform rect zoom drag shows a rubber band and zooms time plus amplitude', async ({ page }) => {
+    await loadResultsUi(page);
+    const toolbar = page.locator('#toolbar');
+    await toolbar.locator('[data-action="wave-mode-rect-zoom"]').click();
+
+    const canvas = page.locator('#track-canvas-0');
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    const startX = box!.x + box!.width * 0.25;
+    const startY = box!.y + box!.height * 0.2;
+    const endX = box!.x + box!.width * 0.75;
+    const endY = box!.y + box!.height * 0.8;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(endX, endY, { steps: 4 });
+    const dragging = await getUiSmokeState(page);
+    expect(dragging.rectZoomSelection).not.toBeNull();
+    await expect(toolbar.locator('[data-action="zoom-to-selection"]')).toBeDisabled();
+
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+    const zoomed = await getUiSmokeState(page);
+    expect(zoomed.rectZoomSelection).toBeNull();
+    expect(zoomed.zoomStart).toBeGreaterThan(0.2);
+    expect(zoomed.zoomEnd).toBeLessThan(0.8);
+    expect(zoomed.amplitudeZoomMinNorm).toBeGreaterThan(-1);
+    expect(zoomed.amplitudeZoomMaxNorm).toBeLessThan(1);
 });
 
 test('export-wav without a loop posts a visible info message', async ({ page }) => {

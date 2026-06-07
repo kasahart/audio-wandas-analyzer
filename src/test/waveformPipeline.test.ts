@@ -149,6 +149,24 @@ test('renderWaveformPipeline: falls back to 1 when amplitudeScale and env absolu
     }
 });
 
+test('renderWaveformPipeline: amplitude viewport expands selected amplitude range', () => {
+    const env = {
+        min: [-0.25],
+        max: [0.5],
+        minT: [0.5],
+        maxT: [0.5],
+        absolutePeak: 1,
+    };
+    const ctx = makeCtx();
+    renderWaveformPipeline(ctx, 800, 100, env, defaultParams({
+        amplitudeMinNorm: -0.25,
+        amplitudeMaxNorm: 0.5,
+    }));
+    const pathOps = ctx.ops.filter((o) => o.op === 'moveTo' || o.op === 'lineTo');
+    assert.equal(pathOps[0].args[1], 100);
+    assert.equal(pathOps.at(-1)?.args[1], 0);
+});
+
 test('renderWaveformPipeline: explicit amplitudeScale keeps Y stable for range waveform data', () => {
     const overviewCtx = makeCtx();
     const rangeCtx = makeCtx();
