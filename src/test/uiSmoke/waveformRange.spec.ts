@@ -41,7 +41,7 @@ function buildRangeWaveform(pointCount: number, startNorm: number, endNorm: numb
     return { min, max, minT, maxT, samples, absolutePeak: 0.65 * scale };
 }
 
-test('zoomed waveform remains non-flat after high-resolution range data arrives', async ({ page }) => {
+test('zoomed waveform uses range cache only while it fully covers the view', async ({ page }) => {
     await loadUi(page);
     await forceOverviewWaveformScale(page, PCM_SCALE);
 
@@ -164,5 +164,5 @@ test('zoomed waveform remains non-flat after high-resolution range data arrives'
         const last = win.__uiSmokeWaveformCalls.at(-1);
         if (!last) { return 'none'; }
         return last.dataStart === 0 && last.dataEnd === 1 ? 'overview' : 'range';
-    })).toBe('range');
+    })).toBe('overview');
 });
