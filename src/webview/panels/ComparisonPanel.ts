@@ -493,6 +493,11 @@ export function renderComparisonStyles(): string {
         .track-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
         .clip-badge { display: inline-block; background: #d32f2f; color: #fff; font-size: 8px; font-weight: 700; border-radius: 2px; padding: 0px 3px; margin-left: 4px; vertical-align: middle; letter-spacing: 0.5px; cursor: default; }
         .track-meta { color: var(--muted); }
+        .track-channel-select-label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 9px; }
+        .track-channel-select {
+            min-width: 0; width: 100%; height: 18px; font-size: 9px;
+            border-radius: 3px; border: 1px solid var(--line); background: var(--surface); color: var(--text);
+        }
         .track-btns { display: flex; gap: 3px; margin-top: 2px; align-items: center; }
         .track-btn {
             font-size: 9px; padding: 1px 4px; border-radius: 2px;

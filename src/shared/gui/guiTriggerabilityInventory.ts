@@ -71,6 +71,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'export-wav',
     'export-report',
     'pick-color',
+    'select-channel',
     'toggle-playback',
     'stop-playback',
     'remove-track',
@@ -115,6 +116,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         entryPoints: ['status-bar', 'selection-toolbar', 'quick-pick', 'command'],
         triggers: ['audioWandasAnalyzer.selectPythonEnvironment', 'select-python-environment'],
         regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'track-channel-selection',
+        label: 'Select the displayed channel for multichannel tracks',
+        entryPoints: ['track-control'],
+        triggers: ['select-channel'],
+        regressionLayers: ['node:test'],
     },
     {
         id: 'directory-selection',

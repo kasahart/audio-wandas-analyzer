@@ -707,6 +707,25 @@ test('renderScript: missing spectrogram requests a spectrum slice at cursor', as
     assert.equal(typeof sliceRequests[0].cursorNorm, 'number');
 });
 
+test('renderScript: selected multichannel lazy spectrum request includes channel index', async () => {
+    const state = JSON.parse(MULTICHANNEL_APP_STATE);
+    state.results[0].channels.forEach((channel: any) => { channel.spectrogram = null; });
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    const select = env.dom.window.document.querySelector('[data-action="select-channel"][data-track-index="0"]') as HTMLSelectElement | null;
+    assert.ok(select, 'channel selector が存在すること');
+    select!.value = '1';
+    select!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
+    await nextAnimationFrame(env.dom);
+
+    const sliceRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
+    const latest = sliceRequests[sliceRequests.length - 1];
+    assert.ok(latest, 'selected channel should request a lazy spectrum slice');
+    assert.equal(latest.channelIndex, 1);
+    env.dom.window.close();
+});
+
 test('renderScript: lazy spectrum slices apply display range settings', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     await nextAnimationFrame(env.dom);
@@ -719,6 +738,7 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
         analysisId: req.analysisId,
         settingsSignature: req.settingsSignature,
         trackIndex: 0,
+        channelIndex: 0,
         filePath: '/tmp/a.wav',
         values: [-120, -20, 10],
         frequencyBins: 3,
@@ -767,6 +787,7 @@ test('renderScript: lazy spectrum cache is scoped to the current cursor', async 
         analysisId: initialReq.analysisId,
         settingsSignature: initialReq.settingsSignature,
         trackIndex: 0,
+        channelIndex: 0,
         filePath: '/tmp/a.wav',
         values: [-120, -20, 10],
         frequencyBins: 3,
@@ -807,6 +828,7 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
         analysisId: initialReq.analysisId,
         settingsSignature: initialReq.settingsSignature,
         trackIndex: 0,
+        channelIndex: 0,
         filePath: '/tmp/a.wav',
         values: [-120, -20, 10],
         frequencyBins: 3,
@@ -842,6 +864,7 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
         analysisId: latestReq.analysisId,
         settingsSignature: latestReq.settingsSignature,
         trackIndex: 0,
+        channelIndex: 0,
         filePath: '/tmp/a.wav',
         error: 'slice failed',
     } }));
@@ -891,6 +914,35 @@ test('再生ボタンで play 状態に切り替わる', async () => {
     stopButton.click();
     await Promise.resolve();
     dom.window.close();
+});
+
+test('renderScript: channel selection preserves playback button state after row rebuild', async () => {
+    const env = setupMultichannelEnv();
+    await nextAnimationFrame(env.dom);
+    const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
+    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
+    assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
+
+    (audio as HTMLAudioElement & { duration: number }).duration = 1;
+    playButton!.click();
+    await Promise.resolve();
+    assert.equal(playButton!.textContent, '⏸');
+
+    const select = env.dom.window.document.querySelector('[data-action="select-channel"][data-track-index="0"]') as HTMLSelectElement | null;
+    assert.ok(select, 'channel selector が存在すること');
+    select!.value = '1';
+    select!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
+    await nextAnimationFrame(env.dom);
+
+    const rebuiltPlayButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    const rebuiltStopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    assert.equal(rebuiltPlayButton?.textContent, '⏸');
+    assert.equal(rebuiltStopButton?.disabled, false);
+
+    rebuiltStopButton?.click();
+    await Promise.resolve();
+    env.dom.window.close();
 });
 
 test('renderScript: cursorNorm initializes as number (not null)', () => {
@@ -1656,13 +1708,21 @@ test('renderScript: multichannel track UI labels the displayed channel', async (
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
 
-    const rowText = env.dom.window.document.querySelector('#track-row-0')?.textContent || '';
-    assert.match(rowText, /Displayed: Channel 1 \/ 2 \(Left\)/);
-    assert.match(rowText, /RMS \(Channel 1 \/ 2 \(Left\)\): -20\.0 dBFS/);
-    assert.doesNotMatch(rowText, /Right/);
+    const select = env.dom.window.document.querySelector('[data-action="select-channel"][data-track-index="0"]') as HTMLSelectElement | null;
+    assert.ok(select, 'channel selector が存在すること');
+    select!.value = '1';
+    select!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
+    await nextAnimationFrame(env.dom);
+
+    const metaText = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-meta'))
+        .map((el) => el.textContent || '')
+        .join(' ');
+    assert.match(metaText, /Displayed: Channel 2 \/ 2 \(Right\)/);
+    assert.match(metaText, /RMS \(Channel 2 \/ 2 \(Right\)\): -1\.9 dBFS/);
+    assert.doesNotMatch(metaText, /Channel 1 \/ 2 \(Left\)/);
 
     const metricsText = env.dom.window.document.querySelector('#metrics-item-0')?.textContent || '';
-    assert.match(metricsText, /stereo\.wav \[Channel 1 \/ 2 \(Left\)\]: RMS -20\.0 dBFS \/ Peak -6\.0 dBFS \/ 440 Hz/);
+    assert.match(metricsText, /stereo\.wav \[Channel 2 \/ 2 \(Right\)\]: RMS -1\.9 dBFS \/ Peak -0\.4 dBFS \/ 880 Hz/);
     env.dom.window.close();
 });
 
@@ -1674,6 +1734,12 @@ function decodeDataUriPayload(uri: string): string {
 
 test('renderScript: multichannel CSV names the displayed spectrum channel', async () => {
     const env = setupMultichannelEnv();
+    await nextAnimationFrame(env.dom);
+
+    const select = env.dom.window.document.querySelector('[data-action="select-channel"][data-track-index="0"]') as HTMLSelectElement | null;
+    assert.ok(select, 'channel selector が存在すること');
+    select!.value = '1';
+    select!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
     await nextAnimationFrame(env.dom);
 
     const created: HTMLAnchorElement[] = [];
@@ -1692,8 +1758,7 @@ test('renderScript: multichannel CSV names the displayed spectrum channel', asyn
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const csv = decodeDataUriPayload(anchor!.href);
-        assert.equal(csv.split('\n')[0], 'frequency_hz,stereo.wav Channel 1 / 2 (Left)');
-        assert.doesNotMatch(csv, /Right/);
+        assert.equal(csv.split('\n')[0], 'frequency_hz,stereo.wav Channel 2 / 2 (Right)');
     } finally {
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();
@@ -1704,6 +1769,12 @@ test('renderScript: multichannel report names the displayed RMS peak and spectru
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
 
+    const select = env.dom.window.document.querySelector('[data-action="select-channel"][data-track-index="0"]') as HTMLSelectElement | null;
+    assert.ok(select, 'channel selector が存在すること');
+    select!.value = '1';
+    select!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
+    await nextAnimationFrame(env.dom);
+
     env.dom.window.document.querySelector('[data-action="export-report"]')?.dispatchEvent(
         new env.dom.window.MouseEvent('click', { bubbles: true }),
     );
@@ -1711,11 +1782,10 @@ test('renderScript: multichannel report names the displayed RMS peak and spectru
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message が送信されること');
     assert.match(msg.markdownContent, /\| File \| Sample Rate \| Duration \| Channels \| Displayed Channel \| RMS \| Peak \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| 44100 Hz \| 1\.000s \| 2 \| Channel 1 \/ 2 \(Left\) \| -20\.0 dBFS \| -6\.0 dBFS \|/);
-    assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 1 \/ 2 \(Left\)\)/);
-    assert.match(msg.markdownContent, /\| 440\.0 \| -12\.0 \|/);
-    assert.doesNotMatch(msg.markdownContent, /Right/);
-    assert.doesNotMatch(msg.markdownContent, /880\.0/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| 44100 Hz \| 1\.000s \| 2 \| Channel 2 \/ 2 \(Right\) \| -1\.9 dBFS \| -0\.4 dBFS \|/);
+    assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 2 \/ 2 \(Right\)\)/);
+    assert.match(msg.markdownContent, /\| 880\.0 \| -3\.0 \|/);
+    assert.doesNotMatch(msg.markdownContent, /440\.0/);
     env.dom.window.close();
 });
 

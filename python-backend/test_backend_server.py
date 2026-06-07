@@ -300,6 +300,51 @@ def test_spectrum_slice_uses_wandas_frame_fft(monkeypatch, tmp_path: Path) -> No
     assert resp["values"] == [-120.0, -20.0, -60.0]
 
 
+def test_spectrum_slice_uses_requested_channel(monkeypatch, tmp_path: Path) -> None:
+    import backend_server
+
+    wav = tmp_path / "tone.wav"
+    t = np.linspace(0, 0.5, 8000, endpoint=False)
+    left = (0.5 * np.sin(2 * math.pi * 440.0 * t) * 32767).astype(np.int16)
+    right = (0.5 * np.sin(2 * math.pi * 880.0 * t) * 32767).astype(np.int16)
+    stereo = np.column_stack([left, right])
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(stereo.tobytes())
+    calls: list[int] = []
+
+    class FakeSpectrum:
+        dB = np.array([[-90.0, -9.0, -30.0]], dtype=np.float64)
+
+    class FakeSlice:
+        def fft(self, *, n_fft: int | None = None, window: str = "hann") -> FakeSpectrum:
+            return FakeSpectrum()
+
+    class FakeFrame:
+        def __getitem__(self, key: tuple[int, slice]) -> FakeSlice:
+            channel, sample_slice = key
+            assert isinstance(sample_slice, slice)
+            calls.append(channel)
+            return FakeSlice()
+
+    monkeypatch.setattr(backend_server, "load_audio_frame", lambda path: (FakeFrame(), Path(path)))
+
+    resp = backend_server.handle_spectrum_slice(
+        {
+            "filePath": str(wav),
+            "trackIndex": 0,
+            "cursorNorm": 0.5,
+            "channelIndex": 1,
+            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+        }
+    )
+
+    assert calls == [1]
+    assert resp["frequencyBins"] == 3
+
+
 def test_cached_file_keeps_metadata_without_materialized_frame(tmp_path: Path) -> None:
     import importlib
 
