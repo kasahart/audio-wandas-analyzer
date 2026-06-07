@@ -133,13 +133,20 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     await toolbar.locator('[data-action="zoom-reset"]').click({ force: true });
 
     const heightBefore = await getUiSmokeState(page);
+    const overlayCanvas = page.locator('#spectrum-overlay-canvas');
+    const overlayBoxBefore = await overlayCanvas.boundingBox();
+    expect(overlayBoxBefore).not.toBeNull();
+    expect(overlayBoxBefore!.height).toBeGreaterThan(0);
     await openToolbarMenu(page, 0);
     await toolbar.locator('[data-action="track-height-input"]').fill('112');
     await toolbar.locator('[data-action="spectrum-height-input"]').fill('180');
-    await page.waitForTimeout(100);
+    await expect(overlayCanvas).toHaveCSS('height', '180px');
+    const overlayBoxAfter = await overlayCanvas.boundingBox();
+    expect(overlayBoxAfter).not.toBeNull();
     const heightAfter = await getUiSmokeState(page);
     expect(heightAfter.spectrumZoom?.trackHeight).toBeGreaterThan(heightBefore.spectrumZoom?.trackHeight ?? 0);
     expect(heightAfter.spectrumZoom?.spectrumOverlayHeight).toBeGreaterThan(heightBefore.spectrumZoom?.spectrumOverlayHeight ?? 0);
+    expect(overlayBoxAfter!.height).toBeGreaterThan(overlayBoxBefore!.height);
     await toolbar.locator('[data-action="track-height-reset"]').click({ force: true });
     await toolbar.locator('[data-action="spectrum-height-reset"]').click({ force: true });
 

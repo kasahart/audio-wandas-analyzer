@@ -2760,14 +2760,23 @@ export function getComparisonRenderScript(): string {
                 scheduleSpectrumRefresh('immediate');
             }
 
+            function syncSpectrumCanvasCssHeight() {
+                const canvas = document.getElementById('spectrum-overlay-canvas');
+                if (canvas && canvas.style.height !== spectrumOverlayHeight + 'px') {
+                    canvas.style.height = spectrumOverlayHeight + 'px';
+                }
+            }
+
             function setSpectrumHeight(value) {
                 const next = clampHeight(value, SPECTRUM_HEIGHT_MIN, SPECTRUM_HEIGHT_MAX);
                 if (spectrumOverlayHeight === next) {
                     syncHeightInputs();
+                    syncSpectrumCanvasCssHeight();
                     return;
                 }
                 spectrumOverlayHeight = next;
                 syncHeightInputs();
+                syncSpectrumCanvasCssHeight();
                 scheduleSpectrumRefresh('immediate');
             }
 
@@ -3853,7 +3862,7 @@ export function getComparisonRenderScript(): string {
                 const w = contentBoxWidth(wrap, 800);
                 const prevW = canvas.width;
                 const prevH = canvas.height;
-                syncCanvasSize(canvas, w, spectrumOverlayHeight, { syncStyle: false });
+                syncCanvasSize(canvas, w, spectrumOverlayHeight);
                 if (canvas.width !== prevW || canvas.height !== prevH) { overlaySpectrumPainted = false; }
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width, H = canvas.height;
