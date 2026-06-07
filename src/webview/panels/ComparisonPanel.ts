@@ -497,6 +497,7 @@ export function renderComparisonStyles(): string {
             height: 18px; display: flex; align-items: center; gap: 10px; padding: 0 6px;
             color: var(--muted); font-size: 9px; background: rgba(128, 128, 128, 0.06); white-space: nowrap; overflow: hidden;
         }
+        .track-channel-lane-body { display: flex; min-width: 0; }
         .track-channel-lane-label { color: var(--text); font-weight: 600; min-width: 92px; overflow: hidden; text-overflow: ellipsis; }
         .track-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
         .clip-badge { display: inline-block; background: #d32f2f; color: #fff; font-size: 8px; font-weight: 700; border-radius: 2px; padding: 0px 3px; margin-left: 4px; vertical-align: middle; letter-spacing: 0.5px; cursor: default; }

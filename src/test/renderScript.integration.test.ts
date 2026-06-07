@@ -254,6 +254,23 @@ test('2 トラック分の track-canvas が生成される', () => {
     assert.ok(c1, 'track-canvas-1 が存在すること');
 });
 
+test('renderScript: monaural tracks keep waveform and power spectrum in one body without a channel header', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+
+    const row = env.dom.window.document.getElementById('track-row-0');
+    assert.ok(row, 'track-row-0 が存在すること');
+    assert.equal(row!.querySelector('.track-channel-lane-header'), null);
+
+    const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0') as HTMLElement | null;
+    const spectrumWrap = env.dom.window.document.getElementById('track-spectrum-wrap-0') as HTMLElement | null;
+    assert.ok(waveWrap, 'track-canvas-wrap-0 が存在すること');
+    assert.ok(spectrumWrap, 'track-spectrum-wrap-0 が存在すること');
+    assert.ok(waveWrap!.parentElement?.classList.contains('track-channel-lane-body'), 'waveform はレーン本文に入ること');
+    assert.equal(spectrumWrap!.parentElement, waveWrap!.parentElement, 'power spectrum は waveform と横並びの本文に入ること');
+    env.dom.window.close();
+});
+
 test('toolbar が生成される', () => {
     const { dom } = setupEnv();
     const toolbar = dom.window.document.getElementById('toolbar');

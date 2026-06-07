@@ -1150,14 +1150,19 @@ export function getComparisonRenderScript(): string {
                 const peakDb = ch ? channelDb(ch.peakAbsolute) : '—';
                 const domHz = channelDominantFrequencyLabel(ch);
                 const suffix = channelCanvasSuffix(channelIndex);
+                const header = channels.length > 1
+                    ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escHtml(label) + '</span><span>RMS ' + escHtml(rmsDb) + '</span><span>Peak ' + escHtml(peakDb) + '</span><span>' + escHtml(domHz) + '</span></div>'
+                    : '';
                 return '<div class="track-channel-lane" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '">'
-                    + '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escHtml(label) + '</span><span>RMS ' + escHtml(rmsDb) + '</span><span>Peak ' + escHtml(peakDb) + '</span><span>' + escHtml(domHz) + '</span></div>'
-                    + '  <div class="track-canvas-wrap" id="track-canvas-wrap-' + trackIndex + suffix + '">'
-                    + '    <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + AXIS_W + 'px" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '"></canvas>'
-                    + '    <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '" tabindex="0" style="outline:none;flex:1"></canvas>'
-                    + '  </div>'
-                    + '  <div class="track-spectrum-wrap" id="track-spectrum-wrap-' + trackIndex + suffix + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
-                    + '    <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '"></canvas>'
+                    + header
+                    + '  <div class="track-channel-lane-body">'
+                    + '    <div class="track-canvas-wrap" id="track-canvas-wrap-' + trackIndex + suffix + '">'
+                    + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + AXIS_W + 'px" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '"></canvas>'
+                    + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '" tabindex="0" style="outline:none;flex:1"></canvas>'
+                    + '    </div>'
+                    + '    <div class="track-spectrum-wrap" id="track-spectrum-wrap-' + trackIndex + suffix + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
+                    + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '"></canvas>'
+                    + '    </div>'
                     + '  </div>'
                     + '</div>';
             }
