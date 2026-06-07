@@ -2030,6 +2030,7 @@ test('高さの数値入力がトラックとパワースペクトルの canvas 
     assert.strictEqual(trackCanvas.height, 112);
     assert.strictEqual(trackSpectrumCanvas.height, 112);
     assert.strictEqual(overlayCanvas.height, 180);
+    assert.strictEqual(overlayCanvas.style.height, '180px');
 
     const snap1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap1?.renderedUi?.trackHeight, 112);
@@ -2049,6 +2050,7 @@ test('高さの数値入力がトラックとパワースペクトルの canvas 
     assert.strictEqual(trackCanvas.height, 80);
     assert.strictEqual(trackSpectrumCanvas.height, 80);
     assert.strictEqual(overlayCanvas.height, 140);
+    assert.strictEqual(overlayCanvas.style.height, '140px');
 
     env.dom.window.close();
 });
@@ -2083,6 +2085,7 @@ test('高さリサイズハンドルのドラッグがトラックとパワー�
     assert.ok(overlayCanvas);
     assert.strictEqual(trackCanvas.height, 104);
     assert.strictEqual(overlayCanvas.height, 170);
+    assert.strictEqual(overlayCanvas.style.height, '170px');
 
     const snap = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap?.renderedUi?.trackHeight, 104);
