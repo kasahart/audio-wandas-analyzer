@@ -41,7 +41,7 @@ function buildRangeWaveform(pointCount: number, startNorm: number, endNorm: numb
     return { min, max, minT, maxT, samples, absolutePeak: 0.65 * scale };
 }
 
-test('zoomed waveform remains non-flat after high-resolution range data arrives', async ({ page }) => {
+test('zoomed waveform uses range cache only while it fully covers the view', async ({ page }) => {
     await loadUi(page);
     await forceOverviewWaveformScale(page, PCM_SCALE);
 
@@ -94,7 +94,8 @@ test('zoomed waveform remains non-flat after high-resolution range data arrives'
         return smokeWindow.__uiSmokePostedMessages.some((message: unknown) => {
             return !!message
                 && typeof message === 'object'
-                && (message as { type?: string }).type === 'request-waveform-range';
+                && (message as { type?: string }).type === 'request-waveform-range'
+                && ((message as { endNorm?: number }).endNorm ?? 1) - ((message as { startNorm?: number }).startNorm ?? 0) < 1;
         });
     })).toBe(true);
 
@@ -104,7 +105,8 @@ test('zoomed waveform remains non-flat after high-resolution range data arrives'
             const message = smokeWindow.__uiSmokePostedMessages[i];
             if (!!message
                 && typeof message === 'object'
-                && (message as { type?: string }).type === 'request-waveform-range') {
+                && (message as { type?: string }).type === 'request-waveform-range'
+                && ((message as { endNorm?: number }).endNorm ?? 1) - ((message as { startNorm?: number }).startNorm ?? 0) < 1) {
                 return message as {
                     requestId: string;
                     trackIndex: number;
@@ -113,7 +115,7 @@ test('zoomed waveform remains non-flat after high-resolution range data arrives'
                 };
             }
         }
-        throw new Error('request-waveform-range was not posted');
+        throw new Error('zoomed request-waveform-range was not posted');
     });
 
     const waveform = buildRangeWaveform(512, request.startNorm, request.endNorm, PCM_SCALE);
@@ -141,4 +143,26 @@ test('zoomed waveform remains non-flat after high-resolution range data arrives'
         }
         return 0;
     })).toBeGreaterThan(20);
+
+    await page.evaluate(() => {
+        const win = window as unknown as {
+            __uiSmokeWaveformCalls: Array<{ dataStart?: number; dataEnd?: number; ySpan: number }>;
+        };
+        win.__uiSmokeWaveformCalls = [];
+    });
+    await page.locator('#tracks-wrapper').dispatchEvent('wheel', {
+        deltaY: 100,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+    });
+
+    await expect.poll(async () => page.evaluate(() => {
+        const win = window as unknown as {
+            __uiSmokeWaveformCalls: Array<{ dataStart?: number; dataEnd?: number; ySpan: number }>;
+        };
+        const last = win.__uiSmokeWaveformCalls.at(-1);
+        if (!last) { return 'none'; }
+        return last.dataStart === 0 && last.dataEnd === 1 ? 'overview' : 'range';
+    })).toBe('overview');
 });
