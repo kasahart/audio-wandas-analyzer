@@ -1382,9 +1382,30 @@ test('spectrum cursor: overlay readout formats focused frequency in Hz', async (
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^1200 Hz\s+-60\.0 dB$/,
-        'overlay のカーソル読み値も kHz 省略ではなく Hz 固定で表示すること');
+    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1200 Hz \/ -60\.0 dB$/,
+        'overlay のカーソル読み値も file/channel 付きで Hz 固定表示すること');
     assert.doesNotMatch(readout!.textContent || '', /kHz/);
+    env.dom.window.close();
+});
+
+
+test('spectrum cursor: overlay readout identifies the hovered file and channel', async () => {
+    const env = setupMultichannelEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
+    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 192, clientY: 12 }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.ok(readout, 'spectrum-freq-readout が存在すること');
+    assert.equal(readout!.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22050 Hz / -3.0 dB',
+        'overlay hover readout は最寄り系列の fileName と channelLabel を含むこと');
     env.dom.window.close();
 });
 
@@ -1490,7 +1511,7 @@ test('spectrum cursor: overlay snaps to the nearest visible series bin when delt
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^180 Hz\s+-35\.0 dB$/,
+    assert.match(readout!.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ -35\.0 dB$/,
         'fine track ΔF=180 Hz の最寄りbinへ吸着すること');
     env.dom.window.close();
 });
@@ -1519,7 +1540,7 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^180 Hz\s+-35\.0 dB$/,
+    assert.match(readout!.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ -35\.0 dB$/,
         '周波数ズーム後もfine trackの実binへ吸着すること');
     env.dom.window.close();
 });
