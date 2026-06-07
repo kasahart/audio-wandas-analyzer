@@ -160,6 +160,16 @@ export function getComparisonRenderScript(): string {
                 return true;
             }
 
+            function updateUiSmokeWaveformState() {
+                const uiSmokeState = (typeof window !== 'undefined') ? window.__uiSmokeState : null;
+                if (!uiSmokeState) { return; }
+                uiSmokeState.zoomStart = zoomStart;
+                uiSmokeState.zoomEnd = zoomEnd;
+                uiSmokeState.amplitudeZoomMinNorm = amplitudeZoomMinNorm;
+                uiSmokeState.amplitudeZoomMaxNorm = amplitudeZoomMaxNorm;
+                uiSmokeState.rectZoomSelection = rectZoomSelection ? Object.assign({}, rectZoomSelection) : null;
+            }
+
             function spectrumNow() {
                 return (typeof performance !== 'undefined' && performance && typeof performance.now === 'function')
                     ? performance.now()
@@ -239,8 +249,11 @@ export function getComparisonRenderScript(): string {
             let specDragCurrent = null; // { freqNorm, dbNorm } | null
             // ── 波形モード ────────────────────────────────────────
             let waveformMode = 'loop';  // 'loop' | 'rect-zoom'
+            let amplitudeZoomMinNorm = -1;
+            let amplitudeZoomMaxNorm = 1;
+            let rectZoomSelection = null;
             let playbackStartNorm = 0;    // 再生開始位置の記憶
-            let dragState = null;         // { trackIndex, startClientX, startOffset, canvasWidth, isDrag, isShift, startNorm, dragType }
+            let dragState = null;
             let loopRegion = null;        // null or { start: number, end: number }（正規化グローバル時間）
             const lastWaveformCoverage = state.results.map(function() { return null; });
 
@@ -729,6 +742,7 @@ export function getComparisonRenderScript(): string {
             const app = document.getElementById('app');
             app.innerHTML = buildLayout();
             syncPythonEnvironmentButton();
+            syncWaveformModeButton();
             attachEvents();
             // Defer first render so the browser has time to calculate flex layout
             requestAnimationFrame(function() {
@@ -761,11 +775,25 @@ export function getComparisonRenderScript(): string {
             function waveformAxisLabelsForChannel(result, channelIndex) {
                 const ch = channelsForResult(result)[channelIndex];
                 const waveform = ch && ch.waveform;
+                const rawPeak = waveform && typeof waveform.absolutePeak === 'number' ? waveform.absolutePeak : NaN;
+                const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
+                const unitText = ch && typeof ch.unit === 'string' && ch.unit.trim() ? ch.unit.trim() : null;
+                if (isAmplitudeZoomActive()) {
+                    const top = formatSignedAmplitudeValue(amplitudeZoomMaxNorm * peak);
+                    const middle = formatSignedAmplitudeValue(((amplitudeZoomMinNorm + amplitudeZoomMaxNorm) / 2) * peak);
+                    const bottom = formatSignedAmplitudeValue(amplitudeZoomMinNorm * peak);
+                    return [top, middle, bottom, unitText ? 'Amp (' + unitText + ')' : 'Amp'];
+                }
                 return formatWaveformAxisLabels(waveform && waveform.absolutePeak, ch && ch.unit);
             }
 
             function waveformAxisLabelsForResult(result, trackIndex) {
                 return waveformAxisLabelsForChannel(result, 0);
+            }
+
+            function formatSignedAmplitudeValue(value) {
+                const prefix = value > 0 ? '+' : value < 0 ? '-' : '';
+                return prefix + formatAmplitudeValue(value);
             }
 
             function publishTestSnapshot(actionId) {
@@ -886,6 +914,9 @@ export function getComparisonRenderScript(): string {
                         hasRulerCanvas: !!document.getElementById('ruler-canvas'),
                         zoomStart: zoomStart,
                         zoomEnd: zoomEnd,
+                        amplitudeZoomMinNorm: amplitudeZoomMinNorm,
+                        amplitudeZoomMaxNorm: amplitudeZoomMaxNorm,
+                        rectZoomSelection: rectZoomSelection ? Object.assign({}, rectZoomSelection) : null,
                         cursorNorm: cursorNorm,
                         spectrumOverlayPresent: !!overlayCanvas,
                         spectrumTrackCanvasCount: document.querySelectorAll('.track-spectrum-canvas').length,
@@ -1237,6 +1268,7 @@ export function getComparisonRenderScript(): string {
                 renderStackedTracks();
                 updateVisibility();
                 updateOffsetDisplays();
+                updateUiSmokeWaveformState();
                 if (contentType === 'waveform') { scheduleRangeRequests(); }
             }
 
@@ -1451,6 +1483,8 @@ export function getComparisonRenderScript(): string {
                             dataEnd: src.dataEnd,
                             color,
                             amplitudeScale: src.amplitudeScale,
+                            amplitudeMinNorm: isAmplitudeZoomActive() ? amplitudeZoomMinNorm : undefined,
+                            amplitudeMaxNorm: isAmplitudeZoomActive() ? amplitudeZoomMaxNorm : undefined,
                         });
                     } finally {
                         ctx.restore();
@@ -1474,6 +1508,7 @@ export function getComparisonRenderScript(): string {
                     drawLoopRegionOnCanvas(ctx, W, H);
                     drawCursorOnCanvas(ctx, W, H);
                     drawHoverLineOnCanvas(ctx, W, H);
+                    drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
                 }
 
                 const axisCanvas = document.getElementById(trackAxisCanvasId(trackIndex, channelIndex));
@@ -1722,6 +1757,29 @@ export function getComparisonRenderScript(): string {
                 if (typeof window.paintLoopRegion === 'function') {
                     window.paintLoopRegion(ctx, W, H, loopRegion.start, loopRegion.end, zoomStart, zoomEnd);
                 }
+            }
+
+            function drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex) {
+                if (!rectZoomSelection || rectZoomSelection.trackIndex !== trackIndex) { return; }
+                const span = zoomEnd - zoomStart;
+                if (span <= 0) { return; }
+                const x0 = (rectZoomSelection.startNorm - zoomStart) / span * W;
+                const x1 = (rectZoomSelection.endNorm - zoomStart) / span * W;
+                const y0 = amplitudeNormToCanvasY(rectZoomSelection.startAmpNorm, H);
+                const y1 = amplitudeNormToCanvasY(rectZoomSelection.endAmpNorm, H);
+                const left = Math.max(0, Math.min(x0, x1));
+                const right = Math.min(W, Math.max(x0, x1));
+                const top = Math.max(0, Math.min(y0, y1));
+                const bottom = Math.min(H, Math.max(y0, y1));
+                if (right <= left || bottom <= top) { return; }
+                ctx.save();
+                ctx.fillStyle = 'rgba(100, 160, 255, 0.16)';
+                ctx.strokeStyle = 'rgba(100, 160, 255, 0.95)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([5, 3]);
+                ctx.fillRect(left, top, right - left, bottom - top);
+                ctx.strokeRect(left, top, right - left, bottom - top);
+                ctx.restore();
             }
 
 
@@ -2878,8 +2936,7 @@ export function getComparisonRenderScript(): string {
                     setSpectrumHeight(SPECTRUM_HEIGHT_DEFAULT);
                 } else if (action === 'wave-mode-rect-zoom') {
                     waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
-                    const btnZ = document.getElementById('btn-wave-mode-rect-zoom');
-                    if (btnZ) { btnZ.setAttribute('aria-pressed', waveformMode === 'rect-zoom' ? 'true' : 'false'); }
+                    syncWaveformModeButton();
                 } else if (action === 'toggle-follow-cursor') {
                     followCursor = !followCursor;
                     const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
@@ -3004,6 +3061,14 @@ export function getComparisonRenderScript(): string {
             function updateZoomToSelectionBtn() {
                 var btn = document.getElementById('btn-zoom-to-selection');
                 if (btn) { btn.disabled = !loopRegion; }
+            }
+
+            function syncWaveformModeButton() {
+                const btn = document.getElementById('btn-wave-mode-rect-zoom');
+                if (!btn) { return; }
+                const active = waveformMode === 'rect-zoom';
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+                btn.classList.toggle('is-active', active);
             }
 
             function exportPng() {
@@ -3276,6 +3341,25 @@ export function getComparisonRenderScript(): string {
                 });
             }
 
+            function isAmplitudeZoomActive() {
+                return amplitudeZoomMinNorm > -0.999999 || amplitudeZoomMaxNorm < 0.999999;
+            }
+
+            function amplitudeNormToCanvasY(norm, height) {
+                if (isAmplitudeZoomActive()) {
+                    return ((amplitudeZoomMaxNorm - norm) / Math.max(amplitudeZoomMaxNorm - amplitudeZoomMinNorm, 1e-9)) * height;
+                }
+                return height / 2 - norm * (height * 0.44);
+            }
+
+            function canvasYToAmplitudeNorm(y, height) {
+                const clampedY = Math.max(0, Math.min(height, y));
+                if (isAmplitudeZoomActive()) {
+                    return amplitudeZoomMaxNorm - (clampedY / Math.max(height, 1)) * (amplitudeZoomMaxNorm - amplitudeZoomMinNorm);
+                }
+                return Math.max(-1, Math.min(1, (height / 2 - clampedY) / (height * 0.44)));
+            }
+
             function zoomIn() {
                 disableFollowCursor();
                 const center = (zoomStart + zoomEnd) / 2;
@@ -3298,6 +3382,9 @@ export function getComparisonRenderScript(): string {
                 disableFollowCursor();
                 zoomStart = 0;
                 zoomEnd = 1;
+                amplitudeZoomMinNorm = -1;
+                amplitudeZoomMaxNorm = 1;
+                rectZoomSelection = null;
                 scheduleRender();
             }
 
@@ -3594,18 +3681,28 @@ export function getComparisonRenderScript(): string {
                 if (e.button === 0) {
                     const rect = canvas.getBoundingClientRect();
                     const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
                     const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
-                    const gripType = getGripType(norm);
+                    const ampNorm = canvasYToAmplitudeNorm(y, canvas.height);
+                    const gripType = waveformMode === 'rect-zoom' ? null : getGripType(norm);
                     dragState = {
                         trackIndex: idx,
                         startClientX: e.clientX,
+                        startClientY: e.clientY,
                         startOffset: trackRuntime[idx].offsetSeconds,
                         canvasWidth: canvas.width,
+                        canvasHeight: canvas.height,
                         isDrag: false,
                         isShift: e.shiftKey,
                         startNorm: norm,
-                        dragType: gripType || (e.shiftKey ? 'offset' : 'loop'),
+                        startAmpNorm: ampNorm,
+                        dragType: gripType || (e.shiftKey ? 'offset' : (waveformMode === 'rect-zoom' ? 'rectZoom' : 'loop')),
                     };
+                    if (dragState.dragType === 'rectZoom') {
+                        loopRegion = null;
+                        updateLoopTimeDisplay();
+                        updateZoomToSelectionBtn();
+                    }
                     canvas.focus();
                 }
             }
@@ -3613,7 +3710,8 @@ export function getComparisonRenderScript(): string {
             function handleDocMouseMove(e) {
                 if (!dragState) { return; }
                 const dx = e.clientX - dragState.startClientX;
-                if (Math.abs(dx) > 3) { dragState.isDrag = true; }
+                const dy = e.clientY - dragState.startClientY;
+                if (Math.abs(dx) > 3 || Math.abs(dy) > 3) { dragState.isDrag = true; }
                 if (!dragState.isDrag) { return; }
                 disableFollowCursor();
                 hideTooltip();
@@ -3632,6 +3730,22 @@ export function getComparisonRenderScript(): string {
                     const s = Math.min(dragState.startNorm, norm);
                     const end = Math.max(dragState.startNorm, norm);
                     if (end > s) { loopRegion = { start: s, end: end }; updateLoopTimeDisplay(); updateZoomToSelectionBtn(); }
+                } else if (dragState.dragType === 'rectZoom') {
+                    const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
+                    if (!canvasEl) { scheduleRender(); return; }
+                    const rect = canvasEl.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    const norm = Math.max(0, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
+                    const ampNorm = canvasYToAmplitudeNorm(y, dragState.canvasHeight);
+                    rectZoomSelection = {
+                        trackIndex: dragState.trackIndex,
+                        startNorm: dragState.startNorm,
+                        endNorm: norm,
+                        startAmpNorm: dragState.startAmpNorm,
+                        endAmpNorm: ampNorm,
+                    };
+                    updateUiSmokeWaveformState();
                 } else if (dragState.dragType === 'gripStart') {
                     const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
                     if (!canvasEl || !loopRegion) { scheduleRender(); return; }
@@ -3652,7 +3766,7 @@ export function getComparisonRenderScript(): string {
 
             function handleDocMouseUp(e) {
                 const hadDrag = !!dragState;
-                const wasRectZoom = hadDrag && dragState.isDrag && dragState.dragType === 'loop' && waveformMode === 'rect-zoom';
+                const wasRectZoom = hadDrag && dragState.isDrag && dragState.dragType === 'rectZoom' && waveformMode === 'rect-zoom';
                 if (dragState && !dragState.isDrag) {
                     // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
                     const canvasId = 'track-canvas-' + dragState.trackIndex;
@@ -3669,15 +3783,25 @@ export function getComparisonRenderScript(): string {
                         scheduleRender();
                     }
                 }
+                const completedRectZoom = wasRectZoom && rectZoomSelection ? Object.assign({}, rectZoomSelection) : null;
                 dragState = null;
-                if (wasRectZoom && loopRegion) {
-                    const pad = (loopRegion.end - loopRegion.start) * 0.05;
-                    disableFollowCursor();
-                    zoomStart = Math.max(0, loopRegion.start - pad);
-                    zoomEnd   = Math.min(1, loopRegion.end + pad);
+                if (completedRectZoom) {
+                    const start = Math.min(completedRectZoom.startNorm, completedRectZoom.endNorm);
+                    const end = Math.max(completedRectZoom.startNorm, completedRectZoom.endNorm);
+                    const ampMin = Math.min(completedRectZoom.startAmpNorm, completedRectZoom.endAmpNorm);
+                    const ampMax = Math.max(completedRectZoom.startAmpNorm, completedRectZoom.endAmpNorm);
+                    rectZoomSelection = null;
+                    if (end - start > 0.001 && ampMax - ampMin > 0.001) {
+                        disableFollowCursor();
+                        zoomStart = Math.max(0, start);
+                        zoomEnd = Math.min(1, end);
+                        amplitudeZoomMinNorm = ampMin;
+                        amplitudeZoomMaxNorm = ampMax;
+                    }
                     loopRegion = null;
                     updateZoomToSelectionBtn();
                     updateLoopTimeDisplay();
+                    updateUiSmokeWaveformState();
                     scheduleRender();
                     return;
                 }
