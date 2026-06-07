@@ -707,22 +707,14 @@ test('renderScript: missing spectrogram requests a spectrum slice at cursor', as
     assert.equal(typeof sliceRequests[0].cursorNorm, 'number');
 });
 
-test('renderScript: selected multichannel lazy spectrum request includes channel index', async () => {
+test('renderScript: multichannel lazy spectrum requests all channel indices', async () => {
     const state = JSON.parse(MULTICHANNEL_APP_STATE);
     state.results[0].channels.forEach((channel: any) => { channel.spectrogram = null; });
     const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
 
-    const select = env.dom.window.document.querySelector('[data-action="select-channel"][data-track-index="0"]') as HTMLSelectElement | null;
-    assert.ok(select, 'channel selector が存在すること');
-    select!.value = '1';
-    select!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
-    await nextAnimationFrame(env.dom);
-
     const sliceRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
-    const latest = sliceRequests[sliceRequests.length - 1];
-    assert.ok(latest, 'selected channel should request a lazy spectrum slice');
-    assert.equal(latest.channelIndex, 1);
+    assert.deepEqual(sliceRequests.map((req) => req.channelIndex).sort(), [0, 1]);
     env.dom.window.close();
 });
 
@@ -916,7 +908,7 @@ test('再生ボタンで play 状態に切り替わる', async () => {
     dom.window.close();
 });
 
-test('renderScript: channel selection preserves playback button state after row rebuild', async () => {
+test('renderScript: results pane rebuild preserves playback button state', async () => {
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
     const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
@@ -929,10 +921,10 @@ test('renderScript: channel selection preserves playback button state after row 
     await Promise.resolve();
     assert.equal(playButton!.textContent, '⏸');
 
-    const select = env.dom.window.document.querySelector('[data-action="select-channel"][data-track-index="0"]') as HTMLSelectElement | null;
-    assert.ok(select, 'channel selector が存在すること');
-    select!.value = '1';
-    select!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'analysis-update',
+        results: JSON.parse(MULTICHANNEL_APP_STATE).results,
+    } }));
     await nextAnimationFrame(env.dom);
 
     const rebuiltPlayButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
@@ -1704,25 +1696,26 @@ test('renderScript: export-csv creates a download anchor with data URI', async (
     }
 });
 
-test('renderScript: multichannel track UI labels the displayed channel', async () => {
+test('renderScript: multichannel track UI renders all channel sublanes without a selector', async () => {
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
 
-    const select = env.dom.window.document.querySelector('[data-action="select-channel"][data-track-index="0"]') as HTMLSelectElement | null;
-    assert.ok(select, 'channel selector が存在すること');
-    select!.value = '1';
-    select!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
-    await nextAnimationFrame(env.dom);
+    assert.equal(env.dom.window.document.querySelector('[data-action="select-channel"]'), null);
+    assert.equal(env.dom.window.document.querySelectorAll('#track-row-0 .track-channel-lane').length, 2);
 
     const metaText = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-meta'))
         .map((el) => el.textContent || '')
         .join(' ');
-    assert.match(metaText, /Displayed: Channel 2 \/ 2 \(Right\)/);
-    assert.match(metaText, /RMS \(Channel 2 \/ 2 \(Right\)\): -1\.9 dBFS/);
-    assert.doesNotMatch(metaText, /Channel 1 \/ 2 \(Left\)/);
+    assert.match(metaText, /Total: 2 ch/);
+    assert.doesNotMatch(metaText, /Displayed:/);
+
+    const laneTexts = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-channel-lane-header'))
+        .map((el) => el.textContent || '');
+    assert.ok(laneTexts.some((text) => /Channel 1 \/ 2 \(Left\).*RMS -20\.0 dBFS.*Peak -6\.0 dBFS.*440 Hz/.test(text)), laneTexts.join('\n'));
+    assert.ok(laneTexts.some((text) => /Channel 2 \/ 2 \(Right\).*RMS -1\.9 dBFS.*Peak -0\.4 dBFS.*880 Hz/.test(text)), laneTexts.join('\n'));
 
     const metricsText = env.dom.window.document.querySelector('#metrics-item-0')?.textContent || '';
-    assert.match(metricsText, /stereo\.wav \[Channel 2 \/ 2 \(Right\)\]: RMS -1\.9 dBFS \/ Peak -0\.4 dBFS \/ 880 Hz/);
+    assert.match(metricsText, /stereo\.wav: Channel 1 \/ 2 \(Left\) RMS -20\.0 dBFS \/ Peak -6\.0 dBFS \/ 440 Hz; Channel 2 \/ 2 \(Right\) RMS -1\.9 dBFS \/ Peak -0\.4 dBFS \/ 880 Hz/);
     env.dom.window.close();
 });
 
@@ -1732,14 +1725,8 @@ function decodeDataUriPayload(uri: string): string {
     return decodeURIComponent(uri.slice(comma + 1));
 }
 
-test('renderScript: multichannel CSV names the displayed spectrum channel', async () => {
+test('renderScript: multichannel CSV includes all spectrum channels', async () => {
     const env = setupMultichannelEnv();
-    await nextAnimationFrame(env.dom);
-
-    const select = env.dom.window.document.querySelector('[data-action="select-channel"][data-track-index="0"]') as HTMLSelectElement | null;
-    assert.ok(select, 'channel selector が存在すること');
-    select!.value = '1';
-    select!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
     await nextAnimationFrame(env.dom);
 
     const created: HTMLAnchorElement[] = [];
@@ -1758,21 +1745,15 @@ test('renderScript: multichannel CSV names the displayed spectrum channel', asyn
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const csv = decodeDataUriPayload(anchor!.href);
-        assert.equal(csv.split('\n')[0], 'frequency_hz,stereo.wav Channel 2 / 2 (Right)');
+        assert.equal(csv.split('\n')[0], 'frequency_hz,stereo.wav Channel 1 / 2 (Left),stereo.wav Channel 2 / 2 (Right)');
     } finally {
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();
     }
 });
 
-test('renderScript: multichannel report names the displayed RMS peak and spectrum channel', async () => {
+test('renderScript: multichannel report lists all RMS peak and spectrum channels', async () => {
     const env = setupMultichannelEnv();
-    await nextAnimationFrame(env.dom);
-
-    const select = env.dom.window.document.querySelector('[data-action="select-channel"][data-track-index="0"]') as HTMLSelectElement | null;
-    assert.ok(select, 'channel selector が存在すること');
-    select!.value = '1';
-    select!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
     await nextAnimationFrame(env.dom);
 
     env.dom.window.document.querySelector('[data-action="export-report"]')?.dispatchEvent(
@@ -1781,15 +1762,17 @@ test('renderScript: multichannel report names the displayed RMS peak and spectru
 
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message が送信されること');
-    assert.match(msg.markdownContent, /\| File \| Sample Rate \| Duration \| Channels \| Displayed Channel \| RMS \| Peak \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| 44100 Hz \| 1\.000s \| 2 \| Channel 2 \/ 2 \(Right\) \| -1\.9 dBFS \| -0\.4 dBFS \|/);
+    assert.match(msg.markdownContent, /\| File \| Channel \| Sample Rate \| Duration \| Channels \| RMS \| Peak \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| -20\.0 dBFS \| -6\.0 dBFS \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| -1\.9 dBFS \| -0\.4 dBFS \|/);
+    assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 1 \/ 2 \(Left\)\)/);
+    assert.match(msg.markdownContent, /\| 440\.0 \| -12\.0 \|/);
     assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 2 \/ 2 \(Right\)\)/);
     assert.match(msg.markdownContent, /\| 880\.0 \| -3\.0 \|/);
-    assert.doesNotMatch(msg.markdownContent, /440\.0/);
     env.dom.window.close();
 });
 
-test('renderScript: multichannel report sanitizes displayed channel markdown', async () => {
+test('renderScript: multichannel report sanitizes channel markdown', async () => {
     const state = JSON.parse(MULTICHANNEL_APP_STATE);
     state.results[0].channels[0].label = 'Left | unsafe\n## injected';
     const env = setupEnvWithState(JSON.stringify(state));
