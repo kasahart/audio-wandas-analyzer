@@ -2110,6 +2110,7 @@ test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => 
 
     // 初期状態: aria-pressed=false, waveformMode=loop
     assert.strictEqual(btn!.getAttribute('aria-pressed'), 'false', '初期状態の aria-pressed は false であること');
+    assert.strictEqual(btn!.classList.contains('is-active'), false, '初期状態では active 表示ではないこと');
 
     // 1 回目クリック → rect-zoom に切り替わること
     env.dom.window.dispatchEvent(
@@ -2122,6 +2123,7 @@ test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => 
     const snap1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap1?.renderedUi?.waveformMode, 'rect-zoom', '1 回目クリック後に waveformMode が rect-zoom になること');
     assert.strictEqual(btn!.getAttribute('aria-pressed'), 'true',  '1 回目クリック後に aria-pressed が true になること');
+    assert.strictEqual(btn!.classList.contains('is-active'), true, '1 回目クリック後に active 表示になること');
 
     // 2 回目クリック → loop に戻ること
     env.dom.window.dispatchEvent(
@@ -2134,6 +2136,7 @@ test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => 
     const snap2 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap2?.renderedUi?.waveformMode, 'loop',     '2 回目クリック後に waveformMode が loop に戻ること');
     assert.strictEqual(btn!.getAttribute('aria-pressed'), 'false', '2 回目クリック後に aria-pressed が false に戻ること');
+    assert.strictEqual(btn!.classList.contains('is-active'), false, '2 回目クリック後に active 表示が解除されること');
 
     env.dom.window.close();
 });

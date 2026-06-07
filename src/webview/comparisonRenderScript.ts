@@ -665,6 +665,7 @@ export function getComparisonRenderScript(): string {
             const app = document.getElementById('app');
             app.innerHTML = buildLayout();
             syncPythonEnvironmentButton();
+            syncWaveformModeButton();
             attachEvents();
             // Defer first render so the browser has time to calculate flex layout
             requestAnimationFrame(function() {
@@ -2704,8 +2705,7 @@ export function getComparisonRenderScript(): string {
                     setSpectrumHeight(SPECTRUM_HEIGHT_DEFAULT);
                 } else if (action === 'wave-mode-rect-zoom') {
                     waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
-                    const btnZ = document.getElementById('btn-wave-mode-rect-zoom');
-                    if (btnZ) { btnZ.setAttribute('aria-pressed', waveformMode === 'rect-zoom' ? 'true' : 'false'); }
+                    syncWaveformModeButton();
                 } else if (action === 'toggle-follow-cursor') {
                     followCursor = !followCursor;
                     const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
@@ -2818,6 +2818,14 @@ export function getComparisonRenderScript(): string {
             function updateZoomToSelectionBtn() {
                 var btn = document.getElementById('btn-zoom-to-selection');
                 if (btn) { btn.disabled = !loopRegion; }
+            }
+
+            function syncWaveformModeButton() {
+                const btn = document.getElementById('btn-wave-mode-rect-zoom');
+                if (!btn) { return; }
+                const active = waveformMode === 'rect-zoom';
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+                btn.classList.toggle('is-active', active);
             }
 
             function exportPng() {

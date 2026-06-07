@@ -132,6 +132,16 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     await toolbar.locator('[data-action="zoom-out"]').click({ force: true });
     await toolbar.locator('[data-action="zoom-reset"]').click({ force: true });
 
+    const rectZoomButton = toolbar.locator('[data-action="wave-mode-rect-zoom"]');
+    await expect(rectZoomButton).toBeEnabled();
+    await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'false');
+    await rectZoomButton.click();
+    await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(rectZoomButton).toHaveClass(/is-active/);
+    await rectZoomButton.click();
+    await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(rectZoomButton).not.toHaveClass(/is-active/);
+
     const heightBefore = await getUiSmokeState(page);
     await openToolbarMenu(page, 0);
     await toolbar.locator('[data-action="track-height-input"]').fill('112');
