@@ -950,8 +950,8 @@ export function getComparisonRenderScript(): string {
                     const result = state.results[stateIdx];
                     const ch = displayedChannel(result);
                     const channelLabel = displayedChannelLabel(result);
-                    const rmsDb = ch ? (20 * Math.log10(Math.max(ch.rms, 1e-9))).toFixed(1) + ' dBFS' : '—';
-                    const peakDb = ch ? (20 * Math.log10(Math.max(ch.peakAbsolute, 1e-9))).toFixed(1) + ' dBFS' : '—';
+                    const rmsDb = ch ? (20 * Math.log10(Math.max(ch.rms, 1e-9))).toFixed(1) + ' dB' : '—';
+                    const peakDb = ch ? (20 * Math.log10(Math.max(ch.peakAbsolute, 1e-9))).toFixed(1) + ' dB' : '—';
                     const domHz = ch && ch.dominantFrequencies && ch.dominantFrequencies[0]
                         ? Math.round(ch.dominantFrequencies[0].frequencyHz) + ' Hz' : '—';
                     return '<div class="metrics-item" id="metrics-item-' + stateIdx + '"><div class="metrics-swatch" id="metrics-swatch-' + stateIdx + '" style="background:' + trackColor(stateIdx) + '"></div>'
@@ -1086,7 +1086,7 @@ export function getComparisonRenderScript(): string {
                     + (ch && ch.peakAbsolute >= 0.99 ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
                     + '  </div>'
                     + '  <div class="track-meta">Displayed: ' + escHtml(channelLabel) + ' &nbsp; Total: ' + result.channelCount + ' ch &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
-                    + '  <div class="track-meta">RMS (' + escHtml(channelLabel) + '): ' + (ch ? (20 * Math.log10(Math.max(ch.rms, 1e-9))).toFixed(1) + ' dBFS' : '—') + '</div>'
+                    + '  <div class="track-meta">RMS (' + escHtml(channelLabel) + '): ' + (ch ? (20 * Math.log10(Math.max(ch.rms, 1e-9))).toFixed(1) + ' dB' : '—') + '</div>'
                     + '  <div class="track-btns">'
                     + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
                     + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
@@ -2961,8 +2961,8 @@ export function getComparisonRenderScript(): string {
                 return (m > 0 ? m + 'm ' : '') + s + 's';
             }
 
-            function _dbfs(rms) {
-                return (20 * Math.log10(Math.max(rms, 1e-9))).toFixed(1) + ' dBFS';
+            function _dbLevel(rms) {
+                return (20 * Math.log10(Math.max(rms, 1e-9))).toFixed(1) + ' dB';
             }
 
             function _markdownInline(value) {
@@ -2987,8 +2987,8 @@ export function getComparisonRenderScript(): string {
                 ];
                 (state.results || []).forEach(function(r) {
                     var ch0 = displayedChannel(r);
-                    var rms = ch0 ? _dbfs(ch0.rms) : '-';
-                    var peak = ch0 ? _dbfs(ch0.peakAbsolute) : '-';
+                    var rms = ch0 ? _dbLevel(ch0.rms) : '-';
+                    var peak = ch0 ? _dbLevel(ch0.peakAbsolute) : '-';
                     var dur = r.durationSeconds ? _fmtSec(r.durationSeconds) : '-';
                     lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + _markdownTableCell(displayedChannelLabel(r)) + ' | ' + rms + ' | ' + peak + ' |');
                 });

@@ -1660,11 +1660,11 @@ test('renderScript: multichannel track UI labels the displayed channel', async (
 
     const rowText = env.dom.window.document.querySelector('#track-row-0')?.textContent || '';
     assert.match(rowText, /Displayed: Channel 1 \/ 2 \(Left\)/);
-    assert.match(rowText, /RMS \(Channel 1 \/ 2 \(Left\)\): -20\.0 dBFS/);
+    assert.match(rowText, /RMS \(Channel 1 \/ 2 \(Left\)\): -20\.0 dB/);
     assert.doesNotMatch(rowText, /Right/);
 
     const metricsText = env.dom.window.document.querySelector('#metrics-item-0')?.textContent || '';
-    assert.match(metricsText, /stereo\.wav \[Channel 1 \/ 2 \(Left\)\]: RMS -20\.0 dBFS \/ Peak -6\.0 dBFS \/ 440 Hz/);
+    assert.match(metricsText, /stereo\.wav \[Channel 1 \/ 2 \(Left\)\]: RMS -20\.0 dB \/ Peak -6\.0 dB \/ 440 Hz/);
     env.dom.window.close();
 });
 
@@ -1713,7 +1713,7 @@ test('renderScript: multichannel report names the displayed RMS peak and spectru
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message が送信されること');
     assert.match(msg.markdownContent, /\| File \| Sample Rate \| Duration \| Channels \| Displayed Channel \| RMS \| Peak \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| 44100 Hz \| 1\.000s \| 2 \| Channel 1 \/ 2 \(Left\) \| -20\.0 dBFS \| -6\.0 dBFS \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| 44100 Hz \| 1\.000s \| 2 \| Channel 1 \/ 2 \(Left\) \| -20\.0 dB \| -6\.0 dB \|/);
     assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 1 \/ 2 \(Left\)\)/);
     assert.match(msg.markdownContent, /\| 440\.0 \| -12\.0 \|/);
     assert.doesNotMatch(msg.markdownContent, /Right/);
