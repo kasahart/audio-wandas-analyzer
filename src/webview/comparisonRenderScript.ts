@@ -432,6 +432,7 @@ export function getComparisonRenderScript(): string {
             }
 
             // ── On-demand range cache ──
+            const OVERVIEW_PTS = 1200;
             // Per track: { startNorm, endNorm, channels[] } once a range response arrives
             const rangeCache = state.results.map(function() { return null; });
             // Per track: requestId of the in-flight request (null = no pending request)
@@ -613,25 +614,56 @@ export function getComparisonRenderScript(): string {
                 rangeRequestTimer = setTimeout(function() { checkAndRequestRanges(); }, 80);
             }
 
+            function waveformPointCount(waveform) {
+                if (!waveform) { return 0; }
+                return (waveform.min && waveform.min.length) || (waveform.samples && waveform.samples.length) || 0;
+            }
+
+            function computeTrackFileView(result, trackIndex, offsetSeconds) {
+                const dur = result.durationSeconds || 1;
+                const gs = computeGlobalSpan();
+                const offsetSec = offsetSeconds === undefined ? trackRuntime[trackIndex].offsetSeconds : offsetSeconds;
+                const trackStart = (offsetSec - gs.startSec) / gs.spanSec;
+                const trackDurRatio = dur / gs.spanSec;
+                const fileAtZoomStart = (zoomStart - trackStart) / trackDurRatio;
+                const fileAtZoomEnd   = (zoomEnd   - trackStart) / trackDurRatio;
+                return {
+                    trackStart: trackStart,
+                    trackDurRatio: trackDurRatio,
+                    fileAtZoomStart: fileAtZoomStart,
+                    fileAtZoomEnd: fileAtZoomEnd,
+                };
+            }
+
+            function isRangeCacheDrawable(cache) {
+                return !!(cache && cache.channels && cache.channels[0] && waveformPointCount(cache.channels[0]) > 0);
+            }
+
+            function rangeIntersectsView(cache, fileAtZoomStart, fileAtZoomEnd) {
+                if (!isRangeCacheDrawable(cache)) { return false; }
+                const viewStart = Math.max(0, Math.min(fileAtZoomStart, fileAtZoomEnd));
+                const viewEnd = Math.min(1, Math.max(fileAtZoomStart, fileAtZoomEnd));
+                return cache.startNorm < viewEnd && cache.endNorm > viewStart;
+            }
+
+            function overviewIsSufficient(result, W) {
+                const ch = result.channels[0];
+                const fullWaveform = ch && ch.waveform ? ch.waveform : null;
+                const pointCount = Math.max(waveformPointCount(fullWaveform), OVERVIEW_PTS);
+                return pointCount * (zoomEnd - zoomStart) >= W * 1.0;
+            }
+
             function checkAndRequestRanges() {
-                const OVERVIEW_PTS = 1200;
                 state.results.forEach(function(result, i) {
                     if (trackRuntime[i].hidden || result.error) { return; }
                     const canvas = document.getElementById('track-canvas-' + i);
                     const W = (canvas ? canvas.width : 0) || 800;
-                    const visibleOverview = OVERVIEW_PTS * (zoomEnd - zoomStart);
-                    // Request when overview resolution is insufficient: < 0.5 pts per pixel
-                    if (visibleOverview >= W * 1.0) { return; }
+                    if (overviewIsSufficient(result, W)) { return; }
 
-                    const dur = result.durationSeconds || 1;
-                    const gs = computeGlobalSpan();
-                    const trackStart = (trackRuntime[i].offsetSeconds - gs.startSec) / gs.spanSec;
-                    const trackDurRatio = dur / gs.spanSec;
-                    const fileAtZoomStart = (zoomStart - trackStart) / trackDurRatio;
-                    const fileAtZoomEnd   = (zoomEnd   - trackStart) / trackDurRatio;
-                    const fileSpan = fileAtZoomEnd - fileAtZoomStart;
-                    const reqStart = Math.max(0, fileAtZoomStart - 0.05 * fileSpan);
-                    const reqEnd   = Math.min(1, fileAtZoomEnd   + 0.05 * fileSpan);
+                    const fileView = computeTrackFileView(result, i);
+                    const fileSpan = fileView.fileAtZoomEnd - fileView.fileAtZoomStart;
+                    const reqStart = Math.max(0, fileView.fileAtZoomStart - 0.05 * fileSpan);
+                    const reqEnd   = Math.min(1, fileView.fileAtZoomEnd   + 0.05 * fileSpan);
                     const pts = Math.min(W * 2, 8000);
 
                     // Skip if cached range covers current view with sufficient density
@@ -639,10 +671,10 @@ export function getComparisonRenderScript(): string {
                     if (c && c.startNorm <= reqStart && c.endNorm >= reqEnd &&
                         c.channels && c.channels[0]) {
                         const ch0 = c.channels[0];
-                        const nPts = (ch0.min && ch0.min.length) || (ch0.samples && ch0.samples.length) || 0;
+                        const nPts = waveformPointCount(ch0);
                         if (nPts >= pts * 0.8) {
                             const cacheDataRange = Math.max(c.endNorm - c.startNorm, 1e-9);
-                            const ptsVisible = nPts * ((fileAtZoomEnd - fileAtZoomStart) / cacheDataRange);
+                            const ptsVisible = nPts * ((fileView.fileAtZoomEnd - fileView.fileAtZoomStart) / cacheDataRange);
                             if (ptsVisible >= W * 0.5) { return; }
                         }
                     }
@@ -1274,19 +1306,19 @@ export function getComparisonRenderScript(): string {
             }
 
             function resolveWaveformSource(result, trackIndex, offsetSeconds) {
-                const dur = result.durationSeconds || 1;
-                const gs = computeGlobalSpan();
-                const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
-                const trackDurRatio = dur / gs.spanSec;
-                const fileAtZoomStart = (zoomStart - trackStart) / trackDurRatio;
-                const fileAtZoomEnd   = (zoomEnd   - trackStart) / trackDurRatio;
+                const fileView = computeTrackFileView(result, trackIndex, offsetSeconds);
                 const ch = result.channels[0];
                 const fullWaveform = ch && ch.waveform ? ch.waveform : null;
                 const amplitudeScale = fullWaveform ? fullWaveform.absolutePeak : undefined;
                 const c = rangeCache[trackIndex];
-                if (c && c.channels && c.channels[0] && c.channels[0].samples &&
-                    c.startNorm <= Math.max(0, fileAtZoomStart) &&
-                    c.endNorm   >= Math.min(1, fileAtZoomEnd)) {
+                if (isRangeCacheDrawable(c) &&
+                    c.startNorm <= Math.max(0, fileView.fileAtZoomStart) &&
+                    c.endNorm   >= Math.min(1, fileView.fileAtZoomEnd)) {
+                    return { waveform: c.channels[0], dataStart: c.startNorm, dataEnd: c.endNorm, amplitudeScale: amplitudeScale };
+                }
+                const canvas = document.getElementById('track-canvas-' + trackIndex);
+                const W = (canvas ? canvas.width : 0) || 800;
+                if (!overviewIsSufficient(result, W) && rangeIntersectsView(c, fileView.fileAtZoomStart, fileView.fileAtZoomEnd)) {
                     return { waveform: c.channels[0], dataStart: c.startNorm, dataEnd: c.endNorm, amplitudeScale: amplitudeScale };
                 }
                 return fullWaveform
