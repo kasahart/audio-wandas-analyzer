@@ -3832,6 +3832,20 @@ export function getComparisonRenderScript(): string {
                 return Math.max(0, Math.min(1, (freqHz - visFreqMin) / range));
             }
 
+            function spectrumSeriesLabel(result, channelIndex) {
+                return result.fileName + ' / ' + channelLabel(result, channelIndex);
+            }
+
+            function spectrumReadoutText(series, snap, dbVal) {
+                return series.label
+                    + ' / '
+                    + formatReadoutHz(snap.freqHz)
+                    + ' / '
+                    + dbVal.toFixed(1)
+                    + ' '
+                    + dbLevelUnitFor(series.slice);
+            }
+
             function visibleSpectrumSlices() {
                 const slices = [];
                 displayOrder.forEach(function(i) {
@@ -3840,7 +3854,13 @@ export function getComparisonRenderScript(): string {
                     channelsForResult(result).forEach(function(_, channelIndex) {
                         const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, cursorNorm, channelIndex);
                         if (slice) {
-                            slices.push({ slice: slice, color: trackColor(i), index: i, channelIndex: channelIndex, name: spectrumReadoutTrackLabel(result, channelIndex) });
+                            slices.push({
+                                slice: slice,
+                                color: trackColor(i),
+                                index: i,
+                                channelIndex: channelIndex,
+                                label: spectrumSeriesLabel(result, channelIndex),
+                            });
                         }
                     });
                 });
@@ -4069,8 +4089,15 @@ export function getComparisonRenderScript(): string {
                     if (trackRuntime[i].hidden) { return; }
                     channelsForResult(result).forEach(function(_, channelIndex) {
                         const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, spectrumCursorNorm, channelIndex);
-                        if (slice) { slices.push({ slice: slice, color: trackColor(i), index: i, channelIndex: channelIndex, name: spectrumReadoutTrackLabel(result, channelIndex) }); }
-                        else if (isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm, channelIndex)) { pendingVisibleSlice = true; }
+                        if (slice) {
+                            slices.push({
+                                slice: slice,
+                                color: trackColor(i),
+                                index: i,
+                                channelIndex: channelIndex,
+                                label: spectrumSeriesLabel(result, channelIndex),
+                            });
+                        } else if (isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm, channelIndex)) { pendingVisibleSlice = true; }
                     });
                 });
 
@@ -4179,7 +4206,7 @@ export function getComparisonRenderScript(): string {
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl) {
                         if (nearest) {
-                            readoutEl.textContent = spectrumCursorReadoutText(nearest.s.name, nearest.snap.freqHz, nearest.dbVal, dbLevelUnitFor(nearest.s.slice));
+                            readoutEl.textContent = spectrumReadoutText(nearest.s, nearest.snap, nearest.dbVal);
                             readoutEl.style.color = nearest.s.color;
                         } else {
                             readoutEl.textContent = '';
