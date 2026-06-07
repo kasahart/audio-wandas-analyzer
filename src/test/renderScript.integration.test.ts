@@ -754,6 +754,8 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
         maxFrequencyHz: 22050,
         minDb: -120,
         maxDb: 10,
+        unit: 'dB',
+        axisLabel: 'Spectrum level [dB]',
     } }));
     await nextAnimationFrame(env.dom);
 
@@ -779,8 +781,8 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
     }
     assert.ok(snap, 'a spectrum snapshot with overlay labels should be published');
     const overlay = snap.renderedUi.axisLabels.spectrumOverlay as string[];
-    assert.ok(overlay.includes('0 dB'), `overlay should use configured max dB: ${JSON.stringify(overlay)}`);
-    assert.ok(overlay.includes('-60 dB'), `overlay should use configured min dB: ${JSON.stringify(overlay)}`);
+    assert.ok(overlay.includes('0 dB'), `overlay should use configured max dB with wandas slice unit: ${JSON.stringify(overlay)}`);
+    assert.ok(overlay.includes('-60 dB'), `overlay should use configured min dB with wandas slice unit: ${JSON.stringify(overlay)}`);
     assert.ok(overlay.some((label) => label === '1.0 kHz'), `overlay should use configured max frequency: ${JSON.stringify(overlay)}`);
 });
 
@@ -1762,11 +1764,11 @@ test('renderScript: multichannel track UI renders all channel sublanes without a
 
     const laneTexts = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-channel-lane-header'))
         .map((el) => el.textContent || '');
-    assert.ok(laneTexts.some((text) => /Channel 1 \/ 2 \(Left\).*RMS -20\.0 dBFS.*Peak -6\.0 dBFS.*440 Hz/.test(text)), laneTexts.join('\n'));
-    assert.ok(laneTexts.some((text) => /Channel 2 \/ 2 \(Right\).*RMS -1\.9 dBFS.*Peak -0\.4 dBFS.*880 Hz/.test(text)), laneTexts.join('\n'));
+    assert.ok(laneTexts.some((text) => /Channel 1 \/ 2 \(Left\).*RMS -20\.0 dB.*Peak -6\.0 dB.*440 Hz/.test(text)), laneTexts.join('\n'));
+    assert.ok(laneTexts.some((text) => /Channel 2 \/ 2 \(Right\).*RMS -1\.9 dB.*Peak -0\.4 dB.*880 Hz/.test(text)), laneTexts.join('\n'));
 
     const metricsText = env.dom.window.document.querySelector('#metrics-item-0')?.textContent || '';
-    assert.match(metricsText, /stereo\.wav: Channel 1 \/ 2 \(Left\) RMS -20\.0 dBFS \/ Peak -6\.0 dBFS \/ 440 Hz; Channel 2 \/ 2 \(Right\) RMS -1\.9 dBFS \/ Peak -0\.4 dBFS \/ 880 Hz/);
+    assert.match(metricsText, /stereo\.wav: Channel 1 \/ 2 \(Left\) RMS -20\.0 dB \/ Peak -6\.0 dB \/ 440 Hz; Channel 2 \/ 2 \(Right\) RMS -1\.9 dB \/ Peak -0\.4 dB \/ 880 Hz/);
     env.dom.window.close();
 });
 
@@ -1796,7 +1798,7 @@ test('renderScript: multichannel CSV includes all spectrum channels', async () =
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const csv = decodeDataUriPayload(anchor!.href);
-        assert.equal(csv.split('\n')[0], 'frequency_hz,stereo.wav Channel 1 / 2 (Left),stereo.wav Channel 2 / 2 (Right)');
+        assert.equal(csv.split('\n')[0], 'frequency_hz,stereo.wav Channel 1 / 2 (Left) Spectrum level [dB],stereo.wav Channel 2 / 2 (Right) Spectrum level [dB]');
     } finally {
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();
@@ -1814,8 +1816,8 @@ test('renderScript: multichannel report lists all RMS peak and spectrum channels
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message が送信されること');
     assert.match(msg.markdownContent, /\| File \| Channel \| Sample Rate \| Duration \| Channels \| RMS \| Peak \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| -20\.0 dBFS \| -6\.0 dBFS \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| -1\.9 dBFS \| -0\.4 dBFS \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| -20\.0 dB \| -6\.0 dB \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| -1\.9 dB \| -0\.4 dB \|/);
     assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 1 \/ 2 \(Left\)\)/);
     assert.match(msg.markdownContent, /\| 440\.0 \| -12\.0 \|/);
     assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 2 \/ 2 \(Right\)\)/);

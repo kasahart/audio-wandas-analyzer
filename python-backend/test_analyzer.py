@@ -35,6 +35,9 @@ def test_analyze_audio_defaults(tmp_path: Path) -> None:
     assert spec["windowSize"] > 0
     assert spec["hopSize"] > 0
     assert ch["unit"] is None
+    assert result["units"]["spectrumLevel"] == {"unit": "dB", "axisLabel": "Spectrum level [dB]"}
+    assert result["units"]["spectrogramLevel"] == {"unit": "dB", "axisLabel": "Spectrum level [dB]"}
+    assert result["units"]["amplitudeLevel"] == {"unit": "dB", "axisLabel": "Amplitude level [dB]"}
 
 
 def test_analyze_from_frame_includes_channel_unit(tmp_path: Path) -> None:
@@ -48,6 +51,31 @@ def test_analyze_from_frame_includes_channel_unit(tmp_path: Path) -> None:
 
     assert result["channels"][0]["unit"] == "Pa"
     assert result["channels"][0]["waveform"]["absolutePeak"] == pytest.approx(0.5)
+
+
+def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: Path) -> None:
+    sample_rate = 1024
+    sample_count = 1024
+    amplitude = 0.5
+    frequency_hz = 128.0
+    time = np.arange(sample_count, dtype=np.float64) / sample_rate
+    samples = amplitude * np.sin(2 * math.pi * frequency_hz * time)
+    frame = wd.ChannelFrame.from_numpy(samples, sampling_rate=sample_rate)
+
+    result = analyze_from_frame(
+        frame,
+        tmp_path / "sine.wav",
+        peak_count=3,
+        stft_options={"n_fft": 256, "hop_size": 128, "window": "boxcar"},
+    )
+
+    expected_db = 20 * math.log10(amplitude)
+    channel = result["channels"][0]
+    matching_peaks = [peak for peak in channel["peaks"] if peak["freqHz"] == pytest.approx(frequency_hz, abs=0.2)]
+    assert matching_peaks
+    assert matching_peaks[0]["amplitudeDb"] == pytest.approx(expected_db, abs=0.01)
+    assert channel["spectrogram"]["maxDb"] == pytest.approx(expected_db, abs=0.01)
+    assert channel["spectrogram"]["axisLabel"] == "Spectrum level [dB]"
 
 
 def test_analyze_range_uses_same_pcm_scale_as_overview(tmp_path: Path) -> None:
@@ -148,6 +176,8 @@ def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
     assert value == pytest.approx(-120.0)
     assert spec["minDb"] == pytest.approx(-120.0)
     assert spec["maxDb"] == pytest.approx(-120.0)
+    assert spec["unit"] == "dB"
+    assert spec["axisLabel"] == "Spectrum level [dB]"
 
 
 def test_analyze_audio_rejects_bad_options(tmp_path: Path) -> None:

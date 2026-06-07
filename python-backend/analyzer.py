@@ -26,6 +26,24 @@ WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
 SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
 SPECTROGRAM_DB_RANGE = 90.0
+DB_UNIT = "dB"
+SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum level [dB]"
+AMPLITUDE_LEVEL_AXIS_LABEL = "Amplitude level [dB]"
+
+
+def _db_scale_metadata(axis_label: str) -> dict[str, str]:
+    return {
+        "unit": DB_UNIT,
+        "axisLabel": axis_label,
+    }
+
+
+def _analysis_units_metadata() -> dict[str, object]:
+    return {
+        "amplitudeLevel": _db_scale_metadata(AMPLITUDE_LEVEL_AXIS_LABEL),
+        "spectrumLevel": _db_scale_metadata(SPECTRUM_LEVEL_AXIS_LABEL),
+        "spectrogramLevel": _db_scale_metadata(SPECTRUM_LEVEL_AXIS_LABEL),
+    }
 
 
 def _channels_first(data: np.ndarray, channel_count: int, sample_count: int) -> np.ndarray:
@@ -107,7 +125,7 @@ def _spectrum_peaks(
     result = []
     for idx in top_idx:
         amplitude_db = 20.0 * np.log10(float(mag[idx]) + eps)
-        result.append({"freqHz": float(fr[idx]), "amplitudeDb": round(amplitude_db, 2)})
+        result.append({"freqHz": float(fr[idx]), "amplitudeDb": float(round(amplitude_db, 2))})
     return result
 
 
@@ -180,6 +198,8 @@ def _build_spectrogram(
             "maxFrequencyHz": float(sample_rate_hz / 2),
             "minDb": 0.0,
             "maxDb": 0.0,
+            "unit": DB_UNIT,
+            "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
         }
 
     spectrogram = np.asarray(spectrogram_db, dtype=np.float64)
@@ -201,6 +221,8 @@ def _build_spectrogram(
         "maxFrequencyHz": float(sample_rate_hz / 2),
         "minDb": min_db,
         "maxDb": max_db,
+        "unit": DB_UNIT,
+        "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
     }
 
 
@@ -342,6 +364,7 @@ def analyze_from_frame(
         "durationSeconds": float(frame.duration),
         "channelCount": channel_count,
         "sampleCount": sample_count,
+        "units": _analysis_units_metadata(),
         "channels": channels,
     }
 

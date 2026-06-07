@@ -53,12 +53,16 @@ export interface SpectrumSliceLike {
     maxFrequencyHz: number;
     minDb: number;
     maxDb: number;
+    unit?: string;
+    axisLabel?: string;
 }
 
 export interface SpectrogramSpecLike {
     minDb: number;
     maxDb: number;
     maxFrequencyHz: number;
+    unit?: string;
+    axisLabel?: string;
 }
 
 export interface SpectrogramAxesOpts {
@@ -233,9 +237,10 @@ export function drawSpectrogramColorbar(
     ctx.font = '9px monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(dbHi.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
+    const unit = spec.unit || 'dB';
+    ctx.fillText(dbHi.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY);
     ctx.textBaseline = 'bottom';
-    ctx.fillText(dbLo.toFixed(0) + ' dB', cbX + cbW + 2, cbY + cbH);
+    ctx.fillText(dbLo.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY + cbH);
     ctx.restore();
 }
 
@@ -312,11 +317,12 @@ export function drawSpectrumAxes(
     ctx.font = '9px monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText(slice.maxDb.toFixed(0) + ' dB', padL - 2, padT);
+    const unit = slice.unit || 'dB';
+    ctx.fillText(slice.maxDb.toFixed(0) + ' ' + unit, padL - 2, padT);
     ctx.textBaseline = 'middle';
-    ctx.fillText(((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' dB', padL - 2, padT + plotH / 2);
+    ctx.fillText(((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' ' + unit, padL - 2, padT + plotH / 2);
     ctx.textBaseline = 'bottom';
-    ctx.fillText(slice.minDb.toFixed(0) + ' dB', padL - 2, H - padB);
+    ctx.fillText(slice.minDb.toFixed(0) + ' ' + unit, padL - 2, H - padB);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillText('0 Hz', padL, H - 1);
