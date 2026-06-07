@@ -531,6 +531,8 @@ function registerPanelMessageHandler(
                         maxFrequencyHz: result.maxFrequencyHz,
                         minDb: result.minDb,
                         maxDb: result.maxDb,
+                        unit: result.unit,
+                        axisLabel: result.axisLabel,
                     });
                 }).catch((err) => {
                     void panel.webview.postMessage({

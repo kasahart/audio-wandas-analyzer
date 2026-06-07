@@ -80,7 +80,7 @@ export class PythonBackendServer {
         filePath: string,
         payload: { trackIndex: number; analysisId: string; settingsSignature: string; cursorNorm: number; stftOptions?: AnalyzeStftOptions },
         requestId: string,
-    ): Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }> {
+    ): Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; unit?: string; axisLabel?: string; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }> {
         return this.request(
             'spectrum-slice',
             {
@@ -92,7 +92,7 @@ export class PythonBackendServer {
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
             },
             requestId,
-        ) as Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }>;
+        ) as Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; unit?: string; axisLabel?: string; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }>;
     }
 
     async exportWavLoop(

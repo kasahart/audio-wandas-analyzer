@@ -710,6 +710,7 @@ export function getComparisonRenderScript(): string {
                 const spectrumPerTrack = [];
                 const waveformPerTrack = [];
                 let overlayMinDb = Infinity, overlayMaxDb = -Infinity, overlayMaxF = 0;
+                let overlayDbSource = null;
                 const trackInfo = state.results.map(function(result, trackIndex) {
                     const dur = result.durationSeconds || 1;
                     const gs = computeGlobalSpan();
@@ -727,6 +728,7 @@ export function getComparisonRenderScript(): string {
                         if (slice.minDb < overlayMinDb) { overlayMinDb = slice.minDb; }
                         if (slice.maxDb > overlayMaxDb) { overlayMaxDb = slice.maxDb; }
                         if (slice.maxFrequencyHz > overlayMaxF) { overlayMaxF = slice.maxFrequencyHz; }
+                        if (!overlayDbSource) { overlayDbSource = slice; }
                     }
                     waveformPerTrack.push(waveformAxisLabelsForResult(result));
                     const ch0 = result.channels && result.channels[0];
@@ -833,9 +835,9 @@ export function getComparisonRenderScript(): string {
                                     const visOvFMin   = specFreqStart * overlayMaxF;
                                     const visOvFMax   = specFreqEnd   * overlayMaxF;
                                     return [
-                                        formatDbLevel(visOvDbMax, null),
-                                        formatDbLevel((visOvDbMax + visOvDbMin) / 2, null),
-                                        formatDbLevel(visOvDbMin, null),
+                                        formatDbLevel(visOvDbMax, overlayDbSource),
+                                        formatDbLevel((visOvDbMax + visOvDbMin) / 2, overlayDbSource),
+                                        formatDbLevel(visOvDbMin, overlayDbSource),
                                         formatHz(visOvFMin), formatHz((visOvFMin + visOvFMax) / 2), formatHz(visOvFMax),
                                     ];
                                 })()

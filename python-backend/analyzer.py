@@ -30,7 +30,7 @@ DB_UNIT = "dB"
 DB_REFERENCE_VALUE = 1.0
 SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum level [dB]"
 AMPLITUDE_LEVEL_AXIS_LABEL = "Amplitude level [dB]"
-DB_SCALE_EXPRESSION = "20 * log10(value / 1.0)"
+DB_SCALE_EXPRESSION = f"20 * log10(value / {DB_REFERENCE_VALUE})"
 
 
 def _db_scale_metadata(axis_label: str) -> dict[str, object]:
