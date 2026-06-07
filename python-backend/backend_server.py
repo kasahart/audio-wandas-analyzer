@@ -148,6 +148,7 @@ def _spectrum_slice_values(
     file_path: str,
     entry: CachedFile,
     cursor_norm: float,
+    channel_index: int,
     stft_options: dict | None,
 ) -> dict[str, object]:
     window_size, hop_size, window_name = _resolve_stft_params(entry.sample_count, stft_options)
@@ -172,7 +173,9 @@ def _spectrum_slice_values(
     read_start = max(0, start_sample)
     read_stop = min(entry.sample_count, max(read_start, start_sample + window_size))
     frame, _resolved_path = load_audio_frame(file_path)
-    sliced_frame = frame[0, read_start:read_stop]
+    if channel_index < 0 or channel_index >= entry.channel_count:
+        raise ValueError(f"channelIndex out of range: {channel_index}")
+    sliced_frame = frame[channel_index, read_start:read_stop]
     spectrum = sliced_frame.fft(n_fft=window_size, window=window_name)
     values = np.asarray(spectrum.dB, dtype=np.float64)
     if values.ndim == 2:
@@ -194,9 +197,11 @@ def handle_spectrum_slice(cmd: dict) -> dict:
     file_path = str(cmd["filePath"])
     entry = _get_cached(file_path)
     cursor_norm = float(cmd.get("cursorNorm", cmd.get("trackLocalNorm", 0.0)))
-    slice_data = _spectrum_slice_values(file_path, entry, cursor_norm, _stft_options_from_payload(cmd))
+    channel_index = int(cmd.get("channelIndex", 0))
+    slice_data = _spectrum_slice_values(file_path, entry, cursor_norm, channel_index, _stft_options_from_payload(cmd))
     return {
         "trackIndex": int(cmd.get("trackIndex", -1)),
+        "channelIndex": channel_index,
         "analysisId": cmd.get("analysisId"),
         "settingsSignature": cmd.get("settingsSignature"),
         "filePath": file_path,

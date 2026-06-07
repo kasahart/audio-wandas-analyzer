@@ -1,3 +1,8 @@
+---
+name: ux-cognitive-auditor
+description: Use when auditing screenshots or live UI for cognitive load, usability friction, and heuristic violations.
+---
+
 # Skill: UX Cognitive Auditor (UX認知的負荷監査スキル)
 
 This skill defines the methodology, heuristics evaluation criteria, and checklist for assessing the extraneous cognitive load and UX of the Audio Wandas Analyzer VS Code Extension using screenshots captured from a live VS Code Electron environment.

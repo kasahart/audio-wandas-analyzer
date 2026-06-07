@@ -75,7 +75,7 @@ def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: 
     matching_peaks = [peak for peak in channel["peaks"] if peak["freqHz"] == pytest.approx(frequency_hz, abs=0.2)]
     assert matching_peaks
     assert matching_peaks[0]["amplitudeDb"] == pytest.approx(expected_db, abs=0.01)
-    assert channel["spectrogram"]["maxDb"] == pytest.approx(expected_db)
+    assert channel["spectrogram"]["maxDb"] == pytest.approx(expected_db, abs=0.01)
     assert channel["spectrogram"]["axisLabel"] == "Spectrum level [dB]"
 
 

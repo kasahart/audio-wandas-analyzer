@@ -68,6 +68,7 @@ test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () 
         trackIndex: 0,
         filePath: '/tmp/a.wav',
         cursorNorm: 0.25,
+        channelIndex: 1,
     }), true);
     assert.equal(isRequestSpectrumSliceMessage({
         type: 'request-spectrum-slice',
@@ -77,5 +78,16 @@ test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () 
         trackIndex: 0,
         filePath: '/tmp/a.wav',
         cursorNorm: '0.25',
+        channelIndex: 1,
+    }), false);
+    assert.equal(isRequestSpectrumSliceMessage({
+        type: 'request-spectrum-slice',
+        requestId: 'slice-1',
+        analysisId: 'analysis-1',
+        settingsSignature: 'settings-1',
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        cursorNorm: 0.25,
+        channelIndex: '1',
     }), false);
 });
