@@ -1231,6 +1231,7 @@ export function getComparisonRenderScript(): string {
 
             // ── Rendering ──
             function renderAll() {
+                updateUiSmokeSpectrumState();
                 resizeAllCanvases();
                 renderRuler();
                 renderStackedTracks();
@@ -2928,6 +2929,7 @@ export function getComparisonRenderScript(): string {
                 }
                 trackHeight = next;
                 syncHeightInputs();
+                updateUiSmokeSpectrumState();
                 updatePlaybackButtons();
                 Object.keys(canvasWidthCache).forEach(function(key) { delete canvasWidthCache[key]; });
                 scheduleRender();
@@ -2950,6 +2952,7 @@ export function getComparisonRenderScript(): string {
                 }
                 spectrumOverlayHeight = next;
                 syncHeightInputs();
+                updateUiSmokeSpectrumState();
                 syncSpectrumCanvasCssHeight();
                 scheduleSpectrumRefresh('immediate');
             }
@@ -4209,17 +4212,9 @@ export function getComparisonRenderScript(): string {
             }
 
             function refreshSpectrumViews() {
-                const uiSmokeState = (typeof window !== 'undefined') ? window.__uiSmokeState : null;
                 renderTrackSpectra();
                 renderOverlaySpectrum();
-                if (uiSmokeState) {
-                    uiSmokeState.spectrumZoom = {
-                        specFreqStart: specFreqStart,
-                        specFreqEnd: specFreqEnd,
-                        specDbMin: specDbMin,
-                        specDbMax: specDbMax,
-                    };
-                }
+                updateUiSmokeSpectrumState();
                 const el = document.getElementById('spectrum-cursor-time');
                 if (el) {
                     const gs = computeGlobalSpan();
