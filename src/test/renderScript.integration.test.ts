@@ -725,8 +725,8 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
         maxFrequencyHz: 22050,
         minDb: -120,
         maxDb: 10,
-        unit: 'dBFS',
-        axisLabel: 'Spectrum level [dBFS]',
+        unit: 'dB',
+        axisLabel: 'Spectrum level [dB]',
     } }));
     await nextAnimationFrame(env.dom);
 
@@ -752,8 +752,8 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
     }
     assert.ok(snap, 'a spectrum snapshot with overlay labels should be published');
     const overlay = snap.renderedUi.axisLabels.spectrumOverlay as string[];
-    assert.ok(overlay.includes('0 dBFS'), `overlay should use configured max dB with slice unit: ${JSON.stringify(overlay)}`);
-    assert.ok(overlay.includes('-60 dBFS'), `overlay should use configured min dB with slice unit: ${JSON.stringify(overlay)}`);
+    assert.ok(overlay.includes('0 dB'), `overlay should use configured max dB with wandas slice unit: ${JSON.stringify(overlay)}`);
+    assert.ok(overlay.includes('-60 dB'), `overlay should use configured min dB with wandas slice unit: ${JSON.stringify(overlay)}`);
     assert.ok(overlay.some((label) => label === '1.0 kHz'), `overlay should use configured max frequency: ${JSON.stringify(overlay)}`);
 });
 
