@@ -143,9 +143,14 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     await expect(overlayCanvas).toHaveCSS('height', '180px');
     const overlayBoxAfter = await overlayCanvas.boundingBox();
     expect(overlayBoxAfter).not.toBeNull();
-    const heightAfter = await getUiSmokeState(page);
-    expect(heightAfter.spectrumZoom?.trackHeight).toBeGreaterThan(heightBefore.spectrumZoom?.trackHeight ?? 0);
-    expect(heightAfter.spectrumZoom?.spectrumOverlayHeight).toBeGreaterThan(heightBefore.spectrumZoom?.spectrumOverlayHeight ?? 0);
+    await expect.poll(async () => {
+        const state = await getUiSmokeState(page);
+        return state.spectrumZoom?.trackHeight;
+    }).toBeGreaterThan(heightBefore.spectrumZoom?.trackHeight ?? 0);
+    await expect.poll(async () => {
+        const state = await getUiSmokeState(page);
+        return state.spectrumZoom?.spectrumOverlayHeight;
+    }).toBeGreaterThan(heightBefore.spectrumZoom?.spectrumOverlayHeight ?? 0);
     expect(overlayBoxAfter!.height).toBeGreaterThan(overlayBoxBefore!.height);
     await toolbar.locator('[data-action="track-height-reset"]').click({ force: true });
     await toolbar.locator('[data-action="spectrum-height-reset"]').click({ force: true });

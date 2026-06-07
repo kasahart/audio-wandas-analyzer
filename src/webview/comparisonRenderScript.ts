@@ -167,7 +167,7 @@ export function getComparisonRenderScript(): string {
             }
 
             function runSpectrumRefresh(allowSliceRequests, advanceCursor) {
-                if (updateUiSmokeSpectrumState()) { return; }
+                updateUiSmokeSpectrumState();
                 if (advanceCursor !== false) { spectrumCursorNorm = cursorNorm; }
                 spectrumRafPending = false;
                 if (spectrumTimerId !== null) { clearTimeout(spectrumTimerId); spectrumTimerId = null; }
@@ -192,7 +192,7 @@ export function getComparisonRenderScript(): string {
             }
 
             function scheduleSpectrumRefresh(mode) {
-                if (updateUiSmokeSpectrumState()) { return; }
+                updateUiSmokeSpectrumState();
                 const kind = mode || 'interactive';
                 if (kind === 'immediate') {
                     flushSpectrumRefresh();
@@ -284,6 +284,16 @@ export function getComparisonRenderScript(): string {
                 const base = 'Channel ' + channelNumber + (count > 1 ? ' / ' + count : '');
                 const ch = channels[channelIndex];
                 return ch && ch.label && ch.label !== ('Channel ' + channelNumber) ? base + ' (' + ch.label + ')' : base;
+            }
+
+            function spectrumReadoutTrackLabel(result, channelIndex) {
+                const channels = channelsForResult(result);
+                const name = result && result.fileName ? result.fileName : '';
+                return channels.length > 1 ? name + ' ' + channelLabel(result, channelIndex) : name;
+            }
+
+            function spectrumCursorReadoutText(label, freqHz, dbVal, unit) {
+                return label + ' ' + formatReadoutHz(freqHz) + (dbVal !== undefined ? '  ' + dbVal.toFixed(1) + ' ' + unit : '');
             }
 
             function displayedChannelIndex(result, trackIndex) {
@@ -1004,22 +1014,9 @@ export function getComparisonRenderScript(): string {
                 }).join('');
             }
 
-            function buildMetricsHtml() {
-                return displayOrder.map(function(stateIdx) {
-                    const result = state.results[stateIdx];
-                    const parts = channelsForResult(result).map(function(ch, channelIndex) {
-                        return channelLabel(result, channelIndex) + ' RMS ' + channelDb(ch.rms) + ' / Peak ' + channelDb(ch.peakAbsolute) + ' / ' + channelDominantFrequencyLabel(ch);
-                    });
-                    return '<div class="metrics-item" id="metrics-item-' + stateIdx + '"><div class="metrics-swatch" id="metrics-swatch-' + stateIdx + '" style="background:' + trackColor(stateIdx) + '"></div>'
-                        + '<span>' + escHtml(result.fileName) + ': ' + escHtml(parts.join('; ')) + '</span></div>';
-                }).join('');
-            }
-
             function rebuildResultsPane() {
                 const stacked = document.getElementById('stacked-wrap');
                 if (stacked) { stacked.innerHTML = buildTrackRowsHtml(); }
-                const metricsBar = document.getElementById('metrics-bar');
-                if (metricsBar) { metricsBar.innerHTML = buildMetricsHtml(); }
                 updateVisibility();
                 updateOffsetDisplays();
                 syncHeightInputs();
@@ -1029,7 +1026,6 @@ export function getComparisonRenderScript(): string {
 
             function buildResultsPane(emptyMessage) {
                 const tracks = buildTrackRowsHtml();
-                const metrics = buildMetricsHtml();
 
                 return '<div id="toolbar" role="toolbar" aria-label="' + escHtml(STR.ariaToolbar) + '">' + buildToolbar() + '</div>'
                     + '<div id="tracks-wrapper">'
@@ -1045,10 +1041,9 @@ export function getComparisonRenderScript(): string {
                     + '    <button class="tb-btn" data-action="spec-zoom-in" aria-label="' + escHtml(STR.ariaSpecZoomIn) + '">＋</button>'
                     + '    <button class="tb-btn" data-action="spec-zoom-reset" aria-label="' + escHtml(STR.ariaSpecZoomReset) + '">' + escHtml(STR.btnSpecZoomReset) + '</button>'
                     + '  </div>'
-                    + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escHtml(STR.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas"></canvas></div>'
+                    + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escHtml(STR.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escHtml(STR.spectrumSectionTitle) + '"></canvas></div>'
                     + '</div>'
-                    + '<div id="audio-host">' + buildAudioElements() + '</div>'
-                    + '<div id="metrics-bar">' + metrics + '</div>';
+                    + '<div id="audio-host">' + buildAudioElements() + '</div>';
             }
 
             function buildSelectionTreeItems(nodes, depth) {
@@ -1147,16 +1142,20 @@ export function getComparisonRenderScript(): string {
                     + '<span id="loop-time-display" title="' + escHtml(STR.loopTimeDisplayTitle) + '" style="display:none;"></span>';
             }
 
+            function channelMetricSummaryHtml(ch) {
+                const rmsDb = ch ? channelDb(ch.rms) : '—';
+                const peakDb = ch ? channelDb(ch.peakAbsolute) : '—';
+                const domHz = channelDominantFrequencyLabel(ch);
+                return '<span>RMS ' + escHtml(rmsDb) + '</span> <span>Peak ' + escHtml(peakDb) + '</span> <span>' + escHtml(domHz) + '</span>';
+            }
+
             function buildChannelLane(result, trackIndex, channelIndex) {
                 const channels = channelsForResult(result);
                 const ch = channels[channelIndex];
                 const label = channelLabel(result, channelIndex);
-                const rmsDb = ch ? channelDb(ch.rms) : '—';
-                const peakDb = ch ? channelDb(ch.peakAbsolute) : '—';
-                const domHz = channelDominantFrequencyLabel(ch);
                 const suffix = channelCanvasSuffix(channelIndex);
                 const header = channels.length > 1
-                    ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escHtml(label) + '</span><span>RMS ' + escHtml(rmsDb) + '</span><span>Peak ' + escHtml(peakDb) + '</span><span>' + escHtml(domHz) + '</span></div>'
+                    ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escHtml(label) + '</span>' + channelMetricSummaryHtml(ch) + '</div>'
                     : '';
                 return '<div class="track-channel-lane" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '">'
                     + header
@@ -1166,7 +1165,7 @@ export function getComparisonRenderScript(): string {
                     + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '" tabindex="0" style="outline:none;flex:1"></canvas>'
                     + '    </div>'
                     + '    <div class="track-spectrum-wrap" id="track-spectrum-wrap-' + trackIndex + suffix + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
-                    + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '"></canvas>'
+                    + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '" tabindex="0" aria-label="' + escHtml(result.fileName + ' ' + label + ' ' + STR.trackSpectrumTitle) + '"></canvas>'
                     + '    </div>'
                     + '  </div>'
                     + '</div>';
@@ -1179,15 +1178,19 @@ export function getComparisonRenderScript(): string {
             }
 
             function buildTrackRow(result, i) {
+                const channels = channelsForResult(result);
+                const monoSummary = channels.length === 1
+                    ? ' &nbsp; ' + channelMetricSummaryHtml(channels[0])
+                    : '';
                 return '<div class="track-row" id="track-row-' + i + '" data-track-index="' + i + '">'
                     + '<div class="track-header">'
                     + '  <div class="track-title-row">'
                     + '    <div class="track-drag-handle" draggable="true" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaDragHandle) + '" title="' + escHtml(STR.ariaDragHandle) + '">≡</div>'
                     + '    <div class="track-color-swatch" data-action="pick-color" data-track-index="' + i + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escHtml(STR.ariaPickColor) + '" title="' + escHtml(STR.trackPickColor) + '"></div>'
                     + '    <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
-                    + (channelsForResult(result).some(function(ch) { return ch && ch.peakAbsolute >= 0.99; }) ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+                    + (channels.some(function(ch) { return ch && ch.peakAbsolute >= 0.99; }) ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
                     + '  </div>'
-                    + '  <div class="track-meta">Total: ' + result.channelCount + ' ch &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz</div>'
+                    + '  <div class="track-meta">Total: ' + result.channelCount + ' ch &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
                     + '  <div class="track-btns">'
                     + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
                     + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
@@ -1228,6 +1231,7 @@ export function getComparisonRenderScript(): string {
 
             // ── Rendering ──
             function renderAll() {
+                updateUiSmokeSpectrumState();
                 resizeAllCanvases();
                 renderRuler();
                 renderStackedTracks();
@@ -2262,8 +2266,13 @@ export function getComparisonRenderScript(): string {
 
                 document.addEventListener('keydown', function(e) {
                     if (e.ctrlKey || e.metaKey || e.altKey) { return; }
-                    // ── スペクトルカーソル操作（マウスがスペクトル上にある間）──
-                    if (spectrumHasMouse && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
+                    const active = document.activeElement;
+                    const spectrumCanvasFocused = active && (
+                        active.id === 'spectrum-overlay-canvas'
+                        || (active.classList && active.classList.contains('track-spectrum-canvas'))
+                    );
+                    // ── スペクトルカーソル操作（マウス hover またはスペクトル canvas フォーカス時）──
+                    if ((spectrumHasMouse || spectrumCanvasFocused) && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
                         e.preventDefault();
                         moveSpectrumHoverByBin(e.code === 'ArrowLeft' ? -1 : 1);
                         scheduleSpectrumRefresh('hover');
@@ -2271,7 +2280,6 @@ export function getComparisonRenderScript(): string {
                     }
 
                     // ── 時刻カーソル操作（波形キャンバスフォーカス時）──
-                    const active = document.activeElement;
 
                     // ── Help overlay が開いている間はショートカットを無効化 ──
                     const helpEl = document.getElementById('help-overlay');
@@ -2351,6 +2359,31 @@ export function getComparisonRenderScript(): string {
 
                 // スペクトルカーソルイベント（オーバーレイ＋各トラック）
                 (function attachSpectrumCursorEvents() {
+                    function spectrumFocusTargetFromElement(el) {
+                        if (!el) { return null; }
+                        if (el.id === 'spectrum-overlay-canvas') { return { trackIndex: -1, channelIndex: null }; }
+                        if (el.classList && el.classList.contains('track-spectrum-canvas')) {
+                            const idx = parseInt(el.getAttribute('data-track-index'), 10);
+                            const channelIndex = parseInt(el.getAttribute('data-channel-index'), 10);
+                            return { trackIndex: isNaN(idx) ? null : idx, channelIndex: isNaN(channelIndex) ? null : channelIndex };
+                        }
+                        return null;
+                    }
+                    function setSpectrumFocusTarget(trackIndex, channelIndex) {
+                        if (spectrumHoverNorm === null) { spectrumHoverNorm = 0; }
+                        if (spectrumHoverYFrac === null) { spectrumHoverYFrac = 0.5; }
+                        spectrumHoverTrackIndex = trackIndex;
+                        spectrumHoverChannelIndex = Number.isInteger(channelIndex) ? channelIndex : null;
+                        spectrumHasMouse = false;
+                        scheduleSpectrumRefresh('hover');
+                    }
+                    function clearSpectrumFocusTarget() {
+                        spectrumHoverNorm = null;
+                        spectrumHoverYFrac = null;
+                        spectrumHoverTrackIndex = null;
+                        spectrumHoverChannelIndex = null;
+                        scheduleSpectrumRefresh('hover');
+                    }
                     function onSpectrumMove(padL, padR, canvasEl, e, trackIndex, channelIndex) {
                         const rect = canvasEl.getBoundingClientRect();
                         const x = e.clientX - rect.left;
@@ -2359,11 +2392,7 @@ export function getComparisonRenderScript(): string {
                         const canvasH = canvasEl.height || 140;
                         if (plotW <= 0) {
                             spectrumHasMouse = false;
-                            spectrumHoverNorm = null;
-                            spectrumHoverYFrac = null;
-                            spectrumHoverTrackIndex = null;
-                            spectrumHoverChannelIndex = null;
-                            scheduleSpectrumRefresh('hover');
+                            clearSpectrumFocusTarget();
                             return;
                         }
                         spectrumHoverNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
@@ -2375,11 +2404,19 @@ export function getComparisonRenderScript(): string {
                     }
                     function onSpectrumLeave() {
                         spectrumHasMouse = false;
-                        spectrumHoverNorm = null;
-                        spectrumHoverYFrac = null;
-                        spectrumHoverTrackIndex = null;
-                        spectrumHoverChannelIndex = null;
-                        scheduleSpectrumRefresh('hover');
+                        const focused = spectrumFocusTargetFromElement(document.activeElement);
+                        if (focused) {
+                            setSpectrumFocusTarget(focused.trackIndex, focused.channelIndex);
+                            return;
+                        }
+                        clearSpectrumFocusTarget();
+                    }
+                    function onSpectrumFocus(trackIndex, channelIndex) {
+                        setSpectrumFocusTarget(trackIndex, channelIndex);
+                    }
+                    function onSpectrumBlur() {
+                        if (spectrumHasMouse) { return; }
+                        clearSpectrumFocusTarget();
                     }
                     const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
                     if (overlayCanvas) {
@@ -2388,6 +2425,8 @@ export function getComparisonRenderScript(): string {
                             onSpectrumMove(36, 8, overlayCanvas, e, -1, null);
                         });
                         overlayCanvas.addEventListener('mouseleave', onSpectrumLeave);
+                        overlayCanvas.addEventListener('focus', function() { onSpectrumFocus(-1, null); });
+                        overlayCanvas.addEventListener('blur', onSpectrumBlur);
                         overlayCanvas.addEventListener('mousedown', function(e) {
                             if (e.button !== 0) { return; }
                             const rect = overlayCanvas.getBoundingClientRect();
@@ -2468,6 +2507,12 @@ export function getComparisonRenderScript(): string {
                             onSpectrumMove(32, 6, c, e, isNaN(idx) ? null : idx, isNaN(channelIndex) ? null : channelIndex);
                         });
                         c.addEventListener('mouseleave', onSpectrumLeave);
+                        c.addEventListener('focus', function() {
+                            const idx = parseInt(c.getAttribute('data-track-index'), 10);
+                            const channelIndex = parseInt(c.getAttribute('data-channel-index'), 10);
+                            onSpectrumFocus(isNaN(idx) ? null : idx, isNaN(channelIndex) ? null : channelIndex);
+                        });
+                        c.addEventListener('blur', onSpectrumBlur);
                     });
                 })();
             }
@@ -2884,6 +2929,7 @@ export function getComparisonRenderScript(): string {
                 }
                 trackHeight = next;
                 syncHeightInputs();
+                updateUiSmokeSpectrumState();
                 updatePlaybackButtons();
                 Object.keys(canvasWidthCache).forEach(function(key) { delete canvasWidthCache[key]; });
                 scheduleRender();
@@ -2906,6 +2952,7 @@ export function getComparisonRenderScript(): string {
                 }
                 spectrumOverlayHeight = next;
                 syncHeightInputs();
+                updateUiSmokeSpectrumState();
                 syncSpectrumCanvasCssHeight();
                 scheduleSpectrumRefresh('immediate');
             }
@@ -4016,7 +4063,7 @@ export function getComparisonRenderScript(): string {
                             const readoutEl = document.getElementById('spectrum-freq-readout');
                             if (readoutEl) {
                                 readoutEl.style.color = color;
-                                readoutEl.textContent = formatReadoutHz(snap.freqHz) + (snap.dbVal !== undefined ? '  ' + snap.dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice) : '');
+                                readoutEl.textContent = spectrumCursorReadoutText(spectrumReadoutTrackLabel(result, channelIndex), snap.freqHz, snap.dbVal, dbLevelUnitFor(slice));
                             }
                         }
                     });
@@ -4192,17 +4239,9 @@ export function getComparisonRenderScript(): string {
             }
 
             function refreshSpectrumViews() {
-                const uiSmokeState = (typeof window !== 'undefined') ? window.__uiSmokeState : null;
                 renderTrackSpectra();
                 renderOverlaySpectrum();
-                if (uiSmokeState) {
-                    uiSmokeState.spectrumZoom = {
-                        specFreqStart: specFreqStart,
-                        specFreqEnd: specFreqEnd,
-                        specDbMin: specDbMin,
-                        specDbMax: specDbMax,
-                    };
-                }
+                updateUiSmokeSpectrumState();
                 const el = document.getElementById('spectrum-cursor-time');
                 if (el) {
                     const gs = computeGlobalSpan();
@@ -4225,8 +4264,6 @@ export function getComparisonRenderScript(): string {
                 if (idx === playbackTrackIndex) { stopPlayback(idx); }
                 const row = document.getElementById('track-row-' + idx);
                 if (row) { row.remove(); }
-                var metricsItem = document.getElementById('metrics-item-' + idx);
-                if (metricsItem) { metricsItem.remove(); }
                 const audio = getTrackAudio(idx);
                 if (audio) { audio.remove(); }
                 releaseTrackDetail(idx);
@@ -4536,13 +4573,6 @@ export function getComparisonRenderScript(): string {
                         if (row) { wrap.appendChild(row); }
                     });
                 }
-                var metricsBar = document.getElementById('metrics-bar');
-                if (metricsBar) {
-                    displayOrder.forEach(function(idx) {
-                        var item = document.getElementById('metrics-item-' + idx);
-                        if (item) { metricsBar.appendChild(item); }
-                    });
-                }
                 scheduleRender();
                 scheduleSpectrumRefresh('immediate');
             }
@@ -4619,8 +4649,6 @@ export function getComparisonRenderScript(): string {
                         trackRuntime[__colorPickTarget].color = hex;
                         var hs = document.querySelector('[data-action="pick-color"][data-track-index="' + __colorPickTarget + '"]');
                         if (hs) { hs.style.background = hex; }
-                        var ms = document.getElementById('metrics-swatch-' + __colorPickTarget);
-                        if (ms) { ms.style.background = hex; }
                         scheduleRender();
                         scheduleSpectrumRefresh('immediate');
                         closeColorPicker();
@@ -4631,8 +4659,6 @@ export function getComparisonRenderScript(): string {
                         var def = trackColor(__colorPickTarget);
                         var hs2 = document.querySelector('[data-action="pick-color"][data-track-index="' + __colorPickTarget + '"]');
                         if (hs2) { hs2.style.background = def; }
-                        var ms2 = document.getElementById('metrics-swatch-' + __colorPickTarget);
-                        if (ms2) { ms2.style.background = def; }
                         scheduleRender();
                         scheduleSpectrumRefresh('immediate');
                         closeColorPicker();
