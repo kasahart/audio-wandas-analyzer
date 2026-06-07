@@ -262,6 +262,10 @@ test('renderScript: monaural tracks keep waveform and power spectrum in one body
     assert.ok(row, 'track-row-0 が存在すること');
     assert.equal(row!.querySelector('.track-channel-lane-header'), null);
 
+    const meta = row!.querySelector('.track-meta');
+    assert.match(meta?.textContent || '', /Total: 1 ch.*RMS -20\.0 dB.*Peak -6\.0 dB.*—/,
+        'mono track の概要値は下部凡例ではなく track meta に表示されること');
+
     const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0') as HTMLElement | null;
     const spectrumWrap = env.dom.window.document.getElementById('track-spectrum-wrap-0') as HTMLElement | null;
     assert.ok(waveWrap, 'track-canvas-wrap-0 が存在すること');
@@ -1201,7 +1205,7 @@ function setupSpectrumEnvWithClock(clock: { now: number }) {
     return env;
 }
 
-test('renderScript: each track row contains a per-track spectrum canvas', async () => {
+test('renderScript: each track row contains a keyboard-focusable per-track spectrum canvas', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const c0 = env.dom.window.document.getElementById('track-spectrum-0');
@@ -1210,6 +1214,9 @@ test('renderScript: each track row contains a per-track spectrum canvas', async 
     assert.ok(c0, 'track-spectrum-0 が存在すること');
     assert.ok(c1, 'track-spectrum-1 が存在すること');
     assert.ok(overlay, '#spectrum-overlay-canvas が存在すること');
+    assert.equal(c0!.getAttribute('tabindex'), '0');
+    assert.equal(c1!.getAttribute('tabindex'), '0');
+    assert.equal(overlay!.getAttribute('tabindex'), '0');
     env.dom.window.close();
 });
 
@@ -1397,6 +1404,23 @@ test('spectrum cursor: overlay readout formats focused frequency in Hz', async (
 });
 
 
+test('spectrum cursor: overlay keyboard focus updates the header readout', async () => {
+    const env = setupHighFrequencyReadoutEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
+    canvas!.focus();
+    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.match(readout!.textContent || '', /^high\.wav\s+1200 Hz\s+-60\.0 dB$/,
+        'overlay もマウス hover なしの focus と矢印キーでヘッダー readout が更新されること');
+    env.dom.window.close();
+});
+
+
 test('spectrum cursor: per-track readout snaps to the hovered track frequency bin', async () => {
     const env = setupMismatchedDeltaFSpectrumEnv();
     await nextAnimationFrame(env.dom);
@@ -1417,6 +1441,23 @@ test('spectrum cursor: per-track readout snaps to the hovered track frequency bi
     env.dom.window.close();
 });
 
+
+
+test('spectrum cursor: per-track keyboard focus updates the header readout', async () => {
+    const env = setupMismatchedDeltaFSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'track-spectrum-0 が存在すること');
+    canvas!.focus();
+    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.match(readout!.textContent || '', /^coarse\.wav\s+200 Hz\s+-60\.0 dB$/,
+        'マウス hover なしでも focus と矢印キーでヘッダー readout が更新されること');
+    env.dom.window.close();
+});
 
 
 test('spectrum cursor: per-track keyboard stepping uses the hovered channel bins', async () => {
