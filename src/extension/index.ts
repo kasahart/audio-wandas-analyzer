@@ -515,6 +515,7 @@ function registerPanelMessageHandler(
                         analysisId: req.analysisId,
                         settingsSignature: req.settingsSignature,
                         cursorNorm: req.cursorNorm,
+                        channelIndex: req.channelIndex,
                         stftOptions: loadPersistedStftOptions(context),
                     },
                     req.requestId,
@@ -525,6 +526,7 @@ function registerPanelMessageHandler(
                         analysisId: req.analysisId,
                         settingsSignature: req.settingsSignature,
                         trackIndex: req.trackIndex,
+                        channelIndex: req.channelIndex,
                         filePath: req.filePath,
                         values: result.values,
                         frequencyBins: result.frequencyBins,
@@ -539,6 +541,7 @@ function registerPanelMessageHandler(
                         analysisId: req.analysisId,
                         settingsSignature: req.settingsSignature,
                         trackIndex: req.trackIndex,
+                        channelIndex: req.channelIndex,
                         filePath: req.filePath,
                         error: err instanceof Error ? err.message : String(err),
                     });
