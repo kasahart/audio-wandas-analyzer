@@ -35,9 +35,17 @@ export function getComparisonRenderScript(): string {
             const isSelectionMode = state.mode === 'directory-selection';
             const selectedFilePaths = new Set(Array.isArray(state.selectedFilePaths) ? state.selectedFilePaths : []);
             const allSelectableFilePaths = Array.isArray(state.allFilePaths) ? state.allFilePaths.slice() : [];
+            var persistedWebviewState = vscode.getState() || {};
+            function persistWebviewState(patch) {
+                persistedWebviewState = Object.assign({}, persistedWebviewState, patch);
+                vscode.setState(persistedWebviewState);
+            }
             // ディレクトリ折りたたみ状態を保持 (relativePath → expanded: boolean)
             // webview.html 再代入後も vscode.getState() で復元する
-            var directoryCollapseState = (vscode.getState() || {}).directoryCollapseState || {};
+            var directoryCollapseState = persistedWebviewState.directoryCollapseState || {};
+            var treeFilterQuery = typeof persistedWebviewState.treeFilterQuery === 'string'
+                ? persistedWebviewState.treeFilterQuery
+                : '';
 
             // ─── ファイルパス一覧からディレクトリツリーを webview 側で組み立てる (#91) ───
             // __selectionDirMap: relativePath → ディレクトリノード（レイジーレンダリング用）
@@ -225,7 +233,7 @@ export function getComparisonRenderScript(): string {
                 if (spectrumTimerId !== null) { clearTimeout(spectrumTimerId); spectrumTimerId = null; }
                 scheduleSpectrumFrame(kind !== 'hover', true);
             }
-            let contentType = 'waveform'; // 'waveform' | 'spectrogram'
+            let contentType = persistedWebviewState.contentType === 'spectrogram' ? 'spectrogram' : 'waveform'; // 'waveform' | 'spectrogram'
             let zoomStart = 0;
             let zoomEnd = 1;
             let cursorNorm = 0;           // グローバルカーソル（常に number）
@@ -778,6 +786,7 @@ export function getComparisonRenderScript(): string {
             app.innerHTML = buildLayout();
             syncPythonEnvironmentButton();
             syncWaveformModeButton();
+            __updateSpecGearVisibility();
             attachEvents();
             // Defer first render so the browser has time to calculate flex layout
             requestAnimationFrame(function() {
@@ -1058,7 +1067,7 @@ export function getComparisonRenderScript(): string {
                     + '        <div class="selection-path">' + escHtml(state.rootPath || '') + '</div>'
                     + '      </div>'
                     + '      <div id="tree-filter-wrap">'
-                    + '        <input id="tree-filter-input" type="text" placeholder="' + escHtml(STR.treeFilterPlaceholder || 'Filter files...') + '" autocomplete="off" spellcheck="false">'
+                    + '        <input id="tree-filter-input" type="text" value="' + escHtml(treeFilterQuery) + '" placeholder="' + escHtml(STR.treeFilterPlaceholder || 'Filter files...') + '" autocomplete="off" spellcheck="false">'
                     + '      </div>'
                     + '      <div id="selection-actions">'
                     + '        <button class="tb-btn" data-action="selection-select-all">' + escHtml(STR.btnSelectAll) + '</button>'
@@ -1186,8 +1195,8 @@ export function getComparisonRenderScript(): string {
                     + '<button class="tb-btn" data-action="export-wav" title="' + escHtml(STR.btnExportWavTitle) + '">' + escHtml(STR.btnExportWav) + '</button>'
                     + '<button class="tb-btn" data-action="export-report" title="' + escHtml(STR.btnExportReportTitle) + '">' + escHtml(STR.btnExportReport) + '</button>';
                 return '<span class="tb-label">' + escHtml(STR.toolbarTrackLabel) + '</span>'
-                    + '<button class="tb-btn is-active" data-action="content-waveform">' + escHtml(STR.btnWaveform) + '</button>'
-                    + '<button class="tb-btn" data-action="content-spectrogram">' + escHtml(STR.btnSpectrogram) + '</button>'
+                    + '<button class="tb-btn' + (contentType === 'waveform' ? ' is-active' : '') + '" data-action="content-waveform">' + escHtml(STR.btnWaveform) + '</button>'
+                    + '<button class="tb-btn' + (contentType === 'spectrogram' ? ' is-active' : '') + '" data-action="content-spectrogram">' + escHtml(STR.btnSpectrogram) + '</button>'
                     + '<button class="tb-btn" data-action="spectrogram-settings" title="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" aria-label="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" style="display:none">⚙</button>'
                     + '<div class="tb-sep"></div>'
                     + '<span class="tb-label">' + escHtml(STR.toolbarZoomLabel) + '</span>'
@@ -1614,11 +1623,13 @@ export function getComparisonRenderScript(): string {
                 const maxFreq = (dispCfg.maxFrequencyHz != null) ? Math.min(dispCfg.maxFrequencyHz, spec.maxFrequencyHz) : spec.maxFrequencyHz;
                 const freqPerBin = spec.maxFrequencyHz / Math.max(fBins, 1);
 
-                const imageData = ctx.createImageData(W, H);
+                const colorbarWidth = 50;
+                const plotW = Math.max(1, W - colorbarWidth);
+                const imageData = ctx.createImageData(plotW, H);
                 const data = imageData.data;
 
-                for (let px = 0; px < W; px++) {
-                    const tNorm = zoomStart + (px / W) * (zoomEnd - zoomStart);
+                for (let px = 0; px < plotW; px++) {
+                    const tNorm = zoomStart + (px / plotW) * (zoomEnd - zoomStart);
                     const tAdj = (tNorm - trackStart) / trackDurRatio;
                     const tIdx = Math.floor(tAdj * tBins);
                     if (tIdx < 0 || tIdx >= tBins) { continue; }
@@ -1634,7 +1645,7 @@ export function getComparisonRenderScript(): string {
                         const norm = range !== 0
                             ? Math.max(0, Math.min(1, (val - dbLo) / range))
                             : 0;
-                        const off = (py * W + px) * 4;
+                        const off = (py * plotW + px) * 4;
                         const rgb = dbToRgb(norm);
                         data[off] = rgb[0]; data[off + 1] = rgb[1]; data[off + 2] = rgb[2]; data[off + 3] = 255;
                     }
@@ -1644,9 +1655,9 @@ export function getComparisonRenderScript(): string {
                     drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq });
                 }
                 drawSpectrogramColorbar(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi });
-                drawLoopRegionOnCanvas(ctx, W, H);
-                drawCursorOnCanvas(ctx, W, H);
-                drawHoverLineOnCanvas(ctx, W, H);
+                drawLoopRegionOnCanvas(ctx, plotW, H);
+                drawCursorOnCanvas(ctx, plotW, H);
+                drawHoverLineOnCanvas(ctx, plotW, H);
             }
 
             function drawSpectrogramFrequencyAxis(ctx, W, H, spec, opts) {
@@ -2638,7 +2649,7 @@ export function getComparisonRenderScript(): string {
                         const relativePath = dirHeader.getAttribute('data-relative-path');
                         if (relativePath) {
                             directoryCollapseState[relativePath] = isCollapsed;
-                            vscode.setState({ directoryCollapseState: directoryCollapseState });
+                            persistWebviewState({ directoryCollapseState: directoryCollapseState });
                         }
                     }
                 }
@@ -2752,12 +2763,17 @@ export function getComparisonRenderScript(): string {
                                 var ancestor = li.parentElement;
                                 while (ancestor && ancestor.id !== 'selection-tree') {
                                     if (ancestor.classList && ancestor.classList.contains('selection-tree-list')) {
-                                        ancestor.style.display = '';
                                         var dh = ancestor.previousElementSibling;
+                                        var rel = dh && dh.classList && dh.classList.contains('selection-tree-directory')
+                                            ? dh.getAttribute('data-relative-path')
+                                            : null;
+                                        var savedExpanded = rel ? directoryCollapseState[rel] : undefined;
+                                        var shouldExpandForFilter = savedExpanded !== false;
+                                        ancestor.style.display = shouldExpandForFilter ? '' : 'none';
                                         if (dh && dh.classList.contains('selection-tree-directory')) {
-                                            dh.setAttribute('aria-expanded', 'true');
+                                            dh.setAttribute('aria-expanded', shouldExpandForFilter ? 'true' : 'false');
                                             var tog = dh.querySelector('.dir-toggle');
-                                            if (tog) { tog.textContent = '▼'; }
+                                            if (tog) { tog.textContent = shouldExpandForFilter ? '▼' : '▶'; }
                                         }
                                     }
                                     ancestor = ancestor.parentElement;
@@ -2785,6 +2801,8 @@ export function getComparisonRenderScript(): string {
                     var treeFilterTimer = null;
                     treeFilterInput.addEventListener('input', function() {
                         clearTimeout(treeFilterTimer);
+                        treeFilterQuery = treeFilterInput.value;
+                        persistWebviewState({ treeFilterQuery: treeFilterQuery });
                         treeFilterTimer = setTimeout(function() {
                             applyTreeFilter(treeFilterInput.value.toLowerCase());
                         }, 150);
@@ -2795,6 +2813,9 @@ export function getComparisonRenderScript(): string {
                         treeFilterTimer = null;
                         applyTreeFilter(treeFilterInput.value.toLowerCase());
                     };
+                    if (treeFilterQuery) {
+                        applyTreeFilter(treeFilterQuery.toLowerCase());
+                    }
                 }
 
                 // ── Tree resizer ──
@@ -2942,12 +2963,14 @@ export function getComparisonRenderScript(): string {
                     vscode.postMessage({ type: 'select-python-environment' });
                 } else if (action === 'content-waveform') {
                     contentType = 'waveform';
+                    persistWebviewState({ contentType: contentType });
                     document.querySelector('[data-action="content-waveform"]').classList.add('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.remove('is-active');
                     __updateSpecGearVisibility();
                     scheduleRender();
                 } else if (action === 'content-spectrogram') {
                     contentType = 'spectrogram';
+                    persistWebviewState({ contentType: contentType });
                     document.querySelector('[data-action="content-waveform"]').classList.remove('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.add('is-active');
                     __updateSpecGearVisibility();

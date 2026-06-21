@@ -23,11 +23,13 @@ export interface DomCanvasSpyCtx extends CanvasSpyCtx {
     fillTextCalls: string[];
     fillRectCalls: number;
     putImageDataCalls: number;
+    putImageDataArgs: Array<{ width: number; height: number; x: number; y: number }>;
 }
 
 export interface WebviewEnv {
     dom: JSDOM;
     postedMessages: unknown[];
+    vscodeStates: unknown[];
     /** インデックス順に作られた OffscreenCanvas スパイ */
     offscreenInstances: SpyOffscreenCanvas[];
     domCanvasContexts: Map<string, DomCanvasSpyCtx>;
@@ -66,7 +68,15 @@ function createDomCanvasContextProxy(spy: DomCanvasSpyCtx): CanvasRenderingConte
         drawImage: (src) => { spy.drawImageCalls.push({ src }); },
         fillText: (text) => { spy.fillTextCalls.push(String(text)); },
         fillRect: () => { spy.fillRectCalls++; },
-        putImageData: () => { spy.putImageDataCalls++; },
+        putImageData: (imageData, x, y) => {
+            spy.putImageDataCalls++;
+            spy.putImageDataArgs.push({
+                width: (imageData as ImageData).width,
+                height: (imageData as ImageData).height,
+                x: Number(x),
+                y: Number(y),
+            });
+        },
         save: () => { spy.saveCalls++; },
         restore: () => { spy.restoreCalls++; },
     };
@@ -141,10 +151,12 @@ function createOffscreenContextProxy(spy: CanvasSpyCtx): unknown {
  * - jsdom は CSS レイアウト（clientWidth）を実装しないため、
  *   テスト内で `Object.defineProperty(wrap, 'clientWidth', { value: 800 })` 等で設定できる。
  */
-export function createWebviewEnv(appStateJson: string): WebviewEnv {
+export function createWebviewEnv(appStateJson: string, initialVsCodeState: unknown = null): WebviewEnv {
     const postedMessages: unknown[] = [];
+    const vscodeStates: unknown[] = [];
     const offscreenInstances: SpyOffscreenCanvas[] = [];
     const domCanvasContexts = new Map<string, DomCanvasSpyCtx>();
+    let currentVsCodeState = initialVsCodeState;
 
     const dom = new JSDOM(
         `<!DOCTYPE html><body><div id="app"></div></body>`,
@@ -155,8 +167,11 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
     // VS Code API スタブ
     win.acquireVsCodeApi = () => ({
         postMessage: (msg: unknown) => { postedMessages.push(msg); },
-        getState: () => null,
-        setState: () => { },
+        getState: () => currentVsCodeState,
+        setState: (nextState: unknown) => {
+            currentVsCodeState = nextState;
+            vscodeStates.push(nextState);
+        },
     });
 
     // OffscreenCanvas スパイ
@@ -192,6 +207,7 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
                 fillTextCalls: [],
                 fillRectCalls: 0,
                 putImageDataCalls: 0,
+                putImageDataArgs: [],
             };
             domCanvasContexts.set(id, spy);
         }
@@ -234,7 +250,7 @@ export function createWebviewEnv(appStateJson: string): WebviewEnv {
 
     win.__APP_STATE__ = JSON.parse(appStateJson);
 
-    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+    return { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts };
 }
 
 /**
