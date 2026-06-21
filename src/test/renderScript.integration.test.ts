@@ -170,6 +170,19 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
     ],
 });
 
+const DIFFERENT_SELECTION_STATE = JSON.stringify({
+    mode: 'directory-selection',
+    results: [],
+    rootPath: '/tmp/other-session',
+    allFilePaths: ['/tmp/other-session/c.wav'],
+    selectedFilePaths: [],
+    pythonEnvironmentState: {
+        pythonCommand: 'python3',
+        status: 'normal',
+        tooltip: 'Click to select Python environment',
+    },
+});
+
 function setupEnvWithState(stateJson: string, initialVsCodeState: unknown = null) {
     const script = getRenderScript();
     const { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts } = createWebviewEnv(
@@ -462,6 +475,29 @@ test('ファイルツリーフィルタはファイル選択後の Webview 再�
         .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
     assert.equal(visibleRows.length, 1, 'Webview 再生成後もフィルタ結果だけが表示されること');
     assert.ok(visibleRows[0].textContent?.includes('b.flac'));
+    rerendered.dom.window.close();
+});
+
+test('ファイルツリーフィルタは別フォルダの Webview 再生成には持ち越されない', () => {
+    const env = setupSelectionEnv();
+    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
+
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
+    const persistedState = env.vscodeStates.at(-1);
+    assert.ok(persistedState);
+    env.dom.window.close();
+
+    const rerendered = setupEnvWithState(DIFFERENT_SELECTION_STATE, persistedState);
+    const restoredInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.equal(restoredInput?.value, '', '別 rootPath では古いフィルタを復元しないこと');
+    const visibleRows = Array.from(rerendered.dom.window.document.querySelectorAll('.selection-file-row'))
+        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
+    assert.equal(visibleRows.length, 1, '別フォルダの初期表示は古いフィルタで空にならないこと');
+    assert.ok(visibleRows[0].textContent?.includes('c.wav'));
     rerendered.dom.window.close();
 });
 
@@ -1472,6 +1508,28 @@ test('spectrogram hit testing maps pointer positions to the plot width and ignor
 
     snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.equal(snap.renderedUi.cursorNorm, 0.5, 'clicks in the spectrogram colorbar do not update audio time');
+    env.dom.window.close();
+});
+
+test('spectrogram ruler maps time ticks to the plot width', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const row = env.dom.window.document.getElementById('ruler-row') as HTMLElement | null;
+    assert.ok(row);
+    Object.defineProperty(row, 'clientWidth', { configurable: true, value: 994 });
+    const ruler = env.dom.window.document.getElementById('ruler-canvas') as HTMLCanvasElement | null;
+    assert.ok(ruler);
+
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+
+    const rulerSpy = env.domCanvasContexts.get('ruler-canvas');
+    assert.ok(rulerSpy);
+    const halfSecondTick = rulerSpy!.fillTextArgs.filter((call) => call.text === '0:00.50').at(-1);
+    assert.ok(halfSecondTick, '0.5 秒 tick が描画されること');
+    assert.equal(halfSecondTick!.x, 377, 'spectrogram ruler の中央 tick は 750px plot の中央 + label offset に描画されること');
     env.dom.window.close();
 });
 

@@ -21,6 +21,7 @@ export interface DomCanvasSpyCtx extends CanvasSpyCtx {
     saveCalls: number;
     restoreCalls: number;
     fillTextCalls: string[];
+    fillTextArgs: Array<{ text: string; x: number; y: number }>;
     fillRectCalls: number;
     putImageDataCalls: number;
     putImageDataArgs: Array<{ width: number; height: number; x: number; y: number }>;
@@ -66,7 +67,10 @@ function createDomCanvasContextProxy(spy: DomCanvasSpyCtx): CanvasRenderingConte
         beginPath: () => { spy.beginPathCalls++; },
         stroke: () => { spy.strokeCalls++; },
         drawImage: (src) => { spy.drawImageCalls.push({ src }); },
-        fillText: (text) => { spy.fillTextCalls.push(String(text)); },
+        fillText: (text, x, y) => {
+            spy.fillTextCalls.push(String(text));
+            spy.fillTextArgs.push({ text: String(text), x: Number(x), y: Number(y) });
+        },
         fillRect: () => { spy.fillRectCalls++; },
         putImageData: (imageData, x, y) => {
             spy.putImageDataCalls++;
@@ -205,6 +209,7 @@ export function createWebviewEnv(appStateJson: string, initialVsCodeState: unkno
                 saveCalls: 0,
                 restoreCalls: 0,
                 fillTextCalls: [],
+                fillTextArgs: [],
                 fillRectCalls: 0,
                 putImageDataCalls: 0,
                 putImageDataArgs: [],

@@ -43,7 +43,9 @@ export function getComparisonRenderScript(): string {
             // ディレクトリ折りたたみ状態を保持 (relativePath → expanded: boolean)
             // webview.html 再代入後も vscode.getState() で復元する
             var directoryCollapseState = persistedWebviewState.directoryCollapseState || {};
-            var treeFilterQuery = typeof persistedWebviewState.treeFilterQuery === 'string'
+            var currentTreeFilterRootPath = state.rootPath || '';
+            var treeFilterQuery = persistedWebviewState.treeFilterRootPath === currentTreeFilterRootPath
+                && typeof persistedWebviewState.treeFilterQuery === 'string'
                 ? persistedWebviewState.treeFilterQuery
                 : '';
 
@@ -1369,6 +1371,7 @@ export function getComparisonRenderScript(): string {
                 if (!canvas) { return; }
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width;
+                const timeW = contentType === 'spectrogram' ? spectrogramPlotWidth(W) : W;
                 const H = canvas.height;
                 ctx.clearRect(0, 0, W, H);
                 const gs = computeGlobalSpan();
@@ -1381,7 +1384,7 @@ export function getComparisonRenderScript(): string {
                 const step = niceTimeStep(visDur);
                 let t = Math.ceil(visStart / step) * step;
                 while (t <= visEnd) {
-                    const x = (t - visStart) / visDur * W;
+                    const x = (t - visStart) / visDur * timeW;
                     ctx.fillText(formatTime(t), x + 2, H - 4);
                     t += step;
                 }
@@ -2826,7 +2829,10 @@ export function getComparisonRenderScript(): string {
                     treeFilterInput.addEventListener('input', function() {
                         clearTimeout(treeFilterTimer);
                         treeFilterQuery = treeFilterInput.value;
-                        persistWebviewState({ treeFilterQuery: treeFilterQuery });
+                        persistWebviewState({
+                            treeFilterQuery: treeFilterQuery,
+                            treeFilterRootPath: currentTreeFilterRootPath,
+                        });
                         treeFilterTimer = setTimeout(function() {
                             applyTreeFilter(treeFilterInput.value.toLowerCase());
                         }, 150);
