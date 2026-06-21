@@ -1435,6 +1435,46 @@ test('axes: スペクトログラム画像はカラーバー領域に重なら�
     env.dom.window.close();
 });
 
+test('spectrogram hit testing maps pointer positions to the plot width and ignores the colorbar', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas);
+    canvas!.width = 800;
+    canvas!.height = 100;
+    canvas!.getBoundingClientRect = () => ({
+        left: 0, top: 0, right: 800, bottom: 100, width: 800, height: 100,
+    } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-plot' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'x=375 on an 800px canvas with a 50px colorbar maps to 50% plot time');
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-colorbar' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'clicks in the spectrogram colorbar do not update audio time');
+    env.dom.window.close();
+});
+
 test('axes: スペクトル (per-track / overlay) に Hz と dB のラベルが描かれる', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);

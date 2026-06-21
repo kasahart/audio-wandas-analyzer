@@ -96,6 +96,7 @@ export function getComparisonRenderScript(): string {
             };
 
             const AXIS_W = 64;
+            const SPECTROGRAM_COLORBAR_WIDTH = 50;
             const TRACK_HEIGHT_DEFAULT = 80;
             const TRACK_HEIGHT_MIN = TRACK_HEIGHT_DEFAULT;
             const TRACK_HEIGHT_MAX = 220;
@@ -1623,8 +1624,7 @@ export function getComparisonRenderScript(): string {
                 const maxFreq = (dispCfg.maxFrequencyHz != null) ? Math.min(dispCfg.maxFrequencyHz, spec.maxFrequencyHz) : spec.maxFrequencyHz;
                 const freqPerBin = spec.maxFrequencyHz / Math.max(fBins, 1);
 
-                const colorbarWidth = 50;
-                const plotW = Math.max(1, W - colorbarWidth);
+                const plotW = spectrogramPlotWidth(W);
                 const imageData = ctx.createImageData(plotW, H);
                 const data = imageData.data;
 
@@ -1693,7 +1693,7 @@ export function getComparisonRenderScript(): string {
             function drawSpectrogramColorbar(ctx, W, H, spec, opts) {
                 const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
                 const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
-                const cbStripW = 50;
+                const cbStripW = SPECTROGRAM_COLORBAR_WIDTH;
                 const o = opts || {};
                 const dbLo = (o.dbLo != null) ? o.dbLo : spec.minDb;
                 const dbHi = (o.dbHi != null) ? o.dbHi : spec.maxDb;
@@ -1726,6 +1726,30 @@ export function getComparisonRenderScript(): string {
                 ctx.textBaseline = 'bottom';
                 ctx.fillText(dbLo.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY + cbH);
                 ctx.restore();
+            }
+
+            function spectrogramPlotWidth(canvasWidth) {
+                return Math.max(1, canvasWidth - SPECTROGRAM_COLORBAR_WIDTH);
+            }
+
+            function trackCanvasTimeHit(canvas, clientX) {
+                const rect = canvas.getBoundingClientRect();
+                const x = clientX - rect.left;
+                const timeWidth = contentType === 'spectrogram'
+                    ? spectrogramPlotWidth(canvas.width)
+                    : canvas.width;
+                if (x < 0 || x > timeWidth) { return null; }
+                return {
+                    x: x,
+                    timeWidth: timeWidth,
+                    norm: zoomStart + (x / timeWidth) * (zoomEnd - zoomStart),
+                };
+            }
+
+            function clampedTrackCanvasNorm(canvas, clientX, timeWidth) {
+                const rect = canvas.getBoundingClientRect();
+                const x = Math.max(0, Math.min(timeWidth, clientX - rect.left));
+                return Math.max(0, Math.min(1, zoomStart + (x / timeWidth) * (zoomEnd - zoomStart)));
             }
 
 
@@ -3706,9 +3730,13 @@ export function getComparisonRenderScript(): string {
                 const canvas = e.target;
                 if (!canvas.classList.contains('track-canvas')) { return; }
                 if (dragState) { return; }
-                const rect = canvas.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
+                const hit = trackCanvasTimeHit(canvas, e.clientX);
+                if (!hit) {
+                    clearHover();
+                    hideTooltip();
+                    return;
+                }
+                const norm = hit.norm;
 
                 const gripType = getGripType(norm);
                 if (gripType) {
@@ -3737,9 +3765,10 @@ export function getComparisonRenderScript(): string {
                 if (isNaN(idx)) { return; }
                 if (e.button === 0) {
                     const rect = canvas.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
+                    const hit = trackCanvasTimeHit(canvas, e.clientX);
+                    if (!hit) { return; }
                     const y = e.clientY - rect.top;
-                    const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
+                    const norm = hit.norm;
                     const ampNorm = canvasYToAmplitudeNorm(y, canvas.height);
                     const gripType = waveformMode === 'rect-zoom' ? null : getGripType(norm);
                     dragState = {
@@ -3747,7 +3776,7 @@ export function getComparisonRenderScript(): string {
                         startClientX: e.clientX,
                         startClientY: e.clientY,
                         startOffset: trackRuntime[idx].offsetSeconds,
-                        canvasWidth: canvas.width,
+                        canvasWidth: hit.timeWidth,
                         canvasHeight: canvas.height,
                         isDrag: false,
                         isShift: e.shiftKey,
@@ -3781,9 +3810,7 @@ export function getComparisonRenderScript(): string {
                 } else if (dragState.dragType === 'loop') {
                     const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
                     if (!canvasEl) { scheduleRender(); return; }
-                    const rect = canvasEl.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
-                    const norm = Math.max(0, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
+                    const norm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
                     const s = Math.min(dragState.startNorm, norm);
                     const end = Math.max(dragState.startNorm, norm);
                     if (end > s) { loopRegion = { start: s, end: end }; updateLoopTimeDisplay(); updateZoomToSelectionBtn(); }
@@ -3791,9 +3818,8 @@ export function getComparisonRenderScript(): string {
                     const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
                     if (!canvasEl) { scheduleRender(); return; }
                     const rect = canvasEl.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
                     const y = e.clientY - rect.top;
-                    const norm = Math.max(0, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
+                    const norm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
                     const ampNorm = canvasYToAmplitudeNorm(y, dragState.canvasHeight);
                     rectZoomSelection = {
                         trackIndex: dragState.trackIndex,
@@ -3806,16 +3832,14 @@ export function getComparisonRenderScript(): string {
                 } else if (dragState.dragType === 'gripStart') {
                     const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
                     if (!canvasEl || !loopRegion) { scheduleRender(); return; }
-                    const rect = canvasEl.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
-                    const norm = Math.max(0, Math.min(loopRegion.end - 0.001, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
+                    const hitNorm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
+                    const norm = Math.max(0, Math.min(loopRegion.end - 0.001, hitNorm));
                     loopRegion = { start: norm, end: loopRegion.end }; updateLoopTimeDisplay(); updateZoomToSelectionBtn();
                 } else if (dragState.dragType === 'gripEnd') {
                     const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
                     if (!canvasEl || !loopRegion) { scheduleRender(); return; }
-                    const rect = canvasEl.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
-                    const norm = Math.max(loopRegion.start + 0.001, Math.min(1, zoomStart + (x / dragState.canvasWidth) * (zoomEnd - zoomStart)));
+                    const hitNorm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
+                    const norm = Math.max(loopRegion.start + 0.001, Math.min(1, hitNorm));
                     loopRegion = { start: loopRegion.start, end: norm }; updateLoopTimeDisplay(); updateZoomToSelectionBtn();
                 }
                 scheduleRender();
@@ -3829,15 +3853,15 @@ export function getComparisonRenderScript(): string {
                     const canvasId = 'track-canvas-' + dragState.trackIndex;
                     const canvas = document.getElementById(canvasId);
                     if (canvas) {
-                        const rect = canvas.getBoundingClientRect();
-                        const x = e.clientX - rect.left;
-                        const norm = zoomStart + (x / canvas.width) * (zoomEnd - zoomStart);
-                        cursorNorm = Math.max(0, Math.min(1, norm));
-                        loopRegion = null;
-                        updateLoopTimeDisplay();
-                        updateZoomToSelectionBtn();
-                        updateCursorDisplay(cursorNorm);
-                        scheduleRender();
+                        const hit = trackCanvasTimeHit(canvas, e.clientX);
+                        if (hit) {
+                            cursorNorm = Math.max(0, Math.min(1, hit.norm));
+                            loopRegion = null;
+                            updateLoopTimeDisplay();
+                            updateZoomToSelectionBtn();
+                            updateCursorDisplay(cursorNorm);
+                            scheduleRender();
+                        }
                     }
                 }
                 const completedRectZoom = wasRectZoom && rectZoomSelection ? Object.assign({}, rectZoomSelection) : null;
