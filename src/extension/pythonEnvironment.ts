@@ -3,6 +3,14 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 const REQUIRED_PACKAGES: readonly string[] = ['numpy', 'wandas'];
+const DEPENDENCY_CHECK_SCRIPT = `
+import importlib.util
+import json
+
+required = ${JSON.stringify(REQUIRED_PACKAGES)}
+missing = [name for name in required if importlib.util.find_spec(name) is None]
+print(json.dumps(missing))
+`;
 const BROWSE_LABEL = '$(folder) Browse...';
 export const SELECT_PYTHON_INTERPRETER_TOOLTIP = 'Click to select Python environment';
 export const MISSING_DEPENDENCIES_TOOLTIP = 'Python dependencies are missing. Click to select or install.';
@@ -44,16 +52,6 @@ class PipNotAvailableError extends Error {
     }
 }
 
-function isOnlyPackageNotFoundWarnings(stderr: string): boolean {
-    const lines = stderr
-        .split(/\r?\n/u)
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0);
-
-    return lines.length > 0
-        && lines.every((line) => /^WARNING:\s+Package\(s\)\s+not\s+found:/u.test(line));
-}
-
 interface PythonQuickPickItem extends vscode.QuickPickItem {
     pythonCommand?: string;
 }
@@ -69,12 +67,31 @@ function isLikelyCommand(value: string): boolean {
 export function resolvePythonCommand(
     pythonCommand: string,
     platform: NodeJS.Platform = process.platform,
+    workspaceRoot?: string,
 ): string {
-    if (isPythonExecutablePath(pythonCommand) || isLikelyCommand(pythonCommand)) {
+    const pathApi = platform === 'win32' ? path.win32 : path.posix;
+    if (isLikelyCommand(pythonCommand)) {
         return pythonCommand;
     }
-    const pathApi = platform === 'win32' ? path.win32 : path.posix;
-    return pathApi.join(pythonCommand, platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+    if (isPythonExecutablePath(pythonCommand)) {
+        if (workspaceRoot && !pathApi.isAbsolute(pythonCommand)) {
+            return pathApi.join(workspaceRoot, pythonCommand);
+        }
+        return pythonCommand;
+    }
+    const relativeInterpreterPath = pathApi.join(pythonCommand, platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+    if (workspaceRoot && !pathApi.isAbsolute(relativeInterpreterPath)) {
+        return pathApi.join(workspaceRoot, relativeInterpreterPath);
+    }
+    return relativeInterpreterPath;
+}
+
+export function resolveConfiguredPythonCommand(pythonCommand: string): string {
+    return resolvePythonCommand(pythonCommand, process.platform, getWorkspaceRoot());
+}
+
+function getWorkspaceRoot(): string | undefined {
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
 export function setStatusBarNormal(item: vscode.StatusBarItem, pythonCommand: string): void {
@@ -195,11 +212,11 @@ export async function checkAndPromptInstallDependencies(
 export async function checkMissingDependencies(
     pythonCommand: string,
 ): Promise<{ missingPackages: string[] }> {
-    const resolvedPythonCommand = resolvePythonCommand(pythonCommand);
+    const resolvedPythonCommand = resolveConfiguredPythonCommand(pythonCommand);
     return new Promise((resolve, reject) => {
         const process = spawn(
             resolvedPythonCommand,
-            ['-m', 'pip', 'show', ...REQUIRED_PACKAGES],
+            ['-c', DEPENDENCY_CHECK_SCRIPT],
             {
                 stdio: ['ignore', 'pipe', 'pipe'],
             },
@@ -225,28 +242,28 @@ export async function checkMissingDependencies(
         });
 
         process.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
-            if (stderr.includes('No module named pip')) {
-                reject(new PipNotAvailableError(pythonCommand));
-                return;
-            }
-
             const stderrTrimmed = stderr.trim();
             if (signal) {
-                reject(new Error(`pip show was terminated by signal ${signal}`));
+                reject(new Error(`dependency check was terminated by signal ${signal}`));
                 return;
             }
 
-            if (code !== 0 && !(code === 1 && (stderrTrimmed.length === 0 || isOnlyPackageNotFoundWarnings(stderrTrimmed)))) {
-                reject(new Error(stderrTrimmed || stdout.trim() || `pip show exited with code ${code}`));
+            if (code !== 0) {
+                reject(new Error(stderrTrimmed || stdout.trim() || `dependency check exited with code ${code}`));
                 return;
             }
 
-            const stdoutLower = stdout.toLowerCase();
-            const missingPackages = REQUIRED_PACKAGES.filter((pkg) => {
-                return !stdoutLower.includes(`name: ${pkg.toLowerCase()}`);
-            });
-
-            resolve({ missingPackages });
+            try {
+                const parsed = JSON.parse(stdout.trim()) as unknown;
+                if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === 'string')) {
+                    reject(new Error('dependency check returned an invalid package list'));
+                    return;
+                }
+                resolve({ missingPackages: parsed });
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                reject(new Error(`Failed to parse dependency check output: ${message}`));
+            }
         });
     });
 }
@@ -290,13 +307,19 @@ async function promptAndInstallDependencies(
             return;
         }
 
+        if (error instanceof PipNotAvailableError) {
+            setStatusBarWarning(statusBarItem, pythonCommand, PIP_UNAVAILABLE_TOOLTIP);
+            void vscode.window.showWarningMessage(error.message);
+            return;
+        }
+
         const message = error instanceof Error ? error.message : String(error);
         void vscode.window.showErrorMessage(`Failed to install packages: ${message}`);
     }
 }
 
 async function installPackages(pythonCommand: string, packages: string[]): Promise<void> {
-    const resolvedPythonCommand = resolvePythonCommand(pythonCommand);
+    const resolvedPythonCommand = resolveConfiguredPythonCommand(pythonCommand);
     return new Promise((resolve, reject) => {
         const process = spawn(
             resolvedPythonCommand,
@@ -322,6 +345,11 @@ async function installPackages(pythonCommand: string, packages: string[]): Promi
         });
 
         process.on('close', (code: number | null) => {
+            if (stderr.includes('No module named pip')) {
+                reject(new PipNotAvailableError(pythonCommand));
+                return;
+            }
+
             if (code !== 0) {
                 reject(new Error(stderr.trim() || stdout.trim() || `pip install exited with code ${code}`));
                 return;

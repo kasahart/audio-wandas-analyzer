@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { processStdoutChunk, type PendingRequest } from './backendIpc';
-import { resolvePythonCommand } from './pythonEnvironment';
+import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 
 export interface AnalyzeStftOptions {
     nFft: number;
@@ -137,7 +137,7 @@ export class PythonBackendServer {
     private startServer(): Promise<void> {
         return new Promise<void>((resolve, reject) => {
             const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-            const pythonCommand = resolvePythonCommand(config.get<string>('pythonCommand', 'python3'));
+            const pythonCommand = resolveConfiguredPythonCommand(config.get<string>('pythonCommand', 'python3'));
             const cacheMb = Math.max(64, config.get<number>('cacheMemoryMb', 1024));
             const scriptPath = path.join(this.extensionPath, 'python-backend', 'backend_server.py');
 
