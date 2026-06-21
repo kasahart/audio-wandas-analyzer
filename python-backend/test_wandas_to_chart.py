@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import tomllib
+from pathlib import Path
+
 import numpy as np
 import pytest
 import wandas as wd
@@ -49,6 +52,12 @@ def test_noct_frame_becomes_bar(mono_sin: wd.ChannelFrame) -> None:
     assert len(spec["categories"]) == len(spec["series"][0]["values"])
     # Centre frequencies are rendered with %g so they should look numeric-ish.
     assert any(ch.replace(".", "").isdigit() for ch in spec["categories"][:1])
+
+
+def test_dev_dependencies_include_noct_spectrum_extra() -> None:
+    pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+    dev_dependencies = pyproject["project"]["optional-dependencies"]["dev"]
+    assert "wandas[psychoacoustic]>=0.1.0" in dev_dependencies
 
 
 def test_coherence_yields_multi_series(two_channel: wd.ChannelFrame) -> None:
