@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import * as os from 'node:os';
 import test from 'node:test';
 
 function loadPythonEnvironmentModule(options: {
@@ -401,6 +402,32 @@ test('checkMissingDependencies uses import checks instead of pip', async () => {
         const result = await pythonEnvironment.checkMissingDependencies('python3');
         assert.deepEqual(result, { missingPackages: [] });
         assert.equal(spawnedArgs[0], '-c');
+    } finally {
+        restore();
+    }
+});
+
+test('checkMissingDependencies runs import probe outside the workspace root', async () => {
+    let spawnOptions: { cwd?: string } | undefined;
+    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({
+        workspaceFolderRoot: '/workspace/project',
+        spawnImpl: (...spawnArgs: unknown[]) => {
+            spawnOptions = spawnArgs[2] as { cwd?: string } | undefined;
+            const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+            proc.stdout = new EventEmitter();
+            proc.stderr = new EventEmitter();
+            process.nextTick(() => {
+                proc.stdout.emit('data', Buffer.from('[]\n'));
+                proc.emit('close', 0);
+            });
+            return proc;
+        },
+    });
+
+    try {
+        await pythonEnvironment.checkMissingDependencies('python3');
+        assert.equal(spawnOptions?.cwd, os.tmpdir());
+        assert.notEqual(spawnOptions?.cwd, '/workspace/project');
     } finally {
         restore();
     }

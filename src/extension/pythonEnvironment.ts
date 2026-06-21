@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -6,8 +7,12 @@ const REQUIRED_PACKAGES: readonly string[] = ['numpy', 'wandas'];
 const DEPENDENCY_CHECK_SCRIPT = `
 import importlib.util
 import json
+import os
+import sys
 
 required = ${JSON.stringify(REQUIRED_PACKAGES)}
+cwd = os.getcwd()
+sys.path = [entry for entry in sys.path if entry not in ("", cwd)]
 missing = [name for name in required if importlib.util.find_spec(name) is None]
 print(json.dumps(missing))
 `;
@@ -218,6 +223,7 @@ export async function checkMissingDependencies(
             resolvedPythonCommand,
             ['-c', DEPENDENCY_CHECK_SCRIPT],
             {
+                cwd: os.tmpdir(),
                 stdio: ['ignore', 'pipe', 'pipe'],
             },
         );
