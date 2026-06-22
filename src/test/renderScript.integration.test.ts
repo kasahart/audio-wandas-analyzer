@@ -1555,6 +1555,71 @@ test('spectrogram hit testing maps pointer positions to the plot width and ignor
     env.dom.window.close();
 });
 
+test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+
+    const wrapper = env.dom.window.document.getElementById('tracks-wrapper') as HTMLElement | null;
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(wrapper);
+    assert.ok(canvas);
+    wrapper!.getBoundingClientRect = () => ({
+        left: 0, top: 0, right: 930, bottom: 100, width: 930, height: 100,
+    } as DOMRect);
+    canvas!.width = 800;
+    canvas!.height = 100;
+    canvas!.getBoundingClientRect = () => ({
+        left: 130, top: 0, right: 930, bottom: 100, width: 800, height: 100,
+    } as DOMRect);
+
+    const plotWheel = new env.dom.window.WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -120,
+        clientX: 505,
+        clientY: 50,
+    });
+    const plotWheelNotCanceled = canvas!.dispatchEvent(plotWheel);
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-wheel-plot' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(plotWheelNotCanceled, false, 'Ctrl+wheel は標準スクロールへ渡さないこと');
+    assert.equal(plotWheel.defaultPrevented, true);
+    assert.ok(Math.abs(snap.renderedUi.zoomStart - 0.075) < 1e-9, 'x=375 on the 750px spectrogram plot uses a 50% zoom pivot');
+    assert.ok(Math.abs(snap.renderedUi.zoomEnd - 0.925) < 1e-9, 'x=375 on the 750px spectrogram plot keeps the pivot centered');
+
+    const beforeColorbar = snap.renderedUi;
+    const colorbarWheel = new env.dom.window.WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -120,
+        clientX: 905,
+        clientY: 50,
+    });
+    canvas!.dispatchEvent(colorbarWheel);
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-wheel-colorbar' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(colorbarWheel.defaultPrevented, true);
+    assert.equal(snap.renderedUi.zoomStart, beforeColorbar.zoomStart, 'Ctrl+wheel in the colorbar does not change audio zoom');
+    assert.equal(snap.renderedUi.zoomEnd, beforeColorbar.zoomEnd, 'Ctrl+wheel in the colorbar does not change audio zoom');
+    env.dom.window.close();
+});
+
 test('spectrogram ruler maps time ticks to the plot width', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);

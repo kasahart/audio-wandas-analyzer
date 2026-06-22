@@ -3701,7 +3701,15 @@ export function getComparisonRenderScript(): string {
                 // Compute normalized time under cursor, keeping it pinned
                 const wrapper = document.getElementById('tracks-wrapper');
                 let pivotNorm = (zoomStart + zoomEnd) / 2; // fallback: current center
-                if (wrapper) {
+                const target = e.target;
+                const wheelCanvas = target && typeof target.closest === 'function'
+                    ? target.closest('.track-canvas')
+                    : null;
+                if (contentType === 'spectrogram' && wheelCanvas) {
+                    const hit = trackCanvasTimeHit(wheelCanvas, e.clientX);
+                    if (!hit) { return; }
+                    pivotNorm = hit.norm;
+                } else if (wrapper) {
                     const rect = wrapper.getBoundingClientRect();
                     const plotLeft = rect.left + 130; // 130px track header
                     const plotWidth = rect.width - 130;
