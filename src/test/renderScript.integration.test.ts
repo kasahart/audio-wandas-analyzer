@@ -183,6 +183,19 @@ const DIFFERENT_SELECTION_STATE = JSON.stringify({
     },
 });
 
+const DIFFERENT_SELECTION_WITH_SUB_STATE = JSON.stringify({
+    mode: 'directory-selection',
+    results: [],
+    rootPath: '/tmp/other-session',
+    allFilePaths: ['/tmp/other-session/sub/c.flac'],
+    selectedFilePaths: [],
+    pythonEnvironmentState: {
+        pythonCommand: 'python3',
+        status: 'normal',
+        tooltip: 'Click to select Python environment',
+    },
+});
+
 function setupEnvWithState(stateJson: string, initialVsCodeState: unknown = null) {
     const script = getRenderScript();
     const { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts } = createWebviewEnv(
@@ -498,6 +511,37 @@ test('ファイルツリーフィルタは別フォルダの Webview 再生成�
         .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
     assert.equal(visibleRows.length, 1, '別フォルダの初期表示は古いフィルタで空にならないこと');
     assert.ok(visibleRows[0].textContent?.includes('c.wav'));
+    rerendered.dom.window.close();
+});
+
+test('ファイルツリーの折りたたみ状態は別フォルダのフィルタ結果に持ち越されない', () => {
+    const env = setupSelectionEnv();
+    const directory = env.dom.window.document.querySelector(
+        '.selection-tree-directory[data-relative-path="sub"]',
+    ) as HTMLElement | null;
+    assert.ok(directory);
+    directory!.click();
+    assert.equal(directory!.getAttribute('aria-expanded'), 'false', '事前条件: sub ディレクトリが閉じていること');
+    const persistedState = env.vscodeStates.at(-1);
+    assert.ok(persistedState);
+    env.dom.window.close();
+
+    const rerendered = setupEnvWithState(DIFFERENT_SELECTION_WITH_SUB_STATE, persistedState);
+    const filterInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+    const flush = (rerendered.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
+
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new rerendered.dom.window.Event('input', { bubbles: true }));
+    flush();
+
+    const rerenderedDirectory = rerendered.dom.window.document.querySelector(
+        '.selection-tree-directory[data-relative-path="sub"]',
+    ) as HTMLElement | null;
+    assert.ok(rerenderedDirectory);
+    const childList = rerenderedDirectory!.nextElementSibling as HTMLElement | null;
+    assert.equal(rerenderedDirectory!.getAttribute('aria-expanded'), 'true');
+    assert.notEqual(childList?.style.display, 'none', '別 rootPath の古い折りたたみ状態で一致ファイルを隠さないこと');
     rerendered.dom.window.close();
 });
 

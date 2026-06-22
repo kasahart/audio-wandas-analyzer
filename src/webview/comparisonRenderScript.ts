@@ -40,10 +40,12 @@ export function getComparisonRenderScript(): string {
                 persistedWebviewState = Object.assign({}, persistedWebviewState, patch);
                 vscode.setState(persistedWebviewState);
             }
-            // ディレクトリ折りたたみ状態を保持 (relativePath → expanded: boolean)
-            // webview.html 再代入後も vscode.getState() で復元する
-            var directoryCollapseState = persistedWebviewState.directoryCollapseState || {};
             var currentTreeFilterRootPath = state.rootPath || '';
+            // ディレクトリ折りたたみ状態を保持 (current rootPath 内の relativePath → expanded: boolean)
+            // webview.html 再代入後も vscode.getState() で復元する
+            var directoryCollapseState = persistedWebviewState.directoryCollapseRootPath === currentTreeFilterRootPath
+                ? (persistedWebviewState.directoryCollapseState || {})
+                : {};
             var treeFilterQuery = persistedWebviewState.treeFilterRootPath === currentTreeFilterRootPath
                 && typeof persistedWebviewState.treeFilterQuery === 'string'
                 ? persistedWebviewState.treeFilterQuery
@@ -2676,7 +2678,10 @@ export function getComparisonRenderScript(): string {
                         const relativePath = dirHeader.getAttribute('data-relative-path');
                         if (relativePath) {
                             directoryCollapseState[relativePath] = isCollapsed;
-                            persistWebviewState({ directoryCollapseState: directoryCollapseState });
+                            persistWebviewState({
+                                directoryCollapseState: directoryCollapseState,
+                                directoryCollapseRootPath: currentTreeFilterRootPath,
+                            });
                         }
                     }
                 }
