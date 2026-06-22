@@ -170,13 +170,42 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
     ],
 });
 
-function setupEnvWithState(stateJson: string) {
+const DIFFERENT_SELECTION_STATE = JSON.stringify({
+    mode: 'directory-selection',
+    results: [],
+    rootPath: '/tmp/other-session',
+    allFilePaths: ['/tmp/other-session/c.wav'],
+    selectedFilePaths: [],
+    pythonEnvironmentState: {
+        pythonCommand: 'python3',
+        status: 'normal',
+        tooltip: 'Click to select Python environment',
+    },
+});
+
+const DIFFERENT_SELECTION_WITH_SUB_STATE = JSON.stringify({
+    mode: 'directory-selection',
+    results: [],
+    rootPath: '/tmp/other-session',
+    allFilePaths: ['/tmp/other-session/sub/c.flac'],
+    selectedFilePaths: [],
+    pythonEnvironmentState: {
+        pythonCommand: 'python3',
+        status: 'normal',
+        tooltip: 'Click to select Python environment',
+    },
+});
+
+function setupEnvWithState(stateJson: string, initialVsCodeState: unknown = null) {
     const script = getRenderScript();
-    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(stateJson);
+    const { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts } = createWebviewEnv(
+        stateJson,
+        initialVsCodeState,
+    );
     // comparisonWaveform.js を先に eval して window.renderWaveformPipeline を登録する
     evalScript(dom, WAVEFORM_PIPELINE_JS);
     evalScript(dom, script);
-    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+    return { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts };
 }
 
 function setupEnv() {
@@ -196,19 +225,11 @@ function makeLazySpectrogramState(): string {
 }
 
 function setupSelectionEnv() {
-    const script = getRenderScript();
-    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_SELECTION_STATE);
-    evalScript(dom, WAVEFORM_PIPELINE_JS);
-    evalScript(dom, script);
-    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+    return setupEnvWithState(DUMMY_SELECTION_STATE);
 }
 
 function setupSelectionResultsEnv() {
-    const script = getRenderScript();
-    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_SELECTION_WITH_RESULTS_STATE);
-    evalScript(dom, WAVEFORM_PIPELINE_JS);
-    evalScript(dom, script);
-    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+    return setupEnvWithState(DUMMY_SELECTION_WITH_RESULTS_STATE);
 }
 
 function nextAnimationFrame(dom: ReturnType<typeof setupEnv>['dom']): Promise<void> {
@@ -439,6 +460,116 @@ test('フィルタ適用後も選択状態が維持される', () => {
     env.dom.window.close();
 });
 
+test('ファイルツリーフィルタはファイル選択後の Webview 再生成でも維持される', () => {
+    const env = setupSelectionEnv();
+    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
+
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
+
+    const checkbox = env.dom.window.document.querySelector(
+        '.selection-file-checkbox[data-file-path="/tmp/session/sub/b.flac"]',
+    ) as HTMLInputElement | null;
+    assert.ok(checkbox);
+    checkbox!.checked = true;
+    checkbox!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
+
+    const persistedState = env.vscodeStates.at(-1);
+    assert.ok(persistedState, 'ファイル選択前のフィルタ状態が vscode state に保存されること');
+    env.dom.window.close();
+
+    const rerendered = setupEnvWithState(DUMMY_SELECTION_WITH_RESULTS_STATE, persistedState);
+    const restoredInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.equal(restoredInput?.value, 'flac', 'Webview 再生成後もフィルタ文字列が復元されること');
+    const visibleRows = Array.from(rerendered.dom.window.document.querySelectorAll('.selection-file-row'))
+        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
+    assert.equal(visibleRows.length, 1, 'Webview 再生成後もフィルタ結果だけが表示されること');
+    assert.ok(visibleRows[0].textContent?.includes('b.flac'));
+    rerendered.dom.window.close();
+});
+
+test('ファイルツリーフィルタは別フォルダの Webview 再生成には持ち越されない', () => {
+    const env = setupSelectionEnv();
+    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
+
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
+    const persistedState = env.vscodeStates.at(-1);
+    assert.ok(persistedState);
+    env.dom.window.close();
+
+    const rerendered = setupEnvWithState(DIFFERENT_SELECTION_STATE, persistedState);
+    const restoredInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.equal(restoredInput?.value, '', '別 rootPath では古いフィルタを復元しないこと');
+    const visibleRows = Array.from(rerendered.dom.window.document.querySelectorAll('.selection-file-row'))
+        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
+    assert.equal(visibleRows.length, 1, '別フォルダの初期表示は古いフィルタで空にならないこと');
+    assert.ok(visibleRows[0].textContent?.includes('c.wav'));
+    rerendered.dom.window.close();
+});
+
+test('ファイルツリーの折りたたみ状態は別フォルダのフィルタ結果に持ち越されない', () => {
+    const env = setupSelectionEnv();
+    const directory = env.dom.window.document.querySelector(
+        '.selection-tree-directory[data-relative-path="sub"]',
+    ) as HTMLElement | null;
+    assert.ok(directory);
+    directory!.click();
+    assert.equal(directory!.getAttribute('aria-expanded'), 'false', '事前条件: sub ディレクトリが閉じていること');
+    const persistedState = env.vscodeStates.at(-1);
+    assert.ok(persistedState);
+    env.dom.window.close();
+
+    const rerendered = setupEnvWithState(DIFFERENT_SELECTION_WITH_SUB_STATE, persistedState);
+    const filterInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+    const flush = (rerendered.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
+
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new rerendered.dom.window.Event('input', { bubbles: true }));
+    flush();
+
+    const rerenderedDirectory = rerendered.dom.window.document.querySelector(
+        '.selection-tree-directory[data-relative-path="sub"]',
+    ) as HTMLElement | null;
+    assert.ok(rerenderedDirectory);
+    const childList = rerenderedDirectory!.nextElementSibling as HTMLElement | null;
+    assert.equal(rerenderedDirectory!.getAttribute('aria-expanded'), 'true');
+    assert.notEqual(childList?.style.display, 'none', '別 rootPath の古い折りたたみ状態で一致ファイルを隠さないこと');
+    rerendered.dom.window.close();
+});
+
+test('ファイルツリーフィルタ更新は閉じたディレクトリを展開しない', () => {
+    const env = setupSelectionEnv();
+    const directory = env.dom.window.document.querySelector(
+        '.selection-tree-directory[data-relative-path="sub"]',
+    ) as HTMLElement | null;
+    assert.ok(directory);
+    directory!.click();
+    assert.equal(directory!.getAttribute('aria-expanded'), 'false', '事前条件: sub ディレクトリが閉じていること');
+
+    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
+
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
+    assert.equal(directory!.getAttribute('aria-expanded'), 'false', 'フィルタ適用で閉じたディレクトリを開かないこと');
+
+    filterInput!.value = 'b.flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
+    assert.equal(directory!.getAttribute('aria-expanded'), 'false', 'フィルタ更新でも閉じたディレクトリを開かないこと');
+    env.dom.window.close();
+});
+
 test('directory selection mode renders a Python environment button only in the selection toolbar', () => {
     const { dom } = setupSelectionEnv();
     const selectionButton = dom.window.document.getElementById('selection-python-environment');
@@ -632,6 +763,30 @@ test('renderScript: spectrogram mode requests track detail when spectrogram is n
     assert.equal(detailRequests[0].filePath, '/tmp/a.wav');
     assert.equal(typeof detailRequests[0].analysisId, 'string');
     assert.equal(typeof detailRequests[0].settingsSignature, 'string');
+});
+
+test('renderScript: spectrogram content mode survives Webview regeneration', async () => {
+    const env = setupEnv();
+    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(button);
+    button.click();
+    await nextAnimationFrame(env.dom);
+
+    const persistedState = env.vscodeStates.at(-1);
+    assert.ok(persistedState, 'spectrogram mode should be persisted before the host regenerates HTML');
+    env.dom.window.close();
+
+    const rerendered = setupEnvWithState(DUMMY_APP_STATE, persistedState);
+    await nextAnimationFrame(rerendered.dom);
+    const snap = rerendered.postedMessages
+        .filter((msg: any) => msg.type === 'comparison-panel-test-snapshot')
+        .at(-1) as any;
+    assert.equal(snap.renderedUi.contentType, 'spectrogram');
+    assert.ok(
+        rerendered.dom.window.document.querySelector('[data-action="content-spectrogram"]')?.classList.contains('is-active'),
+        'spectrogram toolbar button should be restored as active',
+    );
+    rerendered.dom.window.close();
 });
 
 test('renderScript: track-detail-result merges spectrogram and stale detail is ignored', async () => {
@@ -1334,6 +1489,156 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
     assert.equal(labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)), false, '周波数ラベルはプロット canvas に描かれないこと');
     assert.ok(spy!.putImageDataCalls >= 2,
         'プロット領域とカラーバーで putImageData が複数回呼ばれること');
+    env.dom.window.close();
+});
+
+test('axes: スペクトログラム画像はカラーバー領域に重ならない', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+    await new Promise((resolve) => env.dom.window.setTimeout(resolve, 0));
+
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas);
+    const spy = env.domCanvasContexts.get('track-canvas-0');
+    assert.ok(spy);
+    const spectrogramImage = spy!.putImageDataArgs[0];
+    assert.ok(spectrogramImage, 'スペクトログラム画像の putImageData が記録されること');
+    assert.equal(spectrogramImage.x, 0);
+    assert.ok(
+        spectrogramImage.width <= canvas!.width - 50,
+        `スペクトログラム画像幅 ${spectrogramImage.width} が canvas 幅 ${canvas!.width} のカラーバー領域まで伸びないこと`,
+    );
+    env.dom.window.close();
+});
+
+test('spectrogram hit testing maps pointer positions to the plot width and ignores the colorbar', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas);
+    canvas!.width = 800;
+    canvas!.height = 100;
+    canvas!.getBoundingClientRect = () => ({
+        left: 0, top: 0, right: 800, bottom: 100, width: 800, height: 100,
+    } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-plot' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'x=375 on an 800px canvas with a 50px colorbar maps to 50% plot time');
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-colorbar' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'clicks in the spectrogram colorbar do not update audio time');
+    env.dom.window.close();
+});
+
+test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+
+    const wrapper = env.dom.window.document.getElementById('tracks-wrapper') as HTMLElement | null;
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(wrapper);
+    assert.ok(canvas);
+    wrapper!.getBoundingClientRect = () => ({
+        left: 0, top: 0, right: 930, bottom: 100, width: 930, height: 100,
+    } as DOMRect);
+    canvas!.width = 800;
+    canvas!.height = 100;
+    canvas!.getBoundingClientRect = () => ({
+        left: 130, top: 0, right: 930, bottom: 100, width: 800, height: 100,
+    } as DOMRect);
+
+    const plotWheel = new env.dom.window.WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -120,
+        clientX: 505,
+        clientY: 50,
+    });
+    const plotWheelNotCanceled = canvas!.dispatchEvent(plotWheel);
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-wheel-plot' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(plotWheelNotCanceled, false, 'Ctrl+wheel は標準スクロールへ渡さないこと');
+    assert.equal(plotWheel.defaultPrevented, true);
+    assert.ok(Math.abs(snap.renderedUi.zoomStart - 0.075) < 1e-9, 'x=375 on the 750px spectrogram plot uses a 50% zoom pivot');
+    assert.ok(Math.abs(snap.renderedUi.zoomEnd - 0.925) < 1e-9, 'x=375 on the 750px spectrogram plot keeps the pivot centered');
+
+    const beforeColorbar = snap.renderedUi;
+    const colorbarWheel = new env.dom.window.WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -120,
+        clientX: 905,
+        clientY: 50,
+    });
+    canvas!.dispatchEvent(colorbarWheel);
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-wheel-colorbar' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(colorbarWheel.defaultPrevented, true);
+    assert.equal(snap.renderedUi.zoomStart, beforeColorbar.zoomStart, 'Ctrl+wheel in the colorbar does not change audio zoom');
+    assert.equal(snap.renderedUi.zoomEnd, beforeColorbar.zoomEnd, 'Ctrl+wheel in the colorbar does not change audio zoom');
+    env.dom.window.close();
+});
+
+test('spectrogram ruler maps time ticks to the plot width', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const row = env.dom.window.document.getElementById('ruler-row') as HTMLElement | null;
+    assert.ok(row);
+    Object.defineProperty(row, 'clientWidth', { configurable: true, value: 994 });
+    const ruler = env.dom.window.document.getElementById('ruler-canvas') as HTMLCanvasElement | null;
+    assert.ok(ruler);
+
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+
+    const rulerSpy = env.domCanvasContexts.get('ruler-canvas');
+    assert.ok(rulerSpy);
+    const halfSecondTick = rulerSpy!.fillTextArgs.filter((call) => call.text === '0:00.50').at(-1);
+    assert.ok(halfSecondTick, '0.5 秒 tick が描画されること');
+    assert.equal(halfSecondTick!.x, 377, 'spectrogram ruler の中央 tick は 750px plot の中央 + label offset に描画されること');
     env.dom.window.close();
 });
 
@@ -2611,4 +2916,3 @@ test('spectrum overlay: clamp 後にゼロ幅になる周波数レンジは適�
     assert.deepStrictEqual(after, baseline, 'clamp 後にゼロ幅になる周波数レンジは state に反映されないこと');
     env.dom.window.close();
 });
-
