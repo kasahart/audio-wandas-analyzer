@@ -33,11 +33,13 @@ export function getComparisonRenderScript(): string {
             const STR = (typeof __APP_STRINGS__ !== 'undefined' && __APP_STRINGS__) ? __APP_STRINGS__ : {};
             const SHORTCUT_ROWS = ${serializedShortcutRows};
             const isSelectionMode = state.mode === 'directory-selection';
-            const selectedFilePaths = Array.isArray(state.selectedFilePaths)
-                ? state.selectedFilePaths.filter(function(filePath, index, arr) {
-                    return typeof filePath === 'string' && arr.indexOf(filePath) === index;
-                })
-                : [];
+            const selectedFilePaths = [];
+            const selectedFilePathSet = new Set();
+            if (Array.isArray(state.selectedFilePaths)) {
+                state.selectedFilePaths.forEach(function(filePath) {
+                    if (typeof filePath === 'string') { addSelectedFilePath(filePath); }
+                });
+            }
             const allSelectableFilePaths = Array.isArray(state.allFilePaths) ? state.allFilePaths.slice() : [];
             var persistedWebviewState = vscode.getState() || {};
             function persistWebviewState(patch) {
@@ -2944,20 +2946,24 @@ export function getComparisonRenderScript(): string {
             }
 
             function hasSelectedFilePath(filePath) {
-                return selectedFilePaths.indexOf(filePath) !== -1;
+                return selectedFilePathSet.has(filePath);
             }
 
             function addSelectedFilePath(filePath) {
-                if (!hasSelectedFilePath(filePath)) { selectedFilePaths.push(filePath); }
+                if (hasSelectedFilePath(filePath)) { return; }
+                selectedFilePaths.push(filePath);
+                selectedFilePathSet.add(filePath);
             }
 
             function removeSelectedFilePath(filePath) {
                 const idx = selectedFilePaths.indexOf(filePath);
                 if (idx !== -1) { selectedFilePaths.splice(idx, 1); }
+                selectedFilePathSet.delete(filePath);
             }
 
             function clearSelectedFilePaths() {
                 selectedFilePaths.length = 0;
+                selectedFilePathSet.clear();
             }
 
             function isVisibleInTree(el) {
@@ -3008,11 +3014,15 @@ export function getComparisonRenderScript(): string {
             }
 
             function postSelectedFiles() {
+                const orderedSelection = allSelectableFilePaths.slice(0, 0);
+                selectedFilePaths.forEach(function(filePath) {
+                    orderedSelection.push(filePath);
+                });
                 selectionMessageSeq += 1;
                 vscode.postMessage({
                     type: 'analyze-selected-files',
                     requestId: 'selection-' + selectionMessageSeq,
-                    filePaths: selectedFilePaths.slice(),
+                    filePaths: orderedSelection,
                 });
             }
 
@@ -4784,20 +4794,20 @@ export function getComparisonRenderScript(): string {
                 }
                 if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
                     __setReanalyzeBusy(false);
-                    const oldResultsByFilePath = {};
-                    const oldRuntimeByFilePath = {};
+                    const oldResultsByFilePath = Object.create(null);
+                    const oldRuntimeByFilePath = Object.create(null);
                     state.results.forEach(function(oldResult, i) {
-                        if (!oldResult || !oldResult.filePath) { return; }
+                        if (!oldResult || typeof oldResult.filePath !== 'string') { return; }
                         oldResultsByFilePath[oldResult.filePath] = oldResult;
                         if (trackRuntime[i]) { oldRuntimeByFilePath[oldResult.filePath] = trackRuntime[i]; }
                     });
                     state.results = msg.results.map(function(r, i) {
-                        const old = (r && r.filePath) ? oldResultsByFilePath[r.filePath] : state.results[i];
+                        const old = (r && typeof r.filePath === 'string') ? oldResultsByFilePath[r.filePath] : state.results[i];
                         return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
                     });
                     trackRuntime.length = state.results.length;
                     state.results.forEach(function(result, i) {
-                        const previous = result && result.filePath ? oldRuntimeByFilePath[result.filePath] : null;
+                        const previous = result && typeof result.filePath === 'string' ? oldRuntimeByFilePath[result.filePath] : null;
                         trackRuntime[i] = previous || createTrackRuntime();
                     });
                     displayOrder = state.results.map(function(_, i) { return i; });
