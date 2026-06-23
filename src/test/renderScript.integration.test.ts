@@ -170,6 +170,42 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
     ],
 });
 
+const DUMMY_SELECTION_WITH_B_RESULT_STATE = JSON.stringify({
+    mode: 'directory-selection',
+    rootPath: '/tmp/session',
+    allFilePaths: ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'],
+    selectedFilePaths: ['/tmp/session/sub/b.flac'],
+    pythonEnvironmentState: {
+        pythonCommand: '.venv/bin/python',
+        status: 'normal',
+        tooltip: 'Click to select Python environment',
+    },
+    results: [
+        {
+            filePath: '/tmp/session/sub/b.flac',
+            fileName: 'b.flac',
+            audioSource: 'vscode-resource:/tmp/session/sub/b.flac',
+            sampleRateHz: 44100,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 44100,
+            error: undefined,
+            channels: [{
+                label: 'L',
+                rms: 0.2,
+                peakAbsolute: 0.7,
+                dominantFrequencies: [],
+                waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
+                spectrogram: {
+                    values: [[0]], timeBins: 1, frequencyBins: 1,
+                    windowSize: 512, hopSize: 256,
+                    maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+                },
+            }],
+        },
+    ],
+});
+
 const DIFFERENT_SELECTION_STATE = JSON.stringify({
     mode: 'directory-selection',
     results: [],
@@ -648,6 +684,25 @@ test('directory selection mode posts analyze-selected-files immediately when a c
     assert.deepEqual(message?.filePaths, ['/tmp/session/a.wav']);
 });
 
+test('directory selection mode posts checked files in user selection order', () => {
+    const { dom, postedMessages } = setupSelectionEnv();
+    const checkboxB = dom.window.document.querySelector('[data-file-path="/tmp/session/sub/b.flac"]');
+    const checkboxA = dom.window.document.querySelector('[data-file-path="/tmp/session/a.wav"]');
+
+    assert.ok(checkboxB instanceof dom.window.HTMLInputElement);
+    assert.ok(checkboxA instanceof dom.window.HTMLInputElement);
+
+    checkboxB.checked = true;
+    checkboxB.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    checkboxA.checked = true;
+    checkboxA.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+    const message = postedMessages.at(-1) as { type?: string; filePaths?: string[] } | undefined;
+
+    assert.equal(message?.type, 'analyze-selected-files');
+    assert.deepEqual(message?.filePaths, ['/tmp/session/sub/b.flac', '/tmp/session/a.wav']);
+});
+
 test('directory selection mode keeps the tree visible while rendering selected tracks', () => {
     const { dom } = setupSelectionResultsEnv();
     const checkboxes = dom.window.document.querySelectorAll('.selection-file-checkbox');
@@ -657,6 +712,75 @@ test('directory selection mode keeps the tree visible while rendering selected t
     assert.equal(checkboxes.length, 2);
     assert.ok(trackCanvas, 'selected track canvas should remain visible next to the tree');
     assert.ok(toolbar, 'comparison toolbar should be visible in selection mode');
+});
+
+test('directory selection mode keeps existing track color stable when a new earlier tree item appears', () => {
+    const { dom } = setupEnvWithState(DUMMY_SELECTION_WITH_B_RESULT_STATE);
+    const initialSwatch = dom.window.document.querySelector(
+        '[data-action="pick-color"][data-track-index="0"]',
+    ) as HTMLElement | null;
+
+    assert.ok(initialSwatch);
+    const initialBColor = initialSwatch.style.background;
+
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
+        data: {
+            type: 'analysis-update',
+            results: [
+                {
+                    filePath: '/tmp/session/a.wav',
+                    fileName: 'a.wav',
+                    audioSource: 'vscode-resource:/tmp/session/a.wav',
+                    sampleRateHz: 44100,
+                    durationSeconds: 1.0,
+                    channelCount: 1,
+                    sampleCount: 44100,
+                    error: undefined,
+                    channels: [{
+                        label: 'L',
+                        rms: 0.1,
+                        peakAbsolute: 0.5,
+                        dominantFrequencies: [],
+                        waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
+                        spectrogram: {
+                            values: [[0]], timeBins: 1, frequencyBins: 1,
+                            windowSize: 512, hopSize: 256,
+                            maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+                        },
+                    }],
+                },
+                {
+                    filePath: '/tmp/session/sub/b.flac',
+                    fileName: 'b.flac',
+                    audioSource: 'vscode-resource:/tmp/session/sub/b.flac',
+                    sampleRateHz: 44100,
+                    durationSeconds: 1.0,
+                    channelCount: 1,
+                    sampleCount: 44100,
+                    error: undefined,
+                    channels: [{
+                        label: 'L',
+                        rms: 0.2,
+                        peakAbsolute: 0.7,
+                        dominantFrequencies: [],
+                        waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
+                        spectrogram: {
+                            values: [[0]], timeBins: 1, frequencyBins: 1,
+                            windowSize: 512, hopSize: 256,
+                            maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+                        },
+                    }],
+                },
+            ],
+        },
+    }));
+
+    const rows = Array.from(dom.window.document.querySelectorAll('.track-row'));
+    const bRow = rows.find((row) => row.textContent?.includes('b.flac'));
+    const bSwatch = bRow?.querySelector('[data-action="pick-color"]') as HTMLElement | null;
+
+    assert.ok(bSwatch);
+    assert.equal(bSwatch.style.background, initialBColor);
 });
 
 test('directory selection mode posts an empty selection when a checked file is unchecked', () => {

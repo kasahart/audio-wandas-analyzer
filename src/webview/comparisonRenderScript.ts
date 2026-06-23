@@ -33,7 +33,13 @@ export function getComparisonRenderScript(): string {
             const STR = (typeof __APP_STRINGS__ !== 'undefined' && __APP_STRINGS__) ? __APP_STRINGS__ : {};
             const SHORTCUT_ROWS = ${serializedShortcutRows};
             const isSelectionMode = state.mode === 'directory-selection';
-            const selectedFilePaths = new Set(Array.isArray(state.selectedFilePaths) ? state.selectedFilePaths : []);
+            const selectedFilePaths = [];
+            const selectedFilePathSet = new Set();
+            if (Array.isArray(state.selectedFilePaths)) {
+                state.selectedFilePaths.forEach(function(filePath) {
+                    if (typeof filePath === 'string') { addSelectedFilePath(filePath); }
+                });
+            }
             const allSelectableFilePaths = Array.isArray(state.allFilePaths) ? state.allFilePaths.slice() : [];
             var persistedWebviewState = vscode.getState() || {};
             function persistWebviewState(patch) {
@@ -270,8 +276,16 @@ export function getComparisonRenderScript(): string {
             let loopRegion = null;        // null or { start: number, end: number }（正規化グローバル時間）
             const lastWaveformCoverage = state.results.map(function() { return null; });
 
+            let nextDefaultTrackColorIndex = 0;
+
+            function createTrackRuntime() {
+                const defaultColor = TRACK_COLORS[nextDefaultTrackColorIndex % TRACK_COLORS.length];
+                nextDefaultTrackColorIndex += 1;
+                return { offsetSeconds: 0, hidden: false, color: null, defaultColor: defaultColor };
+            }
+
             const trackRuntime = state.results.map(function() {
-                return { offsetSeconds: 0, hidden: false, color: null };
+                return createTrackRuntime();
             });
 
             let displayOrder = state.results.map(function(_, i) { return i; });
@@ -484,7 +498,8 @@ export function getComparisonRenderScript(): string {
             }
 
             function trackColor(i) {
-                return (trackRuntime[i] && trackRuntime[i].color) || TRACK_COLORS[i % TRACK_COLORS.length];
+                const runtime = trackRuntime[i];
+                return (runtime && runtime.color) || (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
             }
 
             function showTooltip(e, text) {
@@ -1152,7 +1167,7 @@ export function getComparisonRenderScript(): string {
                     }
 
                     const filePath = node.filePath || '';
-                    const checked = selectedFilePaths.has(filePath) ? ' checked' : '';
+                    const checked = hasSelectedFilePath(filePath) ? ' checked' : '';
                     return '<li>'
                         + '<label class="selection-file-row">'
                         + '  <input class="selection-file-checkbox" type="checkbox" data-file-path="' + escHtml(filePath) + '"' + checked + '>'
@@ -2720,9 +2735,9 @@ export function getComparisonRenderScript(): string {
                     const filePath = target.getAttribute('data-file-path');
                     if (!filePath) { return; }
                     if (target.checked) {
-                        selectedFilePaths.add(filePath);
+                        addSelectedFilePath(filePath);
                     } else {
-                        selectedFilePaths.delete(filePath);
+                        removeSelectedFilePath(filePath);
                     }
                     syncSelectionSummary();
                     postSelectedFiles();
@@ -2896,12 +2911,12 @@ export function getComparisonRenderScript(): string {
                     return true;
                 }
                 if (action === 'selection-select-all') {
-                    selectedFilePaths.clear();
+                    clearSelectedFilePaths();
                     // 可視状態のチェックボックスのみを対象にする
                     document.querySelectorAll('.selection-file-checkbox').forEach(function(input) {
                         if (isVisibleInTree(input)) {
                             const filePath = input.getAttribute('data-file-path');
-                            if (filePath) { selectedFilePaths.add(filePath); }
+                            if (filePath) { addSelectedFilePath(filePath); }
                         }
                     });
                     syncSelectionCheckboxes();
@@ -2910,7 +2925,7 @@ export function getComparisonRenderScript(): string {
                     return true;
                 }
                 if (action === 'selection-clear-all') {
-                    selectedFilePaths.clear();
+                    clearSelectedFilePaths();
                     syncSelectionCheckboxes();
                     syncSelectionSummary();
                     postSelectedFiles();
@@ -2926,8 +2941,29 @@ export function getComparisonRenderScript(): string {
             function syncSelectionCheckboxes() {
                 document.querySelectorAll('.selection-file-checkbox').forEach(function(input) {
                     const filePath = input.getAttribute('data-file-path');
-                    input.checked = !!filePath && selectedFilePaths.has(filePath);
+                    input.checked = !!filePath && hasSelectedFilePath(filePath);
                 });
+            }
+
+            function hasSelectedFilePath(filePath) {
+                return selectedFilePathSet.has(filePath);
+            }
+
+            function addSelectedFilePath(filePath) {
+                if (hasSelectedFilePath(filePath)) { return; }
+                selectedFilePaths.push(filePath);
+                selectedFilePathSet.add(filePath);
+            }
+
+            function removeSelectedFilePath(filePath) {
+                const idx = selectedFilePaths.indexOf(filePath);
+                if (idx !== -1) { selectedFilePaths.splice(idx, 1); }
+                selectedFilePathSet.delete(filePath);
+            }
+
+            function clearSelectedFilePaths() {
+                selectedFilePaths.length = 0;
+                selectedFilePathSet.clear();
             }
 
             function isVisibleInTree(el) {
@@ -2942,7 +2978,7 @@ export function getComparisonRenderScript(): string {
 
             function syncSelectionSummary() {
                 const countEl = document.getElementById('selection-count');
-                const count = selectedFilePaths.size;
+                const count = selectedFilePaths.length;
                 // 可視チェックボックスの数を分母にする
                 const visibleCount = Array.from(document.querySelectorAll('.selection-file-checkbox')).filter(function(el) {
                     return isVisibleInTree(el);
@@ -2978,8 +3014,9 @@ export function getComparisonRenderScript(): string {
             }
 
             function postSelectedFiles() {
-                const orderedSelection = allSelectableFilePaths.filter(function(filePath) {
-                    return selectedFilePaths.has(filePath);
+                const orderedSelection = allSelectableFilePaths.slice(0, 0);
+                selectedFilePaths.forEach(function(filePath) {
+                    orderedSelection.push(filePath);
                 });
                 selectionMessageSeq += 1;
                 vscode.postMessage({
@@ -4757,9 +4794,21 @@ export function getComparisonRenderScript(): string {
                 }
                 if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
                     __setReanalyzeBusy(false);
+                    const oldResultsByFilePath = Object.create(null);
+                    const oldRuntimeByFilePath = Object.create(null);
+                    state.results.forEach(function(oldResult, i) {
+                        if (!oldResult || typeof oldResult.filePath !== 'string') { return; }
+                        oldResultsByFilePath[oldResult.filePath] = oldResult;
+                        if (trackRuntime[i]) { oldRuntimeByFilePath[oldResult.filePath] = trackRuntime[i]; }
+                    });
                     state.results = msg.results.map(function(r, i) {
-                        const old = state.results[i];
+                        const old = (r && typeof r.filePath === 'string') ? oldResultsByFilePath[r.filePath] : state.results[i];
                         return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
+                    });
+                    trackRuntime.length = state.results.length;
+                    state.results.forEach(function(result, i) {
+                        const previous = result && typeof result.filePath === 'string' ? oldRuntimeByFilePath[result.filePath] : null;
+                        trackRuntime[i] = previous || createTrackRuntime();
                     });
                     displayOrder = state.results.map(function(_, i) { return i; });
                     for (var detailIdx = 0; detailIdx < state.results.length; detailIdx++) {
