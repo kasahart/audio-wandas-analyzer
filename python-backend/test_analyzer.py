@@ -61,12 +61,14 @@ def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: 
     time = np.arange(sample_count, dtype=np.float64) / sample_rate
     samples = amplitude * np.sin(2 * math.pi * frequency_hz * time)
     frame = wd.ChannelFrame.from_numpy(samples, sampling_rate=sample_rate)
+    spectrogram = frame.stft(n_fft=256, hop_length=128, window="boxcar")
 
     result = analyze_from_frame(
         frame,
         tmp_path / "sine.wav",
         peak_count=3,
         stft_options={"n_fft": 256, "hop_size": 128, "window": "boxcar"},
+        spectrogram_frame=spectrogram,
     )
 
     expected_db = 20 * math.log10(amplitude)

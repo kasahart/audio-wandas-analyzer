@@ -146,7 +146,7 @@ def _load_inputs(inputs: list[dict[str, Any]], base_dir: Path) -> dict[str, Any]
         resolved = Path(file)
         if not resolved.is_absolute():
             resolved = (base_dir / resolved).resolve()
-        bindings[name] = wd.read_wav(str(resolved))
+        bindings[name] = wd.read(resolved)
     return bindings
 
 

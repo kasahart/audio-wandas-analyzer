@@ -3,9 +3,10 @@
     { "name": "sig", "file": "{{selection}}" }
   ],
   "steps": [
-    { "as": "loud_stat", "expr": "sig.loudness_zwst()" },
-    { "as": "loud_tv", "expr": "sig.loudness_zwtv()" },
-    { "as": "sharp", "expr": "sig.sharpness_din_st()" }
+    { "as": "normalized", "expr": "sig.normalize()" },
+    { "as": "loud_stat", "expr": "normalized.loudness_zwst()" },
+    { "as": "loud_tv", "expr": "normalized.loudness_zwtv()" },
+    { "as": "sharp", "expr": "normalized.sharpness_din_st()" }
   ],
   "display": [
     { "name": "loud_stat", "title": "Zwicker stationary loudness", "unit": "sone" },

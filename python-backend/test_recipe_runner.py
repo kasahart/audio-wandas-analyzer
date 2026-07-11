@@ -106,6 +106,33 @@ def test_run_recipe_chain(tmp_path: Path) -> None:
     assert len(charts[0]["series"]) == 1
 
 
+@pytest.mark.parametrize(
+    ("expression", "kind"),
+    [
+        ("sig.fft()", "line"),
+        ("sig.stft(n_fft=1024, hop_length=256)", "heatmap"),
+        ("sig.welch(n_fft=1024)", "line"),
+        ("sig.low_pass_filter(cutoff=2000)", "line"),
+        ("sig.normalize().loudness_zwtv()", "line"),
+        ("sig.normalize().roughness_dw()", "line"),
+        ("sig.normalize().roughness_dw_spec()", "heatmap"),
+        ("sig.normalize().sharpness_din()", "line"),
+    ],
+)
+def test_v04_recipe_objects_adapt_to_chart(tmp_path: Path, expression: str, kind: str) -> None:
+    wav = tmp_path / "a.wav"
+    _write_sine_wav(wav, seconds=1.0, sr=48000)
+    charts = run_recipe(
+        {
+            "inputs": [{"name": "sig", "file": str(wav)}],
+            "steps": [{"as": "result", "expr": expression}],
+            "display": ["result"],
+        },
+        base_dir=tmp_path,
+    )
+    assert charts[0]["kind"] == kind
+
+
 def test_run_recipe_missing_display(tmp_path: Path) -> None:
     wav = tmp_path / "a.wav"
     _write_sine_wav(wav)

@@ -4,11 +4,11 @@ The dispatch is intentionally duck-typed (matches class name) so that wandas
 upstream additions don't immediately break us: an unknown frame type falls
 back to a best-effort scalar/line representation rather than raising.
 
-Wandas 0.2.0 frame surface used here::
+Wandas 0.4.0 frame surface used here::
 
     ChannelFrame       .time, .data, .labels, .sampling_rate, .n_channels
     SpectralFrame      .freqs, .magnitude, .dB, .phase, .labels, .n_channels
-    SpectrogramFrame   .freqs, .dB[ch, freq, time], hop_length, sampling_rate
+    SpectrogramFrame   .freqs, .times, .dB[ch, freq, time]
     NOctFrame          .freqs, .dB, .labels
     RoughnessFrame     2D data; treated as heatmap on (freq × time)
     np.ndarray         per-channel scalar metrics → scalar table
@@ -98,22 +98,20 @@ def _adapt_spectral_frame(frame: Any, *, title: str, value: str = "dB") -> dict[
 def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> dict[str, Any]:
     freqs = np.asarray(frame.freqs, dtype=np.float64)
     db = np.asarray(frame.dB, dtype=np.float64)
-    # dB shape from wandas 0.2.0 is (channels, freqs, time).
+    # dB shape is (channels, freqs, time).
     if db.ndim == 2:
         plane = db
     else:
         ch = max(0, min(channel, db.shape[0] - 1))
         plane = db[ch]
     n_freq, n_time = plane.shape
-    sr = float(getattr(frame, "sampling_rate", 0) or 0)
-    hop = float(getattr(frame, "hop_length", 0) or 0)
-    times = np.arange(n_time) * (hop / sr) if sr > 0 and hop > 0 else np.arange(n_time, dtype=np.float64)
+    times = np.asarray(frame.times, dtype=np.float64)
     return {
         "kind": "heatmap",
         "title": title,
         "xLabel": "Time [s]",
         "yLabel": "Frequency [Hz]",
-        "xs": _as_list(times),
+        "xs": _as_list(times[:n_time]),
         "ys": _as_list(freqs[:n_freq]),
         "matrix": [_as_list(plane[i]) for i in range(n_freq)],
         "unit": "dB",
