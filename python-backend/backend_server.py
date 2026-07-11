@@ -207,7 +207,18 @@ def handle_export_wav_loop(cmd: dict) -> dict:
         )
 
     range_frame = cached.frame[:, start_sample:end_sample]
-    data = np.asarray(range_frame.data, dtype=np.float32).T
+    channels_first = _channels_first(
+        np.asarray(range_frame.data, dtype=np.float64),
+        cached.frame.n_channels,
+        n_frames,
+    )
+    info = sf.info(cached.path)
+    pcm_scale = {
+        "PCM_16": float(2**15),
+        "PCM_24": float(2**23),
+        "PCM_32": float(2**31),
+    }.get(info.subtype, 1.0)
+    data = (channels_first / pcm_scale).T.astype(np.float32)
 
     buf = _io.BytesIO()
     sf.write(buf, data, sample_rate, format="WAV", subtype="PCM_16")
@@ -216,10 +227,16 @@ def handle_export_wav_loop(cmd: dict) -> dict:
     return {"wavBase64": wav_b64, "sampleRate": sample_rate}
 
 
+def handle_release_track_detail(cmd: dict) -> dict:
+    _engine.discard_spectrograms(str(cmd["filePath"]))
+    return {}
+
+
 COMMANDS: dict[str, Callable[[dict], dict]] = {
     "analyze": handle_analyze,
     "range": handle_range,
     "track-detail": handle_track_detail,
+    "release-track-detail": handle_release_track_detail,
     "spectrum-slice": handle_spectrum_slice,
     "export-wav-loop": handle_export_wav_loop,
 }

@@ -46,6 +46,16 @@ def test_spectrogram_frame_from_stft(mono_sin: wd.ChannelFrame) -> None:
     assert spec["unit"] == "dB"
 
 
+def test_stereo_roughness_uses_requested_channel_and_bark_axis(two_channel: wd.ChannelFrame) -> None:
+    roughness = two_channel.resampling(48000).fix_length(duration=0.5).roughness_dw_spec()
+    spec = adapt(roughness, title="roughness", channel=1)
+    assert spec["kind"] == "heatmap"
+    assert spec["yLabel"] == "Critical-band rate [Bark]"
+    assert spec["ys"] == pytest.approx(roughness.bark_axis.tolist())
+    assert len(spec["matrix"]) == len(roughness.bark_axis)
+    assert len(spec["matrix"][0]) == len(roughness.time)
+
+
 def test_noct_frame_becomes_bar(mono_sin: wd.ChannelFrame) -> None:
     spec = adapt(mono_sin.noct_spectrum(fmin=125, fmax=4000, n=3), title="1/3 oct")
     assert spec["kind"] == "bar"

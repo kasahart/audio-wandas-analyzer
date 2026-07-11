@@ -17,11 +17,12 @@ import pytest
 import soundfile as sf
 import wandas as wd
 
-from analysis_engine import AnalysisEngine
+from analysis_engine import AnalysisEngine, CachedAnalysis
 from backend_server import (
     handle_analyze,
     handle_export_wav_loop,
     handle_range,
+    handle_release_track_detail,
     handle_spectrum_slice,
     handle_track_detail,
 )
@@ -449,6 +450,30 @@ def test_export_wav_loop(tmp_path: Path) -> None:
     with wave.open(io.BytesIO(raw)) as w:
         assert w.getnframes() > 0
         assert w.getframerate() == result["sampleRate"]
+        exported = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+    assert np.max(np.abs(exported)) == pytest.approx(32767, rel=0.01)
+    assert np.mean(np.abs(exported) >= 32760) < 0.1
+
+
+def test_export_wav_loop_preserves_stereo_orientation(tmp_path: Path) -> None:
+    wav = tmp_path / "stereo.wav"
+    sample_rate = 16000
+    time_axis = np.arange(sample_rate, dtype=np.float64) / sample_rate
+    samples = np.column_stack(
+        [
+            0.25 * np.sin(2 * math.pi * 440 * time_axis),
+            0.75 * np.sin(2 * math.pi * 880 * time_axis),
+        ]
+    )
+    sf.write(wav, samples, sample_rate, subtype="PCM_16")
+
+    result = handle_export_wav_loop({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.75})
+    exported, exported_rate = sf.read(io.BytesIO(base64.b64decode(result["wavBase64"])), always_2d=True)
+
+    assert exported_rate == sample_rate
+    assert exported.shape == (sample_rate // 2, 2)
+    assert np.max(np.abs(exported[:, 0])) == pytest.approx(0.25, abs=0.01)
+    assert np.max(np.abs(exported[:, 1])) == pytest.approx(0.75, abs=0.01)
 
 
 def test_export_wav_loop_zero_frames_raises(tmp_path: Path) -> None:
@@ -502,6 +527,53 @@ def test_engine_reuses_frames_and_stft_by_settings(tmp_path: Path, monkeypatch: 
     assert engine.get_spectrogram(wav, 256, 128, "hann") is first_stft
     assert engine.get_spectrogram(wav, 512, 128, "hann") is not first_stft
     assert calls == 2
+
+
+def test_engine_invalidates_file_and_stft_when_source_changes(tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav, seconds=0.5)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    original = engine.get_file(wav)
+    engine.get_spectrogram(wav, 256, 128, "hann")
+
+    _write_sine_wav(wav, seconds=0.75)
+    refreshed = engine.get_file(wav)
+
+    assert refreshed is not original
+    assert refreshed.frame.n_samples != original.frame.n_samples
+    assert refreshed.spectrograms == {}
+
+
+def test_cache_size_uses_stored_metadata_without_materializing_frames() -> None:
+    class Unmaterialized:
+        @property
+        def data(self) -> object:
+            raise AssertionError("cache sizing must not materialize wandas data")
+
+    entry = CachedAnalysis(
+        path=Path("tone.wav"),
+        frame=Unmaterialized(),  # type: ignore[arg-type]
+        identity=(1, 2),
+        frame_nbytes=80,
+        spectrograms={(256, 128, "hann"): Unmaterialized()},  # type: ignore[dict-item]
+        spectrogram_nbytes={(256, 128, "hann"): 160},
+    )
+    assert entry.nbytes == 240
+
+
+def test_release_track_detail_drops_stft_but_keeps_file_frame(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import backend_server
+
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    monkeypatch.setattr(backend_server, "_engine", engine)
+    cached = engine.get_file(wav)
+    engine.get_spectrogram(wav, 256, 128, "hann")
+
+    assert handle_release_track_detail({"filePath": str(wav)}) == {}
+    assert engine.get_file(wav) is cached
+    assert cached.spectrograms == {}
 
 
 def test_backend_has_no_scipy_stft_implementation() -> None:

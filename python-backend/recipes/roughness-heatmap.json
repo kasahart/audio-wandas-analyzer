@@ -3,9 +3,8 @@
     { "name": "sig", "file": "{{selection}}" }
   ],
   "steps": [
-    { "as": "normalized", "expr": "sig.normalize()" },
-    { "as": "rough_spec", "expr": "normalized.roughness_dw_spec()" },
-    { "as": "rough_tv", "expr": "normalized.roughness_dw()" }
+    { "as": "rough_spec", "expr": "sig.roughness_dw_spec()" },
+    { "as": "rough_tv", "expr": "sig.roughness_dw()" }
   ],
   "display": [
     { "name": "rough_spec", "title": "Daniel-Weber roughness spectrum (mod. freq x time)" },

@@ -140,21 +140,24 @@ def _adapt_noct_frame(frame: Any, *, title: str) -> dict[str, Any]:
     }
 
 
-def _adapt_roughness_frame(frame: Any, *, title: str) -> dict[str, Any]:
+def _adapt_roughness_frame(frame: Any, *, title: str, channel: int = 0) -> dict[str, Any]:
     data = np.asarray(frame.data, dtype=np.float64)
-    if data.ndim != 2:
+    if data.ndim == 3:
+        ch = max(0, min(channel, data.shape[0] - 1))
+        data = data[ch]
+    elif data.ndim != 2:
         data = np.atleast_2d(data)
-    n_freq, n_time = data.shape
-    freqs = np.asarray(getattr(frame, "freqs", np.arange(n_freq)), dtype=np.float64)
+    n_bark, n_time = data.shape
+    bark_axis = np.asarray(frame.bark_axis, dtype=np.float64)
     times = np.asarray(getattr(frame, "time", np.arange(n_time)), dtype=np.float64)
     return {
         "kind": "heatmap",
         "title": title,
         "xLabel": "Time [s]",
-        "yLabel": "Modulation frequency [Hz]",
-        "xs": _as_list(times),
-        "ys": _as_list(freqs),
-        "matrix": [_as_list(data[i]) for i in range(n_freq)],
+        "yLabel": "Critical-band rate [Bark]",
+        "xs": _as_list(times[:n_time]),
+        "ys": _as_list(bark_axis[:n_bark]),
+        "matrix": [_as_list(data[i]) for i in range(n_bark)],
         "unit": "asper",
         "colormap": "magma",
     }
@@ -194,7 +197,7 @@ def adapt(obj: Any, *, title: str | None = None, **kwargs: Any) -> dict[str, Any
     if cls == "NOctFrame":
         return _adapt_noct_frame(obj, title=title)
     if cls == "RoughnessFrame":
-        return _adapt_roughness_frame(obj, title=title)
+        return _adapt_roughness_frame(obj, title=title, channel=int(kwargs.get("channel", 0)))
     if isinstance(obj, np.ndarray):
         return _adapt_ndarray(obj, title=title, unit=kwargs.get("unit"))
     if isinstance(obj, int | float | np.floating | np.integer):

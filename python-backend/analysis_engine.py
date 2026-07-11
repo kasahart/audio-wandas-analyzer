@@ -15,13 +15,14 @@ StftKey = tuple[int, int, str]
 class CachedAnalysis:
     path: Path
     frame: wd.ChannelFrame
+    identity: tuple[int, int]
+    frame_nbytes: int
     spectrograms: dict[StftKey, wd.SpectrogramFrame] = field(default_factory=dict)
+    spectrogram_nbytes: dict[StftKey, int] = field(default_factory=dict)
 
     @property
     def nbytes(self) -> int:
-        total = np.asarray(self.frame.data).nbytes
-        total += sum(np.asarray(spectrogram.data).nbytes for spectrogram in self.spectrograms.values())
-        return total
+        return self.frame_nbytes + sum(self.spectrogram_nbytes.values())
 
 
 class AnalysisEngine:
@@ -33,13 +34,21 @@ class AnalysisEngine:
 
     def get_file(self, file_path: str | Path) -> CachedAnalysis:
         path = Path(file_path).expanduser().resolve()
-        cached = self._files.get(path)
-        if cached is not None:
-            self._files.move_to_end(path)
-            return cached
         if not path.exists():
             raise FileNotFoundError(f"Audio file not found: {path}")
-        cached = CachedAnalysis(path=path, frame=wd.read(path))
+        stat = path.stat()
+        identity = (stat.st_mtime_ns, stat.st_size)
+        cached = self._files.get(path)
+        if cached is not None and cached.identity == identity:
+            self._files.move_to_end(path)
+            return cached
+        frame = wd.read(path)
+        cached = CachedAnalysis(
+            path=path,
+            frame=frame,
+            identity=identity,
+            frame_nbytes=int(np.prod(frame.shape)) * np.dtype(np.float64).itemsize,
+        )
         self._files[path] = cached
         self._evict(path)
         return cached
@@ -57,6 +66,7 @@ class AnalysisEngine:
         if spectrogram is None:
             spectrogram = cached.frame.stft(n_fft=n_fft, hop_length=hop_length, window=window)
             cached.spectrograms[key] = spectrogram
+            cached.spectrogram_nbytes[key] = int(np.prod(spectrogram.shape)) * np.dtype(np.complex128).itemsize
             self._evict(cached.path)
         return spectrogram
 
@@ -68,6 +78,12 @@ class AnalysisEngine:
 
     def discard(self, file_path: str | Path) -> None:
         self._files.pop(Path(file_path).expanduser().resolve(), None)
+
+    def discard_spectrograms(self, file_path: str | Path) -> None:
+        cached = self._files.get(Path(file_path).expanduser().resolve())
+        if cached is not None:
+            cached.spectrograms.clear()
+            cached.spectrogram_nbytes.clear()
 
     def clear(self) -> None:
         self._files.clear()

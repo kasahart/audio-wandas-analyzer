@@ -113,15 +113,23 @@ def test_run_recipe_chain(tmp_path: Path) -> None:
         ("sig.stft(n_fft=1024, hop_length=256)", "heatmap"),
         ("sig.welch(n_fft=1024)", "line"),
         ("sig.low_pass_filter(cutoff=2000)", "line"),
-        ("sig.normalize().loudness_zwtv()", "line"),
-        ("sig.normalize().roughness_dw()", "line"),
-        ("sig.normalize().roughness_dw_spec()", "heatmap"),
-        ("sig.normalize().sharpness_din()", "line"),
+        ("sig.loudness_zwtv()", "line"),
+        ("sig.roughness_dw()", "line"),
+        ("sig.roughness_dw_spec()", "heatmap"),
+        ("sig.sharpness_din()", "line"),
     ],
 )
 def test_v04_recipe_objects_adapt_to_chart(tmp_path: Path, expression: str, kind: str) -> None:
     wav = tmp_path / "a.wav"
     _write_sine_wav(wav, seconds=1.0, sr=48000)
+    if any(metric in expression for metric in ("loudness", "roughness", "sharpness")):
+        time_axis = np.arange(48000, dtype=np.float64) / 48000
+        calibrated_pa = np.rint(np.sin(2 * math.pi * 440 * time_axis)).astype(np.int16)
+        with wave.open(str(wav), "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(48000)
+            output.writeframes(calibrated_pa.tobytes())
     charts = run_recipe(
         {
             "inputs": [{"name": "sig", "file": str(wav)}],
