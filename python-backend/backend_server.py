@@ -39,7 +39,6 @@ from analyzer import (
     SPECTROGRAM_FREQUENCY_BIN_LIMIT,
     SPECTRUM_LEVEL_AXIS_LABEL,
     _build_waveform_envelope,
-    _channels_first,
     _resample_frequency_bins,
     _resolve_stft_params,
     analyze_from_frame,
@@ -172,11 +171,13 @@ def handle_range(cmd: dict) -> dict:
     if end_idx > start_idx:
         with sf.SoundFile(cached.path) as audio_file:
             audio_file.seek(start_idx)
+            is_wav = cached.path.suffix.lower() in {".wav", ".wave"}
             dtype = (
                 "int16"
-                if audio_file.subtype == "PCM_16"
+                if is_wav and audio_file.subtype == "PCM_16"
                 else "int32"
-                if audio_file.subtype
+                if is_wav
+                and audio_file.subtype
                 in {
                     "PCM_24",
                     "PCM_32",
@@ -184,6 +185,8 @@ def handle_range(cmd: dict) -> dict:
                 else "float64"
             )
             data = audio_file.read(end_idx - start_idx, dtype=dtype, always_2d=True).T
+            if is_wav and audio_file.subtype == "PCM_U8":
+                data = data * 128.0 + 128.0
         for ch_idx in range(cached.frame.n_channels):
             channels.append(
                 _build_waveform_envelope(
@@ -214,26 +217,9 @@ def handle_export_wav_loop(cmd: dict) -> dict:
             f"total_frames={cached.frame.n_samples}). Ensure startNorm < endNorm and the file is not empty."
         )
 
-    range_frame = cached.frame[:, start_sample:end_sample]
-    raw_data = np.asarray(range_frame.data)
-    channels_first = _channels_first(
-        raw_data,
-        cached.frame.n_channels,
-        n_frames,
-    )
-    source_info = sf.info(cached.path)
-    pcm_scale = 1.0
-    if cached.path.suffix.lower() in {".wav", ".wave"}:
-        if source_info.subtype == "PCM_U8":
-            channels_first = channels_first - 128.0
-            pcm_scale = 128.0
-        else:
-            pcm_scale = {
-                "PCM_16": float(2**15),
-                "PCM_24": float(2**31),
-                "PCM_32": float(2**31),
-            }.get(source_info.subtype, 1.0)
-    data = (channels_first / pcm_scale).T.astype(np.float32)
+    with sf.SoundFile(cached.path) as audio_file:
+        audio_file.seek(start_sample)
+        data = audio_file.read(n_frames, dtype="float32", always_2d=True)
 
     buf = _io.BytesIO()
     sf.write(buf, data, sample_rate, format="WAV", subtype="PCM_16")

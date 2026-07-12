@@ -199,7 +199,14 @@ def test_handle_range_reads_only_requested_frames(monkeypatch: pytest.MonkeyPatc
     real_sound_file = sf.SoundFile
 
     class TrackedSoundFile:
-        def __init__(self, path: str | Path) -> None:
+        def __new__(
+            cls, path: str | Path | io.BytesIO, *args: object, **kwargs: object
+        ) -> TrackedSoundFile | sf.SoundFile:
+            if args or kwargs:
+                return real_sound_file(path, *args, **kwargs)
+            return super().__new__(cls)
+
+        def __init__(self, path: str | Path | io.BytesIO, *args: object, **kwargs: object) -> None:
             self._file = real_sound_file(path)
             self.subtype = self._file.subtype
 
@@ -220,6 +227,30 @@ def test_handle_range_reads_only_requested_frames(monkeypatch: pytest.MonkeyPatc
     handle_range({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.3, "points": 128})
 
     assert requested_frames == [1600]
+
+
+def test_handle_range_matches_non_wav_overview_scale(tmp_path: Path) -> None:
+    audio = tmp_path / "tone.flac"
+    _write_sine_flac(audio, seconds=1.0)
+    overview = handle_analyze({"filePath": str(audio)})["channels"][0]["waveform"]
+    ranged = handle_range({"filePath": str(audio), "startNorm": 0.25, "endNorm": 0.75, "points": 128})
+    assert ranged["channels"][0]["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
+
+
+def test_handle_range_matches_unsigned_8_bit_wav_overview_scale(tmp_path: Path) -> None:
+    audio = tmp_path / "tone-u8.wav"
+    sample_rate = 8000
+    time_axis = np.arange(sample_rate, dtype=np.float64) / sample_rate
+    samples = np.rint(128 + 64 * np.sin(2 * math.pi * 440 * time_axis)).astype(np.uint8)
+    with wave.open(str(audio), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(1)
+        output.setframerate(sample_rate)
+        output.writeframes(samples.tobytes())
+
+    overview = handle_analyze({"filePath": str(audio)})["channels"][0]["waveform"]
+    ranged = handle_range({"filePath": str(audio), "startNorm": 0.25, "endNorm": 0.75, "points": 128})
+    assert ranged["channels"][0]["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.01)
 
 
 def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> None:
@@ -546,6 +577,46 @@ def test_export_wav_loop_recenters_unsigned_8_bit_wav(tmp_path: Path) -> None:
 
     assert np.mean(exported) == pytest.approx(0.0, abs=0.01)
     assert np.max(np.abs(exported)) == pytest.approx(0.5, abs=0.02)
+
+
+def test_export_wav_loop_reads_only_selected_frames(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import backend_server
+
+    audio = tmp_path / "tone.wav"
+    _write_sine_wav(audio, seconds=2.0)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    engine.get_file(audio)
+    monkeypatch.setattr(backend_server, "_engine", engine)
+    requested_frames: list[int] = []
+    real_sound_file = sf.SoundFile
+
+    class TrackedSoundFile:
+        def __new__(
+            cls, path: str | Path | io.BytesIO, *args: object, **kwargs: object
+        ) -> TrackedSoundFile | sf.SoundFile:
+            if args or kwargs:
+                return real_sound_file(path, *args, **kwargs)
+            return super().__new__(cls)
+
+        def __init__(self, path: str | Path | io.BytesIO, *args: object, **kwargs: object) -> None:
+            self._file = real_sound_file(path)
+
+        def __enter__(self) -> TrackedSoundFile:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self._file.close()
+
+        def seek(self, frame: int) -> int:
+            return self._file.seek(frame)
+
+        def read(self, frames: int, **kwargs: object) -> np.ndarray:
+            requested_frames.append(frames)
+            return self._file.read(frames, **kwargs)
+
+    monkeypatch.setattr(backend_server.sf, "SoundFile", TrackedSoundFile)
+    handle_export_wav_loop({"filePath": str(audio), "startNorm": 0.25, "endNorm": 0.3})
+    assert requested_frames == [1600]
 
 
 def test_export_wav_loop_zero_frames_raises(tmp_path: Path) -> None:
