@@ -302,7 +302,7 @@ def analyze_from_frame(
     *,
     stft_options: dict | None = None,
     spectrogram_frame: wd.SpectrogramFrame | None = None,
-    include_spectrogram: bool = True,
+    include_spectrogram: bool = False,
 ) -> dict[str, object]:
     """Build the AnalysisResult JSON payload from a ChannelFrame."""
     peak_count = max(0, int(peak_count))  # guard against negative/zero from user config
@@ -384,6 +384,7 @@ def analyze_audio(
         peak_count=peak_count,
         stft_options=stft_options,
         spectrogram_frame=spectrogram,
+        include_spectrogram=True,
     )
 
 

@@ -476,6 +476,25 @@ def test_export_wav_loop_preserves_stereo_orientation(tmp_path: Path) -> None:
     assert np.max(np.abs(exported[:, 1])) == pytest.approx(0.75, abs=0.01)
 
 
+@pytest.mark.parametrize(("suffix", "format_name", "subtype"), [(".flac", "FLAC", "PCM_16"), (".wav", "WAV", "PCM_24")])
+def test_export_wav_loop_preserves_normalized_level_across_source_formats(
+    tmp_path: Path,
+    suffix: str,
+    format_name: str,
+    subtype: str,
+) -> None:
+    audio = tmp_path / f"tone{suffix}"
+    sample_rate = 16000
+    time_axis = np.arange(sample_rate, dtype=np.float64) / sample_rate
+    samples = 0.4 * np.sin(2 * math.pi * 440 * time_axis)
+    sf.write(audio, samples, sample_rate, format=format_name, subtype=subtype)
+
+    result = handle_export_wav_loop({"filePath": str(audio), "startNorm": 0.0, "endNorm": 1.0})
+    exported, _ = sf.read(io.BytesIO(base64.b64decode(result["wavBase64"])))
+
+    assert np.max(np.abs(exported)) == pytest.approx(0.4, abs=0.01)
+
+
 def test_export_wav_loop_zero_frames_raises(tmp_path: Path) -> None:
     """export-wav-loop raises ValueError when the loop region produces 0 frames."""
     sr = 16000

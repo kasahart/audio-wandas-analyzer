@@ -207,17 +207,20 @@ def handle_export_wav_loop(cmd: dict) -> dict:
         )
 
     range_frame = cached.frame[:, start_sample:end_sample]
+    raw_data = np.asarray(range_frame.data)
     channels_first = _channels_first(
-        np.asarray(range_frame.data, dtype=np.float64),
+        raw_data,
         cached.frame.n_channels,
         n_frames,
     )
-    info = sf.info(cached.path)
-    pcm_scale = {
-        "PCM_16": float(2**15),
-        "PCM_24": float(2**23),
-        "PCM_32": float(2**31),
-    }.get(info.subtype, 1.0)
+    source_info = sf.info(cached.path)
+    pcm_scale = 1.0
+    if cached.path.suffix.lower() in {".wav", ".wave"}:
+        pcm_scale = {
+            "PCM_16": float(2**15),
+            "PCM_24": float(2**31),
+            "PCM_32": float(2**31),
+        }.get(source_info.subtype, 1.0)
     data = (channels_first / pcm_scale).T.astype(np.float32)
 
     buf = _io.BytesIO()

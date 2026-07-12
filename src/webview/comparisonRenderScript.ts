@@ -410,6 +410,7 @@ export function getComparisonRenderScript(): string {
             function releaseTrackDetail(i) {
                 const result = state.results[i];
                 if (!result) { return; }
+                const hadPendingDetail = !!detailRequests[i];
                 let hadSpectrogram = false;
                 if (result.channels) {
                     result.channels.forEach(function(channel) {
@@ -421,7 +422,7 @@ export function getComparisonRenderScript(): string {
                 spectrumSliceCache[i] = {};
                 trackSpectrumPainted[i] = {};
                 overlaySpectrumPainted = false;
-                if (hadSpectrogram) {
+                if (hadSpectrogram || hadPendingDetail) {
                     vscode.postMessage({
                         type: 'release-track-detail',
                         analysisId: analysisId,
@@ -3035,6 +3036,7 @@ export function getComparisonRenderScript(): string {
                     vscode.postMessage({ type: 'select-python-environment' });
                 } else if (action === 'content-waveform') {
                     contentType = 'waveform';
+                    state.results.forEach(function(_result, index) { releaseTrackDetail(index); });
                     persistWebviewState({ contentType: contentType });
                     document.querySelector('[data-action="content-waveform"]').classList.add('is-active');
                     document.querySelector('[data-action="content-spectrogram"]').classList.remove('is-active');
