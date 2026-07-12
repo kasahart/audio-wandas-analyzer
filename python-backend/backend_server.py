@@ -170,12 +170,20 @@ def handle_range(cmd: dict) -> dict:
 
     channels: list[dict] = []
     if end_idx > start_idx:
-        range_frame = _engine.get_range_frame(cached.path, start_norm, end_norm)
-        data = _channels_first(
-            np.asarray(range_frame.data, dtype=np.float64),
-            cached.frame.n_channels,
-            end_idx - start_idx,
-        )
+        with sf.SoundFile(cached.path) as audio_file:
+            audio_file.seek(start_idx)
+            dtype = (
+                "int16"
+                if audio_file.subtype == "PCM_16"
+                else "int32"
+                if audio_file.subtype
+                in {
+                    "PCM_24",
+                    "PCM_32",
+                }
+                else "float64"
+            )
+            data = audio_file.read(end_idx - start_idx, dtype=dtype, always_2d=True).T
         for ch_idx in range(cached.frame.n_channels):
             channels.append(
                 _build_waveform_envelope(
@@ -216,11 +224,15 @@ def handle_export_wav_loop(cmd: dict) -> dict:
     source_info = sf.info(cached.path)
     pcm_scale = 1.0
     if cached.path.suffix.lower() in {".wav", ".wave"}:
-        pcm_scale = {
-            "PCM_16": float(2**15),
-            "PCM_24": float(2**31),
-            "PCM_32": float(2**31),
-        }.get(source_info.subtype, 1.0)
+        if source_info.subtype == "PCM_U8":
+            channels_first = channels_first - 128.0
+            pcm_scale = 128.0
+        else:
+            pcm_scale = {
+                "PCM_16": float(2**15),
+                "PCM_24": float(2**31),
+                "PCM_32": float(2**31),
+            }.get(source_info.subtype, 1.0)
     data = (channels_first / pcm_scale).T.astype(np.float32)
 
     buf = _io.BytesIO()

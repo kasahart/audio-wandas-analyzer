@@ -64,7 +64,7 @@ class AnalysisEngine:
         key = (n_fft, hop_length, window)
         spectrogram = cached.spectrograms.get(key)
         if spectrogram is None:
-            spectrogram = cached.frame.stft(n_fft=n_fft, hop_length=hop_length, window=window)
+            spectrogram = cached.frame.stft(n_fft=n_fft, hop_length=hop_length, window=window).persist()
             cached.spectrograms[key] = spectrogram
             cached.spectrogram_nbytes[key] = int(np.prod(spectrogram.shape)) * np.dtype(np.complex128).itemsize
             self._evict(cached.path)
