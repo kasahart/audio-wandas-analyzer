@@ -46,13 +46,13 @@ Do not spin continuously. Use real waits between checks unless the user asks for
 
 When review feedback appears:
 
-1. Read each actionable thread completely.
+1. Read each actionable review thread or top-level PR comment completely.
 2. Verify the feedback against the current code before changing anything.
 3. If the feedback is valid, implement the smallest targeted fix.
 4. If the feedback is not valid, reply with concise technical reasoning and leave the thread unresolved unless the reviewer accepts or the user tells you to resolve it.
 5. Run focused tests first when available, then the repo completion bar.
 6. Commit and push the fix.
-7. Reply in each handled review thread with what changed and the validation run.
+7. Reply with what changed and the validation run: inline feedback in its review thread, and top-level feedback in the PR conversation.
 8. Resolve only the threads that were actually handled.
 9. Reset the quiet-window timer after pushing/replying.
 
@@ -70,7 +70,7 @@ If a command cannot be run, say that explicitly in the thread reply and final su
 
 ## Thread Reply Style
 
-Reply in the inline review thread, not as a top-level PR comment.
+Reply to inline feedback in its review thread. Reply to handled top-level feedback in the PR conversation.
 
 Good reply shape:
 
