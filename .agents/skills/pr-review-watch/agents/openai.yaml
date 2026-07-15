@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Review Watch"
+  short_description: "Watch PR reviews, CI, and resolve threads"
+  default_prompt: "Use $pr-review-watch to monitor this PR for review comments, address them, and stop after the requested no-review window."

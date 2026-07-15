@@ -19,6 +19,7 @@ Codex discovers repo skills from `.agents/skills/` when launched inside this rep
 | `wandas-spectral-analysis` | FFT, STFT, PSD, octave bands, coherence, transfer functions |
 | `wandas-visualization` | Waveform / spectrogram / octave plots, `describe()` configuration |
 | `wandas-analyst` | End-to-end analysis reports, multi-condition comparison, anomaly detection |
+| `pr-review-watch` | Post-PR review/CI monitoring loops, review-thread replies, and bounded no-review wait windows |
 | `ui-smoke-agent` | Real-browser Webview smoke checks, Playwright regression reproduction, and L1/L2 dogfooding for runtime-only UI bugs |
 | `ux-cognitive-auditor` | Screenshot-based UX cognitive-load and heuristics audits |
 
