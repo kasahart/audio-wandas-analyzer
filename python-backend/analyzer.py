@@ -301,7 +301,8 @@ def analyze_from_frame(
     peak_count: int = 5,
     *,
     stft_options: dict | None = None,
-    include_spectrogram: bool = True,
+    spectrogram_frame: wd.SpectrogramFrame | None = None,
+    include_spectrogram: bool = False,
 ) -> dict[str, object]:
     """Build the AnalysisResult JSON payload from a ChannelFrame."""
     peak_count = max(0, int(peak_count))  # guard against negative/zero from user config
@@ -324,10 +325,9 @@ def analyze_from_frame(
     window_size, hop_size, window_name = _resolve_stft_params(sample_count, stft_options)
     stft_db: np.ndarray | None = None
     if include_spectrogram:
-        t_stft = time.perf_counter()
-        stft = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
-        stft_db = np.asarray(stft.dB, dtype=np.float64)
-        _perf("stft", t_stft, n_fft=window_size, hop=hop_size, shape="x".join(str(s) for s in stft_db.shape))
+        if spectrogram_frame is None:
+            raise ValueError("spectrogram_frame is required when include_spectrogram is true")
+        stft_db = np.asarray(spectrogram_frame.dB, dtype=np.float64)
 
     t_channels = time.perf_counter()
     channels: list[dict[str, object]] = []
@@ -376,7 +376,16 @@ def analyze_audio(
     stft_options: dict | None = None,
 ) -> dict[str, object]:
     frame, target = load_audio_frame(file_path)
-    return analyze_from_frame(frame, target, peak_count=peak_count, stft_options=stft_options)
+    window_size, hop_size, window_name = _resolve_stft_params(frame.n_samples, stft_options)
+    spectrogram = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
+    return analyze_from_frame(
+        frame,
+        target,
+        peak_count=peak_count,
+        stft_options=stft_options,
+        spectrogram_frame=spectrogram,
+        include_spectrogram=True,
+    )
 
 
 def load_audio_frame(file_path: str | Path) -> tuple[wd.ChannelFrame, Path]:
@@ -384,6 +393,6 @@ def load_audio_frame(file_path: str | Path) -> tuple[wd.ChannelFrame, Path]:
     if not target.exists():
         raise FileNotFoundError(f"Audio file not found: {target}")
     t0 = time.perf_counter()
-    frame = wd.ChannelFrame.from_file(str(target))
+    frame = wd.read(target)
     _perf("read_audio", t0)
     return frame, target

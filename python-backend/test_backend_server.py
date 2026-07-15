@@ -15,11 +15,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
+import wandas as wd
 
+from analysis_engine import AnalysisEngine, CachedAnalysis
 from backend_server import (
     handle_analyze,
     handle_export_wav_loop,
     handle_range,
+    handle_release_track_detail,
     handle_spectrum_slice,
     handle_track_detail,
 )
@@ -127,43 +130,23 @@ def test_analyze_round_trip_accepts_flac_from_supported_ui_formats(server: _Serv
     assert resp["channels"][0]["spectrogram"] is None
 
 
-def test_analyze_caches_metadata_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
+def test_analyze_uses_engine_frame_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
     import backend_server
 
-    raw_path = tmp_path / "subdir" / ".." / "tone.wav"
-    resolved_path = raw_path.resolve()
-    calls: list[str] = []
-
-    monkeypatch.setattr(backend_server, "load_audio_frame", lambda path: (object(), resolved_path))
-    monkeypatch.setattr(backend_server, "_get_cached", lambda path: calls.append(path))
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    monkeypatch.setattr(backend_server, "_engine", engine)
     monkeypatch.setattr(
         backend_server,
         "analyze_from_frame",
-        lambda *_args, **_kwargs: {"filePath": str(resolved_path), "channels": []},
+        lambda _frame, path, **_kwargs: {"filePath": str(path), "channels": []},
     )
 
-    resp = backend_server.handle_analyze({"filePath": str(raw_path)})
+    resp = backend_server.handle_analyze({"filePath": str(wav.parent / "." / wav.name)})
 
-    assert calls == [str(resolved_path)]
-    assert resp["filePath"] == str(resolved_path)
-
-
-def test_track_detail_caches_metadata_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
-    import backend_server
-
-    raw_path = tmp_path / "subdir" / ".." / "tone.wav"
-    resolved_path = raw_path.resolve()
-    calls: list[str] = []
-
-    monkeypatch.setattr(backend_server, "load_audio_frame", lambda path: (object(), resolved_path))
-    monkeypatch.setattr(backend_server, "_get_cached", lambda path: calls.append(path))
-    monkeypatch.setattr(backend_server, "analyze_from_frame", lambda *_args, **_kwargs: {"channels": []})
-
-    resp = backend_server.handle_track_detail({"filePath": str(raw_path), "trackIndex": 4})
-
-    assert calls == [str(resolved_path)]
-    assert resp["trackIndex"] == 4
-    assert resp["filePath"] == str(resolved_path)
+    assert resp["filePath"] == str(wav.resolve())
+    assert list(engine._files) == [wav.resolve()]
 
 
 def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> None:
@@ -204,6 +187,72 @@ def test_handle_range_uses_same_pcm_scale_as_analysis(tmp_path: Path) -> None:
     assert max(waveform["maxT"]) <= 0.76
 
 
+def test_handle_range_reads_only_requested_frames(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import backend_server
+
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav, seconds=2.0)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    engine.get_file(wav)
+    monkeypatch.setattr(backend_server, "_engine", engine)
+    requested_frames: list[int] = []
+    real_sound_file = sf.SoundFile
+
+    class TrackedSoundFile:
+        def __new__(
+            cls, path: str | Path | io.BytesIO, *args: object, **kwargs: object
+        ) -> TrackedSoundFile | sf.SoundFile:
+            if args or kwargs:
+                return real_sound_file(path, *args, **kwargs)
+            return super().__new__(cls)
+
+        def __init__(self, path: str | Path | io.BytesIO, *args: object, **kwargs: object) -> None:
+            self._file = real_sound_file(path)
+            self.subtype = self._file.subtype
+
+        def __enter__(self) -> TrackedSoundFile:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self._file.close()
+
+        def seek(self, frame: int) -> int:
+            return self._file.seek(frame)
+
+        def read(self, frames: int, **kwargs: object) -> np.ndarray:
+            requested_frames.append(frames)
+            return self._file.read(frames, **kwargs)
+
+    monkeypatch.setattr(backend_server.sf, "SoundFile", TrackedSoundFile)
+    handle_range({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.3, "points": 128})
+
+    assert requested_frames == [1600]
+
+
+def test_handle_range_matches_non_wav_overview_scale(tmp_path: Path) -> None:
+    audio = tmp_path / "tone.flac"
+    _write_sine_flac(audio, seconds=1.0)
+    overview = handle_analyze({"filePath": str(audio)})["channels"][0]["waveform"]
+    ranged = handle_range({"filePath": str(audio), "startNorm": 0.25, "endNorm": 0.75, "points": 128})
+    assert ranged["channels"][0]["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
+
+
+def test_handle_range_matches_unsigned_8_bit_wav_overview_scale(tmp_path: Path) -> None:
+    audio = tmp_path / "tone-u8.wav"
+    sample_rate = 8000
+    time_axis = np.arange(sample_rate, dtype=np.float64) / sample_rate
+    samples = np.rint(128 + 64 * np.sin(2 * math.pi * 440 * time_axis)).astype(np.uint8)
+    with wave.open(str(audio), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(1)
+        output.setframerate(sample_rate)
+        output.writeframes(samples.tobytes())
+
+    overview = handle_analyze({"filePath": str(audio)})["channels"][0]["waveform"]
+    ranged = handle_range({"filePath": str(audio), "startNorm": 0.25, "endNorm": 0.75, "points": 128})
+    assert ranged["channels"][0]["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.01)
+
+
 def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
@@ -230,6 +279,21 @@ def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> N
     assert abs(float(resp["maxDb"]) - float(np.max(expected_row))) < 1.0
 
 
+@pytest.mark.parametrize("cursor_norm", [-1.0, 0.0, 1.0, 2.0])
+def test_spectrum_slice_clamps_cursor_to_cached_stft_bounds(tmp_path: Path, cursor_norm: float) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    response = handle_spectrum_slice(
+        {
+            "filePath": str(wav),
+            "cursorNorm": cursor_norm,
+            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+        }
+    )
+    assert response["frequencyBins"] > 0
+    assert all(np.isfinite(response["values"]))
+
+
 def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path) -> None:
     import backend_server
 
@@ -253,56 +317,54 @@ def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path)
     assert len(resp["values"]) == resp["frequencyBins"]
 
 
-def test_spectrum_slice_uses_wandas_frame_fft(monkeypatch, tmp_path: Path) -> None:
+def test_spectrum_slice_uses_cached_wandas_spectrogram(monkeypatch, tmp_path: Path) -> None:
     import backend_server
 
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
-    calls: list[tuple[int, slice]] = []
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    monkeypatch.setattr(backend_server, "_engine", engine)
 
-    def fail_numpy_rfft(*_args: object, **_kwargs: object) -> object:
-        raise AssertionError("spectrum slice should use wandas frame.fft(), not numpy.fft.rfft()")
+    command = {
+        "filePath": str(wav),
+        "trackIndex": 0,
+        "cursorNorm": 0.5,
+        "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+    }
+    first = backend_server.handle_spectrum_slice(command)
+    spectrogram = engine.get_spectrogram(wav, 256, 128, "hann")
+    second = backend_server.handle_spectrum_slice(command)
+    third = backend_server.handle_spectrum_slice(command)
 
-    class FakeSpectrum:
-        freqs = np.array([0.0, 1000.0, 2000.0], dtype=np.float64)
-        dB = np.array([[-120.0, -20.0, -60.0]], dtype=np.float64)
+    assert engine.get_spectrogram(wav, 256, 128, "hann") is spectrogram
+    assert first["frequencyBins"] == second["frequencyBins"]
+    assert second["values"] == third["values"]
 
-    class FakeSlice:
-        def fft(self, *, n_fft: int | None = None, window: str = "hann") -> FakeSpectrum:
-            assert n_fft == 256
-            assert window == "hann"
-            return FakeSpectrum()
 
-    class FakeFrame:
-        def __getitem__(self, key: tuple[int, slice]) -> FakeSlice:
-            channel, sample_slice = key
-            assert channel == 0
-            assert isinstance(sample_slice, slice)
-            calls.append((channel, sample_slice))
-            return FakeSlice()
+def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, tmp_path: Path) -> None:
+    import backend_server
 
-    monkeypatch.setattr(backend_server.np.fft, "rfft", fail_numpy_rfft)
-    monkeypatch.setattr(backend_server, "load_audio_frame", lambda path: (FakeFrame(), Path(path)))
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    monkeypatch.setattr(backend_server, "_engine", engine)
 
-    resp = backend_server.handle_spectrum_slice(
+    def fail_get_spectrogram(*_args: object, **_kwargs: object) -> wd.SpectrogramFrame:
+        raise AssertionError("cursor spectrum must not build a full-file spectrogram")
+
+    monkeypatch.setattr(engine, "get_spectrogram", fail_get_spectrogram)
+    response = backend_server.handle_spectrum_slice(
         {
             "filePath": str(wav),
-            "trackIndex": 0,
             "cursorNorm": 0.5,
             "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
         }
     )
 
-    assert calls, "spectrum slice should slice the wandas frame before fft()"
-    assert calls[0][1].start is not None
-    assert calls[0][1].stop is not None
-    assert resp["frequencyBins"] == 3
-    assert resp["values"] == [-120.0, -20.0, -60.0]
+    assert response["frequencyBins"] > 0
 
 
-def test_spectrum_slice_uses_requested_channel(monkeypatch, tmp_path: Path) -> None:
-    import backend_server
-
+def test_spectrum_slice_uses_requested_channel(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     t = np.linspace(0, 0.5, 8000, endpoint=False)
     left = (0.5 * np.sin(2 * math.pi * 440.0 * t) * 32767).astype(np.int16)
@@ -313,25 +375,16 @@ def test_spectrum_slice_uses_requested_channel(monkeypatch, tmp_path: Path) -> N
         w.setsampwidth(2)
         w.setframerate(16000)
         w.writeframes(stereo.tobytes())
-    calls: list[int] = []
-
-    class FakeSpectrum:
-        dB = np.array([[-90.0, -9.0, -30.0]], dtype=np.float64)
-
-    class FakeSlice:
-        def fft(self, *, n_fft: int | None = None, window: str = "hann") -> FakeSpectrum:
-            return FakeSpectrum()
-
-    class FakeFrame:
-        def __getitem__(self, key: tuple[int, slice]) -> FakeSlice:
-            channel, sample_slice = key
-            assert isinstance(sample_slice, slice)
-            calls.append(channel)
-            return FakeSlice()
-
-    monkeypatch.setattr(backend_server, "load_audio_frame", lambda path: (FakeFrame(), Path(path)))
-
-    resp = backend_server.handle_spectrum_slice(
+    left_resp = handle_spectrum_slice(
+        {
+            "filePath": str(wav),
+            "trackIndex": 0,
+            "cursorNorm": 0.5,
+            "channelIndex": 0,
+            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+        }
+    )
+    right_resp = handle_spectrum_slice(
         {
             "filePath": str(wav),
             "trackIndex": 0,
@@ -341,25 +394,37 @@ def test_spectrum_slice_uses_requested_channel(monkeypatch, tmp_path: Path) -> N
         }
     )
 
-    assert calls == [1]
-    assert resp["frequencyBins"] == 3
+    assert np.argmax(left_resp["values"]) != np.argmax(right_resp["values"])
 
 
-def test_cached_file_keeps_metadata_without_materialized_frame(tmp_path: Path) -> None:
-    import importlib
-
-    import backend_server
-
-    importlib.reload(backend_server)
+def test_engine_keeps_materialized_wandas_frame(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
 
-    entry = backend_server._get_cached(str(wav))
+    entry = AnalysisEngine(cache_limit_bytes=10_000_000).get_file(wav)
 
-    assert not hasattr(entry, "frame")
-    assert entry.sample_rate_hz == 16000
-    assert entry.sample_count == 8000
-    assert entry.nbytes() < 4096
+    assert isinstance(entry.frame, wd.ChannelFrame)
+    assert entry.frame.sampling_rate == 16000
+    assert entry.frame.n_samples == 8000
+
+
+def test_engine_persists_file_frame_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    persist_calls = 0
+    original_persist = wd.ChannelFrame.persist
+
+    def counted_persist(self: wd.ChannelFrame) -> wd.ChannelFrame:
+        nonlocal persist_calls
+        persist_calls += 1
+        return original_persist(self)
+
+    monkeypatch.setattr(wd.ChannelFrame, "persist", counted_persist)
+    first = engine.get_file(wav)
+
+    assert engine.get_file(wav) is first
+    assert persist_calls == 1
 
 
 def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
@@ -495,6 +560,107 @@ def test_export_wav_loop(tmp_path: Path) -> None:
     with wave.open(io.BytesIO(raw)) as w:
         assert w.getnframes() > 0
         assert w.getframerate() == result["sampleRate"]
+        exported = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+    assert np.max(np.abs(exported)) == pytest.approx(32767, rel=0.01)
+    assert np.mean(np.abs(exported) >= 32760) < 0.1
+
+
+def test_export_wav_loop_preserves_stereo_orientation(tmp_path: Path) -> None:
+    wav = tmp_path / "stereo.wav"
+    sample_rate = 16000
+    time_axis = np.arange(sample_rate, dtype=np.float64) / sample_rate
+    samples = np.column_stack(
+        [
+            0.25 * np.sin(2 * math.pi * 440 * time_axis),
+            0.75 * np.sin(2 * math.pi * 880 * time_axis),
+        ]
+    )
+    sf.write(wav, samples, sample_rate, subtype="PCM_16")
+
+    result = handle_export_wav_loop({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.75})
+    exported, exported_rate = sf.read(io.BytesIO(base64.b64decode(result["wavBase64"])), always_2d=True)
+
+    assert exported_rate == sample_rate
+    assert exported.shape == (sample_rate // 2, 2)
+    assert np.max(np.abs(exported[:, 0])) == pytest.approx(0.25, abs=0.01)
+    assert np.max(np.abs(exported[:, 1])) == pytest.approx(0.75, abs=0.01)
+
+
+@pytest.mark.parametrize(("suffix", "format_name", "subtype"), [(".flac", "FLAC", "PCM_16"), (".wav", "WAV", "PCM_24")])
+def test_export_wav_loop_preserves_normalized_level_across_source_formats(
+    tmp_path: Path,
+    suffix: str,
+    format_name: str,
+    subtype: str,
+) -> None:
+    audio = tmp_path / f"tone{suffix}"
+    sample_rate = 16000
+    time_axis = np.arange(sample_rate, dtype=np.float64) / sample_rate
+    samples = 0.4 * np.sin(2 * math.pi * 440 * time_axis)
+    sf.write(audio, samples, sample_rate, format=format_name, subtype=subtype)
+
+    result = handle_export_wav_loop({"filePath": str(audio), "startNorm": 0.0, "endNorm": 1.0})
+    exported, _ = sf.read(io.BytesIO(base64.b64decode(result["wavBase64"])))
+
+    assert np.max(np.abs(exported)) == pytest.approx(0.4, abs=0.01)
+
+
+def test_export_wav_loop_recenters_unsigned_8_bit_wav(tmp_path: Path) -> None:
+    audio = tmp_path / "tone-u8.wav"
+    sample_rate = 8000
+    time_axis = np.arange(sample_rate, dtype=np.float64) / sample_rate
+    samples = np.rint(128 + 64 * np.sin(2 * math.pi * 440 * time_axis)).astype(np.uint8)
+    with wave.open(str(audio), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(1)
+        output.setframerate(sample_rate)
+        output.writeframes(samples.tobytes())
+
+    result = handle_export_wav_loop({"filePath": str(audio), "startNorm": 0.0, "endNorm": 1.0})
+    exported, _ = sf.read(io.BytesIO(base64.b64decode(result["wavBase64"])))
+
+    assert np.mean(exported) == pytest.approx(0.0, abs=0.01)
+    assert np.max(np.abs(exported)) == pytest.approx(0.5, abs=0.02)
+
+
+def test_export_wav_loop_reads_only_selected_frames(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import backend_server
+
+    audio = tmp_path / "tone.wav"
+    _write_sine_wav(audio, seconds=2.0)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    engine.get_file(audio)
+    monkeypatch.setattr(backend_server, "_engine", engine)
+    requested_frames: list[int] = []
+    real_sound_file = sf.SoundFile
+
+    class TrackedSoundFile:
+        def __new__(
+            cls, path: str | Path | io.BytesIO, *args: object, **kwargs: object
+        ) -> TrackedSoundFile | sf.SoundFile:
+            if args or kwargs:
+                return real_sound_file(path, *args, **kwargs)
+            return super().__new__(cls)
+
+        def __init__(self, path: str | Path | io.BytesIO, *args: object, **kwargs: object) -> None:
+            self._file = real_sound_file(path)
+
+        def __enter__(self) -> TrackedSoundFile:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self._file.close()
+
+        def seek(self, frame: int) -> int:
+            return self._file.seek(frame)
+
+        def read(self, frames: int, **kwargs: object) -> np.ndarray:
+            requested_frames.append(frames)
+            return self._file.read(frames, **kwargs)
+
+    monkeypatch.setattr(backend_server.sf, "SoundFile", TrackedSoundFile)
+    handle_export_wav_loop({"filePath": str(audio), "startNorm": 0.25, "endNorm": 0.3})
+    assert requested_frames == [1600]
 
 
 def test_export_wav_loop_zero_frames_raises(tmp_path: Path) -> None:
@@ -516,23 +682,97 @@ def test_export_wav_loop_zero_frames_raises(tmp_path: Path) -> None:
 
 
 def test_lru_evicts_oldest_when_over_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import importlib
-
-    import backend_server
-
-    importlib.reload(backend_server)
-    monkeypatch.setattr(backend_server.CachedFile, "nbytes", lambda _entry: 128)
-    monkeypatch.setattr(backend_server, "_cache_limit_bytes", 256)
-    backend_server._cache.clear()
-
-    paths: list[str] = []
+    monkeypatch.setattr("analysis_engine.CachedAnalysis.nbytes", property(lambda _entry: 128))
+    engine = AnalysisEngine(cache_limit_bytes=256)
+    paths: list[Path] = []
     for i in range(4):
         p = tmp_path / f"t{i}.wav"
         _write_sine_wav(p, seconds=0.2, sr=16000)
-        paths.append(str(p))
-        backend_server._get_cached(paths[-1])
+        paths.append(p.resolve())
+        engine.get_file(p)
 
-    assert list(backend_server._cache.keys()) == paths[-2:]
-    total = sum(e.nbytes() for e in backend_server._cache.values())
-    assert total <= backend_server._cache_limit_bytes
-    assert all(not hasattr(entry, "frame") for entry in backend_server._cache.values())
+    assert list(engine._files) == paths[-2:]
+    assert engine.cache_bytes <= engine.cache_limit_bytes
+
+
+def test_engine_reuses_frames_and_stft_by_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    calls = 0
+    persist_calls = 0
+    original_stft = wd.ChannelFrame.stft
+    original_persist = wd.SpectrogramFrame.persist
+
+    def counted_stft(self: wd.ChannelFrame, *args: object, **kwargs: object) -> wd.SpectrogramFrame:
+        nonlocal calls
+        calls += 1
+        return original_stft(self, *args, **kwargs)
+
+    def counted_persist(self: wd.SpectrogramFrame) -> wd.SpectrogramFrame:
+        nonlocal persist_calls
+        persist_calls += 1
+        return original_persist(self)
+
+    monkeypatch.setattr(wd.ChannelFrame, "stft", counted_stft)
+    monkeypatch.setattr(wd.SpectrogramFrame, "persist", counted_persist)
+    first_file = engine.get_file(wav)
+    assert engine.get_file(wav) is first_file
+    first_stft = engine.get_spectrogram(wav, 256, 128, "hann")
+    assert engine.get_spectrogram(wav, 256, 128, "hann") is first_stft
+    assert engine.get_spectrogram(wav, 512, 128, "hann") is not first_stft
+    assert calls == 2
+    assert persist_calls == 2
+
+
+def test_engine_invalidates_file_and_stft_when_source_changes(tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav, seconds=0.5)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    original = engine.get_file(wav)
+    engine.get_spectrogram(wav, 256, 128, "hann")
+
+    _write_sine_wav(wav, seconds=0.75)
+    refreshed = engine.get_file(wav)
+
+    assert refreshed is not original
+    assert refreshed.frame.n_samples != original.frame.n_samples
+    assert refreshed.spectrograms == {}
+
+
+def test_cache_size_uses_stored_metadata_without_materializing_frames() -> None:
+    class Unmaterialized:
+        @property
+        def data(self) -> object:
+            raise AssertionError("cache sizing must not materialize wandas data")
+
+    entry = CachedAnalysis(
+        path=Path("tone.wav"),
+        frame=Unmaterialized(),  # type: ignore[arg-type]
+        identity=(1, 2),
+        frame_nbytes=80,
+        spectrograms={(256, 128, "hann"): Unmaterialized()},  # type: ignore[dict-item]
+        spectrogram_nbytes={(256, 128, "hann"): 160},
+    )
+    assert entry.nbytes == 240
+
+
+def test_release_track_detail_drops_stft_but_keeps_file_frame(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import backend_server
+
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    monkeypatch.setattr(backend_server, "_engine", engine)
+    cached = engine.get_file(wav)
+    engine.get_spectrogram(wav, 256, 128, "hann")
+
+    assert handle_release_track_detail({"filePath": str(wav)}) == {}
+    assert engine.get_file(wav) is cached
+    assert cached.spectrograms == {}
+
+
+def test_backend_has_no_scipy_stft_implementation() -> None:
+    source = (Path(__file__).parent / "backend_server.py").read_text(encoding="utf-8")
+    assert "ShortTimeFFT" not in source
+    assert "get_window" not in source

@@ -961,6 +961,23 @@ test('renderScript: removing a detailed track releases its spectrogram detail', 
     assert.equal(release.filePath, '/tmp/a.wav');
 });
 
+test('renderScript: leaving spectrogram mode releases pending track detail', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    await nextAnimationFrame(env.dom);
+    const spectrogramButton = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement;
+    spectrogramButton.click();
+    await nextAnimationFrame(env.dom);
+    assert.ok(env.postedMessages.some((msg: any) => msg.type === 'request-track-detail'));
+
+    const waveformButton = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement;
+    waveformButton.click();
+
+    const release = env.postedMessages.find((msg: any) => msg.type === 'release-track-detail' && msg.trackIndex === 0) as any;
+    assert.ok(release, 'pending track detail should be released');
+    assert.equal(release.filePath, '/tmp/a.wav');
+    env.dom.window.close();
+});
+
 
 test('renderScript: display-only spectrogram changes do not request fresh track detail', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
