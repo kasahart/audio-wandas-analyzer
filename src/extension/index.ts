@@ -503,6 +503,7 @@ function registerPanelMessageHandler(
             }
 
             if (isReleaseTrackDetailMessage(message)) {
+                void backendServer?.releaseTrackDetail(message.filePath);
                 return;
             }
 

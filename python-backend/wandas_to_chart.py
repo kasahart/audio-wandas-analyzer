@@ -4,11 +4,11 @@ The dispatch is intentionally duck-typed (matches class name) so that wandas
 upstream additions don't immediately break us: an unknown frame type falls
 back to a best-effort scalar/line representation rather than raising.
 
-Wandas 0.2.0 frame surface used here::
+Wandas 0.4.0 frame surface used here::
 
     ChannelFrame       .time, .data, .labels, .sampling_rate, .n_channels
     SpectralFrame      .freqs, .magnitude, .dB, .phase, .labels, .n_channels
-    SpectrogramFrame   .freqs, .dB[ch, freq, time], hop_length, sampling_rate
+    SpectrogramFrame   .freqs, .times, .dB[ch, freq, time]
     NOctFrame          .freqs, .dB, .labels
     RoughnessFrame     2D data; treated as heatmap on (freq × time)
     np.ndarray         per-channel scalar metrics → scalar table
@@ -98,22 +98,20 @@ def _adapt_spectral_frame(frame: Any, *, title: str, value: str = "dB") -> dict[
 def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> dict[str, Any]:
     freqs = np.asarray(frame.freqs, dtype=np.float64)
     db = np.asarray(frame.dB, dtype=np.float64)
-    # dB shape from wandas 0.2.0 is (channels, freqs, time).
+    # dB shape is (channels, freqs, time).
     if db.ndim == 2:
         plane = db
     else:
         ch = max(0, min(channel, db.shape[0] - 1))
         plane = db[ch]
     n_freq, n_time = plane.shape
-    sr = float(getattr(frame, "sampling_rate", 0) or 0)
-    hop = float(getattr(frame, "hop_length", 0) or 0)
-    times = np.arange(n_time) * (hop / sr) if sr > 0 and hop > 0 else np.arange(n_time, dtype=np.float64)
+    times = np.asarray(frame.times, dtype=np.float64)
     return {
         "kind": "heatmap",
         "title": title,
         "xLabel": "Time [s]",
         "yLabel": "Frequency [Hz]",
-        "xs": _as_list(times),
+        "xs": _as_list(times[:n_time]),
         "ys": _as_list(freqs[:n_freq]),
         "matrix": [_as_list(plane[i]) for i in range(n_freq)],
         "unit": "dB",
@@ -142,21 +140,24 @@ def _adapt_noct_frame(frame: Any, *, title: str) -> dict[str, Any]:
     }
 
 
-def _adapt_roughness_frame(frame: Any, *, title: str) -> dict[str, Any]:
+def _adapt_roughness_frame(frame: Any, *, title: str, channel: int = 0) -> dict[str, Any]:
     data = np.asarray(frame.data, dtype=np.float64)
-    if data.ndim != 2:
+    if data.ndim == 3:
+        ch = max(0, min(channel, data.shape[0] - 1))
+        data = data[ch]
+    elif data.ndim != 2:
         data = np.atleast_2d(data)
-    n_freq, n_time = data.shape
-    freqs = np.asarray(getattr(frame, "freqs", np.arange(n_freq)), dtype=np.float64)
+    n_bark, n_time = data.shape
+    bark_axis = np.asarray(frame.bark_axis, dtype=np.float64)
     times = np.asarray(getattr(frame, "time", np.arange(n_time)), dtype=np.float64)
     return {
         "kind": "heatmap",
         "title": title,
         "xLabel": "Time [s]",
-        "yLabel": "Modulation frequency [Hz]",
-        "xs": _as_list(times),
-        "ys": _as_list(freqs),
-        "matrix": [_as_list(data[i]) for i in range(n_freq)],
+        "yLabel": "Critical-band rate [Bark]",
+        "xs": _as_list(times[:n_time]),
+        "ys": _as_list(bark_axis[:n_bark]),
+        "matrix": [_as_list(data[i]) for i in range(n_bark)],
         "unit": "asper",
         "colormap": "magma",
     }
@@ -196,7 +197,7 @@ def adapt(obj: Any, *, title: str | None = None, **kwargs: Any) -> dict[str, Any
     if cls == "NOctFrame":
         return _adapt_noct_frame(obj, title=title)
     if cls == "RoughnessFrame":
-        return _adapt_roughness_frame(obj, title=title)
+        return _adapt_roughness_frame(obj, title=title, channel=int(kwargs.get("channel", 0)))
     if isinstance(obj, np.ndarray):
         return _adapt_ndarray(obj, title=title, unit=kwargs.get("unit"))
     if isinstance(obj, int | float | np.floating | np.integer):

@@ -46,6 +46,16 @@ def test_spectrogram_frame_from_stft(mono_sin: wd.ChannelFrame) -> None:
     assert spec["unit"] == "dB"
 
 
+def test_stereo_roughness_uses_requested_channel_and_bark_axis(two_channel: wd.ChannelFrame) -> None:
+    roughness = two_channel.resampling(48000).fix_length(duration=0.5).roughness_dw_spec()
+    spec = adapt(roughness, title="roughness", channel=1)
+    assert spec["kind"] == "heatmap"
+    assert spec["yLabel"] == "Critical-band rate [Bark]"
+    assert spec["ys"] == pytest.approx(roughness.bark_axis.tolist())
+    assert len(spec["matrix"]) == len(roughness.bark_axis)
+    assert len(spec["matrix"][0]) == len(roughness.time)
+
+
 def test_noct_frame_becomes_bar(mono_sin: wd.ChannelFrame) -> None:
     spec = adapt(mono_sin.noct_spectrum(fmin=125, fmax=4000, n=3), title="1/3 oct")
     assert spec["kind"] == "bar"
@@ -54,10 +64,10 @@ def test_noct_frame_becomes_bar(mono_sin: wd.ChannelFrame) -> None:
     assert any(ch.replace(".", "").isdigit() for ch in spec["categories"][:1])
 
 
-def test_dev_dependencies_include_noct_spectrum_extra() -> None:
+def test_runtime_dependencies_pin_wandas_v05_with_psychoacoustics() -> None:
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
-    dev_dependencies = pyproject["project"]["optional-dependencies"]["dev"]
-    assert "wandas[psychoacoustic]>=0.1.0" in dev_dependencies
+    dependencies = pyproject["project"]["dependencies"]
+    assert "wandas[psychoacoustic]>=0.5.0,<0.6.0" in dependencies
 
 
 def test_coherence_yields_multi_series(two_channel: wd.ChannelFrame) -> None:

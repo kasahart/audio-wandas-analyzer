@@ -53,6 +53,12 @@ def test_analyze_from_frame_includes_channel_unit(tmp_path: Path) -> None:
     assert result["channels"][0]["waveform"]["absolutePeak"] == pytest.approx(0.5)
 
 
+def test_analyze_from_frame_defaults_to_summary_without_spectrogram(tmp_path: Path) -> None:
+    frame = wd.from_numpy(np.array([0.0, 0.5, -0.5]), sampling_rate=1000)
+    result = analyze_from_frame(frame, tmp_path / "summary.wav")
+    assert result["channels"][0]["spectrogram"] is None
+
+
 def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: Path) -> None:
     sample_rate = 1024
     sample_count = 1024
@@ -61,12 +67,15 @@ def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: 
     time = np.arange(sample_count, dtype=np.float64) / sample_rate
     samples = amplitude * np.sin(2 * math.pi * frequency_hz * time)
     frame = wd.ChannelFrame.from_numpy(samples, sampling_rate=sample_rate)
+    spectrogram = frame.stft(n_fft=256, hop_length=128, window="boxcar")
 
     result = analyze_from_frame(
         frame,
         tmp_path / "sine.wav",
         peak_count=3,
         stft_options={"n_fft": 256, "hop_size": 128, "window": "boxcar"},
+        spectrogram_frame=spectrogram,
+        include_spectrogram=True,
     )
 
     expected_db = 20 * math.log10(amplitude)

@@ -76,6 +76,10 @@ export class PythonBackendServer {
         ) as Promise<{ channels: unknown[]; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }>;
     }
 
+    async releaseTrackDetail(filePath: string): Promise<void> {
+        await this.request('release-track-detail', { filePath });
+    }
+
     async requestSpectrumSlice(
         filePath: string,
         payload: { trackIndex: number; analysisId: string; settingsSignature: string; cursorNorm: number; channelIndex: number; stftOptions?: AnalyzeStftOptions },
