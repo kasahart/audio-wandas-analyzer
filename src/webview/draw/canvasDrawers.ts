@@ -53,18 +53,43 @@ export interface SpectrumSliceLike {
     maxFrequencyHz: number;
     minDb: number;
     maxDb: number;
+    unit?: string;
+    axisLabel?: string;
 }
 
 export interface SpectrogramSpecLike {
     minDb: number;
     maxDb: number;
     maxFrequencyHz: number;
+    unit?: string;
+    axisLabel?: string;
 }
 
 export interface SpectrogramAxesOpts {
     dbLo?: number;
     dbHi?: number;
     maxFreq?: number;
+}
+
+export interface WaveformAmplitudeAxisOpts {
+    absolutePeak?: number | null;
+    unit?: string | null;
+}
+
+function formatAmplitudeAxisValue(value: number): string {
+    const absValue = Math.abs(value);
+    if (absValue >= 100) { return absValue.toFixed(0); }
+    if (absValue >= 1) { return absValue.toFixed(1); }
+    if (absValue >= 0.01) { return absValue.toFixed(2); }
+    return absValue.toPrecision(2);
+}
+
+export function formatAmplitudeAxisLabels(opts: WaveformAmplitudeAxisOpts = {}): string[] {
+    const rawPeak = typeof opts.absolutePeak === 'number' ? opts.absolutePeak : Number.NaN;
+    const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
+    const value = formatAmplitudeAxisValue(peak);
+    const unit = typeof opts.unit === 'string' && opts.unit.trim() ? opts.unit.trim() : null;
+    return ['+' + value, '0', '-' + value, unit ? 'Amp (' + unit + ')' : 'Amp'];
 }
 
 export function formatHz(hz: number): string {
@@ -108,15 +133,17 @@ export function dbToRgb(norm: number): [number, number, number] {
     ];
 }
 
-/** 波形キャンバスの左端に振幅軸 (+1.0 / 0 / -1.0 と 'Amp (FS)') を描画する。 */
+/** 波形キャンバスの左端に振幅軸を描画する。 */
 export function drawWaveformAmplitudeAxis(
     ctx: CanvasDrawCtx,
     W: number,
     H: number,
     theme: DrawTheme = DEFAULT_THEME,
+    opts: WaveformAmplitudeAxisOpts = {},
 ): void {
     void W;
-    const labelW = 30;
+    const [topLabel, zeroLabel, bottomLabel, titleLabel] = formatAmplitudeAxisLabels(opts);
+    const labelW = Math.max(30, Math.min(W, 64));
     ctx.save();
     ctx.fillStyle = theme.bgColor;
     ctx.globalAlpha = 0.7;
@@ -126,17 +153,17 @@ export function drawWaveformAmplitudeAxis(
     ctx.font = '9px monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText('+1.0', labelW - 2, 1);
+    ctx.fillText(topLabel, labelW - 2, 1);
     ctx.textBaseline = 'middle';
-    ctx.fillText('0', labelW - 2, H / 2);
+    ctx.fillText(zeroLabel, labelW - 2, H / 2);
     ctx.textBaseline = 'bottom';
-    ctx.fillText('-1.0', labelW - 2, H - 1);
+    ctx.fillText(bottomLabel, labelW - 2, H - 1);
     ctx.save();
     ctx.translate(8, H / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Amp (FS)', 0, 0);
+    ctx.fillText(titleLabel, 0, 0);
     ctx.restore();
     ctx.restore();
 }
@@ -210,9 +237,10 @@ export function drawSpectrogramColorbar(
     ctx.font = '9px monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(dbHi.toFixed(0) + ' dB', cbX + cbW + 2, cbY);
+    const unit = spec.unit || 'dB';
+    ctx.fillText(dbHi.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY);
     ctx.textBaseline = 'bottom';
-    ctx.fillText(dbLo.toFixed(0) + ' dB', cbX + cbW + 2, cbY + cbH);
+    ctx.fillText(dbLo.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY + cbH);
     ctx.restore();
 }
 
@@ -289,11 +317,12 @@ export function drawSpectrumAxes(
     ctx.font = '9px monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText(slice.maxDb.toFixed(0) + ' dB', padL - 2, padT);
+    const unit = slice.unit || 'dB';
+    ctx.fillText(slice.maxDb.toFixed(0) + ' ' + unit, padL - 2, padT);
     ctx.textBaseline = 'middle';
-    ctx.fillText(((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' dB', padL - 2, padT + plotH / 2);
+    ctx.fillText(((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' ' + unit, padL - 2, padT + plotH / 2);
     ctx.textBaseline = 'bottom';
-    ctx.fillText(slice.minDb.toFixed(0) + ' dB', padL - 2, H - padB);
+    ctx.fillText(slice.minDb.toFixed(0) + ' ' + unit, padL - 2, H - padB);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillText('0 Hz', padL, H - 1);

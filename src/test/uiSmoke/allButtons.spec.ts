@@ -51,6 +51,11 @@ async function getClipboardWrites(page: Page): Promise<string[]> {
 }
 
 async function getUiSmokeState(page: Page): Promise<{
+    zoomStart?: number;
+    zoomEnd?: number;
+    amplitudeZoomMinNorm?: number;
+    amplitudeZoomMaxNorm?: number;
+    rectZoomSelection?: unknown;
     spectrumZoom?: {
         specFreqStart?: number;
         specFreqEnd?: number;
@@ -61,6 +66,11 @@ async function getUiSmokeState(page: Page): Promise<{
     return page.evaluate(() => {
         return ((window as typeof window & {
             __uiSmokeState?: {
+                zoomStart?: number;
+                zoomEnd?: number;
+                amplitudeZoomMinNorm?: number;
+                amplitudeZoomMaxNorm?: number;
+                rectZoomSelection?: unknown;
                 spectrumZoom?: {
                     specFreqStart?: number;
                     specFreqEnd?: number;
@@ -132,14 +142,36 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     await toolbar.locator('[data-action="zoom-out"]').click({ force: true });
     await toolbar.locator('[data-action="zoom-reset"]').click({ force: true });
 
+    const rectZoomButton = toolbar.locator('[data-action="wave-mode-rect-zoom"]');
+    await expect(rectZoomButton).toBeEnabled();
+    await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'false');
+    await rectZoomButton.click();
+    await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(rectZoomButton).toHaveClass(/is-active/);
+    await rectZoomButton.click();
+    await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(rectZoomButton).not.toHaveClass(/is-active/);
+
     const heightBefore = await getUiSmokeState(page);
+    const overlayCanvas = page.locator('#spectrum-overlay-canvas');
+    const overlayBoxBefore = await overlayCanvas.boundingBox();
+    expect(overlayBoxBefore).not.toBeNull();
+    expect(overlayBoxBefore!.height).toBeGreaterThan(0);
     await openToolbarMenu(page, 0);
     await toolbar.locator('[data-action="track-height-input"]').fill('112');
     await toolbar.locator('[data-action="spectrum-height-input"]').fill('180');
-    await page.waitForTimeout(100);
-    const heightAfter = await getUiSmokeState(page);
-    expect(heightAfter.spectrumZoom?.trackHeight).toBeGreaterThan(heightBefore.spectrumZoom?.trackHeight ?? 0);
-    expect(heightAfter.spectrumZoom?.spectrumOverlayHeight).toBeGreaterThan(heightBefore.spectrumZoom?.spectrumOverlayHeight ?? 0);
+    await expect(overlayCanvas).toHaveCSS('height', '180px');
+    const overlayBoxAfter = await overlayCanvas.boundingBox();
+    expect(overlayBoxAfter).not.toBeNull();
+    await expect.poll(async () => {
+        const state = await getUiSmokeState(page);
+        return state.spectrumZoom?.trackHeight;
+    }).toBeGreaterThan(heightBefore.spectrumZoom?.trackHeight ?? 0);
+    await expect.poll(async () => {
+        const state = await getUiSmokeState(page);
+        return state.spectrumZoom?.spectrumOverlayHeight;
+    }).toBeGreaterThan(heightBefore.spectrumZoom?.spectrumOverlayHeight ?? 0);
+    expect(overlayBoxAfter!.height).toBeGreaterThan(overlayBoxBefore!.height);
     await toolbar.locator('[data-action="track-height-reset"]').click({ force: true });
     await toolbar.locator('[data-action="spectrum-height-reset"]').click({ force: true });
 
@@ -176,6 +208,36 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
         expect.objectContaining({ type: 'request-reanalyze' }),
         expect.objectContaining({ type: 'export-report-options' }),
     ]));
+});
+
+test('waveform rect zoom drag shows a rubber band and zooms time plus amplitude', async ({ page }) => {
+    await loadResultsUi(page);
+    const toolbar = page.locator('#toolbar');
+    await toolbar.locator('[data-action="wave-mode-rect-zoom"]').click();
+
+    const canvas = page.locator('#track-canvas-0');
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    const startX = box!.x + box!.width * 0.25;
+    const startY = box!.y + box!.height * 0.2;
+    const endX = box!.x + box!.width * 0.75;
+    const endY = box!.y + box!.height * 0.8;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(endX, endY, { steps: 4 });
+    const dragging = await getUiSmokeState(page);
+    expect(dragging.rectZoomSelection).not.toBeNull();
+    await expect(toolbar.locator('[data-action="zoom-to-selection"]')).toBeDisabled();
+
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+    const zoomed = await getUiSmokeState(page);
+    expect(zoomed.rectZoomSelection).toBeNull();
+    expect(zoomed.zoomStart).toBeGreaterThan(0.2);
+    expect(zoomed.zoomEnd).toBeLessThan(0.8);
+    expect(zoomed.amplitudeZoomMinNorm).toBeGreaterThan(-1);
+    expect(zoomed.amplitudeZoomMaxNorm).toBeLessThan(1);
 });
 
 test('export-wav without a loop posts a visible info message', async ({ page }) => {

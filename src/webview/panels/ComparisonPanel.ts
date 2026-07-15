@@ -490,9 +490,23 @@ export function renderComparisonStyles(): string {
             width: 130px; flex-shrink: 0; border-right: 1px solid var(--line);
             padding: 5px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 9px; background: var(--track-header-bg);
         }
+        .track-channel-lanes { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        .track-channel-lane { display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid rgba(128, 128, 128, 0.18); }
+        .track-channel-lane:last-child { border-bottom: 0; }
+        .track-channel-lane-header {
+            height: 18px; display: flex; align-items: center; gap: 10px; padding: 0 6px;
+            color: var(--muted); font-size: 9px; background: rgba(128, 128, 128, 0.06); white-space: nowrap; overflow: hidden;
+        }
+        .track-channel-lane-body { display: flex; min-width: 0; }
+        .track-channel-lane-label { color: var(--text); font-weight: 600; min-width: 92px; overflow: hidden; text-overflow: ellipsis; }
         .track-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
         .clip-badge { display: inline-block; background: #d32f2f; color: #fff; font-size: 8px; font-weight: 700; border-radius: 2px; padding: 0px 3px; margin-left: 4px; vertical-align: middle; letter-spacing: 0.5px; cursor: default; }
         .track-meta { color: var(--muted); }
+        .track-channel-select-label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 9px; }
+        .track-channel-select {
+            min-width: 0; width: 100%; height: 18px; font-size: 9px;
+            border-radius: 3px; border: 1px solid var(--line); background: var(--surface); color: var(--text);
+        }
         .track-btns { display: flex; gap: 3px; margin-top: 2px; align-items: center; }
         .track-btn {
             font-size: 9px; padding: 1px 4px; border-radius: 2px;
@@ -544,14 +558,6 @@ export function renderComparisonStyles(): string {
         #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); position: relative; }
         .spectrum-height-resizer { left: 0; right: 0; top: -3px; height: 6px; }
         #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; cursor: crosshair; }
-
-        /* ── Metrics bar ── */
-        #metrics-bar {
-            display: flex; gap: 16px; padding: 5px 10px; font-size: 10px;
-            border-top: 1px solid var(--line); background: var(--panel); flex-shrink: 0; flex-wrap: wrap;
-        }
-        .metrics-item { display: flex; align-items: center; gap: 4px; }
-        .metrics-swatch { width: 8px; height: 8px; border-radius: 50%; }
         .track-title-row { display: flex; align-items: center; gap: 4px; overflow: hidden; }
         .track-drag-handle { cursor: grab; color: var(--muted); font-size: 12px; user-select: none; flex-shrink: 0; padding: 0 2px; line-height: 1; }
         .track-drag-handle:active { cursor: grabbing; }
@@ -720,7 +726,9 @@ export function renderComparisonStyles(): string {
         }
         #selection-results-pane {
             display: flex;
+            flex: 1 1 auto;
             flex-direction: column;
+            min-width: 0;
             min-height: 0;
             background:
                 radial-gradient(circle at top right, rgba(15,123,108,0.14), transparent 34%),

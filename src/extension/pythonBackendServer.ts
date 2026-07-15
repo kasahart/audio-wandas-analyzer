@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { processStdoutChunk, type PendingRequest } from './backendIpc';
-import { resolvePythonCommand } from './pythonEnvironment';
+import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 
 export interface AnalyzeStftOptions {
     nFft: number;
@@ -76,11 +76,15 @@ export class PythonBackendServer {
         ) as Promise<{ channels: unknown[]; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }>;
     }
 
+    async releaseTrackDetail(filePath: string): Promise<void> {
+        await this.request('release-track-detail', { filePath });
+    }
+
     async requestSpectrumSlice(
         filePath: string,
-        payload: { trackIndex: number; analysisId: string; settingsSignature: string; cursorNorm: number; stftOptions?: AnalyzeStftOptions },
+        payload: { trackIndex: number; analysisId: string; settingsSignature: string; cursorNorm: number; channelIndex: number; stftOptions?: AnalyzeStftOptions },
         requestId: string,
-    ): Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }> {
+    ): Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; unit?: string; axisLabel?: string; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }> {
         return this.request(
             'spectrum-slice',
             {
@@ -89,10 +93,11 @@ export class PythonBackendServer {
                 analysisId: payload.analysisId,
                 settingsSignature: payload.settingsSignature,
                 cursorNorm: payload.cursorNorm,
+                channelIndex: payload.channelIndex,
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
             },
             requestId,
-        ) as Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }>;
+        ) as Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; unit?: string; axisLabel?: string; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }>;
     }
 
     async exportWavLoop(
@@ -136,7 +141,7 @@ export class PythonBackendServer {
     private startServer(): Promise<void> {
         return new Promise<void>((resolve, reject) => {
             const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-            const pythonCommand = resolvePythonCommand(config.get<string>('pythonCommand', 'python3'));
+            const pythonCommand = resolveConfiguredPythonCommand(config.get<string>('pythonCommand', 'python3'));
             const cacheMb = Math.max(64, config.get<number>('cacheMemoryMb', 1024));
             const scriptPath = path.join(this.extensionPath, 'python-backend', 'backend_server.py');
 

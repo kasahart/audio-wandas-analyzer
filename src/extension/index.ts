@@ -503,6 +503,7 @@ function registerPanelMessageHandler(
             }
 
             if (isReleaseTrackDetailMessage(message)) {
+                void backendServer?.releaseTrackDetail(message.filePath);
                 return;
             }
 
@@ -515,6 +516,7 @@ function registerPanelMessageHandler(
                         analysisId: req.analysisId,
                         settingsSignature: req.settingsSignature,
                         cursorNorm: req.cursorNorm,
+                        channelIndex: req.channelIndex,
                         stftOptions: loadPersistedStftOptions(context),
                     },
                     req.requestId,
@@ -525,12 +527,15 @@ function registerPanelMessageHandler(
                         analysisId: req.analysisId,
                         settingsSignature: req.settingsSignature,
                         trackIndex: req.trackIndex,
+                        channelIndex: req.channelIndex,
                         filePath: req.filePath,
                         values: result.values,
                         frequencyBins: result.frequencyBins,
                         maxFrequencyHz: result.maxFrequencyHz,
                         minDb: result.minDb,
                         maxDb: result.maxDb,
+                        unit: result.unit,
+                        axisLabel: result.axisLabel,
                     });
                 }).catch((err) => {
                     void panel.webview.postMessage({
@@ -539,6 +544,7 @@ function registerPanelMessageHandler(
                         analysisId: req.analysisId,
                         settingsSignature: req.settingsSignature,
                         trackIndex: req.trackIndex,
+                        channelIndex: req.channelIndex,
                         filePath: req.filePath,
                         error: err instanceof Error ? err.message : String(err),
                     });

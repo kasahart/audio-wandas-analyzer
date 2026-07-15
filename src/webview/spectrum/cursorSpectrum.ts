@@ -6,6 +6,8 @@ export interface SpectrumSlice {
     maxFrequencyHz: number;
     minDb: number;
     maxDb: number;
+    unit?: string;
+    axisLabel?: string;
 }
 
 export interface SpectrumSource {
@@ -61,5 +63,7 @@ export function extractSpectrumAtCursor(
         maxFrequencyHz: spec.maxFrequencyHz,
         minDb: spec.minDb,
         maxDb: spec.maxDb,
+        unit: spec.unit,
+        axisLabel: spec.axisLabel,
     };
 }

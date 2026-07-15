@@ -26,6 +26,24 @@ WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
 SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
 SPECTROGRAM_DB_RANGE = 90.0
+DB_UNIT = "dB"
+SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum level [dB]"
+AMPLITUDE_LEVEL_AXIS_LABEL = "Amplitude level [dB]"
+
+
+def _db_scale_metadata(axis_label: str) -> dict[str, str]:
+    return {
+        "unit": DB_UNIT,
+        "axisLabel": axis_label,
+    }
+
+
+def _analysis_units_metadata() -> dict[str, object]:
+    return {
+        "amplitudeLevel": _db_scale_metadata(AMPLITUDE_LEVEL_AXIS_LABEL),
+        "spectrumLevel": _db_scale_metadata(SPECTRUM_LEVEL_AXIS_LABEL),
+        "spectrogramLevel": _db_scale_metadata(SPECTRUM_LEVEL_AXIS_LABEL),
+    }
 
 
 def _channels_first(data: np.ndarray, channel_count: int, sample_count: int) -> np.ndarray:
@@ -107,7 +125,7 @@ def _spectrum_peaks(
     result = []
     for idx in top_idx:
         amplitude_db = 20.0 * np.log10(float(mag[idx]) + eps)
-        result.append({"freqHz": float(fr[idx]), "amplitudeDb": round(amplitude_db, 2)})
+        result.append({"freqHz": float(fr[idx]), "amplitudeDb": float(round(amplitude_db, 2))})
     return result
 
 
@@ -180,6 +198,8 @@ def _build_spectrogram(
             "maxFrequencyHz": float(sample_rate_hz / 2),
             "minDb": 0.0,
             "maxDb": 0.0,
+            "unit": DB_UNIT,
+            "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
         }
 
     spectrogram = np.asarray(spectrogram_db, dtype=np.float64)
@@ -201,6 +221,8 @@ def _build_spectrogram(
         "maxFrequencyHz": float(sample_rate_hz / 2),
         "minDb": min_db,
         "maxDb": max_db,
+        "unit": DB_UNIT,
+        "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
     }
 
 
@@ -210,21 +232,27 @@ def analyze_range(
     end_norm: float,
     point_count: int = 2000,
 ) -> dict[str, object]:
-    """Return high-resolution waveform for a normalized time range using soundfile (fast path)."""
-    import soundfile as sf  # noqa: PLC0415
-
-    data, _sr = sf.read(str(file_path), always_2d=True)  # shape: (samples, channels)
-    n_total = len(data)
-    start_idx = max(0, int(start_norm * n_total))
-    end_idx = min(n_total, int(end_norm * n_total))
+    frame, _target = load_audio_frame(file_path)
+    channel_count = int(frame.n_channels)
+    sample_count = int(frame.n_samples)
+    data = _channels_first(frame.data, channel_count, sample_count)
+    start_idx = max(0, int(start_norm * sample_count))
+    end_idx = min(sample_count, int(end_norm * sample_count))
 
     if end_idx <= start_idx:
         return {"startNorm": start_norm, "endNorm": end_norm, "channels": []}
 
     channels: list[dict[str, object]] = []
-    for ch_idx in range(data.shape[1]):
-        ch_slice = data[start_idx:end_idx, ch_idx].astype(np.float64)
-        channels.append(_build_waveform_envelope(ch_slice, point_count))
+    for ch_idx in range(channel_count):
+        ch_slice = data[ch_idx, start_idx:end_idx]
+        channels.append(
+            _build_waveform_envelope(
+                ch_slice,
+                point_count,
+                start_sample=start_idx,
+                total_samples=sample_count,
+            )
+        )
 
     return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
 
@@ -256,13 +284,25 @@ def _resolve_stft_params(
     return n_fft, hop, window
 
 
+def _channel_unit(frame: wd.ChannelFrame, index: int) -> str | None:
+    channels = getattr(frame, "channels", [])
+    if index >= len(channels):
+        return None
+    unit = getattr(channels[index], "unit", None)
+    if unit is None:
+        return None
+    unit_text = str(unit).strip()
+    return unit_text or None
+
+
 def analyze_from_frame(
     frame: wd.ChannelFrame,
     file_path: str | Path,
     peak_count: int = 5,
     *,
     stft_options: dict | None = None,
-    include_spectrogram: bool = True,
+    spectrogram_frame: wd.SpectrogramFrame | None = None,
+    include_spectrogram: bool = False,
 ) -> dict[str, object]:
     """Build the AnalysisResult JSON payload from a ChannelFrame."""
     peak_count = max(0, int(peak_count))  # guard against negative/zero from user config
@@ -285,10 +325,9 @@ def analyze_from_frame(
     window_size, hop_size, window_name = _resolve_stft_params(sample_count, stft_options)
     stft_db: np.ndarray | None = None
     if include_spectrogram:
-        t_stft = time.perf_counter()
-        stft = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
-        stft_db = np.asarray(stft.dB, dtype=np.float64)
-        _perf("stft", t_stft, n_fft=window_size, hop=hop_size, shape="x".join(str(s) for s in stft_db.shape))
+        if spectrogram_frame is None:
+            raise ValueError("spectrogram_frame is required when include_spectrogram is true")
+        stft_db = np.asarray(spectrogram_frame.dB, dtype=np.float64)
 
     t_channels = time.perf_counter()
     channels: list[dict[str, object]] = []
@@ -301,6 +340,7 @@ def analyze_from_frame(
         channels.append(
             {
                 "label": labels[index] if index < len(labels) else f"Channel {index + 1}",
+                "unit": _channel_unit(frame, index),
                 "rms": float(rms_values[index]),
                 "peakAbsolute": float(np.max(np.abs(samples))),
                 "dominantFrequencies": _dominant_frequencies(fft_magnitudes[index], fft_freqs, peak_count),
@@ -324,6 +364,7 @@ def analyze_from_frame(
         "durationSeconds": float(frame.duration),
         "channelCount": channel_count,
         "sampleCount": sample_count,
+        "units": _analysis_units_metadata(),
         "channels": channels,
     }
 
@@ -335,7 +376,16 @@ def analyze_audio(
     stft_options: dict | None = None,
 ) -> dict[str, object]:
     frame, target = load_audio_frame(file_path)
-    return analyze_from_frame(frame, target, peak_count=peak_count, stft_options=stft_options)
+    window_size, hop_size, window_name = _resolve_stft_params(frame.n_samples, stft_options)
+    spectrogram = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
+    return analyze_from_frame(
+        frame,
+        target,
+        peak_count=peak_count,
+        stft_options=stft_options,
+        spectrogram_frame=spectrogram,
+        include_spectrogram=True,
+    )
 
 
 def load_audio_frame(file_path: str | Path) -> tuple[wd.ChannelFrame, Path]:
@@ -343,6 +393,6 @@ def load_audio_frame(file_path: str | Path) -> tuple[wd.ChannelFrame, Path]:
     if not target.exists():
         raise FileNotFoundError(f"Audio file not found: {target}")
     t0 = time.perf_counter()
-    frame = wd.ChannelFrame.from_file(str(target))
+    frame = wd.read(target)
     _perf("read_audio", t0)
     return frame, target

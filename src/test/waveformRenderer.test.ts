@@ -106,6 +106,12 @@ test('makeCoordTransform: 振幅 0 → y=H/2', () => {
     assert.equal(t.toY(0), 40);
 });
 
+test('makeCoordTransform: amplitude viewport maps selected min/max to canvas edges', () => {
+    const t = makeCoordTransform(0, 1, 0, 800, 80, 1.0, 1, { minNorm: -0.25, maxNorm: 0.5 });
+    assert.equal(t.toY(0.5), 0);
+    assert.equal(t.toY(-0.25), 80);
+});
+
 test('makeCoordTransform: offsetNorm が x にシフトする', () => {
     // offset=0.1: zoomStart=0.3 に対応する file time は 0.3-0.1=0.2
     const t = makeCoordTransform(0.3, 0.5, 0.1, 800, 80, 1.0);

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { buildUiSmokeHtml } from './buildHtml';
+import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
 
 async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
@@ -8,6 +8,26 @@ async function loadUi(page: Page) {
 
 async function openHelp(page: Page) {
     await page.keyboard.press('?');
+}
+
+type SelectionLayoutMeasurement = {
+    bodyWidth: number;
+    sidebarWidth: number;
+    resizerWidth: number;
+    paneWidth: number;
+};
+
+async function loadSelectionUi(page: Page, viewportWidth: number) {
+    await page.setViewportSize({ width: viewportWidth, height: 900 });
+    await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
+}
+
+function expectedPaneWidth(measurement: SelectionLayoutMeasurement): number {
+    return measurement.bodyWidth - measurement.sidebarWidth - measurement.resizerWidth;
+}
+
+function expectPaneFillsRemainingWidth(measurement: SelectionLayoutMeasurement) {
+    expect(Math.abs(measurement.paneWidth - expectedPaneWidth(measurement))).toBeLessThanOrEqual(2);
 }
 
 test('help overlay opens with ? and starts hidden', async ({ page }) => {
@@ -66,6 +86,31 @@ test('help overlay closes when the backdrop is clicked', async ({ page }) => {
 });
 
 
+
+test('results preview does not render the bottom metrics legend', async ({ page }) => {
+    await loadUi(page);
+
+    await expect(page.locator('#metrics-bar')).toHaveCount(0);
+    await expect(page.locator('.metrics-item')).toHaveCount(0);
+});
+
+test('spectrum canvases support keyboard readout without hover', async ({ page }) => {
+    await loadUi(page);
+
+    const overlay = page.locator('#spectrum-overlay-canvas');
+    const trackSpectrum = page.locator('.track-spectrum-canvas').first();
+    await expect(overlay).toHaveAttribute('tabindex', '0');
+    await expect(trackSpectrum).toHaveAttribute('tabindex', '0');
+
+    await overlay.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#spectrum-freq-readout')).toContainText(/\.wav.*Hz.*dB/);
+
+    await trackSpectrum.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#spectrum-freq-readout')).toContainText(/\.wav.*Hz.*dB/);
+});
+
 test('track canvas width follows layout changes without a window resize event', async ({ page }) => {
     await loadUi(page);
 
@@ -93,4 +138,36 @@ test('track canvas width follows layout changes without a window resize event', 
         const renderedWidth = Math.round(canvas.getBoundingClientRect().width);
         return Math.abs(canvas.width - expected) <= 1 && Math.abs(renderedWidth - expected) <= 1;
     })).toBe(true);
+});
+
+test('directory selection results pane flexes with viewport width', async ({ page }) => {
+    await loadSelectionUi(page, 1600);
+
+    const measure = async (): Promise<SelectionLayoutMeasurement> => page.evaluate(() => {
+        const body = document.getElementById('selection-body');
+        const sidebar = document.getElementById('selection-sidebar');
+        const resizer = document.getElementById('tree-resizer');
+        const pane = document.getElementById('selection-results-pane');
+        if (!body || !sidebar || !resizer || !pane) {
+            throw new Error('selection layout elements are missing');
+        }
+        return {
+            bodyWidth: body.getBoundingClientRect().width,
+            sidebarWidth: sidebar.getBoundingClientRect().width,
+            resizerWidth: resizer.getBoundingClientRect().width,
+            paneWidth: pane.getBoundingClientRect().width,
+        };
+    });
+
+    const initial = await measure();
+    expectPaneFillsRemainingWidth(initial);
+
+    await page.setViewportSize({ width: 1800, height: 900 });
+    await expect.poll(async () => {
+        const resized = await measure();
+        return resized.paneWidth - initial.paneWidth;
+    }).toBeGreaterThan(150);
+
+    const resized = await measure();
+    expectPaneFillsRemainingWidth(resized);
 });

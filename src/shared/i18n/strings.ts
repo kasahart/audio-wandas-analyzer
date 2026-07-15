@@ -62,6 +62,8 @@ export interface UiStrings {
     offsetEditPlaceholder: string;
     offsetEditAriaLabel: string;
     trackSpectrumTitle: string;
+    trackChannelSelectLabel: string;
+    ariaTrackChannelSelect: string;
     analysisFailed: string;
     cursorHelpKeys: string;
     tooltipLoopResize: string;
@@ -219,6 +221,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'Track offset in milliseconds',
         trackSpectrumTitle: 'Power spectrum at main cursor',
+        trackChannelSelectLabel: 'Channel',
+        ariaTrackChannelSelect: 'Displayed channel',
         analysisFailed: 'Analysis failed: ',
         cursorHelpKeys: '← →: move cursor   Shift+←→: 100 ms step   Space: play/pause',
         tooltipLoopResize: 'Drag to resize loop region',
@@ -373,6 +377,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'トラックオフセット（ミリ秒）',
         trackSpectrumTitle: 'メインカーソル時刻のパワースペクトル',
+        trackChannelSelectLabel: 'チャンネル',
+        ariaTrackChannelSelect: '表示チャンネル',
         analysisFailed: '解析失敗: ',
         cursorHelpKeys: '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止',
         tooltipLoopResize: 'ドラッグでループ区間をリサイズ',

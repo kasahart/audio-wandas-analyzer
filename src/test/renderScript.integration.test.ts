@@ -170,13 +170,78 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
     ],
 });
 
-function setupEnvWithState(stateJson: string) {
+const DUMMY_SELECTION_WITH_B_RESULT_STATE = JSON.stringify({
+    mode: 'directory-selection',
+    rootPath: '/tmp/session',
+    allFilePaths: ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'],
+    selectedFilePaths: ['/tmp/session/sub/b.flac'],
+    pythonEnvironmentState: {
+        pythonCommand: '.venv/bin/python',
+        status: 'normal',
+        tooltip: 'Click to select Python environment',
+    },
+    results: [
+        {
+            filePath: '/tmp/session/sub/b.flac',
+            fileName: 'b.flac',
+            audioSource: 'vscode-resource:/tmp/session/sub/b.flac',
+            sampleRateHz: 44100,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 44100,
+            error: undefined,
+            channels: [{
+                label: 'L',
+                rms: 0.2,
+                peakAbsolute: 0.7,
+                dominantFrequencies: [],
+                waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
+                spectrogram: {
+                    values: [[0]], timeBins: 1, frequencyBins: 1,
+                    windowSize: 512, hopSize: 256,
+                    maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+                },
+            }],
+        },
+    ],
+});
+
+const DIFFERENT_SELECTION_STATE = JSON.stringify({
+    mode: 'directory-selection',
+    results: [],
+    rootPath: '/tmp/other-session',
+    allFilePaths: ['/tmp/other-session/c.wav'],
+    selectedFilePaths: [],
+    pythonEnvironmentState: {
+        pythonCommand: 'python3',
+        status: 'normal',
+        tooltip: 'Click to select Python environment',
+    },
+});
+
+const DIFFERENT_SELECTION_WITH_SUB_STATE = JSON.stringify({
+    mode: 'directory-selection',
+    results: [],
+    rootPath: '/tmp/other-session',
+    allFilePaths: ['/tmp/other-session/sub/c.flac'],
+    selectedFilePaths: [],
+    pythonEnvironmentState: {
+        pythonCommand: 'python3',
+        status: 'normal',
+        tooltip: 'Click to select Python environment',
+    },
+});
+
+function setupEnvWithState(stateJson: string, initialVsCodeState: unknown = null) {
     const script = getRenderScript();
-    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(stateJson);
+    const { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts } = createWebviewEnv(
+        stateJson,
+        initialVsCodeState,
+    );
     // comparisonWaveform.js を先に eval して window.renderWaveformPipeline を登録する
     evalScript(dom, WAVEFORM_PIPELINE_JS);
     evalScript(dom, script);
-    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+    return { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts };
 }
 
 function setupEnv() {
@@ -196,19 +261,11 @@ function makeLazySpectrogramState(): string {
 }
 
 function setupSelectionEnv() {
-    const script = getRenderScript();
-    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_SELECTION_STATE);
-    evalScript(dom, WAVEFORM_PIPELINE_JS);
-    evalScript(dom, script);
-    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+    return setupEnvWithState(DUMMY_SELECTION_STATE);
 }
 
 function setupSelectionResultsEnv() {
-    const script = getRenderScript();
-    const { dom, postedMessages, offscreenInstances, domCanvasContexts } = createWebviewEnv(DUMMY_SELECTION_WITH_RESULTS_STATE);
-    evalScript(dom, WAVEFORM_PIPELINE_JS);
-    evalScript(dom, script);
-    return { dom, postedMessages, offscreenInstances, domCanvasContexts };
+    return setupEnvWithState(DUMMY_SELECTION_WITH_RESULTS_STATE);
 }
 
 function nextAnimationFrame(dom: ReturnType<typeof setupEnv>['dom']): Promise<void> {
@@ -254,10 +311,39 @@ test('2 トラック分の track-canvas が生成される', () => {
     assert.ok(c1, 'track-canvas-1 が存在すること');
 });
 
+test('renderScript: monaural tracks keep waveform and power spectrum in one body without a channel header', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+
+    const row = env.dom.window.document.getElementById('track-row-0');
+    assert.ok(row, 'track-row-0 が存在すること');
+    assert.equal(row!.querySelector('.track-channel-lane-header'), null);
+
+    const meta = row!.querySelector('.track-meta');
+    assert.match(meta?.textContent || '', /Total: 1 ch.*RMS -20\.0 dB.*Peak -6\.0 dB.*—/,
+        'mono track の概要値は下部凡例ではなく track meta に表示されること');
+
+    const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0') as HTMLElement | null;
+    const spectrumWrap = env.dom.window.document.getElementById('track-spectrum-wrap-0') as HTMLElement | null;
+    assert.ok(waveWrap, 'track-canvas-wrap-0 が存在すること');
+    assert.ok(spectrumWrap, 'track-spectrum-wrap-0 が存在すること');
+    assert.ok(waveWrap!.parentElement?.classList.contains('track-channel-lane-body'), 'waveform はレーン本文に入ること');
+    assert.equal(spectrumWrap!.parentElement, waveWrap!.parentElement, 'power spectrum は waveform と横並びの本文に入ること');
+    env.dom.window.close();
+});
+
 test('toolbar が生成される', () => {
     const { dom } = setupEnv();
     const toolbar = dom.window.document.getElementById('toolbar');
     assert.ok(toolbar, '#toolbar が存在すること');
+});
+
+test('renderScript: results pane does not render the bottom metrics legend', async () => {
+    const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+    assert.equal(env.dom.window.document.getElementById('metrics-bar'), null);
+    assert.equal(env.dom.window.document.querySelectorAll('.metrics-item').length, 0);
+    env.dom.window.close();
 });
 
 test('results toolbar does not duplicate file or Python entry points', () => {
@@ -410,6 +496,116 @@ test('フィルタ適用後も選択状態が維持される', () => {
     env.dom.window.close();
 });
 
+test('ファイルツリーフィルタはファイル選択後の Webview 再生成でも維持される', () => {
+    const env = setupSelectionEnv();
+    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
+
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
+
+    const checkbox = env.dom.window.document.querySelector(
+        '.selection-file-checkbox[data-file-path="/tmp/session/sub/b.flac"]',
+    ) as HTMLInputElement | null;
+    assert.ok(checkbox);
+    checkbox!.checked = true;
+    checkbox!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
+
+    const persistedState = env.vscodeStates.at(-1);
+    assert.ok(persistedState, 'ファイル選択前のフィルタ状態が vscode state に保存されること');
+    env.dom.window.close();
+
+    const rerendered = setupEnvWithState(DUMMY_SELECTION_WITH_RESULTS_STATE, persistedState);
+    const restoredInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.equal(restoredInput?.value, 'flac', 'Webview 再生成後もフィルタ文字列が復元されること');
+    const visibleRows = Array.from(rerendered.dom.window.document.querySelectorAll('.selection-file-row'))
+        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
+    assert.equal(visibleRows.length, 1, 'Webview 再生成後もフィルタ結果だけが表示されること');
+    assert.ok(visibleRows[0].textContent?.includes('b.flac'));
+    rerendered.dom.window.close();
+});
+
+test('ファイルツリーフィルタは別フォルダの Webview 再生成には持ち越されない', () => {
+    const env = setupSelectionEnv();
+    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
+
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
+    const persistedState = env.vscodeStates.at(-1);
+    assert.ok(persistedState);
+    env.dom.window.close();
+
+    const rerendered = setupEnvWithState(DIFFERENT_SELECTION_STATE, persistedState);
+    const restoredInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.equal(restoredInput?.value, '', '別 rootPath では古いフィルタを復元しないこと');
+    const visibleRows = Array.from(rerendered.dom.window.document.querySelectorAll('.selection-file-row'))
+        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
+    assert.equal(visibleRows.length, 1, '別フォルダの初期表示は古いフィルタで空にならないこと');
+    assert.ok(visibleRows[0].textContent?.includes('c.wav'));
+    rerendered.dom.window.close();
+});
+
+test('ファイルツリーの折りたたみ状態は別フォルダのフィルタ結果に持ち越されない', () => {
+    const env = setupSelectionEnv();
+    const directory = env.dom.window.document.querySelector(
+        '.selection-tree-directory[data-relative-path="sub"]',
+    ) as HTMLElement | null;
+    assert.ok(directory);
+    directory!.click();
+    assert.equal(directory!.getAttribute('aria-expanded'), 'false', '事前条件: sub ディレクトリが閉じていること');
+    const persistedState = env.vscodeStates.at(-1);
+    assert.ok(persistedState);
+    env.dom.window.close();
+
+    const rerendered = setupEnvWithState(DIFFERENT_SELECTION_WITH_SUB_STATE, persistedState);
+    const filterInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+    const flush = (rerendered.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
+
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new rerendered.dom.window.Event('input', { bubbles: true }));
+    flush();
+
+    const rerenderedDirectory = rerendered.dom.window.document.querySelector(
+        '.selection-tree-directory[data-relative-path="sub"]',
+    ) as HTMLElement | null;
+    assert.ok(rerenderedDirectory);
+    const childList = rerenderedDirectory!.nextElementSibling as HTMLElement | null;
+    assert.equal(rerenderedDirectory!.getAttribute('aria-expanded'), 'true');
+    assert.notEqual(childList?.style.display, 'none', '別 rootPath の古い折りたたみ状態で一致ファイルを隠さないこと');
+    rerendered.dom.window.close();
+});
+
+test('ファイルツリーフィルタ更新は閉じたディレクトリを展開しない', () => {
+    const env = setupSelectionEnv();
+    const directory = env.dom.window.document.querySelector(
+        '.selection-tree-directory[data-relative-path="sub"]',
+    ) as HTMLElement | null;
+    assert.ok(directory);
+    directory!.click();
+    assert.equal(directory!.getAttribute('aria-expanded'), 'false', '事前条件: sub ディレクトリが閉じていること');
+
+    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
+    assert.ok(filterInput);
+    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
+
+    filterInput!.value = 'flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
+    assert.equal(directory!.getAttribute('aria-expanded'), 'false', 'フィルタ適用で閉じたディレクトリを開かないこと');
+
+    filterInput!.value = 'b.flac';
+    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
+    flush();
+    assert.equal(directory!.getAttribute('aria-expanded'), 'false', 'フィルタ更新でも閉じたディレクトリを開かないこと');
+    env.dom.window.close();
+});
+
 test('directory selection mode renders a Python environment button only in the selection toolbar', () => {
     const { dom } = setupSelectionEnv();
     const selectionButton = dom.window.document.getElementById('selection-python-environment');
@@ -488,6 +684,25 @@ test('directory selection mode posts analyze-selected-files immediately when a c
     assert.deepEqual(message?.filePaths, ['/tmp/session/a.wav']);
 });
 
+test('directory selection mode posts checked files in user selection order', () => {
+    const { dom, postedMessages } = setupSelectionEnv();
+    const checkboxB = dom.window.document.querySelector('[data-file-path="/tmp/session/sub/b.flac"]');
+    const checkboxA = dom.window.document.querySelector('[data-file-path="/tmp/session/a.wav"]');
+
+    assert.ok(checkboxB instanceof dom.window.HTMLInputElement);
+    assert.ok(checkboxA instanceof dom.window.HTMLInputElement);
+
+    checkboxB.checked = true;
+    checkboxB.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    checkboxA.checked = true;
+    checkboxA.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+    const message = postedMessages.at(-1) as { type?: string; filePaths?: string[] } | undefined;
+
+    assert.equal(message?.type, 'analyze-selected-files');
+    assert.deepEqual(message?.filePaths, ['/tmp/session/sub/b.flac', '/tmp/session/a.wav']);
+});
+
 test('directory selection mode keeps the tree visible while rendering selected tracks', () => {
     const { dom } = setupSelectionResultsEnv();
     const checkboxes = dom.window.document.querySelectorAll('.selection-file-checkbox');
@@ -497,6 +712,75 @@ test('directory selection mode keeps the tree visible while rendering selected t
     assert.equal(checkboxes.length, 2);
     assert.ok(trackCanvas, 'selected track canvas should remain visible next to the tree');
     assert.ok(toolbar, 'comparison toolbar should be visible in selection mode');
+});
+
+test('directory selection mode keeps existing track color stable when a new earlier tree item appears', () => {
+    const { dom } = setupEnvWithState(DUMMY_SELECTION_WITH_B_RESULT_STATE);
+    const initialSwatch = dom.window.document.querySelector(
+        '[data-action="pick-color"][data-track-index="0"]',
+    ) as HTMLElement | null;
+
+    assert.ok(initialSwatch);
+    const initialBColor = initialSwatch.style.background;
+
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
+        data: {
+            type: 'analysis-update',
+            results: [
+                {
+                    filePath: '/tmp/session/a.wav',
+                    fileName: 'a.wav',
+                    audioSource: 'vscode-resource:/tmp/session/a.wav',
+                    sampleRateHz: 44100,
+                    durationSeconds: 1.0,
+                    channelCount: 1,
+                    sampleCount: 44100,
+                    error: undefined,
+                    channels: [{
+                        label: 'L',
+                        rms: 0.1,
+                        peakAbsolute: 0.5,
+                        dominantFrequencies: [],
+                        waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
+                        spectrogram: {
+                            values: [[0]], timeBins: 1, frequencyBins: 1,
+                            windowSize: 512, hopSize: 256,
+                            maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+                        },
+                    }],
+                },
+                {
+                    filePath: '/tmp/session/sub/b.flac',
+                    fileName: 'b.flac',
+                    audioSource: 'vscode-resource:/tmp/session/sub/b.flac',
+                    sampleRateHz: 44100,
+                    durationSeconds: 1.0,
+                    channelCount: 1,
+                    sampleCount: 44100,
+                    error: undefined,
+                    channels: [{
+                        label: 'L',
+                        rms: 0.2,
+                        peakAbsolute: 0.7,
+                        dominantFrequencies: [],
+                        waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
+                        spectrogram: {
+                            values: [[0]], timeBins: 1, frequencyBins: 1,
+                            windowSize: 512, hopSize: 256,
+                            maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+                        },
+                    }],
+                },
+            ],
+        },
+    }));
+
+    const rows = Array.from(dom.window.document.querySelectorAll('.track-row'));
+    const bRow = rows.find((row) => row.textContent?.includes('b.flac'));
+    const bSwatch = bRow?.querySelector('[data-action="pick-color"]') as HTMLElement | null;
+
+    assert.ok(bSwatch);
+    assert.equal(bSwatch.style.background, initialBColor);
 });
 
 test('directory selection mode posts an empty selection when a checked file is unchecked', () => {
@@ -605,6 +889,30 @@ test('renderScript: spectrogram mode requests track detail when spectrogram is n
     assert.equal(typeof detailRequests[0].settingsSignature, 'string');
 });
 
+test('renderScript: spectrogram content mode survives Webview regeneration', async () => {
+    const env = setupEnv();
+    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(button);
+    button.click();
+    await nextAnimationFrame(env.dom);
+
+    const persistedState = env.vscodeStates.at(-1);
+    assert.ok(persistedState, 'spectrogram mode should be persisted before the host regenerates HTML');
+    env.dom.window.close();
+
+    const rerendered = setupEnvWithState(DUMMY_APP_STATE, persistedState);
+    await nextAnimationFrame(rerendered.dom);
+    const snap = rerendered.postedMessages
+        .filter((msg: any) => msg.type === 'comparison-panel-test-snapshot')
+        .at(-1) as any;
+    assert.equal(snap.renderedUi.contentType, 'spectrogram');
+    assert.ok(
+        rerendered.dom.window.document.querySelector('[data-action="content-spectrogram"]')?.classList.contains('is-active'),
+        'spectrogram toolbar button should be restored as active',
+    );
+    rerendered.dom.window.close();
+});
+
 test('renderScript: track-detail-result merges spectrogram and stale detail is ignored', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
@@ -651,6 +959,23 @@ test('renderScript: removing a detailed track releases its spectrogram detail', 
     const release = env.postedMessages.find((msg: any) => msg.type === 'release-track-detail' && msg.trackIndex === 0) as any;
     assert.ok(release, 'release-track-detail should be posted');
     assert.equal(release.filePath, '/tmp/a.wav');
+});
+
+test('renderScript: leaving spectrogram mode releases pending track detail', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    await nextAnimationFrame(env.dom);
+    const spectrogramButton = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement;
+    spectrogramButton.click();
+    await nextAnimationFrame(env.dom);
+    assert.ok(env.postedMessages.some((msg: any) => msg.type === 'request-track-detail'));
+
+    const waveformButton = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement;
+    waveformButton.click();
+
+    const release = env.postedMessages.find((msg: any) => msg.type === 'release-track-detail' && msg.trackIndex === 0) as any;
+    assert.ok(release, 'pending track detail should be released');
+    assert.equal(release.filePath, '/tmp/a.wav');
+    env.dom.window.close();
 });
 
 
@@ -707,6 +1032,17 @@ test('renderScript: missing spectrogram requests a spectrum slice at cursor', as
     assert.equal(typeof sliceRequests[0].cursorNorm, 'number');
 });
 
+test('renderScript: multichannel lazy spectrum requests all channel indices', async () => {
+    const state = JSON.parse(MULTICHANNEL_APP_STATE);
+    state.results[0].channels.forEach((channel: any) => { channel.spectrogram = null; });
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    const sliceRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
+    assert.deepEqual(sliceRequests.map((req) => req.channelIndex).sort(), [0, 1]);
+    env.dom.window.close();
+});
+
 test('renderScript: lazy spectrum slices apply display range settings', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     await nextAnimationFrame(env.dom);
@@ -719,12 +1055,15 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
         analysisId: req.analysisId,
         settingsSignature: req.settingsSignature,
         trackIndex: 0,
+        channelIndex: 0,
         filePath: '/tmp/a.wav',
         values: [-120, -20, 10],
         frequencyBins: 3,
         maxFrequencyHz: 22050,
         minDb: -120,
         maxDb: 10,
+        unit: 'dB',
+        axisLabel: 'Spectrum level [dB]',
     } }));
     await nextAnimationFrame(env.dom);
 
@@ -750,8 +1089,8 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
     }
     assert.ok(snap, 'a spectrum snapshot with overlay labels should be published');
     const overlay = snap.renderedUi.axisLabels.spectrumOverlay as string[];
-    assert.ok(overlay.includes('0 dB'), `overlay should use configured max dB: ${JSON.stringify(overlay)}`);
-    assert.ok(overlay.includes('-60 dB'), `overlay should use configured min dB: ${JSON.stringify(overlay)}`);
+    assert.ok(overlay.includes('0 dB'), `overlay should use configured max dB with wandas slice unit: ${JSON.stringify(overlay)}`);
+    assert.ok(overlay.includes('-60 dB'), `overlay should use configured min dB with wandas slice unit: ${JSON.stringify(overlay)}`);
     assert.ok(overlay.some((label) => label === '1.0 kHz'), `overlay should use configured max frequency: ${JSON.stringify(overlay)}`);
 });
 
@@ -767,6 +1106,7 @@ test('renderScript: lazy spectrum cache is scoped to the current cursor', async 
         analysisId: initialReq.analysisId,
         settingsSignature: initialReq.settingsSignature,
         trackIndex: 0,
+        channelIndex: 0,
         filePath: '/tmp/a.wav',
         values: [-120, -20, 10],
         frequencyBins: 3,
@@ -807,6 +1147,7 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
         analysisId: initialReq.analysisId,
         settingsSignature: initialReq.settingsSignature,
         trackIndex: 0,
+        channelIndex: 0,
         filePath: '/tmp/a.wav',
         values: [-120, -20, 10],
         frequencyBins: 3,
@@ -842,6 +1183,7 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
         analysisId: latestReq.analysisId,
         settingsSignature: latestReq.settingsSignature,
         trackIndex: 0,
+        channelIndex: 0,
         filePath: '/tmp/a.wav',
         error: 'slice failed',
     } }));
@@ -891,6 +1233,35 @@ test('再生ボタンで play 状態に切り替わる', async () => {
     stopButton.click();
     await Promise.resolve();
     dom.window.close();
+});
+
+test('renderScript: results pane rebuild preserves playback button state', async () => {
+    const env = setupMultichannelEnv();
+    await nextAnimationFrame(env.dom);
+    const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
+    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
+    assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
+
+    (audio as HTMLAudioElement & { duration: number }).duration = 1;
+    playButton!.click();
+    await Promise.resolve();
+    assert.equal(playButton!.textContent, '⏸');
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'analysis-update',
+        results: JSON.parse(MULTICHANNEL_APP_STATE).results,
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const rebuiltPlayButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    const rebuiltStopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    assert.equal(rebuiltPlayButton?.textContent, '⏸');
+    assert.equal(rebuiltStopButton?.disabled, false);
+
+    rebuiltStopButton?.click();
+    await Promise.resolve();
+    env.dom.window.close();
 });
 
 test('renderScript: cursorNorm initializes as number (not null)', () => {
@@ -952,6 +1323,50 @@ const SPECTRUM_APP_STATE = JSON.stringify({
             },
         }],
     })),
+});
+
+const REAL_SCALE_AXIS_APP_STATE = JSON.stringify({
+    mode: 'results',
+    results: [
+        {
+            filePath: '/tmp/int16.wav',
+            fileName: 'int16.wav',
+            audioSource: 'vscode-resource:/tmp/int16.wav',
+            sampleRateHz: 44100,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 44100,
+            error: undefined,
+            channels: [{
+                label: 'L',
+                rms: 1024,
+                peakAbsolute: 16383,
+                dominantFrequencies: [],
+                unit: null,
+                waveform: { min: [-16383], max: [16383], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 16383 },
+                spectrogram: null,
+            }],
+        },
+        {
+            filePath: '/tmp/pa.wav',
+            fileName: 'pa.wav',
+            audioSource: 'vscode-resource:/tmp/pa.wav',
+            sampleRateHz: 44100,
+            durationSeconds: 1.0,
+            channelCount: 1,
+            sampleCount: 44100,
+            error: undefined,
+            channels: [{
+                label: 'L',
+                rms: 0.1,
+                peakAbsolute: 0.5,
+                dominantFrequencies: [],
+                unit: 'Pa',
+                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
+                spectrogram: null,
+            }],
+        },
+    ],
 });
 
 
@@ -1086,7 +1501,7 @@ function setupSpectrumEnvWithClock(clock: { now: number }) {
     return env;
 }
 
-test('renderScript: each track row contains a per-track spectrum canvas', async () => {
+test('renderScript: each track row contains a keyboard-focusable per-track spectrum canvas', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const c0 = env.dom.window.document.getElementById('track-spectrum-0');
@@ -1095,6 +1510,9 @@ test('renderScript: each track row contains a per-track spectrum canvas', async 
     assert.ok(c0, 'track-spectrum-0 が存在すること');
     assert.ok(c1, 'track-spectrum-1 が存在すること');
     assert.ok(overlay, '#spectrum-overlay-canvas が存在すること');
+    assert.equal(c0!.getAttribute('tabindex'), '0');
+    assert.equal(c1!.getAttribute('tabindex'), '0');
+    assert.equal(overlay!.getAttribute('tabindex'), '0');
     env.dom.window.close();
 });
 
@@ -1136,17 +1554,36 @@ test('renderScript: mouseup click commits cursor and re-draws spectrum', async (
     env.dom.window.close();
 });
 
-test('axes: 振幅軸ラベル (+1.0 / 0 / -1.0 と Amp 単位) が track-axis-canvas に描かれる', async () => {
-    const env = setupSpectrumEnv();
+test('axes: 振幅軸ラベルが absolutePeak と unit から track-axis-canvas に描かれる', async () => {
+    const env = setupEnvWithState(REAL_SCALE_AXIS_APP_STATE);
     await nextAnimationFrame(env.dom);
-    const spy = env.domCanvasContexts.get('track-axis-canvas-0');
-    assert.ok(spy, 'track-axis-canvas-0 のスパイが取得できること');
-    const labels = spy!.fillTextCalls;
-    assert.ok(labels.includes('+1.0'), '+1.0 ラベルが描かれること: ' + JSON.stringify(labels));
-    assert.ok(labels.includes('-1.0'), '-1.0 ラベルが描かれること');
-    assert.ok(labels.includes('0'), '0 ラベルが描かれること');
-    assert.ok(labels.some((s) => s.includes('Amp')), '振幅軸タイトル (Amp) が描かれること');
-    assert.ok(spy!.fillRectCalls > 0, 'ラベル用の半透明バックプレートが描かれること');
+
+    const int16Spy = env.domCanvasContexts.get('track-axis-canvas-0');
+    assert.ok(int16Spy, 'track-axis-canvas-0 のスパイが取得できること');
+    assert.ok(int16Spy!.fillTextCalls.includes('+16383'), '+16383 ラベルが描かれること');
+    assert.ok(int16Spy!.fillTextCalls.includes('-16383'), '-16383 ラベルが描かれること');
+    assert.ok(int16Spy!.fillTextCalls.includes('0'), '0 ラベルが描かれること');
+    assert.ok(int16Spy!.fillTextCalls.includes('Amp'), '単位なし Amp タイトルが描かれること');
+    assert.ok(int16Spy!.fillRectCalls > 0, 'ラベル用の半透明バックプレートが描かれること');
+
+    const paSpy = env.domCanvasContexts.get('track-axis-canvas-1');
+    assert.ok(paSpy, 'track-axis-canvas-1 のスパイが取得できること');
+    assert.ok(paSpy!.fillTextCalls.includes('+0.50'), '+0.50 ラベルが描かれること');
+    assert.ok(paSpy!.fillTextCalls.includes('-0.50'), '-0.50 ラベルが描かれること');
+    assert.ok(paSpy!.fillTextCalls.includes('Amp (Pa)'), 'Amp (Pa) タイトルが描かれること');
+    env.dom.window.close();
+});
+
+test('snapshot: waveformPerTrack が absolutePeak と unit から生成される', async () => {
+    const env = setupEnvWithState(REAL_SCALE_AXIS_APP_STATE);
+    await nextAnimationFrame(env.dom);
+    const snap = env.postedMessages
+        .filter((msg: any) => msg.type === 'comparison-panel-test-snapshot')
+        .at(-1) as any;
+
+    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[0]), ['+16383', '0', '-16383', 'Amp']);
+    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[1]), ['+0.50', '0', '-0.50', 'Amp (Pa)']);
+    assert.equal((env.dom.window.document.getElementById('track-axis-canvas-0') as HTMLCanvasElement).width, 64);
     env.dom.window.close();
 });
 
@@ -1196,6 +1633,156 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
     env.dom.window.close();
 });
 
+test('axes: スペクトログラム画像はカラーバー領域に重ならない', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+    await new Promise((resolve) => env.dom.window.setTimeout(resolve, 0));
+
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas);
+    const spy = env.domCanvasContexts.get('track-canvas-0');
+    assert.ok(spy);
+    const spectrogramImage = spy!.putImageDataArgs[0];
+    assert.ok(spectrogramImage, 'スペクトログラム画像の putImageData が記録されること');
+    assert.equal(spectrogramImage.x, 0);
+    assert.ok(
+        spectrogramImage.width <= canvas!.width - 50,
+        `スペクトログラム画像幅 ${spectrogramImage.width} が canvas 幅 ${canvas!.width} のカラーバー領域まで伸びないこと`,
+    );
+    env.dom.window.close();
+});
+
+test('spectrogram hit testing maps pointer positions to the plot width and ignores the colorbar', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas);
+    canvas!.width = 800;
+    canvas!.height = 100;
+    canvas!.getBoundingClientRect = () => ({
+        left: 0, top: 0, right: 800, bottom: 100, width: 800, height: 100,
+    } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-plot' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'x=375 on an 800px canvas with a 50px colorbar maps to 50% plot time');
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-colorbar' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'clicks in the spectrogram colorbar do not update audio time');
+    env.dom.window.close();
+});
+
+test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+
+    const wrapper = env.dom.window.document.getElementById('tracks-wrapper') as HTMLElement | null;
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(wrapper);
+    assert.ok(canvas);
+    wrapper!.getBoundingClientRect = () => ({
+        left: 0, top: 0, right: 930, bottom: 100, width: 930, height: 100,
+    } as DOMRect);
+    canvas!.width = 800;
+    canvas!.height = 100;
+    canvas!.getBoundingClientRect = () => ({
+        left: 130, top: 0, right: 930, bottom: 100, width: 800, height: 100,
+    } as DOMRect);
+
+    const plotWheel = new env.dom.window.WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -120,
+        clientX: 505,
+        clientY: 50,
+    });
+    const plotWheelNotCanceled = canvas!.dispatchEvent(plotWheel);
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-wheel-plot' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(plotWheelNotCanceled, false, 'Ctrl+wheel は標準スクロールへ渡さないこと');
+    assert.equal(plotWheel.defaultPrevented, true);
+    assert.ok(Math.abs(snap.renderedUi.zoomStart - 0.075) < 1e-9, 'x=375 on the 750px spectrogram plot uses a 50% zoom pivot');
+    assert.ok(Math.abs(snap.renderedUi.zoomEnd - 0.925) < 1e-9, 'x=375 on the 750px spectrogram plot keeps the pivot centered');
+
+    const beforeColorbar = snap.renderedUi;
+    const colorbarWheel = new env.dom.window.WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -120,
+        clientX: 905,
+        clientY: 50,
+    });
+    canvas!.dispatchEvent(colorbarWheel);
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-wheel-colorbar' },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.equal(colorbarWheel.defaultPrevented, true);
+    assert.equal(snap.renderedUi.zoomStart, beforeColorbar.zoomStart, 'Ctrl+wheel in the colorbar does not change audio zoom');
+    assert.equal(snap.renderedUi.zoomEnd, beforeColorbar.zoomEnd, 'Ctrl+wheel in the colorbar does not change audio zoom');
+    env.dom.window.close();
+});
+
+test('spectrogram ruler maps time ticks to the plot width', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const row = env.dom.window.document.getElementById('ruler-row') as HTMLElement | null;
+    assert.ok(row);
+    Object.defineProperty(row, 'clientWidth', { configurable: true, value: 994 });
+    const ruler = env.dom.window.document.getElementById('ruler-canvas') as HTMLCanvasElement | null;
+    assert.ok(ruler);
+
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn!.click();
+    await nextAnimationFrame(env.dom);
+
+    const rulerSpy = env.domCanvasContexts.get('ruler-canvas');
+    assert.ok(rulerSpy);
+    const halfSecondTick = rulerSpy!.fillTextArgs.filter((call) => call.text === '0:00.50').at(-1);
+    assert.ok(halfSecondTick, '0.5 秒 tick が描画されること');
+    assert.equal(halfSecondTick!.x, 377, 'spectrogram ruler の中央 tick は 750px plot の中央 + label offset に描画されること');
+    env.dom.window.close();
+});
+
 test('axes: スペクトル (per-track / overlay) に Hz と dB のラベルが描かれる', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
@@ -1234,8 +1821,8 @@ test('spectrum cursor: per-track readout formats focused frequency in Hz', async
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^1200 Hz\s+-60\.0 dB$/,
-        'カーソル読み値は kHz 省略ではなく Hz 固定で表示すること');
+    assert.match(readout!.textContent || '', /^high\.wav\s+1200 Hz\s+-60\.0 dB$/,
+        'カーソル読み値はトラック名、Hz固定の周波数、dBをヘッダーに表示すること');
     assert.doesNotMatch(readout!.textContent || '', /kHz/);
     env.dom.window.close();
 });
@@ -1256,9 +1843,47 @@ test('spectrum cursor: overlay readout formats focused frequency in Hz', async (
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^1200 Hz\s+-60\.0 dB$/,
-        'overlay のカーソル読み値も kHz 省略ではなく Hz 固定で表示すること');
+    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1200 Hz \/ -60\.0 dB$/,
+        'overlay のカーソル読み値も file/channel 付きで Hz 固定表示すること');
     assert.doesNotMatch(readout!.textContent || '', /kHz/);
+    env.dom.window.close();
+});
+
+
+test('spectrum cursor: overlay readout identifies the hovered file and channel', async () => {
+    const env = setupMultichannelEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
+    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 192, clientY: 12 }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.ok(readout, 'spectrum-freq-readout が存在すること');
+    assert.equal(readout!.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22050 Hz / -3.0 dB',
+        'overlay hover readout は最寄り系列の fileName と channelLabel を含むこと');
+    env.dom.window.close();
+});
+
+
+test('spectrum cursor: overlay keyboard focus updates the header readout', async () => {
+    const env = setupHighFrequencyReadoutEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
+    canvas!.focus();
+    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1200 Hz \/ -60\.0 dB$/,
+        'overlay もマウス hover なしの focus と矢印キーでヘッダー readout が更新されること');
     env.dom.window.close();
 });
 
@@ -1278,11 +1903,62 @@ test('spectrum cursor: per-track readout snaps to the hovered track frequency bi
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^200 Hz\s+-60\.0 dB$/,
+    assert.match(readout!.textContent || '', /^coarse\.wav\s+200 Hz\s+-60\.0 dB$/,
         'coarse track ΔF=200 Hz の最寄りbinへ吸着すること');
     env.dom.window.close();
 });
 
+
+
+test('spectrum cursor: per-track keyboard focus updates the header readout', async () => {
+    const env = setupMismatchedDeltaFSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'track-spectrum-0 が存在すること');
+    canvas!.focus();
+    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.match(readout!.textContent || '', /^coarse\.wav\s+200 Hz\s+-60\.0 dB$/,
+        'マウス hover なしでも focus と矢印キーでヘッダー readout が更新されること');
+    env.dom.window.close();
+});
+
+
+test('spectrum cursor: per-track keyboard stepping uses the hovered channel bins', async () => {
+    const state = JSON.parse(MULTICHANNEL_APP_STATE);
+    state.results[0].channels[0].spectrogram = {
+        values: [[-12, -48, -72]], timeBins: 1, frequencyBins: 3,
+        windowSize: 512, hopSize: 256,
+        maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+    };
+    state.results[0].channels[1].spectrogram = {
+        values: [[-80, -60, -40, -20, -10]], timeBins: 1, frequencyBins: 5,
+        windowSize: 512, hopSize: 256,
+        maxFrequencyHz: 4000, minDb: -90, maxDb: 0,
+    };
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    const trackCanvas = env.dom.window.document.getElementById('track-spectrum-0-1') as HTMLCanvasElement | null;
+    assert.ok(trackCanvas, 'track-spectrum-0-1 が存在すること');
+    Object.defineProperty(trackCanvas, 'width', { configurable: true, value: 200 });
+    Object.defineProperty(trackCanvas, 'height', { configurable: true, value: 140 });
+    trackCanvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+
+    trackCanvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 113, clientY: 30 }));
+    await nextAnimationFrame(env.dom);
+    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
+    await nextAnimationFrame(env.dom);
+
+    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
+    assert.ok(readout, 'spectrum-freq-readout が存在すること');
+    assert.match(readout!.textContent || '', /^stereo\.wav Channel 2 \/ 2 \(Right\)\s+3000 Hz\s+-20\.0 dB$/,
+        'ch1 の ΔF=1000 Hz の次binへ移動すること');
+    env.dom.window.close();
+});
 
 test('spectrum cursor: narrow canvas hover clears stale spectrum target', async () => {
     const env = setupMismatchedDeltaFSpectrumEnv();
@@ -1298,7 +1974,7 @@ test('spectrum cursor: narrow canvas hover clears stale spectrum target', async 
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.match(readout!.textContent || '', /^200 Hz\s+-60\.0 dB$/,
+    assert.match(readout!.textContent || '', /^coarse\.wav\s+200 Hz\s+-60\.0 dB$/,
         '事前条件としてper-track hoverのreadoutが表示されること');
 
     const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
@@ -1330,7 +2006,7 @@ test('spectrum cursor: overlay snaps to the nearest visible series bin when delt
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^180 Hz\s+-35\.0 dB$/,
+    assert.match(readout!.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ -35\.0 dB$/,
         'fine track ΔF=180 Hz の最寄りbinへ吸着すること');
     env.dom.window.close();
 });
@@ -1359,7 +2035,7 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^180 Hz\s+-35\.0 dB$/,
+    assert.match(readout!.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ -35\.0 dB$/,
         '周波数ズーム後もfine trackの実binへ吸着すること');
     env.dom.window.close();
 });
@@ -1589,17 +2265,26 @@ test('renderScript: export-csv creates a download anchor with data URI', async (
     }
 });
 
-test('renderScript: multichannel track UI labels the displayed channel', async () => {
+test('renderScript: multichannel track UI renders all channel sublanes without a selector', async () => {
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
 
-    const rowText = env.dom.window.document.querySelector('#track-row-0')?.textContent || '';
-    assert.match(rowText, /Displayed: Channel 1 \/ 2 \(Left\)/);
-    assert.match(rowText, /RMS \(Channel 1 \/ 2 \(Left\)\): -20\.0 dBFS/);
-    assert.doesNotMatch(rowText, /Right/);
+    assert.equal(env.dom.window.document.querySelector('[data-action="select-channel"]'), null);
+    assert.equal(env.dom.window.document.querySelectorAll('#track-row-0 .track-channel-lane').length, 2);
 
-    const metricsText = env.dom.window.document.querySelector('#metrics-item-0')?.textContent || '';
-    assert.match(metricsText, /stereo\.wav \[Channel 1 \/ 2 \(Left\)\]: RMS -20\.0 dBFS \/ Peak -6\.0 dBFS \/ 440 Hz/);
+    const metaText = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-meta'))
+        .map((el) => el.textContent || '')
+        .join(' ');
+    assert.match(metaText, /Total: 2 ch/);
+    assert.doesNotMatch(metaText, /Displayed:/);
+
+    const laneTexts = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-channel-lane-header'))
+        .map((el) => el.textContent || '');
+    assert.ok(laneTexts.some((text) => /Channel 1 \/ 2 \(Left\).*RMS -20\.0 dB.*Peak -6\.0 dB.*440 Hz/.test(text)), laneTexts.join('\n'));
+    assert.ok(laneTexts.some((text) => /Channel 2 \/ 2 \(Right\).*RMS -1\.9 dB.*Peak -0\.4 dB.*880 Hz/.test(text)), laneTexts.join('\n'));
+
+    assert.equal(env.dom.window.document.getElementById('metrics-bar'), null);
+    assert.equal(env.dom.window.document.querySelector('#metrics-item-0'), null);
     env.dom.window.close();
 });
 
@@ -1609,7 +2294,7 @@ function decodeDataUriPayload(uri: string): string {
     return decodeURIComponent(uri.slice(comma + 1));
 }
 
-test('renderScript: multichannel CSV names the displayed spectrum channel', async () => {
+test('renderScript: multichannel CSV includes all spectrum channels', async () => {
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
 
@@ -1629,8 +2314,7 @@ test('renderScript: multichannel CSV names the displayed spectrum channel', asyn
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const csv = decodeDataUriPayload(anchor!.href);
-        assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) frequency (Hz),stereo.wav Channel 1 / 2 (Left) level (dB)');
-        assert.doesNotMatch(csv, /Right/);
+        assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) frequency (Hz),stereo.wav Channel 1 / 2 (Left) Spectrum level [dB],stereo.wav Channel 2 / 2 (Right) frequency (Hz),stereo.wav Channel 2 / 2 (Right) Spectrum level [dB]');
     } finally {
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();
@@ -1657,7 +2341,7 @@ test('renderScript: export-csv preserves each track frequency axis', async () =>
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const rows = decodeDataUriPayload(anchor!.href).split('\n');
-        assert.equal(rows[0], 'coarse.wav Channel 1 (L) frequency (Hz),coarse.wav Channel 1 (L) level (dB),fine.wav Channel 1 (L) frequency (Hz),fine.wav Channel 1 (L) level (dB)');
+        assert.equal(rows[0], 'coarse.wav Channel 1 (L) frequency (Hz),coarse.wav Channel 1 (L) Spectrum level [dB],fine.wav Channel 1 (L) frequency (Hz),fine.wav Channel 1 (L) Spectrum level [dB]');
         assert.equal(rows[1], '0.0000,-80.000000,0.0000,-20.000000');
         assert.equal(rows[4], '600.0000,-20.000000,540.0000,-65.000000');
         assert.equal(rows[5], ',,720.0000,-80.000000');
@@ -1703,7 +2387,7 @@ test('renderScript: export-csv keeps original frequency axis after display max f
     }
 });
 
-test('renderScript: multichannel report names the displayed RMS peak and spectrum channel', async () => {
+test('renderScript: multichannel report lists all RMS peak and spectrum channels', async () => {
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
 
@@ -1713,16 +2397,17 @@ test('renderScript: multichannel report names the displayed RMS peak and spectru
 
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message が送信されること');
-    assert.match(msg.markdownContent, /\| File \| Sample Rate \| Duration \| Channels \| Displayed Channel \| RMS \| Peak \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| 44100 Hz \| 1\.000s \| 2 \| Channel 1 \/ 2 \(Left\) \| -20\.0 dBFS \| -6\.0 dBFS \|/);
+    assert.match(msg.markdownContent, /\| File \| Channel \| Sample Rate \| Duration \| Channels \| RMS \| Peak \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| -20\.0 dB \| -6\.0 dB \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| -1\.9 dB \| -0\.4 dB \|/);
     assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 1 \/ 2 \(Left\)\)/);
     assert.match(msg.markdownContent, /\| 440\.0 \| -12\.0 \|/);
-    assert.doesNotMatch(msg.markdownContent, /Right/);
-    assert.doesNotMatch(msg.markdownContent, /880\.0/);
+    assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 2 \/ 2 \(Right\)\)/);
+    assert.match(msg.markdownContent, /\| 880\.0 \| -3\.0 \|/);
     env.dom.window.close();
 });
 
-test('renderScript: multichannel report sanitizes displayed channel markdown', async () => {
+test('renderScript: multichannel report sanitizes channel markdown', async () => {
     const state = JSON.parse(MULTICHANNEL_APP_STATE);
     state.results[0].channels[0].label = 'Left | unsafe\n## injected';
     const env = setupEnvWithState(JSON.stringify(state));
@@ -2033,6 +2718,7 @@ test('高さの数値入力がトラックとパワースペクトルの canvas 
     assert.strictEqual(trackCanvas.height, 112);
     assert.strictEqual(trackSpectrumCanvas.height, 112);
     assert.strictEqual(overlayCanvas.height, 180);
+    assert.strictEqual(overlayCanvas.style.height, '180px');
 
     const snap1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap1?.renderedUi?.trackHeight, 112);
@@ -2052,6 +2738,7 @@ test('高さの数値入力がトラックとパワースペクトルの canvas 
     assert.strictEqual(trackCanvas.height, 80);
     assert.strictEqual(trackSpectrumCanvas.height, 80);
     assert.strictEqual(overlayCanvas.height, 140);
+    assert.strictEqual(overlayCanvas.style.height, '140px');
 
     env.dom.window.close();
 });
@@ -2086,6 +2773,7 @@ test('高さリサイズハンドルのドラッグがトラックとパワー�
     assert.ok(overlayCanvas);
     assert.strictEqual(trackCanvas.height, 104);
     assert.strictEqual(overlayCanvas.height, 170);
+    assert.strictEqual(overlayCanvas.style.height, '170px');
 
     const snap = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap?.renderedUi?.trackHeight, 104);
@@ -2106,6 +2794,60 @@ test('波形モードボタンが生成される', () => {
     );
 });
 
+test('renderScript: rect-zoom ドラッグはループではなくラバーバンドから時間・振幅ズームを適用すること', async () => {
+    const env = setupEnv();
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas, 'track-canvas-0 が存在すること');
+
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: ['wave-mode-rect-zoom'], actionId: 'rect-mode-on' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+
+    canvas!.width = 400;
+    canvas!.height = 100;
+    canvas!.getBoundingClientRect = () => ({
+        left: 0, top: 0, right: 400, bottom: 100, width: 400, height: 100, x: 0, y: 0,
+        toJSON: () => ({}),
+    } as DOMRect);
+
+    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 20, buttons: 1 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, button: 0, clientX: 300, clientY: 80, buttons: 1 }));
+
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'rect-dragging' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+    const dragging = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    assert.ok(dragging.renderedUi.rectZoomSelection, 'ドラッグ中は rectZoomSelection が存在すること');
+
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 300, clientY: 80 }));
+    env.dom.window.dispatchEvent(
+        new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'rect-drag-complete' },
+        }),
+    );
+    await nextAnimationFrame(env.dom);
+
+    const completed = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
+    const ui = completed.renderedUi;
+    assert.equal(ui.rectZoomSelection, null, 'ドラッグ完了後はラバーバンドが消えること');
+    assert.ok(ui.zoomStart > 0.24 && ui.zoomStart < 0.26, '矩形の左端が zoomStart になること');
+    assert.ok(ui.zoomEnd > 0.74 && ui.zoomEnd < 0.76, '矩形の右端が zoomEnd になること');
+    assert.ok(ui.amplitudeZoomMinNorm < -0.6 && ui.amplitudeZoomMinNorm > -0.8, '矩形の下端が振幅ズーム下限になること');
+    assert.ok(ui.amplitudeZoomMaxNorm > 0.6 && ui.amplitudeZoomMaxNorm < 0.8, '矩形の上端が振幅ズーム上限になること');
+
+    const zoomBtn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    assert.ok(zoomBtn, 'zoom-to-selection ボタンが存在すること');
+    assert.equal(zoomBtn!.disabled, true, 'rect-zoom ドラッグではループ選択を作らないこと');
+
+    env.dom.window.close();
+});
+
 test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => {
     const env = setupEnv();
     const btn = env.dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]') as HTMLButtonElement | null;
@@ -2113,6 +2855,7 @@ test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => 
 
     // 初期状態: aria-pressed=false, waveformMode=loop
     assert.strictEqual(btn!.getAttribute('aria-pressed'), 'false', '初期状態の aria-pressed は false であること');
+    assert.strictEqual(btn!.classList.contains('is-active'), false, '初期状態では active 表示ではないこと');
 
     // 1 回目クリック → rect-zoom に切り替わること
     env.dom.window.dispatchEvent(
@@ -2125,6 +2868,7 @@ test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => 
     const snap1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap1?.renderedUi?.waveformMode, 'rect-zoom', '1 回目クリック後に waveformMode が rect-zoom になること');
     assert.strictEqual(btn!.getAttribute('aria-pressed'), 'true',  '1 回目クリック後に aria-pressed が true になること');
+    assert.strictEqual(btn!.classList.contains('is-active'), true, '1 回目クリック後に active 表示になること');
 
     // 2 回目クリック → loop に戻ること
     env.dom.window.dispatchEvent(
@@ -2137,6 +2881,7 @@ test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => 
     const snap2 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap2?.renderedUi?.waveformMode, 'loop',     '2 回目クリック後に waveformMode が loop に戻ること');
     assert.strictEqual(btn!.getAttribute('aria-pressed'), 'false', '2 回目クリック後に aria-pressed が false に戻ること');
+    assert.strictEqual(btn!.classList.contains('is-active'), false, '2 回目クリック後に active 表示が解除されること');
 
     env.dom.window.close();
 });
@@ -2378,4 +3123,3 @@ test('spectrum overlay: clamp 後にゼロ幅になる周波数レンジは適�
     assert.deepStrictEqual(after, baseline, 'clamp 後にゼロ幅になる周波数レンジは state に反映されないこと');
     env.dom.window.close();
 });
-

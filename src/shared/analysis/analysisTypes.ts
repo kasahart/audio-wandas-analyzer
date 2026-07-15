@@ -8,6 +8,17 @@ export interface SpectrumPeak {
     amplitudeDb: number;
 }
 
+export interface DbScaleMetadata {
+    unit: string;
+    axisLabel: string;
+}
+
+export interface AnalysisUnits {
+    amplitudeLevel: DbScaleMetadata;
+    spectrumLevel: DbScaleMetadata;
+    spectrogramLevel: DbScaleMetadata;
+}
+
 export interface WaveformEnvelope {
     min: number[];
     max: number[];
@@ -24,10 +35,13 @@ export interface SpectrogramData {
     maxFrequencyHz: number;
     minDb: number;
     maxDb: number;
+    unit?: string;
+    axisLabel?: string;
 }
 
 export interface ChannelSummary {
     label: string;
+    unit?: string | null;
     rms: number;
     peakAbsolute: number;
     dominantFrequencies: FrequencyPeak[];
@@ -43,6 +57,7 @@ export interface AnalysisResult {
     durationSeconds: number;
     channelCount: number;
     sampleCount: number;
+    units?: AnalysisUnits;
     channels: ChannelSummary[];
 }
 

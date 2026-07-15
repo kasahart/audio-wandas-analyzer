@@ -7,8 +7,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
+import wandas as wd
 
-from analyzer import _build_spectrogram, analyze_audio
+from analyzer import _build_spectrogram, analyze_audio, analyze_from_frame, analyze_range
 
 
 def _mean_power_db(values_db: list[float]) -> float:
@@ -29,9 +30,76 @@ def test_analyze_audio_defaults(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     result = analyze_audio(wav)
-    spec = result["channels"][0]["spectrogram"]
+    ch = result["channels"][0]
+    spec = ch["spectrogram"]
     assert spec["windowSize"] > 0
     assert spec["hopSize"] > 0
+    assert ch["unit"] is None
+    assert result["units"]["spectrumLevel"] == {"unit": "dB", "axisLabel": "Spectrum level [dB]"}
+    assert result["units"]["spectrogramLevel"] == {"unit": "dB", "axisLabel": "Spectrum level [dB]"}
+    assert result["units"]["amplitudeLevel"] == {"unit": "dB", "axisLabel": "Amplitude level [dB]"}
+
+
+def test_analyze_from_frame_includes_channel_unit(tmp_path: Path) -> None:
+    frame = wd.ChannelFrame.from_numpy(
+        np.array([[0.1, -0.5, 0.25]], dtype=np.float64),
+        sampling_rate=1000,
+        ch_units=["Pa"],
+    )
+
+    result = analyze_from_frame(frame, tmp_path / "pressure.wav", include_spectrogram=False)
+
+    assert result["channels"][0]["unit"] == "Pa"
+    assert result["channels"][0]["waveform"]["absolutePeak"] == pytest.approx(0.5)
+
+
+def test_analyze_from_frame_defaults_to_summary_without_spectrogram(tmp_path: Path) -> None:
+    frame = wd.from_numpy(np.array([0.0, 0.5, -0.5]), sampling_rate=1000)
+    result = analyze_from_frame(frame, tmp_path / "summary.wav")
+    assert result["channels"][0]["spectrogram"] is None
+
+
+def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: Path) -> None:
+    sample_rate = 1024
+    sample_count = 1024
+    amplitude = 0.5
+    frequency_hz = 128.0
+    time = np.arange(sample_count, dtype=np.float64) / sample_rate
+    samples = amplitude * np.sin(2 * math.pi * frequency_hz * time)
+    frame = wd.ChannelFrame.from_numpy(samples, sampling_rate=sample_rate)
+    spectrogram = frame.stft(n_fft=256, hop_length=128, window="boxcar")
+
+    result = analyze_from_frame(
+        frame,
+        tmp_path / "sine.wav",
+        peak_count=3,
+        stft_options={"n_fft": 256, "hop_size": 128, "window": "boxcar"},
+        spectrogram_frame=spectrogram,
+        include_spectrogram=True,
+    )
+
+    expected_db = 20 * math.log10(amplitude)
+    channel = result["channels"][0]
+    matching_peaks = [peak for peak in channel["peaks"] if peak["freqHz"] == pytest.approx(frequency_hz, abs=0.2)]
+    assert matching_peaks
+    assert matching_peaks[0]["amplitudeDb"] == pytest.approx(expected_db, abs=0.01)
+    assert channel["spectrogram"]["maxDb"] == pytest.approx(expected_db, abs=0.01)
+    assert channel["spectrogram"]["axisLabel"] == "Spectrum level [dB]"
+
+
+def test_analyze_range_uses_same_pcm_scale_as_overview(tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav, seconds=1.0)
+
+    overview = analyze_audio(wav)["channels"][0]["waveform"]
+    range_result = analyze_range(wav, 0.25, 0.75, point_count=128)
+    range_waveform = range_result["channels"][0]
+
+    assert overview["absolutePeak"] > 1000
+    assert range_waveform["absolutePeak"] > 1000
+    assert range_waveform["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
+    assert min(range_waveform["minT"]) >= 0.24
+    assert max(range_waveform["maxT"]) <= 0.76
 
 
 def test_analyze_audio_accepts_flac_from_supported_ui_formats(tmp_path: Path) -> None:
@@ -117,6 +185,8 @@ def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
     assert value == pytest.approx(-120.0)
     assert spec["minDb"] == pytest.approx(-120.0)
     assert spec["maxDb"] == pytest.approx(-120.0)
+    assert spec["unit"] == "dB"
+    assert spec["axisLabel"] == "Spectrum level [dB]"
 
 
 def test_analyze_audio_rejects_bad_options(tmp_path: Path) -> None:
