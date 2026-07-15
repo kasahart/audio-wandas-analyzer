@@ -334,9 +334,34 @@ def test_spectrum_slice_uses_cached_wandas_spectrogram(monkeypatch, tmp_path: Pa
     first = backend_server.handle_spectrum_slice(command)
     spectrogram = engine.get_spectrogram(wav, 256, 128, "hann")
     second = backend_server.handle_spectrum_slice(command)
+    third = backend_server.handle_spectrum_slice(command)
 
     assert engine.get_spectrogram(wav, 256, 128, "hann") is spectrogram
-    assert first["values"] == second["values"]
+    assert first["frequencyBins"] == second["frequencyBins"]
+    assert second["values"] == third["values"]
+
+
+def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, tmp_path: Path) -> None:
+    import backend_server
+
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    monkeypatch.setattr(backend_server, "_engine", engine)
+
+    def fail_get_spectrogram(*_args: object, **_kwargs: object) -> wd.SpectrogramFrame:
+        raise AssertionError("cursor spectrum must not build a full-file spectrogram")
+
+    monkeypatch.setattr(engine, "get_spectrogram", fail_get_spectrogram)
+    response = backend_server.handle_spectrum_slice(
+        {
+            "filePath": str(wav),
+            "cursorNorm": 0.5,
+            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+        }
+    )
+
+    assert response["frequencyBins"] > 0
 
 
 def test_spectrum_slice_uses_requested_channel(tmp_path: Path) -> None:
@@ -381,6 +406,25 @@ def test_engine_keeps_materialized_wandas_frame(tmp_path: Path) -> None:
     assert isinstance(entry.frame, wd.ChannelFrame)
     assert entry.frame.sampling_rate == 16000
     assert entry.frame.n_samples == 8000
+
+
+def test_engine_persists_file_frame_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    persist_calls = 0
+    original_persist = wd.ChannelFrame.persist
+
+    def counted_persist(self: wd.ChannelFrame) -> wd.ChannelFrame:
+        nonlocal persist_calls
+        persist_calls += 1
+        return original_persist(self)
+
+    monkeypatch.setattr(wd.ChannelFrame, "persist", counted_persist)
+    first = engine.get_file(wav)
+
+    assert engine.get_file(wav) is first
+    assert persist_calls == 1
 
 
 def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:

@@ -111,19 +111,24 @@ def _spectrum_slice_values(
 ) -> dict[str, object]:
     cached = _engine.get_file(file_path)
     window_size, hop_size, window_name = _resolve_stft_params(cached.frame.n_samples, stft_options)
-    spectrogram = _engine.get_spectrogram(cached.path, window_size, hop_size, window_name)
-    time_bins = int(spectrogram.n_frames)
-    if time_bins <= 0:
-        raise ValueError("no spectrogram available for spectrum slice")
-
     clipped_norm = max(0.0, min(1.0, cursor_norm))
-    time_index = int(np.floor(clipped_norm * time_bins))
-    if time_index >= time_bins:
-        time_index = time_bins - 1
-
     if channel_index < 0 or channel_index >= cached.frame.n_channels:
         raise ValueError(f"channelIndex out of range: {channel_index}")
-    spectrum = spectrogram.get_frame_at(time_index)
+    spectrogram = _engine.get_cached_spectrogram(cached.path, window_size, hop_size, window_name)
+    if spectrogram is not None:
+        time_bins = int(spectrogram.n_frames)
+        if time_bins <= 0:
+            raise ValueError("no spectrogram available for spectrum slice")
+        time_index = min(int(np.floor(clipped_norm * time_bins)), time_bins - 1)
+        spectrum = spectrogram.get_frame_at(time_index)
+        max_frequency_hz = float(spectrogram.freqs[-1])
+    else:
+        center_sample = min(int(clipped_norm * cached.frame.n_samples), cached.frame.n_samples - 1)
+        start_sample = max(0, center_sample - window_size // 2)
+        end_sample = min(cached.frame.n_samples, start_sample + window_size)
+        start_sample = max(0, end_sample - window_size)
+        spectrum = cached.frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
+        max_frequency_hz = float(spectrum.freqs[-1])
     values = np.asarray(spectrum.dB, dtype=np.float64)
     if values.ndim == 2:
         values = values[channel_index]
@@ -132,7 +137,7 @@ def _spectrum_slice_values(
     return {
         "values": row.tolist(),
         "frequencyBins": int(row.shape[0]),
-        "maxFrequencyHz": float(spectrogram.freqs[-1]),
+        "maxFrequencyHz": max_frequency_hz,
         "minDb": float(np.min(row)),
         "maxDb": float(np.max(row)),
         "unit": DB_UNIT,

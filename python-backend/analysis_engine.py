@@ -42,7 +42,7 @@ class AnalysisEngine:
         if cached is not None and cached.identity == identity:
             self._files.move_to_end(path)
             return cached
-        frame = wd.read(path)
+        frame = wd.read(path).persist()
         cached = CachedAnalysis(
             path=path,
             frame=frame,
@@ -69,6 +69,16 @@ class AnalysisEngine:
             cached.spectrogram_nbytes[key] = int(np.prod(spectrogram.shape)) * np.dtype(np.complex128).itemsize
             self._evict(cached.path)
         return spectrogram
+
+    def get_cached_spectrogram(
+        self,
+        file_path: str | Path,
+        n_fft: int,
+        hop_length: int,
+        window: str,
+    ) -> wd.SpectrogramFrame | None:
+        cached = self.get_file(file_path)
+        return cached.spectrograms.get((n_fft, hop_length, window))
 
     def get_range_frame(self, file_path: str | Path, start_norm: float, end_norm: float) -> wd.ChannelFrame:
         frame = self.get_file(file_path).frame
