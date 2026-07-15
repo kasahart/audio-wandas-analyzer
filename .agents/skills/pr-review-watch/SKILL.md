@@ -34,10 +34,11 @@ Prefer the GitHub app tools for PR metadata, comments, and reviews. Use `gh` for
 At each polling interval:
 
 1. Re-fetch reviews, review threads, PR comments, and head-SHA CI runs.
-2. Treat a new non-self review comment, unresolved thread, or requested-changes review as activity.
-3. Treat CI failure as activity requiring investigation.
-4. If no activity appears, continue waiting until the quiet window expires.
-5. If the PR head SHA changes externally, reset the baseline to the new head and inspect the new diff before acting.
+2. Treat a new non-self review comment, top-level PR comment, unresolved thread, or requested-changes review as activity.
+3. Treat every CI status transition as activity and investigate failures.
+4. While any requested head-SHA check is queued or running, keep waiting and do not allow the quiet window to expire.
+5. If no activity appears and all requested checks are complete, continue waiting until the quiet window expires.
+6. If the PR head SHA changes externally, reset the baseline to the new head and inspect the new diff before acting.
 
 Do not spin continuously. Use real waits between checks unless the user asks for a different cadence.
 
@@ -55,7 +56,7 @@ When review feedback appears:
 8. Resolve only the threads that were actually handled.
 9. Reset the quiet-window timer after pushing/replying.
 
-Use the `github:gh-address-comments` skill if the task becomes primarily about understanding unresolved inline review threads. Use the `github:gh-fix-ci` skill if the task becomes primarily about failing GitHub Actions checks.
+When available, use a dedicated review-comment workflow for thread-aware reads and a dedicated GitHub Actions workflow for failing checks. Otherwise use GitHub GraphQL for review-thread state and `gh` for Actions status and logs.
 
 ## Required Verification
 
