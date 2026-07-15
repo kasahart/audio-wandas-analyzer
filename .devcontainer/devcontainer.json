@@ -14,10 +14,7 @@
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-vscode.extension-test-runner",
-        "ms-playwright.playwright",
-        "openai.chatgpt",
-        "ms-vscode.live-server"
+        "ms-vscode.extension-test-runner"
       ],
       "settings": {
         "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",

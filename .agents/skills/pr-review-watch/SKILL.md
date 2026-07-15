@@ -27,7 +27,7 @@ If the PR is not known, resolve it from the current branch or ask for the PR.
 4. If CI is already failing, route to the CI debugging workflow before waiting.
 5. If unresolved actionable review threads already exist, handle them before starting the quiet-window clock.
 
-Prefer the GitHub app tools for PR metadata, comments, reviews, thread resolution, and workflow status. Use `gh` only when connector coverage is insufficient.
+Prefer the GitHub app tools for PR metadata, comments, and reviews. Use `gh` for Actions status and logs, and for thread-aware review state when the connector does not preserve it.
 
 ## Watch Loop
 
