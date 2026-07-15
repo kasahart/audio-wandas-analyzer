@@ -2314,7 +2314,73 @@ test('renderScript: multichannel CSV includes all spectrum channels', async () =
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const csv = decodeDataUriPayload(anchor!.href);
-        assert.equal(csv.split('\n')[0], 'frequency_hz,stereo.wav Channel 1 / 2 (Left) Spectrum level [dB],stereo.wav Channel 2 / 2 (Right) Spectrum level [dB]');
+        assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) frequency (Hz),stereo.wav Channel 1 / 2 (Left) Spectrum level [dB],stereo.wav Channel 2 / 2 (Right) frequency (Hz),stereo.wav Channel 2 / 2 (Right) Spectrum level [dB]');
+    } finally {
+        env.dom.window.document.createElement = origCreate;
+        env.dom.window.close();
+    }
+});
+
+test('renderScript: export-csv preserves each track frequency axis', async () => {
+    const env = setupMismatchedDeltaFSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    const created: HTMLAnchorElement[] = [];
+    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
+    env.dom.window.document.createElement = function(tag: string) {
+        const el = origCreate(tag);
+        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
+        return el;
+    } as typeof document.createElement;
+
+    try {
+        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
+            new env.dom.window.MouseEvent('click', { bubbles: true }),
+        );
+
+        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
+        assert.ok(anchor, 'CSV download anchor が作られること');
+        const rows = decodeDataUriPayload(anchor!.href).split('\n');
+        assert.equal(rows[0], 'coarse.wav Channel 1 (L) frequency (Hz),coarse.wav Channel 1 (L) Spectrum level [dB],fine.wav Channel 1 (L) frequency (Hz),fine.wav Channel 1 (L) Spectrum level [dB]');
+        assert.equal(rows[1], '0.0000,-80.000000,0.0000,-20.000000');
+        assert.equal(rows[4], '600.0000,-20.000000,540.0000,-65.000000');
+        assert.equal(rows[5], ',,720.0000,-80.000000');
+        assert.equal(rows[6], ',,900.0000,-85.000000');
+    } finally {
+        env.dom.window.document.createElement = origCreate;
+        env.dom.window.close();
+    }
+});
+
+test('renderScript: export-csv keeps original frequency axis after display max frequency change', async () => {
+    const env = setupMismatchedDeltaFSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        actionId: 'csv-display-max-frequency',
+        actions: [{ action: 'set-spectrogram-display', payload: { maxFrequencyHz: 300 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const created: HTMLAnchorElement[] = [];
+    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
+    env.dom.window.document.createElement = function(tag: string) {
+        const el = origCreate(tag);
+        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
+        return el;
+    } as typeof document.createElement;
+
+    try {
+        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
+            new env.dom.window.MouseEvent('click', { bubbles: true }),
+        );
+
+        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
+        assert.ok(anchor, 'CSV download anchor が作られること');
+        const rows = decodeDataUriPayload(anchor!.href).split('\n');
+        assert.equal(rows[4], '600.0000,-20.000000,540.0000,-65.000000');
+        assert.equal(rows[6], ',,900.0000,-85.000000');
     } finally {
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();

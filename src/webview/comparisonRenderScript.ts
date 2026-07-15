@@ -3264,18 +3264,22 @@ export function getComparisonRenderScript(): string {
                     return;
                 }
                 announce(STR.announceExportCsvStarted || 'CSV export started');
-                // Build CSV: header + one row per frequency bin
-                // Use the first track's bin count and maxFrequencyHz as reference
-                const refSlice = tracks[0].slice;
-                const fBins = refSlice.frequencyBins;
-                const maxHz = refSlice.maxFrequencyHz;
                 function csvCell(s) { return /[,"\\r\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
-                const headers = ['frequency_hz'].concat(tracks.map(function(t) { return csvCell(t.name + ' ' + dbLevelAxisLabelFor(t.slice)); }));
+                const headers = [];
+                tracks.forEach(function(t) {
+                    headers.push(csvCell(t.name + ' frequency (Hz)'));
+                    headers.push(csvCell(t.name + ' ' + dbLevelAxisLabelFor(t.slice)));
+                });
                 const rows = [headers.join(',')];
-                for (let bin = 0; bin < fBins; bin++) {
-                    const fHz = (bin / Math.max(fBins - 1, 1)) * maxHz;
-                    const cols = [fHz.toFixed(4)];
+                const maxBins = tracks.reduce(function(max, t) {
+                    return Math.max(max, t.slice.frequencyBins || 0, t.slice.values ? t.slice.values.length : 0);
+                }, 0);
+                for (let bin = 0; bin < maxBins; bin++) {
+                    const cols = [];
                     tracks.forEach(function(t) {
+                        const fBins = t.slice.frequencyBins || 0;
+                        const maxHz = t.slice.originalMaxFrequencyHz || t.slice.maxFrequencyHz || 0;
+                        cols.push(bin < fBins ? ((bin / Math.max(fBins - 1, 1)) * maxHz).toFixed(4) : '');
                         const v = t.slice.values[bin];
                         cols.push(v !== undefined && v !== null ? v.toFixed(6) : '');
                     });
