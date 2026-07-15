@@ -34,7 +34,7 @@ Prefer the GitHub app tools for PR metadata, comments, and reviews. Use `gh` for
 At each polling interval:
 
 1. Re-fetch reviews, review threads, PR comments, and head-SHA CI runs.
-2. Treat a new non-self review comment, top-level PR comment, unresolved thread, or requested-changes review as activity.
+2. Treat a new non-self review comment, non-self top-level PR comment, unresolved thread, or requested-changes review as activity.
 3. Treat every CI status transition as activity and investigate failures.
 4. While any requested head-SHA check is queued or running, keep waiting and do not allow the quiet window to expire.
 5. If no activity appears and all requested checks are complete, continue waiting until the quiet window expires.
