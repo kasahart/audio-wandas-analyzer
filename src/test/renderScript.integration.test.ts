@@ -1027,6 +1027,28 @@ test('renderScript: STFT settings refresh detail without replacing summary resul
     env.dom.window.close();
 });
 
+test('renderScript: resetting STFT settings refreshes the current spectrum slice', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    await nextAnimationFrame(env.dom);
+    const requestsBefore = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice').length;
+
+    (env.dom.window.document.querySelector('[data-action="spectrogram-settings"]') as HTMLButtonElement).click();
+    (env.dom.window.document.getElementById('spec-auto') as HTMLInputElement).checked = false;
+    (env.dom.window.document.getElementById('spec-nfft') as HTMLSelectElement).value = '2048';
+    (env.dom.window.document.getElementById('spec-apply') as HTMLButtonElement).click();
+    await nextAnimationFrame(env.dom);
+
+    (env.dom.window.document.querySelector('[data-action="spectrogram-settings"]') as HTMLButtonElement).click();
+    (env.dom.window.document.getElementById('spec-reset') as HTMLButtonElement).click();
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
+
+    const requestsAfter = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    assert.ok(requestsAfter.length > requestsBefore, 'reset should request a fresh spectrum slice');
+    assert.equal(requestsAfter.at(-1).stftOptions, null);
+    env.dom.window.close();
+});
+
 test('renderScript: analysis-update in spectrogram mode requests fresh detail for new settings', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;

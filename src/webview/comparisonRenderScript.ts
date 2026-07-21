@@ -4673,6 +4673,7 @@ export function getComparisonRenderScript(): string {
                     }
                 }
                 scheduleRender();
+                scheduleSpectrumRefresh('immediate');
             });
 
             document.getElementById('spec-apply').addEventListener('click', function() {

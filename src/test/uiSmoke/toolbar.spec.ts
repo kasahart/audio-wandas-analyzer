@@ -80,3 +80,29 @@ test('spectrogram settings apply refreshes detail without reanalyzing summaries'
         }),
     ]));
 });
+
+test('spectrogram settings reset refreshes the spectrum immediately', async ({ page }) => {
+    await loadUi(page);
+
+    await page.locator('[data-action="content-spectrogram"]').click({ force: true });
+    await page.locator('[data-action="spectrogram-settings"]').click({ force: true });
+    await page.locator('#spec-auto').uncheck();
+    await page.locator('#spec-nfft').selectOption('2048');
+    await page.locator('#spec-apply').click({ force: true });
+    await page.locator('[data-action="spectrogram-settings"]').click({ force: true });
+    const requestsBefore = await page.evaluate(() =>
+        ((window as any).__uiSmokePostedMessages || []).filter((message: any) => message.type === 'request-spectrum-slice').length,
+    );
+
+    await page.locator('#spec-reset').click({ force: true });
+    await page.waitForFunction((count) =>
+        ((window as any).__uiSmokePostedMessages || []).filter((message: any) => message.type === 'request-spectrum-slice').length > count,
+    requestsBefore);
+
+    const requests = await page.evaluate(() =>
+        ((window as any).__uiSmokePostedMessages || []).filter((message: any) => message.type === 'request-spectrum-slice'),
+    );
+    expect(requests.at(-1)).toEqual(expect.objectContaining({
+        stftOptions: null,
+    }));
+});
