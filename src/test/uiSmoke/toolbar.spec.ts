@@ -81,6 +81,34 @@ test('spectrogram settings apply refreshes detail without reanalyzing summaries'
     ]));
 });
 
+test('invalid STFT settings are rejected without clearing detail', async ({ page }) => {
+    await loadUi(page);
+    await page.locator('[data-action="content-spectrogram"]').click({ force: true });
+    await page.locator('[data-action="spectrogram-settings"]').click({ force: true });
+    await page.locator('#spec-auto').uncheck();
+    await page.locator('#spec-nfft').selectOption('1024');
+    await page.locator('#spec-hop').fill('2048');
+    const countsBefore = await page.evaluate(() => {
+        const messages = (window as any).__uiSmokePostedMessages || [];
+        return {
+            updates: messages.filter((message: any) => message.type === 'update-spectrogram-settings').length,
+            releases: messages.filter((message: any) => message.type === 'release-track-detail').length,
+        };
+    });
+
+    await page.locator('#spec-apply').click({ force: true });
+
+    await expect(page.locator('#spec-hop')).toHaveJSProperty('validationMessage', 'hop_size must be a positive integer no greater than n_fft');
+    const countsAfter = await page.evaluate(() => {
+        const messages = (window as any).__uiSmokePostedMessages || [];
+        return {
+            updates: messages.filter((message: any) => message.type === 'update-spectrogram-settings').length,
+            releases: messages.filter((message: any) => message.type === 'release-track-detail').length,
+        };
+    });
+    expect(countsAfter).toEqual(countsBefore);
+});
+
 test('spectrogram settings reset refreshes the spectrum immediately', async ({ page }) => {
     await loadUi(page);
 

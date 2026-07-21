@@ -4654,6 +4654,9 @@ export function getComparisonRenderScript(): string {
             function __closeSpecPopover() { if (__specPopover) { __specPopover.hidden = true; } }
 
             document.getElementById('spec-auto').addEventListener('change', __applySpecAutoState);
+            document.getElementById('spec-hop').addEventListener('input', function(event) {
+                event.currentTarget.setCustomValidity('');
+            });
 
             ['spec-dbmin','spec-dbmax','spec-maxfreq'].forEach(function(id) {
                 document.getElementById(id).addEventListener('change', function() {
@@ -4678,7 +4681,7 @@ export function getComparisonRenderScript(): string {
 
             document.getElementById('spec-apply').addEventListener('click', function() {
                 const previousDataSignature = currentSpectrumDataSignature();
-                __spectrogramSettings = {
+                const nextSettings = {
                     auto: document.getElementById('spec-auto').checked,
                     stft: {
                         nFft: Number(document.getElementById('spec-nfft').value),
@@ -4687,6 +4690,16 @@ export function getComparisonRenderScript(): string {
                     },
                     display: __readDisplayFromForm()
                 };
+                const hopInput = document.getElementById('spec-hop');
+                if (!nextSettings.auto && (!Number.isInteger(nextSettings.stft.hopSize) || nextSettings.stft.hopSize < 1 || nextSettings.stft.hopSize > nextSettings.stft.nFft)) {
+                    const message = STR.specSettingsInvalidStft || 'hop_size must be a positive integer no greater than n_fft';
+                    hopInput.setCustomValidity(message);
+                    hopInput.reportValidity();
+                    announce(message);
+                    return;
+                }
+                hopInput.setCustomValidity('');
+                __spectrogramSettings = nextSettings;
                 vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
                 if (previousDataSignature !== currentSpectrumDataSignature()) {
                     state.results.forEach(function(_result, index) { releaseTrackDetail(index); });

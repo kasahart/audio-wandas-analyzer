@@ -134,7 +134,9 @@ function isStftOptionsOrNull(value: unknown): boolean {
     if (value === null) { return true; }
     if (!value || typeof value !== 'object') { return false; }
     const options = value as Record<string, unknown>;
-    return Number.isInteger(options['nFft']) && Number.isInteger(options['hopSize']) &&
+    return Number.isInteger(options['nFft']) && Number(options['nFft']) > 0 &&
+        Number.isInteger(options['hopSize']) && Number(options['hopSize']) > 0 &&
+        Number(options['hopSize']) <= Number(options['nFft']) &&
         ['hann', 'hamming', 'blackman', 'boxcar'].includes(String(options['window']));
 }
 

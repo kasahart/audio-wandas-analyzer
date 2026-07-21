@@ -99,6 +99,7 @@ export interface UiStrings {
     specSettingsStftLegend: string;
     specSettingsNFft: string;
     specSettingsHopSize: string;
+    specSettingsInvalidStft: string;
     specSettingsWindow: string;
     specSettingsDisplayLegend: string;
     specSettingsDbMin: string;
@@ -258,6 +259,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsStftLegend: 'STFT',
         specSettingsNFft: 'n_fft',
         specSettingsHopSize: 'hop_size',
+        specSettingsInvalidStft: 'hop_size must be a positive integer no greater than n_fft',
         specSettingsWindow: 'window',
         specSettingsDisplayLegend: 'Display',
         specSettingsDbMin: 'dB min',
@@ -414,6 +416,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsStftLegend: 'STFT',
         specSettingsNFft: 'n_fft',
         specSettingsHopSize: 'hop_size',
+        specSettingsInvalidStft: 'hop_size は1以上かつ n_fft 以下の整数にしてください',
         specSettingsWindow: 'ウィンドウ',
         specSettingsDisplayLegend: '表示設定',
         specSettingsDbMin: 'dB 最小',

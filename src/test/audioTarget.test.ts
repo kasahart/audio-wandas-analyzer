@@ -59,6 +59,11 @@ test('isRequestTrackDetailMessage accepts lazy spectrogram detail requests', () 
         filePath: '/tmp/a.wav',
         stftOptions: null,
     }), false);
+    assert.equal(isRequestTrackDetailMessage({
+        type: 'request-track-detail', requestId: 'detail-1', analysisId: 'analysis-1',
+        settingsSignature: 'settings-1', trackIndex: 0, filePath: '/tmp/a.wav',
+        stftOptions: { nFft: 1024, hopSize: 2048, window: 'hann' },
+    }), false);
 });
 
 test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () => {

@@ -1027,6 +1027,26 @@ test('renderScript: STFT settings refresh detail without replacing summary resul
     env.dom.window.close();
 });
 
+test('renderScript: invalid STFT settings preserve state and cached detail', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    await nextAnimationFrame(env.dom);
+    (env.dom.window.document.querySelector('[data-action="spectrogram-settings"]') as HTMLButtonElement).click();
+    (env.dom.window.document.getElementById('spec-auto') as HTMLInputElement).checked = false;
+    (env.dom.window.document.getElementById('spec-nfft') as HTMLSelectElement).value = '1024';
+    (env.dom.window.document.getElementById('spec-hop') as HTMLInputElement).value = '2048';
+    const updatesBefore = env.postedMessages.filter((msg: any) => msg.type === 'update-spectrogram-settings').length;
+    const releasesBefore = env.postedMessages.filter((msg: any) => msg.type === 'release-track-detail').length;
+
+    (env.dom.window.document.getElementById('spec-apply') as HTMLButtonElement).click();
+    await nextAnimationFrame(env.dom);
+
+    const hopInput = env.dom.window.document.getElementById('spec-hop') as HTMLInputElement;
+    assert.equal(hopInput.validity.valid, false);
+    assert.equal(env.postedMessages.filter((msg: any) => msg.type === 'update-spectrogram-settings').length, updatesBefore);
+    assert.equal(env.postedMessages.filter((msg: any) => msg.type === 'release-track-detail').length, releasesBefore);
+    env.dom.window.close();
+});
+
 test('renderScript: resetting STFT settings refreshes the current spectrum slice', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     await nextAnimationFrame(env.dom);
