@@ -1,8 +1,3 @@
-export interface FrequencyPeak {
-    frequencyHz: number;
-    magnitude: number;
-}
-
 export interface SpectrumPeak {
     freqHz: number;
     amplitudeDb: number;
@@ -44,8 +39,7 @@ export interface ChannelSummary {
     unit?: string | null;
     rms: number;
     peakAbsolute: number;
-    dominantFrequencies: FrequencyPeak[];
-    peaks?: SpectrumPeak[];
+    peaks: SpectrumPeak[];
     waveform: WaveformEnvelope;
     spectrogram: SpectrogramData | null;
 }

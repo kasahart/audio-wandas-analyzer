@@ -64,10 +64,11 @@ def test_noct_frame_becomes_bar(mono_sin: wd.ChannelFrame) -> None:
     assert any(ch.replace(".", "").isdigit() for ch in spec["categories"][:1])
 
 
-def test_runtime_dependencies_pin_wandas_v05_with_psychoacoustics() -> None:
+def test_runtime_dependencies_pin_wandas_v061() -> None:
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
     dependencies = pyproject["project"]["dependencies"]
-    assert "wandas[psychoacoustic]>=0.5.0,<0.6.0" in dependencies
+    assert "wandas==0.6.1" in dependencies
+    assert "wandas[psychoacoustic]==0.6.1" in pyproject["project"]["optional-dependencies"]["dev"]
 
 
 def test_coherence_yields_multi_series(two_channel: wd.ChannelFrame) -> None:

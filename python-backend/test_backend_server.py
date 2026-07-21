@@ -130,23 +130,20 @@ def test_analyze_round_trip_accepts_flac_from_supported_ui_formats(server: _Serv
     assert resp["channels"][0]["spectrogram"] is None
 
 
-def test_analyze_uses_engine_frame_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
+def test_analyze_uses_summary_analyzer_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
     import backend_server
 
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
-    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    monkeypatch.setattr(backend_server, "_engine", engine)
     monkeypatch.setattr(
         backend_server,
-        "analyze_from_frame",
-        lambda _frame, path, **_kwargs: {"filePath": str(path), "channels": []},
+        "analyze_audio",
+        lambda path, **_kwargs: {"filePath": str(Path(path).resolve()), "channels": []},
     )
 
     resp = backend_server.handle_analyze({"filePath": str(wav.parent / "." / wav.name)})
 
     assert resp["filePath"] == str(wav.resolve())
-    assert list(engine._files) == [wav.resolve()]
 
 
 def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> None:
@@ -182,7 +179,7 @@ def test_handle_range_uses_same_pcm_scale_as_analysis(tmp_path: Path) -> None:
     waveform = response["channels"][0]
 
     assert waveform["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
-    assert waveform["absolutePeak"] > 1000
+    assert waveform["absolutePeak"] == pytest.approx(0.5, rel=0.01)
     assert min(waveform["minT"]) >= 0.24
     assert max(waveform["maxT"]) <= 0.76
 
@@ -209,6 +206,10 @@ def test_handle_range_reads_only_requested_frames(monkeypatch: pytest.MonkeyPatc
         def __init__(self, path: str | Path | io.BytesIO, *args: object, **kwargs: object) -> None:
             self._file = real_sound_file(path)
             self.subtype = self._file.subtype
+            self.channels = self._file.channels
+
+        def __len__(self) -> int:
+            return len(self._file)
 
         def __enter__(self) -> TrackedSoundFile:
             return self
@@ -317,13 +318,19 @@ def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path)
     assert len(resp["values"]) == resp["frequencyBins"]
 
 
-def test_spectrum_slice_uses_cached_wandas_spectrogram(monkeypatch, tmp_path: Path) -> None:
+def test_spectrum_slice_reads_only_requested_channel_and_window(monkeypatch, tmp_path: Path) -> None:
     import backend_server
 
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
-    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    monkeypatch.setattr(backend_server, "_engine", engine)
+    calls: list[dict[str, object]] = []
+    real_read = wd.read
+
+    def tracked_read(path: str | Path, **kwargs: object) -> wd.ChannelFrame:
+        calls.append(kwargs)
+        return real_read(path, **kwargs)
+
+    monkeypatch.setattr(backend_server.wd, "read", tracked_read)
 
     command = {
         "filePath": str(wav),
@@ -331,14 +338,10 @@ def test_spectrum_slice_uses_cached_wandas_spectrogram(monkeypatch, tmp_path: Pa
         "cursorNorm": 0.5,
         "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
     }
-    first = backend_server.handle_spectrum_slice(command)
-    spectrogram = engine.get_spectrogram(wav, 256, 128, "hann")
-    second = backend_server.handle_spectrum_slice(command)
-    third = backend_server.handle_spectrum_slice(command)
+    response = backend_server.handle_spectrum_slice(command)
 
-    assert engine.get_spectrogram(wav, 256, 128, "hann") is spectrogram
-    assert first["frequencyBins"] == second["frequencyBins"]
-    assert second["values"] == third["values"]
+    assert response["frequencyBins"] > 0
+    assert calls == [pytest.approx({"channel": 0, "start": 0.242, "end": 0.258})]
 
 
 def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, tmp_path: Path) -> None:
@@ -408,23 +411,23 @@ def test_engine_keeps_materialized_wandas_frame(tmp_path: Path) -> None:
     assert entry.frame.n_samples == 8000
 
 
-def test_engine_persists_file_frame_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_engine_materializes_file_frame_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    persist_calls = 0
-    original_persist = wd.ChannelFrame.persist
+    materialize_calls = 0
+    original_from_numpy = wd.from_numpy
 
-    def counted_persist(self: wd.ChannelFrame) -> wd.ChannelFrame:
-        nonlocal persist_calls
-        persist_calls += 1
-        return original_persist(self)
+    def counted_from_numpy(*args: object, **kwargs: object) -> wd.ChannelFrame:
+        nonlocal materialize_calls
+        materialize_calls += 1
+        return original_from_numpy(*args, **kwargs)
 
-    monkeypatch.setattr(wd.ChannelFrame, "persist", counted_persist)
+    monkeypatch.setattr(wd, "from_numpy", counted_from_numpy)
     first = engine.get_file(wav)
 
     assert engine.get_file(wav) is first
-    assert persist_calls == 1
+    assert materialize_calls == 1
 
 
 def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
@@ -644,6 +647,10 @@ def test_export_wav_loop_reads_only_selected_frames(monkeypatch: pytest.MonkeyPa
 
         def __init__(self, path: str | Path | io.BytesIO, *args: object, **kwargs: object) -> None:
             self._file = real_sound_file(path)
+            self.samplerate = self._file.samplerate
+
+        def __len__(self) -> int:
+            return len(self._file)
 
         def __enter__(self) -> TrackedSoundFile:
             return self
@@ -700,29 +707,20 @@ def test_engine_reuses_frames_and_stft_by_settings(tmp_path: Path, monkeypatch: 
     _write_sine_wav(wav)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
     calls = 0
-    persist_calls = 0
     original_stft = wd.ChannelFrame.stft
-    original_persist = wd.SpectrogramFrame.persist
 
     def counted_stft(self: wd.ChannelFrame, *args: object, **kwargs: object) -> wd.SpectrogramFrame:
         nonlocal calls
         calls += 1
         return original_stft(self, *args, **kwargs)
 
-    def counted_persist(self: wd.SpectrogramFrame) -> wd.SpectrogramFrame:
-        nonlocal persist_calls
-        persist_calls += 1
-        return original_persist(self)
-
     monkeypatch.setattr(wd.ChannelFrame, "stft", counted_stft)
-    monkeypatch.setattr(wd.SpectrogramFrame, "persist", counted_persist)
     first_file = engine.get_file(wav)
     assert engine.get_file(wav) is first_file
     first_stft = engine.get_spectrogram(wav, 256, 128, "hann")
     assert engine.get_spectrogram(wav, 256, 128, "hann") is first_stft
     assert engine.get_spectrogram(wav, 512, 128, "hann") is not first_stft
     assert calls == 2
-    assert persist_calls == 2
 
 
 def test_engine_invalidates_file_and_stft_when_source_changes(tmp_path: Path) -> None:

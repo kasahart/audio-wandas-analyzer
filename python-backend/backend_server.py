@@ -32,17 +32,19 @@ from typing import Any
 
 import numpy as np
 import soundfile as sf
+import wandas as wd
 
 from analysis_engine import AnalysisEngine
 from analyzer import (
     DB_UNIT,
     SPECTROGRAM_FREQUENCY_BIN_LIMIT,
     SPECTRUM_LEVEL_AXIS_LABEL,
-    _build_waveform_envelope,
     _resample_frequency_bins,
     _resolve_stft_params,
-    analyze_from_frame,
+    analyze_audio,
+    analyze_track_detail,
 )
+from range_analyzer import analyze_range
 
 _PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
 
@@ -71,34 +73,17 @@ def _stft_options_from_payload(payload: dict) -> dict | None:
 
 
 def handle_analyze(cmd: dict) -> dict:
-    cached = _engine.get_file(str(cmd["filePath"]))
-    return analyze_from_frame(
-        cached.frame,
-        cached.path,
-        peak_count=int(cmd.get("peakCount", 5)),
-        stft_options=_stft_options_from_payload(cmd),
-        include_spectrogram=False,
-    )
+    return analyze_audio(str(cmd["filePath"]), peak_count=int(cmd.get("peakCount", 5)))
 
 
 def handle_track_detail(cmd: dict) -> dict:
-    cached = _engine.get_file(str(cmd["filePath"]))
     stft_options = _stft_options_from_payload(cmd)
-    n_fft, hop_length, window = _resolve_stft_params(cached.frame.n_samples, stft_options)
-    spectrogram = _engine.get_spectrogram(cached.path, n_fft, hop_length, window)
-    result = analyze_from_frame(
-        cached.frame,
-        cached.path,
-        peak_count=int(cmd.get("peakCount", 5)),
-        stft_options=stft_options,
-        spectrogram_frame=spectrogram,
-        include_spectrogram=True,
-    )
+    result = analyze_track_detail(str(cmd["filePath"]), stft_options=stft_options)
     return {
         "trackIndex": int(cmd.get("trackIndex", -1)),
         "analysisId": cmd.get("analysisId"),
         "settingsSignature": cmd.get("settingsSignature"),
-        "filePath": str(cached.path),
+        "filePath": result["filePath"],
         "channels": result["channels"],
     }
 
@@ -109,29 +94,30 @@ def _spectrum_slice_values(
     channel_index: int,
     stft_options: dict | None,
 ) -> dict[str, object]:
-    cached = _engine.get_file(file_path)
-    window_size, hop_size, window_name = _resolve_stft_params(cached.frame.n_samples, stft_options)
     clipped_norm = max(0.0, min(1.0, cursor_norm))
-    if channel_index < 0 or channel_index >= cached.frame.n_channels:
+    target = Path(file_path).expanduser().resolve()
+    with sf.SoundFile(target) as audio_file:
+        sample_count = len(audio_file)
+        channel_count = audio_file.channels
+        sample_rate = audio_file.samplerate
+    if channel_index < 0 or channel_index >= channel_count:
         raise ValueError(f"channelIndex out of range: {channel_index}")
-    spectrogram = _engine.get_cached_spectrogram(cached.path, window_size, hop_size, window_name)
-    if spectrogram is not None:
-        time_bins = int(spectrogram.n_frames)
-        if time_bins <= 0:
-            raise ValueError("no spectrogram available for spectrum slice")
-        time_index = min(int(np.floor(clipped_norm * time_bins)), time_bins - 1)
-        spectrum = spectrogram.get_frame_at(time_index)
-        max_frequency_hz = float(spectrogram.freqs[-1])
-    else:
-        center_sample = min(int(clipped_norm * cached.frame.n_samples), cached.frame.n_samples - 1)
-        start_sample = max(0, center_sample - window_size // 2)
-        end_sample = min(cached.frame.n_samples, start_sample + window_size)
-        start_sample = max(0, end_sample - window_size)
-        spectrum = cached.frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
-        max_frequency_hz = float(spectrum.freqs[-1])
+    window_size, _hop_size, window_name = _resolve_stft_params(sample_count, stft_options)
+    center_sample = min(int(clipped_norm * sample_count), sample_count - 1)
+    start_sample = max(0, center_sample - window_size // 2)
+    end_sample = min(sample_count, start_sample + window_size)
+    start_sample = max(0, end_sample - window_size)
+    frame = wd.read(
+        target,
+        channel=channel_index,
+        start=start_sample / sample_rate,
+        end=end_sample / sample_rate,
+    )
+    spectrum = frame.fft(n_fft=window_size, window=window_name)
+    max_frequency_hz = float(spectrum.freqs[-1])
     values = np.asarray(spectrum.dB, dtype=np.float64)
     if values.ndim == 2:
-        values = values[channel_index]
+        values = values[0]
     values_2d = _resample_frequency_bins(values.reshape(1, -1), SPECTROGRAM_FREQUENCY_BIN_LIMIT)
     row = values_2d[0]
     return {
@@ -147,16 +133,15 @@ def _spectrum_slice_values(
 
 def handle_spectrum_slice(cmd: dict) -> dict:
     file_path = str(cmd["filePath"])
-    cached = _engine.get_file(file_path)
     cursor_norm = float(cmd.get("cursorNorm", cmd.get("trackLocalNorm", 0.0)))
     channel_index = int(cmd.get("channelIndex", 0))
-    slice_data = _spectrum_slice_values(cached.path, cursor_norm, channel_index, _stft_options_from_payload(cmd))
+    slice_data = _spectrum_slice_values(file_path, cursor_norm, channel_index, _stft_options_from_payload(cmd))
     return {
         "trackIndex": int(cmd.get("trackIndex", -1)),
         "channelIndex": channel_index,
         "analysisId": cmd.get("analysisId"),
         "settingsSignature": cmd.get("settingsSignature"),
-        "filePath": str(cached.path),
+        "filePath": str(Path(file_path).expanduser().resolve()),
         **slice_data,
     }
 
@@ -167,42 +152,7 @@ def handle_range(cmd: dict) -> dict:
     end_norm = float(cmd["endNorm"])
     point_count = int(cmd.get("points", 2000))
 
-    cached = _engine.get_file(file_path)
-    sample_count = cached.frame.n_samples
-    start_idx = max(0, int(start_norm * sample_count))
-    end_idx = min(sample_count, int(end_norm * sample_count))
-
-    channels: list[dict] = []
-    if end_idx > start_idx:
-        with sf.SoundFile(cached.path) as audio_file:
-            audio_file.seek(start_idx)
-            is_wav = cached.path.suffix.lower() in {".wav", ".wave"}
-            dtype = (
-                "int16"
-                if is_wav and audio_file.subtype == "PCM_16"
-                else "int32"
-                if is_wav
-                and audio_file.subtype
-                in {
-                    "PCM_24",
-                    "PCM_32",
-                }
-                else "float64"
-            )
-            data = audio_file.read(end_idx - start_idx, dtype=dtype, always_2d=True).T
-            if is_wav and audio_file.subtype == "PCM_U8":
-                data = data * 128.0 + 128.0
-        for ch_idx in range(cached.frame.n_channels):
-            channels.append(
-                _build_waveform_envelope(
-                    data[ch_idx],
-                    point_count,
-                    start_sample=start_idx,
-                    total_samples=sample_count,
-                )
-            )
-
-    return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
+    return analyze_range(file_path, start_norm, end_norm, point_count)
 
 
 def handle_export_wav_loop(cmd: dict) -> dict:
@@ -210,19 +160,21 @@ def handle_export_wav_loop(cmd: dict) -> dict:
     start_norm = float(cmd["startNorm"])
     end_norm = float(cmd["endNorm"])
 
-    cached = _engine.get_file(file_path)
-    sample_rate = int(cached.frame.sampling_rate)
-    start_sample = max(0, int(start_norm * cached.frame.n_samples))
-    end_sample = min(cached.frame.n_samples, int(end_norm * cached.frame.n_samples))
+    target = Path(file_path).expanduser().resolve()
+    with sf.SoundFile(target) as audio_file:
+        sample_rate = audio_file.samplerate
+        sample_count = len(audio_file)
+    start_sample = max(0, int(start_norm * sample_count))
+    end_sample = min(sample_count, int(end_norm * sample_count))
     n_frames = end_sample - start_sample
 
     if n_frames <= 0:
         raise ValueError(
             f"Loop region produces 0 frames (startNorm={start_norm}, endNorm={end_norm}, "
-            f"total_frames={cached.frame.n_samples}). Ensure startNorm < endNorm and the file is not empty."
+            f"total_frames={sample_count}). Ensure startNorm < endNorm and the file is not empty."
         )
 
-    with sf.SoundFile(cached.path) as audio_file:
+    with sf.SoundFile(target) as audio_file:
         audio_file.seek(start_sample)
         data = audio_file.read(n_frames, dtype="float32", always_2d=True)
 

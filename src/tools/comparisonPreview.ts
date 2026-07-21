@@ -176,7 +176,7 @@ function buildResultsPreviewHtmlInternal(options?: {
                         label: 'L',
                         rms: 0.24,
                         peakAbsolute: 0.96,
-                        dominantFrequencies: [],
+                        peaks: [],
                         waveform: buildDummyWaveform(96, 0.08),
                         spectrogram: {
                             values: buildDummySpectrogram(64, 32, 0.1),

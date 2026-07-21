@@ -48,6 +48,7 @@ test('isRequestTrackDetailMessage accepts lazy spectrogram detail requests', () 
         settingsSignature: 'settings-1',
         trackIndex: 0,
         filePath: '/tmp/a.wav',
+        stftOptions: null,
     }), true);
     assert.equal(isRequestTrackDetailMessage({
         type: 'request-track-detail',
@@ -56,6 +57,7 @@ test('isRequestTrackDetailMessage accepts lazy spectrogram detail requests', () 
         settingsSignature: 'settings-1',
         trackIndex: '0',
         filePath: '/tmp/a.wav',
+        stftOptions: null,
     }), false);
 });
 
@@ -69,6 +71,7 @@ test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () 
         filePath: '/tmp/a.wav',
         cursorNorm: 0.25,
         channelIndex: 1,
+        stftOptions: { nFft: 1024, hopSize: 256, window: 'hann' },
     }), true);
     assert.equal(isRequestSpectrumSliceMessage({
         type: 'request-spectrum-slice',
@@ -79,6 +82,7 @@ test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () 
         filePath: '/tmp/a.wav',
         cursorNorm: '0.25',
         channelIndex: 1,
+        stftOptions: null,
     }), false);
     assert.equal(isRequestSpectrumSliceMessage({
         type: 'request-spectrum-slice',
@@ -89,5 +93,6 @@ test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () 
         filePath: '/tmp/a.wav',
         cursorNorm: 0.25,
         channelIndex: '1',
+        stftOptions: null,
     }), false);
 });

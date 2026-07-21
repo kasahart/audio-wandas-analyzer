@@ -54,15 +54,8 @@ def main() -> int:
 
             _perf("import_analyzer", t_imp)
 
-            stft_options = None
-            if args.stft_n_fft is not None and args.stft_hop is not None:
-                stft_options = {
-                    "n_fft": args.stft_n_fft,
-                    "hop_size": args.stft_hop,
-                    "window": args.stft_window or "hann",
-                }
             t_an = time.perf_counter()
-            result = analyze_audio(args.file, peak_count=args.peaks, stft_options=stft_options)
+            result = analyze_audio(args.file, peak_count=args.peaks)
             _perf("analyze_audio_total", t_an)
     except Exception as error:
         print(str(error), file=sys.stderr)

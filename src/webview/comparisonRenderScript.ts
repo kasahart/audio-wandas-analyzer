@@ -313,6 +313,11 @@ export function getComparisonRenderScript(): string {
                 } catch (e) { return 'spectrum-data-settings'; }
             }
 
+            function currentStftOptions() {
+                const settings = __spectrogramSettings || {};
+                return settings.auto ? null : Object.assign({}, settings.stft);
+            }
+
             function channelsForResult(result) {
                 return result && Array.isArray(result.channels) ? result.channels : [];
             }
@@ -370,8 +375,8 @@ export function getComparisonRenderScript(): string {
             }
 
             function channelDominantFrequencyLabel(channel) {
-                return channel && channel.dominantFrequencies && channel.dominantFrequencies[0]
-                    ? Math.round(channel.dominantFrequencies[0].frequencyHz) + ' Hz'
+                return channel && channel.peaks && channel.peaks[0]
+                    ? Math.round(channel.peaks[0].freqHz) + ' Hz'
                     : '—';
             }
 
@@ -404,6 +409,7 @@ export function getComparisonRenderScript(): string {
                     settingsSignature: settingsSignature,
                     trackIndex: i,
                     filePath: result.filePath,
+                    stftOptions: currentStftOptions(),
                 });
             }
 
@@ -478,6 +484,7 @@ export function getComparisonRenderScript(): string {
                     filePath: result.filePath,
                     cursorNorm: localNorm,
                     channelIndex: channelIndex,
+                    stftOptions: currentStftOptions(),
                 });
             }
 
@@ -4655,13 +4662,21 @@ export function getComparisonRenderScript(): string {
             });
 
             document.getElementById('spec-reset').addEventListener('click', function() {
+                const previousDataSignature = currentSpectrumDataSignature();
                 __spectrogramSettings = { auto: true, stft: { nFft: 1024, hopSize: 256, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
                 __syncSpecFormFromState();
                 vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+                if (previousDataSignature !== currentSpectrumDataSignature()) {
+                    state.results.forEach(function(_result, index) { releaseTrackDetail(index); });
+                    if (contentType === 'spectrogram') {
+                        state.results.forEach(function(_result, index) { requestTrackDetail(index); });
+                    }
+                }
                 scheduleRender();
             });
 
             document.getElementById('spec-apply').addEventListener('click', function() {
+                const previousDataSignature = currentSpectrumDataSignature();
                 __spectrogramSettings = {
                     auto: document.getElementById('spec-auto').checked,
                     stft: {
@@ -4671,8 +4686,15 @@ export function getComparisonRenderScript(): string {
                     },
                     display: __readDisplayFromForm()
                 };
-                __setReanalyzeBusy(true, STR.reanalyzingStft);
-                vscode.postMessage({ type: 'request-reanalyze', settings: __spectrogramSettings });
+                vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+                if (previousDataSignature !== currentSpectrumDataSignature()) {
+                    state.results.forEach(function(_result, index) { releaseTrackDetail(index); });
+                    if (contentType === 'spectrogram') {
+                        state.results.forEach(function(_result, index) { requestTrackDetail(index); });
+                    }
+                }
+                scheduleRender();
+                scheduleSpectrumRefresh('immediate');
                 __closeSpecPopover();
             });
 

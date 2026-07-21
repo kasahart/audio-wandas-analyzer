@@ -6,12 +6,13 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.26",
     "scipy>=1.10",
-    "wandas[psychoacoustic]>=0.5.0,<0.6.0",
+    "wandas==0.6.1",
     "soundfile>=0.12",
 ]
 
 [project.optional-dependencies]
 dev = [
+    "wandas[psychoacoustic]==0.6.1",
     "ruff>=0.6",
     "pytest>=8.0",
 ]

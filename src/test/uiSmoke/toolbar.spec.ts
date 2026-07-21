@@ -57,7 +57,7 @@ test('results toolbar posts VS Code messages for recipe run and report export', 
     ]);
 });
 
-test('spectrogram settings apply posts a reanalyze request', async ({ page }) => {
+test('spectrogram settings apply refreshes detail without reanalyzing summaries', async ({ page }) => {
     await loadUi(page);
 
     await page.locator('[data-action="content-spectrogram"]').click({ force: true });
@@ -67,7 +67,16 @@ test('spectrogram settings apply posts a reanalyze request', async ({ page }) =>
     await page.locator('#spec-auto').uncheck();
     await page.locator('#spec-nfft').selectOption('1024');
     await page.locator('#spec-hop').fill('256');
+    await page.locator('#spec-window').selectOption('hann');
     await page.locator('#spec-apply').click({ force: true });
 
-    expect((await getPostedActionTypes(page)).at(-1)).toBe('request-reanalyze');
+    const messages = await page.evaluate(() => (window as any).__uiSmokePostedMessages || []);
+    expect(messages.some((message: any) => message.type === 'request-reanalyze')).toBe(false);
+    expect(messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'update-spectrogram-settings' }),
+        expect.objectContaining({
+            type: 'request-track-detail',
+            stftOptions: { nFft: 1024, hopSize: 256, window: 'hann' },
+        }),
+    ]));
 });

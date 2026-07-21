@@ -205,7 +205,7 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
 
     const messages = await getPostedMessages(page);
     expect(messages).toEqual(expect.arrayContaining([
-        expect.objectContaining({ type: 'request-reanalyze' }),
+        expect.objectContaining({ type: 'update-spectrogram-settings' }),
         expect.objectContaining({ type: 'export-report-options' }),
     ]));
 });

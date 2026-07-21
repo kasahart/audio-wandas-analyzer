@@ -9,7 +9,8 @@ import pytest
 import soundfile as sf
 import wandas as wd
 
-from analyzer import _build_spectrogram, analyze_audio, analyze_from_frame, analyze_range
+from analyzer import _build_spectrogram, analyze_audio, analyze_from_frame, analyze_track_detail
+from range_analyzer import analyze_range
 
 
 def _mean_power_db(values_db: list[float]) -> float:
@@ -31,9 +32,7 @@ def test_analyze_audio_defaults(tmp_path: Path) -> None:
     _write_sine_wav(wav)
     result = analyze_audio(wav)
     ch = result["channels"][0]
-    spec = ch["spectrogram"]
-    assert spec["windowSize"] > 0
-    assert spec["hopSize"] > 0
+    assert ch["spectrogram"] is None
     assert ch["unit"] is None
     assert result["units"]["spectrumLevel"] == {"unit": "dB", "axisLabel": "Spectrum level [dB]"}
     assert result["units"]["spectrogramLevel"] == {"unit": "dB", "axisLabel": "Spectrum level [dB]"}
@@ -47,7 +46,7 @@ def test_analyze_from_frame_includes_channel_unit(tmp_path: Path) -> None:
         ch_units=["Pa"],
     )
 
-    result = analyze_from_frame(frame, tmp_path / "pressure.wav", include_spectrogram=False)
+    result = analyze_from_frame(frame, tmp_path / "pressure.wav")
 
     assert result["channels"][0]["unit"] == "Pa"
     assert result["channels"][0]["waveform"]["absolutePeak"] == pytest.approx(0.5)
@@ -59,6 +58,49 @@ def test_analyze_from_frame_defaults_to_summary_without_spectrogram(tmp_path: Pa
     assert result["channels"][0]["spectrogram"] is None
 
 
+def test_analyze_from_frame_materializes_source_data_once(tmp_path: Path) -> None:
+    class SourceFrame:
+        n_channels = 1
+        n_samples = 1024
+        sampling_rate = 1024
+        labels = ["mono"]
+        channels: list[object] = []
+        data_reads = 0
+
+        @property
+        def data(self) -> np.ndarray:
+            self.data_reads += 1
+            time_axis = np.arange(self.n_samples) / self.sampling_rate
+            return 0.5 * np.sin(2 * math.pi * 128 * time_axis)
+
+        @property
+        def rms(self) -> np.ndarray:
+            raise AssertionError("source rms must not be evaluated")
+
+        def fft(self) -> object:
+            raise AssertionError("source fft must not be called")
+
+    source = SourceFrame()
+    result = analyze_from_frame(source, tmp_path / "source.wav")  # type: ignore[arg-type]
+
+    assert source.data_reads == 1
+    assert result["channels"][0]["rms"] == pytest.approx(0.5 / math.sqrt(2), rel=0.01)
+    assert result["channels"][0]["peaks"][0]["freqHz"] == pytest.approx(128.0)
+
+
+def test_analyze_from_frame_rejects_sample_first_stereo_shape(tmp_path: Path) -> None:
+    class TransposedFrame:
+        n_channels = 2
+        n_samples = 8
+        sampling_rate = 8
+        labels = ["left", "right"]
+        channels: list[object] = []
+        data = np.zeros((8, 2))
+
+    with pytest.raises(ValueError, match="channel-first"):
+        analyze_from_frame(TransposedFrame(), tmp_path / "transposed.wav")  # type: ignore[arg-type]
+
+
 def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: Path) -> None:
     sample_rate = 1024
     sample_count = 1024
@@ -67,24 +109,14 @@ def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: 
     time = np.arange(sample_count, dtype=np.float64) / sample_rate
     samples = amplitude * np.sin(2 * math.pi * frequency_hz * time)
     frame = wd.ChannelFrame.from_numpy(samples, sampling_rate=sample_rate)
-    spectrogram = frame.stft(n_fft=256, hop_length=128, window="boxcar")
-
-    result = analyze_from_frame(
-        frame,
-        tmp_path / "sine.wav",
-        peak_count=3,
-        stft_options={"n_fft": 256, "hop_size": 128, "window": "boxcar"},
-        spectrogram_frame=spectrogram,
-        include_spectrogram=True,
-    )
+    result = analyze_from_frame(frame, tmp_path / "sine.wav", peak_count=3)
 
     expected_db = 20 * math.log10(amplitude)
     channel = result["channels"][0]
     matching_peaks = [peak for peak in channel["peaks"] if peak["freqHz"] == pytest.approx(frequency_hz, abs=0.2)]
     assert matching_peaks
     assert matching_peaks[0]["amplitudeDb"] == pytest.approx(expected_db, abs=0.01)
-    assert channel["spectrogram"]["maxDb"] == pytest.approx(expected_db, abs=0.01)
-    assert channel["spectrogram"]["axisLabel"] == "Spectrum level [dB]"
+    assert channel["spectrogram"] is None
 
 
 def test_analyze_range_uses_same_pcm_scale_as_overview(tmp_path: Path) -> None:
@@ -95,8 +127,7 @@ def test_analyze_range_uses_same_pcm_scale_as_overview(tmp_path: Path) -> None:
     range_result = analyze_range(wav, 0.25, 0.75, point_count=128)
     range_waveform = range_result["channels"][0]
 
-    assert overview["absolutePeak"] > 1000
-    assert range_waveform["absolutePeak"] > 1000
+    assert overview["absolutePeak"] == pytest.approx(0.5, rel=0.01)
     assert range_waveform["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
     assert min(range_waveform["minT"]) >= 0.24
     assert max(range_waveform["maxT"]) <= 0.76
@@ -121,13 +152,14 @@ def test_analyze_audio_accepts_flac_from_supported_ui_formats(tmp_path: Path) ->
 def test_analyze_audio_with_stft_options(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
-    result = analyze_audio(
+    result = analyze_track_detail(
         wav,
         stft_options={"n_fft": 512, "hop_size": 128, "window": "hamming"},
     )
     spec = result["channels"][0]["spectrogram"]
     assert spec["windowSize"] == 512
     assert spec["hopSize"] == 128
+    assert set(result["channels"][0]) == {"spectrogram"}
 
 
 def test_spectrogram_time_reduction_averages_linear_power() -> None:
@@ -193,9 +225,9 @@ def test_analyze_audio_rejects_bad_options(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     with pytest.raises(ValueError):
-        analyze_audio(wav, stft_options={"n_fft": 0, "hop_size": 1, "window": "hann"})
+        analyze_track_detail(wav, stft_options={"n_fft": 0, "hop_size": 1, "window": "hann"})
     with pytest.raises(ValueError):
-        analyze_audio(wav, stft_options={"n_fft": 256, "hop_size": 512, "window": "hann"})
+        analyze_track_detail(wav, stft_options={"n_fft": 256, "hop_size": 512, "window": "hann"})
 
 
 def test_analyze_audio_peaks_contains_440hz(tmp_path: Path) -> None:

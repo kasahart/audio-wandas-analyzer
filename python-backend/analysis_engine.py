@@ -42,7 +42,12 @@ class AnalysisEngine:
         if cached is not None and cached.identity == identity:
             self._files.move_to_end(path)
             return cached
-        frame = wd.read(path).persist()
+        source = wd.read(path)
+        frame = wd.from_numpy(
+            np.asarray(source.data, dtype=np.float64),
+            sampling_rate=source.sampling_rate,
+            ch_labels=list(source.labels),
+        )
         cached = CachedAnalysis(
             path=path,
             frame=frame,
@@ -64,7 +69,7 @@ class AnalysisEngine:
         key = (n_fft, hop_length, window)
         spectrogram = cached.spectrograms.get(key)
         if spectrogram is None:
-            spectrogram = cached.frame.stft(n_fft=n_fft, hop_length=hop_length, window=window).persist()
+            spectrogram = cached.frame.stft(n_fft=n_fft, hop_length=hop_length, window=window)
             cached.spectrograms[key] = spectrogram
             cached.spectrogram_nbytes[key] = int(np.prod(spectrogram.shape)) * np.dtype(np.complex128).itemsize
             self._evict(cached.path)

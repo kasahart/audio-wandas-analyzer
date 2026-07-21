@@ -475,7 +475,7 @@ function registerPanelMessageHandler(
                         trackIndex: req.trackIndex,
                         analysisId: req.analysisId,
                         settingsSignature: req.settingsSignature,
-                        stftOptions: loadPersistedStftOptions(context),
+                        stftOptions: req.stftOptions ?? undefined,
                     },
                     req.requestId,
                 ).then((result) => {
@@ -517,7 +517,7 @@ function registerPanelMessageHandler(
                         settingsSignature: req.settingsSignature,
                         cursorNorm: req.cursorNorm,
                         channelIndex: req.channelIndex,
-                        stftOptions: loadPersistedStftOptions(context),
+                        stftOptions: req.stftOptions ?? undefined,
                     },
                     req.requestId,
                 ).then((result) => {

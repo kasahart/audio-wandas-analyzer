@@ -50,6 +50,8 @@ def _channels_first(data: np.ndarray, channel_count: int, sample_count: int) -> 
     array = np.asarray(data, dtype=np.float64)
 
     if array.ndim == 1:
+        if channel_count != 1 or array.shape[0] != sample_count:
+            raise ValueError(f"Expected mono data with {sample_count} samples, got shape {array.shape}")
         return array.reshape(1, -1)
 
     if array.ndim != 2:
@@ -58,40 +60,7 @@ def _channels_first(data: np.ndarray, channel_count: int, sample_count: int) -> 
     if array.shape == (channel_count, sample_count):
         return array
 
-    if array.shape == (sample_count, channel_count):
-        return array.T
-
-    if channel_count == 1:
-        return array.reshape(1, -1)
-
-    raise ValueError(
-        "Could not infer channel orientation from audio data shape "
-        f"{array.shape} with channel_count={channel_count} and sample_count={sample_count}"
-    )
-
-
-def _dominant_frequencies(
-    magnitudes: np.ndarray,
-    freqs: np.ndarray,
-    peak_count: int,
-) -> list[dict[str, float]]:
-    if magnitudes.size <= 1 or freqs.size != magnitudes.size:
-        return []
-
-    magnitudes = np.asarray(magnitudes, dtype=np.float64).copy()
-    freqs = np.asarray(freqs, dtype=np.float64)
-    magnitudes[0] = 0.0
-    candidate_count = min(peak_count, magnitudes.size)
-    top_indices = np.argpartition(magnitudes, -candidate_count)[-candidate_count:]
-    sorted_indices = top_indices[np.argsort(magnitudes[top_indices])[::-1]]
-
-    return [
-        {
-            "frequencyHz": float(freqs[index]),
-            "magnitude": float(magnitudes[index]),
-        }
-        for index in sorted_indices
-    ]
+    raise ValueError(f"Expected channel-first shape {(channel_count, sample_count)}, got {array.shape}")
 
 
 def _spectrum_peaks(
@@ -226,37 +195,6 @@ def _build_spectrogram(
     }
 
 
-def analyze_range(
-    file_path: str | Path,
-    start_norm: float,
-    end_norm: float,
-    point_count: int = 2000,
-) -> dict[str, object]:
-    frame, _target = load_audio_frame(file_path)
-    channel_count = int(frame.n_channels)
-    sample_count = int(frame.n_samples)
-    data = _channels_first(frame.data, channel_count, sample_count)
-    start_idx = max(0, int(start_norm * sample_count))
-    end_idx = min(sample_count, int(end_norm * sample_count))
-
-    if end_idx <= start_idx:
-        return {"startNorm": start_norm, "endNorm": end_norm, "channels": []}
-
-    channels: list[dict[str, object]] = []
-    for ch_idx in range(channel_count):
-        ch_slice = data[ch_idx, start_idx:end_idx]
-        channels.append(
-            _build_waveform_envelope(
-                ch_slice,
-                point_count,
-                start_sample=start_idx,
-                total_samples=sample_count,
-            )
-        )
-
-    return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
-
-
 _ALLOWED_WINDOWS = {"hann", "hamming", "blackman", "boxcar"}
 
 
@@ -299,10 +237,6 @@ def analyze_from_frame(
     frame: wd.ChannelFrame,
     file_path: str | Path,
     peak_count: int = 5,
-    *,
-    stft_options: dict | None = None,
-    spectrogram_frame: wd.SpectrogramFrame | None = None,
-    include_spectrogram: bool = False,
 ) -> dict[str, object]:
     """Build the AnalysisResult JSON payload from a ChannelFrame."""
     peak_count = max(0, int(peak_count))  # guard against negative/zero from user config
@@ -312,38 +246,28 @@ def analyze_from_frame(
     sample_count = int(frame.n_samples)
     sample_rate_hz = int(frame.sampling_rate)
     labels = list(frame.labels)
+    units = [_channel_unit(frame, index) for index in range(channel_count)]
     data = _channels_first(np.asarray(frame.data), channel_count, sample_count)
-    rms_values = np.asarray(frame.rms, dtype=np.float64)
+    memory_frame = wd.from_numpy(data, sampling_rate=sample_rate_hz, ch_labels=labels)
+    rms_values = np.asarray(memory_frame.rms, dtype=np.float64)
     _perf("read_frame", t_frame, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
 
     t_fft = time.perf_counter()
-    fft = frame.fft()
+    fft = memory_frame.fft()
     fft_freqs = np.asarray(fft.freqs, dtype=np.float64)
     fft_magnitudes = _channels_first(np.asarray(fft.magnitude), channel_count, fft_freqs.size)
     _perf("fft", t_fft, bins=fft_freqs.size)
-
-    window_size, hop_size, window_name = _resolve_stft_params(sample_count, stft_options)
-    stft_db: np.ndarray | None = None
-    if include_spectrogram:
-        if spectrogram_frame is None:
-            raise ValueError("spectrogram_frame is required when include_spectrogram is true")
-        stft_db = np.asarray(spectrogram_frame.dB, dtype=np.float64)
 
     t_channels = time.perf_counter()
     channels: list[dict[str, object]] = []
     for index in range(channel_count):
         samples = data[index]
-        spectrogram = None
-        if stft_db is not None:
-            spectrogram_db = np.transpose(stft_db[index], (1, 0))
-            spectrogram = _build_spectrogram(spectrogram_db, sample_rate_hz, window_size, hop_size)
         channels.append(
             {
                 "label": labels[index] if index < len(labels) else f"Channel {index + 1}",
-                "unit": _channel_unit(frame, index),
+                "unit": units[index],
                 "rms": float(rms_values[index]),
                 "peakAbsolute": float(np.max(np.abs(samples))),
-                "dominantFrequencies": _dominant_frequencies(fft_magnitudes[index], fft_freqs, peak_count),
                 "peaks": _spectrum_peaks(fft_magnitudes[index], fft_freqs, peak_count),
                 "waveform": _build_waveform_envelope(
                     samples,
@@ -351,7 +275,7 @@ def analyze_from_frame(
                     start_sample=0,
                     total_samples=sample_count,
                 ),
-                "spectrogram": spectrogram,
+                "spectrogram": None,
             }
         )
 
@@ -361,7 +285,7 @@ def analyze_from_frame(
         "filePath": str(target),
         "fileName": target.name,
         "sampleRateHz": sample_rate_hz,
-        "durationSeconds": float(frame.duration),
+        "durationSeconds": float(sample_count / sample_rate_hz),
         "channelCount": channel_count,
         "sampleCount": sample_count,
         "units": _analysis_units_metadata(),
@@ -372,20 +296,32 @@ def analyze_from_frame(
 def analyze_audio(
     file_path: str | Path,
     peak_count: int = 5,
+) -> dict[str, object]:
+    frame, target = load_audio_frame(file_path)
+    return analyze_from_frame(frame, target, peak_count=peak_count)
+
+
+def analyze_track_detail(
+    file_path: str | Path,
     *,
     stft_options: dict | None = None,
 ) -> dict[str, object]:
     frame, target = load_audio_frame(file_path)
     window_size, hop_size, window_name = _resolve_stft_params(frame.n_samples, stft_options)
     spectrogram = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
-    return analyze_from_frame(
-        frame,
-        target,
-        peak_count=peak_count,
-        stft_options=stft_options,
-        spectrogram_frame=spectrogram,
-        include_spectrogram=True,
-    )
+    stft_db = np.asarray(spectrogram.dB, dtype=np.float64)
+    channels = [
+        {
+            "spectrogram": _build_spectrogram(
+                np.transpose(stft_db[index], (1, 0)),
+                int(frame.sampling_rate),
+                window_size,
+                hop_size,
+            )
+        }
+        for index in range(int(frame.n_channels))
+    ]
+    return {"filePath": str(target), "channels": channels}
 
 
 def load_audio_frame(file_path: str | Path) -> tuple[wd.ChannelFrame, Path]:

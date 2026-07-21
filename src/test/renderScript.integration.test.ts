@@ -43,7 +43,7 @@ const DUMMY_APP_STATE = JSON.stringify({
                 label: 'L',
                 rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
+                peaks: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -65,7 +65,7 @@ const DUMMY_APP_STATE = JSON.stringify({
                 label: 'L',
                 rms: 0.2,
                 peakAbsolute: 0.7,
-                dominantFrequencies: [],
+                peaks: [],
                 waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -94,7 +94,6 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
                     label: 'Left',
                     rms: 0.1,
                     peakAbsolute: 0.5,
-                    dominantFrequencies: [{ frequencyHz: 440, magnitude: 1 }],
                     peaks: [{ freqHz: 440, amplitudeDb: -12 }],
                     waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                     spectrogram: {
@@ -107,7 +106,6 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
                     label: 'Right',
                     rms: 0.8,
                     peakAbsolute: 0.95,
-                    dominantFrequencies: [{ frequencyHz: 880, magnitude: 1 }],
                     peaks: [{ freqHz: 880, amplitudeDb: -3 }],
                     waveform: { min: [-0.95], max: [0.95], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.95 },
                     spectrogram: {
@@ -158,7 +156,7 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
                 label: 'L',
                 rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
+                peaks: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -194,7 +192,7 @@ const DUMMY_SELECTION_WITH_B_RESULT_STATE = JSON.stringify({
                 label: 'L',
                 rms: 0.2,
                 peakAbsolute: 0.7,
-                dominantFrequencies: [],
+                peaks: [],
                 waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -740,7 +738,7 @@ test('directory selection mode keeps existing track color stable when a new earl
                         label: 'L',
                         rms: 0.1,
                         peakAbsolute: 0.5,
-                        dominantFrequencies: [],
+                        peaks: [],
                         waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                         spectrogram: {
                             values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -762,7 +760,7 @@ test('directory selection mode keeps existing track color stable when a new earl
                         label: 'L',
                         rms: 0.2,
                         peakAbsolute: 0.7,
-                        dominantFrequencies: [],
+                        peaks: [],
                         waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
                         spectrogram: {
                             values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -1001,6 +999,29 @@ test('renderScript: display-only spectrogram changes do not request fresh track 
 
     const requestCountAfter = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail').length;
     assert.equal(requestCountAfter, requestCountBefore, 'display-only settings should not invalidate pending track-detail requests');
+    env.dom.window.close();
+});
+
+test('renderScript: STFT settings refresh detail without replacing summary results', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const specButton = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement;
+    specButton.click();
+    await nextAnimationFrame(env.dom);
+
+    (env.dom.window.document.querySelector('[data-action="spectrogram-settings"]') as HTMLButtonElement).click();
+    (env.dom.window.document.getElementById('spec-auto') as HTMLInputElement).checked = false;
+    (env.dom.window.document.getElementById('spec-nfft') as HTMLSelectElement).value = '1024';
+    (env.dom.window.document.getElementById('spec-hop') as HTMLInputElement).value = '256';
+    (env.dom.window.document.getElementById('spec-apply') as HTMLButtonElement).click();
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
+
+    assert.equal(env.postedMessages.some((msg: any) => msg.type === 'request-reanalyze'), false);
+    assert.ok(env.postedMessages.some((msg: any) => msg.type === 'update-spectrogram-settings'));
+    const detailRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
+    assert.ok(detailRequests.length >= 2);
+    assert.deepEqual(JSON.parse(JSON.stringify(detailRequests.at(-1).stftOptions)), { nFft: 1024, hopSize: 256, window: 'hann' });
+    assert.equal(JSON.parse(makeLazySpectrogramState()).results[0].filePath, '/tmp/a.wav');
     env.dom.window.close();
 });
 
@@ -1304,7 +1325,7 @@ const SPECTRUM_APP_STATE = JSON.stringify({
             label: 'L',
             rms: 0.1,
             peakAbsolute: 0.5,
-            dominantFrequencies: [],
+            peaks: [],
             waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
             spectrogram: {
                 values: [
@@ -1341,7 +1362,7 @@ const REAL_SCALE_AXIS_APP_STATE = JSON.stringify({
                 label: 'L',
                 rms: 1024,
                 peakAbsolute: 16383,
-                dominantFrequencies: [],
+                peaks: [],
                 unit: null,
                 waveform: { min: [-16383], max: [16383], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 16383 },
                 spectrogram: null,
@@ -1360,7 +1381,7 @@ const REAL_SCALE_AXIS_APP_STATE = JSON.stringify({
                 label: 'L',
                 rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
+                peaks: [],
                 unit: 'Pa',
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: null,
@@ -1386,7 +1407,7 @@ const HIGH_FREQUENCY_READOUT_STATE = JSON.stringify({
                 label: 'L',
                 rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
+                peaks: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[-80, -60, -40, -20]],
@@ -1420,7 +1441,7 @@ const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
                 label: 'L',
                 rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
+                peaks: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[-80, -60, -40, -20]],
@@ -1447,7 +1468,7 @@ const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
                 label: 'L',
                 rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
+                peaks: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[-20, -35, -50, -65, -80, -85]],

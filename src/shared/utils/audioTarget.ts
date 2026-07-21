@@ -81,6 +81,7 @@ export interface TrackDetailRequest {
     settingsSignature: string;
     trackIndex: number;
     filePath: string;
+    stftOptions: import('../analysis/analysisTypes').StftOptions | null;
 }
 
 export function isRequestTrackDetailMessage(message: unknown): message is TrackDetailRequest {
@@ -94,7 +95,8 @@ export function isRequestTrackDetailMessage(message: unknown): message is TrackD
         typeof m['analysisId'] === 'string' &&
         typeof m['settingsSignature'] === 'string' &&
         typeof m['trackIndex'] === 'number' &&
-        typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0
+        typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0 &&
+        isStftOptionsOrNull(m['stftOptions'])
     );
 }
 
@@ -107,6 +109,7 @@ export interface SpectrumSliceRequest {
     filePath: string;
     cursorNorm: number;
     channelIndex: number;
+    stftOptions: import('../analysis/analysisTypes').StftOptions | null;
 }
 
 export function isRequestSpectrumSliceMessage(message: unknown): message is SpectrumSliceRequest {
@@ -122,8 +125,17 @@ export function isRequestSpectrumSliceMessage(message: unknown): message is Spec
         typeof m['trackIndex'] === 'number' &&
         typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0 &&
         typeof m['cursorNorm'] === 'number' &&
-        typeof m['channelIndex'] === 'number'
+        typeof m['channelIndex'] === 'number' &&
+        isStftOptionsOrNull(m['stftOptions'])
     );
+}
+
+function isStftOptionsOrNull(value: unknown): boolean {
+    if (value === null) { return true; }
+    if (!value || typeof value !== 'object') { return false; }
+    const options = value as Record<string, unknown>;
+    return Number.isInteger(options['nFft']) && Number.isInteger(options['hopSize']) &&
+        ['hann', 'hamming', 'blackman', 'boxcar'].includes(String(options['window']));
 }
 
 export interface TrackDetailReleaseMessage {
