@@ -72,15 +72,8 @@ const panelDirectorySelections = new WeakMap<vscode.WebviewPanel, {
 let backendServer: PythonBackendServer | null = null;
 let perfChannel: vscode.OutputChannel | null = null;
 
-function getPerfChannel(): vscode.OutputChannel {
-    if (!perfChannel) {
-        perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
-    }
-    return perfChannel;
-}
-
 function logPerf(line: string): void {
-    getPerfChannel().appendLine(line);
+    perfChannel?.appendLine(line);
 }
 
 interface AnalyzeTargetOptions {
@@ -95,7 +88,10 @@ export function activate(context: vscode.ExtensionContext): void {
         title: 'Analyze File or Folder',
     };
     welcomeDropTarget.iconPath = new vscode.ThemeIcon('new-file');
-    backendServer = new PythonBackendServer(context.extensionPath, (line) => logPerf(`[py] ${line.slice(7)}`));
+    perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
+    backendServer = new PythonBackendServer(context.extensionPath, (line) => {
+        if (perfChannel) { logPerf(`[py] ${line.slice(7)}`); }
+    });
     context.subscriptions.push({ dispose: () => { backendServer?.dispose(); backendServer = null; } });
     context.subscriptions.push({ dispose: () => { perfChannel?.dispose(); perfChannel = null; } });
     const pythonStatusBarItem = vscode.window.createStatusBarItem(

@@ -309,6 +309,16 @@ def analyze_track_detail(
     frame, target = load_audio_frame(file_path)
     window_size, hop_size, window_name = _resolve_stft_params(frame.n_samples, stft_options)
     spectrogram = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
+    return build_track_detail(frame, target, spectrogram, window_size, hop_size)
+
+
+def build_track_detail(
+    frame: wd.ChannelFrame,
+    file_path: str | Path,
+    spectrogram: wd.SpectrogramFrame,
+    window_size: int,
+    hop_size: int,
+) -> dict[str, object]:
     stft_db = np.asarray(spectrogram.dB, dtype=np.float64)
     channels = [
         {
@@ -321,7 +331,7 @@ def analyze_track_detail(
         }
         for index in range(int(frame.n_channels))
     ]
-    return {"filePath": str(target), "channels": channels}
+    return {"filePath": str(file_path), "channels": channels}
 
 
 def load_audio_frame(file_path: str | Path) -> tuple[wd.ChannelFrame, Path]:

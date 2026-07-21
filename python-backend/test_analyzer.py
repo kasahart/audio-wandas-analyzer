@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import math
+import subprocess
+import sys
 import wave
 from pathlib import Path
 
@@ -160,6 +163,33 @@ def test_analyze_audio_with_stft_options(tmp_path: Path) -> None:
     assert spec["windowSize"] == 512
     assert spec["hopSize"] == 128
     assert set(result["channels"][0]) == {"spectrogram"}
+
+
+def test_main_cli_stft_options_populate_spectrogram(tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parent / "main.py"),
+            "--file",
+            str(wav),
+            "--stft-n-fft",
+            "512",
+            "--stft-hop",
+            "128",
+            "--stft-window",
+            "hamming",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["channels"][0]["spectrogram"]["windowSize"] == 512
+    assert result["channels"][0]["spectrogram"]["hopSize"] == 128
 
 
 def test_spectrogram_time_reduction_averages_linear_power() -> None:

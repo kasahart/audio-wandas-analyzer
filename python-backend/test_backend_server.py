@@ -130,20 +130,23 @@ def test_analyze_round_trip_accepts_flac_from_supported_ui_formats(server: _Serv
     assert resp["channels"][0]["spectrogram"] is None
 
 
-def test_analyze_uses_summary_analyzer_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
+def test_analyze_uses_cached_frame_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
     import backend_server
 
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    monkeypatch.setattr(backend_server, "_engine", engine)
     monkeypatch.setattr(
         backend_server,
-        "analyze_audio",
-        lambda path, **_kwargs: {"filePath": str(Path(path).resolve()), "channels": []},
+        "analyze_from_frame",
+        lambda _frame, path, **_kwargs: {"filePath": str(path), "channels": []},
     )
 
     resp = backend_server.handle_analyze({"filePath": str(wav.parent / "." / wav.name)})
 
     assert resp["filePath"] == str(wav.resolve())
+    assert list(engine._files) == [wav.resolve()]
 
 
 def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> None:
@@ -341,7 +344,50 @@ def test_spectrum_slice_reads_only_requested_channel_and_window(monkeypatch, tmp
     response = backend_server.handle_spectrum_slice(command)
 
     assert response["frequencyBins"] > 0
-    assert calls == [pytest.approx({"channel": 0, "start": 0.242, "end": 0.258})]
+    assert len(calls) == 1
+    assert calls[0]["channel"] == 0
+    assert calls[0]["start"] == pytest.approx(0.242)
+    assert calls[0]["end"] == pytest.approx(0.258)
+
+
+def test_zoom_range_and_repeated_track_detail_meet_interactive_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import backend_server
+
+    wav = tmp_path / "interactive.wav"
+    _write_sine_wav(wav, seconds=10.0, sr=48000)
+    engine = AnalysisEngine(cache_limit_bytes=64 * 1024 * 1024)
+    monkeypatch.setattr(backend_server, "_engine", engine)
+    stft_calls = 0
+    original_stft = wd.ChannelFrame.stft
+
+    def counted_stft(self: wd.ChannelFrame, *args: object, **kwargs: object) -> wd.SpectrogramFrame:
+        nonlocal stft_calls
+        stft_calls += 1
+        return original_stft(self, *args, **kwargs)
+
+    monkeypatch.setattr(wd.ChannelFrame, "stft", counted_stft)
+
+    range_started = time.perf_counter()
+    ranged = handle_range({"filePath": str(wav), "startNorm": 0.45, "endNorm": 0.55, "points": 1600})
+    range_elapsed = time.perf_counter() - range_started
+
+    detail_command = {
+        "filePath": str(wav),
+        "trackIndex": 0,
+        "stftOptions": {"nFft": 1024, "hopSize": 256, "window": "hann"},
+    }
+    handle_track_detail(detail_command)
+    cached_started = time.perf_counter()
+    handle_track_detail(detail_command)
+    cached_elapsed = time.perf_counter() - cached_started
+
+    assert len(ranged["channels"][0]["min"]) == 1600
+    assert stft_calls == 1
+    assert range_elapsed < 1.0
+    assert cached_elapsed < 0.5
 
 
 def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, tmp_path: Path) -> None:

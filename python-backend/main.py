@@ -50,12 +50,23 @@ def main() -> int:
             )
         else:
             t_imp = time.perf_counter()
-            from analyzer import analyze_audio  # noqa: PLC0415
+            from analyzer import analyze_audio, analyze_track_detail  # noqa: PLC0415
 
             _perf("import_analyzer", t_imp)
 
             t_an = time.perf_counter()
             result = analyze_audio(args.file, peak_count=args.peaks)
+            if args.stft_n_fft is not None and args.stft_hop is not None:
+                detail = analyze_track_detail(
+                    args.file,
+                    stft_options={
+                        "n_fft": args.stft_n_fft,
+                        "hop_size": args.stft_hop,
+                        "window": args.stft_window or "hann",
+                    },
+                )
+                for summary_channel, detail_channel in zip(result["channels"], detail["channels"], strict=True):
+                    summary_channel["spectrogram"] = detail_channel["spectrogram"]
             _perf("analyze_audio_total", t_an)
     except Exception as error:
         print(str(error), file=sys.stderr)

@@ -1004,6 +1004,7 @@ test('renderScript: display-only spectrogram changes do not request fresh track 
 
 test('renderScript: STFT settings refresh detail without replacing summary results', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
+    const fileNameBefore = env.dom.window.document.querySelector('.track-name')?.textContent;
     const specButton = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement;
     specButton.click();
     await nextAnimationFrame(env.dom);
@@ -1021,7 +1022,8 @@ test('renderScript: STFT settings refresh detail without replacing summary resul
     const detailRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
     assert.ok(detailRequests.length >= 2);
     assert.deepEqual(JSON.parse(JSON.stringify(detailRequests.at(-1).stftOptions)), { nFft: 1024, hopSize: 256, window: 'hann' });
-    assert.equal(JSON.parse(makeLazySpectrogramState()).results[0].filePath, '/tmp/a.wav');
+    assert.equal(env.postedMessages.some((msg: any) => msg.type === 'analysis-update'), false);
+    assert.equal(env.dom.window.document.querySelector('.track-name')?.textContent, fileNameBefore);
     env.dom.window.close();
 });
 

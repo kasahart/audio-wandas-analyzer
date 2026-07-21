@@ -41,8 +41,8 @@ from analyzer import (
     SPECTRUM_LEVEL_AXIS_LABEL,
     _resample_frequency_bins,
     _resolve_stft_params,
-    analyze_audio,
-    analyze_track_detail,
+    analyze_from_frame,
+    build_track_detail,
 )
 from range_analyzer import analyze_range
 
@@ -73,12 +73,16 @@ def _stft_options_from_payload(payload: dict) -> dict | None:
 
 
 def handle_analyze(cmd: dict) -> dict:
-    return analyze_audio(str(cmd["filePath"]), peak_count=int(cmd.get("peakCount", 5)))
+    cached = _engine.get_file(str(cmd["filePath"]))
+    return analyze_from_frame(cached.frame, cached.path, peak_count=int(cmd.get("peakCount", 5)))
 
 
 def handle_track_detail(cmd: dict) -> dict:
+    cached = _engine.get_file(str(cmd["filePath"]))
     stft_options = _stft_options_from_payload(cmd)
-    result = analyze_track_detail(str(cmd["filePath"]), stft_options=stft_options)
+    n_fft, hop_length, window = _resolve_stft_params(cached.frame.n_samples, stft_options)
+    spectrogram = _engine.get_spectrogram(cached.path, n_fft, hop_length, window)
+    result = build_track_detail(cached.frame, cached.path, spectrogram, n_fft, hop_length)
     return {
         "trackIndex": int(cmd.get("trackIndex", -1)),
         "analysisId": cmd.get("analysisId"),

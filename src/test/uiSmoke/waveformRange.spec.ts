@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { buildUiSmokeHtml } from './buildHtml';
 
-const PCM_SCALE = 13106;
+const FULL_SCALE_AMPLITUDE = 0.4;
 
 async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
@@ -43,7 +43,7 @@ function buildRangeWaveform(pointCount: number, startNorm: number, endNorm: numb
 
 test('zoomed waveform uses range cache only while it fully covers the view', async ({ page }) => {
     await loadUi(page);
-    await forceOverviewWaveformScale(page, PCM_SCALE);
+    await forceOverviewWaveformScale(page, FULL_SCALE_AMPLITUDE);
 
     await page.evaluate(() => {
         const win = window as unknown as {
@@ -118,7 +118,7 @@ test('zoomed waveform uses range cache only while it fully covers the view', asy
         throw new Error('zoomed request-waveform-range was not posted');
     });
 
-    const waveform = buildRangeWaveform(512, request.startNorm, request.endNorm, PCM_SCALE);
+    const waveform = buildRangeWaveform(512, request.startNorm, request.endNorm, FULL_SCALE_AMPLITUDE);
 
     await page.evaluate(({ rangeRequest, rangeWaveform }) => {
         window.postMessage({
@@ -143,6 +143,12 @@ test('zoomed waveform uses range cache only while it fully covers the view', asy
         }
         return 0;
     })).toBeGreaterThan(20);
+    await expect.poll(async () => page.evaluate(() => {
+        const win = window as unknown as {
+            __uiSmokeWaveformCalls: Array<{ dataStart?: number; dataEnd?: number; ySpan: number }>;
+        };
+        return win.__uiSmokeWaveformCalls.filter((call) => call.dataStart !== 0 || call.dataEnd !== 1).at(-1)?.ySpan ?? 0;
+    })).toBeLessThan(80);
 
     await page.evaluate(() => {
         const win = window as unknown as {
