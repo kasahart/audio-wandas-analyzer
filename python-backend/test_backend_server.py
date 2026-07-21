@@ -18,6 +18,7 @@ import soundfile as sf
 import wandas as wd
 
 from analysis_engine import AnalysisEngine, CachedAnalysis
+from analyzer import analyze_from_frame
 from backend_server import (
     handle_analyze,
     handle_export_wav_loop,
@@ -455,6 +456,28 @@ def test_engine_keeps_materialized_wandas_frame(tmp_path: Path) -> None:
     assert isinstance(entry.frame, wd.ChannelFrame)
     assert entry.frame.sampling_rate == 16000
     assert entry.frame.n_samples == 8000
+
+
+def test_engine_preserves_channel_units_when_materializing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import analysis_engine
+
+    wav = tmp_path / "calibrated.wav"
+    _write_sine_wav(wav)
+    source = wd.from_numpy(
+        np.zeros((2, 16), dtype=np.float64),
+        sampling_rate=16,
+        ch_labels=["pressure", "acceleration"],
+        ch_units=["Pa", "m/s²"],
+    )
+    monkeypatch.setattr(analysis_engine.wd, "read", lambda _path: source)
+
+    cached = AnalysisEngine(cache_limit_bytes=10_000_000).get_file(wav)
+    result = analyze_from_frame(cached.frame, wav)
+
+    assert [channel["unit"] for channel in result["channels"]] == ["Pa", "m/s²"]
 
 
 def test_engine_materializes_file_frame_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

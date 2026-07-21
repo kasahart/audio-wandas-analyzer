@@ -43,10 +43,12 @@ class AnalysisEngine:
             self._files.move_to_end(path)
             return cached
         source = wd.read(path)
+        channel_units = [str(channel.unit or "") for channel in source.channels]
         frame = wd.from_numpy(
             np.asarray(source.data, dtype=np.float64),
             sampling_rate=source.sampling_rate,
             ch_labels=list(source.labels),
+            ch_units=channel_units,
         )
         cached = CachedAnalysis(
             path=path,
