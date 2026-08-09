@@ -95,10 +95,11 @@ def test_analyze_range_uses_same_pcm_scale_as_overview(tmp_path: Path) -> None:
     range_result = analyze_range(wav, 0.25, 0.75, point_count=128)
     range_waveform = range_result["channels"][0]
 
-    assert overview["absolutePeak"] > 1000
-    assert range_waveform["absolutePeak"] > 1000
+    assert overview["absolutePeak"] == pytest.approx(0.5, abs=0.01)
+    assert range_waveform["absolutePeak"] == pytest.approx(0.5, abs=0.01)
     assert range_waveform["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
     assert min(range_waveform["minT"]) >= 0.24
+    assert max(range_waveform["maxT"]) >= 0.74
     assert max(range_waveform["maxT"]) <= 0.76
 
 

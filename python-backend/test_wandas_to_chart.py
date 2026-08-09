@@ -18,7 +18,7 @@ def mono_sin() -> wd.ChannelFrame:
 @pytest.fixture
 def two_channel(mono_sin: wd.ChannelFrame) -> wd.ChannelFrame:
     other = wd.generate_sin(freqs=[880.0], duration=0.25, sampling_rate=16000).rename_channels({"Channel 1": "ref"})
-    return mono_sin.add_channel(other.get_channel(0), suffix_on_dup="_b")
+    return mono_sin.concat_frame(other.get_channel(0), suffix_on_dup="_b")
 
 
 def test_channel_frame_becomes_line(mono_sin: wd.ChannelFrame) -> None:
@@ -64,23 +64,46 @@ def test_noct_frame_becomes_bar(mono_sin: wd.ChannelFrame) -> None:
     assert any(ch.replace(".", "").isdigit() for ch in spec["categories"][:1])
 
 
-def test_runtime_dependencies_pin_wandas_v05_with_psychoacoustics() -> None:
+def test_runtime_dependencies_pin_wandas_v07_with_psychoacoustics() -> None:
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
     dependencies = pyproject["project"]["dependencies"]
-    assert "wandas[psychoacoustic]>=0.5.0,<0.6.0" in dependencies
+    assert "wandas[psychoacoustic]>=0.7.1,<0.8.0" in dependencies
 
 
 def test_coherence_yields_multi_series(two_channel: wd.ChannelFrame) -> None:
     spec = adapt(two_channel.coherence(), title="coherence")
     assert spec["kind"] == "line"
-    # 2 channels → 2x2 cross matrix in wandas 0.2.0
+    assert spec["yLabel"] == "Coherence"
+    assert spec["yScale"] == "linear"
     assert len(spec["series"]) >= 2
+
+
+def test_cross_spectral_frame_yields_db_series(two_channel: wd.ChannelFrame) -> None:
+    spec = adapt(two_channel.csd(), title="CSD")
+    assert spec["kind"] == "line"
+    assert spec["yLabel"] == "Cross-spectral level [dB]"
+    assert spec["yScale"] == "db"
+    assert len(spec["series"]) >= 2
+
+
+def test_cross_spectral_frame_preserves_value_selection(two_channel: wd.ChannelFrame) -> None:
+    spec = adapt(two_channel.csd(), title="CSD phase", value="phase")
+    assert spec["yLabel"] == "Phase [rad]"
+    assert spec["yScale"] == "linear"
 
 
 def test_transfer_function_yields_multi_series(two_channel: wd.ChannelFrame) -> None:
     spec = adapt(two_channel.transfer_function(), title="TF")
     assert spec["kind"] == "line"
+    assert spec["yLabel"] == "Gain [dB]"
+    assert spec["yScale"] == "db"
     assert len(spec["series"]) >= 2
+
+
+def test_transfer_function_preserves_value_selection(two_channel: wd.ChannelFrame) -> None:
+    spec = adapt(two_channel.transfer_function(), title="TF phase", value="phase")
+    assert spec["yLabel"] == "Phase [rad]"
+    assert spec["yScale"] == "linear"
 
 
 def test_ndarray_becomes_scalar_table() -> None:

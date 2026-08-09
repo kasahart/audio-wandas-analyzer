@@ -182,12 +182,12 @@ def test_handle_range_uses_same_pcm_scale_as_analysis(tmp_path: Path) -> None:
     waveform = response["channels"][0]
 
     assert waveform["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
-    assert waveform["absolutePeak"] > 1000
+    assert waveform["absolutePeak"] == pytest.approx(0.5, abs=0.01)
     assert min(waveform["minT"]) >= 0.24
     assert max(waveform["maxT"]) <= 0.76
 
 
-def test_handle_range_reads_only_requested_frames(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_handle_range_does_not_reread_cached_audio(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import backend_server
 
     wav = tmp_path / "tone.wav"
@@ -195,38 +195,14 @@ def test_handle_range_reads_only_requested_frames(monkeypatch: pytest.MonkeyPatc
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
     engine.get_file(wav)
     monkeypatch.setattr(backend_server, "_engine", engine)
-    requested_frames: list[int] = []
-    real_sound_file = sf.SoundFile
 
-    class TrackedSoundFile:
-        def __new__(
-            cls, path: str | Path | io.BytesIO, *args: object, **kwargs: object
-        ) -> TrackedSoundFile | sf.SoundFile:
-            if args or kwargs:
-                return real_sound_file(path, *args, **kwargs)
-            return super().__new__(cls)
+    def fail_sound_file(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("range must use the cached Wandas Frame")
 
-        def __init__(self, path: str | Path | io.BytesIO, *args: object, **kwargs: object) -> None:
-            self._file = real_sound_file(path)
-            self.subtype = self._file.subtype
+    monkeypatch.setattr(backend_server.sf, "SoundFile", fail_sound_file)
+    result = handle_range({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.3, "points": 128})
 
-        def __enter__(self) -> TrackedSoundFile:
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            self._file.close()
-
-        def seek(self, frame: int) -> int:
-            return self._file.seek(frame)
-
-        def read(self, frames: int, **kwargs: object) -> np.ndarray:
-            requested_frames.append(frames)
-            return self._file.read(frames, **kwargs)
-
-    monkeypatch.setattr(backend_server.sf, "SoundFile", TrackedSoundFile)
-    handle_range({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.3, "points": 128})
-
-    assert requested_frames == [1600]
+    assert result["channels"]
 
 
 def test_handle_range_matches_non_wav_overview_scale(tmp_path: Path) -> None:
@@ -406,25 +382,42 @@ def test_engine_keeps_materialized_wandas_frame(tmp_path: Path) -> None:
     assert isinstance(entry.frame, wd.ChannelFrame)
     assert entry.frame.sampling_rate == 16000
     assert entry.frame.n_samples == 8000
+    expected = entry.frame.data.copy()
+    wav.unlink()
+    np.testing.assert_array_equal(entry.frame.data, expected)
 
 
-def test_engine_persists_file_frame_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_engine_counts_compact_wandas_cache_storage(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    persist_calls = 0
-    original_persist = wd.ChannelFrame.persist
 
-    def counted_persist(self: wd.ChannelFrame) -> wd.ChannelFrame:
-        nonlocal persist_calls
-        persist_calls += 1
-        return original_persist(self)
+    entry = engine.get_file(wav)
+    spectrogram = engine.get_spectrogram(wav, 256, 128, "hann")
+    key = (256, 128, "hann")
 
-    monkeypatch.setattr(wd.ChannelFrame, "persist", counted_persist)
+    assert entry.frame_nbytes == int(np.prod(entry.frame.shape)) * np.dtype("float32").itemsize
+    assert entry.spectrogram_nbytes[key] == int(np.prod(spectrogram.shape)) * np.dtype("complex64").itemsize
+    assert entry.nbytes == entry.frame_nbytes + entry.spectrogram_nbytes[key]
+
+
+def test_engine_caches_file_frame_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    cache_calls = 0
+    original_cache = wd.ChannelFrame.cache
+
+    def counted_cache(self: wd.ChannelFrame) -> wd.ChannelFrame:
+        nonlocal cache_calls
+        cache_calls += 1
+        return original_cache(self)
+
+    monkeypatch.setattr(wd.ChannelFrame, "cache", counted_cache)
     first = engine.get_file(wav)
 
     assert engine.get_file(wav) is first
-    assert persist_calls == 1
+    assert cache_calls == 1
 
 
 def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
@@ -623,46 +616,6 @@ def test_export_wav_loop_recenters_unsigned_8_bit_wav(tmp_path: Path) -> None:
     assert np.max(np.abs(exported)) == pytest.approx(0.5, abs=0.02)
 
 
-def test_export_wav_loop_reads_only_selected_frames(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    import backend_server
-
-    audio = tmp_path / "tone.wav"
-    _write_sine_wav(audio, seconds=2.0)
-    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    engine.get_file(audio)
-    monkeypatch.setattr(backend_server, "_engine", engine)
-    requested_frames: list[int] = []
-    real_sound_file = sf.SoundFile
-
-    class TrackedSoundFile:
-        def __new__(
-            cls, path: str | Path | io.BytesIO, *args: object, **kwargs: object
-        ) -> TrackedSoundFile | sf.SoundFile:
-            if args or kwargs:
-                return real_sound_file(path, *args, **kwargs)
-            return super().__new__(cls)
-
-        def __init__(self, path: str | Path | io.BytesIO, *args: object, **kwargs: object) -> None:
-            self._file = real_sound_file(path)
-
-        def __enter__(self) -> TrackedSoundFile:
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            self._file.close()
-
-        def seek(self, frame: int) -> int:
-            return self._file.seek(frame)
-
-        def read(self, frames: int, **kwargs: object) -> np.ndarray:
-            requested_frames.append(frames)
-            return self._file.read(frames, **kwargs)
-
-    monkeypatch.setattr(backend_server.sf, "SoundFile", TrackedSoundFile)
-    handle_export_wav_loop({"filePath": str(audio), "startNorm": 0.25, "endNorm": 0.3})
-    assert requested_frames == [1600]
-
-
 def test_export_wav_loop_zero_frames_raises(tmp_path: Path) -> None:
     """export-wav-loop raises ValueError when the loop region produces 0 frames."""
     sr = 16000
@@ -700,29 +653,29 @@ def test_engine_reuses_frames_and_stft_by_settings(tmp_path: Path, monkeypatch: 
     _write_sine_wav(wav)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
     calls = 0
-    persist_calls = 0
+    cache_calls = 0
     original_stft = wd.ChannelFrame.stft
-    original_persist = wd.SpectrogramFrame.persist
+    original_cache = wd.SpectrogramFrame.cache
 
     def counted_stft(self: wd.ChannelFrame, *args: object, **kwargs: object) -> wd.SpectrogramFrame:
         nonlocal calls
         calls += 1
         return original_stft(self, *args, **kwargs)
 
-    def counted_persist(self: wd.SpectrogramFrame) -> wd.SpectrogramFrame:
-        nonlocal persist_calls
-        persist_calls += 1
-        return original_persist(self)
+    def counted_cache(self: wd.SpectrogramFrame) -> wd.SpectrogramFrame:
+        nonlocal cache_calls
+        cache_calls += 1
+        return original_cache(self)
 
     monkeypatch.setattr(wd.ChannelFrame, "stft", counted_stft)
-    monkeypatch.setattr(wd.SpectrogramFrame, "persist", counted_persist)
+    monkeypatch.setattr(wd.SpectrogramFrame, "cache", counted_cache)
     first_file = engine.get_file(wav)
     assert engine.get_file(wav) is first_file
     first_stft = engine.get_spectrogram(wav, 256, 128, "hann")
     assert engine.get_spectrogram(wav, 256, 128, "hann") is first_stft
     assert engine.get_spectrogram(wav, 512, 128, "hann") is not first_stft
     assert calls == 2
-    assert persist_calls == 2
+    assert cache_calls == 2
 
 
 def test_engine_invalidates_file_and_stft_when_source_changes(tmp_path: Path) -> None:

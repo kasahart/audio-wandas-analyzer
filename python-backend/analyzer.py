@@ -47,7 +47,7 @@ def _analysis_units_metadata() -> dict[str, object]:
 
 
 def _channels_first(data: np.ndarray, channel_count: int, sample_count: int) -> np.ndarray:
-    array = np.asarray(data, dtype=np.float64)
+    array = np.asarray(data)
 
     if array.ndim == 1:
         return array.reshape(1, -1)
@@ -235,16 +235,16 @@ def analyze_range(
     frame, _target = load_audio_frame(file_path)
     channel_count = int(frame.n_channels)
     sample_count = int(frame.n_samples)
-    data = _channels_first(frame.data, channel_count, sample_count)
     start_idx = max(0, int(start_norm * sample_count))
     end_idx = min(sample_count, int(end_norm * sample_count))
 
     if end_idx <= start_idx:
         return {"startNorm": start_norm, "endNorm": end_norm, "channels": []}
 
+    data = _channels_first(frame[:, start_idx:end_idx].data, channel_count, end_idx - start_idx)
     channels: list[dict[str, object]] = []
     for ch_idx in range(channel_count):
-        ch_slice = data[ch_idx, start_idx:end_idx]
+        ch_slice = data[ch_idx]
         channels.append(
             _build_waveform_envelope(
                 ch_slice,
@@ -328,6 +328,10 @@ def analyze_from_frame(
         if spectrogram_frame is None:
             raise ValueError("spectrogram_frame is required when include_spectrogram is true")
         stft_db = np.asarray(spectrogram_frame.dB, dtype=np.float64)
+        if stft_db.ndim == 2:
+            stft_db = stft_db[np.newaxis, :, :]
+        elif stft_db.ndim != 3:
+            raise ValueError(f"Expected 2D or 3D spectrogram data, got shape {stft_db.shape}")
 
     t_channels = time.perf_counter()
     channels: list[dict[str, object]] = []

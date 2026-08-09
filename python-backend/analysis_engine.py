@@ -9,6 +9,8 @@ import numpy as np
 import wandas as wd
 
 StftKey = tuple[int, int, str]
+AUDIO_CACHE_DTYPE = np.dtype("float32")
+SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
 
 
 @dataclass(slots=True)
@@ -42,12 +44,12 @@ class AnalysisEngine:
         if cached is not None and cached.identity == identity:
             self._files.move_to_end(path)
             return cached
-        frame = wd.read(path).persist()
+        frame = wd.read(path).astype(AUDIO_CACHE_DTYPE).cache()
         cached = CachedAnalysis(
             path=path,
             frame=frame,
             identity=identity,
-            frame_nbytes=int(np.prod(frame.shape)) * np.dtype(np.float64).itemsize,
+            frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
         )
         self._files[path] = cached
         self._evict(path)
@@ -64,9 +66,13 @@ class AnalysisEngine:
         key = (n_fft, hop_length, window)
         spectrogram = cached.spectrograms.get(key)
         if spectrogram is None:
-            spectrogram = cached.frame.stft(n_fft=n_fft, hop_length=hop_length, window=window).persist()
+            spectrogram = (
+                cached.frame.stft(n_fft=n_fft, hop_length=hop_length, window=window)
+                .astype(SPECTROGRAM_CACHE_DTYPE)
+                .cache()
+            )
             cached.spectrograms[key] = spectrogram
-            cached.spectrogram_nbytes[key] = int(np.prod(spectrogram.shape)) * np.dtype(np.complex128).itemsize
+            cached.spectrogram_nbytes[key] = int(np.prod(spectrogram.shape)) * SPECTROGRAM_CACHE_DTYPE.itemsize
             self._evict(cached.path)
         return spectrogram
 
@@ -79,12 +85,6 @@ class AnalysisEngine:
     ) -> wd.SpectrogramFrame | None:
         cached = self.get_file(file_path)
         return cached.spectrograms.get((n_fft, hop_length, window))
-
-    def get_range_frame(self, file_path: str | Path, start_norm: float, end_norm: float) -> wd.ChannelFrame:
-        frame = self.get_file(file_path).frame
-        start = max(0, int(start_norm * frame.n_samples))
-        end = min(frame.n_samples, int(end_norm * frame.n_samples))
-        return frame[:, start:end]
 
     def discard(self, file_path: str | Path) -> None:
         self._files.pop(Path(file_path).expanduser().resolve(), None)

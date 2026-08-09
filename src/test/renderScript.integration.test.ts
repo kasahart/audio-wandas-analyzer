@@ -2404,6 +2404,11 @@ test('renderScript: multichannel report lists all RMS peak and spectrum channels
     assert.match(msg.markdownContent, /\| 440\.0 \| -12\.0 \|/);
     assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 2 \/ 2 \(Right\)\)/);
     assert.match(msg.markdownContent, /\| 880\.0 \| -3\.0 \|/);
+    const notebook = JSON.parse(msg.notebookContent) as { cells: Array<{ id: string; source: string[] }> };
+    const loadCell = notebook.cells.find((cell) => cell.id === 'load-files');
+    assert.ok(loadCell);
+    assert.match(loadCell.source.join(''), /wd\.read\("\/tmp\/stereo\.wav"\)/);
+    assert.doesNotMatch(loadCell.source.join(''), /read_wav/);
     env.dom.window.close();
 });
 

@@ -4,10 +4,13 @@ The dispatch is intentionally duck-typed (matches class name) so that wandas
 upstream additions don't immediately break us: an unknown frame type falls
 back to a best-effort scalar/line representation rather than raising.
 
-Wandas 0.4.0 frame surface used here::
+Wandas frame surface used here::
 
     ChannelFrame       .time, .data, .labels, .sampling_rate, .n_channels
     SpectralFrame      .freqs, .magnitude, .dB, .phase, .labels, .n_channels
+    CoherenceFrame     .freqs, .coherence, .labels, .n_channels
+    CrossSpectralFrame .freqs, .level_db, .phase, .labels, .n_channels
+    TransferFunctionFrame .freqs, .gain_db, .phase, .labels, .n_channels
     SpectrogramFrame   .freqs, .times, .dB[ch, freq, time]
     NOctFrame          .freqs, .dB, .labels
     RoughnessFrame     2D data; treated as heatmap on (freq × time)
@@ -70,19 +73,27 @@ def _adapt_channel_frame(frame: Any, *, title: str) -> dict[str, Any]:
     }
 
 
-def _adapt_spectral_frame(frame: Any, *, title: str, value: str = "dB") -> dict[str, Any]:
+def _adapt_spectral_frame(
+    frame: Any,
+    *,
+    title: str,
+    value: str = "dB",
+    y_label: str | None = None,
+    y_scale: str | None = None,
+) -> dict[str, Any]:
     """SpectralFrame → line. ``value`` picks which attribute is plotted.
 
     ``dB`` (default) yields a dB-scale magnitude line; ``magnitude`` and
-    ``phase`` are available alternatives. Coherence / TF return SpectralFrame
-    too — the same adapter handles them transparently.
+    ``phase`` are available alternatives. Dedicated coherence, cross-spectral,
+    and transfer-function frames use the same frequency-series adapter.
     """
     freqs = np.asarray(frame.freqs, dtype=np.float64)
     raw = getattr(frame, value)
     arr = np.asarray(raw, dtype=np.float64)
     if arr.ndim == 1:
         arr = arr[np.newaxis, :]
-    y_label = {"dB": "Level [dB]", "magnitude": "Magnitude", "phase": "Phase [rad]"}.get(value, value)
+    y_label = y_label or {"dB": "Level [dB]", "magnitude": "Magnitude", "phase": "Phase [rad]"}.get(value, value)
+    y_scale = y_scale or ("db" if value == "dB" else "linear")
     return {
         "kind": "line",
         "title": title,
@@ -91,7 +102,7 @@ def _adapt_spectral_frame(frame: Any, *, title: str, value: str = "dB") -> dict[
         "xs": _as_list(freqs),
         "series": _series_2d(arr, _labels(frame)),
         "xScale": "linear",
-        "yScale": "db" if value == "dB" else "linear",
+        "yScale": y_scale,
     }
 
 
@@ -192,6 +203,37 @@ def adapt(obj: Any, *, title: str | None = None, **kwargs: Any) -> dict[str, Any
     if cls == "SpectralFrame":
         value = kwargs.get("value", "dB")
         return _adapt_spectral_frame(obj, title=title, value=value)
+    if cls == "CoherenceFrame":
+        return _adapt_spectral_frame(obj, title=title, value="coherence", y_label="Coherence", y_scale="linear")
+    if cls == "CrossSpectralFrame":
+        value = kwargs.get("value", "level_db")
+        labels = {
+            "level_db": "Cross-spectral level [dB]",
+            "magnitude": "Cross-spectral magnitude",
+            "phase": "Phase [rad]",
+        }
+        return _adapt_spectral_frame(
+            obj,
+            title=title,
+            value=value,
+            y_label=labels.get(value, value),
+            y_scale="db" if value == "level_db" else "linear",
+        )
+    if cls == "TransferFunctionFrame":
+        value = kwargs.get("value", "gain_db")
+        labels = {
+            "gain_db": "Gain [dB]",
+            "transfer_level_db": "Transfer level [dB]",
+            "gain": "Gain",
+            "phase": "Phase [rad]",
+        }
+        return _adapt_spectral_frame(
+            obj,
+            title=title,
+            value=value,
+            y_label=labels.get(value, value),
+            y_scale="db" if value in {"gain_db", "transfer_level_db"} else "linear",
+        )
     if cls == "SpectrogramFrame":
         return _adapt_spectrogram_frame(obj, title=title, channel=int(kwargs.get("channel", 0)))
     if cls == "NOctFrame":
