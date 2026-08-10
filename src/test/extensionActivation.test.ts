@@ -24,6 +24,7 @@ test('activate keeps analyze commands available when workspace test registration
             executeCommand: () => Promise.resolve(),
         },
         window: {
+            createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
             createStatusBarItem: () => ({
                 command: undefined as string | undefined,
                 text: '',
