@@ -18,16 +18,38 @@ import soundfile as sf
 import wandas as wd
 
 from analysis_engine import AnalysisEngine, CachedAnalysis
-from backend_server import (
-    handle_analyze,
-    handle_export_wav_loop,
-    handle_range,
-    handle_release_track_detail,
-    handle_spectrum_slice,
-    handle_track_detail,
-)
+from analysis_service import AnalysisService
+from backend_server import dispatch
 
 ROOT = Path(__file__).parent
+
+
+def _dispatch(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
+    return dispatch(command, service or AnalysisService(AnalysisEngine(cache_limit_bytes=64 * 1024 * 1024)))
+
+
+def handle_analyze(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
+    return _dispatch({"cmd": "analyze", **command}, service)
+
+
+def handle_track_detail(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
+    return _dispatch({"cmd": "track-detail", **command}, service)
+
+
+def handle_spectrum_slice(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
+    return _dispatch({"cmd": "spectrum-slice", **command}, service)
+
+
+def handle_range(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
+    return _dispatch({"cmd": "range", **command}, service)
+
+
+def handle_export_wav_loop(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
+    return _dispatch({"cmd": "export-wav-loop", **command}, service)
+
+
+def handle_release_track_detail(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
+    return _dispatch({"cmd": "release-track-detail", **command}, service)
 
 
 def _write_sine_wav(path: Path, freq_hz: float = 440.0, seconds: float = 0.5, sr: int = 16000) -> None:
@@ -131,19 +153,21 @@ def test_analyze_round_trip_accepts_flac_from_supported_ui_formats(server: _Serv
 
 
 def test_analyze_uses_engine_frame_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
-    import backend_server
+    import analysis_service
 
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    monkeypatch.setattr(backend_server, "_engine", engine)
     monkeypatch.setattr(
-        backend_server,
+        analysis_service,
         "analyze_from_frame",
         lambda _frame, path, **_kwargs: {"filePath": str(path), "channels": []},
     )
 
-    resp = backend_server.handle_analyze({"filePath": str(wav.parent / "." / wav.name)})
+    resp = handle_analyze(
+        {"filePath": str(wav.parent / "." / wav.name)},
+        AnalysisService(engine),
+    )
 
     assert resp["filePath"] == str(wav.resolve())
     assert list(engine._files) == [wav.resolve()]
@@ -188,19 +212,22 @@ def test_handle_range_uses_same_pcm_scale_as_analysis(tmp_path: Path) -> None:
 
 
 def test_handle_range_does_not_reread_cached_audio(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    import backend_server
+    import analysis_service
 
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav, seconds=2.0)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
     engine.get_file(wav)
-    monkeypatch.setattr(backend_server, "_engine", engine)
+    service = AnalysisService(engine)
 
     def fail_sound_file(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("range must use the cached Wandas Frame")
 
-    monkeypatch.setattr(backend_server.sf, "SoundFile", fail_sound_file)
-    result = handle_range({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.3, "points": 128})
+    monkeypatch.setattr(analysis_service.sf, "SoundFile", fail_sound_file)
+    result = handle_range(
+        {"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.3, "points": 128},
+        service,
+    )
 
     assert result["channels"]
 
@@ -271,22 +298,22 @@ def test_spectrum_slice_clamps_cursor_to_cached_stft_bounds(tmp_path: Path, curs
 
 
 def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path) -> None:
-    import backend_server
-
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
 
-    def fail_track_detail(_cmd: dict) -> dict:
+    def fail_track_detail(*_args: object, **_kwargs: object) -> dict:
         raise AssertionError("spectrum slice must not compute full track detail")
 
-    monkeypatch.setattr(backend_server, "handle_track_detail", fail_track_detail)
-    resp = backend_server.handle_spectrum_slice(
+    monkeypatch.setattr(service, "track_detail", fail_track_detail)
+    resp = handle_spectrum_slice(
         {
             "filePath": str(wav),
             "trackIndex": 0,
             "cursorNorm": 0.5,
             "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
-        }
+        },
+        service,
     )
 
     assert resp["frequencyBins"] > 0
@@ -294,12 +321,10 @@ def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path)
 
 
 def test_spectrum_slice_uses_cached_wandas_spectrogram(monkeypatch, tmp_path: Path) -> None:
-    import backend_server
-
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    monkeypatch.setattr(backend_server, "_engine", engine)
+    service = AnalysisService(engine)
 
     command = {
         "filePath": str(wav),
@@ -307,10 +332,10 @@ def test_spectrum_slice_uses_cached_wandas_spectrogram(monkeypatch, tmp_path: Pa
         "cursorNorm": 0.5,
         "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
     }
-    first = backend_server.handle_spectrum_slice(command)
+    first = handle_spectrum_slice(command, service)
     spectrogram = engine.get_spectrogram(wav, 256, 128, "hann")
-    second = backend_server.handle_spectrum_slice(command)
-    third = backend_server.handle_spectrum_slice(command)
+    second = handle_spectrum_slice(command, service)
+    third = handle_spectrum_slice(command, service)
 
     assert engine.get_spectrogram(wav, 256, 128, "hann") is spectrogram
     assert first["frequencyBins"] == second["frequencyBins"]
@@ -318,23 +343,22 @@ def test_spectrum_slice_uses_cached_wandas_spectrogram(monkeypatch, tmp_path: Pa
 
 
 def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, tmp_path: Path) -> None:
-    import backend_server
-
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    monkeypatch.setattr(backend_server, "_engine", engine)
+    service = AnalysisService(engine)
 
     def fail_get_spectrogram(*_args: object, **_kwargs: object) -> wd.SpectrogramFrame:
         raise AssertionError("cursor spectrum must not build a full-file spectrogram")
 
     monkeypatch.setattr(engine, "get_spectrogram", fail_get_spectrogram)
-    response = backend_server.handle_spectrum_slice(
+    response = handle_spectrum_slice(
         {
             "filePath": str(wav),
             "cursorNorm": 0.5,
             "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
-        }
+        },
+        service,
     )
 
     assert response["frequencyBins"] > 0
@@ -440,6 +464,19 @@ def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
 def test_unknown_cmd_returns_error(server: _ServerHandle) -> None:
     resp = server.request({"cmd": "nope"})
     assert "error" in resp and "nope" in resp["error"]
+
+
+def test_dispatch_uses_injected_service_without_creating_an_engine() -> None:
+    class FakeService:
+        def analyze(self, file_path: str, **options: object) -> dict[str, object]:
+            return {"filePath": file_path, "peakCount": options["peak_count"]}
+
+    result = dispatch(
+        {"cmd": "analyze", "filePath": "/tmp/tone.wav", "peakCount": 7},
+        FakeService(),  # type: ignore[arg-type]
+    )
+
+    assert result == {"filePath": "/tmp/tone.wav", "peakCount": 7}
 
 
 def test_analyze_then_range_share_cache(server: _ServerHandle, tmp_path: Path) -> None:
@@ -711,16 +748,14 @@ def test_cache_size_uses_stored_metadata_without_materializing_frames() -> None:
 
 
 def test_release_track_detail_drops_stft_but_keeps_file_frame(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    import backend_server
-
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    monkeypatch.setattr(backend_server, "_engine", engine)
+    service = AnalysisService(engine)
     cached = engine.get_file(wav)
     engine.get_spectrogram(wav, 256, 128, "hann")
 
-    assert handle_release_track_detail({"filePath": str(wav)}) == {}
+    assert handle_release_track_detail({"filePath": str(wav)}, service) == {}
     assert engine.get_file(wav) is cached
     assert cached.spectrograms == {}
 
