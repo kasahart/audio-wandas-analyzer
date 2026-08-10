@@ -154,9 +154,7 @@ def test_backend_range_is_calibrated_but_wav_export_stays_raw(tmp_path) -> None:
     assert range_result["analysisRevision"] == 4
     assert math.isclose(range_result["channels"][0]["absolutePeak"], 1.0)
 
-    wav_result = backend_server.handle_export_wav_loop(
-        {"filePath": str(file_path), "startNorm": 0.0, "endNorm": 1.0}
-    )
+    wav_result = backend_server.handle_export_wav_loop({"filePath": str(file_path), "startNorm": 0.0, "endNorm": 1.0})
     exported, sample_rate = sf.read(io.BytesIO(base64.b64decode(wav_result["wavBase64"])), dtype="float64")
     assert sample_rate == 8_000
     np.testing.assert_allclose(exported, samples, atol=1.0 / 32768.0)
