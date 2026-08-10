@@ -37,6 +37,7 @@ type PanelContext = ResultsPanelContext | DirectoryPanelContext;
 
 const panelContexts = new WeakMap<vscode.WebviewPanel, PanelContext>();
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
+const panelLifecycleInstalled = new WeakSet<vscode.WebviewPanel>();
 const latestResultsByFilePath = new Map<string, AnalysisResultWithError>();
 let installed = false;
 let backendPatched = false;
@@ -59,7 +60,7 @@ function rememberResults(results: AnalysisResultWithError[]): AnalysisResultWith
         const latest = latestResultsByFilePath.get(result.filePath);
         const expectedRevision = getAnalysisRevision(result.filePath);
         const incomingRevision = result.analysisRevision ?? 0;
-        if (latest && incomingRevision < expectedRevision) {
+        if (latest && !result.error && incomingRevision < expectedRevision) {
             return latest;
         }
         latestResultsByFilePath.set(result.filePath, result);
@@ -72,6 +73,9 @@ function injectCalibrationRuntime(html: string): string {
         return html;
     }
     const stateMarker = '        const __APP_STATE__ =';
+    if (!html.includes(stateMarker)) {
+        throw new Error('Comparison Webview state marker was not found');
+    }
     const acquireWrapper = [
         '        const __AWA_CALIBRATION_RUNTIME__ = true;',
         '        const __AWA_NATIVE_ACQUIRE_VSCODE_API__ = acquireVsCodeApi;',
@@ -83,13 +87,16 @@ function injectCalibrationRuntime(html: string): string {
         '        };',
         '',
     ].join('\n');
-    let injected = html.replace(stateMarker, acquireWrapper + stateMarker);
     const closeMarker = '    </script>\n    <div id="canvas-tooltip">';
-    injected = injected.replace(
-        closeMarker,
-        `${getCalibrationRenderScript()}\n    </script>\n    <div id="canvas-tooltip">`,
-    );
-    return injected;
+    if (!html.includes(closeMarker)) {
+        throw new Error('Comparison Webview script boundary was not found');
+    }
+    return html
+        .replace(stateMarker, acquireWrapper + stateMarker)
+        .replace(
+            closeMarker,
+            `${getCalibrationRenderScript()}\n    </script>\n    <div id="canvas-tooltip">`,
+        );
 }
 
 function channelDescriptors(result: AnalysisResultWithError): CalibrationChannelDescriptor[] {
@@ -174,10 +181,34 @@ function renderPanel(panel: vscode.WebviewPanel, context: PanelContext): void {
     installOnPanel(panel, { ...context, results });
 }
 
+function installPanelLifecycle(panel: vscode.WebviewPanel): void {
+    if (panelLifecycleInstalled.has(panel)) {
+        return;
+    }
+    panelLifecycleInstalled.add(panel);
+    panel.onDidChangeViewState((event) => {
+        if (event.webviewPanel.active) {
+            activePanel = event.webviewPanel;
+        } else if (activePanel === event.webviewPanel) {
+            activePanel = undefined;
+        }
+    });
+    panel.onDidDispose(() => {
+        panelMessageDisposables.get(panel)?.dispose();
+        panelMessageDisposables.delete(panel);
+        if (activePanel === panel) {
+            activePanel = undefined;
+        }
+    });
+}
+
 function installOnPanel(panel: vscode.WebviewPanel, context: PanelContext): void {
-    activePanel = panel;
+    if (panel.active) {
+        activePanel = panel;
+    }
     panelContexts.set(panel, context);
     panel.webview.html = injectCalibrationRuntime(panel.webview.html);
+    installPanelLifecycle(panel);
 
     panelMessageDisposables.get(panel)?.dispose();
     const disposable = panel.webview.onDidReceiveMessage(async (message: unknown) => {
@@ -199,13 +230,6 @@ function installOnPanel(panel: vscode.WebviewPanel, context: PanelContext): void
         renderPanel(panel, { ...context, results });
     });
     panelMessageDisposables.set(panel, disposable);
-    panel.onDidDispose(() => {
-        panelMessageDisposables.get(panel)?.dispose();
-        panelMessageDisposables.delete(panel);
-        if (activePanel === panel) {
-            activePanel = undefined;
-        }
-    });
 }
 
 function patchBackendCalibration(extensionContext: vscode.ExtensionContext): void {
