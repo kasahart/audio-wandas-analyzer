@@ -73,12 +73,15 @@ test('calibration controls post exact configuration and reanalysis messages', as
 test('report export records calibration and generates a reproducible notebook', async ({ page }) => {
     await loadCalibrationUi(page);
 
-    await page.locator('[data-action="export-report"]').click({ force: true });
-    const report = await expect.poll(async () => {
+    await page.evaluate(() => {
+        const button = document.querySelector<HTMLElement>('[data-action="export-report"]');
+        if (!button) { throw new Error('Report export button was not found'); }
+        button.click();
+    });
+    await expect.poll(async () => {
         const messages = await postedMessages(page);
         return messages.find((message) => message['type'] === 'export-report-options');
     }).toBeTruthy();
-    void report;
 
     const exported = (await postedMessages(page)).find((message) => message['type'] === 'export-report-options');
     expect(exported).toBeDefined();
