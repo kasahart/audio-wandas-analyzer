@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import sys
 import time
@@ -8,6 +9,13 @@ from pathlib import Path
 import numpy as np
 import wandas as wd
 
+from calibration_profile import (
+    ResolvedCalibrationProfile,
+    amplitude_level,
+    level_scale_metadata,
+    measurement_metadata,
+    resolve_calibration_profile,
+)
 from decimator import decimated_waveform
 
 _PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "0") == "1"
@@ -27,22 +35,35 @@ SPECTROGRAM_TIME_BIN_LIMIT = 720
 SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
 SPECTROGRAM_DB_RANGE = 90.0
 DB_UNIT = "dB"
-SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum level [dB]"
+SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum amplitude level [dB]"
 AMPLITUDE_LEVEL_AXIS_LABEL = "Amplitude level [dB]"
 
 
-def _db_scale_metadata(axis_label: str) -> dict[str, str]:
+def _analysis_units_metadata(measurements: list[dict[str, object]]) -> dict[str, object] | None:
+    if not measurements:
+        return None
+    first = measurements[0]
+    reference_key = (
+        first["levelUnit"],
+        first["referenceValue"],
+        first["referenceUnit"],
+        first["levelReferenceLabel"],
+    )
+    if any(
+        (
+            measurement["levelUnit"],
+            measurement["referenceValue"],
+            measurement["referenceUnit"],
+            measurement["levelReferenceLabel"],
+        )
+        != reference_key
+        for measurement in measurements[1:]
+    ):
+        return None
     return {
-        "unit": DB_UNIT,
-        "axisLabel": axis_label,
-    }
-
-
-def _analysis_units_metadata() -> dict[str, object]:
-    return {
-        "amplitudeLevel": _db_scale_metadata(AMPLITUDE_LEVEL_AXIS_LABEL),
-        "spectrumLevel": _db_scale_metadata(SPECTRUM_LEVEL_AXIS_LABEL),
-        "spectrogramLevel": _db_scale_metadata(SPECTRUM_LEVEL_AXIS_LABEL),
+        "amplitudeLevel": level_scale_metadata(first, "Amplitude level"),
+        "spectrumLevel": level_scale_metadata(first, "Spectrum amplitude level"),
+        "spectrogramLevel": level_scale_metadata(first, "STFT amplitude level"),
     }
 
 
@@ -75,7 +96,7 @@ def _dominant_frequencies(
     freqs: np.ndarray,
     peak_count: int,
 ) -> list[dict[str, float]]:
-    if magnitudes.size <= 1 or freqs.size != magnitudes.size:
+    if peak_count <= 0 or magnitudes.size <= 1 or freqs.size != magnitudes.size:
         return []
 
     magnitudes = np.asarray(magnitudes, dtype=np.float64).copy()
@@ -96,37 +117,37 @@ def _dominant_frequencies(
 
 def _spectrum_peaks(
     magnitudes: np.ndarray,
+    levels_db: np.ndarray,
     freqs: np.ndarray,
     peak_count: int,
 ) -> list[dict[str, float]]:
-    """Return up to *peak_count* peaks as {freqHz, amplitudeDb} dicts.
+    from scipy.signal import find_peaks
 
-    Uses scipy.signal.find_peaks for proper local-maxima detection, then
-    converts magnitude (linear) to dB and returns the top-N by amplitude.
-    """
-    from scipy.signal import find_peaks  # lazy import — not all callers need this
-
-    if magnitudes.size <= 2 or freqs.size != magnitudes.size:
+    if peak_count <= 0 or magnitudes.size <= 2 or freqs.size != magnitudes.size:
         return []
 
     mag = np.asarray(magnitudes, dtype=np.float64).copy()
+    levels = np.asarray(levels_db, dtype=np.float64)
     fr = np.asarray(freqs, dtype=np.float64)
-    mag[0] = 0.0  # suppress DC bin
+    if levels.size != mag.size:
+        raise ValueError("Spectrum level and magnitude shapes must match")
+    mag[0] = 0.0
 
     indices, _ = find_peaks(mag, height=0)
     if indices.size == 0:
         return []
 
-    # Keep top-N by magnitude
-    n = min(peak_count, indices.size)
-    top_idx = indices[np.argsort(mag[indices])[::-1][:n]]
-
-    eps = 1e-12
-    result = []
-    for idx in top_idx:
-        amplitude_db = 20.0 * np.log10(float(mag[idx]) + eps)
-        result.append({"freqHz": float(fr[idx]), "amplitudeDb": float(round(amplitude_db, 2))})
-    return result
+    count = min(peak_count, indices.size)
+    top_indices = indices[np.argsort(mag[indices])[::-1][:count]]
+    return [
+        {
+            "freqHz": float(fr[index]),
+            "magnitude": float(mag[index]),
+            "levelDb": float(round(levels[index], 2)),
+            "amplitudeDb": float(round(levels[index], 2)),
+        }
+        for index in top_indices
+    ]
 
 
 def _build_waveform_envelope(
@@ -185,9 +206,17 @@ def _build_spectrogram(
     sample_rate_hz: int,
     window_size: int,
     hop_size: int,
+    scale_metadata: dict[str, object] | None = None,
     time_bin_limit: int = SPECTROGRAM_TIME_BIN_LIMIT,
     frequency_bin_limit: int = SPECTROGRAM_FREQUENCY_BIN_LIMIT,
 ) -> dict[str, object]:
+    scale = scale_metadata or {
+        "unit": DB_UNIT,
+        "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
+        "referenceValue": 1.0,
+        "referenceUnit": "FS",
+        "levelReferenceLabel": DB_UNIT,
+    }
     if spectrogram_db.size == 0:
         return {
             "values": [],
@@ -198,8 +227,7 @@ def _build_spectrogram(
             "maxFrequencyHz": float(sample_rate_hz / 2),
             "minDb": 0.0,
             "maxDb": 0.0,
-            "unit": DB_UNIT,
-            "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
+            **scale,
         }
 
     spectrogram = np.asarray(spectrogram_db, dtype=np.float64)
@@ -209,9 +237,6 @@ def _build_spectrogram(
     spectrogram = _resample_time_bins(spectrogram, time_bin_limit)
     spectrogram = _resample_frequency_bins(spectrogram, frequency_bin_limit)
 
-    min_db = float(np.min(spectrogram))
-    max_db = float(np.max(spectrogram))
-
     return {
         "values": spectrogram.tolist(),
         "timeBins": int(spectrogram.shape[0]),
@@ -219,11 +244,33 @@ def _build_spectrogram(
         "windowSize": int(window_size),
         "hopSize": int(hop_size),
         "maxFrequencyHz": float(sample_rate_hz / 2),
-        "minDb": min_db,
-        "maxDb": max_db,
-        "unit": DB_UNIT,
-        "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
+        "minDb": float(np.min(spectrogram)),
+        "maxDb": float(np.max(spectrogram)),
+        **scale,
     }
+
+
+def _resolved_profile_from_frame(frame: wd.ChannelFrame) -> ResolvedCalibrationProfile:
+    channels = []
+    for index, label in enumerate(frame.labels):
+        metadata = frame.channels[index]
+        calibration = metadata.calibration
+        factor = float(calibration.factor)
+        unit = str(calibration.unit)
+        reference_value = float(calibration.ref)
+        calibrated = bool(unit) or not math.isclose(factor, 1.0) or not math.isclose(reference_value, 1.0)
+        channels.append(
+            {
+                "channelIndex": index,
+                "expectedLabel": str(label),
+                "status": "calibrated" if calibrated else "uncalibrated",
+                "source": "embedded" if calibrated else "default",
+                "factor": factor,
+                "unit": unit or "1",
+                "referenceValue": reference_value,
+            }
+        )
+    return resolve_calibration_profile({"schemaVersion": 1, "channels": channels}, frame)
 
 
 def analyze_range(
@@ -231,30 +278,41 @@ def analyze_range(
     start_norm: float,
     end_norm: float,
     point_count: int = 2000,
+    *,
+    calibration_profile: object = None,
 ) -> dict[str, object]:
-    frame, _target = load_audio_frame(file_path)
+    source_frame, _target = load_audio_frame(file_path)
+    resolved = resolve_calibration_profile(calibration_profile, source_frame)
+    frame = resolved.apply(source_frame)
     channel_count = int(frame.n_channels)
     sample_count = int(frame.n_samples)
     start_idx = max(0, int(start_norm * sample_count))
     end_idx = min(sample_count, int(end_norm * sample_count))
 
     if end_idx <= start_idx:
-        return {"startNorm": start_norm, "endNorm": end_norm, "channels": []}
+        return {
+            "startNorm": start_norm,
+            "endNorm": end_norm,
+            "calibrationSignature": resolved.signature,
+            "channels": [],
+        }
 
     data = _channels_first(frame[:, start_idx:end_idx].data, channel_count, end_idx - start_idx)
-    channels: list[dict[str, object]] = []
-    for ch_idx in range(channel_count):
-        ch_slice = data[ch_idx]
-        channels.append(
-            _build_waveform_envelope(
-                ch_slice,
-                point_count,
-                start_sample=start_idx,
-                total_samples=sample_count,
-            )
+    channels = [
+        _build_waveform_envelope(
+            data[channel_index],
+            point_count,
+            start_sample=start_idx,
+            total_samples=sample_count,
         )
-
-    return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
+        for channel_index in range(channel_count)
+    ]
+    return {
+        "startNorm": start_norm,
+        "endNorm": end_norm,
+        "calibrationSignature": resolved.signature,
+        "channels": channels,
+    }
 
 
 _ALLOWED_WINDOWS = {"hann", "hamming", "blackman", "boxcar"}
@@ -284,45 +342,44 @@ def _resolve_stft_params(
     return n_fft, hop, window
 
 
-def _channel_unit(frame: wd.ChannelFrame, index: int) -> str | None:
-    channels = getattr(frame, "channels", [])
-    if index >= len(channels):
-        return None
-    unit = getattr(channels[index], "unit", None)
-    if unit is None:
-        return None
-    unit_text = str(unit).strip()
-    return unit_text or None
-
-
 def analyze_from_frame(
     frame: wd.ChannelFrame,
     file_path: str | Path,
     peak_count: int = 5,
     *,
+    raw_frame: wd.ChannelFrame | None = None,
+    calibration_profile: ResolvedCalibrationProfile | None = None,
     stft_options: dict | None = None,
     spectrogram_frame: wd.SpectrogramFrame | None = None,
     include_spectrogram: bool = False,
 ) -> dict[str, object]:
-    """Build the AnalysisResult JSON payload from a ChannelFrame."""
-    peak_count = max(0, int(peak_count))  # guard against negative/zero from user config
+    peak_count = max(0, int(peak_count))
     target = Path(file_path)
     t_frame = time.perf_counter()
     channel_count = int(frame.n_channels)
     sample_count = int(frame.n_samples)
     sample_rate_hz = int(frame.sampling_rate)
     labels = list(frame.labels)
+    resolved = calibration_profile or _resolved_profile_from_frame(frame)
+    measurements = [measurement_metadata(channel) for channel in resolved.channels]
+
     data = _channels_first(np.asarray(frame.data), channel_count, sample_count)
     rms_values = np.asarray(frame.rms, dtype=np.float64)
+    raw_source = raw_frame or frame
+    raw_data = _channels_first(np.asarray(raw_source.data), channel_count, sample_count)
+    if raw_frame is None and not resolved.is_identity:
+        for index, channel in enumerate(resolved.channels):
+            raw_data[index] = raw_data[index] / channel.factor
     _perf("read_frame", t_frame, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
 
     t_fft = time.perf_counter()
     fft = frame.fft()
     fft_freqs = np.asarray(fft.freqs, dtype=np.float64)
     fft_magnitudes = _channels_first(np.asarray(fft.magnitude), channel_count, fft_freqs.size)
+    fft_levels = _channels_first(np.asarray(fft.dB), channel_count, fft_freqs.size)
     _perf("fft", t_fft, bins=fft_freqs.size)
 
-    window_size, hop_size, window_name = _resolve_stft_params(sample_count, stft_options)
+    window_size, hop_size, _window_name = _resolve_stft_params(sample_count, stft_options)
     stft_db: np.ndarray | None = None
     if include_spectrogram:
         if spectrogram_frame is None:
@@ -337,18 +394,33 @@ def analyze_from_frame(
     channels: list[dict[str, object]] = []
     for index in range(channel_count):
         samples = data[index]
+        raw_samples = raw_data[index]
+        measurement = measurements[index]
+        rms = float(rms_values[index])
+        peak = float(np.max(np.abs(samples)))
+        raw_peak = float(np.max(np.abs(raw_samples)))
         spectrogram = None
         if stft_db is not None:
-            spectrogram_db = np.transpose(stft_db[index], (1, 0))
-            spectrogram = _build_spectrogram(spectrogram_db, sample_rate_hz, window_size, hop_size)
+            spectrogram = _build_spectrogram(
+                np.transpose(stft_db[index], (1, 0)),
+                sample_rate_hz,
+                window_size,
+                hop_size,
+                level_scale_metadata(measurement, "STFT amplitude level"),
+            )
         channels.append(
             {
                 "label": labels[index] if index < len(labels) else f"Channel {index + 1}",
-                "unit": _channel_unit(frame, index),
-                "rms": float(rms_values[index]),
-                "peakAbsolute": float(np.max(np.abs(samples))),
+                "unit": measurement["linearUnit"],
+                "measurement": measurement,
+                "rms": rms,
+                "peakAbsolute": peak,
+                "rmsLevelDb": amplitude_level(rms, float(measurement["referenceValue"])),
+                "peakLevelDb": amplitude_level(peak, float(measurement["referenceValue"])),
+                "rawPeakFullScale": raw_peak,
+                "clipped": raw_peak >= 0.99,
                 "dominantFrequencies": _dominant_frequencies(fft_magnitudes[index], fft_freqs, peak_count),
-                "peaks": _spectrum_peaks(fft_magnitudes[index], fft_freqs, peak_count),
+                "peaks": _spectrum_peaks(fft_magnitudes[index], fft_levels[index], fft_freqs, peak_count),
                 "waveform": _build_waveform_envelope(
                     samples,
                     WAVEFORM_POINT_LIMIT,
@@ -360,17 +432,22 @@ def analyze_from_frame(
         )
 
     _perf("channels_build", t_channels, count=channel_count)
-
-    return {
+    result: dict[str, object] = {
+        "schemaVersion": 2,
         "filePath": str(target),
         "fileName": target.name,
         "sampleRateHz": sample_rate_hz,
         "durationSeconds": float(frame.duration),
         "channelCount": channel_count,
         "sampleCount": sample_count,
-        "units": _analysis_units_metadata(),
+        "calibrationSignature": resolved.signature,
+        "calibrationProfile": resolved.to_dict(),
         "channels": channels,
     }
+    units = _analysis_units_metadata(measurements)
+    if units is not None:
+        result["units"] = units
+    return result
 
 
 def analyze_audio(
@@ -378,14 +455,19 @@ def analyze_audio(
     peak_count: int = 5,
     *,
     stft_options: dict | None = None,
+    calibration_profile: object = None,
 ) -> dict[str, object]:
-    frame, target = load_audio_frame(file_path)
+    source_frame, target = load_audio_frame(file_path)
+    resolved = resolve_calibration_profile(calibration_profile, source_frame)
+    frame = resolved.apply(source_frame)
     window_size, hop_size, window_name = _resolve_stft_params(frame.n_samples, stft_options)
     spectrogram = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
     return analyze_from_frame(
         frame,
         target,
         peak_count=peak_count,
+        raw_frame=source_frame,
+        calibration_profile=resolved,
         stft_options=stft_options,
         spectrogram_frame=spectrogram,
         include_spectrogram=True,

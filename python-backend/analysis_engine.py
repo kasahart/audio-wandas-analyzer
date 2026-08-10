@@ -8,7 +8,9 @@ from pathlib import Path
 import numpy as np
 import wandas as wd
 
-StftKey = tuple[int, int, str]
+from calibration_profile import ResolvedCalibrationProfile, resolve_calibration_profile
+
+StftKey = tuple[str, int, int, str]
 AUDIO_CACHE_DTYPE = np.dtype("float32")
 SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
 
@@ -55,19 +57,29 @@ class AnalysisEngine:
         self._evict(path)
         return cached
 
+    def get_analysis(
+        self,
+        file_path: str | Path,
+        calibration_profile: object = None,
+    ) -> tuple[CachedAnalysis, wd.ChannelFrame, ResolvedCalibrationProfile]:
+        cached = self.get_file(file_path)
+        resolved = resolve_calibration_profile(calibration_profile, cached.frame)
+        return cached, resolved.apply(cached.frame), resolved
+
     def get_spectrogram(
         self,
         file_path: str | Path,
         n_fft: int,
         hop_length: int,
         window: str,
+        calibration_profile: object = None,
     ) -> wd.SpectrogramFrame:
-        cached = self.get_file(file_path)
-        key = (n_fft, hop_length, window)
+        cached, analysis_frame, resolved = self.get_analysis(file_path, calibration_profile)
+        key = (resolved.signature, n_fft, hop_length, window)
         spectrogram = cached.spectrograms.get(key)
         if spectrogram is None:
             spectrogram = (
-                cached.frame.stft(n_fft=n_fft, hop_length=hop_length, window=window)
+                analysis_frame.stft(n_fft=n_fft, hop_length=hop_length, window=window)
                 .astype(SPECTROGRAM_CACHE_DTYPE)
                 .cache()
             )
@@ -82,9 +94,10 @@ class AnalysisEngine:
         n_fft: int,
         hop_length: int,
         window: str,
+        calibration_profile: object = None,
     ) -> wd.SpectrogramFrame | None:
-        cached = self.get_file(file_path)
-        return cached.spectrograms.get((n_fft, hop_length, window))
+        cached, _analysis_frame, resolved = self.get_analysis(file_path, calibration_profile)
+        return cached.spectrograms.get((resolved.signature, n_fft, hop_length, window))
 
     def discard(self, file_path: str | Path) -> None:
         self._files.pop(Path(file_path).expanduser().resolve(), None)

@@ -3,18 +3,10 @@
 Newline-delimited JSON IPC over stdin/stdout. Prints {"type":"ready"} once
 wandas is loaded, then reads commands forever.
 
-Commands:
-    {"cmd":"analyze","requestId":"...","filePath":"...","peakCount":5,
-     "stftOptions":{"nFft":2048,"hopSize":96,"window":"hann"}}
-    {"cmd":"range","requestId":"...","filePath":"...",
-     "startNorm":0.2,"endNorm":0.4,"points":1600}
-    {"cmd":"track-detail","requestId":"...","filePath":"...","trackIndex":0,
-     "stftOptions":{"nFft":2048,"hopSize":96,"window":"hann"}}
-    {"cmd":"spectrum-slice","requestId":"...","filePath":"...","trackIndex":0,
-     "cursorNorm":0.5,"stftOptions":{"nFft":2048,"hopSize":96,"window":"hann"}}
-
-All responses include the originating requestId. Errors come back as
-{"requestId":"...","error":"<message>"}.
+Analysis commands may include a versioned ``calibrationProfile``. The server
+validates that profile against the current channel order, applies it through
+Wandas, and echoes the resolved calibration signature. WAV export always uses
+the original full-scale source frame.
 """
 
 from __future__ import annotations
@@ -35,15 +27,14 @@ import soundfile as sf
 
 from analysis_engine import AnalysisEngine
 from analyzer import (
-    DB_UNIT,
     SPECTROGRAM_FREQUENCY_BIN_LIMIT,
-    SPECTRUM_LEVEL_AXIS_LABEL,
     _build_waveform_envelope,
     _channels_first,
     _resample_frequency_bins,
     _resolve_stft_params,
     analyze_from_frame,
 )
+from calibration_profile import level_scale_metadata, measurement_metadata
 
 _PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
 
@@ -71,26 +62,53 @@ def _stft_options_from_payload(payload: dict) -> dict | None:
     }
 
 
+def _calibration_profile_from_payload(payload: dict) -> object:
+    return payload.get("calibrationProfile")
+
+
+def _analysis_revision(payload: dict) -> int:
+    raw = payload.get("analysisRevision", 0)
+    if isinstance(raw, bool):
+        raise TypeError("analysisRevision must be an integer")
+    return int(raw)
+
+
 def handle_analyze(cmd: dict) -> dict:
-    cached = _engine.get_file(str(cmd["filePath"]))
-    return analyze_from_frame(
-        cached.frame,
+    cached, analysis_frame, resolved = _engine.get_analysis(
+        str(cmd["filePath"]),
+        _calibration_profile_from_payload(cmd),
+    )
+    result = analyze_from_frame(
+        analysis_frame,
         cached.path,
         peak_count=int(cmd.get("peakCount", 5)),
+        raw_frame=cached.frame,
+        calibration_profile=resolved,
         stft_options=_stft_options_from_payload(cmd),
         include_spectrogram=False,
     )
+    result["analysisRevision"] = _analysis_revision(cmd)
+    return result
 
 
 def handle_track_detail(cmd: dict) -> dict:
-    cached = _engine.get_file(str(cmd["filePath"]))
+    calibration_profile = _calibration_profile_from_payload(cmd)
+    cached, analysis_frame, resolved = _engine.get_analysis(str(cmd["filePath"]), calibration_profile)
     stft_options = _stft_options_from_payload(cmd)
-    n_fft, hop_length, window = _resolve_stft_params(cached.frame.n_samples, stft_options)
-    spectrogram = _engine.get_spectrogram(cached.path, n_fft, hop_length, window)
+    n_fft, hop_length, window = _resolve_stft_params(analysis_frame.n_samples, stft_options)
+    spectrogram = _engine.get_spectrogram(
+        cached.path,
+        n_fft,
+        hop_length,
+        window,
+        calibration_profile,
+    )
     result = analyze_from_frame(
-        cached.frame,
+        analysis_frame,
         cached.path,
         peak_count=int(cmd.get("peakCount", 5)),
+        raw_frame=cached.frame,
+        calibration_profile=resolved,
         stft_options=stft_options,
         spectrogram_frame=spectrogram,
         include_spectrogram=True,
@@ -98,7 +116,9 @@ def handle_track_detail(cmd: dict) -> dict:
     return {
         "trackIndex": int(cmd.get("trackIndex", -1)),
         "analysisId": cmd.get("analysisId"),
+        "analysisRevision": _analysis_revision(cmd),
         "settingsSignature": cmd.get("settingsSignature"),
+        "calibrationSignature": resolved.signature,
         "filePath": str(cached.path),
         "channels": result["channels"],
     }
@@ -109,13 +129,20 @@ def _spectrum_slice_values(
     cursor_norm: float,
     channel_index: int,
     stft_options: dict | None,
+    calibration_profile: object,
 ) -> dict[str, object]:
-    cached = _engine.get_file(file_path)
-    window_size, hop_size, window_name = _resolve_stft_params(cached.frame.n_samples, stft_options)
+    cached, analysis_frame, resolved = _engine.get_analysis(file_path, calibration_profile)
+    window_size, hop_size, window_name = _resolve_stft_params(analysis_frame.n_samples, stft_options)
     clipped_norm = max(0.0, min(1.0, cursor_norm))
-    if channel_index < 0 or channel_index >= cached.frame.n_channels:
+    if channel_index < 0 or channel_index >= analysis_frame.n_channels:
         raise ValueError(f"channelIndex out of range: {channel_index}")
-    spectrogram = _engine.get_cached_spectrogram(cached.path, window_size, hop_size, window_name)
+    spectrogram = _engine.get_cached_spectrogram(
+        cached.path,
+        window_size,
+        hop_size,
+        window_name,
+        calibration_profile,
+    )
     if spectrogram is not None:
         time_bins = int(spectrogram.n_frames)
         if time_bins <= 0:
@@ -124,40 +151,47 @@ def _spectrum_slice_values(
         spectrum = spectrogram.get_frame_at(time_index)
         max_frequency_hz = float(spectrogram.freqs[-1])
     else:
-        center_sample = min(int(clipped_norm * cached.frame.n_samples), cached.frame.n_samples - 1)
+        center_sample = min(int(clipped_norm * analysis_frame.n_samples), analysis_frame.n_samples - 1)
         start_sample = max(0, center_sample - window_size // 2)
-        end_sample = min(cached.frame.n_samples, start_sample + window_size)
+        end_sample = min(analysis_frame.n_samples, start_sample + window_size)
         start_sample = max(0, end_sample - window_size)
-        spectrum = cached.frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
+        spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
         max_frequency_hz = float(spectrum.freqs[-1])
     values = np.asarray(spectrum.dB, dtype=np.float64)
     if values.ndim == 2:
         values = values[channel_index]
     values_2d = _resample_frequency_bins(values.reshape(1, -1), SPECTROGRAM_FREQUENCY_BIN_LIMIT)
     row = values_2d[0]
+    measurement = measurement_metadata(resolved.channels[channel_index])
     return {
         "values": row.tolist(),
         "frequencyBins": int(row.shape[0]),
         "maxFrequencyHz": max_frequency_hz,
         "minDb": float(np.min(row)),
         "maxDb": float(np.max(row)),
-        "unit": DB_UNIT,
-        "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
+        "calibrationSignature": resolved.signature,
+        **level_scale_metadata(measurement, "Spectrum amplitude level"),
     }
 
 
 def handle_spectrum_slice(cmd: dict) -> dict:
     file_path = str(cmd["filePath"])
-    cached = _engine.get_file(file_path)
     cursor_norm = float(cmd.get("cursorNorm", cmd.get("trackLocalNorm", 0.0)))
     channel_index = int(cmd.get("channelIndex", 0))
-    slice_data = _spectrum_slice_values(cached.path, cursor_norm, channel_index, _stft_options_from_payload(cmd))
+    slice_data = _spectrum_slice_values(
+        file_path,
+        cursor_norm,
+        channel_index,
+        _stft_options_from_payload(cmd),
+        _calibration_profile_from_payload(cmd),
+    )
     return {
         "trackIndex": int(cmd.get("trackIndex", -1)),
         "channelIndex": channel_index,
         "analysisId": cmd.get("analysisId"),
+        "analysisRevision": _analysis_revision(cmd),
         "settingsSignature": cmd.get("settingsSignature"),
-        "filePath": str(cached.path),
+        "filePath": str(Path(file_path).expanduser().resolve()),
         **slice_data,
     }
 
@@ -168,26 +202,36 @@ def handle_range(cmd: dict) -> dict:
     end_norm = float(cmd["endNorm"])
     point_count = int(cmd.get("points", 2000))
 
-    cached = _engine.get_file(file_path)
-    sample_count = cached.frame.n_samples
+    cached, analysis_frame, resolved = _engine.get_analysis(
+        file_path,
+        _calibration_profile_from_payload(cmd),
+    )
+    sample_count = analysis_frame.n_samples
     start_idx = max(0, int(start_norm * sample_count))
     end_idx = min(sample_count, int(end_norm * sample_count))
 
     channels: list[dict] = []
     if end_idx > start_idx:
-        range_frame = cached.frame[:, start_idx:end_idx]
-        data = _channels_first(range_frame.data, cached.frame.n_channels, end_idx - start_idx)
-        for ch_idx in range(cached.frame.n_channels):
+        range_frame = analysis_frame[:, start_idx:end_idx]
+        data = _channels_first(range_frame.data, analysis_frame.n_channels, end_idx - start_idx)
+        for channel_index in range(analysis_frame.n_channels):
             channels.append(
                 _build_waveform_envelope(
-                    data[ch_idx],
+                    data[channel_index],
                     point_count,
                     start_sample=start_idx,
                     total_samples=sample_count,
                 )
             )
 
-    return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
+    return {
+        "startNorm": start_norm,
+        "endNorm": end_norm,
+        "analysisRevision": _analysis_revision(cmd),
+        "calibrationSignature": resolved.signature,
+        "filePath": str(cached.path),
+        "channels": channels,
+    }
 
 
 def handle_export_wav_loop(cmd: dict) -> dict:
@@ -235,7 +279,6 @@ _HEARTBEAT_INTERVAL: float = 5.0
 
 
 def _heartbeat_loop() -> None:
-    """5 秒ごとに heartbeat を stdout に書く（デーモンスレッドで起動）。"""
     while True:
         time.sleep(_HEARTBEAT_INTERVAL)
         print(json.dumps({"type": "heartbeat", "ts": time.time()}), flush=True)
@@ -256,9 +299,9 @@ def main() -> None:
             handler = COMMANDS.get(name)
             if handler is None:
                 raise ValueError(f"unknown cmd: {name!r}")
-            t = time.perf_counter()
+            started = time.perf_counter()
             result = handler(cmd)
-            _perf(f"cmd_{name}", t, file=Path(str(cmd.get("filePath", ""))).name)
+            _perf(f"cmd_{name}", started, file=Path(str(cmd.get("filePath", ""))).name)
             result["requestId"] = request_id
             print(json.dumps(result, ensure_ascii=False), flush=True)
         except Exception as exc:
