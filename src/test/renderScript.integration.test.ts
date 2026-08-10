@@ -311,6 +311,35 @@ test('2 トラック分の track-canvas が生成される', () => {
     assert.ok(c1, 'track-canvas-1 が存在すること');
 });
 
+test('track DOM uses stable TrackId attributes instead of result indices', () => {
+    const { dom } = setupEnv();
+    const rows = Array.from(dom.window.document.querySelectorAll('.track-row'));
+    assert.deepEqual(rows.map((row) => row.getAttribute('data-track-id')), ['track-1', 'track-2']);
+    assert.equal(dom.window.document.querySelector('[data-track-index]'), null);
+    assert.equal(new Set(rows.map((row) => row.getAttribute('data-track-id'))).size, rows.length);
+    dom.window.close();
+});
+
+test('host response boundary reports an invalid numeric track identity', () => {
+    const env = setupEnv();
+    const warnings: string[] = [];
+    env.dom.window.console.warn = (...values: unknown[]) => warnings.push(values.map(String).join(' '));
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: {
+            type: 'waveform-range-result',
+            requestId: 'invalid-track',
+            trackIndex: 99,
+            startNorm: 0,
+            endNorm: 1,
+            channels: [],
+        },
+    }));
+
+    assert.deepEqual(warnings, ['Rejected waveform-range-result with invalid trackIndex 99']);
+    env.dom.window.close();
+});
+
 test('renderScript: monaural tracks keep waveform and power spectrum in one body without a channel header', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
@@ -365,8 +394,8 @@ test('selection toolbar にファイルとフォルダを開く導線がある',
 
 test('各トラックに再生系のボタンと audio 要素が生成される', () => {
     const { dom } = setupEnv();
-    const playButton = dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]');
-    const stopButton = dom.window.document.querySelector('[data-action="stop-playback"][data-track-index="0"]');
+    const playButton = dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]');
+    const stopButton = dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]');
     const audio = dom.window.document.getElementById('track-audio-0');
     assert.ok(playButton, '再生ボタンが存在すること');
     assert.ok(stopButton, '停止ボタンが存在すること');
@@ -717,7 +746,7 @@ test('directory selection mode keeps the tree visible while rendering selected t
 test('directory selection mode keeps existing track color stable when a new earlier tree item appears', () => {
     const { dom } = setupEnvWithState(DUMMY_SELECTION_WITH_B_RESULT_STATE);
     const initialSwatch = dom.window.document.querySelector(
-        '[data-action="pick-color"][data-track-index="0"]',
+        '[data-action="pick-color"][data-track-id="track-1"]',
     ) as HTMLElement | null;
 
     assert.ok(initialSwatch);
@@ -781,6 +810,10 @@ test('directory selection mode keeps existing track color stable when a new earl
 
     assert.ok(bSwatch);
     assert.equal(bSwatch.style.background, initialBColor);
+    assert.equal(bSwatch.getAttribute('data-track-id'), 'track-1');
+    const aSwatch = rows.find((row) => row.textContent?.includes('a.wav'))
+        ?.querySelector('[data-action="pick-color"]');
+    assert.equal(aSwatch?.getAttribute('data-track-id'), 'track-2');
 });
 
 test('directory selection mode posts an empty selection when a checked file is unchecked', () => {
@@ -952,7 +985,7 @@ test('renderScript: track-detail-result merges spectrogram and stale detail is i
 
 test('renderScript: removing a detailed track releases its spectrogram detail', () => {
     const env = setupEnv();
-    const removeButton = env.dom.window.document.querySelector('[data-action="remove-track"][data-track-index="0"]') as HTMLButtonElement | null;
+    const removeButton = env.dom.window.document.querySelector('[data-action="remove-track"][data-track-id="track-1"]') as HTMLButtonElement | null;
     assert.ok(removeButton);
     removeButton.click();
 
@@ -1019,6 +1052,82 @@ test('renderScript: analysis-update in spectrogram mode requests fresh detail fo
 
     const detailRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
     assert.ok(detailRequests.length >= 2, 'analysis-update should trigger a fresh detail request in spectrogram mode');
+});
+
+test('analysis-update preserves TrackId runtime state while protocol indices change', async () => {
+    const env = setupEnv();
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        actionId: 'set-b-offset-before-reorder',
+        actions: [{ action: 'set-track-offset', trackIndex: 1, payload: { offsetSeconds: 2 } }],
+    } }));
+
+    const reversedResults = JSON.parse(DUMMY_APP_STATE).results.reverse();
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'analysis-update',
+        results: reversedResults,
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const snapshot = env.postedMessages
+        .filter((message: any) => message.type === 'comparison-panel-test-snapshot')
+        .at(-1) as any;
+    const trackA = snapshot.renderedUi.tracks.find((track: any) => track.filePath === '/tmp/a.wav');
+    const trackB = snapshot.renderedUi.tracks.find((track: any) => track.filePath === '/tmp/b.wav');
+    assert.deepEqual(
+        { id: trackA.trackId, index: trackA.trackIndex, offset: trackA.offsetSeconds },
+        { id: 'track-1', index: 1, offset: 0 },
+    );
+    assert.deepEqual(
+        { id: trackB.trackId, index: trackB.trackIndex, offset: trackB.offsetSeconds },
+        { id: 'track-2', index: 0, offset: 2 },
+    );
+    assert.deepEqual(Array.from(snapshot.renderedUi.displayOrder), ['track-1', 'track-2']);
+    env.dom.window.close();
+});
+
+test('lazy detail response cannot attach to a replacement at the same protocol index', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement;
+    button.click();
+    await nextAnimationFrame(env.dom);
+    const oldRequest = env.postedMessages.find((message: any) => message.type === 'request-track-detail') as any;
+    assert.ok(oldRequest);
+
+    const replacement = JSON.parse(makeLazySpectrogramState()).results[0];
+    replacement.filePath = '/tmp/replacement.wav';
+    replacement.fileName = 'replacement.wav';
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'analysis-update',
+        results: [replacement],
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const requests = env.postedMessages.filter((message: any) => message.type === 'request-track-detail') as any[];
+    const replacementRequest = requests.at(-1);
+    assert.notEqual(replacementRequest.analysisId, oldRequest.analysisId);
+    assert.equal(replacementRequest.filePath, '/tmp/replacement.wav');
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'track-detail-result',
+        requestId: oldRequest.requestId,
+        analysisId: oldRequest.analysisId,
+        settingsSignature: oldRequest.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ spectrogram: {
+            values: [[-10]], timeBins: 1, frequencyBins: 1, windowSize: 512, hopSize: 256,
+            maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
+        } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const snapshot = env.postedMessages
+        .filter((message: any) => message.type === 'comparison-panel-test-snapshot')
+        .at(-1) as any;
+    assert.equal(snapshot.renderedUi.tracks[0].trackId, 'track-3');
+    assert.equal(snapshot.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-90 dB'), false);
+    env.dom.window.close();
 });
 
 test('renderScript: missing spectrogram requests a spectrum slice at cursor', async () => {
@@ -1214,8 +1323,8 @@ test('renderScript: spectrum at exact track end renders silence instead of the l
 
 test('再生ボタンで play 状態に切り替わる', async () => {
     const { dom } = setupEnv();
-    const playButton = dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]');
-    const stopButton = dom.window.document.querySelector('[data-action="stop-playback"][data-track-index="0"]');
+    const playButton = dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]');
+    const stopButton = dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]');
     const audio = dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
 
     assert.ok(playButton instanceof dom.window.HTMLButtonElement);
@@ -1239,7 +1348,7 @@ test('renderScript: results pane rebuild preserves playback button state', async
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
     const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
-    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
     assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
     assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
 
@@ -1254,8 +1363,8 @@ test('renderScript: results pane rebuild preserves playback button state', async
     } }));
     await nextAnimationFrame(env.dom);
 
-    const rebuiltPlayButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
-    const rebuiltStopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    const rebuiltPlayButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
+    const rebuiltStopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
     assert.equal(rebuiltPlayButton?.textContent, '⏸');
     assert.equal(rebuiltStopButton?.disabled, false);
 
@@ -2059,8 +2168,8 @@ test('renderScript: spectrum canvases are redrawn during playback as cursor adva
     const waveformBefore = waveformSpy!.clearRectCalls;
 
     const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
-    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
-    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
+    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
     assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
     assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
     assert.ok(stopButton instanceof env.dom.window.HTMLButtonElement);
@@ -2100,8 +2209,8 @@ test('renderScript: playback spectrum refresh is throttled and then catches up',
     assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
 
     const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
-    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-index="0"]') as HTMLButtonElement | null;
-    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-index="0"]') as HTMLButtonElement | null;
+    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
+    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
     assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
     assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
     assert.ok(stopButton instanceof env.dom.window.HTMLButtonElement);

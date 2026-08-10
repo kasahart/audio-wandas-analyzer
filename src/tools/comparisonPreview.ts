@@ -94,7 +94,7 @@ window.__comparisonPreviewDemo = true;
 function startPreviewDemoWhenReady() {
     window.setTimeout(function startPreviewDemo() {
         const audio = document.getElementById('track-audio-0');
-        const playButton = document.querySelector('[data-action="toggle-playback"][data-track-index="0"]');
+        const playButton = document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]');
         if (!(audio instanceof HTMLAudioElement) || !(playButton instanceof HTMLButtonElement)) { return; }
         audio.muted = true;
         audio.loop = true;

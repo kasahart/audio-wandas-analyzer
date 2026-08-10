@@ -13,15 +13,16 @@ import {
     spectrumBinAtFrequency as findSpectrumBinAtFrequency,
     zoomSpectrumRange,
 } from './spectrumRuntime';
-import { normalizeRuntimeState, PersistedStateStore, reorderInPlace } from './stateStore';
+import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
+import { TrackStore } from './trackStore';
 import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
     zoomNormalizedRange,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
-import type { CanvasSyncOptions, ComparisonBootstrap, ComparisonTrackState, DragPoint, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, RuntimeEvent, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, WaveformRangeCache, } from './types';
+import type { CanvasSyncOptions, ComparisonBootstrap, ComparisonTrackState, DragPoint, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, RuntimeEvent, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, WaveformRangeCache, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
@@ -110,7 +111,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const canvasWidthCache: Record<string, string> = {};
     let playbackEl: RuntimeElement | null = null;
     let playbackRafId: number | null = null;
-    let playbackTrackIndex: number | null = null;
+    let playbackTrackId: TrackId | null = null;
     let followCursor = false;
     const SPECTRUM_PLAYBACK_FRAME_MS = 1000 / 15;
     let spectrumRafPending = false;
@@ -235,7 +236,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let hoverNorm: number | null = null; // ホバープレビュー位置（null = 非表示）
     let spectrumHoverNorm: number | null = null; // スペクトルカーソル（正規化周波数 0..1、null = 非表示）
     let spectrumHoverYFrac: number | null = null; // スペクトルカーソルy（canvas高さに対する比率 0..1）
-    let spectrumHoverTrackIndex: number | null = null; // -1 = overlay, number = per-track, null = none
+    let spectrumHoverTrackId: TrackId | 'overlay' | null = null;
     let spectrumHoverChannelIndex: number | null = null; // number = per-track channel, null = overlay/none
     let spectrumHasMouse = false; // マウスがスペクトルキャンバス上にある間 true
     let trackHeight = TRACK_HEIGHT_DEFAULT;
@@ -258,22 +259,60 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let playbackStartNorm = 0; // 再生開始位置の記憶
     let dragState: WaveformDragState | null = null;
     let loopRegion: LoopRegion | null = null;
-    const lastWaveformCoverage: Array<WaveformCoverage | null> = state.results.map(function () { return null; });
     let nextDefaultTrackColorIndex = 0;
     function createTrackRuntime(): TrackRuntimeState {
         const defaultColor = TRACK_COLORS[nextDefaultTrackColorIndex % TRACK_COLORS.length];
         nextDefaultTrackColorIndex += 1;
         return { offsetSeconds: 0, hidden: false, color: null, defaultColor: defaultColor };
     }
-    const trackRuntime = state.results.map(function () {
-        return createTrackRuntime();
-    });
-    let displayOrder = state.results.map(function (_, i: number) { return i; });
-    const analysisId = 'analysis-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-    const detailRequests: Array<LazyRequestState | null> = state.results.map(function () { return null; });
-    const spectrumSliceRequests: Array<Record<number, LazyRequestState> | null> = state.results.map(function () { return {}; });
-    const spectrumSliceCache: Array<Record<number, SpectrumSlice> | null> = state.results.map(function () { return {}; });
-    const trackSpectrumPainted: Array<Record<number, boolean> | null> = state.results.map(function () { return {}; });
+    const trackStore = new TrackStore(state.results, createTrackRuntime);
+    const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    let analysisGeneration = 0;
+    function createAnalysisId(): string {
+        analysisGeneration += 1;
+        return 'analysis-' + runtimeSessionId + '-' + analysisGeneration.toString(36);
+    }
+    let analysisId = createAnalysisId();
+    function trackIdAtIndex(index: number): TrackId | null {
+        return trackStore.idAtProtocolIndex(index);
+    }
+    function trackIdAtProtocolBoundary(index: number, messageType: string): TrackId | null {
+        const trackId = trackIdAtIndex(index);
+        if (!trackId) {
+            console.warn('Rejected ' + messageType + ' with invalid trackIndex ' + index);
+        }
+        return trackId;
+    }
+    function trackRecordAtIndex(index: number) {
+        const trackId = trackIdAtIndex(index);
+        return trackId ? trackStore.get(trackId) : undefined;
+    }
+    function trackRuntimeAt(index: number): TrackRuntimeState {
+        const record = trackRecordAtIndex(index);
+        if (!record) {
+            throw new Error('Invalid track protocol index: ' + index);
+        }
+        return record.runtime;
+    }
+    function trackIndexForId(trackId: TrackId): number {
+        const index = trackStore.protocolIndexForId(trackId);
+        if (index === null) {
+            throw new Error('Inactive TrackId: ' + trackId);
+        }
+        return index;
+    }
+    function trackIdFromElement(element: RuntimeElement): TrackId | null {
+        const rawId = element.getAttribute('data-track-id');
+        if (!rawId) {
+            return null;
+        }
+        const trackId = rawId as TrackId;
+        return trackStore.protocolIndexForId(trackId) === null ? null : trackId;
+    }
+    function trackIndexFromElement(element: RuntimeElement): number | null {
+        const trackId = trackIdFromElement(element);
+        return trackId ? trackStore.protocolIndexForId(trackId) : null;
+    }
     let overlaySpectrumPainted = false;
     let lazyRequestCounter = 0;
     function nextLazyRequestId(prefix: string, i: number | string): string {
@@ -352,7 +391,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const gs = computeGlobalSpan();
         const cursorSec = gs.startSec + cursorNormValue * gs.spanSec;
-        const local = (cursorSec - trackRuntime[i].offsetSeconds) / dur;
+        const local = (cursorSec - trackRuntimeAt(i).offsetSeconds) / dur;
         if (local < 0 || local > 1) {
             return null;
         }
@@ -360,7 +399,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function requestTrackDetail(i: number) {
         const result = state.results[i];
-        if (!result || result.error || trackRuntime[i].hidden) {
+        const record = trackRecordAtIndex(i);
+        if (!record || !result || result.error || record.runtime.hidden) {
             return;
         }
         const channels = channelsForResult(result);
@@ -368,12 +408,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const settingsSignature = currentSettingsSignature();
-        const pending = detailRequests[i];
+        const pending = record.detailRequest;
         if (pending && pending.settingsSignature === settingsSignature) {
             return;
         }
         const requestId = nextLazyRequestId('detail', i);
-        detailRequests[i] = { requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature };
+        record.detailRequest = { trackId: record.id, requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature };
         messaging.post({
             type: 'request-track-detail',
             requestId: requestId,
@@ -385,10 +425,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function releaseTrackDetail(i: number) {
         const result = state.results[i];
-        if (!result) {
+        const record = trackRecordAtIndex(i);
+        if (!result || !record) {
             return;
         }
-        const hadPendingDetail = !!detailRequests[i];
+        const hadPendingDetail = !!record.detailRequest;
         let hadSpectrogram = false;
         if (result.channels) {
             result.channels.forEach(function (channel: ChannelSummary) {
@@ -398,10 +439,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
             });
         }
-        detailRequests[i] = null;
-        spectrumSliceRequests[i] = {};
-        spectrumSliceCache[i] = {};
-        trackSpectrumPainted[i] = {};
+        record.detailRequest = null;
+        record.spectrumSliceRequests.clear();
+        record.spectrumSliceCache.clear();
+        record.spectrumPainted.clear();
         overlaySpectrumPainted = false;
         if (hadSpectrogram || hadPendingDetail) {
             messaging.post({
@@ -421,8 +462,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return Math.min(0.002, 0.02 / dur);
     }
     function isSpectrumSliceRequestPendingForCursor(i: number, cursorNormValue: number, channelIndex: number) {
-        const pendingByChannel = spectrumSliceRequests[i] || {};
-        const pending = pendingByChannel[channelIndex];
+        const record = trackRecordAtIndex(i);
+        const pending = record?.spectrumSliceRequests.get(channelIndex);
         if (!pending) {
             return false;
         }
@@ -440,7 +481,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const result = state.results[i];
-        if (!result || result.error || trackRuntime[i].hidden) {
+        const record = trackRecordAtIndex(i);
+        if (!record || !result || result.error || record.runtime.hidden) {
             return;
         }
         const localNorm = trackLocalCursorNorm(i, cursorNormValue);
@@ -453,18 +495,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const settingsSignature = currentSpectrumDataSignature();
-        const cacheByChannel = spectrumSliceCache[i] || (spectrumSliceCache[i] = {});
-        const cached = cacheByChannel[channelIndex];
+        const cached = record.spectrumSliceCache.get(channelIndex);
         if (cached && cached.settingsSignature === settingsSignature && cached.channelIndex === channelIndex && Math.abs((cached.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
             return;
         }
-        const pendingByChannel = spectrumSliceRequests[i] || (spectrumSliceRequests[i] = {});
-        const pending = pendingByChannel[channelIndex];
+        const pending = record.spectrumSliceRequests.get(channelIndex);
         if (pending && pending.settingsSignature === settingsSignature && pending.channelIndex === channelIndex && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
             return;
         }
         const requestId = nextLazyRequestId('slice', i + '-' + channelIndex);
-        pendingByChannel[channelIndex] = { requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature, cursorNorm: localNorm, channelIndex: channelIndex };
+        record.spectrumSliceRequests.set(channelIndex, { trackId: record.id, requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature, cursorNorm: localNorm, channelIndex: channelIndex });
         messaging.post({
             type: 'request-spectrum-slice',
             requestId: requestId,
@@ -493,7 +533,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     function trackColor(i: number) {
-        const runtime = trackRuntime[i];
+        const runtime = trackRuntimeAt(i);
         return (runtime && runtime.color) || (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
     }
     function showTooltip(e: MouseEvent, text: string): void {
@@ -514,11 +554,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function computeGlobalSpan() {
         let startSec = Infinity, endSec = -Infinity;
-        state.results.forEach(function (result: ComparisonTrackState, i: number) {
-            if (trackRuntime[i].hidden || result.error) {
+        trackStore.activeIds().forEach(function (trackId) {
+            const record = trackStore.require(trackId);
+            const result = record.result;
+            if (record.runtime.hidden || result.error) {
                 return;
             }
-            const off = trackRuntime[i].offsetSeconds;
+            const off = record.runtime.offsetSeconds;
             const dur = result.durationSeconds || 0;
             if (off < startSec) {
                 startSec = off;
@@ -537,10 +579,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     // ── On-demand range cache ──
     const OVERVIEW_PTS = 1200;
-    // Per track: { startNorm, endNorm, channels[] } once a range response arrives
-    const rangeCache: Array<WaveformRangeCache | null> = state.results.map(function () { return null; });
-    // Per track: requestId of the in-flight request (null = no pending request)
-    const pendingRequests: Array<string | null> = state.results.map(function () { return null; });
     let rangeRequestTimer: number | null = null;
     // Receive high-res range data from Extension Host
     messaging.onMessage(function (msg) {
@@ -548,14 +586,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        if (i < 0 || i >= pendingRequests.length) {
+        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const record = trackId ? trackStore.get(trackId) : undefined;
+        if (!trackId || !record) {
             return;
         }
-        if (pendingRequests[i] !== msg.requestId) {
+        if (record.pendingRangeRequest !== msg.requestId) {
             return;
         } // stale
-        pendingRequests[i] = null;
-        rangeCache[i] = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
+        record.pendingRangeRequest = null;
+        record.rangeCache = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
         renderAll();
     });
     messaging.onMessage(function (msg) {
@@ -563,14 +603,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        if (i < 0 || i >= detailRequests.length) {
+        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const record = trackId ? trackStore.get(trackId) : undefined;
+        if (!trackId || !record) {
             return;
         }
-        const pending = detailRequests[i];
-        if (!pending || pending.requestId !== msg.requestId || pending.analysisId !== msg.analysisId || pending.settingsSignature !== msg.settingsSignature || pending.channelIndex !== msg.channelIndex) {
+        const pending = record.detailRequest;
+        if (!pending || pending.trackId !== trackId || pending.requestId !== msg.requestId || pending.analysisId !== msg.analysisId || pending.settingsSignature !== msg.settingsSignature || pending.channelIndex !== msg.channelIndex) {
             return;
         }
-        detailRequests[i] = null;
+        record.detailRequest = null;
         if (msg.type === 'track-detail-error') {
             return;
         }
@@ -593,23 +635,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        if (i < 0 || i >= spectrumSliceRequests.length) {
+        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const record = trackId ? trackStore.get(trackId) : undefined;
+        if (!trackId || !record) {
             return;
         }
         const channelIndex = Number.isInteger(msg.channelIndex) ? msg.channelIndex : 0;
-        const pendingByChannel = spectrumSliceRequests[i] || {};
-        const pending = pendingByChannel[channelIndex];
-        if (!pending || pending.requestId !== msg.requestId || pending.analysisId !== msg.analysisId || pending.settingsSignature !== msg.settingsSignature || pending.channelIndex !== channelIndex) {
+        const pending = record.spectrumSliceRequests.get(channelIndex);
+        if (!pending || pending.trackId !== trackId || pending.requestId !== msg.requestId || pending.analysisId !== msg.analysisId || pending.settingsSignature !== msg.settingsSignature || pending.channelIndex !== channelIndex) {
             return;
         }
-        delete pendingByChannel[channelIndex];
+        record.spectrumSliceRequests.delete(channelIndex);
         if (msg.type === 'spectrum-slice-error') {
             runSpectrumRefresh(false, false);
             requestAnimationFrame(function () { publishTestSnapshot(); });
             return;
         }
-        const cacheByChannel = spectrumSliceCache[i] || (spectrumSliceCache[i] = {});
-        cacheByChannel[channelIndex] = {
+        record.spectrumSliceCache.set(channelIndex, {
             settingsSignature: msg.settingsSignature,
             cursorNorm: pending.cursorNorm,
             channelIndex: pending.channelIndex,
@@ -621,7 +663,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             maxDb: msg.maxDb,
             unit: msg.unit,
             axisLabel: msg.axisLabel,
-        };
+        });
         runSpectrumRefresh(false, false);
         requestAnimationFrame(function () { publishTestSnapshot(); });
     });
@@ -668,7 +710,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!entry || typeof entry !== 'object' || typeof entry.action !== 'string') {
             return;
         }
-        const idx = typeof entry.trackIndex === 'number' ? entry.trackIndex : -1;
+        const requestedTrackId = typeof entry.trackId === 'string' ? entry.trackId as TrackId : null;
+        const indexedTrackId = typeof entry.trackIndex === 'number' ? trackIdAtIndex(entry.trackIndex) : null;
+        const actionTrackId = requestedTrackId && trackStore.protocolIndexForId(requestedTrackId) !== null
+            ? requestedTrackId
+            : indexedTrackId;
+        const idx = actionTrackId ? trackIndexForId(actionTrackId) : -1;
         if (entry.action === 'offset-up' && idx >= 0) {
             adjustOffset(idx, 0.01);
         }
@@ -676,7 +723,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             adjustOffset(idx, -0.01);
         }
         if (entry.action === 'remove-track' && idx >= 0) {
-            removeTrack(idx);
+            if (actionTrackId) {
+                removeTrack(actionTrackId);
+            }
         }
         if (entry.action === 'resize-height-drag' && entry.payload) {
             const kind = entry.payload.kind === 'spectrum' ? 'spectrum' : 'track';
@@ -716,12 +765,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleRender();
             scheduleSpectrumRefresh('immediate');
         }
-        if (entry.action === 'set-track-offset' && idx >= 0 && trackRuntime[idx] && entry.payload) {
+        if (entry.action === 'set-track-offset' && idx >= 0 && entry.payload) {
             const offsetSeconds = Number(entry.payload.offsetSeconds ?? 0);
             if (!Number.isFinite(offsetSeconds)) {
                 return;
             }
-            trackRuntime[idx].offsetSeconds = offsetSeconds;
+            trackRuntimeAt(idx).offsetSeconds = offsetSeconds;
             updateOffsetDisplays();
             updateLoopTimeDisplay();
             scheduleRender();
@@ -771,7 +820,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function computeTrackFileView(result: ComparisonTrackState, trackIndex: number, offsetSeconds?: number): TrackFileView {
         const dur = result.durationSeconds || 1;
         const gs = computeGlobalSpan();
-        const offsetSec = offsetSeconds === undefined ? trackRuntime[trackIndex].offsetSeconds : offsetSeconds;
+        const offsetSec = offsetSeconds === undefined ? trackRuntimeAt(trackIndex).offsetSeconds : offsetSeconds;
         const trackStart = (offsetSec - gs.startSec) / gs.spanSec;
         const trackDurRatio = dur / gs.spanSec;
         const fileAtZoomStart = (zoomStart - trackStart) / trackDurRatio;
@@ -805,7 +854,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function checkAndRequestRanges() {
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
-            if (trackRuntime[i].hidden || result.error) {
+            const record = trackRecordAtIndex(i);
+            if (!record || record.runtime.hidden || result.error) {
                 return;
             }
             const canvas = document.getElementById(trackCanvasId(i, 0));
@@ -819,7 +869,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const reqEnd = Math.min(1, fileView.fileAtZoomEnd + 0.05 * fileSpan);
             const pts = Math.min(W * 2, 8000);
             // Skip if cached range covers current view with sufficient density
-            const c = rangeCache[i];
+            const c = record.rangeCache;
             if (c && c.startNorm <= reqStart && c.endNorm >= reqEnd && c.channels) {
                 const cacheDataRange = Math.max(c.endNorm - c.startNorm, 1e-9);
                 const cacheSufficient = channelsForResult(result).every(function (_, channelIndex: number) {
@@ -832,8 +882,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return;
                 }
             }
-            const requestId = i + '-' + Date.now();
-            pendingRequests[i] = requestId;
+            const requestId = record.id + '-' + Date.now();
+            record.pendingRangeRequest = requestId;
             messaging.post({
                 type: 'request-waveform-range',
                 requestId: requestId,
@@ -912,18 +962,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const waveformPerTrack: string[][] = [];
         let overlayMinDb = Infinity, overlayMaxDb = -Infinity, overlayMaxF = 0;
         let overlayDbSource: SpectrumSlice | SpectrogramData | null = null;
-        const trackInfo = state.results.map(function (result: ComparisonTrackState, trackIndex: number) {
+        const trackInfo = trackStore.activeIds().map(function (trackId) {
+            const record = trackStore.require(trackId);
+            const result = record.result;
+            const trackIndex = record.protocolIndex;
             const dur = result.durationSeconds || 1;
             const gs = computeGlobalSpan();
-            const trackStart = (trackRuntime[trackIndex].offsetSeconds - gs.startSec) / gs.spanSec;
+            const trackStart = (trackRuntimeAt(trackIndex).offsetSeconds - gs.startSec) / gs.spanSec;
             const trackDurRatio = dur / gs.spanSec;
             const visibleFileStartNorm = Math.max(0, (zoomStart - trackStart) / trackDurRatio);
             const visibleFileEndNorm = Math.min(1, (zoomEnd - trackStart) / trackDurRatio);
-            const coverage = lastWaveformCoverage[trackIndex];
+            const coverage = record.waveformCoverage;
             const spectrumCanvas = document.getElementById('track-spectrum-' + trackIndex);
-            const slice = trackRuntime[trackIndex].hidden
+            const slice = trackRuntimeAt(trackIndex).hidden
                 ? null
-                : extractSpectrumAtCursor(result, trackIndex, trackRuntime[trackIndex].offsetSeconds, spectrumCursorNorm);
+                : extractSpectrumAtCursor(result, trackIndex, trackRuntimeAt(trackIndex).offsetSeconds, spectrumCursorNorm);
             if (slice) {
                 visibleSpectrumTrackCount++;
                 if (slice.minDb < overlayMinDb) {
@@ -974,8 +1027,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 spectrumPerTrack.push([]);
             }
             return {
+                trackId: trackId,
                 trackIndex: trackIndex,
-                offsetSeconds: trackRuntime[trackIndex].offsetSeconds,
+                filePath: result.filePath,
+                offsetSeconds: trackRuntimeAt(trackIndex).offsetSeconds,
                 visibleFileStartNorm: visibleFileStartNorm,
                 visibleFileEndNorm: visibleFileEndNorm,
                 waveformFullyVisible: visibleFileStartNorm <= 0 && visibleFileEndNorm >= 1,
@@ -1052,7 +1107,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     spectrumPerTrack: spectrumPerTrack,
                     waveformPerTrack: waveformPerTrack,
                 },
-                displayOrder: displayOrder.slice(),
+                displayOrder: trackStore.displayOrder.slice(),
                 specFreqStart: specFreqStart,
                 specFreqEnd: specFreqEnd,
                 trackHeight: trackHeight,
@@ -1088,7 +1143,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     contentType: contentType,
                     reanalyzeBusy: isReanalyzeBusy(),
                     axisLabels: { spectrumOverlay: [], spectrogramPerTrack: [], spectrumPerTrack: [], waveformPerTrack: [] },
-                    displayOrder: displayOrder.slice(),
+                    displayOrder: trackStore.displayOrder.slice(),
                     specFreqStart: specFreqStart,
                     specFreqEnd: specFreqEnd,
                     trackHeight: trackHeight,
@@ -1140,8 +1195,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '</div>';
     }
     function buildTrackRowsHtml() {
-        return displayOrder.map(function (stateIdx: number) {
-            return buildTrackRow(state.results[stateIdx], stateIdx);
+        return trackStore.displayOrder.map(function (trackId) {
+            const record = trackStore.require(trackId);
+            return buildTrackRow(record.result, record.protocolIndex);
         }).join('');
     }
     function rebuildResultsPane() {
@@ -1222,11 +1278,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '</ul>';
     }
     function buildAudioElements() {
-        return state.results.map(function (result: ComparisonTrackState, i: number) {
+        return trackStore.activeIds().map(function (trackId) {
+            const record = trackStore.require(trackId);
+            const result = record.result;
             if (!result.audioSource) {
                 return '';
             }
-            return '<audio id="track-audio-' + i + '" preload="metadata" src="' + escHtml(result.audioSource) + '"></audio>';
+            return '<audio id="track-audio-' + record.protocolIndex + '" data-track-id="' + trackId + '" preload="metadata" src="' + escHtml(result.audioSource) + '"></audio>';
         }).join('');
     }
     function buildToolbar() {
@@ -1275,6 +1333,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return '<span>RMS ' + escHtml(rmsDb) + '</span> <span>Peak ' + escHtml(peakDb) + '</span> <span>' + escHtml(domHz) + '</span>';
     }
     function buildChannelLane(result: ComparisonTrackState, trackIndex: number, channelIndex: number) {
+        const trackId = trackIdAtIndex(trackIndex);
+        if (!trackId) {
+            return '';
+        }
         const channels = channelsForResult(result);
         const ch = channels[channelIndex];
         const label = channelLabel(result, channelIndex);
@@ -1282,15 +1344,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const header = channels.length > 1
             ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escHtml(label) + '</span>' + channelMetricSummaryHtml(ch) + '</div>'
             : '';
-        return '<div class="track-channel-lane" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '">'
+        return '<div class="track-channel-lane" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '">'
             + header
             + '  <div class="track-channel-lane-body">'
             + '    <div class="track-canvas-wrap" id="track-canvas-wrap-' + trackIndex + suffix + '">'
-            + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + AXIS_W + 'px" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '"></canvas>'
-            + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '" tabindex="0" style="outline:none;flex:1"></canvas>'
+            + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + AXIS_W + 'px" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '"></canvas>'
+            + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" style="outline:none;flex:1"></canvas>'
             + '    </div>'
             + '    <div class="track-spectrum-wrap" id="track-spectrum-wrap-' + trackIndex + suffix + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
-            + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-index="' + trackIndex + '" data-channel-index="' + channelIndex + '" tabindex="0" aria-label="' + escHtml(result.fileName + ' ' + label + ' ' + STR.trackSpectrumTitle) + '"></canvas>'
+            + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" aria-label="' + escHtml(result.fileName + ' ' + label + ' ' + STR.trackSpectrumTitle) + '"></canvas>'
             + '    </div>'
             + '  </div>'
             + '</div>';
@@ -1301,28 +1363,32 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }).join('');
     }
     function buildTrackRow(result: ComparisonTrackState, i: number) {
+        const trackId = trackIdAtIndex(i);
+        if (!trackId) {
+            return '';
+        }
         const channels = channelsForResult(result);
         const monoSummary = channels.length === 1
             ? ' &nbsp; ' + channelMetricSummaryHtml(channels[0])
             : '';
-        return '<div class="track-row" id="track-row-' + i + '" data-track-index="' + i + '">'
+        return '<div class="track-row" id="track-row-' + i + '" data-track-id="' + trackId + '">'
             + '<div class="track-header">'
             + '  <div class="track-title-row">'
-            + '    <div class="track-drag-handle" draggable="true" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaDragHandle) + '" title="' + escHtml(STR.ariaDragHandle) + '">≡</div>'
-            + '    <div class="track-color-swatch" data-action="pick-color" data-track-index="' + i + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escHtml(STR.ariaPickColor) + '" title="' + escHtml(STR.trackPickColor) + '"></div>'
+            + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaDragHandle) + '" title="' + escHtml(STR.ariaDragHandle) + '">≡</div>'
+            + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escHtml(STR.ariaPickColor) + '" title="' + escHtml(STR.trackPickColor) + '"></div>'
             + '    <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
             + (channels.some(function (ch: ChannelSummary) { return ch && ch.peakAbsolute >= 0.99; }) ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
             + '  </div>'
             + '  <div class="track-meta">Total: ' + result.channelCount + ' ch &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
             + '  <div class="track-btns">'
-            + '    <button class="track-btn" data-action="toggle-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
-            + '    <button class="track-btn" data-action="stop-playback" data-track-index="' + i + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
-            + '    <button class="track-btn" data-action="remove-track" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaRemoveTrack) + '">✕</button>'
+            + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
+            + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
+            + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaRemoveTrack) + '">✕</button>'
             + '  </div>'
             + '  <div class="track-offset">'
-            + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-index="' + i + '" title="' + escHtml(STR.trackOffsetResetHint) + '" aria-label="' + escHtml(STR.ariaOffsetValue) + '">+0.000s</span>'
-            + '    <button class="track-offset-step" data-action="offset-up" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaOffsetUp) + '">▲</button>'
-            + '    <button class="track-offset-step" data-action="offset-down" data-track-index="' + i + '" aria-label="' + escHtml(STR.ariaOffsetDown) + '">▼</button>'
+            + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '" title="' + escHtml(STR.trackOffsetResetHint) + '" aria-label="' + escHtml(STR.ariaOffsetValue) + '">+0.000s</span>'
+            + '    <button class="track-offset-step" data-action="offset-up" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaOffsetUp) + '">▲</button>'
+            + '    <button class="track-offset-step" data-action="offset-down" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaOffsetDown) + '">▼</button>'
             + '  </div>'
             + '</div>'
             + '<div class="track-channel-lanes">' + buildChannelLanes(result, i) + '</div>'
@@ -1470,9 +1536,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return /Failed to start Python process|No module named|ModuleNotFoundError|ENOENT|spawn.*python|command not found/i.test(msg);
     }
     function renderStackedTracks() {
-        displayOrder.forEach(function (i: number) {
-            const result = state.results[i];
-            if (trackRuntime[i].hidden) {
+        trackStore.displayOrder.forEach(function (trackId) {
+            const record = trackStore.require(trackId);
+            const i = record.protocolIndex;
+            const result = record.result;
+            if (record.runtime.hidden) {
                 return;
             }
             const existingOverlay = document.getElementById('track-error-overlay-' + i);
@@ -1524,10 +1592,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                             ac.clearRect(0, 0, axisC.width, axisC.height);
                         }
                     }
-                    drawTrackWaveform(canvas, result, i, channelIndex, trackRuntime[i].offsetSeconds, color);
+                    drawTrackWaveform(canvas, result, i, channelIndex, trackRuntimeAt(i).offsetSeconds, color);
                 }
                 else {
-                    drawSpectrogram(canvas, result, i, channelIndex, trackRuntime[i].offsetSeconds);
+                    drawSpectrogram(canvas, result, i, channelIndex, trackRuntimeAt(i).offsetSeconds);
                 }
             });
         });
@@ -1537,7 +1605,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ch = channelsForResult(result)[channelIndex];
         const fullWaveform = ch && ch.waveform ? ch.waveform : null;
         const amplitudeScale = fullWaveform ? fullWaveform.absolutePeak : undefined;
-        const c = rangeCache[trackIndex];
+        const c = trackRecordAtIndex(trackIndex)?.rangeCache ?? null;
         const cachedChannel = c && c.channels ? c.channels[channelIndex] : null;
         const canvas = document.getElementById(trackCanvasId(trackIndex, channelIndex));
         const W = (canvas ? canvas.width : 0) || 800;
@@ -1610,7 +1678,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 ctx.moveTo = originalMoveTo;
                 ctx.lineTo = originalLineTo;
             }
-            lastWaveformCoverage[trackIndex] = Number.isFinite(minX) && Number.isFinite(maxX)
+            const record = trackRecordAtIndex(trackIndex);
+            if (record) {
+                record.waveformCoverage = Number.isFinite(minX) && Number.isFinite(maxX)
                 ? {
                     minX: minX,
                     maxX: maxX,
@@ -1618,10 +1688,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     coversLeft: minX <= 1,
                     coversRight: maxX >= W - 1,
                 }
-                : null;
+                    : null;
+            }
         }
         else {
-            lastWaveformCoverage[trackIndex] = null;
+            const record = trackRecordAtIndex(trackIndex);
+            if (record) {
+                record.waveformCoverage = null;
+            }
         }
         if (shouldDrawCursor) {
             drawLoopRegionOnCanvas(ctx, W, H);
@@ -1913,7 +1987,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function drawRectZoomSelectionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number) {
-        if (!rectZoomSelection || rectZoomSelection.trackIndex !== trackIndex) {
+        if (!rectZoomSelection || rectZoomSelection.trackId !== trackIdAtIndex(trackIndex)) {
             return;
         }
         const span = zoomEnd - zoomStart;
@@ -1943,9 +2017,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function updateVisibility() {
         // まず各行の display を更新する
         document.querySelectorAll('.track-row').forEach(function (row) {
-            const idx = parseInt(row.getAttribute('data-track-index'), 10);
-            if (!isNaN(idx) && trackRuntime[idx]) {
-                var isMuted = trackRuntime[idx].hidden;
+            const trackId = trackIdFromElement(row);
+            if (trackId) {
+                var isMuted = trackStore.require(trackId).runtime.hidden;
                 row.style.display = isMuted ? 'none' : 'flex';
             }
         });
@@ -1964,7 +2038,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!el) {
                 return;
             }
-            const off = trackRuntime[i].offsetSeconds;
+            const off = trackRuntimeAt(i).offsetSeconds;
             el.textContent = (off >= 0 ? '+' : '') + off.toFixed(3) + 's';
         });
     }
@@ -1978,7 +2052,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const durationSeconds = result.durationSeconds || 0;
         const gs = computeGlobalSpan();
-        return createTrackTimeMapping(durationSeconds, trackRuntime[idx].offsetSeconds, {
+        return createTrackTimeMapping(durationSeconds, trackRuntimeAt(idx).offsetSeconds, {
             startSeconds: gs.startSec,
             spanSeconds: gs.spanSec,
         });
@@ -2003,9 +2077,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function updatePlaybackButtons() {
         state.results.forEach(function (_, i: number) {
-            const playBtn = document.querySelector('[data-action="toggle-playback"][data-track-index="' + i + '"]');
-            const stopBtn = document.querySelector('[data-action="stop-playback"][data-track-index="' + i + '"]');
-            const isActive = playbackTrackIndex === i && playbackEl !== null;
+            const trackId = trackIdAtIndex(i);
+            if (!trackId) {
+                return;
+            }
+            const playBtn = document.querySelector('[data-action="toggle-playback"][data-track-id="' + trackId + '"]');
+            const stopBtn = document.querySelector('[data-action="stop-playback"][data-track-id="' + trackId + '"]');
+            const isActive = playbackTrackId === trackId && playbackEl !== null;
             const isPlaying = isActive && playbackEl !== null && !playbackEl.paused;
             if (playBtn) {
                 playBtn.textContent = isPlaying ? '⏸' : '▶';
@@ -2041,7 +2119,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function clearPlaybackState() {
         playbackEl = null;
-        playbackTrackIndex = null;
+        playbackTrackId = null;
         stopPlaybackLoop();
         updatePlaybackButtons();
         updateLoopBadge();
@@ -2052,6 +2130,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         function tick() {
+            const playbackTrackIndex = playbackTrackId ? trackStore.protocolIndexForId(playbackTrackId) : null;
             if (playbackEl && playbackTrackIndex !== null && !playbackEl.paused) {
                 if (loopRegion) {
                     const currentGlobalNorm = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
@@ -2097,8 +2176,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             playbackRafId = null;
         }
     }
-    function stopPlayback(idx: number | null, options: { keepCursor?: boolean } = {}): void {
-        const audio = idx === null || idx === undefined ? playbackEl : getTrackAudio(idx);
+    function stopPlayback(trackId: TrackId | null, options: { keepCursor?: boolean } = {}): void {
+        const trackIndex = trackId ? trackStore.protocolIndexForId(trackId) : null;
+        const audio = trackIndex === null ? playbackEl : getTrackAudio(trackIndex);
         if (audio) {
             audio.pause();
             try {
@@ -2106,7 +2186,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             catch (_err) { }
         }
-        if (idx === playbackTrackIndex) {
+        if (trackId === playbackTrackId) {
             if (!options || options.keepCursor !== true) {
                 cursorNorm = playbackStartNorm;
                 updateCursorDisplay(cursorNorm);
@@ -2118,25 +2198,26 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         updatePlaybackButtons();
     }
-    function togglePlayback(idx: number) {
+    function togglePlayback(trackId: TrackId) {
+        const idx = trackIndexForId(trackId);
         const audio = getTrackAudio(idx);
         if (!audio) {
             return;
         }
-        if (playbackTrackIndex === idx && playbackEl === audio && !audio.paused) {
+        if (playbackTrackId === trackId && playbackEl === audio && !audio.paused) {
             audio.pause();
             updatePlaybackButtons();
             stopPlaybackLoop();
             scheduleSpectrumRefresh('immediate');
             return;
         }
-        if (playbackTrackIndex !== null && playbackTrackIndex !== idx) {
+        if (playbackTrackId !== null && playbackTrackId !== trackId) {
             // 再生開始位置にカーソルを戻してからトラックを切り替え
             cursorNorm = playbackStartNorm;
             updateCursorDisplay(cursorNorm);
-            stopPlayback(playbackTrackIndex, { keepCursor: true });
+            stopPlayback(playbackTrackId, { keepCursor: true });
         }
-        playbackTrackIndex = idx;
+        playbackTrackId = trackId;
         playbackEl = audio;
         const durationSeconds = audio.duration || state.results[idx].durationSeconds || 0;
         const startNorm = loopRegion ? loopRegion.start : cursorNorm;
@@ -2170,26 +2251,30 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function attachAudioEvents() {
         state.results.forEach(function (_, i: number) {
+            const trackId = trackIdAtIndex(i);
+            if (!trackId) {
+                return;
+            }
             const audio = getTrackAudio(i);
             if (!audio) {
                 return;
             }
             audio.addEventListener('play', function () {
                 playbackEl = audio;
-                playbackTrackIndex = i;
+                playbackTrackId = trackId;
                 updatePlaybackButtons();
                 startPlaybackLoop();
             });
             audio.addEventListener('pause', function () {
-                if (playbackTrackIndex === i) {
+                if (playbackTrackId === trackId) {
                     updatePlaybackButtons();
                     if (audio.ended) {
-                        stopPlayback(i, { keepCursor: true });
+                        stopPlayback(trackId, { keepCursor: true });
                     }
                 }
             });
             audio.addEventListener('ended', function () {
-                if (playbackTrackIndex === i) {
+                if (playbackTrackId === trackId) {
                     const endNorm = globalNormFromTrackTime(i, state.results[i].durationSeconds || 0);
                     if (endNorm !== null) {
                         cursorNorm = endNorm;
@@ -2201,7 +2286,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
             });
             audio.addEventListener('error', function () {
-                if (playbackTrackIndex === i) {
+                if (playbackTrackId === trackId) {
                     clearPlaybackState();
                 }
             });
@@ -2305,25 +2390,26 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         document.getElementById('tracks-wrapper').addEventListener('click', function (e) {
             const tgt = eventTarget(e);
             const action = tgt.getAttribute ? tgt.getAttribute('data-action') : null;
-            const idx = parseInt(tgt.getAttribute ? tgt.getAttribute('data-track-index') : 'NaN', 10);
-            if (action === 'toggle-playback' && !isNaN(idx)) {
-                togglePlayback(idx);
+            const trackId = trackIdFromElement(tgt);
+            const idx = trackId ? trackStore.protocolIndexForId(trackId) : null;
+            if (action === 'toggle-playback' && trackId) {
+                togglePlayback(trackId);
             }
-            if (action === 'stop-playback' && !isNaN(idx)) {
-                stopPlayback(idx);
+            if (action === 'stop-playback' && trackId) {
+                stopPlayback(trackId);
             }
-            if (action === 'remove-track' && !isNaN(idx)) {
-                removeTrack(idx);
+            if (action === 'remove-track' && trackId) {
+                removeTrack(trackId);
             }
-            if (action === 'offset-up' && !isNaN(idx)) {
+            if (action === 'offset-up' && idx !== null) {
                 adjustOffset(idx, 0.01);
             }
-            if (action === 'offset-down' && !isNaN(idx)) {
+            if (action === 'offset-down' && idx !== null) {
                 adjustOffset(idx, -0.01);
             }
-            if (action === 'pick-color' && !isNaN(idx)) {
+            if (action === 'pick-color' && trackId) {
                 var anchor = tgt.closest ? tgt.closest('[data-action="pick-color"]') : tgt;
-                openColorPicker(idx, anchor);
+                openColorPicker(trackId, anchor);
             }
         });
         document.getElementById('tracks-wrapper').addEventListener('keydown', function (e) {
@@ -2332,11 +2418,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             var tgt2 = eventTarget(e);
             var action2 = tgt2.getAttribute ? tgt2.getAttribute('data-action') : null;
-            var idx2 = parseInt(tgt2.getAttribute ? tgt2.getAttribute('data-track-index') : 'NaN', 10);
-            if (action2 === 'pick-color' && !isNaN(idx2)) {
+            const trackId2 = trackIdFromElement(tgt2);
+            if (action2 === 'pick-color' && trackId2) {
                 e.preventDefault();
                 var anchor2 = tgt2.closest ? tgt2.closest('[data-action="pick-color"]') : tgt2;
-                openColorPicker(idx2, anchor2);
+                openColorPicker(trackId2, anchor2);
             }
         });
         let _offsetEditTimer: number | null = null;
@@ -2346,9 +2432,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     clearTimeout(_offsetEditTimer);
                 }
                 _offsetEditTimer = null;
-                const idx = parseInt(eventTarget(e).getAttribute('data-track-index'), 10);
-                if (!isNaN(idx)) {
-                    trackRuntime[idx].offsetSeconds = 0;
+                const idx = trackIndexFromElement(eventTarget(e));
+                if (idx !== null) {
+                    trackRuntimeAt(idx).offsetSeconds = 0;
                     updateOffsetDisplays();
                     scheduleRender();
                     scheduleSpectrumRefresh('immediate');
@@ -2370,8 +2456,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             const span = eventTarget(e);
-            const idx = parseInt(span.getAttribute('data-track-index'), 10);
-            if (isNaN(idx)) {
+            const idx = trackIndexFromElement(span);
+            if (idx === null) {
                 return;
             }
             // Don't open if already editing
@@ -2387,7 +2473,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (span.style.display === 'none') {
                     return;
                 }
-                const currentMs = Math.round(trackRuntime[idx].offsetSeconds * 1000);
+                const currentMs = Math.round(trackRuntimeAt(idx).offsetSeconds * 1000);
                 const input = document.createElement('input');
                 input.type = 'number';
                 input.className = 'track-offset-input';
@@ -2406,7 +2492,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     settled = true;
                     const val = parseFloat(input.value);
                     if (!isNaN(val)) {
-                        trackRuntime[idx].offsetSeconds = val / 1000;
+                        trackRuntimeAt(idx!).offsetSeconds = val / 1000;
                     }
                     if (input.parentNode) {
                         input.parentNode.removeChild(input);
@@ -2466,11 +2552,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     e.preventDefault();
                     return;
                 }
-                reorderDragFrom = parseInt(handle.getAttribute('data-track-index'), 10);
+                reorderDragFrom = trackIdFromElement(handle);
                 if (e.dataTransfer) {
                     e.dataTransfer.effectAllowed = 'move';
                 }
-                var row = document.getElementById('track-row-' + reorderDragFrom);
+                const dragIndex = reorderDragFrom ? trackStore.protocolIndexForId(reorderDragFrom) : null;
+                var row = dragIndex === null ? null : document.getElementById('track-row-' + dragIndex);
                 if (row) {
                     row.style.opacity = '0.4';
                 }
@@ -2486,8 +2573,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 var row = eventTarget(e).closest ? eventTarget(e).closest('.track-row') : null;
                 document.querySelectorAll('.track-row').forEach(function (r) { r.classList.remove('drag-over'); });
                 if (row) {
-                    var toIdx = parseInt(row.getAttribute('data-track-index'), 10);
-                    if (!isNaN(toIdx) && toIdx !== reorderDragFrom) {
+                    var toId = trackIdFromElement(row);
+                    if (toId && toId !== reorderDragFrom) {
                         row.classList.add('drag-over');
                     }
                 }
@@ -2499,9 +2586,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 e.preventDefault();
                 var row = eventTarget(e).closest ? eventTarget(e).closest('.track-row') : null;
                 if (row) {
-                    var toIdx = parseInt(row.getAttribute('data-track-index'), 10);
-                    if (!isNaN(toIdx) && toIdx !== reorderDragFrom) {
-                        reorderTracks(reorderDragFrom, toIdx);
+                    var toId = trackIdFromElement(row);
+                    if (toId && toId !== reorderDragFrom) {
+                        reorderTracks(reorderDragFrom, toId);
                     }
                 }
                 cleanupReorderDrag();
@@ -2619,15 +2706,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
                     e.preventDefault();
                     if (active && active.classList.contains('track-canvas')) {
-                        const idx = parseInt(active.getAttribute('data-track-index'), 10);
-                        if (!isNaN(idx)) {
-                            togglePlayback(idx);
+                        const trackId = trackIdFromElement(active);
+                        if (trackId) {
+                            togglePlayback(trackId);
                         }
                     }
                     else {
-                        const idx = playbackTrackIndex !== null ? playbackTrackIndex : 0;
-                        if (state.results && idx < state.results.length) {
-                            togglePlayback(idx);
+                        const trackId = playbackTrackId ?? trackStore.activeIds()[0];
+                        if (trackId) {
+                            togglePlayback(trackId);
                         }
                     }
                     return;
@@ -2671,9 +2758,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return { trackIndex: -1, channelIndex: null };
                 }
                 if (el.classList && el.classList.contains('track-spectrum-canvas')) {
-                    const idx = parseInt(el.getAttribute('data-track-index'), 10);
+                    const idx = trackIndexFromElement(el);
                     const channelIndex = parseInt(el.getAttribute('data-channel-index'), 10);
-                    return isNaN(idx) ? null : { trackIndex: idx, channelIndex: isNaN(channelIndex) ? null : channelIndex };
+                    return idx === null ? null : { trackIndex: idx, channelIndex: isNaN(channelIndex) ? null : channelIndex };
                 }
                 return null;
             }
@@ -2684,7 +2771,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (spectrumHoverYFrac === null) {
                     spectrumHoverYFrac = 0.5;
                 }
-                spectrumHoverTrackIndex = trackIndex;
+                spectrumHoverTrackId = trackIndex < 0 ? 'overlay' : trackIdAtIndex(trackIndex);
                 spectrumHoverChannelIndex = Number.isInteger(channelIndex) ? channelIndex : null;
                 spectrumHasMouse = false;
                 scheduleSpectrumRefresh('hover');
@@ -2692,7 +2779,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             function clearSpectrumFocusTarget() {
                 spectrumHoverNorm = null;
                 spectrumHoverYFrac = null;
-                spectrumHoverTrackIndex = null;
+                spectrumHoverTrackId = null;
                 spectrumHoverChannelIndex = null;
                 scheduleSpectrumRefresh('hover');
             }
@@ -2709,7 +2796,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
                 spectrumHoverNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
                 spectrumHoverYFrac = Math.max(0, Math.min(1, y / canvasH));
-                spectrumHoverTrackIndex = trackIndex;
+                spectrumHoverTrackId = trackIndex === null || trackIndex < 0 ? 'overlay' : trackIdAtIndex(trackIndex);
                 spectrumHoverChannelIndex = Number.isInteger(channelIndex) ? channelIndex : null;
                 spectrumHasMouse = true;
                 scheduleSpectrumRefresh('hover');
@@ -2842,15 +2929,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             document.querySelectorAll('.track-spectrum-canvas').forEach(function (c) {
                 c.addEventListener('mousemove', function (e) {
-                    const idx = parseInt(c.getAttribute('data-track-index'), 10);
+                    const idx = trackIndexFromElement(c);
                     const channelIndex = parseInt(c.getAttribute('data-channel-index'), 10);
-                    onSpectrumMove(32, 6, c, e, isNaN(idx) ? null : idx, isNaN(channelIndex) ? null : channelIndex);
+                    onSpectrumMove(32, 6, c, e, idx, isNaN(channelIndex) ? null : channelIndex);
                 });
                 c.addEventListener('mouseleave', onSpectrumLeave);
                 c.addEventListener('focus', function () {
-                    const idx = parseInt(c.getAttribute('data-track-index'), 10);
+                    const idx = trackIndexFromElement(c);
                     const channelIndex = parseInt(c.getAttribute('data-channel-index'), 10);
-                    onSpectrumFocus(isNaN(idx) ? null : idx, isNaN(channelIndex) ? null : channelIndex);
+                    onSpectrumFocus(idx, isNaN(channelIndex) ? null : channelIndex);
                 });
                 c.addEventListener('blur', onSpectrumBlur);
             });
@@ -3232,7 +3319,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         selectionMessageSeq += 1;
         messaging.post({
             type: 'analyze-selected-files',
-            requestId: 'selection-' + selectionMessageSeq,
+            requestId: 'selection-' + runtimeSessionId + '-' + selectionMessageSeq,
             filePaths: orderedSelection,
         });
     }
@@ -3488,12 +3575,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const tracks: Array<{ name: string; slice: SpectrumSlice }> = [];
-        state.results.forEach(function (result: ComparisonTrackState, i: number) {
-            if (trackRuntime[i] && trackRuntime[i].hidden) {
+        trackStore.activeIds().forEach(function (trackId) {
+            const record = trackStore.require(trackId);
+            const result = record.result;
+            const i = record.protocolIndex;
+            if (record.runtime.hidden) {
                 return;
             }
             channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, cursorNorm, channelIndex);
+                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, cursorNorm, channelIndex);
                 if (!slice || !slice.values || slice.values.length === 0) {
                     return;
                 }
@@ -3543,8 +3633,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         var visiblePaths: string[] = [];
-        state.results.forEach(function (result: ComparisonTrackState, i: number) {
-            if (trackRuntime[i] && trackRuntime[i].hidden) {
+        trackStore.activeIds().forEach(function (trackId) {
+            const record = trackStore.require(trackId);
+            const result = record.result;
+            if (record.runtime.hidden) {
                 return;
             }
             visiblePaths.push(result.filePath);
@@ -3612,7 +3704,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             lines.push('|-------|--------|-------------|-----------|----------------|--------|');
             (state.results || []).forEach(function (r, i: number) {
                 var dur = r.durationSeconds || 0;
-                var offset = trackRuntime[i] ? trackRuntime[i].offsetSeconds : 0;
+                var offset = trackRuntimeAt(i) ? trackRuntimeAt(i).offsetSeconds : 0;
                 var localStart = globalStartSec - offset;
                 var localEnd = globalEndSec - offset;
                 var coveredStart = Math.max(0, localStart);
@@ -4095,8 +4187,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!canvas.classList.contains('track-canvas')) {
             return;
         }
-        const idx = parseInt(canvas.getAttribute('data-track-index'), 10);
-        if (isNaN(idx)) {
+        const idx = trackIndexFromElement(canvas);
+        if (idx === null) {
+            return;
+        }
+        const trackId = trackIdAtIndex(idx);
+        if (!trackId) {
             return;
         }
         if (e.button === 0) {
@@ -4110,10 +4206,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const ampNorm = canvasYToAmplitudeNorm(y, canvas.height);
             const gripType = waveformMode === 'rect-zoom' ? null : getGripType(norm);
             dragState = {
-                trackIndex: idx,
+                trackId: trackId,
                 startClientX: e.clientX,
                 startClientY: e.clientY,
-                startOffset: trackRuntime[idx].offsetSeconds,
+                startOffset: trackRuntimeAt(idx).offsetSeconds,
                 canvasWidth: hit.timeWidth,
                 canvasHeight: canvas.height,
                 isDrag: false,
@@ -4134,6 +4230,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!dragState) {
             return;
         }
+        const dragTrackIndex = trackStore.protocolIndexForId(dragState.trackId);
+        if (dragTrackIndex === null) {
+            dragState = null;
+            return;
+        }
         const dx = e.clientX - dragState.startClientX;
         const dy = e.clientY - dragState.startClientY;
         if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
@@ -4147,11 +4248,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (dragState.dragType === 'offset') {
             const gs = computeGlobalSpan();
             const secsPerPx = (zoomEnd - zoomStart) * gs.spanSec / dragState.canvasWidth;
-            trackRuntime[dragState.trackIndex].offsetSeconds = dragState.startOffset + dx * secsPerPx;
+            trackRuntimeAt(dragTrackIndex).offsetSeconds = dragState.startOffset + dx * secsPerPx;
             updateOffsetDisplays();
         }
         else if (dragState.dragType === 'loop') {
-            const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
+            const canvasEl = document.getElementById('track-canvas-' + dragTrackIndex);
             if (!canvasEl) {
                 scheduleRender();
                 return;
@@ -4166,7 +4267,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
         else if (dragState.dragType === 'rectZoom') {
-            const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
+            const canvasEl = document.getElementById('track-canvas-' + dragTrackIndex);
             if (!canvasEl) {
                 scheduleRender();
                 return;
@@ -4176,7 +4277,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const norm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
             const ampNorm = canvasYToAmplitudeNorm(y, dragState.canvasHeight);
             rectZoomSelection = {
-                trackIndex: dragState.trackIndex,
+                trackId: dragState.trackId,
                 startNorm: dragState.startNorm,
                 endNorm: norm,
                 startAmpNorm: dragState.startAmpNorm,
@@ -4185,7 +4286,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             updateUiSmokeWaveformState();
         }
         else if (dragState.dragType === 'gripStart') {
-            const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
+            const canvasEl = document.getElementById('track-canvas-' + dragTrackIndex);
             if (!canvasEl || !loopRegion) {
                 scheduleRender();
                 return;
@@ -4197,7 +4298,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             updateZoomToSelectionBtn();
         }
         else if (dragState.dragType === 'gripEnd') {
-            const canvasEl = document.getElementById('track-canvas-' + dragState.trackIndex);
+            const canvasEl = document.getElementById('track-canvas-' + dragTrackIndex);
             if (!canvasEl || !loopRegion) {
                 scheduleRender();
                 return;
@@ -4215,7 +4316,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const wasRectZoom = dragState !== null && dragState.isDrag && dragState.dragType === 'rectZoom' && waveformMode === 'rect-zoom';
         if (dragState && !dragState.isDrag) {
             // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
-            const canvasId = 'track-canvas-' + dragState.trackIndex;
+            const dragTrackIndex = trackStore.protocolIndexForId(dragState.trackId);
+            const canvasId = dragTrackIndex === null ? '' : 'track-canvas-' + dragTrackIndex;
             const canvas = document.getElementById(canvasId);
             if (canvas) {
                 const hit = trackCanvasTimeHit(canvas, e.clientX);
@@ -4348,7 +4450,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const ch = channelsForResult(result)[chIdx];
         const spec = ch && ch.spectrogram;
-        const cached = idx >= 0 && spectrumSliceCache[idx] ? spectrumSliceCache[idx][chIdx] : null;
+        const cached = idx >= 0 ? trackRecordAtIndex(idx)?.spectrumSliceCache.get(chIdx) ?? null : null;
         if (trackLocalSec >= dur) {
             return makeSilentSpectrumSlice(result, spec, cached);
         }
@@ -4408,13 +4510,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function visibleSpectrumSlices(): SpectrumSeries[] {
         const slices: SpectrumSeries[] = [];
-        displayOrder.forEach(function (i: number) {
-            const result = state.results[i];
-            if (trackRuntime[i].hidden) {
+        trackStore.displayOrder.forEach(function (trackId) {
+            const record = trackStore.require(trackId);
+            const i = record.protocolIndex;
+            const result = record.result;
+            if (record.runtime.hidden) {
                 return;
             }
             channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, cursorNorm, channelIndex);
+                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, cursorNorm, channelIndex);
                 if (slice) {
                     slices.push({
                         slice: slice,
@@ -4455,10 +4559,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (spectrumHoverNorm === null) {
             spectrumHoverNorm = 0.5;
         }
-        if (spectrumHoverTrackIndex !== null && spectrumHoverTrackIndex >= 0) {
-            const result = state.results[spectrumHoverTrackIndex];
+        if (spectrumHoverTrackId !== null && spectrumHoverTrackId !== 'overlay') {
+            const record = trackStore.get(spectrumHoverTrackId);
+            if (!record?.active) {
+                return;
+            }
+            const trackIndex = record.protocolIndex;
+            const result = record.result;
             const channelIndex = typeof spectrumHoverChannelIndex === 'number' ? spectrumHoverChannelIndex : 0;
-            const slice = result ? extractSpectrumAtCursor(result, spectrumHoverTrackIndex, trackRuntime[spectrumHoverTrackIndex].offsetSeconds, cursorNorm, channelIndex) : null;
+            const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
             if (!slice) {
                 return;
             }
@@ -4506,7 +4615,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const originalMaxFreq = chosen.slice.originalMaxFrequencyHz || chosen.slice.maxFrequencyHz;
         const freqHz = (nextIdx / Math.max(chosen.slice.frequencyBins - 1, 1)) * originalMaxFreq;
         spectrumHoverNorm = hoverNormForFrequency(freqHz, visFreqMin, visFreqMax);
-        spectrumHoverTrackIndex = -1;
+        spectrumHoverTrackId = 'overlay';
         spectrumHoverChannelIndex = null;
     }
     function drawSpectrumLine(ctx: CanvasRenderingContext2D, W: number, H: number, slice: SpectrumSlice, color: string, opts: { padL?: number; padR?: number; padT?: number; padB?: number; lineWidth?: number } = {}, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null): void {
@@ -4590,7 +4699,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         ctx.fillText(formatHz(_visFreqMax), W - padR, H - 1);
     }
     function renderTrackSpectra() {
-        state.results.forEach(function (result: ComparisonTrackState, i: number) {
+        trackStore.activeIds().forEach(function (trackId) {
+            const record = trackStore.require(trackId);
+            const result = record.result;
+            const i = record.protocolIndex;
             channelsForResult(result).forEach(function (_, channelIndex: number) {
                 const canvas = document.getElementById(trackSpectrumCanvasId(i, channelIndex));
                 if (!canvas) {
@@ -4610,20 +4722,20 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const prevW = canvas.width;
                 const prevH = canvas.height;
                 syncCanvasSize(canvas, w, trackHeight);
-                const paintedByChannel = trackSpectrumPainted[i] || (trackSpectrumPainted[i] = {});
+                const paintedByChannel = trackStore.require(trackIdAtIndex(i)!).spectrumPainted;
                 if (canvas.width !== prevW || canvas.height !== prevH) {
-                    paintedByChannel[channelIndex] = false;
+                    paintedByChannel.set(channelIndex, false);
                 }
                 const ctx = canvas.getContext('2d');
                 const W = canvas.width, H = canvas.height;
-                if (trackRuntime[i].hidden) {
+                if (trackRuntimeAt(i).hidden) {
                     ctx.clearRect(0, 0, W, H);
-                    paintedByChannel[channelIndex] = false;
+                    paintedByChannel.set(channelIndex, false);
                     return;
                 }
-                const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, spectrumCursorNorm, channelIndex);
+                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, spectrumCursorNorm, channelIndex);
                 if (!slice) {
-                    if (paintedByChannel[channelIndex] && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm, channelIndex)) {
+                    if (paintedByChannel.get(channelIndex) && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm, channelIndex)) {
                         return;
                     }
                     ctx.clearRect(0, 0, W, H);
@@ -4631,7 +4743,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     ctx.font = '9px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.fillText(STR.canvasOutOfRange, W / 2, H / 2);
-                    paintedByChannel[channelIndex] = false;
+                    paintedByChannel.set(channelIndex, false);
                     return;
                 }
                 ctx.clearRect(0, 0, W, H);
@@ -4642,8 +4754,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const visDbMaxT = (specDbMax != null) ? specDbMax : slice.maxDb;
                 drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
                 drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 }, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
-                paintedByChannel[channelIndex] = true;
-                if (spectrumHoverNorm !== null && spectrumHoverTrackIndex === i && spectrumHoverChannelIndex === channelIndex) {
+                paintedByChannel.set(channelIndex, true);
+                if (spectrumHoverNorm !== null && spectrumHoverTrackId === trackId && spectrumHoverChannelIndex === channelIndex) {
                     const padL2 = 32, padR2 = 6, padT2 = 4, padB2 = 14;
                     const plotW2 = W - padL2 - padR2;
                     const plotH2 = H - padT2 - padB2;
@@ -4694,13 +4806,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const W = canvas.width, H = canvas.height;
         const slices: SpectrumSeries[] = [];
         let pendingVisibleSlice = false;
-        displayOrder.forEach(function (i: number) {
-            const result = state.results[i];
-            if (trackRuntime[i].hidden) {
+        trackStore.displayOrder.forEach(function (trackId) {
+            const record = trackStore.require(trackId);
+            const i = record.protocolIndex;
+            const result = record.result;
+            if (record.runtime.hidden) {
                 return;
             }
             channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const slice = extractSpectrumAtCursor(result, i, trackRuntime[i].offsetSeconds, spectrumCursorNorm, channelIndex);
+                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, spectrumCursorNorm, channelIndex);
                 if (slice) {
                     slices.push({
                         slice: slice,
@@ -4789,7 +4903,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             ctx.stroke();
         });
         ctx.restore();
-        if (spectrumHoverNorm !== null && spectrumHoverTrackIndex === -1) {
+        if (spectrumHoverNorm !== null && spectrumHoverTrackId === 'overlay') {
             const mouseY = spectrumHoverYFrac !== null ? spectrumHoverYFrac * H : null;
             const nearest = chooseOverlaySpectrumSnap(slices, spectrumHoverNorm, mouseY, padL, plotW, padT, plotH, visFreqMinO, visFreqMaxO, visDbMinO, visDbMaxO);
             if (nearest) {
@@ -4890,19 +5004,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** フォーカス中キャンバス → 最後に再生したトラック → 先頭 の順でインデックスを解決 */
     function resolveActiveTrackIndex(activeEl: RuntimeElement) {
         if (activeEl && activeEl.classList && activeEl.classList.contains('track-canvas')) {
-            const n = parseInt(activeEl.getAttribute('data-track-index'), 10);
-            if (!isNaN(n)) {
+            const n = trackIndexFromElement(activeEl);
+            if (n !== null) {
                 return n;
             }
         }
-        if (playbackTrackIndex !== null) {
-            return playbackTrackIndex;
+        if (playbackTrackId !== null) {
+            return trackStore.protocolIndexForId(playbackTrackId);
         }
-        return (state.results && state.results.length > 0) ? 0 : null;
+        const firstTrackId = trackStore.activeIds()[0];
+        return firstTrackId ? trackStore.protocolIndexForId(firstTrackId) : null;
     }
-    function removeTrack(idx: number) {
-        if (idx === playbackTrackIndex) {
-            stopPlayback(idx);
+    function removeTrack(trackId: TrackId) {
+        const record = trackStore.get(trackId);
+        if (!record?.active) {
+            return;
+        }
+        const idx = record.protocolIndex;
+        if (trackId === playbackTrackId) {
+            stopPlayback(trackId);
         }
         const row = document.getElementById('track-row-' + idx);
         if (row) {
@@ -4913,14 +5033,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             audio.remove();
         }
         releaseTrackDetail(idx);
-        trackRuntime[idx].hidden = true;
-        var pos = displayOrder.indexOf(idx);
+        trackRuntimeAt(idx).hidden = true;
+        var pos = trackStore.displayOrder.indexOf(trackId);
         var n = pos !== -1 ? pos + 1 : idx + 1;
-        if (pos !== -1) {
-            displayOrder.splice(pos, 1);
-        }
+        trackStore.remove(trackId);
         announce((STR.announceTrackRemoved || 'Track {n} removed').replace('{n}', String(n)));
-        if (__colorPickTarget === idx) {
+        if (__colorPickTarget === trackId) {
             closeColorPicker();
         }
         updateVisibility();
@@ -4928,7 +5046,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
     }
     function adjustOffset(idx: number, deltaSeconds: number) {
-        trackRuntime[idx].offsetSeconds += deltaSeconds;
+        trackRuntimeAt(idx).offsetSeconds += deltaSeconds;
         updateOffsetDisplays();
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
@@ -5215,37 +5333,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
             __setReanalyzeBusy(false);
-            const oldResultsByFilePath = Object.create(null);
-            const oldRuntimeByFilePath = Object.create(null);
-            state.results.forEach(function (oldResult, i: number) {
-                if (!oldResult || typeof oldResult.filePath !== 'string') {
-                    return;
-                }
-                oldResultsByFilePath[oldResult.filePath] = oldResult;
-                if (trackRuntime[i]) {
-                    oldRuntimeByFilePath[oldResult.filePath] = trackRuntime[i];
-                }
+            const reconciliation = trackStore.reconcile(msg.results, function (nextResult, previousResult) {
+                return Object.assign({}, nextResult, { audioSource: previousResult?.audioSource || nextResult.audioSource || '' });
             });
-            state.results = msg.results.map(function (r, i: number) {
-                const old = (r && typeof r.filePath === 'string') ? oldResultsByFilePath[r.filePath] : state.results[i];
-                return Object.assign({}, r, { audioSource: old ? old.audioSource : '' });
+            analysisId = createAnalysisId();
+            state.results = trackStore.activeIds().map(function (trackId) {
+                return trackStore.require(trackId).result;
             });
-            trackRuntime.length = state.results.length;
-            state.results.forEach(function (result: ComparisonTrackState, i: number) {
-                const previous = result && typeof result.filePath === 'string' ? oldRuntimeByFilePath[result.filePath] : null;
-                trackRuntime[i] = previous || createTrackRuntime();
-            });
-            displayOrder = state.results.map(function (_, i: number) { return i; });
-            for (var detailIdx = 0; detailIdx < state.results.length; detailIdx++) {
-                detailRequests[detailIdx] = null;
-                spectrumSliceRequests[detailIdx] = null;
-                spectrumSliceCache[detailIdx] = null;
-            trackSpectrumPainted[detailIdx] = {};
+            if (playbackTrackId && !trackStore.get(playbackTrackId)?.active) {
+                clearPlaybackState();
             }
-            detailRequests.length = state.results.length;
-            spectrumSliceRequests.length = state.results.length;
-            spectrumSliceCache.length = state.results.length;
-            trackSpectrumPainted.length = state.results.length;
+            rebuildResultsPane();
+            if (reconciliation.added.length > 0 || reconciliation.removed.length > 0) {
+                clearPlaybackState();
+                const audioHost = document.getElementById('audio-host');
+                if (audioHost) {
+                    audioHost.innerHTML = buildAudioElements();
+                    attachAudioEvents();
+                }
+            }
             overlaySpectrumPainted = false;
             announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
             scheduleRender();
@@ -5255,13 +5361,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     });
     // ── Track drag reorder ──
-    var reorderDragFrom: number | null = null;
-    function reorderTracks(fromStateIdx: number, toStateIdx: number) {
-        reorderInPlace(displayOrder, fromStateIdx, toStateIdx);
+    var reorderDragFrom: TrackId | null = null;
+    function reorderTracks(fromTrackId: TrackId, toTrackId: TrackId) {
+        if (!trackStore.reorder(fromTrackId, toTrackId)) {
+            return;
+        }
         var wrap = document.getElementById('stacked-wrap');
         if (wrap) {
-            displayOrder.forEach(function (idx: number) {
-                var row = document.getElementById('track-row-' + idx);
+            trackStore.displayOrder.forEach(function (trackId) {
+                var row = document.getElementById('track-row-' + trackIndexForId(trackId));
                 if (row) {
                     wrap.appendChild(row);
                 }
@@ -5272,7 +5380,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function cleanupReorderDrag() {
         if (reorderDragFrom !== null) {
-            var row = document.getElementById('track-row-' + reorderDragFrom);
+            const dragIndex = trackStore.protocolIndexForId(reorderDragFrom);
+            var row = dragIndex === null ? null : document.getElementById('track-row-' + dragIndex);
             if (row) {
                 row.style.opacity = '';
             }
@@ -5283,10 +5392,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         reorderDragFrom = null;
     }
     // ── Color picker popover ──
-    var __colorPickTarget: number | null = null;
+    var __colorPickTarget: TrackId | null = null;
     var __colorPickAnchor: RuntimeElement | null = null;
-    function openColorPicker(stateIdx: number, anchorEl: RuntimeElement) {
-        __colorPickTarget = stateIdx;
+    function openColorPicker(trackId: TrackId, anchorEl: RuntimeElement) {
+        __colorPickTarget = trackId;
         __colorPickAnchor = anchorEl || null;
         var pop = document.getElementById('color-picker-popover');
         if (!pop) {
@@ -5348,8 +5457,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             var sw = eventTarget(e).closest ? eventTarget(e).closest('.color-palette-swatch') : null;
             if (sw && __colorPickTarget !== null) {
                 var hex = sw.getAttribute('data-color');
-                trackRuntime[__colorPickTarget].color = hex;
-                var hs = document.querySelector('[data-action="pick-color"][data-track-index="' + __colorPickTarget + '"]');
+                trackStore.require(__colorPickTarget).runtime.color = hex;
+                var hs = document.querySelector('[data-action="pick-color"][data-track-id="' + __colorPickTarget + '"]');
                 if (hs) {
                     hs.style.background = hex;
                 }
@@ -5359,9 +5468,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             if (eventTarget(e).id === 'color-reset-btn' && __colorPickTarget !== null) {
-                trackRuntime[__colorPickTarget].color = null;
-                var def = trackColor(__colorPickTarget);
-                var hs2 = document.querySelector('[data-action="pick-color"][data-track-index="' + __colorPickTarget + '"]');
+                trackStore.require(__colorPickTarget).runtime.color = null;
+                var def = trackColor(trackIndexForId(__colorPickTarget));
+                var hs2 = document.querySelector('[data-action="pick-color"][data-track-id="' + __colorPickTarget + '"]');
                 if (hs2) {
                     hs2.style.background = def;
                 }

@@ -51,13 +51,15 @@ interface ComparisonPanelRenderedUi {
         spectrumPerTrack: string[][];
         waveformPerTrack: string[][];
     };
-    displayOrder: number[];
+    displayOrder: string[];
     specFreqStart: number;
     specFreqEnd: number;
     waveformMode: 'loop' | 'rect-zoom';
     lastAnnounce: string;
     tracks: Array<{
+        trackId: string;
         trackIndex: number;
+        filePath: string;
         offsetSeconds: number;
         visibleFileStartNorm: number;
         visibleFileEndNorm: number;
@@ -226,7 +228,7 @@ export class ComparisonPanel {
 
     public static async postTestActions(
         actionId: string,
-        actions: Array<string | { action: string; trackIndex?: number; payload?: Record<string, unknown> }>,
+        actions: Array<string | { action: string; trackId?: string; trackIndex?: number; payload?: Record<string, unknown> }>,
     ): Promise<void> {
         if (!ComparisonPanel.activePanel) {
             throw new Error('No active ComparisonPanel is available for test actions');

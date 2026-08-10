@@ -7,7 +7,11 @@ import type {
     WaveformEnvelope,
 } from '../../shared/analysis/analysisTypes';
 
+declare const trackIdBrand: unique symbol;
+export type TrackId = string & { readonly [trackIdBrand]: true };
+
 export interface ComparisonTrackState extends AnalysisResultWithError {
+    trackId?: TrackId;
     audioSource?: string;
 }
 
@@ -186,6 +190,7 @@ export interface RangeWaveform extends WaveformEnvelope {
 }
 
 export interface LazyRequestState {
+    trackId: TrackId;
     requestId: string;
     analysisId: string;
     settingsSignature: string;
@@ -204,7 +209,7 @@ export interface LoopRegion {
 }
 
 export interface RectZoomSelection {
-    trackIndex: number;
+    trackId: TrackId;
     startNorm: number;
     endNorm: number;
     startAmpNorm: number;
@@ -212,7 +217,7 @@ export interface RectZoomSelection {
 }
 
 export interface WaveformDragState {
-    trackIndex: number;
+    trackId: TrackId;
     startClientX: number;
     startClientY: number;
     startOffset: number;
@@ -267,6 +272,7 @@ export interface CanvasSyncOptions {
 
 export interface TestAction {
     action: string;
+    trackId?: string;
     trackIndex?: number;
     payload?: Record<string, unknown>;
 }
