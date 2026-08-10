@@ -3417,7 +3417,7 @@ export function getComparisonRenderScript(): string {
                 var filePaths = (state.results || []).map(function(r) { return r.filePath; });
                 var loadCode = filePaths.map(function(p) {
                     var safePath = p.split('\\\\').join('\\\\\\\\').split('"').join('\\\\"');
-                    return 'sig = wd.read_wav("' + safePath + '")\\n' +
+                    return 'sig = wd.read("' + safePath + '")\\n' +
                            'sig.describe()';
                 }).join('\\n\\n');
 

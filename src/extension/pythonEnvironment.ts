@@ -3,22 +3,89 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-const REQUIRED_PACKAGES: readonly string[] = ['numpy', 'wandas'];
+const REQUIRED_PACKAGES = [
+    {
+        modules: ['numpy'],
+        distribution: 'numpy',
+        requirement: 'numpy>=2.0.2',
+        minimum: [2, 0, 2],
+    },
+    {
+        modules: ['scipy'],
+        distribution: 'scipy',
+        requirement: 'scipy>=1.13',
+        minimum: [1, 13, 0],
+    },
+    {
+        modules: ['wandas', 'mosqito'],
+        distribution: 'wandas',
+        requirement: 'wandas[psychoacoustic]>=0.7.1,<0.8.0',
+        minimum: [0, 7, 1],
+        maximum: [0, 8, 0],
+    },
+] as const;
 const DEPENDENCY_CHECK_SCRIPT = `
 import importlib.util
+import importlib.metadata
 import json
 import os
 import sys
 
+try:
+    from packaging.version import InvalidVersion, Version
+except ImportError:
+    InvalidVersion = None
+    Version = None
+
 required = ${JSON.stringify(REQUIRED_PACKAGES)}
 cwd = os.getcwd()
 sys.path = [entry for entry in sys.path if entry not in ("", cwd)]
-missing = [name for name in required if importlib.util.find_spec(name) is None]
+
+def version_key(value):
+    parts = []
+    for component in value.split("+", 1)[0].split("."):
+        digits = ""
+        for character in component:
+            if not character.isdigit():
+                break
+            digits += character
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple((parts + [0, 0, 0])[:3])
+
+def is_prerelease(value):
+    public = value.split("+", 1)[0].lower()
+    return any(marker in public for marker in ("a", "b", "rc", "dev"))
+
+def needs_install(item):
+    if any(importlib.util.find_spec(module) is None for module in item["modules"]):
+        return True
+    try:
+        installed = importlib.metadata.version(item["distribution"])
+    except importlib.metadata.PackageNotFoundError:
+        return True
+    if Version is not None:
+        try:
+            current = Version(installed)
+            minimum = Version(".".join(str(part) for part in item["minimum"]))
+            maximum = Version(".".join(str(part) for part in item["maximum"])) if "maximum" in item else None
+        except InvalidVersion:
+            return True
+        return current.is_prerelease or current < minimum or (maximum is not None and current >= maximum)
+    if is_prerelease(installed):
+        return True
+    current = version_key(installed)
+    minimum = tuple(item["minimum"])
+    maximum = tuple(item["maximum"]) if "maximum" in item else None
+    return current < minimum or (maximum is not None and current >= maximum)
+
+missing = list(dict.fromkeys(item["requirement"] for item in required if needs_install(item)))
 print(json.dumps(missing))
 `;
 const BROWSE_LABEL = '$(folder) Browse...';
 export const SELECT_PYTHON_INTERPRETER_TOOLTIP = 'Click to select Python environment';
-export const MISSING_DEPENDENCIES_TOOLTIP = 'Python dependencies are missing. Click to select or install.';
+export const MISSING_DEPENDENCIES_TOOLTIP = 'Python dependencies are missing or incompatible. Click to select or install.';
 export const MISSING_INTERPRETER_TOOLTIP = 'Python interpreter was not found. Click to select another environment.';
 export const PIP_UNAVAILABLE_TOOLTIP = 'pip is not available in this environment. Click to select another environment.';
 export const CHECK_FAILED_TOOLTIP = 'Python environment check failed. Click to select another environment.';
@@ -281,7 +348,7 @@ async function promptAndInstallDependencies(
     isLatestRequest: () => boolean,
 ): Promise<void> {
     const answer = await vscode.window.showWarningMessage(
-        `Audio Wandas Analyzer requires missing Python packages: ${missingPackages.join(', ')}. Install them now?`,
+        `Audio Wandas Analyzer requires compatible Python packages: ${missingPackages.join(', ')}. Install or upgrade them now?`,
         'Install',
         'Dismiss',
     );

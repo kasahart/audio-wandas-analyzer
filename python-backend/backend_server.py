@@ -39,6 +39,7 @@ from analyzer import (
     SPECTROGRAM_FREQUENCY_BIN_LIMIT,
     SPECTRUM_LEVEL_AXIS_LABEL,
     _build_waveform_envelope,
+    _channels_first,
     _resample_frequency_bins,
     _resolve_stft_params,
     analyze_from_frame,
@@ -174,24 +175,8 @@ def handle_range(cmd: dict) -> dict:
 
     channels: list[dict] = []
     if end_idx > start_idx:
-        with sf.SoundFile(cached.path) as audio_file:
-            audio_file.seek(start_idx)
-            is_wav = cached.path.suffix.lower() in {".wav", ".wave"}
-            dtype = (
-                "int16"
-                if is_wav and audio_file.subtype == "PCM_16"
-                else "int32"
-                if is_wav
-                and audio_file.subtype
-                in {
-                    "PCM_24",
-                    "PCM_32",
-                }
-                else "float64"
-            )
-            data = audio_file.read(end_idx - start_idx, dtype=dtype, always_2d=True).T
-            if is_wav and audio_file.subtype == "PCM_U8":
-                data = data * 128.0 + 128.0
+        range_frame = cached.frame[:, start_idx:end_idx]
+        data = _channels_first(range_frame.data, cached.frame.n_channels, end_idx - start_idx)
         for ch_idx in range(cached.frame.n_channels):
             channels.append(
                 _build_waveform_envelope(
@@ -222,9 +207,8 @@ def handle_export_wav_loop(cmd: dict) -> dict:
             f"total_frames={cached.frame.n_samples}). Ensure startNorm < endNorm and the file is not empty."
         )
 
-    with sf.SoundFile(cached.path) as audio_file:
-        audio_file.seek(start_sample)
-        data = audio_file.read(n_frames, dtype="float32", always_2d=True)
+    range_frame = cached.frame[:, start_sample:end_sample]
+    data = _channels_first(range_frame.data, cached.frame.n_channels, n_frames).T
 
     buf = _io.BytesIO()
     sf.write(buf, data, sample_rate, format="WAV", subtype="PCM_16")
