@@ -90,4 +90,4 @@ test('report export records calibration and generates a reproducible notebook', 
     expect(String(exported?.['markdownContent'])).toContain('0.500 FS');
     expect(String(exported?.['notebookContent'])).toContain('.with_calibration([');
     expect(String(exported?.['notebookContent'])).toContain('wd.ChannelCalibration(factor=2');
-}
+});
