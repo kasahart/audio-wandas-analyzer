@@ -3,8 +3,10 @@ export function getCalibrationRenderScript(): string {
         (function() {
             const vscode = acquireVsCodeApi();
             const state = __APP_STATE__;
+            const app = document.getElementById('app');
             let calibrationRefreshPending = false;
             let decorationPending = false;
+            let observer = null;
 
             function channelsForResult(result) {
                 return result && Array.isArray(result.channels) ? result.channels : [];
@@ -22,6 +24,12 @@ export function getCalibrationRenderScript(): string {
                 if (absolute >= 1) { return numberValue.toFixed(2); }
                 if (absolute >= 0.01) { return numberValue.toFixed(3); }
                 return numberValue.toPrecision(3);
+            }
+
+            function setText(element, text) {
+                if (element && element.textContent !== text) {
+                    element.textContent = text;
+                }
             }
 
             function levelText(channel, linearKey, levelKey, prefix) {
@@ -51,7 +59,9 @@ export function getCalibrationRenderScript(): string {
                     const measurement = measurementFor(channel);
                     return measurement && measurement.calibrationStatus === 'calibrated';
                 });
-                if (calibrated.length === 0) { return { text: 'FS', title: 'Uncalibrated full scale (dBFS)' }; }
+                if (calibrated.length === 0) {
+                    return { text: 'FS', title: 'Uncalibrated full scale (dBFS)' };
+                }
                 if (calibrated.length !== channels.length) {
                     return { text: 'PARTIAL', title: 'Some channels use physical calibration' };
                 }
@@ -86,67 +96,84 @@ export function getCalibrationRenderScript(): string {
                 });
                 const rmsText = levelText(channel, 'rms', 'rmsLevelDb', 'RMS');
                 const peakText = levelText(channel, 'peakAbsolute', 'peakLevelDb', 'Peak');
-                if (rmsText && spans[labelOffset]) { spans[labelOffset].textContent = rmsText; }
-                if (peakText && spans[labelOffset + 1]) { spans[labelOffset + 1].textContent = peakText; }
+                if (rmsText && spans[labelOffset]) { setText(spans[labelOffset], rmsText); }
+                if (peakText && spans[labelOffset + 1]) { setText(spans[labelOffset + 1], peakText); }
+            }
+
+            function ensureCalibrationButton(buttons, result, trackIndex, channels) {
+                if (!buttons || buttons.querySelector('[data-action="configure-calibration"]')) { return; }
+                const button = document.createElement('button');
+                button.className = 'track-btn';
+                button.setAttribute('data-action', 'configure-calibration');
+                button.setAttribute('data-track-index', String(trackIndex));
+                button.title = 'Configure per-channel calibration';
+                button.setAttribute('aria-label', 'Configure calibration');
+                button.textContent = 'Cal';
+                button.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    vscode.postMessage({
+                        type: 'configure-calibration',
+                        trackIndex: trackIndex,
+                        filePath: result.filePath,
+                        channels: channels.map(function(channel, channelIndex) {
+                            return {
+                                channelIndex: channelIndex,
+                                label: channel.label || 'Channel ' + (channelIndex + 1),
+                            };
+                        }),
+                    });
+                });
+                buttons.appendChild(button);
+            }
+
+            function updateBadges(titleRow, channels) {
+                if (!titleRow) { return; }
+                const summary = calibrationSummary(channels);
+                let calibrationBadge = titleRow.querySelector('.calibration-badge');
+                if (!calibrationBadge) {
+                    calibrationBadge = document.createElement('span');
+                    calibrationBadge.className = 'calibration-badge';
+                    titleRow.appendChild(calibrationBadge);
+                }
+                setText(calibrationBadge, summary.text);
+                if (calibrationBadge.title !== summary.title) {
+                    calibrationBadge.title = summary.title;
+                }
+
+                const clipped = channels.some(function(channel) {
+                    return channel && (channel.clipped === true
+                        || (channel.clipped === undefined && channel.peakAbsolute >= 0.99));
+                });
+                let clipBadge = titleRow.querySelector('.clip-badge');
+                if (!clipped) {
+                    if (clipBadge) { clipBadge.remove(); }
+                    return;
+                }
+                if (!clipBadge) {
+                    clipBadge = document.createElement('span');
+                    clipBadge.className = 'clip-badge';
+                    titleRow.appendChild(clipBadge);
+                }
+                setText(clipBadge, 'CLIP');
+                clipBadge.title = 'Raw source peak reached the full-scale clipping threshold';
             }
 
             function decorateTrack(result, trackIndex) {
                 const row = document.getElementById('track-row-' + trackIndex);
                 if (!row || !result) { return; }
                 const channels = channelsForResult(result);
-                const buttons = row.querySelector('.track-btns');
-                if (buttons && !buttons.querySelector('[data-action="configure-calibration"]')) {
-                    const button = document.createElement('button');
-                    button.className = 'track-btn';
-                    button.setAttribute('data-action', 'configure-calibration');
-                    button.setAttribute('data-track-index', String(trackIndex));
-                    button.title = 'Configure per-channel calibration';
-                    button.setAttribute('aria-label', 'Configure calibration');
-                    button.textContent = 'Cal';
-                    button.addEventListener('click', function(event) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        vscode.postMessage({
-                            type: 'configure-calibration',
-                            trackIndex: trackIndex,
-                            filePath: result.filePath,
-                            channels: channels.map(function(channel, channelIndex) {
-                                return { channelIndex: channelIndex, label: channel.label || 'Channel ' + (channelIndex + 1) };
-                            }),
-                        });
-                    });
-                    buttons.appendChild(button);
-                }
-
-                const titleRow = row.querySelector('.track-title-row');
-                if (titleRow) {
-                    titleRow.querySelectorAll('.calibration-badge,.clip-badge').forEach(function(badge) { badge.remove(); });
-                    const summary = calibrationSummary(channels);
-                    const calibrationBadge = document.createElement('span');
-                    calibrationBadge.className = 'calibration-badge';
-                    calibrationBadge.textContent = summary.text;
-                    calibrationBadge.title = summary.title;
-                    titleRow.appendChild(calibrationBadge);
-                    if (channels.some(function(channel) {
-                        return channel && (channel.clipped === true
-                            || (channel.clipped === undefined && channel.peakAbsolute >= 0.99));
-                    })) {
-                        const clipBadge = document.createElement('span');
-                        clipBadge.className = 'clip-badge';
-                        clipBadge.textContent = 'CLIP';
-                        clipBadge.title = 'Raw source peak reached the full-scale clipping threshold';
-                        titleRow.appendChild(clipBadge);
-                    }
-                }
+                ensureCalibrationButton(row.querySelector('.track-btns'), result, trackIndex, channels);
+                updateBadges(row.querySelector('.track-title-row'), channels);
 
                 if (channels.length === 1) {
                     updateMetricSpans(row.querySelector('.track-meta'), channels[0], 0);
-                } else {
-                    channels.forEach(function(channel, channelIndex) {
-                        const lane = row.querySelector('.track-channel-lane[data-channel-index="' + channelIndex + '"]');
-                        updateMetricSpans(lane && lane.querySelector('.track-channel-lane-header'), channel, 1);
-                    });
+                    return;
                 }
+                channels.forEach(function(channel, channelIndex) {
+                    const lane = row.querySelector('.track-channel-lane[data-channel-index="' + channelIndex + '"]');
+                    updateMetricSpans(lane && lane.querySelector('.track-channel-lane-header'), channel, 1);
+                });
             }
 
             function visibleLevelReferences() {
@@ -175,7 +202,9 @@ export function getCalibrationRenderScript(): string {
                 if (!wrap || !canvas) { return; }
                 let warning = wrap.querySelector('.calibration-overlay-warning');
                 const incompatible = visibleLevelReferences().length > 1;
-                canvas.style.visibility = incompatible ? 'hidden' : '';
+                if (canvas.style.visibility !== (incompatible ? 'hidden' : '')) {
+                    canvas.style.visibility = incompatible ? 'hidden' : '';
+                }
                 if (!incompatible) {
                     if (warning) { warning.remove(); }
                     return;
@@ -188,11 +217,22 @@ export function getCalibrationRenderScript(): string {
                 }
             }
 
+            function observeApp() {
+                if (observer && app) {
+                    observer.observe(app, { childList: true, subtree: true });
+                }
+            }
+
             function decorate() {
                 decorationPending = false;
-                ensureStyles();
-                (state.results || []).forEach(decorateTrack);
-                updateOverlayCompatibility();
+                if (observer) { observer.disconnect(); }
+                try {
+                    ensureStyles();
+                    (state.results || []).forEach(decorateTrack);
+                    updateOverlayCompatibility();
+                } finally {
+                    observeApp();
+                }
             }
 
             function scheduleDecoration() {
@@ -256,9 +296,9 @@ export function getCalibrationRenderScript(): string {
                 lines.push('');
                 (state.results || []).forEach(function(result) {
                     channelsForResult(result).forEach(function(channel, channelIndex) {
-                        const peaks = channel && channel.peaks;
-                        if (!Array.isArray(peaks) || peaks.length === 0) { return; }
                         const measurement = measurementFor(channel);
+                        const peaks = channel && channel.peaks;
+                        if (!measurement || !Array.isArray(peaks) || peaks.length === 0) { return; }
                         lines.push('## Spectral Peaks — ' + markdownCell(result.fileName) + ' / '
                             + markdownCell(channelLabel(result, channelIndex)), '');
                         lines.push('| Frequency (Hz) | Magnitude | Level |');
@@ -266,7 +306,9 @@ export function getCalibrationRenderScript(): string {
                         peaks.forEach(function(peak) {
                             const level = peak.levelDb !== undefined ? peak.levelDb : peak.amplitudeDb;
                             lines.push('| ' + Number(peak.freqHz).toFixed(1)
-                                + ' | ' + (peak.magnitude !== undefined ? formatNumber(peak.magnitude) + ' ' + measurement.linearUnit : '—')
+                                + ' | ' + (peak.magnitude !== undefined
+                                    ? formatNumber(peak.magnitude) + ' ' + measurement.linearUnit
+                                    : '—')
                                 + ' | ' + Number(level).toFixed(1) + ' ' + measurement.levelUnit + ' |');
                         });
                         lines.push('');
@@ -307,9 +349,10 @@ export function getCalibrationRenderScript(): string {
                         source.push(variable + ' = ' + variable + '.with_calibration([\\n');
                         channels.forEach(function(channel) {
                             const measurement = measurementFor(channel);
-                            const factor = measurement && measurement.calibrationStatus === 'calibrated' ? measurement.factor : 1;
-                            const unit = measurement && measurement.calibrationStatus === 'calibrated' ? measurement.linearUnit : '';
-                            const reference = measurement && measurement.calibrationStatus === 'calibrated' ? measurement.referenceValue : 1;
+                            const calibrated = measurement && measurement.calibrationStatus === 'calibrated';
+                            const factor = calibrated ? measurement.factor : 1;
+                            const unit = calibrated ? measurement.linearUnit : '';
+                            const reference = calibrated ? measurement.referenceValue : 1;
                             source.push('    wd.ChannelCalibration(factor=' + factor + ', unit=' + pythonString(unit)
                                 + ', ref=' + reference + '),\\n');
                         });
@@ -367,10 +410,14 @@ export function getCalibrationRenderScript(): string {
                 if (!message) { return; }
                 if (message.type === 'calibration-configured') {
                     calibrationRefreshPending = true;
-                    vscode.postMessage({
-                        type: 'request-reanalyze',
-                        settings: state.spectrogramSettings,
-                    });
+                    const settings = typeof __spectrogramSettings !== 'undefined'
+                        ? __spectrogramSettings
+                        : {
+                            auto: true,
+                            stft: { nFft: 1024, hopSize: 256, window: 'hann' },
+                            display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
+                        };
+                    vscode.postMessage({ type: 'request-reanalyze', settings: settings });
                     return;
                 }
                 if (message.type === 'analysis-update') {
@@ -386,9 +433,8 @@ export function getCalibrationRenderScript(): string {
                 }
             });
 
-            const observer = new MutationObserver(scheduleDecoration);
-            const app = document.getElementById('app');
-            if (app) { observer.observe(app, { childList: true, subtree: true }); }
+            observer = new MutationObserver(scheduleDecoration);
+            observeApp();
             scheduleDecoration();
         })();
     `;
