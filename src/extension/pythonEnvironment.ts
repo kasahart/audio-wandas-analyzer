@@ -11,6 +11,12 @@ const REQUIRED_PACKAGES = [
         minimum: [2, 0, 2],
     },
     {
+        modules: ['scipy'],
+        distribution: 'scipy',
+        requirement: 'scipy>=1.13',
+        minimum: [1, 13, 0],
+    },
+    {
         modules: ['wandas', 'mosqito'],
         distribution: 'wandas',
         requirement: 'wandas[psychoacoustic]>=0.7.1,<0.8.0',

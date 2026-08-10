@@ -403,6 +403,7 @@ test('checkMissingDependencies uses import and version checks instead of pip', a
         assert.deepEqual(result, { missingPackages: [] });
         assert.equal(spawnedArgs[0], '-c');
         assert.match(String(spawnedArgs[1]), /numpy>=2\.0\.2/u);
+        assert.match(String(spawnedArgs[1]), /scipy>=1\.13/u);
         assert.match(String(spawnedArgs[1]), /wandas\[psychoacoustic\]>=0\.7\.1,<0\.8\.0/u);
         assert.match(String(spawnedArgs[1]), /mosqito/u);
         assert.match(String(spawnedArgs[1]), /packaging\.version/u);

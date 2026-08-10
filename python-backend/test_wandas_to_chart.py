@@ -67,6 +67,7 @@ def test_noct_frame_becomes_bar(mono_sin: wd.ChannelFrame) -> None:
 def test_runtime_dependencies_pin_wandas_v07_with_psychoacoustics() -> None:
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
     dependencies = pyproject["project"]["dependencies"]
+    assert "scipy>=1.13" in dependencies
     assert "wandas[psychoacoustic]>=0.7.1,<0.8.0" in dependencies
 
 
