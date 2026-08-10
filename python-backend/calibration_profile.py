@@ -5,7 +5,7 @@ import json
 import math
 import numbers
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
 import wandas as wd
 
@@ -196,9 +196,7 @@ def measurement_metadata(channel: ResolvedChannelCalibration) -> dict[str, objec
             level_reference_label = "dB SPL re 20 µPa"
         else:
             level_unit = "dB"
-            level_reference_label = (
-                f"dB re {format_reference_value(channel.reference_value)} {channel.unit}"
-            )
+            level_reference_label = f"dB re {format_reference_value(channel.reference_value)} {channel.unit}"
 
     return {
         "calibrationStatus": channel.status,
