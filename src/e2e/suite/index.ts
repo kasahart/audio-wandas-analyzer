@@ -171,6 +171,7 @@ export async function run(): Promise<void> {
                 assert.equal(snapshot.resultCount, 1);
                 assert.deepEqual(snapshot.fileNames, ['sine-440.wav']);
                 assert.match(snapshot.html, /comparisonWaveform\.js/u);
+                assert.match(snapshot.html, /comparisonRuntime\.js/u);
                 assert.match(snapshot.html, /id="app"/u);
                 assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should be captured');
                 assert.equal(snapshot.renderedUi.hasToolbar, true);

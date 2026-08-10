@@ -1,4 +1,5 @@
 import { JSDOM } from 'jsdom';
+import { getStrings } from '../../shared/i18n/strings';
 
 export interface DrawImageCall {
     src: unknown;
@@ -167,6 +168,8 @@ export function createWebviewEnv(appStateJson: string, initialVsCodeState: unkno
         { pretendToBeVisual: true, runScripts: 'dangerously' },
     );
     const win = dom.window as any;
+    win.__APP_STATE__ = JSON.parse(appStateJson);
+    win.__APP_STRINGS__ = getStrings('en');
 
     // VS Code API スタブ
     win.acquireVsCodeApi = () => ({
@@ -252,8 +255,6 @@ export function createWebviewEnv(appStateJson: string, initialVsCodeState: unkno
             this.dispatchEvent(new win.Event('pause'));
         }
     };
-
-    win.__APP_STATE__ = JSON.parse(appStateJson);
 
     return { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts };
 }

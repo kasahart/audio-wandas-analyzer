@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
- * dist/webview/waveform/waveformRenderer.js が tsc -watch によって更新されるたびに
- * scripts/build-webview.js を再実行して dist/webview/comparisonWaveform.js を最新化する。
+ * Webview の tsc 出力が更新されるたびに scripts/build-webview.js を再実行する。
  *
  * npm run watch (tsc -watch) と併走させる前提のサイドカー。
  * 単体実行も可能。Ctrl+C で終了。
@@ -13,6 +12,11 @@ const { spawnSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const TARGET = path.join(ROOT, 'dist', 'webview', 'waveform', 'waveformRenderer.js');
+const WATCH_DIRS = [
+    path.join(ROOT, 'dist', 'webview', 'waveform'),
+    path.join(ROOT, 'dist', 'webview', 'draw'),
+    path.join(ROOT, 'dist', 'webview', 'runtime'),
+];
 const BUILD_SCRIPT = path.join(__dirname, 'build-webview.js');
 
 function rebuild(reason) {
@@ -30,17 +34,16 @@ function startWatcher() {
         console.log(`watch-webview: waiting for ${path.relative(ROOT, TARGET)} to appear...`);
     }
 
-    // 親ディレクトリ単位で watch (ファイル削除→再生成にも追随する)
-    const dir = path.dirname(TARGET);
-    if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-
     let debounceTimer = null;
-    fs.watch(dir, { persistent: true }, (_event, fname) => {
-        if (fname !== path.basename(TARGET)) { return; }
-        if (debounceTimer) { clearTimeout(debounceTimer); }
-        debounceTimer = setTimeout(() => rebuild('change'), 150);
+    WATCH_DIRS.forEach((dir) => {
+        if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+        fs.watch(dir, { persistent: true }, (_event, fname) => {
+            if (!fname || !fname.endsWith('.js')) { return; }
+            if (debounceTimer) { clearTimeout(debounceTimer); }
+            debounceTimer = setTimeout(() => rebuild('change'), 150);
+        });
     });
-    console.log(`watch-webview: watching ${path.relative(ROOT, TARGET)}`);
+    console.log(`watch-webview: watching ${WATCH_DIRS.map((dir) => path.relative(ROOT, dir)).join(', ')}`);
 }
 
 startWatcher();

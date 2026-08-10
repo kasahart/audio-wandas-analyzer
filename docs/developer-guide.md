@@ -60,7 +60,7 @@ npm run verify:e2e
 | --- | --- |
 | Register commands / wire VS Code actions | `src/extension/index.ts` |
 | Comparison panel shell / HTML container | `src/webview/panels/ComparisonPanel.ts` |
-| Webview interaction logic | `src/webview/comparisonRenderScript.ts` |
+| Webview interaction logic | `src/webview/runtime/` |
 | Waveform rendering pipeline | `src/webview/waveform/waveformRenderer.ts` |
 | Shared data contracts | `src/shared/analysis/analysisTypes.ts` |
 | Full-file backend analysis | `python-backend/analyzer.py` |
@@ -101,7 +101,7 @@ Use the **results** preview for waveform / graph motion. The **selection** previ
 ## 7. Webview-specific gotchas
 
 - `src/webview/waveform/waveformRenderer.ts` is the single source of truth for comparison waveform rendering.
-- `npm run compile` rebuilds `dist/webview/comparisonWaveform.js` through `scripts/build-webview.js`.
+- `npm run compile` rebuilds `dist/webview/comparisonWaveform.js` and `dist/webview/comparisonRuntime.js` through `scripts/build-webview.js`.
 - If you add or change a user-facing GUI action, update the GUI triggerability inventory in `src/shared/gui/guiTriggerabilityInventory.ts` and keep the matching regression coverage in sync.
 - If a bug only shows up in a real browser, use `npm run test:ui` instead of relying only on jsdom-based tests.
 

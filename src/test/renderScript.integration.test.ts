@@ -1,8 +1,8 @@
 /**
- * ComparisonPanel.renderScript() を jsdom 環境で実行する統合テスト。
+ * 生成済み Comparison Webview runtime を jsdom 環境で実行する統合テスト。
  *
  * テスト対象:
- * - renderScript() の JS が jsdom で例外なく実行できること
+ * - TypeScript entry bundle が jsdom で例外なく実行できること
  * - DOM に期待するキャンバス要素が生成されること
  * - OffscreenCanvas が利用される（または DOM フォールバックが動く）こと
  * - postedMessages が記録されること
@@ -1812,8 +1812,8 @@ test('spectrum cursor: per-track readout formats focused frequency in Hz', async
 
     const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
     assert.ok(canvas, 'track-spectrum-0 が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
     canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
     canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
@@ -1834,8 +1834,8 @@ test('spectrum cursor: overlay readout formats focused frequency in Hz', async (
 
     const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
     canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
     canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
@@ -1856,8 +1856,8 @@ test('spectrum cursor: overlay readout identifies the hovered file and channel',
 
     const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
     canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
     canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 192, clientY: 12 }));
@@ -1894,8 +1894,8 @@ test('spectrum cursor: per-track readout snaps to the hovered track frequency bi
 
     const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
     assert.ok(canvas, 'track-spectrum-0 が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
     canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
     canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
@@ -1944,8 +1944,8 @@ test('spectrum cursor: per-track keyboard stepping uses the hovered channel bins
 
     const trackCanvas = env.dom.window.document.getElementById('track-spectrum-0-1') as HTMLCanvasElement | null;
     assert.ok(trackCanvas, 'track-spectrum-0-1 が存在すること');
-    Object.defineProperty(trackCanvas, 'width', { configurable: true, value: 200 });
-    Object.defineProperty(trackCanvas, 'height', { configurable: true, value: 140 });
+    Object.defineProperty(trackCanvas, 'width', { configurable: true, writable: true, value: 200 });
+    Object.defineProperty(trackCanvas, 'height', { configurable: true, writable: true, value: 140 });
     trackCanvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
     trackCanvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 113, clientY: 30 }));
@@ -1966,8 +1966,8 @@ test('spectrum cursor: narrow canvas hover clears stale spectrum target', async 
 
     const trackCanvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
     assert.ok(trackCanvas, 'track-spectrum-0 が存在すること');
-    Object.defineProperty(trackCanvas, 'width', { configurable: true, value: 200 });
-    Object.defineProperty(trackCanvas, 'height', { configurable: true, value: 140 });
+    Object.defineProperty(trackCanvas, 'width', { configurable: true, writable: true, value: 200 });
+    Object.defineProperty(trackCanvas, 'height', { configurable: true, writable: true, value: 140 });
     trackCanvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
     trackCanvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
@@ -1979,8 +1979,8 @@ test('spectrum cursor: narrow canvas hover clears stale spectrum target', async 
 
     const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(overlayCanvas, 'spectrum-overlay-canvas が存在すること');
-    Object.defineProperty(overlayCanvas, 'width', { configurable: true, value: 20 });
-    Object.defineProperty(overlayCanvas, 'height', { configurable: true, value: 140 });
+    Object.defineProperty(overlayCanvas, 'width', { configurable: true, writable: true, value: 20 });
+    Object.defineProperty(overlayCanvas, 'height', { configurable: true, writable: true, value: 140 });
     overlayCanvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 20, bottom: 140, width: 20, height: 140 } as DOMRect);
 
     overlayCanvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 30 }));
@@ -1997,8 +1997,8 @@ test('spectrum cursor: overlay snaps to the nearest visible series bin when delt
 
     const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
     canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
     canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 73, clientY: 52 }));
@@ -2018,8 +2018,8 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
 
     const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, value: 140 });
+    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
+    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
     canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
     canvas!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 100, clientY: 135 }));

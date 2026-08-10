@@ -1,10 +1,7 @@
-/**
- * vscode モジュールをスタブ化してから ComparisonPanel をロードし、
- * renderScript() の文字列を返すヘルパー。
- *
- * テストから直接 ComparisonPanel を import すると vscode が解決できないため、
- * このファイルが require() の前に Module._load を差し替える。
- */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+/** vscode モジュールをスタブ化してから ComparisonPanel をロードするヘルパー。 */
 
 type ComparisonPanelModule = {
     renderComparisonHtml(
@@ -12,7 +9,6 @@ type ComparisonPanelModule = {
         state: unknown,
         extensionUri: { fsPath: string; toString(): string },
     ): string;
-    renderComparisonScript(): string;
     renderComparisonStyles(): string;
 };
 
@@ -38,7 +34,11 @@ function loadComparisonPanelModule(): ComparisonPanelModule {
                 return {
                     window: {},
                     ViewColumn: { One: 1, Active: 1, Beside: 2 },
-                    Uri: { joinPath: (..._args: unknown[]) => ({ fsPath: '' }) },
+                    Uri: {
+                        joinPath: (base: { fsPath?: string }, ...parts: string[]) => ({
+                            fsPath: join(base.fsPath ?? '', ...parts),
+                        }),
+                    },
                     workspace: { getConfiguration: () => ({ get: (_k: string, d: unknown) => d }) },
                 };
             }
@@ -55,9 +55,9 @@ function loadComparisonPanelModule(): ComparisonPanelModule {
     }
 }
 
-/** ComparisonPanel.renderScript() が返す JavaScript 文字列を取得する */
+/** build-webview が生成した通常の TypeScript entry bundle を取得する。 */
 export function getRenderScript(): string {
-    return loadComparisonPanelModule().renderComparisonScript();
+    return readFileSync(join(__dirname, '..', '..', 'webview', 'comparisonRuntime.js'), 'utf8');
 }
 
 /** ComparisonPanel.renderStyles() が返す CSS 文字列を取得する */
@@ -69,8 +69,10 @@ export function getRenderStyles(): string {
 export function getRenderHtml(state: unknown): string {
     return loadComparisonPanelModule().renderComparisonHtml(
         {
-            asWebviewUri: () => ({
-                toString: () => '__WAVEFORM_PIPELINE__',
+            asWebviewUri: (uri: unknown) => ({
+                toString: () => (uri as { fsPath?: string }).fsPath?.endsWith('comparisonRuntime.js')
+                    ? '__COMPARISON_RUNTIME__'
+                    : '__WAVEFORM_PIPELINE__',
             }),
             cspSource: 'data:',
         },

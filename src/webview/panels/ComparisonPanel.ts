@@ -1,39 +1,19 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscaping';
-import { getComparisonRenderScript } from '../comparisonRenderScript';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import {
     DEFAULT_SPECTROGRAM_SETTINGS,
     type AnalysisResultWithError,
     type SpectrogramSettings,
 } from '../../shared/analysis/analysisTypes';
+import type {
+    ComparisonResultsState,
+    ComparisonState,
+    DirectorySelectionState,
+} from '../runtime/types';
 
-interface ComparisonTrackState extends AnalysisResultWithError {
-    audioSource?: string;
-}
-
-interface ComparisonResultsState {
-    mode: 'results';
-    results: ComparisonTrackState[];
-    spectrogramSettings: SpectrogramSettings;
-}
-
-interface DirectorySelectionState {
-    mode: 'directory-selection';
-    results: ComparisonTrackState[];
-    rootPath: string;
-    allFilePaths: string[];
-    selectedFilePaths: string[];
-    pythonEnvironmentState: {
-        pythonCommand: string;
-        status: 'normal' | 'warning';
-        tooltip: string;
-    };
-    spectrogramSettings: SpectrogramSettings;
-}
-
-export type ComparisonState = ComparisonResultsState | DirectorySelectionState;
+export type { ComparisonState } from '../runtime/types';
 
 interface ComparisonPanelTestSnapshot {
     title: string;
@@ -323,6 +303,9 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
     const waveformScriptUri = webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonWaveform.js'),
     );
+    const runtimeScriptUri = webview.asWebviewUri(
+        vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonRuntime.js'),
+    );
     const language = typeof vscode.env?.language === 'string' ? vscode.env.language : 'en';
     const locale = pickLocale(language);
     const strings = getStrings(language);
@@ -338,14 +321,14 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
 <body>
     <div id="a11y-announce" role="status" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
     <div id="app"></div>
-    <script src="${waveformScriptUri}"></script>
-    <script nonce="${nonce}">
-        const __APP_STATE__ = ${serializeForScript(state)};
-        const __APP_STRINGS__ = ${serializeForScript(strings)};
-        const __APP_LOCALE__ = ${serializeForScript(locale)};
-        ${renderComparisonScript()}
-    </script>
     <div id="canvas-tooltip"></div>
+    <script nonce="${nonce}">
+        window.__APP_STATE__ = ${serializeForScript(state)};
+        window.__APP_STRINGS__ = ${serializeForScript(strings)};
+        window.__APP_LOCALE__ = ${serializeForScript(locale)};
+    </script>
+    <script src="${waveformScriptUri}"></script>
+    <script src="${runtimeScriptUri}"></script>
 </body>
 </html>`;
 }
@@ -764,8 +747,4 @@ export function renderComparisonStyles(): string {
             outline: none;
         }
         `;
-}
-
-export function renderComparisonScript(): string {
-    return getComparisonRenderScript();
 }
