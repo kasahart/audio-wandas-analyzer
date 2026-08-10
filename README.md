@@ -112,6 +112,7 @@ The comparison toolbar includes export actions for everyday handoff work:
 
 ## Links
 
+- VS Code Marketplace: [Audio Wandas Analyzer](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer)
 - Repository: https://github.com/kasahart/audio-wandas-analyzer
 - Backend library: [wandas](https://github.com/kasahart/wandas)
 - Developer guide: [docs/developer-guide.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.md)
