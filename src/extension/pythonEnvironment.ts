@@ -25,6 +25,12 @@ import json
 import os
 import sys
 
+try:
+    from packaging.version import InvalidVersion, Version
+except ImportError:
+    InvalidVersion = None
+    Version = None
+
 required = ${JSON.stringify(REQUIRED_PACKAGES)}
 cwd = os.getcwd()
 sys.path = [entry for entry in sys.path if entry not in ("", cwd)]
@@ -42,13 +48,28 @@ def version_key(value):
         parts.append(int(digits))
     return tuple((parts + [0, 0, 0])[:3])
 
+def is_prerelease(value):
+    public = value.split("+", 1)[0].lower()
+    return any(marker in public for marker in ("a", "b", "rc", "dev"))
+
 def needs_install(item):
     if any(importlib.util.find_spec(module) is None for module in item["modules"]):
         return True
     try:
-        current = version_key(importlib.metadata.version(item["distribution"]))
+        installed = importlib.metadata.version(item["distribution"])
     except importlib.metadata.PackageNotFoundError:
         return True
+    if Version is not None:
+        try:
+            current = Version(installed)
+            minimum = Version(".".join(str(part) for part in item["minimum"]))
+            maximum = Version(".".join(str(part) for part in item["maximum"])) if "maximum" in item else None
+        except InvalidVersion:
+            return True
+        return current.is_prerelease or current < minimum or (maximum is not None and current >= maximum)
+    if is_prerelease(installed):
+        return True
+    current = version_key(installed)
     minimum = tuple(item["minimum"])
     maximum = tuple(item["maximum"]) if "maximum" in item else None
     return current < minimum or (maximum is not None and current >= maximum)
