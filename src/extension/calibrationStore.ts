@@ -1,0 +1,242 @@
+import * as path from 'path';
+import * as vscode from 'vscode';
+import type {
+    CalibrationProfile,
+    ChannelCalibrationDefinition,
+    ChannelMeasurementContext,
+} from '../shared/analysis/analysisTypes';
+
+const CALIBRATION_PROFILES_KEY = 'audioWandasAnalyzer.calibrationProfiles.v1';
+const analysisRevisions = new Map<string, number>();
+
+export interface CalibrationChannelDescriptor {
+    channelIndex: number;
+    label: string;
+    measurement?: ChannelMeasurementContext;
+}
+
+function fileKey(filePath: string): string {
+    return path.resolve(filePath);
+}
+
+function cloneProfile(profile: CalibrationProfile): CalibrationProfile {
+    return {
+        schemaVersion: 1,
+        channels: profile.channels.map((channel) => ({ ...channel })),
+    };
+}
+
+function profiles(context: vscode.ExtensionContext): Record<string, CalibrationProfile> {
+    return context.workspaceState.get<Record<string, CalibrationProfile>>(CALIBRATION_PROFILES_KEY, {});
+}
+
+function identityChannel(channel: CalibrationChannelDescriptor): ChannelCalibrationDefinition {
+    return {
+        channelIndex: channel.channelIndex,
+        expectedLabel: channel.label,
+        status: 'uncalibrated',
+        source: 'default',
+        factor: 1,
+        unit: '',
+        referenceValue: 1,
+    };
+}
+
+export function identityCalibrationProfile(channels: CalibrationChannelDescriptor[]): CalibrationProfile {
+    return {
+        schemaVersion: 1,
+        channels: channels.map(identityChannel),
+    };
+}
+
+export function getCalibrationProfile(
+    context: vscode.ExtensionContext,
+    filePath: string,
+): CalibrationProfile | undefined {
+    const stored = profiles(context)[fileKey(filePath)];
+    return stored ? cloneProfile(stored) : undefined;
+}
+
+export function getAnalysisRevision(filePath: string): number {
+    return analysisRevisions.get(fileKey(filePath)) ?? 0;
+}
+
+function bumpAnalysisRevision(filePath: string): number {
+    const key = fileKey(filePath);
+    const next = (analysisRevisions.get(key) ?? 0) + 1;
+    analysisRevisions.set(key, next);
+    return next;
+}
+
+async function persistProfile(
+    context: vscode.ExtensionContext,
+    filePath: string,
+    profile: CalibrationProfile | undefined,
+): Promise<void> {
+    const next = { ...profiles(context) };
+    const key = fileKey(filePath);
+    if (profile) {
+        next[key] = cloneProfile(profile);
+    } else {
+        delete next[key];
+    }
+    await context.workspaceState.update(CALIBRATION_PROFILES_KEY, next);
+    bumpAnalysisRevision(filePath);
+}
+
+function positiveNumberValidation(value: string): string | undefined {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) && numberValue > 0
+        ? undefined
+        : 'Enter a positive finite number.';
+}
+
+function profileForChannels(
+    stored: CalibrationProfile | undefined,
+    channels: CalibrationChannelDescriptor[],
+): CalibrationProfile {
+    if (!stored || stored.channels.length !== channels.length) {
+        return identityCalibrationProfile(channels);
+    }
+    const matches = channels.every((channel, index) => {
+        const entry = stored.channels[index];
+        return entry?.channelIndex === channel.channelIndex
+            && entry.expectedLabel === channel.label;
+    });
+    return matches ? cloneProfile(stored) : identityCalibrationProfile(channels);
+}
+
+function describeCalibration(channel: ChannelCalibrationDefinition): string {
+    if (channel.status === 'uncalibrated') {
+        return 'Full scale (FS / dBFS)';
+    }
+    const level = channel.unit === 'Pa' && channel.referenceValue === 2e-5
+        ? 'dB SPL re 20 µPa'
+        : `dB re ${channel.referenceValue} ${channel.unit}`;
+    return `factor ${channel.factor}; ${channel.unit}; ${level}`;
+}
+
+export async function configureCalibrationProfile(
+    context: vscode.ExtensionContext,
+    filePath: string,
+    channels: CalibrationChannelDescriptor[],
+): Promise<boolean> {
+    if (channels.length === 0) {
+        void vscode.window.showInformationMessage('No audio channels are available for calibration.');
+        return false;
+    }
+
+    const current = profileForChannels(getCalibrationProfile(context, filePath), channels);
+    const resetAll = Symbol('reset-all');
+    const picked = await vscode.window.showQuickPick(
+        [
+            {
+                label: '$(discard) Reset all channels to full scale',
+                description: 'Remove the saved calibration profile for this file',
+                value: resetAll,
+            },
+            ...channels.map((channel) => ({
+                label: `$(settings-gear) Channel ${channel.channelIndex + 1}: ${channel.label}`,
+                description: describeCalibration(current.channels[channel.channelIndex]),
+                value: channel.channelIndex,
+            })),
+        ],
+        {
+            placeHolder: `Configure calibration for ${path.basename(filePath)}`,
+            matchOnDescription: true,
+        },
+    );
+    if (!picked) {
+        return false;
+    }
+
+    if (picked.value === resetAll) {
+        await persistProfile(context, filePath, undefined);
+        void vscode.window.showInformationMessage(`Calibration reset to full scale: ${path.basename(filePath)}`);
+        return true;
+    }
+
+    const channelIndex = picked.value as number;
+    const channel = channels.find((candidate) => candidate.channelIndex === channelIndex);
+    if (!channel) {
+        throw new Error(`Calibration channel was not found: ${channelIndex}`);
+    }
+    const existing = current.channels[channelIndex] ?? identityChannel(channel);
+    const mode = await vscode.window.showQuickPick(
+        [
+            {
+                label: 'Calibrated physical quantity',
+                description: 'Apply a raw-FS-to-physical conversion before analysis',
+                value: 'calibrated' as const,
+            },
+            {
+                label: 'Uncalibrated full scale',
+                description: 'Use FS and dBFS for this channel',
+                value: 'uncalibrated' as const,
+            },
+        ],
+        {
+            placeHolder: `Channel ${channelIndex + 1}: ${channel.label}`,
+        },
+    );
+    if (!mode) {
+        return false;
+    }
+
+    if (mode.value === 'uncalibrated') {
+        current.channels[channelIndex] = identityChannel(channel);
+        const hasCalibratedChannel = current.channels.some((entry) => entry.status === 'calibrated');
+        await persistProfile(context, filePath, hasCalibratedChannel ? current : undefined);
+        return true;
+    }
+
+    const factor = await vscode.window.showInputBox({
+        title: `Calibration factor — Channel ${channelIndex + 1}: ${channel.label}`,
+        prompt: 'Physical value = raw full-scale sample × factor',
+        value: existing.status === 'calibrated' ? String(existing.factor) : '1',
+        validateInput: positiveNumberValidation,
+    });
+    if (factor === undefined) {
+        return false;
+    }
+
+    const unit = await vscode.window.showInputBox({
+        title: `Physical unit — Channel ${channelIndex + 1}: ${channel.label}`,
+        prompt: "Examples: Pa, m/s^2, V. Use '1' for a dimensionless physical quantity.",
+        value: existing.status === 'calibrated' ? existing.unit : 'Pa',
+        validateInput: (value) => value.trim() ? undefined : "Enter a unit, or '1' for dimensionless data.",
+    });
+    if (unit === undefined) {
+        return false;
+    }
+    const normalizedUnit = unit.trim();
+
+    const defaultReference = existing.status === 'calibrated'
+        ? existing.referenceValue
+        : normalizedUnit === 'Pa'
+            ? 2e-5
+            : 1;
+    const referenceValue = await vscode.window.showInputBox({
+        title: `Level reference — Channel ${channelIndex + 1}: ${channel.label}`,
+        prompt: normalizedUnit === 'Pa'
+            ? '20 µPa is 0.00002 Pa and produces dB SPL.'
+            : `Reference value in ${normalizedUnit}.`,
+        value: String(defaultReference),
+        validateInput: positiveNumberValidation,
+    });
+    if (referenceValue === undefined) {
+        return false;
+    }
+
+    current.channels[channelIndex] = {
+        channelIndex,
+        expectedLabel: channel.label,
+        status: 'calibrated',
+        source: 'manual',
+        factor: Number(factor),
+        unit: normalizedUnit,
+        referenceValue: Number(referenceValue),
+    };
+    await persistProfile(context, filePath, current);
+    return true;
+}

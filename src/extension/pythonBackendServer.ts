@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import type { CalibrationProfile } from '../shared/analysis/analysisTypes';
 import { processStdoutChunk, type PendingRequest } from './backendIpc';
 import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 
@@ -10,7 +11,12 @@ export interface AnalyzeStftOptions {
     window: string;
 }
 
-export interface AnalyzeOptions {
+export interface CalibrationRequestContext {
+    calibrationProfile?: CalibrationProfile;
+    analysisRevision?: number;
+}
+
+export interface AnalyzeOptions extends CalibrationRequestContext {
     peakCount: number;
     stftOptions?: AnalyzeStftOptions;
 }
@@ -41,6 +47,7 @@ export class PythonBackendServer {
             filePath,
             peakCount: options.peakCount,
             ...(options.stftOptions ? { stftOptions: options.stftOptions } : {}),
+            ...this.calibrationPayload(options),
         });
     }
 
@@ -50,19 +57,47 @@ export class PythonBackendServer {
         endNorm: number,
         points: number,
         requestId?: string,
-    ): Promise<{ channels: unknown[] }> {
+        calibration: CalibrationRequestContext = {},
+    ): Promise<{
+        channels: unknown[];
+        calibrationSignature?: string;
+        analysisRevision?: number;
+    }> {
         return this.request(
             'range',
-            { filePath, startNorm, endNorm, points },
+            {
+                filePath,
+                startNorm,
+                endNorm,
+                points,
+                ...this.calibrationPayload(calibration),
+            },
             requestId,
-        ) as Promise<{ channels: unknown[] }>;
+        ) as Promise<{
+            channels: unknown[];
+            calibrationSignature?: string;
+            analysisRevision?: number;
+        }>;
     }
 
     async requestTrackDetail(
         filePath: string,
-        payload: { trackIndex: number; analysisId: string; settingsSignature: string; stftOptions?: AnalyzeStftOptions },
+        payload: {
+            trackIndex: number;
+            analysisId: string;
+            settingsSignature: string;
+            stftOptions?: AnalyzeStftOptions;
+        } & CalibrationRequestContext,
         requestId: string,
-    ): Promise<{ channels: unknown[]; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }> {
+    ): Promise<{
+        channels: unknown[];
+        trackIndex: number;
+        analysisId: string;
+        settingsSignature: string;
+        filePath: string;
+        calibrationSignature?: string;
+        analysisRevision?: number;
+    }> {
         return this.request(
             'track-detail',
             {
@@ -71,9 +106,18 @@ export class PythonBackendServer {
                 analysisId: payload.analysisId,
                 settingsSignature: payload.settingsSignature,
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
+                ...this.calibrationPayload(payload),
             },
             requestId,
-        ) as Promise<{ channels: unknown[]; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }>;
+        ) as Promise<{
+            channels: unknown[];
+            trackIndex: number;
+            analysisId: string;
+            settingsSignature: string;
+            filePath: string;
+            calibrationSignature?: string;
+            analysisRevision?: number;
+        }>;
     }
 
     async releaseTrackDetail(filePath: string): Promise<void> {
@@ -82,9 +126,33 @@ export class PythonBackendServer {
 
     async requestSpectrumSlice(
         filePath: string,
-        payload: { trackIndex: number; analysisId: string; settingsSignature: string; cursorNorm: number; channelIndex: number; stftOptions?: AnalyzeStftOptions },
+        payload: {
+            trackIndex: number;
+            analysisId: string;
+            settingsSignature: string;
+            cursorNorm: number;
+            channelIndex: number;
+            stftOptions?: AnalyzeStftOptions;
+        } & CalibrationRequestContext,
         requestId: string,
-    ): Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; unit?: string; axisLabel?: string; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }> {
+    ): Promise<{
+        values: number[];
+        frequencyBins: number;
+        maxFrequencyHz: number;
+        minDb: number;
+        maxDb: number;
+        unit?: string;
+        axisLabel?: string;
+        referenceValue?: number;
+        referenceUnit?: string;
+        levelReferenceLabel?: string;
+        trackIndex: number;
+        analysisId: string;
+        settingsSignature: string;
+        filePath: string;
+        calibrationSignature?: string;
+        analysisRevision?: number;
+    }> {
         return this.request(
             'spectrum-slice',
             {
@@ -95,9 +163,27 @@ export class PythonBackendServer {
                 cursorNorm: payload.cursorNorm,
                 channelIndex: payload.channelIndex,
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
+                ...this.calibrationPayload(payload),
             },
             requestId,
-        ) as Promise<{ values: number[]; frequencyBins: number; maxFrequencyHz: number; minDb: number; maxDb: number; unit?: string; axisLabel?: string; trackIndex: number; analysisId: string; settingsSignature: string; filePath: string }>;
+        ) as Promise<{
+            values: number[];
+            frequencyBins: number;
+            maxFrequencyHz: number;
+            minDb: number;
+            maxDb: number;
+            unit?: string;
+            axisLabel?: string;
+            referenceValue?: number;
+            referenceUnit?: string;
+            levelReferenceLabel?: string;
+            trackIndex: number;
+            analysisId: string;
+            settingsSignature: string;
+            filePath: string;
+            calibrationSignature?: string;
+            analysisRevision?: number;
+        }>;
     }
 
     async exportWavLoop(
@@ -116,6 +202,13 @@ export class PythonBackendServer {
         this.proc?.kill();
         this.proc = null;
         this.rejectAll(new Error('PythonBackendServer disposed'));
+    }
+
+    private calibrationPayload(context: CalibrationRequestContext): Record<string, unknown> {
+        return {
+            ...(context.calibrationProfile ? { calibrationProfile: context.calibrationProfile } : {}),
+            analysisRevision: context.analysisRevision ?? 0,
+        };
     }
 
     private async request(cmd: string, payload: Record<string, unknown>, requestId?: string): Promise<unknown> {
@@ -151,7 +244,6 @@ export class PythonBackendServer {
                 env: {
                     ...globalThis.process.env,
                     AWA_CACHE_MB: String(cacheMb),
-                    // AWA_PERF_LOG: inherit from env (default '0' = opt-in)
                 },
             });
 
@@ -173,7 +265,7 @@ export class PythonBackendServer {
                             this.startPromise = null;
                             this.proc!.stdout!.off('data', handleReadyOrLine);
                             this.proc!.stdout!.on('data', (c: Buffer | string) => {
-                                processStdoutChunk(this.stdoutBuf, c.toString(), this.pending, (msg) => this.onHeartbeat(msg));
+                                processStdoutChunk(this.stdoutBuf, c.toString(), this.pending, (heartbeat) => this.onHeartbeat(heartbeat));
                             });
                             this.startWatchdog();
                             resolve();
@@ -240,8 +332,8 @@ export class PythonBackendServer {
     }
 
     private rejectAll(err: Error): void {
-        for (const p of this.pending.values()) {
-            p.reject(err);
+        for (const pending of this.pending.values()) {
+            pending.reject(err);
         }
         this.pending.clear();
     }

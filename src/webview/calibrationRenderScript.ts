@@ -1,0 +1,395 @@
+export function getCalibrationRenderScript(): string {
+    return `
+        (function() {
+            const vscode = acquireVsCodeApi();
+            const state = __APP_STATE__;
+            let calibrationRefreshPending = false;
+            let decorationPending = false;
+
+            function channelsForResult(result) {
+                return result && Array.isArray(result.channels) ? result.channels : [];
+            }
+
+            function measurementFor(channel) {
+                return channel && channel.measurement ? channel.measurement : null;
+            }
+
+            function formatNumber(value) {
+                const numberValue = Number(value);
+                if (!Number.isFinite(numberValue)) { return '—'; }
+                const absolute = Math.abs(numberValue);
+                if (absolute >= 100) { return numberValue.toFixed(0); }
+                if (absolute >= 1) { return numberValue.toFixed(2); }
+                if (absolute >= 0.01) { return numberValue.toFixed(3); }
+                return numberValue.toPrecision(3);
+            }
+
+            function levelText(channel, linearKey, levelKey, prefix) {
+                const measurement = measurementFor(channel);
+                const level = channel && Number(channel[levelKey]);
+                if (!measurement || !Number.isFinite(level)) { return null; }
+                const levelPart = level.toFixed(1) + ' ' + measurement.levelUnit;
+                if (measurement.calibrationStatus === 'uncalibrated') {
+                    return prefix + ' ' + levelPart;
+                }
+                return prefix + ' ' + formatNumber(channel[linearKey]) + ' ' + measurement.linearUnit
+                    + ' / ' + levelPart;
+            }
+
+            function channelLabel(result, channelIndex) {
+                const channels = channelsForResult(result);
+                const channel = channels[channelIndex];
+                const count = channels.length;
+                const base = 'Channel ' + (channelIndex + 1) + (count > 1 ? ' / ' + count : '');
+                return channel && channel.label && channel.label !== 'Channel ' + (channelIndex + 1)
+                    ? base + ' (' + channel.label + ')'
+                    : base;
+            }
+
+            function calibrationSummary(channels) {
+                const calibrated = channels.filter(function(channel) {
+                    const measurement = measurementFor(channel);
+                    return measurement && measurement.calibrationStatus === 'calibrated';
+                });
+                if (calibrated.length === 0) { return { text: 'FS', title: 'Uncalibrated full scale (dBFS)' }; }
+                if (calibrated.length !== channels.length) {
+                    return { text: 'PARTIAL', title: 'Some channels use physical calibration' };
+                }
+                const units = Array.from(new Set(calibrated.map(function(channel) {
+                    return measurementFor(channel).linearUnit;
+                })));
+                return {
+                    text: units.length === 1 ? 'CAL: ' + units[0] : 'CAL',
+                    title: calibrated.map(function(channel) {
+                        const measurement = measurementFor(channel);
+                        return measurement.linearUnit + '; factor ' + measurement.factor
+                            + '; ' + measurement.levelReferenceLabel;
+                    }).join(' | '),
+                };
+            }
+
+            function ensureStyles() {
+                if (document.getElementById('calibration-runtime-styles')) { return; }
+                const style = document.createElement('style');
+                style.id = 'calibration-runtime-styles';
+                style.textContent = [
+                    '.calibration-badge{display:inline-block;border:1px solid var(--line);border-radius:2px;padding:0 3px;margin-left:3px;font-size:8px;font-weight:700;color:var(--accent);white-space:nowrap}',
+                    '.calibration-overlay-warning{position:absolute;inset:6px 10px;z-index:4;display:flex;align-items:center;justify-content:center;text-align:center;padding:12px;background:var(--track-bg);color:var(--muted);font-size:11px;border:1px dashed var(--line);border-radius:4px}',
+                ].join('');
+                document.head.appendChild(style);
+            }
+
+            function updateMetricSpans(container, channel, labelOffset) {
+                if (!container) { return; }
+                const spans = Array.from(container.children).filter(function(child) {
+                    return child.tagName === 'SPAN';
+                });
+                const rmsText = levelText(channel, 'rms', 'rmsLevelDb', 'RMS');
+                const peakText = levelText(channel, 'peakAbsolute', 'peakLevelDb', 'Peak');
+                if (rmsText && spans[labelOffset]) { spans[labelOffset].textContent = rmsText; }
+                if (peakText && spans[labelOffset + 1]) { spans[labelOffset + 1].textContent = peakText; }
+            }
+
+            function decorateTrack(result, trackIndex) {
+                const row = document.getElementById('track-row-' + trackIndex);
+                if (!row || !result) { return; }
+                const channels = channelsForResult(result);
+                const buttons = row.querySelector('.track-btns');
+                if (buttons && !buttons.querySelector('[data-action="configure-calibration"]')) {
+                    const button = document.createElement('button');
+                    button.className = 'track-btn';
+                    button.setAttribute('data-action', 'configure-calibration');
+                    button.setAttribute('data-track-index', String(trackIndex));
+                    button.title = 'Configure per-channel calibration';
+                    button.setAttribute('aria-label', 'Configure calibration');
+                    button.textContent = 'Cal';
+                    button.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        vscode.postMessage({
+                            type: 'configure-calibration',
+                            trackIndex: trackIndex,
+                            filePath: result.filePath,
+                            channels: channels.map(function(channel, channelIndex) {
+                                return { channelIndex: channelIndex, label: channel.label || 'Channel ' + (channelIndex + 1) };
+                            }),
+                        });
+                    });
+                    buttons.appendChild(button);
+                }
+
+                const titleRow = row.querySelector('.track-title-row');
+                if (titleRow) {
+                    titleRow.querySelectorAll('.calibration-badge,.clip-badge').forEach(function(badge) { badge.remove(); });
+                    const summary = calibrationSummary(channels);
+                    const calibrationBadge = document.createElement('span');
+                    calibrationBadge.className = 'calibration-badge';
+                    calibrationBadge.textContent = summary.text;
+                    calibrationBadge.title = summary.title;
+                    titleRow.appendChild(calibrationBadge);
+                    if (channels.some(function(channel) {
+                        return channel && (channel.clipped === true
+                            || (channel.clipped === undefined && channel.peakAbsolute >= 0.99));
+                    })) {
+                        const clipBadge = document.createElement('span');
+                        clipBadge.className = 'clip-badge';
+                        clipBadge.textContent = 'CLIP';
+                        clipBadge.title = 'Raw source peak reached the full-scale clipping threshold';
+                        titleRow.appendChild(clipBadge);
+                    }
+                }
+
+                if (channels.length === 1) {
+                    updateMetricSpans(row.querySelector('.track-meta'), channels[0], 0);
+                } else {
+                    channels.forEach(function(channel, channelIndex) {
+                        const lane = row.querySelector('.track-channel-lane[data-channel-index="' + channelIndex + '"]');
+                        updateMetricSpans(lane && lane.querySelector('.track-channel-lane-header'), channel, 1);
+                    });
+                }
+            }
+
+            function visibleLevelReferences() {
+                const references = [];
+                document.querySelectorAll('.track-row').forEach(function(row) {
+                    if (row.style.display === 'none') { return; }
+                    const trackIndex = Number(row.getAttribute('data-track-index'));
+                    const result = state.results && state.results[trackIndex];
+                    channelsForResult(result).forEach(function(channel) {
+                        const measurement = measurementFor(channel);
+                        if (!measurement) { return; }
+                        references.push([
+                            measurement.levelUnit,
+                            measurement.referenceValue,
+                            measurement.referenceUnit,
+                            measurement.levelReferenceLabel,
+                        ].join('|'));
+                    });
+                });
+                return Array.from(new Set(references));
+            }
+
+            function updateOverlayCompatibility() {
+                const wrap = document.getElementById('spectrum-overlay-wrap');
+                const canvas = document.getElementById('spectrum-overlay-canvas');
+                if (!wrap || !canvas) { return; }
+                let warning = wrap.querySelector('.calibration-overlay-warning');
+                const incompatible = visibleLevelReferences().length > 1;
+                canvas.style.visibility = incompatible ? 'hidden' : '';
+                if (!incompatible) {
+                    if (warning) { warning.remove(); }
+                    return;
+                }
+                if (!warning) {
+                    warning = document.createElement('div');
+                    warning.className = 'calibration-overlay-warning';
+                    warning.textContent = 'Spectrum overlay is unavailable because visible channels use incompatible level references. Per-channel spectra remain available.';
+                    wrap.appendChild(warning);
+                }
+            }
+
+            function decorate() {
+                decorationPending = false;
+                ensureStyles();
+                (state.results || []).forEach(decorateTrack);
+                updateOverlayCompatibility();
+            }
+
+            function scheduleDecoration() {
+                if (decorationPending) { return; }
+                decorationPending = true;
+                requestAnimationFrame(decorate);
+            }
+
+            function markdownCell(value) {
+                return String(value == null ? '' : value)
+                    .replace(/[\\r\\n]+/g, ' ')
+                    .replace(/\\|/g, '\\\\|')
+                    .trim();
+            }
+
+            function buildMarkdownReport() {
+                const lines = [
+                    '# Audio Analysis Report',
+                    '',
+                    '**Generated:** ' + new Date().toISOString(),
+                    '',
+                    '## Calibration',
+                    '',
+                    '| File | Channel | State | Factor | Linear Unit | Level Reference | Source |',
+                    '|------|---------|-------|--------|-------------|-----------------|--------|',
+                ];
+                (state.results || []).forEach(function(result) {
+                    channelsForResult(result).forEach(function(channel, channelIndex) {
+                        const measurement = measurementFor(channel);
+                        if (!measurement) { return; }
+                        lines.push('| ' + markdownCell(result.fileName)
+                            + ' | ' + markdownCell(channelLabel(result, channelIndex))
+                            + ' | ' + markdownCell(measurement.calibrationStatus)
+                            + ' | ' + measurement.factor
+                            + ' | ' + markdownCell(measurement.linearUnit)
+                            + ' | ' + markdownCell(measurement.levelReferenceLabel)
+                            + ' | ' + markdownCell(measurement.calibrationSource) + ' |');
+                    });
+                });
+                lines.push('', '## Measurements', '');
+                lines.push('| File | Channel | RMS | RMS Level | Peak | Peak Level | Raw Peak | Clipped |');
+                lines.push('|------|---------|-----|-----------|------|------------|----------|---------|');
+                (state.results || []).forEach(function(result) {
+                    channelsForResult(result).forEach(function(channel, channelIndex) {
+                        const measurement = measurementFor(channel);
+                        if (!measurement) { return; }
+                        lines.push('| ' + markdownCell(result.fileName)
+                            + ' | ' + markdownCell(channelLabel(result, channelIndex))
+                            + ' | ' + formatNumber(channel.rms) + ' ' + markdownCell(measurement.linearUnit)
+                            + ' | ' + Number(channel.rmsLevelDb).toFixed(1) + ' ' + markdownCell(measurement.levelUnit)
+                            + ' | ' + formatNumber(channel.peakAbsolute) + ' ' + markdownCell(measurement.linearUnit)
+                            + ' | ' + Number(channel.peakLevelDb).toFixed(1) + ' ' + markdownCell(measurement.levelUnit)
+                            + ' | ' + formatNumber(channel.rawPeakFullScale) + ' FS'
+                            + ' | ' + (channel.clipped ? 'Yes' : 'No') + ' |');
+                    });
+                });
+                const loopDisplay = document.getElementById('loop-time-display');
+                if (loopDisplay && loopDisplay.style.display !== 'none' && loopDisplay.textContent) {
+                    lines.push('', '## Loop Region', '', '- Global comparison timeline: ' + loopDisplay.textContent);
+                }
+                lines.push('');
+                (state.results || []).forEach(function(result) {
+                    channelsForResult(result).forEach(function(channel, channelIndex) {
+                        const peaks = channel && channel.peaks;
+                        if (!Array.isArray(peaks) || peaks.length === 0) { return; }
+                        const measurement = measurementFor(channel);
+                        lines.push('## Spectral Peaks — ' + markdownCell(result.fileName) + ' / '
+                            + markdownCell(channelLabel(result, channelIndex)), '');
+                        lines.push('| Frequency (Hz) | Magnitude | Level |');
+                        lines.push('|---------------:|----------:|------:|');
+                        peaks.forEach(function(peak) {
+                            const level = peak.levelDb !== undefined ? peak.levelDb : peak.amplitudeDb;
+                            lines.push('| ' + Number(peak.freqHz).toFixed(1)
+                                + ' | ' + (peak.magnitude !== undefined ? formatNumber(peak.magnitude) + ' ' + measurement.linearUnit : '—')
+                                + ' | ' + Number(level).toFixed(1) + ' ' + measurement.levelUnit + ' |');
+                        });
+                        lines.push('');
+                    });
+                });
+                return lines.join('\\n');
+            }
+
+            function pythonString(value) {
+                return JSON.stringify(String(value));
+            }
+
+            function buildNotebook() {
+                const cells = [
+                    {
+                        cell_type: 'markdown',
+                        id: 'title',
+                        metadata: {},
+                        source: ['# Audio Analysis Report\\n', '\\nGenerated by Audio Wandas Analyzer\\n'],
+                    },
+                    {
+                        cell_type: 'code',
+                        id: 'imports',
+                        metadata: {},
+                        outputs: [],
+                        execution_count: null,
+                        source: ['import wandas as wd\\n'],
+                    },
+                ];
+                (state.results || []).forEach(function(result, resultIndex) {
+                    const channels = channelsForResult(result);
+                    const variable = 'signal_' + (resultIndex + 1);
+                    const source = [variable + ' = wd.read(' + pythonString(result.filePath) + ')\\n'];
+                    if (channels.some(function(channel) {
+                        const measurement = measurementFor(channel);
+                        return measurement && measurement.calibrationStatus === 'calibrated';
+                    })) {
+                        source.push(variable + ' = ' + variable + '.with_calibration([\\n');
+                        channels.forEach(function(channel) {
+                            const measurement = measurementFor(channel);
+                            const factor = measurement && measurement.calibrationStatus === 'calibrated' ? measurement.factor : 1;
+                            const unit = measurement && measurement.calibrationStatus === 'calibrated' ? measurement.linearUnit : '';
+                            const reference = measurement && measurement.calibrationStatus === 'calibrated' ? measurement.referenceValue : 1;
+                            source.push('    wd.ChannelCalibration(factor=' + factor + ', unit=' + pythonString(unit)
+                                + ', ref=' + reference + '),\\n');
+                        });
+                        source.push('])\\n');
+                    }
+                    source.push(variable + '.describe()\\n');
+                    cells.push({
+                        cell_type: 'code',
+                        id: 'analysis-' + (resultIndex + 1),
+                        metadata: {},
+                        outputs: [],
+                        execution_count: null,
+                        source: source,
+                    });
+                });
+                return JSON.stringify({
+                    nbformat: 4,
+                    nbformat_minor: 5,
+                    metadata: {
+                        kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' },
+                        language_info: { name: 'python', version: '3.11' },
+                    },
+                    cells: cells,
+                }, null, 2);
+            }
+
+            function hasMeasurementData() {
+                return (state.results || []).some(function(result) {
+                    return channelsForResult(result).some(function(channel) {
+                        return !!measurementFor(channel) && Number.isFinite(Number(channel.rmsLevelDb));
+                    });
+                });
+            }
+
+            document.addEventListener('click', function(event) {
+                const target = event.target && event.target.closest
+                    ? event.target.closest('[data-action="export-report"]')
+                    : null;
+                if (!target || !hasMeasurementData()) { return; }
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+                const first = state.results && state.results[0];
+                const defaultName = ((first && first.fileName) || 'analysis').replace(/\\.[^.]+$/, '');
+                vscode.postMessage({
+                    type: 'export-report-options',
+                    defaultName: defaultName,
+                    markdownContent: buildMarkdownReport(),
+                    notebookContent: buildNotebook(),
+                });
+            }, true);
+
+            window.addEventListener('message', function(event) {
+                const message = event.data;
+                if (!message) { return; }
+                if (message.type === 'calibration-configured') {
+                    calibrationRefreshPending = true;
+                    vscode.postMessage({
+                        type: 'request-reanalyze',
+                        settings: state.spectrogramSettings,
+                    });
+                    return;
+                }
+                if (message.type === 'analysis-update') {
+                    if (calibrationRefreshPending) {
+                        calibrationRefreshPending = false;
+                        vscode.postMessage({
+                            type: 'calibration-reload',
+                            results: message.results,
+                        });
+                        return;
+                    }
+                    scheduleDecoration();
+                }
+            });
+
+            const observer = new MutationObserver(scheduleDecoration);
+            const app = document.getElementById('app');
+            if (app) { observer.observe(app, { childList: true, subtree: true }); }
+            scheduleDecoration();
+        })();
+    `;
+}

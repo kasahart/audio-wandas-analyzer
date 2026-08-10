@@ -37,7 +37,11 @@ function collectPackageCommands(repoRoot) {
 }
 
 function collectWebviewActionIds(repoRoot) {
-    const source = fs.readFileSync(path.join(repoRoot, 'src', 'webview', 'comparisonRenderScript.ts'), 'utf8');
+    const sourcePaths = [
+        path.join(repoRoot, 'src', 'webview', 'comparisonRenderScript.ts'),
+        path.join(repoRoot, 'src', 'webview', 'calibrationRenderScript.ts'),
+    ];
+    const source = sourcePaths.map((sourcePath) => fs.readFileSync(sourcePath, 'utf8')).join('\n');
     return sortUnique(Array.from(source.matchAll(/data-action="([^"]+)"/gu), (match) => match[1]));
 }
 

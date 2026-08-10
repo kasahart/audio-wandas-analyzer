@@ -33,6 +33,7 @@ export const GUI_TRIGGERABILITY_SCOPED_COMMAND_IDS = [
     'audioWandasAnalyzer.analyzeThisTarget',
     'audioWandasAnalyzer.selectPythonEnvironment',
     'audioWandasAnalyzer.runRecipe',
+    'audioWandasAnalyzer.configureCalibration',
 ] as const;
 
 export const GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS = [
@@ -70,6 +71,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'export-csv',
     'export-wav',
     'export-report',
+    'configure-calibration',
     'pick-color',
     'toggle-playback',
     'stop-playback',
@@ -164,6 +166,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         entryPoints: ['results-toolbar', 'command', 'dialog'],
         triggers: ['audioWandasAnalyzer.runRecipe', 'run-recipe'],
         regressionLayers: ['ui-smoke'],
+    },
+    {
+        id: 'calibration',
+        label: 'Configure and apply per-channel calibration',
+        entryPoints: ['track-control', 'command', 'quick-pick', 'dialog'],
+        triggers: ['audioWandasAnalyzer.configureCalibration', 'configure-calibration'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'copy-spec',
