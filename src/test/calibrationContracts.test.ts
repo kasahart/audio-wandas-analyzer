@@ -36,7 +36,7 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     assert.match(script, /data-action="configure-calibration"/);
     assert.match(script, /rmsLevelDb/);
     assert.match(script, /rawPeakFullScale/);
-    assert.match(script, /dB SPL re 20 µPa/);
+    assert.match(script, /levelReferenceLabel/);
     assert.match(script, /with_calibration/);
     assert.match(script, /Spectrum overlay is unavailable/);
     assert.match(script, /calibration-reload/);
