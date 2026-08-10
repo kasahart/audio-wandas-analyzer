@@ -981,7 +981,7 @@ async function runAnalysis(extensionPath: string, fileUri: vscode.Uri, stftOptio
             stftOptions: stftOptions
                 ? { nFft: stftOptions.nFft, hopSize: stftOptions.hopSize, window: stftOptions.window }
                 : undefined,
-        }) as AnalysisResult;
+        });
         logPerf(`[ts] analyze done  file=${fileLabel} total_ms=${Date.now() - tReq}`);
         return result;
     } catch (err) {

@@ -1,0 +1,44 @@
+{
+  "validRequests": [
+    {
+      "command": "analyze",
+      "request": { "cmd": "analyze", "requestId": "r1", "filePath": "tone.wav", "peakCount": 5 }
+    },
+    {
+      "command": "range",
+      "request": { "cmd": "range", "requestId": "r1", "filePath": "tone.wav", "startNorm": 0, "endNorm": 1, "points": 2000 }
+    },
+    {
+      "command": "track-detail",
+      "request": { "cmd": "track-detail", "requestId": "r1", "filePath": "tone.wav", "trackIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "stftOptions": { "nFft": 1024, "hopSize": 256, "window": "hann" } }
+    },
+    {
+      "command": "release-track-detail",
+      "request": { "cmd": "release-track-detail", "requestId": "r1", "filePath": "tone.wav" }
+    },
+    {
+      "command": "spectrum-slice",
+      "request": { "cmd": "spectrum-slice", "requestId": "r1", "filePath": "tone.wav", "trackIndex": 0, "channelIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "cursorNorm": 0.5 }
+    },
+    {
+      "command": "export-wav-loop",
+      "request": { "cmd": "export-wav-loop", "requestId": "r1", "filePath": "tone.wav", "startNorm": 0.25, "endNorm": 0.75 }
+    }
+  ],
+  "invalidRequests": [
+    { "request": [], "errorField": "JSON object" },
+    { "request": { "cmd": "analyze", "filePath": "tone.wav", "peakCount": 5 }, "errorField": "requestId" },
+    { "request": { "cmd": 1, "requestId": "r1" }, "errorField": "cmd" },
+    { "request": { "cmd": "analyze", "requestId": "r1", "filePath": "tone.wav" }, "errorField": "peakCount" },
+    { "request": { "cmd": "track-detail", "requestId": "r1", "filePath": "tone.wav", "trackIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "stftOptions": { "nFft": 1024, "hopSize": "256", "window": "hann" } }, "errorField": "stftOptions.hopSize" },
+    { "request": { "cmd": "unknown", "requestId": "r1" }, "errorField": "unknown cmd" }
+  ],
+  "validResponses": [
+    { "command": "analyze", "response": { "requestId": "analyze", "filePath": "tone.wav", "fileName": "tone.wav", "sampleRateHz": 16000, "durationSeconds": 0, "channelCount": 0, "sampleCount": 0, "channels": [] } },
+    { "command": "range", "response": { "requestId": "range", "startNorm": 0, "endNorm": 1, "channels": [] } },
+    { "command": "track-detail", "response": { "requestId": "track-detail", "trackIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "filePath": "tone.wav", "channels": [] } },
+    { "command": "release-track-detail", "response": { "requestId": "release-track-detail" } },
+    { "command": "spectrum-slice", "response": { "requestId": "spectrum-slice", "trackIndex": 0, "channelIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "filePath": "tone.wav", "values": [], "frequencyBins": 0, "maxFrequencyHz": 8000, "minDb": 0, "maxDb": 0 } },
+    { "command": "export-wav-loop", "response": { "requestId": "export-wav-loop", "wavBase64": "UklGRg==", "sampleRate": 16000 } }
+  ]
+}

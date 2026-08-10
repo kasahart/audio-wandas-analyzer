@@ -1,39 +1,143 @@
+import {
+    BackendProtocolError,
+    isJsonObject,
+    parseBackendNotification,
+    type BackendCommand,
+    type BackendNotification,
+} from './backendProtocol';
+
 export interface PendingRequest {
-    resolve: (result: unknown) => void;
-    reject: (err: Error) => void;
+    command: BackendCommand;
+    complete: (response: { [key: string]: unknown }) => void;
+    reject: (error: Error) => void;
+}
+
+export type BackendDiagnosticKind =
+    | 'malformed-json'
+    | 'unknown-notification'
+    | 'orphan-response'
+    | 'protocol-validation-error';
+
+export interface BackendDiagnostic {
+    kind: BackendDiagnosticKind;
+    message: string;
+    requestId?: string;
+    rawLine?: string;
+}
+
+export interface BackendStdoutHandlers {
+    onNotification?: (notification: BackendNotification) => void;
+    onDiagnostic?: (diagnostic: BackendDiagnostic) => void;
+}
+
+export function rejectPendingRequests(pending: Map<string, PendingRequest>, error: Error): void {
+    for (const request of pending.values()) {
+        request.reject(error);
+    }
+    pending.clear();
+}
+
+function protocolError(message: string): BackendProtocolError {
+    return new BackendProtocolError(message);
 }
 
 export function processStdoutChunk(
-    buf: { value: string },
+    buffer: { value: string },
     chunk: string,
     pending: Map<string, PendingRequest>,
-    onUnhandled?: (msg: Record<string, unknown>) => void,
+    handlers: BackendStdoutHandlers = {},
 ): void {
-    buf.value += chunk;
-    const lines = buf.value.split('\n');
-    buf.value = lines.pop() ?? '';
+    buffer.value += chunk;
+    const lines = buffer.value.split('\n');
+    buffer.value = lines.pop() ?? '';
     for (const line of lines) {
         if (!line.trim()) { continue; }
-        let msg: Record<string, unknown>;
+
+        let parsed: unknown;
         try {
-            msg = JSON.parse(line) as Record<string, unknown>;
+            parsed = JSON.parse(line);
         } catch {
+            handlers.onDiagnostic?.({
+                kind: 'malformed-json',
+                message: 'Backend emitted malformed JSON',
+                rawLine: line,
+            });
             continue;
         }
-        if (msg['type'] === 'ready') { continue; }
-        const id = msg['requestId'];
-        if (typeof id !== 'string') {
-            // heartbeat またはその他の通知
-            onUnhandled?.(msg);
+
+        const notification = parseBackendNotification(parsed);
+        if (notification) {
+            handlers.onNotification?.(notification);
             continue;
         }
-        const p = pending.get(id);
-        if (!p) { continue; }
-        pending.delete(id);
-        if (typeof msg['error'] === 'string') {
-            p.reject(new Error(msg['error']));
-        } else {
-            p.resolve(msg);
+        if (!isJsonObject(parsed)) {
+            handlers.onDiagnostic?.({
+                kind: 'unknown-notification',
+                message: 'Backend emitted a non-object message',
+                rawLine: line,
+            });
+            continue;
+        }
+        if (parsed['type'] !== undefined) {
+            handlers.onDiagnostic?.({
+                kind: 'unknown-notification',
+                message: `Backend emitted unknown notification: ${String(parsed['type'])}`,
+                rawLine: line,
+            });
+            continue;
+        }
+
+        const requestId = parsed['requestId'];
+        if (typeof requestId !== 'string') {
+            handlers.onDiagnostic?.({
+                kind: 'unknown-notification',
+                message: 'Backend message has neither a notification type nor requestId',
+                rawLine: line,
+            });
+            continue;
+        }
+
+        const request = pending.get(requestId);
+        if (!request) {
+            handlers.onDiagnostic?.({
+                kind: 'orphan-response',
+                message: `Backend response has no pending request: ${requestId}`,
+                requestId,
+                rawLine: line,
+            });
+            continue;
+        }
+        pending.delete(requestId);
+
+        if (parsed['error'] !== undefined) {
+            if (typeof parsed['error'] === 'string') {
+                request.reject(new Error(parsed['error']));
+            } else {
+                const error = protocolError(`Invalid error response for ${request.command}`);
+                request.reject(error);
+                handlers.onDiagnostic?.({
+                    kind: 'protocol-validation-error',
+                    message: error.message,
+                    requestId,
+                    rawLine: line,
+                });
+            }
+            continue;
+        }
+
+        try {
+            request.complete(parsed);
+        } catch (cause) {
+            const error = cause instanceof BackendProtocolError
+                ? cause
+                : protocolError(`Invalid ${request.command} response: ${String(cause)}`);
+            request.reject(error);
+            handlers.onDiagnostic?.({
+                kind: 'protocol-validation-error',
+                message: error.message,
+                requestId,
+                rawLine: line,
+            });
         }
     }
 }

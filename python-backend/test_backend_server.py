@@ -19,9 +19,12 @@ import wandas as wd
 
 from analysis_engine import AnalysisEngine, CachedAnalysis
 from analysis_service import AnalysisService
-from backend_server import dispatch
+from backend_server import dispatch, validate_request
 
 ROOT = Path(__file__).parent
+PROTOCOL_FIXTURES = json.loads(
+    (ROOT.parent / "src" / "test" / "fixtures" / "backendProtocol.json").read_text(encoding="utf-8")
+)
 
 
 def _dispatch(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
@@ -464,6 +467,52 @@ def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
 def test_unknown_cmd_returns_error(server: _ServerHandle) -> None:
     resp = server.request({"cmd": "nope"})
     assert "error" in resp and "nope" in resp["error"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [pytest.param(case["request"], id=case["command"]) for case in PROTOCOL_FIXTURES["validRequests"]],
+)
+def test_validate_request_accepts_every_command_payload(payload: dict) -> None:
+    assert validate_request(payload) is payload
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [(case["request"], case["errorField"]) for case in PROTOCOL_FIXTURES["invalidRequests"]],
+)
+def test_validate_request_rejects_invalid_payloads(payload: object, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        validate_request(payload)
+
+
+def test_validate_request_rejects_non_finite_numbers() -> None:
+    payload = {
+        "cmd": "range",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "startNorm": float("nan"),
+        "endNorm": 1.0,
+        "points": 100,
+    }
+
+    with pytest.raises(ValueError, match="startNorm"):
+        validate_request(payload)
+
+
+def test_invalid_payload_returns_deterministic_error_response(server: _ServerHandle) -> None:
+    response = server.request(
+        {
+            "cmd": "range",
+            "filePath": "tone.wav",
+            "startNorm": 0.0,
+            "endNorm": 1.0,
+            "points": "many",
+        }
+    )
+
+    assert response["requestId"] == "r1"
+    assert "points" in response["error"]
 
 
 def test_dispatch_uses_injected_service_without_creating_an_engine() -> None:
