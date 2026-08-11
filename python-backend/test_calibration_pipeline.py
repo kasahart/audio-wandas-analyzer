@@ -10,6 +10,7 @@ import wandas as wd
 
 import backend_server
 from analysis_engine import AnalysisEngine
+from analysis_service import AnalysisService
 from analyzer import analyze_from_frame
 from calibration_profile import resolve_calibration_profile
 
@@ -137,11 +138,14 @@ def test_backend_range_is_calibrated_but_wav_export_stays_raw(tmp_path) -> None:
     file_path = tmp_path / "source.wav"
     samples = np.array([0.5, -0.5, 0.25, -0.25], dtype=np.float64)
     sf.write(file_path, samples, 8_000, subtype="DOUBLE")
-    cached = backend_server._engine.get_file(file_path)
+    engine = AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024)
+    service = AnalysisService(engine)
+    cached = engine.get_file(file_path)
     labels = list(cached.frame.labels)
     profile = _profile(labels, [2.0], ["Pa"], [2e-5])
 
     range_result = backend_server.handle_range(
+        service,
         {
             "filePath": str(file_path),
             "startNorm": 0.0,
@@ -149,12 +153,15 @@ def test_backend_range_is_calibrated_but_wav_export_stays_raw(tmp_path) -> None:
             "points": 16,
             "calibrationProfile": profile,
             "analysisRevision": 4,
-        }
+        },
     )
     assert range_result["analysisRevision"] == 4
     assert math.isclose(range_result["channels"][0]["absolutePeak"], 1.0)
 
-    wav_result = backend_server.handle_export_wav_loop({"filePath": str(file_path), "startNorm": 0.0, "endNorm": 1.0})
+    wav_result = backend_server.handle_export_wav_loop(
+        service,
+        {"filePath": str(file_path), "startNorm": 0.0, "endNorm": 1.0},
+    )
     exported, sample_rate = sf.read(io.BytesIO(base64.b64decode(wav_result["wavBase64"])), dtype="float64")
     assert sample_rate == 8_000
     np.testing.assert_allclose(exported, samples, atol=1.0 / 32768.0)

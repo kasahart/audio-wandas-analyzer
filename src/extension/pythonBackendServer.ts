@@ -1,25 +1,30 @@
 import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { CalibrationProfile } from '../shared/analysis/analysisTypes';
-import { processStdoutChunk, type PendingRequest } from './backendIpc';
+import {
+    processStdoutChunk,
+    rejectPendingRequests,
+    type BackendDiagnostic,
+    type PendingRequest,
+} from './backendIpc';
+import {
+    parseBackendNotification,
+    parseBackendResult,
+    type AnalyzePayload,
+    type BackendCommand,
+    type BackendPayload,
+    type BackendResult,
+    type CalibrationRequestContext,
+    type ExportWavLoopResult,
+    type RangeResult,
+    type SpectrumSlicePayload,
+    type SpectrumSliceResult,
+    type TrackDetailPayload,
+    type TrackDetailResult,
+} from './backendProtocol';
 import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 
-export interface AnalyzeStftOptions {
-    nFft: number;
-    hopSize: number;
-    window: string;
-}
-
-export interface CalibrationRequestContext {
-    calibrationProfile?: CalibrationProfile;
-    analysisRevision?: number;
-}
-
-export interface AnalyzeOptions extends CalibrationRequestContext {
-    peakCount: number;
-    stftOptions?: AnalyzeStftOptions;
-}
+export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
 
 export class PythonBackendServer {
     private proc: ChildProcess | null = null;
@@ -42,7 +47,7 @@ export class PythonBackendServer {
         void this.ensureRunning().catch(() => { /* surfaced on first request */ });
     }
 
-    async analyze(filePath: string, options: AnalyzeOptions): Promise<unknown> {
+    async analyze(filePath: string, options: AnalyzeOptions): Promise<BackendResult<'analyze'>> {
         return this.request('analyze', {
             filePath,
             peakCount: options.peakCount,
@@ -58,46 +63,19 @@ export class PythonBackendServer {
         points: number,
         requestId?: string,
         calibration: CalibrationRequestContext = {},
-    ): Promise<{
-        channels: unknown[];
-        calibrationSignature?: string;
-        analysisRevision?: number;
-    }> {
+    ): Promise<RangeResult> {
         return this.request(
             'range',
-            {
-                filePath,
-                startNorm,
-                endNorm,
-                points,
-                ...this.calibrationPayload(calibration),
-            },
+            { filePath, startNorm, endNorm, points, ...this.calibrationPayload(calibration) },
             requestId,
-        ) as Promise<{
-            channels: unknown[];
-            calibrationSignature?: string;
-            analysisRevision?: number;
-        }>;
+        );
     }
 
     async requestTrackDetail(
         filePath: string,
-        payload: {
-            trackIndex: number;
-            analysisId: string;
-            settingsSignature: string;
-            stftOptions?: AnalyzeStftOptions;
-        } & CalibrationRequestContext,
+        payload: Omit<TrackDetailPayload, 'filePath'>,
         requestId: string,
-    ): Promise<{
-        channels: unknown[];
-        trackIndex: number;
-        analysisId: string;
-        settingsSignature: string;
-        filePath: string;
-        calibrationSignature?: string;
-        analysisRevision?: number;
-    }> {
+    ): Promise<TrackDetailResult> {
         return this.request(
             'track-detail',
             {
@@ -109,15 +87,7 @@ export class PythonBackendServer {
                 ...this.calibrationPayload(payload),
             },
             requestId,
-        ) as Promise<{
-            channels: unknown[];
-            trackIndex: number;
-            analysisId: string;
-            settingsSignature: string;
-            filePath: string;
-            calibrationSignature?: string;
-            analysisRevision?: number;
-        }>;
+        );
     }
 
     async releaseTrackDetail(filePath: string): Promise<void> {
@@ -126,33 +96,9 @@ export class PythonBackendServer {
 
     async requestSpectrumSlice(
         filePath: string,
-        payload: {
-            trackIndex: number;
-            analysisId: string;
-            settingsSignature: string;
-            cursorNorm: number;
-            channelIndex: number;
-            stftOptions?: AnalyzeStftOptions;
-        } & CalibrationRequestContext,
+        payload: Omit<SpectrumSlicePayload, 'filePath'>,
         requestId: string,
-    ): Promise<{
-        values: number[];
-        frequencyBins: number;
-        maxFrequencyHz: number;
-        minDb: number;
-        maxDb: number;
-        unit?: string;
-        axisLabel?: string;
-        referenceValue?: number;
-        referenceUnit?: string;
-        levelReferenceLabel?: string;
-        trackIndex: number;
-        analysisId: string;
-        settingsSignature: string;
-        filePath: string;
-        calibrationSignature?: string;
-        analysisRevision?: number;
-    }> {
+    ): Promise<SpectrumSliceResult> {
         return this.request(
             'spectrum-slice',
             {
@@ -166,35 +112,18 @@ export class PythonBackendServer {
                 ...this.calibrationPayload(payload),
             },
             requestId,
-        ) as Promise<{
-            values: number[];
-            frequencyBins: number;
-            maxFrequencyHz: number;
-            minDb: number;
-            maxDb: number;
-            unit?: string;
-            axisLabel?: string;
-            referenceValue?: number;
-            referenceUnit?: string;
-            levelReferenceLabel?: string;
-            trackIndex: number;
-            analysisId: string;
-            settingsSignature: string;
-            filePath: string;
-            calibrationSignature?: string;
-            analysisRevision?: number;
-        }>;
+        );
     }
 
     async exportWavLoop(
         filePath: string,
         startNorm: number,
         endNorm: number,
-    ): Promise<{ wavBase64: string; sampleRate: number }> {
+    ): Promise<ExportWavLoopResult> {
         return this.request(
             'export-wav-loop',
             { filePath, startNorm, endNorm },
-        ) as Promise<{ wavBase64: string; sampleRate: number }>;
+        );
     }
 
     dispose(): void {
@@ -204,20 +133,33 @@ export class PythonBackendServer {
         this.rejectAll(new Error('PythonBackendServer disposed'));
     }
 
-    private calibrationPayload(context: CalibrationRequestContext): Record<string, unknown> {
+    private calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {
         return {
             ...(context.calibrationProfile ? { calibrationProfile: context.calibrationProfile } : {}),
             analysisRevision: context.analysisRevision ?? 0,
         };
     }
 
-    private async request(cmd: string, payload: Record<string, unknown>, requestId?: string): Promise<unknown> {
+    private async request<K extends BackendCommand>(
+        command: K,
+        payload: BackendPayload<K>,
+        requestId?: string,
+    ): Promise<BackendResult<K>> {
         await this.ensureRunning();
         const id = requestId ?? `r${this.nextId++}`;
-        return new Promise<unknown>((resolve, reject) => {
-            this.pending.set(id, { resolve, reject });
-            const line = JSON.stringify({ cmd, requestId: id, ...payload });
-            this.proc!.stdin!.write(line + '\n');
+        return new Promise<BackendResult<K>>((resolve, reject) => {
+            this.pending.set(id, {
+                command,
+                complete: (response) => { resolve(parseBackendResult(command, response)); },
+                reject,
+            });
+            try {
+                const line = JSON.stringify({ cmd: command, requestId: id, ...payload });
+                this.proc!.stdin!.write(line + '\n');
+            } catch (error) {
+                this.pending.delete(id);
+                reject(error instanceof Error ? error : new Error(String(error)));
+            }
         });
     }
 
@@ -244,6 +186,7 @@ export class PythonBackendServer {
                 env: {
                     ...globalThis.process.env,
                     AWA_CACHE_MB: String(cacheMb),
+                    // AWA_PERF_LOG: inherit from env (default '0' = opt-in)
                 },
             });
 
@@ -258,20 +201,40 @@ export class PythonBackendServer {
                 this.stdoutBuf.value = lines.pop() ?? '';
                 for (const line of lines) {
                     if (!line.trim()) { continue; }
+                    let parsed: unknown;
                     try {
-                        const msg = JSON.parse(line) as Record<string, unknown>;
-                        if (msg['type'] === 'ready') {
-                            clearTimeout(timeout);
-                            this.startPromise = null;
-                            this.proc!.stdout!.off('data', handleReadyOrLine);
-                            this.proc!.stdout!.on('data', (c: Buffer | string) => {
-                                processStdoutChunk(this.stdoutBuf, c.toString(), this.pending, (heartbeat) => this.onHeartbeat(heartbeat));
-                            });
-                            this.startWatchdog();
-                            resolve();
-                            return;
-                        }
-                    } catch { /* ignore */ }
+                        parsed = JSON.parse(line);
+                    } catch {
+                        this.reportDiagnostic({
+                            kind: 'malformed-json',
+                            message: 'Backend emitted malformed JSON during startup',
+                            rawLine: line,
+                        });
+                        continue;
+                    }
+                    const notification = parseBackendNotification(parsed);
+                    if (notification?.type !== 'ready') {
+                        this.reportDiagnostic({
+                            kind: 'unknown-notification',
+                            message: 'Backend emitted an unexpected startup message',
+                            rawLine: line,
+                        });
+                        continue;
+                    }
+                    clearTimeout(timeout);
+                    this.startPromise = null;
+                    this.proc!.stdout!.off('data', handleReadyOrLine);
+                    this.proc!.stdout!.on('data', (data: Buffer | string) => {
+                        processStdoutChunk(this.stdoutBuf, data.toString(), this.pending, {
+                            onNotification: (message) => {
+                                if (message.type === 'heartbeat') { this.onHeartbeat(); }
+                            },
+                            onDiagnostic: (diagnostic) => { this.reportDiagnostic(diagnostic); },
+                        });
+                    });
+                    this.startWatchdog();
+                    resolve();
+                    return;
                 }
             };
             this.proc.stdout!.on('data', handleReadyOrLine);
@@ -327,14 +290,16 @@ export class PythonBackendServer {
         }
     }
 
-    private onHeartbeat(_msg: Record<string, unknown>): void {
+    private onHeartbeat(): void {
         this.lastHeartbeatAt = Date.now();
     }
 
+    private reportDiagnostic(diagnostic: BackendDiagnostic): void {
+        const request = diagnostic.requestId ? ` requestId=${diagnostic.requestId}` : '';
+        this.onPerfLine(`[protocol:${diagnostic.kind}]${request} ${diagnostic.message}`);
+    }
+
     private rejectAll(err: Error): void {
-        for (const pending of this.pending.values()) {
-            pending.reject(err);
-        }
-        this.pending.clear();
+        rejectPendingRequests(this.pending, err);
     }
 }

@@ -38,7 +38,7 @@ function collectPackageCommands(repoRoot) {
 
 function collectWebviewActionIds(repoRoot) {
     const sourcePaths = [
-        path.join(repoRoot, 'src', 'webview', 'comparisonRenderScript.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'comparisonRuntime.ts'),
         path.join(repoRoot, 'src', 'webview', 'calibrationRenderScript.ts'),
     ];
     const source = sourcePaths.map((sourcePath) => fs.readFileSync(sourcePath, 'utf8')).join('\n');
@@ -46,8 +46,8 @@ function collectWebviewActionIds(repoRoot) {
 }
 
 function collectShortcutLabels(repoRoot) {
-    const renderScriptModule = requireBuiltModule(repoRoot, path.join('dist', 'webview', 'comparisonRenderScript.js'));
-    const shortcutRows = Array.isArray(renderScriptModule.SHORTCUT_ROWS) ? renderScriptModule.SHORTCUT_ROWS : [];
+    const shortcutsModule = requireBuiltModule(repoRoot, path.join('dist', 'webview', 'runtime', 'shortcuts.js'));
+    const shortcutRows = Array.isArray(shortcutsModule.SHORTCUT_ROWS) ? shortcutsModule.SHORTCUT_ROWS : [];
     return sortUnique(shortcutRows
         .map((row) => row?.shortcut)
         .filter((shortcut) => typeof shortcut === 'string'));

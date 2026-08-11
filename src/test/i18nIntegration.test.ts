@@ -103,8 +103,8 @@ test('i18n: __APP_STRINGS__ に btnWaveform="Waveform" (en) が含まれる', ()
 });
 
 test('i18n: __APP_LOCALE__ も注入される', () => {
-    assert.match(renderHtmlWith('ja-JP'), /const __APP_LOCALE__\s*=\s*"ja";/);
-    assert.match(renderHtmlWith('fr'), /const __APP_LOCALE__\s*=\s*"en";/);
+    assert.match(renderHtmlWith('ja-JP'), /window\.__APP_LOCALE__\s*=\s*"ja";/);
+    assert.match(renderHtmlWith('fr'), /window\.__APP_LOCALE__\s*=\s*"en";/);
 });
 
 test('i18n: toolbarMain ラベルが "Files" (en) / "ファイル" (ja) であること', () => {

@@ -1,0 +1,15 @@
+export const SHORTCUT_ROWS = [
+    { shortcut: 'Space', labelKey: 'helpRowSpace' },
+    { shortcut: '← / →', labelKey: 'helpRowArrow' },
+    { shortcut: '+ / − / 0', labelKey: 'helpRowZoomKeys' },
+    { shortcut: 'F', labelKey: 'helpRowFollowCursor' },
+    { shortcut: 'L', labelKey: 'helpRowZoomToSelection' },
+    { shortcut: 'Wheel', labelKey: 'helpRowWheel' },
+    { shortcut: 'Ctrl+Wheel', labelKey: 'helpRowCtrlWheel' },
+    { shortcut: 'Drag (spectrum)', labelKey: 'helpRowSpectrumDrag' },
+    { shortcut: 'Drag (zoom mode)', labelKey: 'helpRowWaveRectZoom' },
+    { shortcut: 'Drag', labelKey: 'helpRowDrag' },
+    { shortcut: 'Shift+Drag', labelKey: 'helpRowShiftDrag' },
+    { shortcut: '?', labelKey: 'helpRowQuestion' },
+    { shortcut: 'Esc', labelKey: 'helpRowEsc' },
+] as const;

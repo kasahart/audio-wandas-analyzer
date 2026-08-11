@@ -49,13 +49,13 @@ function finalizeUiSmokeHtml(html: string): string {
 }
 
 function injectCalibrationRuntime(html: string): string {
-    const marker = '    </script>\n    <div id="canvas-tooltip">';
-    if (!html.includes(marker)) {
-        throw new Error('Could not find the comparison Webview script boundary');
+    const nonceMatch = html.match(/<script nonce="([^"]+)">/u);
+    if (!nonceMatch) {
+        throw new Error('Could not extract the comparison Webview nonce');
     }
     return html.replace(
-        marker,
-        `${getCalibrationRenderScript()}\n    </script>\n    <div id="canvas-tooltip">`,
+        '</body>',
+        `    <script nonce="${nonceMatch[1]}">${getCalibrationRenderScript()}</script>\n</body>`,
     );
 }
 
@@ -72,7 +72,7 @@ interface PreviewState {
 }
 
 function replaceAppState(html: string, mutate: (state: PreviewState) => void): string {
-    const marker = 'const __APP_STATE__ = ';
+    const marker = 'window.__APP_STATE__ = ';
     const start = html.indexOf(marker);
     if (start < 0) {
         throw new Error('Could not find __APP_STATE__ in preview HTML');

@@ -57,6 +57,8 @@ export interface ChannelMeasurementContext {
 export interface WaveformEnvelope {
     min: number[];
     max: number[];
+    minT?: number[];
+    maxT?: number[];
     samples: number[];
     absolutePeak: number;
 }

@@ -60,7 +60,7 @@ npm run verify:e2e
 | --- | --- |
 | コマンド登録 / VS Code 連携 | `src/extension/index.ts` |
 | ComparisonPanel の外枠 / HTML コンテナ | `src/webview/panels/ComparisonPanel.ts` |
-| Webview の操作ロジック | `src/webview/comparisonRenderScript.ts` |
+| Webview の操作ロジック | `src/webview/runtime/` |
 | 波形描画パイプライン | `src/webview/waveform/waveformRenderer.ts` |
 | 共有データ契約 | `src/shared/analysis/analysisTypes.ts` |
 | 全体解析バックエンド | `python-backend/analyzer.py` |
@@ -101,7 +101,7 @@ VS Code タスク:
 ## 7. Webview 周りの注意点
 
 - `src/webview/waveform/waveformRenderer.ts` が比較波形描画の single source of truth です。
-- `npm run compile` で `scripts/build-webview.js` が走り、`dist/webview/comparisonWaveform.js` が再生成されます。
+- `npm run compile` で `scripts/build-webview.js` が走り、`dist/webview/comparisonWaveform.js` と `dist/webview/comparisonRuntime.js` が再生成されます。
 - ユーザー向け GUI アクションを追加・変更したら、`src/shared/gui/guiTriggerabilityInventory.ts` の在庫定義と対応する回帰カバレッジも合わせて更新します。
 - 実ブラウザでしか出ない不具合は、jsdom だけに頼らず `npm run test:ui` を使って確認します。
 

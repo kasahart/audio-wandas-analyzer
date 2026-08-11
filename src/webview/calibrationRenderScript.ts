@@ -180,7 +180,9 @@ export function getCalibrationRenderScript(): string {
                 const references = [];
                 document.querySelectorAll('.track-row').forEach(function(row) {
                     if (row.style.display === 'none') { return; }
-                    const trackIndex = Number(row.getAttribute('data-track-index'));
+                    const match = /^track-row-(\\d+)$/.exec(row.id);
+                    if (!match) { return; }
+                    const trackIndex = Number(match[1]);
                     const result = state.results && state.results[trackIndex];
                     channelsForResult(result).forEach(function(channel) {
                         const measurement = measurementFor(channel);

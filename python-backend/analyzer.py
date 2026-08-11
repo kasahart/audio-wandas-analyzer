@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import math
 import os
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 import wandas as wd
@@ -39,6 +40,13 @@ SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum amplitude level [dB]"
 AMPLITUDE_LEVEL_AXIS_LABEL = "Amplitude level [dB]"
 
 
+def _db_scale_metadata(axis_label: str) -> dict[str, str]:
+    return {
+        "unit": DB_UNIT,
+        "axisLabel": axis_label,
+    }
+
+
 def _analysis_units_metadata(measurements: list[dict[str, object]]) -> dict[str, object] | None:
     if not measurements:
         return None
@@ -67,7 +75,7 @@ def _analysis_units_metadata(measurements: list[dict[str, object]]) -> dict[str,
     }
 
 
-def _channels_first(data: np.ndarray, channel_count: int, sample_count: int) -> np.ndarray:
+def channels_first(data: np.ndarray, channel_count: int, sample_count: int) -> np.ndarray:
     array = np.asarray(data)
 
     if array.ndim == 1:
@@ -96,7 +104,7 @@ def _dominant_frequencies(
     freqs: np.ndarray,
     peak_count: int,
 ) -> list[dict[str, float]]:
-    if peak_count <= 0 or magnitudes.size <= 1 or freqs.size != magnitudes.size:
+    if magnitudes.size <= 1 or freqs.size != magnitudes.size:
         return []
 
     magnitudes = np.asarray(magnitudes, dtype=np.float64).copy()
@@ -121,9 +129,14 @@ def _spectrum_peaks(
     freqs: np.ndarray,
     peak_count: int,
 ) -> list[dict[str, float]]:
-    from scipy.signal import find_peaks
+    """Return up to *peak_count* peaks as {freqHz, amplitudeDb} dicts.
 
-    if peak_count <= 0 or magnitudes.size <= 2 or freqs.size != magnitudes.size:
+    Uses scipy.signal.find_peaks for proper local-maxima detection, then
+    converts magnitude (linear) to dB and returns the top-N by amplitude.
+    """
+    from scipy.signal import find_peaks  # lazy import — not all callers need this
+
+    if magnitudes.size <= 2 or freqs.size != magnitudes.size:
         return []
 
     mag = np.asarray(magnitudes, dtype=np.float64).copy()
@@ -131,7 +144,7 @@ def _spectrum_peaks(
     fr = np.asarray(freqs, dtype=np.float64)
     if levels.size != mag.size:
         raise ValueError("Spectrum level and magnitude shapes must match")
-    mag[0] = 0.0
+    mag[0] = 0.0  # suppress DC bin
 
     indices, _ = find_peaks(mag, height=0)
     if indices.size == 0:
@@ -150,7 +163,7 @@ def _spectrum_peaks(
     ]
 
 
-def _build_waveform_envelope(
+def build_waveform_envelope(
     samples: np.ndarray,
     point_limit: int = WAVEFORM_POINT_LIMIT,
     start_sample: int = 0,
@@ -179,7 +192,7 @@ def _mean_power_db(values_db: np.ndarray, axis: int) -> np.ndarray:
     return 10.0 * np.log10(mean_power)
 
 
-def _resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.ndarray:
+def resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.ndarray:
     if spectrogram.shape[1] <= target_bin_count:
         return spectrogram
 
@@ -235,7 +248,10 @@ def _build_spectrogram(
         raise ValueError(f"Expected 2D spectrogram data, got shape {spectrogram.shape}")
 
     spectrogram = _resample_time_bins(spectrogram, time_bin_limit)
-    spectrogram = _resample_frequency_bins(spectrogram, frequency_bin_limit)
+    spectrogram = resample_frequency_bins(spectrogram, frequency_bin_limit)
+
+    min_db = float(np.min(spectrogram))
+    max_db = float(np.max(spectrogram))
 
     return {
         "values": spectrogram.tolist(),
@@ -244,33 +260,10 @@ def _build_spectrogram(
         "windowSize": int(window_size),
         "hopSize": int(hop_size),
         "maxFrequencyHz": float(sample_rate_hz / 2),
-        "minDb": float(np.min(spectrogram)),
-        "maxDb": float(np.max(spectrogram)),
+        "minDb": min_db,
+        "maxDb": max_db,
         **scale,
     }
-
-
-def _resolved_profile_from_frame(frame: wd.ChannelFrame) -> ResolvedCalibrationProfile:
-    channels = []
-    for index, label in enumerate(frame.labels):
-        metadata = frame.channels[index]
-        calibration = metadata.calibration
-        factor = float(calibration.factor)
-        unit = str(calibration.unit)
-        reference_value = float(calibration.ref)
-        calibrated = bool(unit) or not math.isclose(factor, 1.0) or not math.isclose(reference_value, 1.0)
-        channels.append(
-            {
-                "channelIndex": index,
-                "expectedLabel": str(label),
-                "status": "calibrated" if calibrated else "uncalibrated",
-                "source": "embedded" if calibrated else "default",
-                "factor": factor,
-                "unit": unit or "1",
-                "referenceValue": reference_value,
-            }
-        )
-    return resolve_calibration_profile({"schemaVersion": 1, "channels": channels}, frame)
 
 
 def analyze_range(
@@ -297,16 +290,19 @@ def analyze_range(
             "channels": [],
         }
 
-    data = _channels_first(frame[:, start_idx:end_idx].data, channel_count, end_idx - start_idx)
-    channels = [
-        _build_waveform_envelope(
-            data[channel_index],
-            point_count,
-            start_sample=start_idx,
-            total_samples=sample_count,
+    data = channels_first(frame[:, start_idx:end_idx].data, channel_count, end_idx - start_idx)
+    channels: list[dict[str, object]] = []
+    for ch_idx in range(channel_count):
+        ch_slice = data[ch_idx]
+        channels.append(
+            build_waveform_envelope(
+                ch_slice,
+                point_count,
+                start_sample=start_idx,
+                total_samples=sample_count,
+            )
         )
-        for channel_index in range(channel_count)
-    ]
+
     return {
         "startNorm": start_norm,
         "endNorm": end_norm,
@@ -318,11 +314,34 @@ def analyze_range(
 _ALLOWED_WINDOWS = {"hann", "hamming", "blackman", "boxcar"}
 
 
-def _resolve_stft_params(
+class StftOptions(TypedDict):
+    n_fft: int
+    hop_size: int
+    window: str
+
+
+def normalize_stft_options(stft_options: Mapping[str, object] | None) -> StftOptions | None:
+    if not stft_options:
+        return None
+
+    n_fft = int(stft_options.get("n_fft", stft_options.get("nFft", 0)))
+    hop_size = int(stft_options.get("hop_size", stft_options.get("hopSize", 0)))
+    window = str(stft_options.get("window", "hann"))
+    if n_fft < 64 or n_fft > 16384:
+        raise ValueError(f"n_fft must be in [64, 16384], got {n_fft}")
+    if hop_size < 1 or hop_size > n_fft:
+        raise ValueError(f"hop_size must be in [1, n_fft], got {hop_size}")
+    if window not in _ALLOWED_WINDOWS:
+        raise ValueError(f"window must be one of {sorted(_ALLOWED_WINDOWS)}, got {window!r}")
+    return {"n_fft": n_fft, "hop_size": hop_size, "window": window}
+
+
+def resolve_stft_params(
     sample_count: int,
-    stft_options: dict | None,
+    stft_options: Mapping[str, object] | None,
 ) -> tuple[int, int, str]:
-    if stft_options is None:
+    normalized = normalize_stft_options(stft_options)
+    if normalized is None:
         window_size = max(64, _pick_window_size(sample_count))
         hop_size = max(
             1,
@@ -330,16 +349,29 @@ def _resolve_stft_params(
         )
         return window_size, hop_size, "hann"
 
-    n_fft = int(stft_options.get("n_fft", 0))
-    hop = int(stft_options.get("hop_size", 0))
-    window = str(stft_options.get("window", "hann"))
-    if n_fft < 64 or n_fft > 16384:
-        raise ValueError(f"n_fft must be in [64, 16384], got {n_fft}")
-    if hop < 1 or hop > n_fft:
-        raise ValueError(f"hop_size must be in [1, n_fft], got {hop}")
-    if window not in _ALLOWED_WINDOWS:
-        raise ValueError(f"window must be one of {sorted(_ALLOWED_WINDOWS)}, got {window!r}")
-    return n_fft, hop, window
+    return normalized["n_fft"], normalized["hop_size"], normalized["window"]
+
+
+def _resolved_profile_from_frame(frame: wd.ChannelFrame) -> ResolvedCalibrationProfile:
+    channels = []
+    for index, label in enumerate(frame.labels):
+        calibration = frame.channels[index].calibration
+        factor = float(calibration.factor)
+        unit = str(calibration.unit)
+        reference_value = float(calibration.ref)
+        calibrated = bool(unit) or not np.isclose(factor, 1.0) or not np.isclose(reference_value, 1.0)
+        channels.append(
+            {
+                "channelIndex": index,
+                "expectedLabel": str(label),
+                "status": "calibrated" if calibrated else "uncalibrated",
+                "source": "embedded" if calibrated else "default",
+                "factor": factor,
+                "unit": unit or "1",
+                "referenceValue": reference_value,
+            }
+        )
+    return resolve_calibration_profile({"schemaVersion": 1, "channels": channels}, frame)
 
 
 def analyze_from_frame(
@@ -349,11 +381,12 @@ def analyze_from_frame(
     *,
     raw_frame: wd.ChannelFrame | None = None,
     calibration_profile: ResolvedCalibrationProfile | None = None,
-    stft_options: dict | None = None,
+    stft_options: Mapping[str, object] | None = None,
     spectrogram_frame: wd.SpectrogramFrame | None = None,
     include_spectrogram: bool = False,
 ) -> dict[str, object]:
-    peak_count = max(0, int(peak_count))
+    """Build the AnalysisResult JSON payload from a ChannelFrame."""
+    peak_count = max(0, int(peak_count))  # guard against negative/zero from user config
     target = Path(file_path)
     t_frame = time.perf_counter()
     channel_count = int(frame.n_channels)
@@ -362,11 +395,10 @@ def analyze_from_frame(
     labels = list(frame.labels)
     resolved = calibration_profile or _resolved_profile_from_frame(frame)
     measurements = [measurement_metadata(channel) for channel in resolved.channels]
-
-    data = _channels_first(np.asarray(frame.data), channel_count, sample_count)
+    data = channels_first(np.asarray(frame.data), channel_count, sample_count)
     rms_values = np.asarray(frame.rms, dtype=np.float64)
     raw_source = raw_frame or frame
-    raw_data = _channels_first(np.asarray(raw_source.data), channel_count, sample_count)
+    raw_data = channels_first(np.asarray(raw_source.data), channel_count, sample_count)
     if raw_frame is None and not resolved.is_identity:
         for index, channel in enumerate(resolved.channels):
             raw_data[index] = raw_data[index] / channel.factor
@@ -375,11 +407,11 @@ def analyze_from_frame(
     t_fft = time.perf_counter()
     fft = frame.fft()
     fft_freqs = np.asarray(fft.freqs, dtype=np.float64)
-    fft_magnitudes = _channels_first(np.asarray(fft.magnitude), channel_count, fft_freqs.size)
-    fft_levels = _channels_first(np.asarray(fft.dB), channel_count, fft_freqs.size)
+    fft_magnitudes = channels_first(np.asarray(fft.magnitude), channel_count, fft_freqs.size)
+    fft_levels = channels_first(np.asarray(fft.dB), channel_count, fft_freqs.size)
     _perf("fft", t_fft, bins=fft_freqs.size)
 
-    window_size, hop_size, _window_name = _resolve_stft_params(sample_count, stft_options)
+    window_size, hop_size, window_name = resolve_stft_params(sample_count, stft_options)
     stft_db: np.ndarray | None = None
     if include_spectrogram:
         if spectrogram_frame is None:
@@ -394,15 +426,15 @@ def analyze_from_frame(
     channels: list[dict[str, object]] = []
     for index in range(channel_count):
         samples = data[index]
-        raw_samples = raw_data[index]
         measurement = measurements[index]
         rms = float(rms_values[index])
         peak = float(np.max(np.abs(samples)))
-        raw_peak = float(np.max(np.abs(raw_samples)))
+        raw_peak = float(np.max(np.abs(raw_data[index])))
         spectrogram = None
         if stft_db is not None:
+            spectrogram_db = np.transpose(stft_db[index], (1, 0))
             spectrogram = _build_spectrogram(
-                np.transpose(stft_db[index], (1, 0)),
+                spectrogram_db,
                 sample_rate_hz,
                 window_size,
                 hop_size,
@@ -421,7 +453,7 @@ def analyze_from_frame(
                 "clipped": raw_peak >= 0.99,
                 "dominantFrequencies": _dominant_frequencies(fft_magnitudes[index], fft_freqs, peak_count),
                 "peaks": _spectrum_peaks(fft_magnitudes[index], fft_levels[index], fft_freqs, peak_count),
-                "waveform": _build_waveform_envelope(
+                "waveform": build_waveform_envelope(
                     samples,
                     WAVEFORM_POINT_LIMIT,
                     start_sample=0,
@@ -432,35 +464,33 @@ def analyze_from_frame(
         )
 
     _perf("channels_build", t_channels, count=channel_count)
-    result: dict[str, object] = {
-        "schemaVersion": 2,
+
+    return {
         "filePath": str(target),
         "fileName": target.name,
         "sampleRateHz": sample_rate_hz,
         "durationSeconds": float(frame.duration),
         "channelCount": channel_count,
         "sampleCount": sample_count,
+        "schemaVersion": 2,
         "calibrationSignature": resolved.signature,
         "calibrationProfile": resolved.to_dict(),
+        "units": _analysis_units_metadata(measurements),
         "channels": channels,
     }
-    units = _analysis_units_metadata(measurements)
-    if units is not None:
-        result["units"] = units
-    return result
 
 
 def analyze_audio(
     file_path: str | Path,
     peak_count: int = 5,
     *,
-    stft_options: dict | None = None,
+    stft_options: Mapping[str, object] | None = None,
     calibration_profile: object = None,
 ) -> dict[str, object]:
     source_frame, target = load_audio_frame(file_path)
     resolved = resolve_calibration_profile(calibration_profile, source_frame)
     frame = resolved.apply(source_frame)
-    window_size, hop_size, window_name = _resolve_stft_params(frame.n_samples, stft_options)
+    window_size, hop_size, window_name = resolve_stft_params(frame.n_samples, stft_options)
     spectrogram = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
     return analyze_from_frame(
         frame,

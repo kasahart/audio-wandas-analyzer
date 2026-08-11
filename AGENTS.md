@@ -83,7 +83,7 @@ scripts/worktree-new.sh <feature-slug> [base-branch]   # base 既定: main
 # node_modules と .venv は symlink で共有、dist と .vscode-test は worktree 専有。
 ```
 
-`npm run compile` は実行前に `scripts/clean-dist.js` で **対応する `src/**/*.ts` が存在しない tsc 出力 (`.js` / `.js.map`)** を自動削除する。ブランチ切替や rebase 後に古いテスト .js が node:test に拾われる事故 (stale dist) を防ぐ。`.json` や画像など tsc が emit しないファイルは対象外で誤削除されない。別 build スクリプトが生成する成果物 (現状は将来予定の `dist/webview/comparisonWaveform.js`) は `PROTECTED_RELATIVE` で保護する。
+`npm run compile` は実行前に `scripts/clean-dist.js` で **対応する `src/**/*.ts` が存在しない tsc 出力 (`.js` / `.js.map`)** を自動削除する。ブランチ切替や rebase 後に古いテスト .js が node:test に拾われる事故 (stale dist) を防ぐ。`.json` や画像など tsc が emit しないファイルは対象外で誤削除されない。`scripts/build-webview.js` が生成する `dist/webview/comparisonWaveform.js` と `dist/webview/comparisonRuntime.js` は `PROTECTED_RELATIVE` で保護する。
 
 TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.js` が compile で生成される実行物。Webview のバンドル生成物も手で編集せず、元の TS と build script を直す。
 
@@ -95,7 +95,8 @@ TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.
 |------|------|
 | `src/extension/index.ts` | Command registration, file picking, Python spawn, message routing |
 | `src/extension/waveformServer.ts` | Persistent Python child process for range requests; newline-JSON IPC |
-| `src/webview/panels/ComparisonPanel.ts` | Multi-track comparison Webview; `renderScript()` returns the inline JS |
+| `src/webview/panels/ComparisonPanel.ts` | Multi-track comparison Webview shell and CSP-safe bootstrap data |
+| `src/webview/runtime/comparisonEntry.ts` | Strict TypeScript entry for the modular Comparison Webview runtime |
 | `src/shared/analysis/analysisTypes.ts` | Shared `AnalysisResult` / `DirectoryTreeNode` contracts |
 | `src/webview/waveform/waveformRenderer.ts` | Pure TS waveform rendering pipeline (3 layers, no Canvas dependency). `scripts/build-webview.js` packages it as `dist/webview/comparisonWaveform.js` for the Webview. |
 | `src/webview/waveform/rangeRequestPolicy.ts` | `isCacheSufficient` / `computeReqBounds` |
@@ -158,8 +159,8 @@ trackDurRatio  = durationSeconds / globalSpanSec
 
 - `scripts/verify-gui-triggerability.js` compares the declared GUI inventory against:
   - contributed VS Code commands in `package.json`
-  - `data-action` buttons in `src/webview/comparisonRenderScript.ts`
-  - shortcut rows exported from `src/webview/comparisonRenderScript.ts`
+  - `data-action` buttons in `src/webview/runtime/comparisonRuntime.ts`
+  - shortcut rows exported from `src/webview/runtime/shortcuts.ts`
 - The source of truth for the inventory lives in `src/shared/gui/guiTriggerabilityInventory.ts`
 - Scope is **user-facing GUI features only**
 - Explicitly excluded from this audit:

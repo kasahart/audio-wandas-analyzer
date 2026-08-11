@@ -72,7 +72,7 @@ function injectCalibrationRuntime(html: string): string {
     if (html.includes('__AWA_CALIBRATION_RUNTIME__')) {
         return html;
     }
-    const stateMarker = '        const __APP_STATE__ =';
+    const stateMarker = '        window.__APP_STATE__ =';
     if (!html.includes(stateMarker)) {
         throw new Error('Comparison Webview state marker was not found');
     }
@@ -87,15 +87,15 @@ function injectCalibrationRuntime(html: string): string {
         '        };',
         '',
     ].join('\n');
-    const closeMarker = '    </script>\n    <div id="canvas-tooltip">';
-    if (!html.includes(closeMarker)) {
-        throw new Error('Comparison Webview script boundary was not found');
+    const nonceMatch = html.match(/<script nonce="([^"]+)">/u);
+    if (!nonceMatch) {
+        throw new Error('Comparison Webview nonce was not found');
     }
     return html
         .replace(stateMarker, acquireWrapper + stateMarker)
         .replace(
-            closeMarker,
-            `${getCalibrationRenderScript()}\n    </script>\n    <div id="canvas-tooltip">`,
+            '</body>',
+            `    <script nonce="${nonceMatch[1]}">${getCalibrationRenderScript()}</script>\n</body>`,
         );
 }
 
