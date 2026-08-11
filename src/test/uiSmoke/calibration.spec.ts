@@ -102,9 +102,12 @@ test('report export records calibration and generates a reproducible notebook', 
 
     const exported = (await postedMessages(page)).find((message) => message['type'] === 'export-report-options');
     expect(exported).toBeDefined();
-    expect(String(exported?.['markdownContent'])).toContain('## Calibration');
-    expect(String(exported?.['markdownContent'])).toContain('dB SPL re 20 µPa');
-    expect(String(exported?.['markdownContent'])).toContain('0.500 FS');
+    const markdown = String(exported?.['markdownContent']);
+    expect(markdown).toContain('| File | Channel | Sample Rate | Duration | Channels | RMS | Peak |');
+    expect(markdown).toContain('| demo-tone.wav | Channel 1 (L) | 8000 Hz | 2.000s | 1 |');
+    expect(markdown).toContain('## Calibration');
+    expect(markdown).toContain('dB SPL re 20 µPa');
+    expect(markdown).toContain('0.500 FS');
     expect(String(exported?.['notebookContent'])).toContain('.with_calibration([');
     expect(String(exported?.['notebookContent'])).toContain('wd.ChannelCalibration(factor=2');
 });

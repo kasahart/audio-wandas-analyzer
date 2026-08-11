@@ -339,6 +339,7 @@ export class PanelController implements vscode.Disposable {
                 session,
             );
             if (session.isCurrent(revision)) {
+                session.cacheResults(results);
                 session.setActiveResults(results.map((result) => result.filePath));
                 await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
             }

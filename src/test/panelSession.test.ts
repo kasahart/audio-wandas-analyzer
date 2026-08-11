@@ -39,6 +39,33 @@ test('PanelSession owns selection, cache, active paths, and latest request state
     assert.equal(session.isCurrent(revision, 'selection-1'), true);
 });
 
+test('PanelSession replaces directory cache entries with successful reanalysis results', () => {
+    const session = new PanelSession(createPanel([]));
+    const stale = {
+        filePath: '/audio/a.wav',
+        fileName: 'a.wav',
+        sampleRateHz: 8_000,
+        durationSeconds: 1,
+        channelCount: 0,
+        sampleCount: 8_000,
+        analysisRevision: 0,
+        channels: [],
+    };
+    const updated = { ...stale, analysisRevision: 1 };
+    const cachedResultsByFilePath = new Map([[stale.filePath, stale]]);
+    session.setDirectorySelection({
+        rootPath: '/audio',
+        tree: [],
+        allFilePaths: [stale.filePath],
+        selectedFilePaths: [stale.filePath],
+        cachedResultsByFilePath,
+    });
+
+    session.cacheResults([updated]);
+
+    assert.equal(cachedResultsByFilePath.get(stale.filePath), updated);
+});
+
 test('PanelSession rejects stale revisions after a newer state request', () => {
     const session = new PanelSession(createPanel([]));
     const first = session.beginStateRequest('r1');

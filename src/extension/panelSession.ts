@@ -49,6 +49,13 @@ export class PanelSession<P extends PanelPort = PanelPort> {
         this.activeResultPaths = [...filePaths];
     }
 
+    cacheResults(results: AnalysisResultWithError[]): void {
+        if (!this.directorySelection) { return; }
+        for (const result of results) {
+            this.directorySelection.cachedResultsByFilePath.set(result.filePath, result);
+        }
+    }
+
     clearDirectorySelection(): void {
         this.invalidateState();
         this.directorySelection = null;

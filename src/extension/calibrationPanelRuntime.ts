@@ -176,21 +176,23 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
     prototype.analyze = async function(filePath, options) {
         const calibrationProfile = getCalibrationProfile(extensionContext, filePath);
         try {
-            return await analyze.call(this, filePath, {
+            const result = await analyze.call(this, filePath, {
                 ...options,
                 calibrationProfile,
                 analysisRevision: getAnalysisRevision(filePath),
             });
+            return rememberResults([result])[0];
         } catch (error) {
             const discarded = await discardMismatchedCalibrationProfile(extensionContext, filePath, error);
             if (!discarded) {
                 throw error;
             }
-            return analyze.call(this, filePath, {
+            const result = await analyze.call(this, filePath, {
                 ...options,
                 calibrationProfile: undefined,
                 analysisRevision: getAnalysisRevision(filePath),
             });
+            return rememberResults([result])[0];
         }
     };
     prototype.requestRange = function(filePath, startNorm, endNorm, points, requestId, calibration = {}) {

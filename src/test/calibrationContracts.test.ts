@@ -62,9 +62,9 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     assert.match(script, /rmsLevelDb/);
     assert.match(script, /rawPeakFullScale/);
     assert.match(script, /levelReferenceLabel/);
-    assert.match(script, /with_calibration/);
     assert.match(script, /Spectrum overlay is unavailable/);
     assert.doesNotMatch(script, /calibration-reload/);
+    assert.doesNotMatch(script, /stopImmediatePropagation/);
     assert.match(script, /__AWA_ACTIVE_TRACKS__/);
 });
 
