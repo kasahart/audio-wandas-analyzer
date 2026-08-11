@@ -1086,6 +1086,89 @@ test('analysis-update preserves TrackId runtime state while protocol indices cha
     env.dom.window.close();
 });
 
+test('analysis-update rebuilds audio bindings when protocol order changes', async () => {
+    const env = setupEnv();
+    const oldAudioA = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement;
+    const playA = env.dom.window.document.querySelector(
+        '[data-action="toggle-playback"][data-track-id="track-1"]',
+    ) as HTMLButtonElement;
+    playA.click();
+    await Promise.resolve();
+    assert.equal(oldAudioA.paused, false);
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'analysis-update',
+        results: JSON.parse(DUMMY_APP_STATE).results.reverse(),
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    assert.equal(oldAudioA.paused, true, 'detached media element should be paused');
+    const newAudioA = env.dom.window.document.querySelector('#audio-host audio[data-track-id="track-1"]') as HTMLAudioElement;
+    const newAudioB = env.dom.window.document.querySelector('#audio-host audio[data-track-id="track-2"]') as HTMLAudioElement;
+    assert.equal(newAudioA.id, 'track-audio-1');
+    assert.equal(newAudioB.id, 'track-audio-0');
+
+    const rebuiltPlayA = env.dom.window.document.querySelector(
+        '[data-action="toggle-playback"][data-track-id="track-1"]',
+    ) as HTMLButtonElement;
+    rebuiltPlayA.click();
+    await Promise.resolve();
+    assert.equal(newAudioA.paused, false);
+    assert.equal(newAudioB.paused, true);
+    env.dom.window.close();
+});
+
+test('analysis-update does not restore a locally removed track', async () => {
+    const env = setupEnv();
+    const removeA = env.dom.window.document.querySelector(
+        '[data-action="remove-track"][data-track-id="track-1"]',
+    ) as HTMLButtonElement;
+    removeA.click();
+
+    for (let update = 0; update < 2; update += 1) {
+        env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+            type: 'analysis-update',
+            results: JSON.parse(DUMMY_APP_STATE).results,
+        } }));
+        await nextAnimationFrame(env.dom);
+    }
+
+    assert.equal(env.dom.window.document.querySelector('[data-track-id="track-1"]'), null);
+    assert.ok(env.dom.window.document.querySelector('.track-row[data-track-id="track-2"]'));
+    assert.equal(env.dom.window.document.querySelectorAll('.track-row').length, 1);
+    env.dom.window.close();
+});
+
+test('analysis-update rebinds rebuilt waveform and spectrum canvases', async () => {
+    const env = setupHighFrequencyReadoutEnv();
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'analysis-update',
+        results: JSON.parse(HIGH_FREQUENCY_READOUT_STATE).results,
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const waveformCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement;
+    waveformCanvas.focus();
+    assert.match(waveformCanvas.style.outline, /rgba?\(100, 160, 255/);
+
+    const spectrumCanvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement;
+    Object.defineProperty(spectrumCanvas, 'width', { configurable: true, writable: true, value: 200 });
+    Object.defineProperty(spectrumCanvas, 'height', { configurable: true, writable: true, value: 140 });
+    spectrumCanvas.getBoundingClientRect = () => (
+        { left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect
+    );
+    spectrumCanvas.dispatchEvent(new env.dom.window.MouseEvent(
+        'mousemove', { bubbles: true, clientX: 88, clientY: 30 },
+    ));
+    await nextAnimationFrame(env.dom);
+
+    assert.match(
+        env.dom.window.document.getElementById('spectrum-freq-readout')?.textContent ?? '',
+        /^high\.wav\s+1200 Hz\s+-60\.0 dB$/,
+    );
+    env.dom.window.close();
+});
+
 test('lazy detail response cannot attach to a replacement at the same protocol index', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement;
@@ -2573,6 +2656,31 @@ test('renderScript: loop report uses global timeline and per-track local ranges 
     assert.match(msg.markdownContent, /\| stereo\.wav \| 0\.000 s \| - \| - \| - \| Out of range \|/);
     assert.match(msg.markdownContent, /\| late [\\]\| unsafe `tick`\.wav \| 2\.000 s \| 0\.000 s \| 0\.250 s \| 0\.250 s \| Partial \|/);
     assert.doesNotMatch(msg.markdownContent, /- Start: 0\.500 s/);
+    env.dom.window.close();
+});
+
+test('renderScript: report export skips locally removed tracks', async () => {
+    const env = setupEnv();
+    env.dom.window.document.querySelector(
+        '[data-action="remove-track"][data-track-id="track-1"]',
+    )?.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+        data: {
+            type: 'comparison-panel-test-action',
+            actionId: 'removed-track-report',
+            actions: [{ action: 'set-loop-region', payload: { start: 0.1, end: 0.5 } }],
+        },
+    }));
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.document.querySelector('[data-action="export-report"]')?.dispatchEvent(
+        new env.dom.window.MouseEvent('click', { bubbles: true }),
+    );
+
+    const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
+    assert.ok(msg, 'report export message should be sent');
+    assert.doesNotMatch(msg.markdownContent, /a\.wav/);
+    assert.match(msg.markdownContent, /b\.wav/);
     env.dom.window.close();
 });
 

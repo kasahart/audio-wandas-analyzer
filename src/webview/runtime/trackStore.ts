@@ -26,10 +26,12 @@ export interface TrackRecord {
 export interface ReconcileResult {
     added: TrackId[];
     removed: TrackId[];
+    protocolOrderChanged: boolean;
 }
 
 export class TrackStore {
     private readonly records = new Map<TrackId, TrackRecord>();
+    private readonly locallyRemovedIds = new Set<TrackId>();
     private protocolOrder: TrackId[] = [];
     private nextTrackId = 1;
     displayOrder: TrackId[] = [];
@@ -81,6 +83,7 @@ export class TrackStore {
             return false;
         }
         record.active = false;
+        this.locallyRemovedIds.add(id);
         this.clearAsyncState(record);
         this.displayOrder = this.displayOrder.filter((candidate) => candidate !== id);
         return true;
@@ -101,6 +104,8 @@ export class TrackStore {
         results: ComparisonTrackState[],
         mergeResult: (next: ComparisonTrackState, previous?: ComparisonTrackState) => ComparisonTrackState,
     ): ReconcileResult {
+        const previousProtocolOrder = this.activeIds();
+        const previousProtocolIndices = new Map(previousProtocolOrder.map((id) => [id, this.require(id).protocolIndex]));
         const candidatesByPath = new Map<string, TrackRecord[]>();
         this.protocolOrder.forEach((id) => {
             const record = this.records.get(id);
@@ -110,6 +115,14 @@ export class TrackStore {
             const candidates = candidatesByPath.get(record.result.filePath) ?? [];
             candidates.push(record);
             candidatesByPath.set(record.result.filePath, candidates);
+        });
+        const locallyRemovedByPath = new Map<string, number>();
+        this.locallyRemovedIds.forEach((id) => {
+            const record = this.records.get(id);
+            if (!record) {
+                return;
+            }
+            locallyRemovedByPath.set(record.result.filePath, (locallyRemovedByPath.get(record.result.filePath) ?? 0) + 1);
         });
 
         const previousDisplayOrder = this.displayOrder.slice();
@@ -130,7 +143,13 @@ export class TrackStore {
                 nextProtocolOrder.push(existing.id);
                 return;
             }
-            const record = this.createRecord(mergeResult(nextResult), protocolIndex);
+            const tombstoneCount = locallyRemovedByPath.get(nextResult.filePath) ?? 0;
+            if (tombstoneCount > 0) {
+                locallyRemovedByPath.set(nextResult.filePath, tombstoneCount - 1);
+                return;
+            }
+            const nextProtocolIndex = nextProtocolOrder.length;
+            const record = this.createRecord(mergeResult(nextResult), nextProtocolIndex);
             retained.add(record.id);
             added.push(record.id);
             nextProtocolOrder.push(record.id);
@@ -144,10 +163,16 @@ export class TrackStore {
                 removed.push(record.id);
             }
         });
+        nextProtocolOrder.forEach((id, protocolIndex) => {
+            this.require(id).protocolIndex = protocolIndex;
+        });
         this.protocolOrder = nextProtocolOrder;
         const retainedDisplay = previousDisplayOrder.filter((id) => retained.has(id));
         this.displayOrder = retainedDisplay.concat(added);
-        return { added, removed };
+        const protocolOrderChanged = previousProtocolOrder.length !== nextProtocolOrder.length
+            || previousProtocolOrder.some((id, index) => id !== nextProtocolOrder[index])
+            || nextProtocolOrder.some((id, index) => previousProtocolIndices.get(id) !== index);
+        return { added, removed, protocolOrderChanged };
     }
 
     private createRecord(result: ComparisonTrackState, protocolIndex: number): TrackRecord {

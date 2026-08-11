@@ -97,3 +97,26 @@ test('TrackStore clears analysis caches without moving runtime state to another 
     assert.equal(store.require(bId).runtime.hidden, false);
     assert.equal(store.require(bId).spectrumSliceCache.size, 0);
 });
+
+test('TrackStore keeps locally removed paths tombstoned across full result updates', () => {
+    const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
+    const [aId, bId] = store.activeIds();
+    store.remove(aId);
+
+    const first = store.reconcile([result('/a.wav'), result('/b.wav')], (next) => next);
+    assert.deepEqual(store.activeIds(), [bId]);
+    assert.equal(store.protocolIndexForId(bId), 0);
+    assert.equal(first.protocolOrderChanged, true);
+
+    const second = store.reconcile([result('/a.wav'), result('/b.wav')], (next) => next);
+    assert.deepEqual(store.activeIds(), [bId]);
+    assert.deepEqual(second.added, []);
+    assert.equal(second.protocolOrderChanged, false);
+});
+
+test('TrackStore reports protocol mapping changes when results reorder', () => {
+    const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
+    const reconciliation = store.reconcile([result('/b.wav'), result('/a.wav')], (next) => next);
+
+    assert.equal(reconciliation.protocolOrderChanged, true);
+});
