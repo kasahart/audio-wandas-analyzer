@@ -30,6 +30,9 @@ export function canvasYToAmplitudeNorm(
     amplitudeMin: number,
     amplitudeMax: number,
 ): number {
+    if (height <= 0) {
+        return 0;
+    }
     const clampedY = Math.max(0, Math.min(height, y));
     if (amplitudeMin > -0.999999 || amplitudeMax < 0.999999) {
         return amplitudeMax - (clampedY / Math.max(height, 1)) * (amplitudeMax - amplitudeMin);

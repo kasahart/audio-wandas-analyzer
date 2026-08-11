@@ -22,7 +22,7 @@ import {
     zoomNormalizedRange,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
-import type { CanvasSyncOptions, ComparisonBootstrap, ComparisonTrackState, DragPoint, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, RuntimeEvent, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, WaveformRangeCache, } from './types';
+import type { CanvasSyncOptions, ComparisonBootstrap, ComparisonTrackState, DragPoint, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, WaveformRangeCache, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);

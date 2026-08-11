@@ -30,6 +30,7 @@ test('waveform interaction keeps normalized zoom and amplitude transforms bounde
     assert.ok(Math.abs(zoomed.end - 0.6) < Number.EPSILON);
     const y = amplitudeNormToCanvasY(0.25, 100, -0.5, 0.5);
     assert.equal(canvasYToAmplitudeNorm(y, 100, -0.5, 0.5), 0.25);
+    assert.equal(canvasYToAmplitudeNorm(0, 0, -1, 1), 0);
 });
 
 test('spectrum interaction snaps to a visible source bin', () => {

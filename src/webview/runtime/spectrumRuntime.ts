@@ -1,13 +1,8 @@
 import type { SpectrumSlice, SpectrumSnap } from './types';
-import type { NormalizedRange } from './waveformInteraction';
+import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
 
 export function zoomSpectrumRange(range: NormalizedRange, factor: number): NormalizedRange {
-    const center = (range.start + range.end) / 2;
-    const half = ((range.end - range.start) / 2) * factor;
-    return {
-        start: Math.max(0, center - half),
-        end: Math.min(1, center + half),
-    };
+    return zoomNormalizedRange(range, factor);
 }
 
 export function spectrumBinAtFrequency(

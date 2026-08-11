@@ -101,14 +101,14 @@ export interface RuntimeDocument extends Omit<Document,
     getElementById(elementId: string): RuntimeElement;
     querySelector(selectors: string): RuntimeElement;
     querySelectorAll(selectors: string): NodeListOf<RuntimeElement>;
-    addEventListener(
-        type: string,
-        listener: (event: RuntimeEvent) => void,
+    addEventListener<K extends keyof DocumentEventMap>(
+        type: K,
+        listener: (event: RuntimeEvent<DocumentEventMap[K]>) => void,
         options?: boolean | AddEventListenerOptions,
     ): void;
 }
 
-export type RuntimeEvent = DragEvent & KeyboardEvent & WheelEvent & { readonly target: RuntimeElement };
+export type RuntimeEvent<T extends Event = Event> = T & { readonly target: RuntimeElement };
 
 export interface UiSmokeState {
     [key: string]: unknown;
@@ -144,9 +144,12 @@ export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'remove
     drawSpectrogramAxes?: (...args: unknown[]) => void;
     drawSpectrumLine?: (...args: unknown[]) => void;
     drawSpectrumAxes?: (...args: unknown[]) => void;
-    addEventListener(type: 'message', listener: (event: MessageEvent<unknown>) => void, options?: boolean | AddEventListenerOptions): void;
-    addEventListener(type: string, listener: (event: RuntimeEvent) => void, options?: boolean | AddEventListenerOptions): void;
-    removeEventListener(type: 'message', listener: (event: MessageEvent<unknown>) => void): void;
+    addEventListener<K extends keyof WindowEventMap>(
+        type: K,
+        listener: (event: WindowEventMap[K]) => void,
+        options?: boolean | AddEventListenerOptions,
+    ): void;
+    removeEventListener<K extends keyof WindowEventMap>(type: K, listener: (event: WindowEventMap[K]) => void): void;
 }
 
 export interface SelectionTreeNode {
