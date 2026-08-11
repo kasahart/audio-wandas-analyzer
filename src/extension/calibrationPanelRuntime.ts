@@ -26,6 +26,19 @@ function channelDescriptors(result: AnalysisResultWithError): CalibrationChannel
     }));
 }
 
+async function broadcastCalibrationChange(filePath: string): Promise<void> {
+    const notification = {
+        type: 'calibration-configured',
+        filePath,
+        analysisRevision: getAnalysisRevision(filePath),
+    };
+    await Promise.all(Array.from(openPanels, async (panel) => {
+        if (ComparisonPanel.getResults(panel).some((candidate) => candidate.filePath === filePath)) {
+            await panel.webview.postMessage(notification);
+        }
+    }));
+}
+
 async function configureChannels(
     extensionContext: vscode.ExtensionContext,
     filePath: string,
@@ -37,16 +50,7 @@ async function configureChannels(
         channels,
     );
     if (changed) {
-        const notification = {
-            type: 'calibration-configured',
-            filePath,
-            analysisRevision: getAnalysisRevision(filePath),
-        };
-        await Promise.all(Array.from(openPanels, async (panel) => {
-            if (ComparisonPanel.getResults(panel).some((candidate) => candidate.filePath === filePath)) {
-                await panel.webview.postMessage(notification);
-            }
-        }));
+        await broadcastCalibrationChange(filePath);
     }
 }
 
@@ -154,6 +158,7 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
             if (!discarded) {
                 throw error;
             }
+            await broadcastCalibrationChange(filePath);
             return analyze.call(this, filePath, {
                 ...options,
                 calibrationProfile: undefined,

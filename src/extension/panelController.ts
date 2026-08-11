@@ -341,6 +341,7 @@ export class PanelController implements vscode.Disposable {
                 message.settings.auto ? undefined : message.settings.stft,
                 `Recomputing spectrogram (${filePaths.length} file${filePaths.length === 1 ? '' : 's'})`,
                 session,
+                message.reason !== 'calibration',
             );
             if (session.isCurrent(revision)) {
                 session.cacheResults(results);

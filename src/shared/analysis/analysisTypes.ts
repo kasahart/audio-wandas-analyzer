@@ -152,6 +152,7 @@ export const DEFAULT_SPECTROGRAM_SETTINGS: SpectrogramSettings = {
 export interface RequestReanalyzeMessage {
     type: 'request-reanalyze';
     settings: SpectrogramSettings;
+    reason?: 'settings' | 'calibration';
 }
 
 export interface UpdateSpectrogramSettingsMessage {

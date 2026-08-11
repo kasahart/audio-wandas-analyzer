@@ -271,7 +271,7 @@ export function getCalibrationRenderScript(): string {
                             stft: { nFft: 1024, hopSize: 256, window: 'hann' },
                             display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
                         };
-                    vscode.postMessage({ type: 'request-reanalyze', settings: settings });
+                    vscode.postMessage({ type: 'request-reanalyze', settings: settings, reason: 'calibration' });
                     return;
                 }
                 if (message.type === 'analysis-update') {

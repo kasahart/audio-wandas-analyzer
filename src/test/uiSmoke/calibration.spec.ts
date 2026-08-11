@@ -80,6 +80,7 @@ test('calibration controls post exact configuration and reanalysis messages', as
         return messages.find((message) => message['type'] === 'request-reanalyze');
     }).toMatchObject({
         type: 'request-reanalyze',
+        reason: 'calibration',
         settings: {
             auto: false,
             stft: { nFft: 512, hopSize: 128, window: 'hamming' },

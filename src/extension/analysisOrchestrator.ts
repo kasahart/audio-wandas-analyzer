@@ -46,12 +46,13 @@ export class AnalysisOrchestrator {
         stftOptions?: StftOptions,
         titleOverride?: string,
         progressSink?: ProgressMessageSink,
+        cancellable = true,
     ): Promise<AnalysisResultWithError[]> {
         return this.host.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
                 title: titleOverride ?? `Analyzing ${filePaths.length} files with wandas`,
-                cancellable: true,
+                cancellable,
             },
             async (progress, token) => {
                 const results: AnalysisResultWithError[] = [];

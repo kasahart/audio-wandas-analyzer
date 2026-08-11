@@ -66,6 +66,7 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     assert.doesNotMatch(script, /calibration-reload/);
     assert.doesNotMatch(script, /stopImmediatePropagation/);
     assert.match(script, /__AWA_ACTIVE_TRACKS__/);
+    assert.match(script, /reason: 'calibration'/);
 });
 
 test('ComparisonPanel result ownership follows accepted in-place reanalysis', () => {

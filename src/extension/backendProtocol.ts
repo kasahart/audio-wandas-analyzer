@@ -164,6 +164,30 @@ function isOptionalString(value: unknown): value is string | undefined {
     return value === undefined || typeof value === 'string';
 }
 
+function isOptionalFiniteNumber(value: unknown): value is number | undefined {
+    return value === undefined || isFiniteNumber(value);
+}
+
+function isOptionalBoolean(value: unknown): value is boolean | undefined {
+    return value === undefined || typeof value === 'boolean';
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+    return isInteger(value) && value >= 0;
+}
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+    return isFiniteNumber(value) && value > 0;
+}
+
+function isCalibrationStatus(value: unknown): boolean {
+    return value === 'uncalibrated' || value === 'calibrated';
+}
+
+function isCalibrationSource(value: unknown): boolean {
+    return value === 'default' || value === 'manual' || value === 'derived' || value === 'embedded';
+}
+
 function isFiniteNumberArray(value: unknown): value is number[] {
     return Array.isArray(value) && value.every(isFiniteNumber);
 }
@@ -171,7 +195,41 @@ function isFiniteNumberArray(value: unknown): value is number[] {
 function isDbScaleMetadata(value: unknown): value is DbScaleMetadata {
     return isJsonObject(value)
         && typeof value['unit'] === 'string'
-        && typeof value['axisLabel'] === 'string';
+        && typeof value['axisLabel'] === 'string'
+        && (value['referenceValue'] === undefined || isPositiveFiniteNumber(value['referenceValue']))
+        && isOptionalString(value['referenceUnit'])
+        && isOptionalString(value['levelReferenceLabel']);
+}
+
+function isCalibrationProfile(value: unknown): value is CalibrationProfile {
+    return isJsonObject(value)
+        && value['schemaVersion'] === 1
+        && Array.isArray(value['channels'])
+        && value['channels'].every((channel) => isJsonObject(channel)
+            && isNonNegativeInteger(channel['channelIndex'])
+            && typeof channel['expectedLabel'] === 'string'
+            && isCalibrationStatus(channel['status'])
+            && isCalibrationSource(channel['source'])
+            && isPositiveFiniteNumber(channel['factor'])
+            && typeof channel['unit'] === 'string'
+            && isPositiveFiniteNumber(channel['referenceValue']));
+}
+
+function isChannelMeasurementContext(value: unknown): boolean {
+    return isJsonObject(value)
+        && isCalibrationStatus(value['calibrationStatus'])
+        && isCalibrationSource(value['calibrationSource'])
+        && isPositiveFiniteNumber(value['factor'])
+        && typeof value['linearUnit'] === 'string'
+        && isPositiveFiniteNumber(value['referenceValue'])
+        && typeof value['referenceUnit'] === 'string'
+        && typeof value['levelUnit'] === 'string'
+        && typeof value['levelReferenceLabel'] === 'string';
+}
+
+function hasCalibrationResultMetadata(value: { [key: string]: unknown }): boolean {
+    return isOptionalString(value['calibrationSignature'])
+        && (value['analysisRevision'] === undefined || isNonNegativeInteger(value['analysisRevision']));
 }
 
 function isAnalysisUnits(value: unknown): value is AnalysisUnits {
@@ -213,6 +271,9 @@ function isSpectrogramData(value: unknown): value is SpectrogramData {
         && isFiniteNumber(value['maxDb'])
         && isOptionalString(value['unit'])
         && isOptionalString(value['axisLabel'])
+        && (value['referenceValue'] === undefined || isPositiveFiniteNumber(value['referenceValue']))
+        && isOptionalString(value['referenceUnit'])
+        && isOptionalString(value['levelReferenceLabel'])
         && value['values'].length === value['timeBins']
         && value['values'].every((row) => row.length === value['frequencyBins']);
 }
@@ -226,7 +287,9 @@ function isFrequencyPeak(value: unknown): boolean {
 function isSpectrumPeak(value: unknown): boolean {
     return isJsonObject(value)
         && isFiniteNumber(value['freqHz'])
-        && isFiniteNumber(value['amplitudeDb']);
+        && isFiniteNumber(value['amplitudeDb'])
+        && isOptionalFiniteNumber(value['magnitude'])
+        && isOptionalFiniteNumber(value['levelDb']);
 }
 
 function isChannelSummary(value: unknown): value is ChannelSummary {
@@ -238,6 +301,13 @@ function isChannelSummary(value: unknown): value is ChannelSummary {
         || !Array.isArray(value['dominantFrequencies'])
         || !value['dominantFrequencies'].every(isFrequencyPeak)
         || !isWaveformEnvelope(value['waveform'])) {
+        return false;
+    }
+    if ((value['measurement'] !== undefined && !isChannelMeasurementContext(value['measurement']))
+        || !isOptionalFiniteNumber(value['rmsLevelDb'])
+        || !isOptionalFiniteNumber(value['peakLevelDb'])
+        || !isOptionalFiniteNumber(value['rawPeakFullScale'])
+        || !isOptionalBoolean(value['clipped'])) {
         return false;
     }
     if (value['peaks'] !== undefined
@@ -260,6 +330,9 @@ function isAnalysisResult(value: unknown): value is AnalysisResult {
         return false;
     }
     return value['channels'].length === value['channelCount']
+        && (value['schemaVersion'] === undefined || value['schemaVersion'] === 2)
+        && hasCalibrationResultMetadata(value)
+        && (value['calibrationProfile'] === undefined || isCalibrationProfile(value['calibrationProfile']))
         && (value['units'] === undefined || isAnalysisUnits(value['units']));
 }
 
@@ -268,7 +341,8 @@ function isRangeResult(value: unknown): value is RangeResult {
         && isFiniteNumber(value['startNorm'])
         && isFiniteNumber(value['endNorm'])
         && Array.isArray(value['channels'])
-        && value['channels'].every(isWaveformEnvelope);
+        && value['channels'].every(isWaveformEnvelope)
+        && hasCalibrationResultMetadata(value);
 }
 
 function isTrackDetailResult(value: unknown): value is TrackDetailResult {
@@ -278,7 +352,8 @@ function isTrackDetailResult(value: unknown): value is TrackDetailResult {
         && typeof value['settingsSignature'] === 'string'
         && typeof value['filePath'] === 'string'
         && Array.isArray(value['channels'])
-        && value['channels'].every(isChannelSummary);
+        && value['channels'].every(isChannelSummary)
+        && hasCalibrationResultMetadata(value);
 }
 
 function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
@@ -295,6 +370,10 @@ function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
         && isFiniteNumber(value['maxDb'])
         && isOptionalString(value['unit'])
         && isOptionalString(value['axisLabel'])
+        && (value['referenceValue'] === undefined || isPositiveFiniteNumber(value['referenceValue']))
+        && isOptionalString(value['referenceUnit'])
+        && isOptionalString(value['levelReferenceLabel'])
+        && hasCalibrationResultMetadata(value)
         && value['values'].length === value['frequencyBins'];
 }
 

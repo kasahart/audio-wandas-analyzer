@@ -8,7 +8,7 @@ test('parsePanelMessage returns discriminated messages for controller dispatch',
         { type: 'analyze-selected-files', requestId: 'r1', filePaths: ['/tmp/a.wav'] },
         { type: 'select-python-environment' },
         { type: 'select-target', targetKind: 'directory' },
-        { type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS },
+        { type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS, reason: 'calibration' },
         { type: 'update-spectrogram-settings', settings: DEFAULT_SPECTROGRAM_SETTINGS },
         {
             type: 'request-waveform-range',
@@ -65,5 +65,14 @@ test('parsePanelMessage rejects malformed and unknown messages', () => {
     assert.equal(parsePanelMessage(null), undefined);
     assert.equal(parsePanelMessage({ type: 'select-target', targetKind: 'other' }), undefined);
     assert.equal(parsePanelMessage({ type: 'show-info', message: 1 }), undefined);
+    assert.equal(parsePanelMessage({
+        type: 'request-reanalyze',
+        settings: DEFAULT_SPECTROGRAM_SETTINGS,
+        reason: 'unknown',
+    }), undefined);
+    assert.equal(parsePanelMessage({
+        type: 'request-reanalyze',
+        settings: { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: 'yes' },
+    }), undefined);
     assert.equal(parsePanelMessage({ type: 'unknown' }), undefined);
 });
