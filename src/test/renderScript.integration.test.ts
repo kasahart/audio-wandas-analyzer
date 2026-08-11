@@ -3291,6 +3291,22 @@ function requestSpectrumSnapshot(env: ReturnType<typeof setupEnv>, actionId: str
     }));
 }
 
+test('spectrum overlay preserves a compatible calibrated level unit', async () => {
+    const state = JSON.parse(DUMMY_APP_STATE);
+    state.results = state.results.slice(0, 1);
+    state.results[0].channels[0].spectrogram.unit = 'dB SPL';
+    state.results[0].channels[0].spectrogram.axisLabel = 'Spectrum amplitude level [dB SPL re 20 µPa]';
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    requestSpectrumSnapshot(env, 'calibrated-overlay-unit');
+    await nextAnimationFrame(env.dom);
+
+    const labels = latestSpectrumOverlayLabels(env);
+    assert.ok(labels?.slice(0, 3).every((label) => label.endsWith('dB SPL')), JSON.stringify(labels));
+    env.dom.window.close();
+});
+
 test('spectrum overlay: Y軸(dB) dblclick → popover が開き dB レンジを適用できる', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);

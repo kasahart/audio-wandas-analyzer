@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
-import type { AnalysisResultWithError, SpectrogramSettings } from '../shared/analysis/analysisTypes';
+import type {
+    AnalysisResultWithError,
+    CalibrationProfile,
+    SpectrogramSettings,
+} from '../shared/analysis/analysisTypes';
 import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import { PythonBackendServer } from './pythonBackendServer';
@@ -127,6 +131,22 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
     const requestTrackDetail = prototype.requestTrackDetail;
     const requestSpectrumSlice = prototype.requestSpectrumSlice;
 
+    function requestCalibration(
+        filePath: string,
+        request: { analysisRevision?: number; calibrationProfile?: CalibrationProfile },
+    ) {
+        if (request.analysisRevision !== undefined) {
+            return {
+                calibrationProfile: request.calibrationProfile,
+                analysisRevision: request.analysisRevision,
+            };
+        }
+        return {
+            calibrationProfile: getCalibrationProfile(extensionContext, filePath),
+            analysisRevision: getAnalysisRevision(filePath),
+        };
+    }
+
     prototype.analyze = async function(filePath, options) {
         const calibrationProfile = getCalibrationProfile(extensionContext, filePath);
         try {
@@ -136,7 +156,9 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
                 analysisRevision: getAnalysisRevision(filePath),
             });
         } catch (error) {
-            const discarded = await discardStaleCalibrationProfile(extensionContext, filePath, error);
+            const discarded = calibrationProfile
+                ? await discardStaleCalibrationProfile(extensionContext, filePath, error, calibrationProfile)
+                : false;
             if (!discarded) {
                 throw error;
             }
@@ -157,23 +179,20 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
             requestId,
             {
                 ...calibration,
-                calibrationProfile: getCalibrationProfile(extensionContext, filePath),
-                analysisRevision: getAnalysisRevision(filePath),
+                ...requestCalibration(filePath, calibration),
             },
         );
     };
     prototype.requestTrackDetail = function(filePath, payload, requestId) {
         return requestTrackDetail.call(this, filePath, {
             ...payload,
-            calibrationProfile: getCalibrationProfile(extensionContext, filePath),
-            analysisRevision: getAnalysisRevision(filePath),
+            ...requestCalibration(filePath, payload),
         }, requestId);
     };
     prototype.requestSpectrumSlice = function(filePath, payload, requestId) {
         return requestSpectrumSlice.call(this, filePath, {
             ...payload,
-            calibrationProfile: getCalibrationProfile(extensionContext, filePath),
-            analysisRevision: getAnalysisRevision(filePath),
+            ...requestCalibration(filePath, payload),
         }, requestId);
     };
 }

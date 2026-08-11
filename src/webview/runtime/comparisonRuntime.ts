@@ -3570,7 +3570,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function exportPng() {
         const wrapper = document.getElementById('tracks-wrapper');
         const canvases: RuntimeElement[] = wrapper
-            ? Array.from(wrapper.querySelectorAll('canvas:not(.track-axis-canvas)')).filter(function (c) { return c.offsetParent !== null; })
+            ? Array.from(wrapper.querySelectorAll('canvas:not(.track-axis-canvas)')).filter(function (c) {
+                return c.offsetParent !== null && c.getAttribute('data-calibration-hidden') !== 'true';
+            })
             : [];
         if (canvases.length === 0) {
             messaging.post({ type: 'show-info', message: STR.announceExportPngFailed || 'PNG export failed: no visible canvases' });
@@ -4995,7 +4997,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         _lastSpectrumMaxF = maxF;
         _lastVisDbMin = visDbMinO;
         _lastVisDbMax = visDbMaxO;
-        const sharedAxis = { values: [], frequencyBins: 1, maxFrequencyHz: maxF, minDb: visDbMinO, maxDb: visDbMaxO };
+        const commonSlice = slices[0].slice;
+        const sharedAxis = {
+            values: [],
+            frequencyBins: 1,
+            maxFrequencyHz: maxF,
+            minDb: visDbMinO,
+            maxDb: visDbMaxO,
+            unit: commonSlice.unit,
+            axisLabel: commonSlice.axisLabel,
+        };
         drawSpectrumAxes(ctx, W, H, sharedAxis, padL, padR, padT, padB, visFreqMinO, visFreqMaxO, visDbMinO, visDbMaxO);
         const plotW = W - padL - padR;
         const plotH = H - padT - padB;

@@ -15,6 +15,7 @@ const CALIBRATION_PROFILES_KEY = 'audioWandasAnalyzer.calibrationProfiles.v1';
 const analysisRevisions = new Map<string, number>();
 const calibrationChangeListeners = new Set<(event: CalibrationChangeEvent) => void>();
 const profileWriteQueues = new WeakMap<vscode.ExtensionContext, Promise<void>>();
+const PROFILE_UNCHANGED = Symbol('profile-unchanged');
 
 export interface CalibrationChangeEvent {
     filePath: string;
@@ -97,12 +98,36 @@ export async function discardStaleCalibrationProfile(
     context: vscode.ExtensionContext,
     filePath: string,
     error: unknown,
+    failedProfile: CalibrationProfile,
 ): Promise<boolean> {
-    if (!getCalibrationProfile(context, filePath) || !isStaleCalibrationProfileError(error)) {
+    if (!isStaleCalibrationProfileError(error)) {
         return false;
     }
-    await persistProfile(context, filePath, () => undefined);
-    return true;
+    let discarded = false;
+    await persistProfile(context, filePath, (current) => {
+        if (!current || !profilesEqual(current, failedProfile)) {
+            return PROFILE_UNCHANGED;
+        }
+        discarded = true;
+        return undefined;
+    });
+    return discarded;
+}
+
+function profilesEqual(left: CalibrationProfile, right: CalibrationProfile): boolean {
+    return left.schemaVersion === right.schemaVersion
+        && left.channels.length === right.channels.length
+        && left.channels.every((channel, index) => {
+            const other = right.channels[index];
+            return other !== undefined
+                && channel.channelIndex === other.channelIndex
+                && channel.expectedLabel === other.expectedLabel
+                && channel.status === other.status
+                && channel.source === other.source
+                && channel.factor === other.factor
+                && channel.unit === other.unit
+                && channel.referenceValue === other.referenceValue;
+        });
 }
 
 function bumpAnalysisRevision(canonicalPath: string): number {
@@ -114,7 +139,9 @@ function bumpAnalysisRevision(canonicalPath: string): number {
 async function persistProfile(
     context: vscode.ExtensionContext,
     filePath: string,
-    updateProfile: (current: CalibrationProfile | undefined) => CalibrationProfile | undefined,
+    updateProfile: (
+        current: CalibrationProfile | undefined,
+    ) => CalibrationProfile | undefined | typeof PROFILE_UNCHANGED,
 ): Promise<void> {
     const key = fileKey(filePath);
     const previous = profileWriteQueues.get(context) ?? Promise.resolve();
@@ -122,6 +149,7 @@ async function persistProfile(
         const next = { ...profiles(context) };
         const current = next[key] ? cloneProfile(next[key]) : undefined;
         const updated = updateProfile(current);
+        if (updated === PROFILE_UNCHANGED) { return; }
         if (updated) {
             next[key] = cloneProfile(updated);
         } else {

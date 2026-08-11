@@ -161,10 +161,12 @@ test('calibration profile writes serialize read-modify-write updates', async () 
             referenceValue: 2e-5,
         }],
     });
+    const firstProfile = profile('a');
+    const secondProfile = profile('b');
     const stored: Record<string, unknown> = {
         [storageKey]: {
-            [firstPath]: profile('a'),
-            [secondPath]: profile('b'),
+            [firstPath]: firstProfile,
+            [secondPath]: secondProfile,
         },
     };
     let releaseFirst: (() => void) | undefined;
@@ -187,11 +189,13 @@ test('calibration profile writes serialize read-modify-write updates', async () 
         context,
         firstPath,
         new Error('Calibration channel label mismatch'),
+        firstProfile,
     );
     const second = calibrationStore.discardStaleCalibrationProfile(
         context,
         secondPath,
         new Error('Calibration channel label mismatch'),
+        secondProfile,
     );
     await new Promise<void>((resolve) => { setImmediate(resolve); });
     assert.equal(updateCalls, 1);
@@ -251,6 +255,7 @@ test('stale persisted calibration is discarded and advances the analysis revisio
         context,
         filePath,
         new Error('Calibration channel label mismatch'),
+        profile,
     ), true);
     assert.equal(calibrationStore.getCalibrationProfile(context, filePath), undefined);
     assert.equal(calibrationStore.getAnalysisRevision(filePath), 1);
@@ -259,14 +264,27 @@ test('stale persisted calibration is discarded and advances the analysis revisio
         context,
         filePath,
         new Error('Calibration factor for channel 0 exceeds the safe limit 1e+24 for source peak 1e+10'),
+        profile,
     ), true);
-    stored[storageKey] = { [path.resolve(filePath)]: profile };
+    const replacementProfile = {
+        ...profile,
+        channels: [{ ...profile.channels[0], factor: 3 }],
+    };
+    stored[storageKey] = { [path.resolve(filePath)]: replacementProfile };
+    assert.equal(await calibrationStore.discardStaleCalibrationProfile(
+        context,
+        filePath,
+        new Error('Calibration factor for channel 0 exceeds the safe limit 1e+24 for source peak 1e+10'),
+        profile,
+    ), false);
+    assert.deepEqual(calibrationStore.getCalibrationProfile(context, filePath), replacementProfile);
     assert.equal(await calibrationStore.discardStaleCalibrationProfile(
         context,
         filePath,
         new Error('unrelated backend failure'),
+        replacementProfile,
     ), false);
-    assert.deepEqual(calibrationStore.getCalibrationProfile(context, filePath), profile);
+    assert.deepEqual(calibrationStore.getCalibrationProfile(context, filePath), replacementProfile);
 });
 
 test('calibration profile lookup uses the same real filesystem path as the backend', (context) => {

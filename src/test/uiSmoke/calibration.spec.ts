@@ -36,7 +36,26 @@ test('incompatible level references disable only the shared spectrum overlay', a
     await expect(warning).toBeVisible();
     await expect(warning).toContainText('incompatible level references');
     await expect(page.locator('#spectrum-overlay-canvas')).toHaveCSS('visibility', 'hidden');
+    await expect(page.locator('#spectrum-overlay-canvas')).toHaveAttribute('data-calibration-hidden', 'true');
     await expect(page.locator('.track-spectrum-canvas')).toHaveCount(2);
+
+    const exportedCanvasIds = await page.evaluate(async () => {
+        const prototype = CanvasRenderingContext2D.prototype as unknown as {
+            drawImage: (...args: unknown[]) => void;
+        };
+        const original = prototype.drawImage;
+        const ids: string[] = [];
+        prototype.drawImage = function(...args: unknown[]): void {
+            const source = args[0];
+            if (source instanceof HTMLCanvasElement) { ids.push(source.id); }
+            Reflect.apply(original, this, args);
+        };
+        document.querySelector<HTMLElement>('[data-action="export-png"]')?.click();
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        prototype.drawImage = original;
+        return ids;
+    });
+    expect(exportedCanvasIds).not.toContain('spectrum-overlay-canvas');
 });
 
 test('calibration controls post exact configuration messages', async ({ page }) => {

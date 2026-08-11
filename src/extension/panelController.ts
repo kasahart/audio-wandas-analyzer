@@ -22,6 +22,7 @@ import {
 } from '../shared/utils/directorySelection';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import type { AnalysisOrchestrator } from './analysisOrchestrator';
+import type { CalibrationRequestContext } from './backendProtocol';
 import {
     getAnalysisRevision,
     onDidChangeCalibration,
@@ -497,14 +498,17 @@ export class PanelController implements vscode.Disposable {
     }
 
     private handleWaveformRange(session: PanelSession<PanelHandle>, request: WaveformRangeRequest): void {
+        const calibration = this.displayedCalibration(session, request.filePath);
+        if (!calibration) { return; }
         void this.backend.requestRange(
             request.filePath,
             request.startNorm,
             request.endNorm,
             request.points,
             request.requestId,
+            calibration,
         ).then((result) => {
-            if (!this.canPostForFile(session, request.filePath)) { return; }
+            if (!this.canPostLazyResult(session, request.filePath, result.analysisRevision)) { return; }
             void session.postMessage({
                 type: 'waveform-range-result',
                 requestId: request.requestId,
@@ -517,6 +521,8 @@ export class PanelController implements vscode.Disposable {
     }
 
     private handleTrackDetail(session: PanelSession<PanelHandle>, request: TrackDetailRequest): void {
+        const calibration = this.displayedCalibration(session, request.filePath);
+        if (!calibration) { return; }
         void this.backend.requestTrackDetail(
             request.filePath,
             {
@@ -524,10 +530,11 @@ export class PanelController implements vscode.Disposable {
                 analysisId: request.analysisId,
                 settingsSignature: request.settingsSignature,
                 stftOptions: loadPersistedStftOptions(this.context),
+                ...calibration,
             },
             request.requestId,
         ).then((result) => {
-            if (!this.canPostForFile(session, request.filePath)) { return; }
+            if (!this.canPostLazyResult(session, request.filePath, result.analysisRevision)) { return; }
             void session.postMessage({
                 type: 'track-detail-result',
                 requestId: request.requestId,
@@ -538,7 +545,7 @@ export class PanelController implements vscode.Disposable {
                 channels: result.channels,
             });
         }).catch((error) => {
-            if (!this.canPostForFile(session, request.filePath)) { return; }
+            if (!this.canPostLazyResult(session, request.filePath, calibration.analysisRevision)) { return; }
             void session.postMessage({
                 type: 'track-detail-error',
                 requestId: request.requestId,
@@ -552,6 +559,8 @@ export class PanelController implements vscode.Disposable {
     }
 
     private handleSpectrumSlice(session: PanelSession<PanelHandle>, request: SpectrumSliceRequest): void {
+        const calibration = this.displayedCalibration(session, request.filePath);
+        if (!calibration) { return; }
         void this.backend.requestSpectrumSlice(
             request.filePath,
             {
@@ -561,10 +570,11 @@ export class PanelController implements vscode.Disposable {
                 cursorNorm: request.cursorNorm,
                 channelIndex: request.channelIndex,
                 stftOptions: loadPersistedStftOptions(this.context),
+                ...calibration,
             },
             request.requestId,
         ).then((result) => {
-            if (!this.canPostForFile(session, request.filePath)) { return; }
+            if (!this.canPostLazyResult(session, request.filePath, result.analysisRevision)) { return; }
             void session.postMessage({
                 type: 'spectrum-slice-result',
                 requestId: request.requestId,
@@ -582,7 +592,7 @@ export class PanelController implements vscode.Disposable {
                 axisLabel: result.axisLabel,
             });
         }).catch((error) => {
-            if (!this.canPostForFile(session, request.filePath)) { return; }
+            if (!this.canPostLazyResult(session, request.filePath, calibration.analysisRevision)) { return; }
             void session.postMessage({
                 type: 'spectrum-slice-error',
                 requestId: request.requestId,
@@ -626,5 +636,28 @@ export class PanelController implements vscode.Disposable {
 
     private canPostForFile(session: PanelSession<PanelHandle>, filePath: string): boolean {
         return !session.isDisposed && session.getActiveFilePaths().includes(filePath);
+    }
+
+    private displayedCalibration(
+        session: PanelSession<PanelHandle>,
+        filePath: string,
+    ): CalibrationRequestContext | undefined {
+        if (!this.canPostForFile(session, filePath)) { return undefined; }
+        const displayed = ComparisonPanel.getResults(session.panel).find((result) => result.filePath === filePath);
+        if (!displayed) { return undefined; }
+        return {
+            calibrationProfile: displayed.calibrationProfile,
+            analysisRevision: displayed.analysisRevision ?? 0,
+        };
+    }
+
+    private canPostLazyResult(
+        session: PanelSession<PanelHandle>,
+        filePath: string,
+        analysisRevision: number | undefined,
+    ): boolean {
+        const displayed = this.displayedCalibration(session, filePath);
+        return displayed !== undefined
+            && displayed.analysisRevision === (analysisRevision ?? 0);
     }
 }

@@ -219,6 +219,7 @@ export function getCalibrationRenderScript(): string {
                 if (!wrap || !canvas) { return; }
                 let warning = wrap.querySelector('.calibration-overlay-warning');
                 const incompatible = visibleLevelReferences().length > 1;
+                canvas.setAttribute('data-calibration-hidden', incompatible ? 'true' : 'false');
                 if (canvas.style.visibility !== (incompatible ? 'hidden' : '')) {
                     canvas.style.visibility = incompatible ? 'hidden' : '';
                 }

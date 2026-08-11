@@ -72,7 +72,20 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     const calibratedPath = '/tmp/controller-calibrated.wav';
     const retainedPath = '/tmp/controller-retained.wav';
     const racingPath = '/tmp/controller-racing.wav';
+    const calibrationProfile = {
+        schemaVersion: 1 as const,
+        channels: [{
+            channelIndex: 0,
+            expectedLabel: 'input',
+            status: 'calibrated' as const,
+            source: 'manual' as const,
+            factor: 2,
+            unit: 'Pa',
+            referenceValue: 2e-5,
+        }],
+    };
     const initialResults = [result(calibratedPath, 0, 0.1), result(retainedPath, 0, 0.2)];
+    initialResults[0].calibrationProfile = calibrationProfile;
     const refreshed = result(calibratedPath, 1, 0.8);
     const calls: Array<{
         filePaths: string[];
@@ -84,6 +97,9 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     let markRacingStarted: (() => void) | undefined;
     const racingStarted = new Promise<void>((resolve) => { markRacingStarted = resolve; });
     const racingGate = new Promise<void>((resolve) => { resolveRacingAnalysis = resolve; });
+    let holdCalibrationRefresh = false;
+    let releaseCalibrationRefresh: (() => void) | undefined;
+    const calibrationRefreshGate = new Promise<void>((resolve) => { releaseCalibrationRefresh = resolve; });
     const analyzeFiles: AnalysisOrchestrator['analyzeFiles'] = async (
         filePaths,
         _stftOptions,
@@ -101,11 +117,16 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
             }
             return [result(racingPath, calibrationStore.getAnalysisRevision(racingPath), 0.7)];
         }
-        return filePaths.length === 1 ? [refreshed] : multiResults;
+        if (filePaths.length === 1) {
+            if (holdCalibrationRefresh) { await calibrationRefreshGate; }
+            return [refreshed];
+        }
+        return multiResults;
     };
 
     let receiveMessage: ((message: unknown) => unknown) | undefined;
     let resolveAnalysisUpdate: ((message: { results: AnalysisResultWithError[] }) => void) | undefined;
+    let resolveWaveformResult: ((message: unknown) => void) | undefined;
     const nextAnalysisUpdate = (): Promise<{ results: AnalysisResultWithError[] }> => new Promise((resolve) => {
         resolveAnalysisUpdate = resolve;
     });
@@ -120,6 +141,11 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
                     && (message as { type?: unknown }).type === 'analysis-update') {
                     resolveAnalysisUpdate?.(message as { results: AnalysisResultWithError[] });
                     resolveAnalysisUpdate = undefined;
+                }
+                if (message && typeof message === 'object'
+                    && (message as { type?: unknown }).type === 'waveform-range-result') {
+                    resolveWaveformResult?.(message);
+                    resolveWaveformResult = undefined;
                 }
                 return true;
             },
@@ -136,18 +162,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     const calibrationProfilesKey = 'audioWandasAnalyzer.calibrationProfiles.v1';
     const workspaceValues: Record<string, unknown> = {
         [calibrationProfilesKey]: {
-            [calibratedPath]: {
-                schemaVersion: 1,
-                channels: [{
-                    channelIndex: 0,
-                    expectedLabel: 'input',
-                    status: 'calibrated',
-                    source: 'manual',
-                    factor: 2,
-                    unit: 'Pa',
-                    referenceValue: 2e-5,
-                }],
-            },
+            [calibratedPath]: calibrationProfile,
             [racingPath]: {
                 schemaVersion: 1,
                 channels: [{
@@ -183,9 +198,28 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
         onPythonEnvironmentChange: () => ({ dispose: () => undefined }),
     };
+    let lazyCalibration: import('../extension/backendProtocol').CalibrationRequestContext | undefined;
+    const backend = {
+        requestRange: async (
+            _filePath: string,
+            startNorm: number,
+            endNorm: number,
+            _points: number,
+            _requestId?: string,
+            calibration?: import('../extension/backendProtocol').CalibrationRequestContext,
+        ) => {
+            lazyCalibration = calibration;
+            return {
+                startNorm,
+                endNorm,
+                channels: [],
+                analysisRevision: calibration?.analysisRevision,
+            };
+        },
+    } as unknown as PanelBackend;
     const controller = new PanelController(
         context,
-        {} as PanelBackend,
+        backend,
         { analyzeFiles, warmup: () => undefined },
         {} as ExportFlows,
         panelFactory,
@@ -194,12 +228,33 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
 
     await controller.analyzeFiles([calibratedPath, retainedPath]);
     assert.ok(receiveMessage);
+    holdCalibrationRefresh = true;
     const refreshUpdate = nextAnalysisUpdate();
+    const failedCalibratedProfile = calibrationStore.getCalibrationProfile(
+        context as unknown as vscode.ExtensionContext,
+        calibratedPath,
+    );
+    assert.ok(failedCalibratedProfile);
     await calibrationStore.discardStaleCalibrationProfile(
         context as unknown as vscode.ExtensionContext,
         calibratedPath,
         new Error('Calibration channel label mismatch'),
+        failedCalibratedProfile,
     );
+    const waveformResult = new Promise<unknown>((resolve) => { resolveWaveformResult = resolve; });
+    receiveMessage({
+        type: 'request-waveform-range',
+        requestId: 'range-old-revision',
+        trackIndex: 0,
+        filePath: calibratedPath,
+        startNorm: 0,
+        endNorm: 1,
+        points: 100,
+    });
+    await waveformResult;
+    assert.equal(lazyCalibration?.analysisRevision, 0);
+    assert.deepEqual(lazyCalibration?.calibrationProfile, calibrationProfile);
+    releaseCalibrationRefresh?.();
     const update = await refreshUpdate;
 
     assert.deepEqual(calls, [
@@ -235,10 +290,16 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
 
     const racingAnalysis = controller.analyzeFiles([racingPath]);
     await racingStarted;
+    const failedRacingProfile = calibrationStore.getCalibrationProfile(
+        context as unknown as vscode.ExtensionContext,
+        racingPath,
+    );
+    assert.ok(failedRacingProfile);
     await calibrationStore.discardStaleCalibrationProfile(
         context as unknown as vscode.ExtensionContext,
         racingPath,
         new Error('Calibration channel label mismatch'),
+        failedRacingProfile,
     );
     resolveRacingAnalysis?.();
     await racingAnalysis;
