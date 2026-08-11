@@ -128,6 +128,29 @@ def test_calibration_values_are_bounded_before_wandas_analysis(
         )
 
 
+def test_calibration_factor_is_bounded_by_source_peak() -> None:
+    source = wd.from_numpy(
+        np.array([[1e10, -1e10]], dtype=np.float64),
+        sampling_rate=8_000,
+        ch_labels=["input"],
+    )
+
+    resolve_calibration_profile(_profile(["input"], [1e24], ["Pa"], [1.0]), source)
+    with pytest.raises(ValueError, match="safe limit.*source peak"):
+        resolve_calibration_profile(_profile(["input"], [1.1e24], ["Pa"], [1.0]), source)
+
+
+def test_calibration_rejects_non_finite_source_samples() -> None:
+    source = wd.from_numpy(
+        np.array([[0.0, np.inf]], dtype=np.float64),
+        sampling_rate=8_000,
+        ch_labels=["input"],
+    )
+
+    with pytest.raises(ValueError, match="contains non-finite samples"):
+        resolve_calibration_profile(_profile(["input"], [1.0], ["Pa"], [1.0]), source)
+
+
 def test_mixed_level_references_omit_aggregate_units() -> None:
     source = wd.from_numpy(
         np.array([[0.25, -0.25], [0.5, -0.5]], dtype=np.float64),

@@ -7,6 +7,7 @@ import numbers
 from dataclasses import dataclass
 from typing import Literal
 
+import numpy as np
 import wandas as wd
 
 CalibrationStatus = Literal["uncalibrated", "calibrated"]
@@ -14,9 +15,10 @@ CalibrationSource = Literal["default", "manual", "derived", "embedded"]
 
 _ALLOWED_STATUSES = frozenset({"uncalibrated", "calibrated"})
 _ALLOWED_SOURCES = frozenset({"default", "manual", "derived", "embedded"})
-# Leave headroom for RMS squaring and factor/reference ratios in IEEE-754 calculations.
 _MIN_SAFE_CALIBRATION_VALUE = 1e-150
 _MAX_SAFE_CALIBRATION_VALUE = 1e150
+# The largest supported STFT has 16384 samples and is cached as complex64.
+_MAX_SAFE_CALIBRATED_SAMPLE = 1e34
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +97,30 @@ def _identity_channel(index: int, label: str) -> ResolvedChannelCalibration:
     )
 
 
+def _validate_factor_for_source(
+    factor: float,
+    channel_index: int,
+    source_peak: float,
+) -> None:
+    if not math.isfinite(source_peak):
+        raise ValueError(f"Source channel {channel_index} contains non-finite samples")
+    if source_peak == 0.0:
+        return
+    maximum = min(_MAX_SAFE_CALIBRATION_VALUE, _MAX_SAFE_CALIBRATED_SAMPLE / source_peak)
+    if factor > maximum:
+        raise ValueError(
+            f"Calibration factor for channel {channel_index} exceeds the safe limit "
+            f"{maximum:.6g} for source peak {source_peak:.6g}"
+        )
+
+
+def source_channel_peaks(frame: wd.ChannelFrame) -> tuple[float, ...]:
+    return tuple(
+        float(np.max(np.abs(np.asarray(frame[index].data, dtype=np.float64)), initial=0.0))
+        for index in range(int(frame.n_channels))
+    )
+
+
 def _signature(profile_payload: dict[str, object]) -> str:
     canonical = json.dumps(profile_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -103,6 +129,8 @@ def _signature(profile_payload: dict[str, object]) -> str:
 def resolve_calibration_profile(
     payload: object,
     frame: wd.ChannelFrame,
+    *,
+    source_peaks: tuple[float, ...] | None = None,
 ) -> ResolvedCalibrationProfile:
     labels = [str(label) for label in frame.labels]
     if payload is None:
@@ -123,6 +151,9 @@ def resolve_calibration_profile(
             f"  Got: {len(raw_channels)} channels\n"
             f"  Expected: {len(labels)} channels"
         )
+    peaks = (
+        source_peaks if source_peaks is not None and len(source_peaks) == len(labels) else source_channel_peaks(frame)
+    )
 
     resolved_by_index: dict[int, ResolvedChannelCalibration] = {}
     for raw in raw_channels:
@@ -159,6 +190,7 @@ def resolve_calibration_profile(
             continue
 
         factor = _finite_positive(raw.get("factor"), name="Calibration factor")
+        _validate_factor_for_source(factor, index, peaks[index])
         unit = raw.get("unit")
         if not isinstance(unit, str):
             raise TypeError("Calibration unit must be a string")
@@ -249,4 +281,5 @@ __all__ = [
     "level_scale_metadata",
     "measurement_metadata",
     "resolve_calibration_profile",
+    "source_channel_peaks",
 ]

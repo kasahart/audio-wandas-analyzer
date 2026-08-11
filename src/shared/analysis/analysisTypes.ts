@@ -28,9 +28,12 @@ export interface AnalysisUnits {
 export type CalibrationStatus = 'uncalibrated' | 'calibrated';
 export type CalibrationSource = 'default' | 'manual' | 'derived' | 'embedded';
 
-// Leaves headroom for RMS squaring and factor/reference ratios in IEEE-754 calculations.
+// Profile scalars must remain finite through persistence and IPC. The backend also
+// constrains factor against each source channel before applying calibration.
 export const MIN_SAFE_CALIBRATION_VALUE = 1e-150;
 export const MAX_SAFE_CALIBRATION_VALUE = 1e150;
+// Keeps a 16384-point STFT below the float32 range used by the spectrogram cache.
+export const MAX_SAFE_CALIBRATED_SAMPLE = 1e34;
 
 export function isSafeCalibrationValue(value: unknown): value is number {
     return typeof value === 'number'

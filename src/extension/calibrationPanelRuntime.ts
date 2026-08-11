@@ -22,6 +22,7 @@ function channelDescriptors(result: AnalysisResultWithError): CalibrationChannel
         channelIndex,
         label: channel.label || `Channel ${channelIndex + 1}`,
         measurement: channel.measurement,
+        rawPeakFullScale: channel.rawPeakFullScale,
     }));
 }
 

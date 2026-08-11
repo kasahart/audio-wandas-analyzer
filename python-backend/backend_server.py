@@ -227,7 +227,7 @@ def main(service: AnalysisService | None = None) -> None:
             result = dispatch(command, active_service)
             name = command.get("cmd")
             _perf(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
-            print(json.dumps({**result, "requestId": request_id}, ensure_ascii=False), flush=True)
+            print(json.dumps({**result, "requestId": request_id}, ensure_ascii=False, allow_nan=False), flush=True)
         except Exception as error:
             print(json.dumps({"requestId": request_id, "error": str(error)}), flush=True)
 

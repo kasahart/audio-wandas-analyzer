@@ -126,18 +126,80 @@ test('calibration inputs reject values that can overflow or underflow analysis',
         return originalLoad.call(this, request, parent, isMain);
     };
 
-    let validateCalibrationValueInput: typeof import('../extension/calibrationStore').validateCalibrationValueInput;
+    let calibrationStore: typeof import('../extension/calibrationStore');
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        validateCalibrationValueInput = require('../extension/calibrationStore').validateCalibrationValueInput;
+        calibrationStore = require('../extension/calibrationStore');
     } finally {
         NodeModule._load = originalLoad;
     }
 
+    const { validateCalibrationFactorInput, validateCalibrationValueInput } = calibrationStore;
     assert.equal(validateCalibrationValueInput('1e-150'), undefined);
     assert.equal(validateCalibrationValueInput('1e150'), undefined);
     assert.match(validateCalibrationValueInput('1e-151') ?? '', /1e-150/);
     assert.match(validateCalibrationValueInput('1e151') ?? '', /1e150/);
+    assert.equal(validateCalibrationFactorInput('1e24', 1e10), undefined);
+    assert.match(validateCalibrationFactorInput('1.1e24', 1e10) ?? '', /source peak/);
+});
+
+test('calibration profile writes serialize read-modify-write updates', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const calibrationStore = require('../extension/calibrationStore') as typeof import('../extension/calibrationStore');
+    const storageKey = 'audioWandasAnalyzer.calibrationProfiles.v1';
+    const firstPath = path.resolve('/tmp/concurrent-a.wav');
+    const secondPath = path.resolve('/tmp/concurrent-b.wav');
+    const profile = (label: string) => ({
+        schemaVersion: 1 as const,
+        channels: [{
+            channelIndex: 0,
+            expectedLabel: label,
+            status: 'calibrated' as const,
+            source: 'manual' as const,
+            factor: 2,
+            unit: 'Pa',
+            referenceValue: 2e-5,
+        }],
+    });
+    const stored: Record<string, unknown> = {
+        [storageKey]: {
+            [firstPath]: profile('a'),
+            [secondPath]: profile('b'),
+        },
+    };
+    let releaseFirst: (() => void) | undefined;
+    const firstWriteGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let updateCalls = 0;
+    const context = {
+        workspaceState: {
+            get: <T>(key: string, fallback: T): T => (stored[key] as T | undefined) ?? fallback,
+            update: async (key: string, value: unknown): Promise<void> => {
+                updateCalls += 1;
+                if (updateCalls === 1) {
+                    await firstWriteGate;
+                }
+                stored[key] = value;
+            },
+        },
+    } as unknown as import('vscode').ExtensionContext;
+
+    const first = calibrationStore.discardMismatchedCalibrationProfile(
+        context,
+        firstPath,
+        new Error('Calibration channel label mismatch'),
+    );
+    const second = calibrationStore.discardMismatchedCalibrationProfile(
+        context,
+        secondPath,
+        new Error('Calibration channel label mismatch'),
+    );
+    await new Promise<void>((resolve) => { setImmediate(resolve); });
+    assert.equal(updateCalls, 1);
+    releaseFirst?.();
+    await Promise.all([first, second]);
+
+    assert.equal(updateCalls, 2);
+    assert.deepEqual(stored[storageKey], {});
 });
 
 test('mismatched persisted calibration is discarded and advances the analysis revision', async () => {

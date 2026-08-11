@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import wandas as wd
 
-from calibration_profile import ResolvedCalibrationProfile, resolve_calibration_profile
+from calibration_profile import ResolvedCalibrationProfile, resolve_calibration_profile, source_channel_peaks
 
 StftKey = tuple[str, int, int, str]
 AUDIO_CACHE_DTYPE = np.dtype("float32")
@@ -21,6 +21,7 @@ class CachedAnalysis:
     frame: wd.ChannelFrame
     identity: tuple[int, int]
     frame_nbytes: int
+    source_peaks: tuple[float, ...] = ()
     spectrograms: dict[StftKey, wd.SpectrogramFrame] = field(default_factory=dict)
     spectrogram_nbytes: dict[StftKey, int] = field(default_factory=dict)
 
@@ -52,6 +53,7 @@ class AnalysisEngine:
             frame=frame,
             identity=identity,
             frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
+            source_peaks=source_channel_peaks(frame),
         )
         self._files[path] = cached
         self._evict(path)
@@ -63,7 +65,11 @@ class AnalysisEngine:
         calibration_profile: object = None,
     ) -> tuple[CachedAnalysis, wd.ChannelFrame, ResolvedCalibrationProfile]:
         cached = self.get_file(file_path)
-        resolved = resolve_calibration_profile(calibration_profile, cached.frame)
+        resolved = resolve_calibration_profile(
+            calibration_profile,
+            cached.frame,
+            source_peaks=cached.source_peaks,
+        )
         return cached, resolved.apply(cached.frame), resolved
 
     def get_spectrogram(

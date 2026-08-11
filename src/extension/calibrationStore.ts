@@ -1,7 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { isSafeCalibrationValue } from '../shared/analysis/analysisTypes';
+import {
+    isSafeCalibrationValue,
+    MAX_SAFE_CALIBRATED_SAMPLE,
+} from '../shared/analysis/analysisTypes';
 import type {
     CalibrationProfile,
     ChannelCalibrationDefinition,
@@ -11,6 +14,7 @@ import type {
 const CALIBRATION_PROFILES_KEY = 'audioWandasAnalyzer.calibrationProfiles.v1';
 const analysisRevisions = new Map<string, number>();
 const calibrationChangeListeners = new Set<(event: CalibrationChangeEvent) => void>();
+const profileWriteQueues = new WeakMap<vscode.ExtensionContext, Promise<void>>();
 
 export interface CalibrationChangeEvent {
     filePath: string;
@@ -21,6 +25,7 @@ export interface CalibrationChannelDescriptor {
     channelIndex: number;
     label: string;
     measurement?: ChannelMeasurementContext;
+    rawPeakFullScale?: number;
 }
 
 function fileKey(filePath: string): string {
@@ -95,7 +100,7 @@ export async function discardMismatchedCalibrationProfile(
     if (!getCalibrationProfile(context, filePath) || !isProfileChannelMismatch(error)) {
         return false;
     }
-    await persistProfile(context, filePath, undefined);
+    await persistProfile(context, filePath, () => undefined);
     return true;
 }
 
@@ -108,19 +113,32 @@ function bumpAnalysisRevision(canonicalPath: string): number {
 async function persistProfile(
     context: vscode.ExtensionContext,
     filePath: string,
-    profile: CalibrationProfile | undefined,
+    updateProfile: (current: CalibrationProfile | undefined) => CalibrationProfile | undefined,
 ): Promise<void> {
-    const next = { ...profiles(context) };
     const key = fileKey(filePath);
-    if (profile) {
-        next[key] = cloneProfile(profile);
-    } else {
-        delete next[key];
-    }
-    await context.workspaceState.update(CALIBRATION_PROFILES_KEY, next);
-    const analysisRevision = bumpAnalysisRevision(key);
-    for (const listener of calibrationChangeListeners) {
-        listener({ filePath: key, analysisRevision });
+    const previous = profileWriteQueues.get(context) ?? Promise.resolve();
+    const operation = previous.catch(() => undefined).then(async () => {
+        const next = { ...profiles(context) };
+        const current = next[key] ? cloneProfile(next[key]) : undefined;
+        const updated = updateProfile(current);
+        if (updated) {
+            next[key] = cloneProfile(updated);
+        } else {
+            delete next[key];
+        }
+        await context.workspaceState.update(CALIBRATION_PROFILES_KEY, next);
+        const analysisRevision = bumpAnalysisRevision(key);
+        for (const listener of calibrationChangeListeners) {
+            listener({ filePath: key, analysisRevision });
+        }
+    });
+    profileWriteQueues.set(context, operation);
+    try {
+        await operation;
+    } finally {
+        if (profileWriteQueues.get(context) === operation) {
+            profileWriteQueues.delete(context);
+        }
     }
 }
 
@@ -129,6 +147,37 @@ export function validateCalibrationValueInput(value: string): string | undefined
     return isSafeCalibrationValue(numberValue)
         ? undefined
         : 'Enter a finite number from 1e-150 through 1e150.';
+}
+
+export function validateCalibrationFactorInput(
+    value: string,
+    rawPeakFullScale: number | undefined,
+): string | undefined {
+    const scalarError = validateCalibrationValueInput(value);
+    if (scalarError) {
+        return scalarError;
+    }
+    if (rawPeakFullScale === undefined || !Number.isFinite(rawPeakFullScale) || rawPeakFullScale <= 0) {
+        return undefined;
+    }
+    const maximum = MAX_SAFE_CALIBRATED_SAMPLE / rawPeakFullScale;
+    return Number(value) <= maximum
+        ? undefined
+        : `For this channel's source peak, enter ${maximum.toExponential(6)} or less.`;
+}
+
+async function persistChannel(
+    context: vscode.ExtensionContext,
+    filePath: string,
+    channels: CalibrationChannelDescriptor[],
+    channelIndex: number,
+    channel: ChannelCalibrationDefinition,
+): Promise<void> {
+    await persistProfile(context, filePath, (stored) => {
+        const latest = profileForChannels(stored, channels);
+        latest.channels[channelIndex] = channel;
+        return latest.channels.some((entry) => entry.status === 'calibrated') ? latest : undefined;
+    });
 }
 
 function profileForChannels(
@@ -191,7 +240,7 @@ export async function configureCalibrationProfile(
     }
 
     if (picked.value === resetAll) {
-        await persistProfile(context, filePath, undefined);
+        await persistProfile(context, filePath, () => undefined);
         void vscode.window.showInformationMessage(`Calibration reset to full scale: ${path.basename(filePath)}`);
         return true;
     }
@@ -224,9 +273,7 @@ export async function configureCalibrationProfile(
     }
 
     if (mode.value === 'uncalibrated') {
-        current.channels[channelIndex] = identityChannel(channel);
-        const hasCalibratedChannel = current.channels.some((entry) => entry.status === 'calibrated');
-        await persistProfile(context, filePath, hasCalibratedChannel ? current : undefined);
+        await persistChannel(context, filePath, channels, channelIndex, identityChannel(channel));
         return true;
     }
 
@@ -234,7 +281,7 @@ export async function configureCalibrationProfile(
         title: `Calibration factor — Channel ${channelIndex + 1}: ${channel.label}`,
         prompt: 'Physical value = raw full-scale sample × factor',
         value: existing.status === 'calibrated' ? String(existing.factor) : '1',
-        validateInput: validateCalibrationValueInput,
+        validateInput: (value) => validateCalibrationFactorInput(value, channel.rawPeakFullScale),
     });
     if (factor === undefined) {
         return false;
@@ -268,7 +315,7 @@ export async function configureCalibrationProfile(
         return false;
     }
 
-    current.channels[channelIndex] = {
+    await persistChannel(context, filePath, channels, channelIndex, {
         channelIndex,
         expectedLabel: channel.label,
         status: 'calibrated',
@@ -276,7 +323,6 @@ export async function configureCalibrationProfile(
         factor: Number(factor),
         unit: normalizedUnit,
         referenceValue: Number(referenceValue),
-    };
-    await persistProfile(context, filePath, current);
+    });
     return true;
 }
