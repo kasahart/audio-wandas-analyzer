@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import threading
@@ -19,6 +20,83 @@ _HEARTBEAT_INTERVAL: float = 5.0
 
 Command = dict[str, Any]
 CommandHandler = Callable[[AnalysisService, Command], dict[str, object]]
+FieldValidator = Callable[[object], bool]
+
+
+def _is_string(value: object) -> bool:
+    return isinstance(value, str)
+
+
+def _is_integer(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_finite_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+_REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
+    "analyze": {"filePath": _is_string, "peakCount": _is_integer},
+    "range": {
+        "filePath": _is_string,
+        "startNorm": _is_finite_number,
+        "endNorm": _is_finite_number,
+        "points": _is_integer,
+    },
+    "track-detail": {
+        "filePath": _is_string,
+        "trackIndex": _is_integer,
+        "analysisId": _is_string,
+        "settingsSignature": _is_string,
+    },
+    "release-track-detail": {"filePath": _is_string},
+    "spectrum-slice": {
+        "filePath": _is_string,
+        "trackIndex": _is_integer,
+        "channelIndex": _is_integer,
+        "analysisId": _is_string,
+        "settingsSignature": _is_string,
+        "cursorNorm": _is_finite_number,
+    },
+    "export-wav-loop": {
+        "filePath": _is_string,
+        "startNorm": _is_finite_number,
+        "endNorm": _is_finite_number,
+    },
+}
+
+
+def _validate_stft_options(value: object) -> None:
+    if not isinstance(value, dict):
+        raise ValueError("invalid request field 'stftOptions': expected object")
+    fields: dict[str, FieldValidator] = {
+        "nFft": _is_integer,
+        "hopSize": _is_integer,
+        "window": _is_string,
+    }
+    for key, validator in fields.items():
+        if key not in value or not validator(value[key]):
+            raise ValueError(f"invalid request field 'stftOptions.{key}'")
+
+
+def validate_request(value: object) -> Command:
+    if not isinstance(value, dict):
+        raise ValueError("request must be a JSON object")
+    request_id = value.get("requestId")
+    if not isinstance(request_id, str):
+        raise ValueError("invalid request field 'requestId'")
+    name = value.get("cmd")
+    if not isinstance(name, str):
+        raise ValueError("invalid request field 'cmd'")
+    fields = _REQUEST_FIELDS.get(name)
+    if fields is None:
+        raise ValueError(f"unknown cmd: {name!r}")
+    for key, validator in fields.items():
+        if key not in value or not validator(value[key]):
+            raise ValueError(f"invalid request field {key!r} for command {name!r}")
+    if "stftOptions" in value:
+        _validate_stft_options(value["stftOptions"])
+    return value
 
 
 def _perf(phase: str, started: float, **extra: object) -> None:
@@ -125,8 +203,10 @@ def main(service: AnalysisService | None = None) -> None:
             continue
         request_id = ""
         try:
-            command: Command = json.loads(line)
-            request_id = str(command.get("requestId", ""))
+            parsed: object = json.loads(line)
+            if isinstance(parsed, dict) and isinstance(parsed.get("requestId"), str):
+                request_id = parsed["requestId"]
+            command = validate_request(parsed)
             started = time.perf_counter()
             result = dispatch(command, active_service)
             name = command.get("cmd")
