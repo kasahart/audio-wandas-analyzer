@@ -1,4 +1,5 @@
 import type {
+    RequestCalibrationRefreshMessage,
     RequestReanalyzeMessage,
     UpdateSpectrogramSettingsMessage,
 } from '../shared/analysis/analysisTypes';
@@ -41,6 +42,7 @@ export type PanelMessage =
     | AnalyzeSelectedFilesMessage
     | SelectPythonEnvironmentMessage
     | SelectTargetMessage
+    | RequestCalibrationRefreshMessage
     | RequestReanalyzeMessage
     | UpdateSpectrogramSettingsMessage
     | WaveformRangeRequest
@@ -72,9 +74,12 @@ function isSpectrogramSettings(value: unknown): boolean {
         || (typeof candidate === 'number' && Number.isFinite(candidate));
     return typeof stftRecord['nFft'] === 'number'
         && Number.isInteger(stftRecord['nFft'])
+        && stftRecord['nFft'] > 0
         && typeof stftRecord['hopSize'] === 'number'
         && Number.isInteger(stftRecord['hopSize'])
-        && ['hann', 'hamming', 'blackman', 'boxcar'].includes(String(stftRecord['window']))
+        && stftRecord['hopSize'] > 0
+        && typeof stftRecord['window'] === 'string'
+        && ['hann', 'hamming', 'blackman', 'boxcar'].includes(stftRecord['window'])
         && nullableNumber(displayRecord['dbMin'])
         && nullableNumber(displayRecord['dbMax'])
         && nullableNumber(displayRecord['maxFrequencyHz']);
@@ -83,10 +88,17 @@ function isSpectrogramSettings(value: unknown): boolean {
 function isRequestReanalyzeMessage(value: unknown): value is RequestReanalyzeMessage {
     if (!hasType(value, 'request-reanalyze')) { return false; }
     const message = value as Record<string, unknown>;
-    return isSpectrogramSettings(message['settings'])
-        && (message['reason'] === undefined
-            || message['reason'] === 'settings'
-            || message['reason'] === 'calibration');
+    return isSpectrogramSettings(message['settings']) && message['reason'] === undefined;
+}
+
+function isRequestCalibrationRefreshMessage(value: unknown): value is RequestCalibrationRefreshMessage {
+    if (!hasType(value, 'request-calibration-refresh')) { return false; }
+    const message = value as Record<string, unknown>;
+    return typeof message['filePath'] === 'string'
+        && message['filePath'].length > 0
+        && typeof message['analysisRevision'] === 'number'
+        && Number.isInteger(message['analysisRevision'])
+        && message['analysisRevision'] >= 0;
 }
 
 function isUpdateSpectrogramSettingsMessage(value: unknown): value is UpdateSpectrogramSettingsMessage {
@@ -101,6 +113,8 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'analyze-selected-files': return isAnalyzeSelectedFilesMessage(value) ? value : undefined;
         case 'select-python-environment': return isSelectPythonEnvironmentMessage(value) ? value : undefined;
         case 'select-target': return isSelectTargetMessage(value) ? value : undefined;
+        case 'request-calibration-refresh':
+            return isRequestCalibrationRefreshMessage(value) ? value : undefined;
         case 'request-reanalyze': return isRequestReanalyzeMessage(value) ? value : undefined;
         case 'update-spectrogram-settings':
             return isUpdateSpectrogramSettingsMessage(value) ? value : undefined;

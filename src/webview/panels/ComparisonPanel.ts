@@ -103,6 +103,21 @@ export class ComparisonPanel {
         return ComparisonPanel.resultsByPanel.get(panel) ?? [];
     }
 
+    public static replaceResult(
+        panel: object,
+        replacement: AnalysisResultWithError,
+    ): AnalysisResultWithError[] | undefined {
+        const current = ComparisonPanel.resultsByPanel.get(panel);
+        if (!current?.some((result) => result.filePath === replacement.filePath)) {
+            return undefined;
+        }
+        const next = current.map((result) => (
+            result.filePath === replacement.filePath ? replacement : result
+        ));
+        ComparisonPanel.resultsByPanel.set(panel, next);
+        return [...next];
+    }
+
     public static show(
         extensionUri: vscode.Uri,
         results: AnalysisResultWithError[],

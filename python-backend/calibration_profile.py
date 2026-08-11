@@ -14,6 +14,9 @@ CalibrationSource = Literal["default", "manual", "derived", "embedded"]
 
 _ALLOWED_STATUSES = frozenset({"uncalibrated", "calibrated"})
 _ALLOWED_SOURCES = frozenset({"default", "manual", "derived", "embedded"})
+# Leave headroom for RMS squaring and factor/reference ratios in IEEE-754 calculations.
+_MIN_SAFE_CALIBRATION_VALUE = 1e-150
+_MAX_SAFE_CALIBRATION_VALUE = 1e150
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,8 +74,12 @@ def _finite_positive(value: object, *, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, numbers.Real):
         raise TypeError(f"{name} must be a positive finite number")
     normalized = float(value)
-    if not math.isfinite(normalized) or normalized <= 0.0:
-        raise ValueError(f"{name} must be a positive finite number")
+    if (
+        not math.isfinite(normalized)
+        or normalized < _MIN_SAFE_CALIBRATION_VALUE
+        or normalized > _MAX_SAFE_CALIBRATION_VALUE
+    ):
+        raise ValueError(f"{name} must be between 1e-150 and 1e150")
     return normalized
 
 

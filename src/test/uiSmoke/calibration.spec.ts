@@ -72,19 +72,20 @@ test('calibration controls post exact configuration and reanalysis messages', as
     await page.evaluate(() => {
         (window as unknown as { __uiSmokePostedMessages: PostedMessage[] }).__uiSmokePostedMessages = [];
         window.dispatchEvent(new MessageEvent('message', {
-            data: { type: 'calibration-configured' },
+            data: {
+                type: 'calibration-configured',
+                filePath: '/preview/demo-tone.wav',
+                analysisRevision: 3,
+            },
         }));
     });
     await expect.poll(async () => {
         const messages = await postedMessages(page);
-        return messages.find((message) => message['type'] === 'request-reanalyze');
+        return messages.find((message) => message['type'] === 'request-calibration-refresh');
     }).toMatchObject({
-        type: 'request-reanalyze',
-        reason: 'calibration',
-        settings: {
-            auto: false,
-            stft: { nFft: 512, hopSize: 128, window: 'hamming' },
-        },
+        type: 'request-calibration-refresh',
+        filePath: '/preview/demo-tone.wav',
+        analysisRevision: 3,
     });
 });
 
@@ -130,7 +131,11 @@ test('calibration update preserves runtime state without requesting a Webview re
         };
         appWindow.__uiSmokePostedMessages = [];
         window.dispatchEvent(new MessageEvent('message', {
-            data: { type: 'calibration-configured' },
+            data: {
+                type: 'calibration-configured',
+                filePath: '/preview/demo-tone.wav',
+                analysisRevision: 1,
+            },
         }));
         window.dispatchEvent(new MessageEvent('message', {
             data: { type: 'analysis-update', results: appWindow.__APP_STATE__.results },

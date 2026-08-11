@@ -66,7 +66,7 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     assert.doesNotMatch(script, /calibration-reload/);
     assert.doesNotMatch(script, /stopImmediatePropagation/);
     assert.match(script, /__AWA_ACTIVE_TRACKS__/);
-    assert.match(script, /reason: 'calibration'/);
+    assert.match(script, /type: 'request-calibration-refresh'/);
 });
 
 test('ComparisonPanel result ownership follows accepted in-place reanalysis', () => {
@@ -105,6 +105,37 @@ test('ComparisonPanel result ownership follows accepted in-place reanalysis', ()
     ComparisonPanel.updateResults(panel, [updated]);
 
     assert.equal(ComparisonPanel.getResults(panel)[0], updated);
+
+    const retained = { ...updated, filePath: '/tmp/retained.wav', fileName: 'retained.wav' };
+    ComparisonPanel.updateResults(panel, [updated, retained]);
+    const replacement = { ...updated, analysisRevision: 2 };
+    assert.deepEqual(ComparisonPanel.replaceResult(panel, replacement), [replacement, retained]);
+    assert.deepEqual(ComparisonPanel.getResults(panel), [replacement, retained]);
+});
+
+test('calibration inputs reject values that can overflow or underflow analysis', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const NodeModule = require('node:module') as {
+        _load: (request: string, parent: unknown, isMain: boolean) => unknown;
+    };
+    const originalLoad = NodeModule._load;
+    NodeModule._load = function patchedLoad(request: string, parent: unknown, isMain: boolean): unknown {
+        if (request === 'vscode') { return {}; }
+        return originalLoad.call(this, request, parent, isMain);
+    };
+
+    let validateCalibrationValueInput: typeof import('../extension/calibrationStore').validateCalibrationValueInput;
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        validateCalibrationValueInput = require('../extension/calibrationStore').validateCalibrationValueInput;
+    } finally {
+        NodeModule._load = originalLoad;
+    }
+
+    assert.equal(validateCalibrationValueInput('1e-150'), undefined);
+    assert.equal(validateCalibrationValueInput('1e150'), undefined);
+    assert.match(validateCalibrationValueInput('1e-151') ?? '', /1e-150/);
+    assert.match(validateCalibrationValueInput('1e151') ?? '', /1e150/);
 });
 
 test('mismatched persisted calibration is discarded and advances the analysis revision', async () => {

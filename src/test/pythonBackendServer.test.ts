@@ -130,7 +130,7 @@ test('parseBackendResult rejects malformed calibration analysis fields', () => {
         ['calibration signature', (candidate) => { candidate['calibrationSignature'] = 2; }],
         ['profile factor', (candidate) => {
             const profile = candidate['calibrationProfile'] as { channels: Array<{ factor: unknown }> };
-            profile.channels[0].factor = 0;
+            profile.channels[0].factor = 1e308;
         }],
         ['measurement source', (candidate) => {
             const channels = candidate['channels'] as Array<{ measurement: { calibrationSource: unknown } }>;

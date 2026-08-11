@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { isSafeCalibrationValue } from '../shared/analysis/analysisTypes';
 import type {
     CalibrationProfile,
     ChannelCalibrationDefinition,
@@ -102,11 +103,11 @@ async function persistProfile(
     bumpAnalysisRevision(filePath);
 }
 
-function positiveNumberValidation(value: string): string | undefined {
+export function validateCalibrationValueInput(value: string): string | undefined {
     const numberValue = Number(value);
-    return Number.isFinite(numberValue) && numberValue > 0
+    return isSafeCalibrationValue(numberValue)
         ? undefined
-        : 'Enter a positive finite number.';
+        : 'Enter a finite number from 1e-150 through 1e150.';
 }
 
 function profileForChannels(
@@ -212,7 +213,7 @@ export async function configureCalibrationProfile(
         title: `Calibration factor — Channel ${channelIndex + 1}: ${channel.label}`,
         prompt: 'Physical value = raw full-scale sample × factor',
         value: existing.status === 'calibrated' ? String(existing.factor) : '1',
-        validateInput: positiveNumberValidation,
+        validateInput: validateCalibrationValueInput,
     });
     if (factor === undefined) {
         return false;
@@ -240,7 +241,7 @@ export async function configureCalibrationProfile(
             ? '20 µPa is 0.00002 Pa and produces dB SPL.'
             : `Reference value in ${normalizedUnit}.`,
         value: String(defaultReference),
-        validateInput: positiveNumberValidation,
+        validateInput: validateCalibrationValueInput,
     });
     if (referenceValue === undefined) {
         return false;

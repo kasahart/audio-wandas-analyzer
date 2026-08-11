@@ -5181,7 +5181,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         stft: { nFft: 1024, hopSize: 256, window: 'hann' },
         display: { dbMin: null, dbMax: null, maxFrequencyHz: null }
     };
-    window.__AWA_SPECTROGRAM_SETTINGS__ = __spectrogramSettings;
     function __updateSpecGearVisibility() {
         const gear = document.querySelector('[data-action="spectrogram-settings"]');
         if (gear) {
@@ -5276,7 +5275,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     });
     document.getElementById('spec-reset').addEventListener('click', function () {
         __spectrogramSettings = { auto: true, stft: { nFft: 1024, hopSize: 256, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
-        window.__AWA_SPECTROGRAM_SETTINGS__ = __spectrogramSettings;
         __syncSpecFormFromState();
         messaging.post({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
         scheduleRender();
@@ -5295,7 +5293,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             },
             display: __readDisplayFromForm()
         };
-        window.__AWA_SPECTROGRAM_SETTINGS__ = __spectrogramSettings;
         __setReanalyzeBusy(true, STR.reanalyzingStft);
         messaging.post({ type: 'request-reanalyze', settings: __spectrogramSettings });
         __closeSpecPopover();

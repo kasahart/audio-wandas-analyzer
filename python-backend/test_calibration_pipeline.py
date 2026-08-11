@@ -5,6 +5,7 @@ import io
 import math
 
 import numpy as np
+import pytest
 import soundfile as sf
 import wandas as wd
 
@@ -99,6 +100,32 @@ def test_uncalibrated_profile_is_explicit_full_scale() -> None:
     }
     assert math.isclose(channel["rmsLevelDb"], 20.0 * math.log10(0.25))
     assert result["units"]["spectrumLevel"]["axisLabel"] == "Spectrum amplitude level [dBFS]"
+
+
+@pytest.mark.parametrize(
+    ("factor", "reference_value"),
+    [
+        (1e151, 1.0),
+        (1e-151, 1.0),
+        (1.0, 1e151),
+        (1.0, 1e-151),
+    ],
+)
+def test_calibration_values_are_bounded_before_wandas_analysis(
+    factor: float,
+    reference_value: float,
+) -> None:
+    source = wd.from_numpy(
+        np.array([[0.25, -0.25]], dtype=np.float64),
+        sampling_rate=8_000,
+        ch_labels=["input"],
+    )
+
+    with pytest.raises(ValueError, match="between 1e-150 and 1e150"):
+        resolve_calibration_profile(
+            _profile(["input"], [factor], ["Pa"], [reference_value]),
+            source,
+        )
 
 
 def test_mixed_level_references_omit_aggregate_units() -> None:

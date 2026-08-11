@@ -264,14 +264,11 @@ export function getCalibrationRenderScript(): string {
                 const message = event.data;
                 if (!message) { return; }
                 if (message.type === 'calibration-configured') {
-                    const settings = window.__AWA_SPECTROGRAM_SETTINGS__
-                        ? window.__AWA_SPECTROGRAM_SETTINGS__
-                        : {
-                            auto: true,
-                            stft: { nFft: 1024, hopSize: 256, window: 'hann' },
-                            display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
-                        };
-                    vscode.postMessage({ type: 'request-reanalyze', settings: settings, reason: 'calibration' });
+                    vscode.postMessage({
+                        type: 'request-calibration-refresh',
+                        filePath: message.filePath,
+                        analysisRevision: message.analysisRevision,
+                    });
                     return;
                 }
                 if (message.type === 'analysis-update') {

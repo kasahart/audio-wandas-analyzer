@@ -1,3 +1,4 @@
+import { isSafeCalibrationValue } from '../shared/analysis/analysisTypes';
 import type {
     AnalysisResult,
     AnalysisUnits,
@@ -176,10 +177,6 @@ function isNonNegativeInteger(value: unknown): value is number {
     return isInteger(value) && value >= 0;
 }
 
-function isPositiveFiniteNumber(value: unknown): value is number {
-    return isFiniteNumber(value) && value > 0;
-}
-
 function isCalibrationStatus(value: unknown): boolean {
     return value === 'uncalibrated' || value === 'calibrated';
 }
@@ -196,7 +193,7 @@ function isDbScaleMetadata(value: unknown): value is DbScaleMetadata {
     return isJsonObject(value)
         && typeof value['unit'] === 'string'
         && typeof value['axisLabel'] === 'string'
-        && (value['referenceValue'] === undefined || isPositiveFiniteNumber(value['referenceValue']))
+        && (value['referenceValue'] === undefined || isSafeCalibrationValue(value['referenceValue']))
         && isOptionalString(value['referenceUnit'])
         && isOptionalString(value['levelReferenceLabel']);
 }
@@ -210,18 +207,18 @@ function isCalibrationProfile(value: unknown): value is CalibrationProfile {
             && typeof channel['expectedLabel'] === 'string'
             && isCalibrationStatus(channel['status'])
             && isCalibrationSource(channel['source'])
-            && isPositiveFiniteNumber(channel['factor'])
+            && isSafeCalibrationValue(channel['factor'])
             && typeof channel['unit'] === 'string'
-            && isPositiveFiniteNumber(channel['referenceValue']));
+            && isSafeCalibrationValue(channel['referenceValue']));
 }
 
 function isChannelMeasurementContext(value: unknown): boolean {
     return isJsonObject(value)
         && isCalibrationStatus(value['calibrationStatus'])
         && isCalibrationSource(value['calibrationSource'])
-        && isPositiveFiniteNumber(value['factor'])
+        && isSafeCalibrationValue(value['factor'])
         && typeof value['linearUnit'] === 'string'
-        && isPositiveFiniteNumber(value['referenceValue'])
+        && isSafeCalibrationValue(value['referenceValue'])
         && typeof value['referenceUnit'] === 'string'
         && typeof value['levelUnit'] === 'string'
         && typeof value['levelReferenceLabel'] === 'string';
@@ -271,7 +268,7 @@ function isSpectrogramData(value: unknown): value is SpectrogramData {
         && isFiniteNumber(value['maxDb'])
         && isOptionalString(value['unit'])
         && isOptionalString(value['axisLabel'])
-        && (value['referenceValue'] === undefined || isPositiveFiniteNumber(value['referenceValue']))
+        && (value['referenceValue'] === undefined || isSafeCalibrationValue(value['referenceValue']))
         && isOptionalString(value['referenceUnit'])
         && isOptionalString(value['levelReferenceLabel'])
         && value['values'].length === value['timeBins']
@@ -370,7 +367,7 @@ function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
         && isFiniteNumber(value['maxDb'])
         && isOptionalString(value['unit'])
         && isOptionalString(value['axisLabel'])
-        && (value['referenceValue'] === undefined || isPositiveFiniteNumber(value['referenceValue']))
+        && (value['referenceValue'] === undefined || isSafeCalibrationValue(value['referenceValue']))
         && isOptionalString(value['referenceUnit'])
         && isOptionalString(value['levelReferenceLabel'])
         && hasCalibrationResultMetadata(value)

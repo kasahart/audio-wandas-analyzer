@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
     type AnalysisResultWithError,
     type AnalysisUpdateMessage,
+    type RequestCalibrationRefreshMessage,
     type RequestReanalyzeMessage,
     type SpectrogramSettings,
     type UpdateSpectrogramSettingsMessage,
@@ -133,6 +134,7 @@ const defaultHost: PanelControllerHost = {
 
 export class PanelController implements vscode.Disposable {
     private readonly sessions = new Map<PanelHandle, PanelSession<PanelHandle>>();
+    private readonly calibrationRefreshQueues = new WeakMap<PanelSession<PanelHandle>, Promise<void>>();
 
     constructor(
         private readonly context: SpectrogramSettingsContext & { extensionUri: vscode.Uri },
@@ -272,6 +274,9 @@ export class PanelController implements vscode.Disposable {
             case 'update-spectrogram-settings':
                 await saveSpectrogramSettings(this.context, message.settings);
                 break;
+            case 'request-calibration-refresh':
+                await this.enqueueCalibrationRefresh(session, message);
+                break;
             case 'request-reanalyze': await this.handleReanalyze(session, message); break;
             case 'request-waveform-range': this.handleWaveformRange(session, message); break;
             case 'request-track-detail': this.handleTrackDetail(session, message); break;
@@ -341,7 +346,6 @@ export class PanelController implements vscode.Disposable {
                 message.settings.auto ? undefined : message.settings.stft,
                 `Recomputing spectrogram (${filePaths.length} file${filePaths.length === 1 ? '' : 's'})`,
                 session,
-                message.reason !== 'calibration',
             );
             if (session.isCurrent(revision)) {
                 session.cacheResults(results);
@@ -349,6 +353,60 @@ export class PanelController implements vscode.Disposable {
                 ComparisonPanel.updateResults?.(session.panel, results);
                 await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
             }
+        } finally {
+            if (session.isCurrent(revision)) { await session.postMessage({ type: 'reanalyze-end' }); }
+        }
+    }
+
+    private enqueueCalibrationRefresh(
+        session: PanelSession<PanelHandle>,
+        message: RequestCalibrationRefreshMessage,
+    ): Promise<void> {
+        const previous = this.calibrationRefreshQueues.get(session) ?? Promise.resolve();
+        const current = previous
+            .catch(() => undefined)
+            .then(async () => this.handleCalibrationRefresh(session, message));
+        this.calibrationRefreshQueues.set(session, current);
+        const clearCurrent = (): void => {
+            if (this.calibrationRefreshQueues.get(session) === current) {
+                this.calibrationRefreshQueues.delete(session);
+            }
+        };
+        void current.then(clearCurrent, clearCurrent);
+        return current;
+    }
+
+    private async handleCalibrationRefresh(
+        session: PanelSession<PanelHandle>,
+        message: RequestCalibrationRefreshMessage,
+    ): Promise<void> {
+        if (!session.getActiveFilePaths().includes(message.filePath)
+            || getAnalysisRevision(message.filePath) !== message.analysisRevision) {
+            return;
+        }
+        const revision = session.beginStateRequest();
+        await session.postMessage({ type: 'reanalyze-start', count: 1 });
+        try {
+            const [result] = await this.analysis.analyzeFiles(
+                [message.filePath],
+                undefined,
+                'Applying calibration (1 file)',
+                session,
+                false,
+            );
+            if (!result
+                || !session.isCurrent(revision)
+                || getAnalysisRevision(message.filePath) !== message.analysisRevision) {
+                return;
+            }
+            const acceptedResult = result.error
+                ? { ...result, analysisRevision: message.analysisRevision }
+                : result;
+            if (acceptedResult.analysisRevision !== message.analysisRevision) { return; }
+            const results = ComparisonPanel.replaceResult(session.panel, acceptedResult);
+            if (!results) { return; }
+            session.cacheResults([acceptedResult]);
+            await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
         } finally {
             if (session.isCurrent(revision)) { await session.postMessage({ type: 'reanalyze-end' }); }
         }

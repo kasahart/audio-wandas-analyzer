@@ -28,6 +28,17 @@ export interface AnalysisUnits {
 export type CalibrationStatus = 'uncalibrated' | 'calibrated';
 export type CalibrationSource = 'default' | 'manual' | 'derived' | 'embedded';
 
+// Leaves headroom for RMS squaring and factor/reference ratios in IEEE-754 calculations.
+export const MIN_SAFE_CALIBRATION_VALUE = 1e-150;
+export const MAX_SAFE_CALIBRATION_VALUE = 1e150;
+
+export function isSafeCalibrationValue(value: unknown): value is number {
+    return typeof value === 'number'
+        && Number.isFinite(value)
+        && value >= MIN_SAFE_CALIBRATION_VALUE
+        && value <= MAX_SAFE_CALIBRATION_VALUE;
+}
+
 export interface ChannelCalibrationDefinition {
     channelIndex: number;
     expectedLabel: string;
@@ -152,7 +163,12 @@ export const DEFAULT_SPECTROGRAM_SETTINGS: SpectrogramSettings = {
 export interface RequestReanalyzeMessage {
     type: 'request-reanalyze';
     settings: SpectrogramSettings;
-    reason?: 'settings' | 'calibration';
+}
+
+export interface RequestCalibrationRefreshMessage {
+    type: 'request-calibration-refresh';
+    filePath: string;
+    analysisRevision: number;
 }
 
 export interface UpdateSpectrogramSettingsMessage {
