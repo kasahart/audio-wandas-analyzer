@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { SHORTCUT_ROWS } from '../../webview/comparisonRenderScript';
+import { SHORTCUT_ROWS } from '../../webview/runtime/shortcuts';
 import { buildUiSmokeHtml } from './buildHtml';
 
 test('keyboard shortcut dialog lists all documented shortcuts', async ({ page }) => {

@@ -94,7 +94,7 @@ window.__comparisonPreviewDemo = true;
 function startPreviewDemoWhenReady() {
     window.setTimeout(function startPreviewDemo() {
         const audio = document.getElementById('track-audio-0');
-        const playButton = document.querySelector('[data-action="toggle-playback"][data-track-index="0"]');
+        const playButton = document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]');
         if (!(audio instanceof HTMLAudioElement) || !(playButton instanceof HTMLButtonElement)) { return; }
         audio.muted = true;
         audio.loop = true;
@@ -131,6 +131,20 @@ function readWaveformPipelineJs(): string {
     }
 }
 
+function readComparisonRuntimeJs(): string {
+    try {
+        return readFileSync(
+            join(__dirname, '..', '..', 'dist', 'webview', 'comparisonRuntime.js'),
+            'utf8',
+        );
+    } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+            throw new Error('Cannot read dist/webview/comparisonRuntime.js — run `npm run compile` first');
+        }
+        throw error;
+    }
+}
+
 function finalizePreviewHtml(html: string, options?: { injectVsCodeApiStub?: boolean; injectPreviewDemo?: boolean }): string {
     const nonce = extractNonce(html);
     let finalizedHtml = html
@@ -138,6 +152,10 @@ function finalizePreviewHtml(html: string, options?: { injectVsCodeApiStub?: boo
         .replace(
             '<script src="__WAVEFORM_PIPELINE__"></script>',
             `<script nonce="${nonce}">${readWaveformPipelineJs()}</script>`,
+        )
+        .replace(
+            '<script src="__COMPARISON_RUNTIME__"></script>',
+            `<script nonce="${nonce}">${readComparisonRuntimeJs()}</script>`,
         );
     const injections: string[] = [];
     if (options?.injectVsCodeApiStub) {

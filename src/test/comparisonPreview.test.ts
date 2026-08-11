@@ -34,7 +34,7 @@ test('buildComparisonPreviewHtml injects a browser-safe vscode api stub', () => 
     assert.match(html, /getState\(\) \{ return null; \}/);
     assert.match(
         html,
-        /window\.acquireVsCodeApi = function\(\)[\s\S]*const vscode = acquireVsCodeApi\(\);/,
+        /window\.acquireVsCodeApi = function\(\)[\s\S]*acquireHost\(\)/,
     );
 });
 

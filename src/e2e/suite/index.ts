@@ -41,10 +41,12 @@ interface TestSnapshot {
             spectrumPerTrack: string[][];
             waveformPerTrack: string[][];
         };
-        displayOrder: number[];
+        displayOrder: string[];
         lastAnnounce: string;
         tracks: Array<{
+            trackId: string;
             trackIndex: number;
+            filePath: string;
             offsetSeconds: number;
             visibleFileStartNorm: number;
             visibleFileEndNorm: number;
@@ -171,6 +173,7 @@ export async function run(): Promise<void> {
                 assert.equal(snapshot.resultCount, 1);
                 assert.deepEqual(snapshot.fileNames, ['sine-440.wav']);
                 assert.match(snapshot.html, /comparisonWaveform\.js/u);
+                assert.match(snapshot.html, /comparisonRuntime\.js/u);
                 assert.match(snapshot.html, /id="app"/u);
                 assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should be captured');
                 assert.equal(snapshot.renderedUi.hasToolbar, true);
@@ -202,8 +205,8 @@ export async function run(): Promise<void> {
                 ]);
                 assert.deepEqual(
                     snapshot.renderedUi.displayOrder,
-                    snapshot.renderedUi.tracks.map((_: unknown, i: number) => i),
-                    'Initial displayOrder should be [0, 1, ..., N-1]'
+                    snapshot.renderedUi.tracks.map((track) => track.trackId),
+                    'Initial displayOrder should contain the rendered TrackIds'
                 );
                 assert.strictEqual(
                     snapshot.renderedUi.lastAnnounce,
@@ -323,6 +326,27 @@ export async function run(): Promise<void> {
                     null,
                     'reopened panel should restore persisted spectrogram max frequency',
                 );
+            },
+        },
+        {
+            name: 'async directory analysis does not restore a cleared selection',
+            run: async () => {
+                const initial = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
+                assert.equal(initial.resultCount, 0, 'directory selection should start empty');
+
+                const actionId = `selection-race-${Date.now()}`;
+                await ComparisonPanel.postTestActions(actionId, [
+                    'selection-select-all',
+                    'selection-clear-all',
+                ]);
+                await delay(2000);
+                const settled = await waitForSnapshotWhere((snapshot) => {
+                    return snapshot.resultCount === 0
+                        && !!snapshot.renderedUi
+                        && snapshot.renderedUi.trackRowCount === 0;
+                });
+                assert.equal(settled.resultCount, 0, 'stale analysis completion must not restore cleared tracks');
+                assert.equal(settled.renderedUi?.trackRowCount, 0, 'cleared selection must remain empty');
             },
         },
         {
@@ -564,7 +588,7 @@ async function runMultiTrackOffsetScenario(): Promise<TestSnapshot> {
     return waitForSnapshot(actionId);
 }
 
-type TestAction = string | { action: string; trackIndex?: number; payload?: Record<string, unknown> };
+type TestAction = string | { action: string; trackId?: string; trackIndex?: number; payload?: Record<string, unknown> };
 
 async function postActionsAndWait(
     actionId: string,
