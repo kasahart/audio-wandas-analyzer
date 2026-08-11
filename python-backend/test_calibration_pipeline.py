@@ -102,6 +102,23 @@ def test_uncalibrated_profile_is_explicit_full_scale() -> None:
     assert result["units"]["spectrumLevel"]["axisLabel"] == "Spectrum amplitude level [dBFS]"
 
 
+def test_full_scale_frame_fallback_is_uncalibrated_not_embedded_calibration() -> None:
+    source = wd.from_numpy(
+        np.array([[0.25, -0.25]], dtype=np.float64),
+        sampling_rate=8_000,
+        ch_labels=["input"],
+        ch_units=["FS"],
+    )
+
+    result = analyze_from_frame(source, "fixture.wav")
+    measurement = result["channels"][0]["measurement"]
+
+    assert measurement["calibrationStatus"] == "uncalibrated"
+    assert measurement["calibrationSource"] == "default"
+    assert measurement["linearUnit"] == "FS"
+    assert measurement["levelUnit"] == "dBFS"
+
+
 @pytest.mark.parametrize(
     ("factor", "reference_value"),
     [
@@ -184,6 +201,55 @@ def test_mixed_level_references_omit_aggregate_units() -> None:
     assert "units" not in result
     assert result["channels"][0]["measurement"]["levelUnit"] == "dB SPL"
     assert result["channels"][1]["measurement"]["levelUnit"] == "dBFS"
+
+
+def test_real_wav_preserves_uncalibrated_domains_for_none_full_and_partial_profiles(tmp_path) -> None:
+    file_path = tmp_path / "stereo.wav"
+    samples = np.array(
+        [
+            [0.25, 0.5],
+            [-0.25, -0.5],
+            [0.125, 0.25],
+            [-0.125, -0.25],
+        ],
+        dtype=np.float64,
+    )
+    sf.write(file_path, samples, 8_000, subtype="DOUBLE")
+    engine = AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024)
+    service = AnalysisService(engine)
+    cached = engine.get_file(file_path)
+    labels = list(cached.frame.labels)
+
+    uncalibrated = service.analyze(file_path)
+    assert [channel["measurement"]["levelUnit"] for channel in uncalibrated["channels"]] == ["dBFS", "dBFS"]
+
+    full_profile = _profile(labels, [2.0, 4.0], ["Pa", "Pa"], [2e-5, 20 * 1e-6])
+    fully_calibrated = service.analyze(file_path, calibration_profile=full_profile)
+    assert [channel["measurement"]["levelUnit"] for channel in fully_calibrated["channels"]] == [
+        "dB SPL",
+        "dB SPL",
+    ]
+
+    partial_profile = _profile(labels, [2.0, 1.0], ["Pa", "FS"], [2e-5, 1.0])
+    partial_profile["channels"][1] = {
+        "channelIndex": 1,
+        "expectedLabel": labels[1],
+        "status": "uncalibrated",
+        "source": "default",
+        "factor": 1.0,
+        "unit": "",
+        "referenceValue": 1.0,
+    }
+    _cached, partial_frame, resolved = engine.get_analysis(file_path, partial_profile)
+    partially_calibrated = service.analyze(file_path, calibration_profile=partial_profile)
+
+    assert partial_frame.channels[1].calibration == cached.frame.channels[1].calibration
+    assert resolved.channels[1].status == "uncalibrated"
+    assert resolved.channels[1].unit == cached.frame.channels[1].unit
+    assert [channel["measurement"]["levelUnit"] for channel in partially_calibrated["channels"]] == [
+        "dB SPL",
+        "dBFS",
+    ]
 
 
 def test_micro_reference_prefix_attaches_to_non_pascal_unit() -> None:

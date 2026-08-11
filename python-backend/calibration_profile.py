@@ -63,7 +63,9 @@ class ResolvedCalibrationProfile:
     def apply(self, frame: wd.ChannelFrame) -> wd.ChannelFrame:
         if self.is_identity:
             return frame
-        return frame.with_calibration([channel.to_wandas() for channel in self.channels])
+        return frame.with_calibration(
+            {channel.channel_index: channel.to_wandas() for channel in self.channels if channel.status == "calibrated"}
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -85,15 +87,20 @@ def _finite_positive(value: object, *, name: str) -> float:
     return normalized
 
 
-def _identity_channel(index: int, label: str) -> ResolvedChannelCalibration:
+def _uncalibrated_channel(
+    frame: wd.ChannelFrame,
+    index: int,
+    label: str,
+) -> ResolvedChannelCalibration:
+    calibration = frame.channels[index].calibration
     return ResolvedChannelCalibration(
         channel_index=index,
         expected_label=label,
         status="uncalibrated",
         source="default",
-        factor=1.0,
-        unit="",
-        reference_value=1.0,
+        factor=float(calibration.factor),
+        unit=str(calibration.unit),
+        reference_value=float(calibration.ref),
     )
 
 
@@ -134,7 +141,7 @@ def resolve_calibration_profile(
 ) -> ResolvedCalibrationProfile:
     labels = [str(label) for label in frame.labels]
     if payload is None:
-        channels = tuple(_identity_channel(index, label) for index, label in enumerate(labels))
+        channels = tuple(_uncalibrated_channel(frame, index, label) for index, label in enumerate(labels))
         normalized = {"schemaVersion": 1, "channels": [channel.to_dict() for channel in channels]}
         return ResolvedCalibrationProfile(1, channels, _signature(normalized))
 
@@ -186,7 +193,7 @@ def resolve_calibration_profile(
             raise ValueError(f"Unsupported calibration source: {source!r}")
 
         if status == "uncalibrated":
-            resolved_by_index[index] = _identity_channel(index, expected_label)
+            resolved_by_index[index] = _uncalibrated_channel(frame, index, expected_label)
             continue
 
         factor = _finite_positive(raw.get("factor"), name="Calibration factor")
@@ -228,27 +235,40 @@ def format_reference_label(value: float, unit: str) -> str:
 
 
 def measurement_metadata(channel: ResolvedChannelCalibration) -> dict[str, object]:
-    if channel.status == "uncalibrated":
+    linear_unit = channel.unit
+    reference_value = channel.reference_value
+    if channel.status == "uncalibrated" and not linear_unit:
         linear_unit = "FS"
-        reference_unit = "FS"
-        level_unit = "dBFS"
-        level_reference_label = "dBFS"
+        reference_value = 1.0
+
+    calibration = wd.ChannelCalibration(
+        factor=channel.factor,
+        unit=linear_unit,
+        ref=reference_value,
+    )
+    level_reference = getattr(calibration, "level_reference", None)
+    if level_reference is not None:
+        reference_unit = str(level_reference.reference_unit)
+        level_unit = str(level_reference.unit)
+        level_reference_label = str(level_reference.label)
     else:
-        linear_unit = channel.unit
-        reference_unit = channel.unit
-        if channel.unit == "Pa" and math.isclose(channel.reference_value, 2e-5, rel_tol=0.0, abs_tol=1e-15):
+        reference_unit = linear_unit
+        if linear_unit == "FS" and math.isclose(reference_value, 1.0, rel_tol=0.0, abs_tol=1e-15):
+            level_unit = "dBFS"
+            level_reference_label = "dBFS"
+        elif linear_unit == "Pa" and math.isclose(reference_value, 2e-5, rel_tol=0.0, abs_tol=1e-15):
             level_unit = "dB SPL"
             level_reference_label = "dB SPL re 20 µPa"
         else:
             level_unit = "dB"
-            level_reference_label = f"dB re {format_reference_label(channel.reference_value, channel.unit)}"
+            level_reference_label = f"dB re {format_reference_label(reference_value, linear_unit)}"
 
     return {
         "calibrationStatus": channel.status,
         "calibrationSource": channel.source,
         "factor": channel.factor,
         "linearUnit": linear_unit,
-        "referenceValue": channel.reference_value,
+        "referenceValue": reference_value,
         "referenceUnit": reference_unit,
         "levelUnit": level_unit,
         "levelReferenceLabel": level_reference_label,

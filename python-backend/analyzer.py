@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import sys
 import time
@@ -359,7 +360,13 @@ def _resolved_profile_from_frame(frame: wd.ChannelFrame) -> ResolvedCalibrationP
         factor = float(calibration.factor)
         unit = str(calibration.unit)
         reference_value = float(calibration.ref)
-        calibrated = bool(unit) or not np.isclose(factor, 1.0) or not np.isclose(reference_value, 1.0)
+        identity_values = math.isclose(factor, 1.0, rel_tol=0.0, abs_tol=1e-15) and math.isclose(
+            reference_value,
+            1.0,
+            rel_tol=0.0,
+            abs_tol=1e-15,
+        )
+        calibrated = not (identity_values and unit in {"", "FS"})
         channels.append(
             {
                 "channelIndex": index,
