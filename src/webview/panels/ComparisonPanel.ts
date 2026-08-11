@@ -93,6 +93,15 @@ export class ComparisonPanel {
     private static testSnapshotsByActionId = new Map<string, ComparisonPanelTestSnapshot>();
     private static activePanel: vscode.WebviewPanel | undefined;
     private static testMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
+    private static resultsByPanel = new WeakMap<object, AnalysisResultWithError[]>();
+
+    public static updateResults(panel: object, results: AnalysisResultWithError[]): void {
+        ComparisonPanel.resultsByPanel.set(panel, [...results]);
+    }
+
+    public static getResults(panel: object): AnalysisResultWithError[] {
+        return ComparisonPanel.resultsByPanel.get(panel) ?? [];
+    }
 
     public static show(
         extensionUri: vscode.Uri,
@@ -122,7 +131,9 @@ export class ComparisonPanel {
         };
         panel.reveal(vscode.ViewColumn.One, true);
         ComparisonPanel.activePanel = panel;
+        ComparisonPanel.updateResults(panel, results);
         panel.onDidDispose(() => {
+            ComparisonPanel.resultsByPanel.delete(panel);
             if (ComparisonPanel.activePanel === panel) {
                 ComparisonPanel.activePanel = undefined;
             }
@@ -180,7 +191,9 @@ export class ComparisonPanel {
         };
         panel.reveal(vscode.ViewColumn.One, true);
         ComparisonPanel.activePanel = panel;
+        ComparisonPanel.updateResults(panel, results);
         panel.onDidDispose(() => {
+            ComparisonPanel.resultsByPanel.delete(panel);
             if (ComparisonPanel.activePanel === panel) {
                 ComparisonPanel.activePanel = undefined;
             }

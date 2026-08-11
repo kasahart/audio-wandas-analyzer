@@ -66,6 +66,56 @@ test('PanelSession replaces directory cache entries with successful reanalysis r
     assert.equal(cachedResultsByFilePath.get(stale.filePath), updated);
 });
 
+test('PanelSession evicts directory results from an older analysis revision', () => {
+    const session = new PanelSession(createPanel([]));
+    const stale = {
+        filePath: '/audio/a.wav',
+        fileName: 'a.wav',
+        sampleRateHz: 8_000,
+        durationSeconds: 1,
+        channelCount: 0,
+        sampleCount: 8_000,
+        analysisRevision: 1,
+        channels: [],
+    };
+    const cachedResultsByFilePath = new Map([[stale.filePath, stale]]);
+    session.setDirectorySelection({
+        rootPath: '/audio',
+        tree: [],
+        allFilePaths: [stale.filePath],
+        selectedFilePaths: [stale.filePath],
+        cachedResultsByFilePath,
+    });
+
+    assert.equal(session.hasCachedResult(stale.filePath, 2), false);
+    assert.equal(cachedResultsByFilePath.has(stale.filePath), false);
+});
+
+test('PanelSession retains directory results from the current analysis revision', () => {
+    const session = new PanelSession(createPanel([]));
+    const current = {
+        filePath: '/audio/a.wav',
+        fileName: 'a.wav',
+        sampleRateHz: 8_000,
+        durationSeconds: 1,
+        channelCount: 0,
+        sampleCount: 8_000,
+        analysisRevision: 2,
+        channels: [],
+    };
+    const cachedResultsByFilePath = new Map([[current.filePath, current]]);
+    session.setDirectorySelection({
+        rootPath: '/audio',
+        tree: [],
+        allFilePaths: [current.filePath],
+        selectedFilePaths: [current.filePath],
+        cachedResultsByFilePath,
+    });
+
+    assert.equal(session.hasCachedResult(current.filePath, 2), true);
+    assert.equal(cachedResultsByFilePath.get(current.filePath), current);
+});
+
 test('PanelSession rejects stale revisions after a newer state request', () => {
     const session = new PanelSession(createPanel([]));
     const first = session.beginStateRequest('r1');

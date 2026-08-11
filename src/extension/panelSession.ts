@@ -56,6 +56,15 @@ export class PanelSession<P extends PanelPort = PanelPort> {
         }
     }
 
+    hasCachedResult(filePath: string, expectedAnalysisRevision: number): boolean {
+        const cache = this.directorySelection?.cachedResultsByFilePath;
+        const result = cache?.get(filePath);
+        if (!result) { return false; }
+        if ((result.analysisRevision ?? 0) === expectedAnalysisRevision) { return true; }
+        cache?.delete(filePath);
+        return false;
+    }
+
     clearDirectorySelection(): void {
         this.invalidateState();
         this.directorySelection = null;

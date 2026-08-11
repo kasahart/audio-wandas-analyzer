@@ -20,6 +20,7 @@ import {
 } from '../shared/utils/directorySelection';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import type { AnalysisOrchestrator } from './analysisOrchestrator';
+import { getAnalysisRevision } from './calibrationStore';
 import type { ExportFlows } from './exportFlows';
 import { parsePanelMessage, type SelectTargetMessage } from './panelMessages';
 import {
@@ -297,9 +298,12 @@ export class PanelController implements vscode.Disposable {
 
         const newlyAdded = new Set(delta.addedFilePaths);
         const uncached = [
-            ...delta.addedFilePaths.filter((filePath) => !selection.cachedResultsByFilePath.has(filePath)),
+            ...delta.addedFilePaths.filter((filePath) => (
+                !session.hasCachedResult(filePath, getAnalysisRevision(filePath))
+            )),
             ...selectedFilePaths.filter((filePath) => {
-                return !newlyAdded.has(filePath) && !selection.cachedResultsByFilePath.has(filePath);
+                return !newlyAdded.has(filePath)
+                    && !session.hasCachedResult(filePath, getAnalysisRevision(filePath));
             }),
         ];
         if (uncached.length > 0) {
@@ -341,6 +345,7 @@ export class PanelController implements vscode.Disposable {
             if (session.isCurrent(revision)) {
                 session.cacheResults(results);
                 session.setActiveResults(results.map((result) => result.filePath));
+                ComparisonPanel.updateResults?.(session.panel, results);
                 await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
             }
         } finally {

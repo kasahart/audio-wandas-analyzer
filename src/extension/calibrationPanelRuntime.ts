@@ -11,51 +11,12 @@ import {
     type CalibrationChannelDescriptor,
 } from './calibrationStore';
 
-interface ResultsPanelContext {
-    mode: 'results';
-    extensionUri: vscode.Uri;
-    results: AnalysisResultWithError[];
-    spectrogramSettings: SpectrogramSettings;
-}
-
-interface DirectoryPanelContext {
-    mode: 'directory-selection';
-    extensionUri: vscode.Uri;
-    rootPath: string;
-    allFilePaths: string[];
-    selectedFilePaths: string[];
-    results: AnalysisResultWithError[];
-    pythonEnvironmentState: {
-        pythonCommand: string;
-        status: 'normal' | 'warning';
-        tooltip: string;
-    };
-    spectrogramSettings: SpectrogramSettings;
-}
-
-type PanelContext = ResultsPanelContext | DirectoryPanelContext;
-
-const panelContexts = new WeakMap<vscode.WebviewPanel, PanelContext>();
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 const panelLifecycleInstalled = new WeakSet<vscode.WebviewPanel>();
 const openPanels = new Set<vscode.WebviewPanel>();
-const latestResultsByFilePath = new Map<string, AnalysisResultWithError>();
 let installed = false;
 let backendPatched = false;
 let activePanel: vscode.WebviewPanel | undefined;
-
-function rememberResults(results: AnalysisResultWithError[]): AnalysisResultWithError[] {
-    return results.map((result) => {
-        const latest = latestResultsByFilePath.get(result.filePath);
-        const expectedRevision = getAnalysisRevision(result.filePath);
-        const incomingRevision = result.analysisRevision ?? 0;
-        if (latest && !result.error && incomingRevision < expectedRevision) {
-            return latest;
-        }
-        latestResultsByFilePath.set(result.filePath, result);
-        return result;
-    });
-}
 
 function channelDescriptors(result: AnalysisResultWithError): CalibrationChannelDescriptor[] {
     return (result.channels ?? []).map((channel, channelIndex) => ({
@@ -65,38 +26,44 @@ function channelDescriptors(result: AnalysisResultWithError): CalibrationChannel
     }));
 }
 
-async function configureResult(
+async function configureChannels(
     extensionContext: vscode.ExtensionContext,
-    result: AnalysisResultWithError,
+    filePath: string,
+    channels: CalibrationChannelDescriptor[],
 ): Promise<void> {
     const changed = await configureCalibrationProfile(
         extensionContext,
-        result.filePath,
-        channelDescriptors(result),
+        filePath,
+        channels,
     );
     if (changed) {
         const notification = {
             type: 'calibration-configured',
-            filePath: result.filePath,
-            analysisRevision: getAnalysisRevision(result.filePath),
+            filePath,
+            analysisRevision: getAnalysisRevision(filePath),
         };
         await Promise.all(Array.from(openPanels, async (panel) => {
-            const context = panelContexts.get(panel);
-            if (context?.results.some((candidate) => candidate.filePath === result.filePath)) {
+            if (ComparisonPanel.getResults(panel).some((candidate) => candidate.filePath === filePath)) {
                 await panel.webview.postMessage(notification);
             }
         }));
     }
 }
 
+async function configureResult(
+    extensionContext: vscode.ExtensionContext,
+    result: AnalysisResultWithError,
+): Promise<void> {
+    await configureChannels(extensionContext, result.filePath, channelDescriptors(result));
+}
+
 async function configureActivePanel(extensionContext: vscode.ExtensionContext): Promise<void> {
     const panel = activePanel;
-    const panelContext = panel && panelContexts.get(panel);
-    if (!panel || !panelContext) {
+    if (!panel) {
         void vscode.window.showInformationMessage('Open an audio analysis panel before configuring calibration.');
         return;
     }
-    const available = panelContext.results.filter((result) => !result.error && result.channels.length > 0);
+    const available = ComparisonPanel.getResults(panel).filter((result) => !result.error && result.channels.length > 0);
     if (available.length === 0) {
         void vscode.window.showInformationMessage('The active analysis panel has no calibratable audio channels.');
         return;
@@ -142,17 +109,18 @@ function installPanelLifecycle(panel: vscode.WebviewPanel): void {
     });
 }
 
-function installOnPanel(panel: vscode.WebviewPanel, context: PanelContext): void {
+function installOnPanel(panel: vscode.WebviewPanel): void {
     if (panel.active) {
         activePanel = panel;
     }
-    panelContexts.set(panel, context);
     installPanelLifecycle(panel);
 
     panelMessageDisposables.get(panel)?.dispose();
     const disposable = panel.webview.onDidReceiveMessage(async (message: unknown) => {
         if (isConfigureCalibrationMessage(message)) {
-            const result = context.results.find((candidate) => candidate.filePath === message.filePath);
+            const result = ComparisonPanel.getResults(panel).find(
+                (candidate) => candidate.filePath === message.filePath,
+            );
             if (result) {
                 await configureResult(contextExtension, result);
             }
@@ -176,23 +144,21 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
     prototype.analyze = async function(filePath, options) {
         const calibrationProfile = getCalibrationProfile(extensionContext, filePath);
         try {
-            const result = await analyze.call(this, filePath, {
+            return await analyze.call(this, filePath, {
                 ...options,
                 calibrationProfile,
                 analysisRevision: getAnalysisRevision(filePath),
             });
-            return rememberResults([result])[0];
         } catch (error) {
             const discarded = await discardMismatchedCalibrationProfile(extensionContext, filePath, error);
             if (!discarded) {
                 throw error;
             }
-            const result = await analyze.call(this, filePath, {
+            return analyze.call(this, filePath, {
                 ...options,
                 calibrationProfile: undefined,
                 analysisRevision: getAnalysisRevision(filePath),
             });
-            return rememberResults([result])[0];
         }
     };
     prototype.requestRange = function(filePath, startNorm, endNorm, points, requestId, calibration = {}) {
@@ -245,14 +211,8 @@ export function installCalibrationPanelRuntime(extensionContext: vscode.Extensio
             stft: { nFft: 1024, hopSize: 256, window: 'hann' },
             display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
         };
-        const mergedResults = rememberResults(results);
-        const panel = originalShow(extensionUri, mergedResults, existingPanel, resolvedSettings);
-        installOnPanel(panel, {
-            mode: 'results',
-            extensionUri,
-            results: mergedResults,
-            spectrogramSettings: resolvedSettings,
-        });
+        const panel = originalShow(extensionUri, results, existingPanel, resolvedSettings);
+        installOnPanel(panel);
         return panel;
     };
 
@@ -262,7 +222,11 @@ export function installCalibrationPanelRuntime(extensionContext: vscode.Extensio
         allFilePaths: string[],
         selectedFilePaths: string[],
         results: AnalysisResultWithError[],
-        pythonEnvironmentState: DirectoryPanelContext['pythonEnvironmentState'],
+        pythonEnvironmentState: {
+            pythonCommand: string;
+            status: 'normal' | 'warning';
+            tooltip: string;
+        },
         existingPanel?: vscode.WebviewPanel,
         spectrogramSettings?: SpectrogramSettings,
     ): vscode.WebviewPanel {
@@ -271,27 +235,17 @@ export function installCalibrationPanelRuntime(extensionContext: vscode.Extensio
             stft: { nFft: 1024, hopSize: 256, window: 'hann' },
             display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
         };
-        const mergedResults = rememberResults(results);
         const panel = originalShowDirectorySelection(
             extensionUri,
             rootPath,
             allFilePaths,
             selectedFilePaths,
-            mergedResults,
+            results,
             pythonEnvironmentState,
             existingPanel,
             resolvedSettings,
         );
-        installOnPanel(panel, {
-            mode: 'directory-selection',
-            extensionUri,
-            rootPath,
-            allFilePaths,
-            selectedFilePaths,
-            results: mergedResults,
-            pythonEnvironmentState,
-            spectrogramSettings: resolvedSettings,
-        });
+        installOnPanel(panel);
         return panel;
     };
 

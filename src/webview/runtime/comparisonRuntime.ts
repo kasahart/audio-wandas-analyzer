@@ -379,8 +379,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function trackSpectrumCanvasId(trackIndex: number, channelIndex: number) {
         return 'track-spectrum-' + trackIndex + channelCanvasSuffix(channelIndex);
     }
-    function channelDb(value: number): string {
-        return (20 * Math.log10(Math.max(value, 1e-9))).toFixed(1) + ' dB';
+    function channelLevel(channel: ChannelSummary, levelDb: number | undefined): string {
+        if (!Number.isFinite(levelDb)) { return '—'; }
+        return Number(levelDb).toFixed(1) + ' ' + (channel.measurement?.levelUnit ?? 'dB');
     }
     function channelDominantFrequencyLabel(channel: ChannelSummary) {
         return channel && channel.dominantFrequencies && channel.dominantFrequencies[0]
@@ -1335,8 +1336,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '<span id="loop-time-display" title="' + escHtml(STR.loopTimeDisplayTitle) + '" style="display:none;"></span>';
     }
     function channelMetricSummaryHtml(ch: ChannelSummary) {
-        const rmsDb = ch ? channelDb(ch.rms) : '—';
-        const peakDb = ch ? channelDb(ch.peakAbsolute) : '—';
+        const rmsDb = ch ? channelLevel(ch, ch.rmsLevelDb) : '—';
+        const peakDb = ch ? channelLevel(ch, ch.peakLevelDb) : '—';
         const domHz = channelDominantFrequencyLabel(ch);
         return '<span>RMS ' + escHtml(rmsDb) + '</span> <span>Peak ' + escHtml(peakDb) + '</span> <span>' + escHtml(domHz) + '</span>';
     }
@@ -1929,7 +1930,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function formatDbLevel(value: number, source: { unit?: string } | null): string {
         return value.toFixed(0) + ' ' + dbLevelUnitFor(source);
     }
-    function spectrumLevelAxisLabel(result: ComparisonTrackState) {
+    function spectrumLevelAxisLabel(result: ComparisonTrackState, channel?: ChannelSummary) {
+        if (channel?.measurement) {
+            return 'Spectrum amplitude level [' + channel.measurement.levelReferenceLabel + ']';
+        }
         return result && result.units && result.units.spectrumLevel && result.units.spectrumLevel.axisLabel
             ? result.units.spectrumLevel.axisLabel
             : 'Spectrum level [dB]';
@@ -3687,9 +3691,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         var s = (secs - m * 60).toFixed(3);
         return (m > 0 ? m + 'm ' : '') + s + 's';
     }
-    function _dbLevel(rms: number) {
-        return (20 * Math.log10(Math.max(rms, 1e-9))).toFixed(1) + ' dB';
-    }
     function _markdownInline(value: unknown): string {
         return String(value).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     }
@@ -3707,11 +3708,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function _reportLevel(channel: ChannelSummary, linearValue: number, levelValue: number | undefined): string {
         const measurement = channel.measurement;
-        if (!measurement || !Number.isFinite(levelValue)) {
-            return _dbLevel(linearValue);
-        }
-        const level = Number(levelValue).toFixed(1) + ' ' + measurement.levelUnit;
-        if (measurement.calibrationStatus === 'uncalibrated') {
+        if (!Number.isFinite(levelValue)) { return '—'; }
+        const level = Number(levelValue).toFixed(1) + ' ' + (measurement?.levelUnit ?? 'dB');
+        if (!measurement || measurement.calibrationStatus === 'uncalibrated') {
             return level;
         }
         return _formatReportNumber(linearValue) + ' ' + measurement.linearUnit + ' / ' + level;
@@ -3738,8 +3737,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const r = record.result;
             var dur = r.durationSeconds ? _fmtSec(r.durationSeconds) : '-';
             channelsForResult(r).forEach(function (ch: ChannelSummary, channelIndex: number) {
-                var rms = ch ? _reportLevel(ch, ch.rms, ch.rmsLevelDb) : '-';
-                var peak = ch ? _reportLevel(ch, ch.peakAbsolute, ch.peakLevelDb) : '-';
+                var rms = ch ? _markdownTableCell(_reportLevel(ch, ch.rms, ch.rmsLevelDb)) : '-';
+                var peak = ch ? _markdownTableCell(_reportLevel(ch, ch.peakAbsolute, ch.peakLevelDb)) : '-';
                 lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + _markdownTableCell(channelLabel(r, channelIndex)) + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + rms + ' | ' + peak + ' |');
             });
         });
@@ -3829,10 +3828,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (peaks && peaks.length > 0) {
                     lines.push('## Spectral Peaks (first track, ' + _markdownTableCell(channelLabel(firstResult, channelIndex)) + ')');
                     lines.push('');
-                    lines.push('| Frequency (Hz) | ' + _markdownTableCell(spectrumLevelAxisLabel(firstResult)) + ' |');
+                    lines.push('| Frequency (Hz) | ' + _markdownTableCell(spectrumLevelAxisLabel(firstResult, firstChannel)) + ' |');
                     lines.push('|---------------|------------|');
                     peaks.forEach(function (p) {
-                        lines.push('| ' + p.freqHz.toFixed(1) + ' | ' + p.amplitudeDb.toFixed(1) + ' |');
+                        const level = p.levelDb ?? p.amplitudeDb;
+                        lines.push('| ' + p.freqHz.toFixed(1) + ' | ' + level.toFixed(1) + ' |');
                     });
                     lines.push('');
                 }

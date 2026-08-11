@@ -68,6 +68,44 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     assert.match(script, /__AWA_ACTIVE_TRACKS__/);
 });
 
+test('ComparisonPanel result ownership follows accepted in-place reanalysis', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const NodeModule = require('node:module') as {
+        _load: (request: string, parent: unknown, isMain: boolean) => unknown;
+    };
+    const originalLoad = NodeModule._load;
+    NodeModule._load = function patchedLoad(request: string, parent: unknown, isMain: boolean): unknown {
+        if (request === 'vscode') { return {}; }
+        return originalLoad.call(this, request, parent, isMain);
+    };
+
+    let ComparisonPanel: typeof import('../webview/panels/ComparisonPanel').ComparisonPanel;
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        ComparisonPanel = require('../webview/panels/ComparisonPanel').ComparisonPanel;
+    } finally {
+        NodeModule._load = originalLoad;
+    }
+
+    const panel = {};
+    const original = {
+        filePath: '/tmp/replaced.wav',
+        fileName: 'replaced.wav',
+        sampleRateHz: 8_000,
+        durationSeconds: 1,
+        channelCount: 1,
+        sampleCount: 8_000,
+        analysisRevision: 0,
+        channels: [],
+    };
+    const updated = { ...original, channelCount: 2, analysisRevision: 1 };
+
+    ComparisonPanel.updateResults(panel, [original]);
+    ComparisonPanel.updateResults(panel, [updated]);
+
+    assert.equal(ComparisonPanel.getResults(panel)[0], updated);
+});
+
 test('mismatched persisted calibration is discarded and advances the analysis revision', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as {
