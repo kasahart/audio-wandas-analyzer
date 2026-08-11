@@ -39,7 +39,7 @@ test('incompatible level references disable only the shared spectrum overlay', a
     await expect(page.locator('.track-spectrum-canvas')).toHaveCount(2);
 });
 
-test('calibration controls post exact configuration and reanalysis messages', async ({ page }) => {
+test('calibration controls post exact configuration messages', async ({ page }) => {
     await loadCalibrationUi(page);
 
     await page.evaluate(() => {
@@ -69,24 +69,6 @@ test('calibration controls post exact configuration and reanalysis messages', as
         channels: [{ channelIndex: 0, label: 'L' }],
     });
 
-    await page.evaluate(() => {
-        (window as unknown as { __uiSmokePostedMessages: PostedMessage[] }).__uiSmokePostedMessages = [];
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'calibration-configured',
-                filePath: '/preview/demo-tone.wav',
-                analysisRevision: 3,
-            },
-        }));
-    });
-    await expect.poll(async () => {
-        const messages = await postedMessages(page);
-        return messages.find((message) => message['type'] === 'request-calibration-refresh');
-    }).toMatchObject({
-        type: 'request-calibration-refresh',
-        filePath: '/preview/demo-tone.wav',
-        analysisRevision: 3,
-    });
 });
 
 test('report export records calibration and generates a reproducible notebook', async ({ page }) => {
@@ -130,13 +112,6 @@ test('calibration update preserves runtime state without requesting a Webview re
             __uiSmokePostedMessages: PostedMessage[];
         };
         appWindow.__uiSmokePostedMessages = [];
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'calibration-configured',
-                filePath: '/preview/demo-tone.wav',
-                analysisRevision: 1,
-            },
-        }));
         window.dispatchEvent(new MessageEvent('message', {
             data: { type: 'analysis-update', results: appWindow.__APP_STATE__.results },
         }));

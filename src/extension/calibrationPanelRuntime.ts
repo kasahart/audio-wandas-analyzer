@@ -13,7 +13,6 @@ import {
 
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 const panelLifecycleInstalled = new WeakSet<vscode.WebviewPanel>();
-const openPanels = new Set<vscode.WebviewPanel>();
 let installed = false;
 let backendPatched = false;
 let activePanel: vscode.WebviewPanel | undefined;
@@ -26,32 +25,16 @@ function channelDescriptors(result: AnalysisResultWithError): CalibrationChannel
     }));
 }
 
-async function broadcastCalibrationChange(filePath: string): Promise<void> {
-    const notification = {
-        type: 'calibration-configured',
-        filePath,
-        analysisRevision: getAnalysisRevision(filePath),
-    };
-    await Promise.all(Array.from(openPanels, async (panel) => {
-        if (ComparisonPanel.getResults(panel).some((candidate) => candidate.filePath === filePath)) {
-            await panel.webview.postMessage(notification);
-        }
-    }));
-}
-
 async function configureChannels(
     extensionContext: vscode.ExtensionContext,
     filePath: string,
     channels: CalibrationChannelDescriptor[],
 ): Promise<void> {
-    const changed = await configureCalibrationProfile(
+    await configureCalibrationProfile(
         extensionContext,
         filePath,
         channels,
     );
-    if (changed) {
-        await broadcastCalibrationChange(filePath);
-    }
 }
 
 async function configureResult(
@@ -95,7 +78,6 @@ function installPanelLifecycle(panel: vscode.WebviewPanel): void {
         return;
     }
     panelLifecycleInstalled.add(panel);
-    openPanels.add(panel);
     panel.onDidChangeViewState((event) => {
         if (event.webviewPanel.active) {
             activePanel = event.webviewPanel;
@@ -106,7 +88,6 @@ function installPanelLifecycle(panel: vscode.WebviewPanel): void {
     panel.onDidDispose(() => {
         panelMessageDisposables.get(panel)?.dispose();
         panelMessageDisposables.delete(panel);
-        openPanels.delete(panel);
         if (activePanel === panel) {
             activePanel = undefined;
         }
@@ -158,7 +139,6 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
             if (!discarded) {
                 throw error;
             }
-            await broadcastCalibrationChange(filePath);
             return analyze.call(this, filePath, {
                 ...options,
                 calibrationProfile: undefined,

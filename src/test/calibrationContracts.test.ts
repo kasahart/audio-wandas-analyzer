@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
@@ -66,7 +68,7 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     assert.doesNotMatch(script, /calibration-reload/);
     assert.doesNotMatch(script, /stopImmediatePropagation/);
     assert.match(script, /__AWA_ACTIVE_TRACKS__/);
-    assert.match(script, /type: 'request-calibration-refresh'/);
+    assert.doesNotMatch(script, /request-calibration-refresh/);
 });
 
 test('ComparisonPanel result ownership follows accepted in-place reanalysis', () => {
@@ -194,4 +196,42 @@ test('mismatched persisted calibration is discarded and advances the analysis re
         filePath,
         new Error('unrelated backend failure'),
     ), false);
+});
+
+test('calibration profile lookup uses the same real filesystem path as the backend', (context) => {
+    if (process.platform === 'win32') {
+        context.skip('Symlink creation requires elevated privileges on Windows.');
+        return;
+    }
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'awa-calibration-'));
+    context.after(() => { rmSync(directory, { recursive: true, force: true }); });
+    const targetPath = path.join(directory, 'target.wav');
+    const symlinkPath = path.join(directory, 'alias.wav');
+    writeFileSync(targetPath, 'fixture');
+    symlinkSync(targetPath, symlinkPath);
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const calibrationStore = require('../extension/calibrationStore') as typeof import('../extension/calibrationStore');
+    const profile = {
+        schemaVersion: 1 as const,
+        channels: [{
+            channelIndex: 0,
+            expectedLabel: 'input',
+            status: 'calibrated' as const,
+            source: 'manual' as const,
+            factor: 2,
+            unit: 'Pa',
+            referenceValue: 2e-5,
+        }],
+    };
+    const storageKey = 'audioWandasAnalyzer.calibrationProfiles.v1';
+    const extensionContext = {
+        workspaceState: {
+            get: <T>(_key: string, _fallback: T): T => ({
+                [realpathSync.native(targetPath)]: profile,
+            } as T),
+        },
+    } as unknown as import('vscode').ExtensionContext;
+
+    assert.deepEqual(calibrationStore.getCalibrationProfile(extensionContext, symlinkPath), profile);
 });

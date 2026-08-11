@@ -915,6 +915,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         renderAll();
         scheduleSpectrumRefresh('immediate');
         publishTestSnapshot();
+        messaging.post({
+            type: 'comparison-panel-ready',
+            calibrationRevisions: state.results.map(function(result) {
+                return {
+                    filePath: result.filePath,
+                    analysisRevision: result.analysisRevision || 0,
+                };
+            }),
+        });
     });
     function isReanalyzeBusy() {
         const overlay = document.getElementById('reanalyze-overlay');

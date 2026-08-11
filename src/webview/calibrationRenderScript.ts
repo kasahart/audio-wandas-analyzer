@@ -263,14 +263,6 @@ export function getCalibrationRenderScript(): string {
             window.addEventListener('message', function(event) {
                 const message = event.data;
                 if (!message) { return; }
-                if (message.type === 'calibration-configured') {
-                    vscode.postMessage({
-                        type: 'request-calibration-refresh',
-                        filePath: message.filePath,
-                        analysisRevision: message.analysisRevision,
-                    });
-                    return;
-                }
                 if (message.type === 'analysis-update') {
                     scheduleDecoration();
                 }

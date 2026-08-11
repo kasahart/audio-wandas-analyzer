@@ -165,10 +165,12 @@ export interface RequestReanalyzeMessage {
     settings: SpectrogramSettings;
 }
 
-export interface RequestCalibrationRefreshMessage {
-    type: 'request-calibration-refresh';
-    filePath: string;
-    analysisRevision: number;
+export interface ComparisonPanelReadyMessage {
+    type: 'comparison-panel-ready';
+    calibrationRevisions: Array<{
+        filePath: string;
+        analysisRevision: number;
+    }>;
 }
 
 export interface UpdateSpectrogramSettingsMessage {

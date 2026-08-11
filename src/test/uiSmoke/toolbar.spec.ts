@@ -12,7 +12,8 @@ async function getPostedActionTypes(page: Page): Promise<string[]> {
         }).__uiSmokePostedMessages ?? [];
         return messages
             .map((message) => message.type ?? '')
-            .filter((type) => type !== 'comparison-panel-test-snapshot');
+            .filter((type) => type !== 'comparison-panel-test-snapshot'
+                && type !== 'comparison-panel-ready');
     });
 }
 
@@ -24,12 +25,15 @@ async function openToolbarMenu(page: Page, index: number): Promise<void> {
     await expect(menu).toHaveAttribute('open', '');
 }
 
-test('toolbar message assertions ignore initial comparison-panel test snapshots', async ({ page }) => {
+test('toolbar message assertions ignore initial panel bootstrap messages', async ({ page }) => {
     await loadUi(page);
     await page.evaluate(() => {
         (window as typeof window & {
             __uiSmokePostedMessages?: Array<{ type?: string }>;
-        }).__uiSmokePostedMessages = [{ type: 'comparison-panel-test-snapshot' }];
+        }).__uiSmokePostedMessages = [
+            { type: 'comparison-panel-test-snapshot' },
+            { type: 'comparison-panel-ready' },
+        ];
     });
 
     await openToolbarMenu(page, 1);

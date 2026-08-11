@@ -1,5 +1,5 @@
 import type {
-    RequestCalibrationRefreshMessage,
+    ComparisonPanelReadyMessage,
     RequestReanalyzeMessage,
     UpdateSpectrogramSettingsMessage,
 } from '../shared/analysis/analysisTypes';
@@ -42,7 +42,7 @@ export type PanelMessage =
     | AnalyzeSelectedFilesMessage
     | SelectPythonEnvironmentMessage
     | SelectTargetMessage
-    | RequestCalibrationRefreshMessage
+    | ComparisonPanelReadyMessage
     | RequestReanalyzeMessage
     | UpdateSpectrogramSettingsMessage
     | WaveformRangeRequest
@@ -91,14 +91,19 @@ function isRequestReanalyzeMessage(value: unknown): value is RequestReanalyzeMes
     return isSpectrogramSettings(message['settings']) && message['reason'] === undefined;
 }
 
-function isRequestCalibrationRefreshMessage(value: unknown): value is RequestCalibrationRefreshMessage {
-    if (!hasType(value, 'request-calibration-refresh')) { return false; }
+function isComparisonPanelReadyMessage(value: unknown): value is ComparisonPanelReadyMessage {
+    if (!hasType(value, 'comparison-panel-ready')) { return false; }
     const message = value as Record<string, unknown>;
-    return typeof message['filePath'] === 'string'
-        && message['filePath'].length > 0
-        && typeof message['analysisRevision'] === 'number'
-        && Number.isInteger(message['analysisRevision'])
-        && message['analysisRevision'] >= 0;
+    return Array.isArray(message['calibrationRevisions'])
+        && message['calibrationRevisions'].every((entry) => {
+            if (!entry || typeof entry !== 'object') { return false; }
+            const revision = entry as Record<string, unknown>;
+            return typeof revision['filePath'] === 'string'
+                && revision['filePath'].length > 0
+                && typeof revision['analysisRevision'] === 'number'
+                && Number.isInteger(revision['analysisRevision'])
+                && revision['analysisRevision'] >= 0;
+        });
 }
 
 function isUpdateSpectrogramSettingsMessage(value: unknown): value is UpdateSpectrogramSettingsMessage {
@@ -113,8 +118,8 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'analyze-selected-files': return isAnalyzeSelectedFilesMessage(value) ? value : undefined;
         case 'select-python-environment': return isSelectPythonEnvironmentMessage(value) ? value : undefined;
         case 'select-target': return isSelectTargetMessage(value) ? value : undefined;
-        case 'request-calibration-refresh':
-            return isRequestCalibrationRefreshMessage(value) ? value : undefined;
+        case 'comparison-panel-ready':
+            return isComparisonPanelReadyMessage(value) ? value : undefined;
         case 'request-reanalyze': return isRequestReanalyzeMessage(value) ? value : undefined;
         case 'update-spectrogram-settings':
             return isUpdateSpectrogramSettingsMessage(value) ? value : undefined;

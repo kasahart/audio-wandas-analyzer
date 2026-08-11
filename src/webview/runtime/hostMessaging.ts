@@ -23,7 +23,10 @@ export type HostOutboundMessage =
     | TrackDetailRequest
     | WaveformRangeRequest
     | { type: 'comparison-panel-test-snapshot'; actionId?: string; renderedUi: Record<string, unknown> }
-    | { type: 'request-calibration-refresh'; filePath: string; analysisRevision: number }
+    | { type: 'comparison-panel-ready'; calibrationRevisions: Array<{
+        filePath: string;
+        analysisRevision: number;
+    }> }
     | { type: 'request-reanalyze'; settings: SpectrogramSettings }
     | { type: 'run-recipe' }
     | { type: 'select-python-environment' }

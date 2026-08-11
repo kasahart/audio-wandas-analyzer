@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import {
     type AnalysisResultWithError,
     type AnalysisUpdateMessage,
-    type RequestCalibrationRefreshMessage,
+    type ComparisonPanelReadyMessage,
     type RequestReanalyzeMessage,
     type SpectrogramSettings,
     type UpdateSpectrogramSettingsMessage,
@@ -21,7 +21,11 @@ import {
 } from '../shared/utils/directorySelection';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import type { AnalysisOrchestrator } from './analysisOrchestrator';
-import { getAnalysisRevision } from './calibrationStore';
+import {
+    getAnalysisRevision,
+    onDidChangeCalibration,
+    type CalibrationChangeEvent,
+} from './calibrationStore';
 import type { ExportFlows } from './exportFlows';
 import { parsePanelMessage, type SelectTargetMessage } from './panelMessages';
 import {
@@ -135,6 +139,7 @@ const defaultHost: PanelControllerHost = {
 export class PanelController implements vscode.Disposable {
     private readonly sessions = new Map<PanelHandle, PanelSession<PanelHandle>>();
     private readonly calibrationRefreshQueues = new WeakMap<PanelSession<PanelHandle>, Promise<void>>();
+    private readonly calibrationChangeDisposable: vscode.Disposable;
 
     constructor(
         private readonly context: SpectrogramSettingsContext & { extensionUri: vscode.Uri },
@@ -143,7 +148,16 @@ export class PanelController implements vscode.Disposable {
         private readonly exports: ExportFlows,
         private readonly panelFactory: PanelFactory = defaultPanelFactory,
         private readonly host: PanelControllerHost = defaultHost,
-    ) {}
+    ) {
+        this.calibrationChangeDisposable = onDidChangeCalibration((event) => {
+            for (const session of this.sessions.values()) {
+                if (!session.getActiveFilePaths().includes(event.filePath)) { continue; }
+                void this.enqueueCalibrationRefresh(session, event).catch((error) => {
+                    this.host.showError(error instanceof Error ? error.message : String(error));
+                });
+            }
+        });
+    }
 
     async analyzeTarget(
         targetUri: vscode.Uri,
@@ -203,6 +217,7 @@ export class PanelController implements vscode.Disposable {
     }
 
     dispose(): void {
+        this.calibrationChangeDisposable.dispose();
         for (const session of this.sessions.values()) { session.dispose(); }
         this.sessions.clear();
     }
@@ -274,9 +289,7 @@ export class PanelController implements vscode.Disposable {
             case 'update-spectrogram-settings':
                 await saveSpectrogramSettings(this.context, message.settings);
                 break;
-            case 'request-calibration-refresh':
-                await this.enqueueCalibrationRefresh(session, message);
-                break;
+            case 'comparison-panel-ready': await this.handlePanelReady(session, message); break;
             case 'request-reanalyze': await this.handleReanalyze(session, message); break;
             case 'request-waveform-range': this.handleWaveformRange(session, message); break;
             case 'request-track-detail': this.handleTrackDetail(session, message); break;
@@ -373,7 +386,7 @@ export class PanelController implements vscode.Disposable {
 
     private enqueueCalibrationRefresh(
         session: PanelSession<PanelHandle>,
-        message: RequestCalibrationRefreshMessage,
+        message: CalibrationChangeEvent,
     ): Promise<void> {
         const previous = this.calibrationRefreshQueues.get(session) ?? Promise.resolve();
         const current = previous
@@ -391,7 +404,7 @@ export class PanelController implements vscode.Disposable {
 
     private async handleCalibrationRefresh(
         session: PanelSession<PanelHandle>,
-        message: RequestCalibrationRefreshMessage,
+        message: CalibrationChangeEvent,
     ): Promise<void> {
         if (!session.getActiveFilePaths().includes(message.filePath)
             || getAnalysisRevision(message.filePath) !== message.analysisRevision) {
@@ -418,6 +431,23 @@ export class PanelController implements vscode.Disposable {
         if (!results) { return; }
         session.cacheResults([acceptedResult]);
         await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
+    }
+
+    private async handlePanelReady(
+        session: PanelSession<PanelHandle>,
+        message: ComparisonPanelReadyMessage,
+    ): Promise<void> {
+        const current = ComparisonPanel.getResults(session.panel);
+        const reported = new Map(
+            message.calibrationRevisions.map((entry) => [entry.filePath, entry.analysisRevision]),
+        );
+        const isCurrent = current.length === message.calibrationRevisions.length
+            && current.every((result) => (
+                reported.get(result.filePath) === (result.analysisRevision ?? 0)
+            ));
+        if (!isCurrent) {
+            await session.postMessage({ type: 'analysis-update', results: current } satisfies AnalysisUpdateMessage);
+        }
     }
 
     private handleWaveformRange(session: PanelSession<PanelHandle>, request: WaveformRangeRequest): void {

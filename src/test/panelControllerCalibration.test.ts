@@ -57,19 +57,22 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
 
     let PanelController: typeof import('../extension/panelController').PanelController;
     let ComparisonPanel: typeof import('../webview/panels/ComparisonPanel').ComparisonPanel;
+    let calibrationStore: typeof import('../extension/calibrationStore');
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         PanelController = require('../extension/panelController').PanelController;
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         ComparisonPanel = require('../webview/panels/ComparisonPanel').ComparisonPanel;
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        calibrationStore = require('../extension/calibrationStore');
     } finally {
         NodeModule._load = originalLoad;
     }
 
-    const calibratedPath = '/tmp/calibrated.wav';
-    const retainedPath = '/tmp/retained.wav';
+    const calibratedPath = '/tmp/controller-calibrated.wav';
+    const retainedPath = '/tmp/controller-retained.wav';
     const initialResults = [result(calibratedPath, 0, 0.1), result(retainedPath, 0, 0.2)];
-    const refreshed = result(calibratedPath, 0, 0.8);
+    const refreshed = result(calibratedPath, 1, 0.8);
     const calls: Array<{
         filePaths: string[];
         cancellable: boolean | undefined;
@@ -86,8 +89,8 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     };
 
     let receiveMessage: ((message: unknown) => unknown) | undefined;
-    let resolveAnalysisUpdate: (message: { results: AnalysisResultWithError[] }) => void = () => undefined;
-    const analysisUpdate = new Promise<{ results: AnalysisResultWithError[] }>((resolve) => {
+    let resolveAnalysisUpdate: ((message: { results: AnalysisResultWithError[] }) => void) | undefined;
+    const nextAnalysisUpdate = (): Promise<{ results: AnalysisResultWithError[] }> => new Promise((resolve) => {
         resolveAnalysisUpdate = resolve;
     });
     const panel: PanelHandle = {
@@ -99,7 +102,8 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
             postMessage: async (message) => {
                 if (message && typeof message === 'object'
                     && (message as { type?: unknown }).type === 'analysis-update') {
-                    resolveAnalysisUpdate(message as { results: AnalysisResultWithError[] });
+                    resolveAnalysisUpdate?.(message as { results: AnalysisResultWithError[] });
+                    resolveAnalysisUpdate = undefined;
                 }
                 return true;
             },
@@ -113,12 +117,33 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         },
         showDirectory: () => panel,
     };
-    let workspaceUpdates = 0;
+    const calibrationProfilesKey = 'audioWandasAnalyzer.calibrationProfiles.v1';
+    const workspaceValues: Record<string, unknown> = {
+        [calibrationProfilesKey]: {
+            [calibratedPath]: {
+                schemaVersion: 1,
+                channels: [{
+                    channelIndex: 0,
+                    expectedLabel: 'input',
+                    status: 'calibrated',
+                    source: 'manual',
+                    factor: 2,
+                    unit: 'Pa',
+                    referenceValue: 2e-5,
+                }],
+            },
+        },
+    };
+    const workspaceUpdateKeys: string[] = [];
     const context = {
         extensionUri: { fsPath: '/extension' } as vscode.Uri,
         workspaceState: {
-            get: <T>(_key: string, fallback: T): T => fallback,
-            update: async (): Promise<void> => { workspaceUpdates++; },
+            get: <T>(key: string, fallback: T): T => (workspaceValues[key] as T | undefined) ?? fallback,
+            update: async (key: string, value: unknown): Promise<void> => {
+                workspaceValues[key] = value;
+                workspaceUpdateKeys.push(key);
+            },
+            keys: (): readonly string[] => Object.keys(workspaceValues),
         },
     } as unknown as SpectrogramSettingsContext & { extensionUri: vscode.Uri };
     const host: PanelControllerHost = {
@@ -141,18 +166,30 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
 
     await controller.analyzeFiles([calibratedPath, retainedPath]);
     assert.ok(receiveMessage);
-    receiveMessage({
-        type: 'request-calibration-refresh',
-        filePath: calibratedPath,
-        analysisRevision: 0,
-    });
-    const update = await analysisUpdate;
+    const refreshUpdate = nextAnalysisUpdate();
+    await calibrationStore.discardMismatchedCalibrationProfile(
+        context as unknown as vscode.ExtensionContext,
+        calibratedPath,
+        new Error('Calibration channel label mismatch'),
+    );
+    const update = await refreshUpdate;
 
     assert.deepEqual(calls, [
         { filePaths: [calibratedPath, retainedPath], cancellable: undefined },
         { filePaths: [calibratedPath], cancellable: false },
     ]);
-    assert.equal(workspaceUpdates, 0);
+    assert.deepEqual(workspaceUpdateKeys, [calibrationProfilesKey]);
     assert.deepEqual(update.results, [refreshed, initialResults[1]]);
     assert.deepEqual(ComparisonPanel.getResults(panel), [refreshed, initialResults[1]]);
+
+    const recoveryUpdate = nextAnalysisUpdate();
+    receiveMessage({
+        type: 'comparison-panel-ready',
+        calibrationRevisions: initialResults.map((entry) => ({
+            filePath: entry.filePath,
+            analysisRevision: entry.analysisRevision ?? 0,
+        })),
+    });
+    assert.deepEqual((await recoveryUpdate).results, [refreshed, initialResults[1]]);
+    controller.dispose();
 });

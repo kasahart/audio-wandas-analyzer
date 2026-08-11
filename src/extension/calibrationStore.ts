@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { isSafeCalibrationValue } from '../shared/analysis/analysisTypes';
@@ -9,6 +10,12 @@ import type {
 
 const CALIBRATION_PROFILES_KEY = 'audioWandasAnalyzer.calibrationProfiles.v1';
 const analysisRevisions = new Map<string, number>();
+const calibrationChangeListeners = new Set<(event: CalibrationChangeEvent) => void>();
+
+export interface CalibrationChangeEvent {
+    filePath: string;
+    analysisRevision: number;
+}
 
 export interface CalibrationChannelDescriptor {
     channelIndex: number;
@@ -17,7 +24,19 @@ export interface CalibrationChannelDescriptor {
 }
 
 function fileKey(filePath: string): string {
-    return path.resolve(filePath);
+    const resolved = path.resolve(filePath);
+    try {
+        return fs.realpathSync.native(resolved);
+    } catch {
+        return resolved;
+    }
+}
+
+export function onDidChangeCalibration(
+    listener: (event: CalibrationChangeEvent) => void,
+): vscode.Disposable {
+    calibrationChangeListeners.add(listener);
+    return { dispose: () => { calibrationChangeListeners.delete(listener); } };
 }
 
 function cloneProfile(profile: CalibrationProfile): CalibrationProfile {
@@ -80,10 +99,9 @@ export async function discardMismatchedCalibrationProfile(
     return true;
 }
 
-function bumpAnalysisRevision(filePath: string): number {
-    const key = fileKey(filePath);
-    const next = (analysisRevisions.get(key) ?? 0) + 1;
-    analysisRevisions.set(key, next);
+function bumpAnalysisRevision(canonicalPath: string): number {
+    const next = (analysisRevisions.get(canonicalPath) ?? 0) + 1;
+    analysisRevisions.set(canonicalPath, next);
     return next;
 }
 
@@ -100,7 +118,10 @@ async function persistProfile(
         delete next[key];
     }
     await context.workspaceState.update(CALIBRATION_PROFILES_KEY, next);
-    bumpAnalysisRevision(filePath);
+    const analysisRevision = bumpAnalysisRevision(key);
+    for (const listener of calibrationChangeListeners) {
+        listener({ filePath: key, analysisRevision });
+    }
 }
 
 export function validateCalibrationValueInput(value: string): string | undefined {
