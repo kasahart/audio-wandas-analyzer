@@ -36,13 +36,25 @@ function collectPackageCommands(repoRoot) {
         .filter((command) => typeof command === 'string' && command.startsWith('audioWandasAnalyzer.')));
 }
 
+function collectWebviewActionIdsFromSource(source) {
+    const literalActions = Array.from(
+        source.matchAll(/(?<!\[)data-action="([^"]+)"/gu),
+        (match) => match[1],
+    );
+    const assignedActions = Array.from(
+        source.matchAll(/\.setAttribute\(\s*['"]data-action['"]\s*,\s*['"]([^'"]+)['"]\s*\)/gu),
+        (match) => match[1],
+    );
+    return sortUnique([...literalActions, ...assignedActions]);
+}
+
 function collectWebviewActionIds(repoRoot) {
     const sourcePaths = [
         path.join(repoRoot, 'src', 'webview', 'runtime', 'comparisonRuntime.ts'),
         path.join(repoRoot, 'src', 'webview', 'calibrationRenderScript.ts'),
     ];
     const source = sourcePaths.map((sourcePath) => fs.readFileSync(sourcePath, 'utf8')).join('\n');
-    return sortUnique(Array.from(source.matchAll(/data-action="([^"]+)"/gu), (match) => match[1]));
+    return collectWebviewActionIdsFromSource(source);
 }
 
 function collectShortcutLabels(repoRoot) {
@@ -185,5 +197,6 @@ if (require.main === module) {
 }
 
 module.exports = {
+    collectWebviewActionIdsFromSource,
     verifyGuiTriggerability,
 };

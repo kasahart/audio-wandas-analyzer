@@ -183,12 +183,12 @@ test('calibration profile writes serialize read-modify-write updates', async () 
         },
     } as unknown as import('vscode').ExtensionContext;
 
-    const first = calibrationStore.discardMismatchedCalibrationProfile(
+    const first = calibrationStore.discardStaleCalibrationProfile(
         context,
         firstPath,
         new Error('Calibration channel label mismatch'),
     );
-    const second = calibrationStore.discardMismatchedCalibrationProfile(
+    const second = calibrationStore.discardStaleCalibrationProfile(
         context,
         secondPath,
         new Error('Calibration channel label mismatch'),
@@ -202,7 +202,7 @@ test('calibration profile writes serialize read-modify-write updates', async () 
     assert.deepEqual(stored[storageKey], {});
 });
 
-test('mismatched persisted calibration is discarded and advances the analysis revision', async () => {
+test('stale persisted calibration is discarded and advances the analysis revision', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as {
         _load: (request: string, parent: unknown, isMain: boolean) => unknown;
@@ -223,20 +223,21 @@ test('mismatched persisted calibration is discarded and advances the analysis re
 
     const filePath = '/tmp/replaced.wav';
     const storageKey = 'audioWandasAnalyzer.calibrationProfiles.v1';
+    const profile = {
+        schemaVersion: 1 as const,
+        channels: [{
+            channelIndex: 0,
+            expectedLabel: 'old-channel',
+            status: 'calibrated' as const,
+            source: 'manual' as const,
+            factor: 2,
+            unit: 'Pa',
+            referenceValue: 2e-5,
+        }],
+    };
     const stored: Record<string, unknown> = {
         [storageKey]: {
-            [path.resolve(filePath)]: {
-                schemaVersion: 1,
-                channels: [{
-                    channelIndex: 0,
-                    expectedLabel: 'old-channel',
-                    status: 'calibrated',
-                    source: 'manual',
-                    factor: 2,
-                    unit: 'Pa',
-                    referenceValue: 2e-5,
-                }],
-            },
+            [path.resolve(filePath)]: profile,
         },
     };
     const context = {
@@ -246,18 +247,26 @@ test('mismatched persisted calibration is discarded and advances the analysis re
         },
     } as unknown as import('vscode').ExtensionContext;
 
-    assert.equal(await calibrationStore.discardMismatchedCalibrationProfile(
+    assert.equal(await calibrationStore.discardStaleCalibrationProfile(
         context,
         filePath,
         new Error('Calibration channel label mismatch'),
     ), true);
     assert.equal(calibrationStore.getCalibrationProfile(context, filePath), undefined);
     assert.equal(calibrationStore.getAnalysisRevision(filePath), 1);
-    assert.equal(await calibrationStore.discardMismatchedCalibrationProfile(
+    stored[storageKey] = { [path.resolve(filePath)]: profile };
+    assert.equal(await calibrationStore.discardStaleCalibrationProfile(
+        context,
+        filePath,
+        new Error('Calibration factor for channel 0 exceeds the safe limit 1e+24 for source peak 1e+10'),
+    ), true);
+    stored[storageKey] = { [path.resolve(filePath)]: profile };
+    assert.equal(await calibrationStore.discardStaleCalibrationProfile(
         context,
         filePath,
         new Error('unrelated backend failure'),
     ), false);
+    assert.deepEqual(calibrationStore.getCalibrationProfile(context, filePath), profile);
 });
 
 test('calibration profile lookup uses the same real filesystem path as the backend', (context) => {

@@ -26,6 +26,13 @@ import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
 
+export class AnalysisRequestError extends Error {
+    constructor(message: string, readonly analysisRevision: number) {
+        super(message);
+        this.name = 'AnalysisRequestError';
+    }
+}
+
 export class PythonBackendServer {
     private proc: ChildProcess | null = null;
     private pending = new Map<string, PendingRequest>();
@@ -48,12 +55,20 @@ export class PythonBackendServer {
     }
 
     async analyze(filePath: string, options: AnalyzeOptions): Promise<BackendResult<'analyze'>> {
-        return this.request('analyze', {
-            filePath,
-            peakCount: options.peakCount,
-            ...(options.stftOptions ? { stftOptions: options.stftOptions } : {}),
-            ...this.calibrationPayload(options),
-        });
+        const analysisRevision = options.analysisRevision ?? 0;
+        try {
+            return await this.request('analyze', {
+                filePath,
+                peakCount: options.peakCount,
+                ...(options.stftOptions ? { stftOptions: options.stftOptions } : {}),
+                ...this.calibrationPayload(options),
+            });
+        } catch (error) {
+            throw new AnalysisRequestError(
+                error instanceof Error ? error.message : String(error),
+                analysisRevision,
+            );
+        }
     }
 
     async requestRange(

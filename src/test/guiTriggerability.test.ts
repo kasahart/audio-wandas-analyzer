@@ -19,6 +19,7 @@ interface GuiFeatureInventoryModule {
 }
 
 interface GuiTriggerabilityAuditModule {
+    collectWebviewActionIdsFromSource(source: string): string[];
     verifyGuiTriggerability(repoRoot: string): {
         missingCommands: string[];
         unexpectedCommands: string[];
@@ -35,6 +36,20 @@ interface GuiTriggerabilityAuditModule {
         invalidCoverageDebt: string[];
     };
 }
+
+test('GUI triggerability collector distinguishes controls from selector guards', () => {
+    const audit = require('../../scripts/verify-gui-triggerability.js') as GuiTriggerabilityAuditModule;
+    const source = `
+        root.querySelector('[data-action="guard-only"]');
+        button.setAttribute('data-action', 'assigned-action');
+        const html = '<button data-action="literal-action">Run</button>';
+    `;
+
+    assert.deepEqual(audit.collectWebviewActionIdsFromSource(source), [
+        'assigned-action',
+        'literal-action',
+    ]);
+});
 
 test('GUI triggerability inventory lists in-scope commands and excludes debug-only command', () => {
     const inventory = require('../shared/gui/guiTriggerabilityInventory') as GuiFeatureInventoryModule;

@@ -86,18 +86,19 @@ export function getAnalysisRevision(filePath: string): number {
     return analysisRevisions.get(fileKey(filePath)) ?? 0;
 }
 
-function isProfileChannelMismatch(error: unknown): boolean {
+function isStaleCalibrationProfileError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes('Calibration channel count mismatch')
-        || message.includes('Calibration channel label mismatch');
+        || message.includes('Calibration channel label mismatch')
+        || /^Calibration factor for channel \d+ exceeds the safe limit/u.test(message);
 }
 
-export async function discardMismatchedCalibrationProfile(
+export async function discardStaleCalibrationProfile(
     context: vscode.ExtensionContext,
     filePath: string,
     error: unknown,
 ): Promise<boolean> {
-    if (!getCalibrationProfile(context, filePath) || !isProfileChannelMismatch(error)) {
+    if (!getCalibrationProfile(context, filePath) || !isStaleCalibrationProfileError(error)) {
         return false;
     }
     await persistProfile(context, filePath, () => undefined);

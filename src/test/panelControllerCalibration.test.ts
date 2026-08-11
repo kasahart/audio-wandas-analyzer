@@ -71,12 +71,19 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
 
     const calibratedPath = '/tmp/controller-calibrated.wav';
     const retainedPath = '/tmp/controller-retained.wav';
+    const racingPath = '/tmp/controller-racing.wav';
     const initialResults = [result(calibratedPath, 0, 0.1), result(retainedPath, 0, 0.2)];
     const refreshed = result(calibratedPath, 1, 0.8);
     const calls: Array<{
         filePaths: string[];
         cancellable: boolean | undefined;
     }> = [];
+    let multiResults = initialResults;
+    let raceAttempt = 0;
+    let resolveRacingAnalysis: (() => void) | undefined;
+    let markRacingStarted: (() => void) | undefined;
+    const racingStarted = new Promise<void>((resolve) => { markRacingStarted = resolve; });
+    const racingGate = new Promise<void>((resolve) => { resolveRacingAnalysis = resolve; });
     const analyzeFiles: AnalysisOrchestrator['analyzeFiles'] = async (
         filePaths,
         _stftOptions,
@@ -85,7 +92,16 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         cancellable,
     ) => {
         calls.push({ filePaths: [...filePaths], cancellable });
-        return filePaths.length === 1 ? [refreshed] : initialResults;
+        if (filePaths.length === 1 && filePaths[0] === racingPath) {
+            raceAttempt += 1;
+            if (raceAttempt === 1) {
+                markRacingStarted?.();
+                await racingGate;
+                return [result(racingPath, 0, 0.3)];
+            }
+            return [result(racingPath, calibrationStore.getAnalysisRevision(racingPath), 0.7)];
+        }
+        return filePaths.length === 1 ? [refreshed] : multiResults;
     };
 
     let receiveMessage: ((message: unknown) => unknown) | undefined;
@@ -132,6 +148,18 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
                     referenceValue: 2e-5,
                 }],
             },
+            [racingPath]: {
+                schemaVersion: 1,
+                channels: [{
+                    channelIndex: 0,
+                    expectedLabel: 'input',
+                    status: 'calibrated',
+                    source: 'manual',
+                    factor: 2,
+                    unit: 'Pa',
+                    referenceValue: 2e-5,
+                }],
+            },
         },
     };
     const workspaceUpdateKeys: string[] = [];
@@ -167,7 +195,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     await controller.analyzeFiles([calibratedPath, retainedPath]);
     assert.ok(receiveMessage);
     const refreshUpdate = nextAnalysisUpdate();
-    await calibrationStore.discardMismatchedCalibrationProfile(
+    await calibrationStore.discardStaleCalibrationProfile(
         context as unknown as vscode.ExtensionContext,
         calibratedPath,
         new Error('Calibration channel label mismatch'),
@@ -182,6 +210,19 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     assert.deepEqual(update.results, [refreshed, initialResults[1]]);
     assert.deepEqual(ComparisonPanel.getResults(panel), [refreshed, initialResults[1]]);
 
+    multiResults = [{ ...initialResults[0], error: 'obsolete failure' }, initialResults[1]];
+    const staleFailureUpdate = nextAnalysisUpdate();
+    receiveMessage({
+        type: 'request-reanalyze',
+        settings: {
+            auto: true,
+            stft: { nFft: 1024, hopSize: 256, window: 'hann' },
+            display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
+        },
+    });
+    assert.deepEqual((await staleFailureUpdate).results, [refreshed, initialResults[1]]);
+
+    ComparisonPanel.updateResults(panel, initialResults);
     const recoveryUpdate = nextAnalysisUpdate();
     receiveMessage({
         type: 'comparison-panel-ready',
@@ -191,5 +232,17 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         })),
     });
     assert.deepEqual((await recoveryUpdate).results, [refreshed, initialResults[1]]);
+
+    const racingAnalysis = controller.analyzeFiles([racingPath]);
+    await racingStarted;
+    await calibrationStore.discardStaleCalibrationProfile(
+        context as unknown as vscode.ExtensionContext,
+        racingPath,
+        new Error('Calibration channel label mismatch'),
+    );
+    resolveRacingAnalysis?.();
+    await racingAnalysis;
+    assert.equal(ComparisonPanel.getResults(panel)[0]?.analysisRevision, 1);
+    assert.equal(raceAttempt, 2);
     controller.dispose();
 });

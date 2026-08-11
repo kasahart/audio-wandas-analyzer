@@ -5,7 +5,7 @@ import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import { PythonBackendServer } from './pythonBackendServer';
 import {
     configureCalibrationProfile,
-    discardMismatchedCalibrationProfile,
+    discardStaleCalibrationProfile,
     getAnalysisRevision,
     getCalibrationProfile,
     type CalibrationChannelDescriptor,
@@ -136,7 +136,7 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
                 analysisRevision: getAnalysisRevision(filePath),
             });
         } catch (error) {
-            const discarded = await discardMismatchedCalibrationProfile(extensionContext, filePath, error);
+            const discarded = await discardStaleCalibrationProfile(extensionContext, filePath, error);
             if (!discarded) {
                 throw error;
             }

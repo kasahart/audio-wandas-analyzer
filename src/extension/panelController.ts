@@ -5,6 +5,7 @@ import {
     type ComparisonPanelReadyMessage,
     type RequestReanalyzeMessage,
     type SpectrogramSettings,
+    type StftOptions,
     type UpdateSpectrogramSettingsMessage,
 } from '../shared/analysis/analysisTypes';
 import {
@@ -228,16 +229,22 @@ export class PanelController implements vscode.Disposable {
         expectedRevision?: number,
     ): Promise<void> {
         const existingSession = existingPanel ? this.sessions.get(existingPanel) : undefined;
+        const stftOptions = loadPersistedStftOptions(this.context);
         let results: AnalysisResultWithError[];
         try {
             results = await this.analysis.analyzeFiles(
                 filePaths,
-                loadPersistedStftOptions(this.context),
+                stftOptions,
             );
         } catch (error) {
             if (error instanceof vscode.CancellationError) { return; }
             throw error;
         }
+        if (existingSession && expectedRevision !== undefined
+            && !existingSession.isCurrent(expectedRevision)) {
+            return;
+        }
+        results = await this.settleLiveResults(results, stftOptions);
         if (existingSession && expectedRevision !== undefined
             && !existingSession.isCurrent(expectedRevision)) {
             return;
@@ -252,6 +259,33 @@ export class PanelController implements vscode.Disposable {
         const session = this.ensureSession(panel);
         session.clearDirectorySelection();
         session.setActiveResults(results.map((result) => result.filePath));
+        await this.refreshStalePanelResults(session);
+    }
+
+    private isLiveResult(result: AnalysisResultWithError): boolean {
+        return (result.analysisRevision ?? 0) === getAnalysisRevision(result.filePath);
+    }
+
+    private async settleLiveResults(
+        initialResults: AnalysisResultWithError[],
+        stftOptions: StftOptions | undefined,
+    ): Promise<AnalysisResultWithError[]> {
+        let results = initialResults;
+        while (true) {
+            const stalePaths = results
+                .filter((result) => !this.isLiveResult(result))
+                .map((result) => result.filePath);
+            if (stalePaths.length === 0) { return results; }
+            const refreshed = await this.analysis.analyzeFiles(
+                stalePaths,
+                stftOptions,
+                `Synchronizing calibration (${stalePaths.length} file${stalePaths.length === 1 ? '' : 's'})`,
+                undefined,
+                false,
+            );
+            const refreshedByPath = new Map(refreshed.map((result) => [result.filePath, result]));
+            results = results.map((result) => refreshedByPath.get(result.filePath) ?? result);
+        }
     }
 
     private ensureSession(panel: PanelHandle): PanelSession<PanelHandle> {
@@ -325,10 +359,13 @@ export class PanelController implements vscode.Disposable {
             }),
         ];
         if (uncached.length > 0) {
-            const newResults = await this.analysis.analyzeFiles(
+            const stftOptions = loadPersistedStftOptions(this.context);
+            const analyzedResults = await this.analysis.analyzeFiles(
                 uncached,
-                loadPersistedStftOptions(this.context),
+                stftOptions,
             );
+            if (session.isDisposed || session.directorySelection !== selection) { return; }
+            const newResults = await this.settleLiveResults(analyzedResults, stftOptions);
             if (session.isDisposed || session.directorySelection !== selection) { return; }
             for (const result of newResults) { selection.cachedResultsByFilePath.set(result.filePath, result); }
         }
@@ -339,6 +376,7 @@ export class PanelController implements vscode.Disposable {
             selection,
             collectSelectedResults(selection.selectedFilePaths, selection.cachedResultsByFilePath),
         );
+        await this.refreshStalePanelResults(session);
     }
 
     private async handleSelectTarget(session: PanelSession<PanelHandle>, message: SelectTargetMessage): Promise<void> {
@@ -365,8 +403,7 @@ export class PanelController implements vscode.Disposable {
                     ComparisonPanel.getResults(session.panel).map((result) => [result.filePath, result]),
                 );
                 const acceptedResults = results.map((result) => {
-                    const expectedRevision = getAnalysisRevision(result.filePath);
-                    if (result.error || (result.analysisRevision ?? 0) === expectedRevision) {
+                    if (this.isLiveResult(result)) {
                         return result;
                     }
                     return displayedByPath.get(result.filePath) ?? result;
@@ -423,27 +460,36 @@ export class PanelController implements vscode.Disposable {
             || getAnalysisRevision(message.filePath) !== message.analysisRevision) {
             return;
         }
-        const acceptedResult = result.error
-            ? { ...result, analysisRevision: message.analysisRevision }
-            : result;
-        if (acceptedResult.analysisRevision !== message.analysisRevision) { return; }
-        const results = ComparisonPanel.replaceResult(session.panel, acceptedResult);
+        if (!this.isLiveResult(result) || result.analysisRevision !== message.analysisRevision) { return; }
+        const results = ComparisonPanel.replaceResult(session.panel, result);
         if (!results) { return; }
-        session.cacheResults([acceptedResult]);
+        session.cacheResults([result]);
         await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
+    }
+
+    private async refreshStalePanelResults(session: PanelSession<PanelHandle>): Promise<void> {
+        const stale = ComparisonPanel.getResults(session.panel).filter((result) => !this.isLiveResult(result));
+        for (const result of stale) {
+            await this.enqueueCalibrationRefresh(session, {
+                filePath: result.filePath,
+                analysisRevision: getAnalysisRevision(result.filePath),
+            });
+        }
     }
 
     private async handlePanelReady(
         session: PanelSession<PanelHandle>,
         message: ComparisonPanelReadyMessage,
     ): Promise<void> {
+        await this.refreshStalePanelResults(session);
         const current = ComparisonPanel.getResults(session.panel);
         const reported = new Map(
             message.calibrationRevisions.map((entry) => [entry.filePath, entry.analysisRevision]),
         );
         const isCurrent = current.length === message.calibrationRevisions.length
             && current.every((result) => (
-                reported.get(result.filePath) === (result.analysisRevision ?? 0)
+                this.isLiveResult(result)
+                && reported.get(result.filePath) === (result.analysisRevision ?? 0)
             ));
         if (!isCurrent) {
             await session.postMessage({ type: 'analysis-update', results: current } satisfies AnalysisUpdateMessage);

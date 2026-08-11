@@ -30,6 +30,12 @@ const defaultHost: AnalysisHost = {
     withProgress: (options, task) => vscode.window.withProgress(options, task),
 };
 
+function errorAnalysisRevision(error: unknown): number {
+    if (!error || typeof error !== 'object') { return 0; }
+    const revision = (error as { analysisRevision?: unknown }).analysisRevision;
+    return typeof revision === 'number' && Number.isInteger(revision) && revision >= 0 ? revision : 0;
+}
+
 export class AnalysisOrchestrator {
     constructor(
         private readonly backend: AnalysisBackend,
@@ -81,6 +87,7 @@ export class AnalysisOrchestrator {
                             channelCount: 0,
                             sampleCount: 0,
                             channels: [],
+                            analysisRevision: errorAnalysisRevision(error),
                             error: error instanceof Error ? error.message : String(error),
                         });
                     }

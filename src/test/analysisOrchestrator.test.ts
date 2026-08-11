@@ -63,3 +63,31 @@ test('AnalysisOrchestrator exposes non-cancellable progress for calibration rean
 
     assert.deepEqual(cancellable, [true, false]);
 });
+
+test('AnalysisOrchestrator preserves the requested calibration revision on errors', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AnalysisOrchestrator } = require('../extension/analysisOrchestrator') as typeof import('../extension/analysisOrchestrator');
+    const host: AnalysisHost = {
+        getDefaultPeakCount: () => 5,
+        withProgress: async <T>(
+            _options: vscode.ProgressOptions,
+            task: (
+                progress: vscode.Progress<{ message?: string; increment?: number }>,
+                token: vscode.CancellationToken,
+            ) => Thenable<T>,
+        ): Promise<T> => task(
+            { report: () => undefined },
+            { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => undefined }) },
+        ),
+    };
+    const revisionedError = Object.assign(new Error('stale failure'), { analysisRevision: 4 });
+    const orchestrator = new AnalysisOrchestrator({
+        warmup: () => undefined,
+        analyze: async () => { throw revisionedError; },
+    }, () => undefined, host);
+
+    const [result] = await orchestrator.analyzeFiles(['/tmp/audio.wav']);
+
+    assert.equal(result.error, 'stale failure');
+    assert.equal(result.analysisRevision, 4);
+});
