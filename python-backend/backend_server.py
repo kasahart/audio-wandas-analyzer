@@ -1,51 +1,102 @@
-"""Persistent Python backend server for the Audio Wandas Analyzer.
-
-Newline-delimited JSON IPC over stdin/stdout. Prints {"type":"ready"} once
-wandas is loaded, then reads commands forever.
-
-Commands:
-    {"cmd":"analyze","requestId":"...","filePath":"...","peakCount":5,
-     "stftOptions":{"nFft":2048,"hopSize":96,"window":"hann"}}
-    {"cmd":"range","requestId":"...","filePath":"...",
-     "startNorm":0.2,"endNorm":0.4,"points":1600}
-    {"cmd":"track-detail","requestId":"...","filePath":"...","trackIndex":0,
-     "stftOptions":{"nFft":2048,"hopSize":96,"window":"hann"}}
-    {"cmd":"spectrum-slice","requestId":"...","filePath":"...","trackIndex":0,
-     "cursorNorm":0.5,"stftOptions":{"nFft":2048,"hopSize":96,"window":"hann"}}
-
-All responses include the originating requestId. Errors come back as
-{"requestId":"...","error":"<message>"}.
-"""
+"""Persistent newline-delimited JSON backend for Audio Wandas Analyzer."""
 
 from __future__ import annotations
 
-import base64
-import io as _io
 import json
+import math
 import os
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import soundfile as sf
-
 from analysis_engine import AnalysisEngine
-from analyzer import (
-    DB_UNIT,
-    SPECTROGRAM_FREQUENCY_BIN_LIMIT,
-    SPECTRUM_LEVEL_AXIS_LABEL,
-    _build_waveform_envelope,
-    _channels_first,
-    _resample_frequency_bins,
-    _resolve_stft_params,
-    analyze_from_frame,
-)
+from analysis_service import AnalysisService
 
 _PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
+_HEARTBEAT_INTERVAL: float = 5.0
+
+Command = dict[str, Any]
+CommandHandler = Callable[[AnalysisService, Command], dict[str, object]]
+FieldValidator = Callable[[object], bool]
+
+
+def _is_string(value: object) -> bool:
+    return isinstance(value, str)
+
+
+def _is_integer(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_finite_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+_REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
+    "analyze": {"filePath": _is_string, "peakCount": _is_integer},
+    "range": {
+        "filePath": _is_string,
+        "startNorm": _is_finite_number,
+        "endNorm": _is_finite_number,
+        "points": _is_integer,
+    },
+    "track-detail": {
+        "filePath": _is_string,
+        "trackIndex": _is_integer,
+        "analysisId": _is_string,
+        "settingsSignature": _is_string,
+    },
+    "release-track-detail": {"filePath": _is_string},
+    "spectrum-slice": {
+        "filePath": _is_string,
+        "trackIndex": _is_integer,
+        "channelIndex": _is_integer,
+        "analysisId": _is_string,
+        "settingsSignature": _is_string,
+        "cursorNorm": _is_finite_number,
+    },
+    "export-wav-loop": {
+        "filePath": _is_string,
+        "startNorm": _is_finite_number,
+        "endNorm": _is_finite_number,
+    },
+}
+
+
+def _validate_stft_options(value: object) -> None:
+    if not isinstance(value, dict):
+        raise ValueError("invalid request field 'stftOptions': expected object")
+    fields: dict[str, FieldValidator] = {
+        "nFft": _is_integer,
+        "hopSize": _is_integer,
+        "window": _is_string,
+    }
+    for key, validator in fields.items():
+        if key not in value or not validator(value[key]):
+            raise ValueError(f"invalid request field 'stftOptions.{key}'")
+
+
+def validate_request(value: object) -> Command:
+    if not isinstance(value, dict):
+        raise ValueError("request must be a JSON object")
+    request_id = value.get("requestId")
+    if not isinstance(request_id, str):
+        raise ValueError("invalid request field 'requestId'")
+    name = value.get("cmd")
+    if not isinstance(name, str):
+        raise ValueError("invalid request field 'cmd'")
+    fields = _REQUEST_FIELDS.get(name)
+    if fields is None:
+        raise ValueError(f"unknown cmd: {name!r}")
+    for key, validator in fields.items():
+        if key not in value or not validator(value[key]):
+            raise ValueError(f"invalid request field {key!r} for command {name!r}")
+    if "stftOptions" in value:
+        _validate_stft_options(value["stftOptions"])
+    return value
 
 
 def _perf(phase: str, started: float, **extra: object) -> None:
@@ -53,176 +104,72 @@ def _perf(phase: str, started: float, **extra: object) -> None:
         return
     ms = (time.perf_counter() - started) * 1000.0
     parts = [f"phase={phase}", f"ms={ms:.2f}"]
-    parts.extend(f"{k}={v}" for k, v in extra.items())
+    parts.extend(f"{key}={value}" for key, value in extra.items())
     print("[perf] " + " ".join(parts), file=sys.stderr, flush=True)
 
 
-_engine = AnalysisEngine()
-
-
-def _stft_options_from_payload(payload: dict) -> dict | None:
-    raw = payload.get("stftOptions")
-    if not raw:
+def _stft_options(command: Command) -> Mapping[str, object] | None:
+    raw = command.get("stftOptions")
+    if raw is None:
         return None
-    return {
-        "n_fft": int(raw["nFft"]),
-        "hop_size": int(raw["hopSize"]),
-        "window": str(raw.get("window", "hann")),
-    }
+    if not isinstance(raw, dict):
+        raise ValueError("stftOptions must be an object")
+    return raw
 
 
-def handle_analyze(cmd: dict) -> dict:
-    cached = _engine.get_file(str(cmd["filePath"]))
-    return analyze_from_frame(
-        cached.frame,
-        cached.path,
-        peak_count=int(cmd.get("peakCount", 5)),
-        stft_options=_stft_options_from_payload(cmd),
-        include_spectrogram=False,
+def handle_analyze(service: AnalysisService, command: Command) -> dict[str, object]:
+    return service.analyze(
+        str(command["filePath"]),
+        peak_count=int(command.get("peakCount", 5)),
+        stft_options=_stft_options(command),
     )
 
 
-def handle_track_detail(cmd: dict) -> dict:
-    cached = _engine.get_file(str(cmd["filePath"]))
-    stft_options = _stft_options_from_payload(cmd)
-    n_fft, hop_length, window = _resolve_stft_params(cached.frame.n_samples, stft_options)
-    spectrogram = _engine.get_spectrogram(cached.path, n_fft, hop_length, window)
-    result = analyze_from_frame(
-        cached.frame,
-        cached.path,
-        peak_count=int(cmd.get("peakCount", 5)),
-        stft_options=stft_options,
-        spectrogram_frame=spectrogram,
-        include_spectrogram=True,
+def handle_track_detail(service: AnalysisService, command: Command) -> dict[str, object]:
+    return service.track_detail(
+        str(command["filePath"]),
+        track_index=int(command.get("trackIndex", -1)),
+        analysis_id=command.get("analysisId"),
+        settings_signature=command.get("settingsSignature"),
+        peak_count=int(command.get("peakCount", 5)),
+        stft_options=_stft_options(command),
     )
-    return {
-        "trackIndex": int(cmd.get("trackIndex", -1)),
-        "analysisId": cmd.get("analysisId"),
-        "settingsSignature": cmd.get("settingsSignature"),
-        "filePath": str(cached.path),
-        "channels": result["channels"],
-    }
 
 
-def _spectrum_slice_values(
-    file_path: str | Path,
-    cursor_norm: float,
-    channel_index: int,
-    stft_options: dict | None,
-) -> dict[str, object]:
-    cached = _engine.get_file(file_path)
-    window_size, hop_size, window_name = _resolve_stft_params(cached.frame.n_samples, stft_options)
-    clipped_norm = max(0.0, min(1.0, cursor_norm))
-    if channel_index < 0 or channel_index >= cached.frame.n_channels:
-        raise ValueError(f"channelIndex out of range: {channel_index}")
-    spectrogram = _engine.get_cached_spectrogram(cached.path, window_size, hop_size, window_name)
-    if spectrogram is not None:
-        time_bins = int(spectrogram.n_frames)
-        if time_bins <= 0:
-            raise ValueError("no spectrogram available for spectrum slice")
-        time_index = min(int(np.floor(clipped_norm * time_bins)), time_bins - 1)
-        spectrum = spectrogram.get_frame_at(time_index)
-        max_frequency_hz = float(spectrogram.freqs[-1])
-    else:
-        center_sample = min(int(clipped_norm * cached.frame.n_samples), cached.frame.n_samples - 1)
-        start_sample = max(0, center_sample - window_size // 2)
-        end_sample = min(cached.frame.n_samples, start_sample + window_size)
-        start_sample = max(0, end_sample - window_size)
-        spectrum = cached.frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
-        max_frequency_hz = float(spectrum.freqs[-1])
-    values = np.asarray(spectrum.dB, dtype=np.float64)
-    if values.ndim == 2:
-        values = values[channel_index]
-    values_2d = _resample_frequency_bins(values.reshape(1, -1), SPECTROGRAM_FREQUENCY_BIN_LIMIT)
-    row = values_2d[0]
-    return {
-        "values": row.tolist(),
-        "frequencyBins": int(row.shape[0]),
-        "maxFrequencyHz": max_frequency_hz,
-        "minDb": float(np.min(row)),
-        "maxDb": float(np.max(row)),
-        "unit": DB_UNIT,
-        "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
-    }
+def handle_spectrum_slice(service: AnalysisService, command: Command) -> dict[str, object]:
+    return service.spectrum_slice(
+        str(command["filePath"]),
+        cursor_norm=float(command.get("cursorNorm", command.get("trackLocalNorm", 0.0))),
+        track_index=int(command.get("trackIndex", -1)),
+        channel_index=int(command.get("channelIndex", 0)),
+        analysis_id=command.get("analysisId"),
+        settings_signature=command.get("settingsSignature"),
+        stft_options=_stft_options(command),
+    )
 
 
-def handle_spectrum_slice(cmd: dict) -> dict:
-    file_path = str(cmd["filePath"])
-    cached = _engine.get_file(file_path)
-    cursor_norm = float(cmd.get("cursorNorm", cmd.get("trackLocalNorm", 0.0)))
-    channel_index = int(cmd.get("channelIndex", 0))
-    slice_data = _spectrum_slice_values(cached.path, cursor_norm, channel_index, _stft_options_from_payload(cmd))
-    return {
-        "trackIndex": int(cmd.get("trackIndex", -1)),
-        "channelIndex": channel_index,
-        "analysisId": cmd.get("analysisId"),
-        "settingsSignature": cmd.get("settingsSignature"),
-        "filePath": str(cached.path),
-        **slice_data,
-    }
+def handle_range(service: AnalysisService, command: Command) -> dict[str, object]:
+    return service.waveform_range(
+        str(command["filePath"]),
+        start_norm=float(command["startNorm"]),
+        end_norm=float(command["endNorm"]),
+        point_count=int(command.get("points", 2000)),
+    )
 
 
-def handle_range(cmd: dict) -> dict:
-    file_path = str(cmd["filePath"])
-    start_norm = float(cmd["startNorm"])
-    end_norm = float(cmd["endNorm"])
-    point_count = int(cmd.get("points", 2000))
-
-    cached = _engine.get_file(file_path)
-    sample_count = cached.frame.n_samples
-    start_idx = max(0, int(start_norm * sample_count))
-    end_idx = min(sample_count, int(end_norm * sample_count))
-
-    channels: list[dict] = []
-    if end_idx > start_idx:
-        range_frame = cached.frame[:, start_idx:end_idx]
-        data = _channels_first(range_frame.data, cached.frame.n_channels, end_idx - start_idx)
-        for ch_idx in range(cached.frame.n_channels):
-            channels.append(
-                _build_waveform_envelope(
-                    data[ch_idx],
-                    point_count,
-                    start_sample=start_idx,
-                    total_samples=sample_count,
-                )
-            )
-
-    return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
+def handle_export_wav_loop(service: AnalysisService, command: Command) -> dict[str, object]:
+    return service.export_wav_loop(
+        str(command["filePath"]),
+        start_norm=float(command["startNorm"]),
+        end_norm=float(command["endNorm"]),
+    )
 
 
-def handle_export_wav_loop(cmd: dict) -> dict:
-    file_path = str(cmd["filePath"])
-    start_norm = float(cmd["startNorm"])
-    end_norm = float(cmd["endNorm"])
-
-    cached = _engine.get_file(file_path)
-    sample_rate = int(cached.frame.sampling_rate)
-    start_sample = max(0, int(start_norm * cached.frame.n_samples))
-    end_sample = min(cached.frame.n_samples, int(end_norm * cached.frame.n_samples))
-    n_frames = end_sample - start_sample
-
-    if n_frames <= 0:
-        raise ValueError(
-            f"Loop region produces 0 frames (startNorm={start_norm}, endNorm={end_norm}, "
-            f"total_frames={cached.frame.n_samples}). Ensure startNorm < endNorm and the file is not empty."
-        )
-
-    range_frame = cached.frame[:, start_sample:end_sample]
-    data = _channels_first(range_frame.data, cached.frame.n_channels, n_frames).T
-
-    buf = _io.BytesIO()
-    sf.write(buf, data, sample_rate, format="WAV", subtype="PCM_16")
-    wav_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-
-    return {"wavBase64": wav_b64, "sampleRate": sample_rate}
+def handle_release_track_detail(service: AnalysisService, command: Command) -> dict[str, object]:
+    return service.release_track_detail(str(command["filePath"]))
 
 
-def handle_release_track_detail(cmd: dict) -> dict:
-    _engine.discard_spectrograms(str(cmd["filePath"]))
-    return {}
-
-
-COMMANDS: dict[str, Callable[[dict], dict]] = {
+COMMANDS: dict[str, CommandHandler] = {
     "analyze": handle_analyze,
     "range": handle_range,
     "track-detail": handle_track_detail,
@@ -231,17 +178,23 @@ COMMANDS: dict[str, Callable[[dict], dict]] = {
     "export-wav-loop": handle_export_wav_loop,
 }
 
-_HEARTBEAT_INTERVAL: float = 5.0
+
+def dispatch(command: Command, service: AnalysisService) -> dict[str, object]:
+    name = command.get("cmd")
+    handler = COMMANDS.get(name)
+    if handler is None:
+        raise ValueError(f"unknown cmd: {name!r}")
+    return handler(service, command)
 
 
 def _heartbeat_loop() -> None:
-    """5 秒ごとに heartbeat を stdout に書く（デーモンスレッドで起動）。"""
     while True:
         time.sleep(_HEARTBEAT_INTERVAL)
         print(json.dumps({"type": "heartbeat", "ts": time.time()}), flush=True)
 
 
-def main() -> None:
+def main(service: AnalysisService | None = None) -> None:
+    active_service = service or AnalysisService(AnalysisEngine())
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(json.dumps({"type": "ready"}), flush=True)
     for raw_line in sys.stdin:
@@ -250,19 +203,17 @@ def main() -> None:
             continue
         request_id = ""
         try:
-            cmd: dict[str, Any] = json.loads(line)
-            request_id = str(cmd.get("requestId", ""))
-            name = cmd.get("cmd")
-            handler = COMMANDS.get(name)
-            if handler is None:
-                raise ValueError(f"unknown cmd: {name!r}")
-            t = time.perf_counter()
-            result = handler(cmd)
-            _perf(f"cmd_{name}", t, file=Path(str(cmd.get("filePath", ""))).name)
-            result["requestId"] = request_id
-            print(json.dumps(result, ensure_ascii=False), flush=True)
-        except Exception as exc:
-            print(json.dumps({"requestId": request_id, "error": str(exc)}), flush=True)
+            parsed: object = json.loads(line)
+            if isinstance(parsed, dict) and isinstance(parsed.get("requestId"), str):
+                request_id = parsed["requestId"]
+            command = validate_request(parsed)
+            started = time.perf_counter()
+            result = dispatch(command, active_service)
+            name = command.get("cmd")
+            _perf(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
+            print(json.dumps({**result, "requestId": request_id}, ensure_ascii=False), flush=True)
+        except Exception as error:
+            print(json.dumps({"requestId": request_id, "error": str(error)}), flush=True)
 
 
 if __name__ == "__main__":

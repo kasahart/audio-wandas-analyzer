@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 import wandas as wd
@@ -46,7 +48,7 @@ def _analysis_units_metadata() -> dict[str, object]:
     }
 
 
-def _channels_first(data: np.ndarray, channel_count: int, sample_count: int) -> np.ndarray:
+def channels_first(data: np.ndarray, channel_count: int, sample_count: int) -> np.ndarray:
     array = np.asarray(data)
 
     if array.ndim == 1:
@@ -129,7 +131,7 @@ def _spectrum_peaks(
     return result
 
 
-def _build_waveform_envelope(
+def build_waveform_envelope(
     samples: np.ndarray,
     point_limit: int = WAVEFORM_POINT_LIMIT,
     start_sample: int = 0,
@@ -158,7 +160,7 @@ def _mean_power_db(values_db: np.ndarray, axis: int) -> np.ndarray:
     return 10.0 * np.log10(mean_power)
 
 
-def _resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.ndarray:
+def resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.ndarray:
     if spectrogram.shape[1] <= target_bin_count:
         return spectrogram
 
@@ -207,7 +209,7 @@ def _build_spectrogram(
         raise ValueError(f"Expected 2D spectrogram data, got shape {spectrogram.shape}")
 
     spectrogram = _resample_time_bins(spectrogram, time_bin_limit)
-    spectrogram = _resample_frequency_bins(spectrogram, frequency_bin_limit)
+    spectrogram = resample_frequency_bins(spectrogram, frequency_bin_limit)
 
     min_db = float(np.min(spectrogram))
     max_db = float(np.max(spectrogram))
@@ -241,12 +243,12 @@ def analyze_range(
     if end_idx <= start_idx:
         return {"startNorm": start_norm, "endNorm": end_norm, "channels": []}
 
-    data = _channels_first(frame[:, start_idx:end_idx].data, channel_count, end_idx - start_idx)
+    data = channels_first(frame[:, start_idx:end_idx].data, channel_count, end_idx - start_idx)
     channels: list[dict[str, object]] = []
     for ch_idx in range(channel_count):
         ch_slice = data[ch_idx]
         channels.append(
-            _build_waveform_envelope(
+            build_waveform_envelope(
                 ch_slice,
                 point_count,
                 start_sample=start_idx,
@@ -260,11 +262,34 @@ def analyze_range(
 _ALLOWED_WINDOWS = {"hann", "hamming", "blackman", "boxcar"}
 
 
-def _resolve_stft_params(
+class StftOptions(TypedDict):
+    n_fft: int
+    hop_size: int
+    window: str
+
+
+def normalize_stft_options(stft_options: Mapping[str, object] | None) -> StftOptions | None:
+    if not stft_options:
+        return None
+
+    n_fft = int(stft_options.get("n_fft", stft_options.get("nFft", 0)))
+    hop_size = int(stft_options.get("hop_size", stft_options.get("hopSize", 0)))
+    window = str(stft_options.get("window", "hann"))
+    if n_fft < 64 or n_fft > 16384:
+        raise ValueError(f"n_fft must be in [64, 16384], got {n_fft}")
+    if hop_size < 1 or hop_size > n_fft:
+        raise ValueError(f"hop_size must be in [1, n_fft], got {hop_size}")
+    if window not in _ALLOWED_WINDOWS:
+        raise ValueError(f"window must be one of {sorted(_ALLOWED_WINDOWS)}, got {window!r}")
+    return {"n_fft": n_fft, "hop_size": hop_size, "window": window}
+
+
+def resolve_stft_params(
     sample_count: int,
-    stft_options: dict | None,
+    stft_options: Mapping[str, object] | None,
 ) -> tuple[int, int, str]:
-    if stft_options is None:
+    normalized = normalize_stft_options(stft_options)
+    if normalized is None:
         window_size = max(64, _pick_window_size(sample_count))
         hop_size = max(
             1,
@@ -272,16 +297,7 @@ def _resolve_stft_params(
         )
         return window_size, hop_size, "hann"
 
-    n_fft = int(stft_options.get("n_fft", 0))
-    hop = int(stft_options.get("hop_size", 0))
-    window = str(stft_options.get("window", "hann"))
-    if n_fft < 64 or n_fft > 16384:
-        raise ValueError(f"n_fft must be in [64, 16384], got {n_fft}")
-    if hop < 1 or hop > n_fft:
-        raise ValueError(f"hop_size must be in [1, n_fft], got {hop}")
-    if window not in _ALLOWED_WINDOWS:
-        raise ValueError(f"window must be one of {sorted(_ALLOWED_WINDOWS)}, got {window!r}")
-    return n_fft, hop, window
+    return normalized["n_fft"], normalized["hop_size"], normalized["window"]
 
 
 def _channel_unit(frame: wd.ChannelFrame, index: int) -> str | None:
@@ -300,7 +316,7 @@ def analyze_from_frame(
     file_path: str | Path,
     peak_count: int = 5,
     *,
-    stft_options: dict | None = None,
+    stft_options: Mapping[str, object] | None = None,
     spectrogram_frame: wd.SpectrogramFrame | None = None,
     include_spectrogram: bool = False,
 ) -> dict[str, object]:
@@ -312,17 +328,17 @@ def analyze_from_frame(
     sample_count = int(frame.n_samples)
     sample_rate_hz = int(frame.sampling_rate)
     labels = list(frame.labels)
-    data = _channels_first(np.asarray(frame.data), channel_count, sample_count)
+    data = channels_first(np.asarray(frame.data), channel_count, sample_count)
     rms_values = np.asarray(frame.rms, dtype=np.float64)
     _perf("read_frame", t_frame, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
 
     t_fft = time.perf_counter()
     fft = frame.fft()
     fft_freqs = np.asarray(fft.freqs, dtype=np.float64)
-    fft_magnitudes = _channels_first(np.asarray(fft.magnitude), channel_count, fft_freqs.size)
+    fft_magnitudes = channels_first(np.asarray(fft.magnitude), channel_count, fft_freqs.size)
     _perf("fft", t_fft, bins=fft_freqs.size)
 
-    window_size, hop_size, window_name = _resolve_stft_params(sample_count, stft_options)
+    window_size, hop_size, window_name = resolve_stft_params(sample_count, stft_options)
     stft_db: np.ndarray | None = None
     if include_spectrogram:
         if spectrogram_frame is None:
@@ -349,7 +365,7 @@ def analyze_from_frame(
                 "peakAbsolute": float(np.max(np.abs(samples))),
                 "dominantFrequencies": _dominant_frequencies(fft_magnitudes[index], fft_freqs, peak_count),
                 "peaks": _spectrum_peaks(fft_magnitudes[index], fft_freqs, peak_count),
-                "waveform": _build_waveform_envelope(
+                "waveform": build_waveform_envelope(
                     samples,
                     WAVEFORM_POINT_LIMIT,
                     start_sample=0,
@@ -377,10 +393,10 @@ def analyze_audio(
     file_path: str | Path,
     peak_count: int = 5,
     *,
-    stft_options: dict | None = None,
+    stft_options: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     frame, target = load_audio_frame(file_path)
-    window_size, hop_size, window_name = _resolve_stft_params(frame.n_samples, stft_options)
+    window_size, hop_size, window_name = resolve_stft_params(frame.n_samples, stft_options)
     spectrogram = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
     return analyze_from_frame(
         frame,

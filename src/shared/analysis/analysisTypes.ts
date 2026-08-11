@@ -22,6 +22,8 @@ export interface AnalysisUnits {
 export interface WaveformEnvelope {
     min: number[];
     max: number[];
+    minT?: number[];
+    maxT?: number[];
     samples: number[];
     absolutePeak: number;
 }
