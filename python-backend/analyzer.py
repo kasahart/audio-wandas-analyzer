@@ -316,7 +316,7 @@ def analyze_from_frame(
     file_path: str | Path,
     peak_count: int = 5,
     *,
-    stft_options: dict | None = None,
+    stft_options: Mapping[str, object] | None = None,
     spectrogram_frame: wd.SpectrogramFrame | None = None,
     include_spectrogram: bool = False,
 ) -> dict[str, object]:
@@ -393,7 +393,7 @@ def analyze_audio(
     file_path: str | Path,
     peak_count: int = 5,
     *,
-    stft_options: dict | None = None,
+    stft_options: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     frame, target = load_audio_frame(file_path)
     window_size, hop_size, window_name = resolve_stft_params(frame.n_samples, stft_options)

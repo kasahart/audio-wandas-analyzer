@@ -18,7 +18,6 @@ from analyzer import (
     analyze_from_frame,
     build_waveform_envelope,
     channels_first,
-    normalize_stft_options,
     resample_frequency_bins,
     resolve_stft_params,
 )
@@ -74,12 +73,11 @@ class AnalysisService:
         stft_options: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         cached = self.engine.get_file(file_path)
-        normalized = normalize_stft_options(stft_options)
         return analyze_from_frame(
             cached.frame,
             cached.path,
             peak_count=peak_count,
-            stft_options=normalized,
+            stft_options=stft_options,
             include_spectrogram=False,
         )
 
@@ -94,14 +92,13 @@ class AnalysisService:
         stft_options: Mapping[str, object] | None = None,
     ) -> TrackDetailResult:
         cached = self.engine.get_file(file_path)
-        normalized = normalize_stft_options(stft_options)
-        n_fft, hop_length, window = resolve_stft_params(cached.frame.n_samples, normalized)
+        n_fft, hop_length, window = resolve_stft_params(cached.frame.n_samples, stft_options)
         spectrogram = self.engine.get_spectrogram(cached.path, n_fft, hop_length, window)
         result = analyze_from_frame(
             cached.frame,
             cached.path,
             peak_count=peak_count,
-            stft_options=normalized,
+            stft_options=stft_options,
             spectrogram_frame=spectrogram,
             include_spectrogram=True,
         )
@@ -125,8 +122,7 @@ class AnalysisService:
         stft_options: Mapping[str, object] | None = None,
     ) -> SpectrumSliceResult:
         cached = self.engine.get_file(file_path)
-        normalized = normalize_stft_options(stft_options)
-        window_size, hop_size, window_name = resolve_stft_params(cached.frame.n_samples, normalized)
+        window_size, hop_size, window_name = resolve_stft_params(cached.frame.n_samples, stft_options)
         clipped_norm = max(0.0, min(1.0, cursor_norm))
         if channel_index < 0 or channel_index >= cached.frame.n_channels:
             raise ValueError(f"channelIndex out of range: {channel_index}")
