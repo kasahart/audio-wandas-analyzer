@@ -12,6 +12,7 @@ import type {
     ComparisonState,
     DirectorySelectionState,
 } from '../runtime/types';
+import { getCalibrationRenderScript } from '../calibrationRenderScript';
 
 export type { ComparisonState } from '../runtime/types';
 
@@ -325,12 +326,21 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
     <div id="app"></div>
     <div id="canvas-tooltip"></div>
     <script nonce="${nonce}">
+        const __AWA_CALIBRATION_RUNTIME__ = true;
+        const __AWA_NATIVE_ACQUIRE_VSCODE_API__ = acquireVsCodeApi;
+        window.acquireVsCodeApi = function() {
+            if (!window.__AWA_VSCODE_API__) {
+                window.__AWA_VSCODE_API__ = __AWA_NATIVE_ACQUIRE_VSCODE_API__();
+            }
+            return window.__AWA_VSCODE_API__;
+        };
         window.__APP_STATE__ = ${serializeForScript(state)};
         window.__APP_STRINGS__ = ${serializeForScript(strings)};
         window.__APP_LOCALE__ = ${serializeForScript(locale)};
     </script>
     <script src="${waveformScriptUri}"></script>
     <script src="${runtimeScriptUri}"></script>
+    <script nonce="${nonce}">${getCalibrationRenderScript()}</script>
 </body>
 </html>`;
 }

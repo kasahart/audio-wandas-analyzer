@@ -465,7 +465,7 @@ def analyze_from_frame(
 
     _perf("channels_build", t_channels, count=channel_count)
 
-    return {
+    result: dict[str, object] = {
         "filePath": str(target),
         "fileName": target.name,
         "sampleRateHz": sample_rate_hz,
@@ -475,9 +475,12 @@ def analyze_from_frame(
         "schemaVersion": 2,
         "calibrationSignature": resolved.signature,
         "calibrationProfile": resolved.to_dict(),
-        "units": _analysis_units_metadata(measurements),
         "channels": channels,
     }
+    units = _analysis_units_metadata(measurements)
+    if units is not None:
+        result["units"] = units
+    return result
 
 
 def analyze_audio(

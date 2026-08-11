@@ -4,9 +4,21 @@ export function getCalibrationRenderScript(): string {
             const vscode = acquireVsCodeApi();
             const state = __APP_STATE__;
             const app = document.getElementById('app');
-            let calibrationRefreshPending = false;
             let decorationPending = false;
             let observer = null;
+
+            function activeTracks() {
+                if (typeof window.__AWA_ACTIVE_TRACKS__ === 'function') {
+                    return window.__AWA_ACTIVE_TRACKS__();
+                }
+                return (state.results || []).map(function(result, trackIndex) {
+                    return { trackIndex: trackIndex, result: result };
+                });
+            }
+
+            function activeResults() {
+                return activeTracks().map(function(track) { return track.result; });
+            }
 
             function channelsForResult(result) {
                 return result && Array.isArray(result.channels) ? result.channels : [];
@@ -105,7 +117,6 @@ export function getCalibrationRenderScript(): string {
                 const button = document.createElement('button');
                 button.className = 'track-btn';
                 button.setAttribute('data-action', 'configure-calibration');
-                button.setAttribute('data-track-index', String(trackIndex));
                 button.title = 'Configure per-channel calibration';
                 button.setAttribute('aria-label', 'Configure calibration');
                 button.textContent = 'Cal';
@@ -142,8 +153,13 @@ export function getCalibrationRenderScript(): string {
                 }
 
                 const clipped = channels.some(function(channel) {
-                    return channel && (channel.clipped === true
-                        || (channel.clipped === undefined && channel.peakAbsolute >= 0.99));
+                    if (!channel) { return false; }
+                    if (channel.clipped !== undefined) { return channel.clipped === true; }
+                    const rawPeak = Number(channel.rawPeakFullScale);
+                    if (Number.isFinite(rawPeak)) { return rawPeak >= 0.99; }
+                    const measurement = measurementFor(channel);
+                    return (!measurement || measurement.calibrationStatus === 'uncalibrated')
+                        && Number(channel.peakAbsolute) >= 0.99;
                 });
                 let clipBadge = titleRow.querySelector('.clip-badge');
                 if (!clipped) {
@@ -183,7 +199,10 @@ export function getCalibrationRenderScript(): string {
                     const match = /^track-row-(\\d+)$/.exec(row.id);
                     if (!match) { return; }
                     const trackIndex = Number(match[1]);
-                    const result = state.results && state.results[trackIndex];
+                    const track = activeTracks().find(function(candidate) {
+                        return candidate.trackIndex === trackIndex;
+                    });
+                    const result = track && track.result;
                     channelsForResult(result).forEach(function(channel) {
                         const measurement = measurementFor(channel);
                         if (!measurement) { return; }
@@ -230,7 +249,9 @@ export function getCalibrationRenderScript(): string {
                 if (observer) { observer.disconnect(); }
                 try {
                     ensureStyles();
-                    (state.results || []).forEach(decorateTrack);
+                    activeTracks().forEach(function(track) {
+                        decorateTrack(track.result, track.trackIndex);
+                    });
                     updateOverlayCompatibility();
                 } finally {
                     observeApp();
@@ -261,7 +282,7 @@ export function getCalibrationRenderScript(): string {
                     '| File | Channel | State | Factor | Linear Unit | Level Reference | Source |',
                     '|------|---------|-------|--------|-------------|-----------------|--------|',
                 ];
-                (state.results || []).forEach(function(result) {
+                activeResults().forEach(function(result) {
                     channelsForResult(result).forEach(function(channel, channelIndex) {
                         const measurement = measurementFor(channel);
                         if (!measurement) { return; }
@@ -277,7 +298,7 @@ export function getCalibrationRenderScript(): string {
                 lines.push('', '## Measurements', '');
                 lines.push('| File | Channel | RMS | RMS Level | Peak | Peak Level | Raw Peak | Clipped |');
                 lines.push('|------|---------|-----|-----------|------|------------|----------|---------|');
-                (state.results || []).forEach(function(result) {
+                activeResults().forEach(function(result) {
                     channelsForResult(result).forEach(function(channel, channelIndex) {
                         const measurement = measurementFor(channel);
                         if (!measurement) { return; }
@@ -296,7 +317,7 @@ export function getCalibrationRenderScript(): string {
                     lines.push('', '## Loop Region', '', '- Global comparison timeline: ' + loopDisplay.textContent);
                 }
                 lines.push('');
-                (state.results || []).forEach(function(result) {
+                activeResults().forEach(function(result) {
                     channelsForResult(result).forEach(function(channel, channelIndex) {
                         const measurement = measurementFor(channel);
                         const peaks = channel && channel.peaks;
@@ -340,7 +361,7 @@ export function getCalibrationRenderScript(): string {
                         source: ['import wandas as wd\\n'],
                     },
                 ];
-                (state.results || []).forEach(function(result, resultIndex) {
+                activeResults().forEach(function(result, resultIndex) {
                     const channels = channelsForResult(result);
                     const variable = 'signal_' + (resultIndex + 1);
                     const source = [variable + ' = wd.read(' + pythonString(result.filePath) + ')\\n'];
@@ -382,7 +403,7 @@ export function getCalibrationRenderScript(): string {
             }
 
             function hasMeasurementData() {
-                return (state.results || []).some(function(result) {
+                return activeResults().some(function(result) {
                     return channelsForResult(result).some(function(channel) {
                         return !!measurementFor(channel) && Number.isFinite(Number(channel.rmsLevelDb));
                     });
@@ -397,7 +418,7 @@ export function getCalibrationRenderScript(): string {
                 event.preventDefault();
                 event.stopPropagation();
                 event.stopImmediatePropagation();
-                const first = state.results && state.results[0];
+                const first = activeResults()[0];
                 const defaultName = ((first && first.fileName) || 'analysis').replace(/\\.[^.]+$/, '');
                 vscode.postMessage({
                     type: 'export-report-options',
@@ -411,7 +432,6 @@ export function getCalibrationRenderScript(): string {
                 const message = event.data;
                 if (!message) { return; }
                 if (message.type === 'calibration-configured') {
-                    calibrationRefreshPending = true;
                     const settings = window.__AWA_SPECTROGRAM_SETTINGS__
                         ? window.__AWA_SPECTROGRAM_SETTINGS__
                         : {
@@ -423,14 +443,6 @@ export function getCalibrationRenderScript(): string {
                     return;
                 }
                 if (message.type === 'analysis-update') {
-                    if (calibrationRefreshPending) {
-                        calibrationRefreshPending = false;
-                        vscode.postMessage({
-                            type: 'calibration-reload',
-                            results: message.results,
-                        });
-                        return;
-                    }
                     scheduleDecoration();
                 }
             });

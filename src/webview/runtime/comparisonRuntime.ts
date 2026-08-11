@@ -267,6 +267,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return { offsetSeconds: 0, hidden: false, color: null, defaultColor: defaultColor };
     }
     const trackStore = new TrackStore(state.results, createTrackRuntime);
+    window.__AWA_ACTIVE_TRACKS__ = function () {
+        return trackStore.activeIds().map(function (trackId) {
+            const record = trackStore.require(trackId);
+            return { trackIndex: record.protocolIndex, result: record.result };
+        });
+    };
     const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
     let analysisGeneration = 0;
     function createAnalysisId(): string {
@@ -1364,6 +1370,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return buildChannelLane(result, i, channelIndex);
         }).join('');
     }
+    function isChannelClipped(channel: ChannelSummary): boolean {
+        if (channel.clipped !== undefined) {
+            return channel.clipped;
+        }
+        if (Number.isFinite(channel.rawPeakFullScale)) {
+            return Number(channel.rawPeakFullScale) >= 0.99;
+        }
+        return (!channel.measurement || channel.measurement.calibrationStatus === 'uncalibrated')
+            && channel.peakAbsolute >= 0.99;
+    }
     function buildTrackRow(result: ComparisonTrackState, i: number) {
         const trackId = trackIdAtIndex(i);
         if (!trackId) {
@@ -1379,7 +1395,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaDragHandle) + '" title="' + escHtml(STR.ariaDragHandle) + '">≡</div>'
             + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escHtml(STR.ariaPickColor) + '" title="' + escHtml(STR.trackPickColor) + '"></div>'
             + '    <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
-            + (channels.some(function (ch: ChannelSummary) { return ch && ch.peakAbsolute >= 0.99; }) ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+            + (channels.some(isChannelClipped) ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
             + '  </div>'
             + '  <div class="track-meta">Total: ' + result.channelCount + ' ch &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
             + '  <div class="track-btns">'

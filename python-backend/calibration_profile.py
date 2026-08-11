@@ -182,6 +182,12 @@ def format_reference_value(value: float) -> str:
     return f"{value:.6g}"
 
 
+def format_reference_label(value: float, unit: str) -> str:
+    formatted = format_reference_value(value)
+    separator = "" if formatted.endswith("µ") else " "
+    return f"{formatted}{separator}{unit}"
+
+
 def measurement_metadata(channel: ResolvedChannelCalibration) -> dict[str, object]:
     if channel.status == "uncalibrated":
         linear_unit = "FS"
@@ -196,7 +202,7 @@ def measurement_metadata(channel: ResolvedChannelCalibration) -> dict[str, objec
             level_reference_label = "dB SPL re 20 µPa"
         else:
             level_unit = "dB"
-            level_reference_label = f"dB re {format_reference_value(channel.reference_value)} {channel.unit}"
+            level_reference_label = f"dB re {format_reference_label(channel.reference_value, channel.unit)}"
 
     return {
         "calibrationStatus": channel.status,

@@ -166,17 +166,21 @@ export function isConfigureCalibrationMessage(message: unknown): message is Conf
     }
     const candidate = message as Record<string, unknown>;
     return candidate['type'] === 'configure-calibration'
-        && typeof candidate['trackIndex'] === 'number'
+        && Number.isInteger(candidate['trackIndex'])
+        && (candidate['trackIndex'] as number) >= 0
         && typeof candidate['filePath'] === 'string'
         && candidate['filePath'].length > 0
         && Array.isArray(candidate['channels'])
+        && candidate['channels'].length > 0
         && candidate['channels'].every((channel) => {
             if (!channel || typeof channel !== 'object') {
                 return false;
             }
             const entry = channel as Record<string, unknown>;
-            return typeof entry['channelIndex'] === 'number'
-                && typeof entry['label'] === 'string';
+            return Number.isInteger(entry['channelIndex'])
+                && (entry['channelIndex'] as number) >= 0
+                && typeof entry['label'] === 'string'
+                && entry['label'].trim().length > 0;
         });
 }
 

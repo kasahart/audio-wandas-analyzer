@@ -16,6 +16,7 @@ test('buildComparisonPreviewHtml returns results-mode ComparisonPanel HTML', () 
     assert.match(html, /"mode":"results"/);
     assert.match(html, /id="toolbar"/);
     assert.match(html, /data-action="content-waveform"/);
+    assert.match(html, /__AWA_CALIBRATION_RUNTIME__/);
     assert.doesNotMatch(html, /"mode":"directory-selection"/);
 });
 
@@ -60,11 +61,12 @@ test('selection preview does not inject playback demo hooks', () => {
     assert.doesNotMatch(html, /window\.__comparisonPreviewDemo = true;/);
 });
 
-test('buildUiSmokeHtml keeps the ui-smoke vscode api capture stub as the only stub', () => {
+test('buildUiSmokeHtml keeps one capture stub behind the shared vscode api wrapper', () => {
     const html = buildUiSmokeHtml();
     const stubMatches = html.match(/window\.acquireVsCodeApi = function\(\)/g) ?? [];
 
-    assert.equal(stubMatches.length, 1);
+    assert.equal(stubMatches.length, 2);
+    assert.match(html, /__AWA_NATIVE_ACQUIRE_VSCODE_API__/);
     assert.match(html, /window\.__uiSmokePostedMessages\.push\(message\)/);
     assert.doesNotMatch(html, /data:audio\/wav;base64,/);
     assert.doesNotMatch(html, /window\.__comparisonPreviewDemo = true;/);

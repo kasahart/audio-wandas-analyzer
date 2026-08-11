@@ -101,6 +101,53 @@ def test_uncalibrated_profile_is_explicit_full_scale() -> None:
     assert result["units"]["spectrumLevel"]["axisLabel"] == "Spectrum amplitude level [dBFS]"
 
 
+def test_mixed_level_references_omit_aggregate_units() -> None:
+    source = wd.from_numpy(
+        np.array([[0.25, -0.25], [0.5, -0.5]], dtype=np.float64),
+        sampling_rate=8_000,
+        ch_labels=["microphone", "raw"],
+    )
+    payload = _profile(
+        ["microphone", "raw"],
+        [2.0, 1.0],
+        ["Pa", "FS"],
+        [2e-5, 1.0],
+    )
+    payload["channels"][1] = {
+        "channelIndex": 1,
+        "expectedLabel": "raw",
+        "status": "uncalibrated",
+        "source": "default",
+        "factor": 1.0,
+        "unit": "",
+        "referenceValue": 1.0,
+    }
+    resolved = resolve_calibration_profile(payload, source)
+
+    result = analyze_from_frame(
+        resolved.apply(source),
+        "fixture.wav",
+        raw_frame=source,
+        calibration_profile=resolved,
+    )
+
+    assert "units" not in result
+    assert result["channels"][0]["measurement"]["levelUnit"] == "dB SPL"
+    assert result["channels"][1]["measurement"]["levelUnit"] == "dBFS"
+
+
+def test_micro_reference_prefix_attaches_to_non_pascal_unit() -> None:
+    source = wd.from_numpy(
+        np.array([[0.25, -0.25]], dtype=np.float64),
+        sampling_rate=8_000,
+        ch_labels=["voltage"],
+    )
+    resolved = resolve_calibration_profile(_profile(["voltage"], [1.0], ["V"], [2e-5]), source)
+    result = analyze_from_frame(source, "fixture.wav", raw_frame=source, calibration_profile=resolved)
+
+    assert result["channels"][0]["measurement"]["levelReferenceLabel"] == "dB re 20 µV"
+
+
 def test_profile_validation_is_strict_about_channel_labels() -> None:
     source = wd.from_numpy(
         np.ones((1, 4), dtype=np.float64),

@@ -61,6 +61,24 @@ export function getAnalysisRevision(filePath: string): number {
     return analysisRevisions.get(fileKey(filePath)) ?? 0;
 }
 
+function isProfileChannelMismatch(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('Calibration channel count mismatch')
+        || message.includes('Calibration channel label mismatch');
+}
+
+export async function discardMismatchedCalibrationProfile(
+    context: vscode.ExtensionContext,
+    filePath: string,
+    error: unknown,
+): Promise<boolean> {
+    if (!getCalibrationProfile(context, filePath) || !isProfileChannelMismatch(error)) {
+        return false;
+    }
+    await persistProfile(context, filePath, undefined);
+    return true;
+}
+
 function bumpAnalysisRevision(filePath: string): number {
     const key = fileKey(filePath);
     const next = (analysisRevisions.get(key) ?? 0) + 1;

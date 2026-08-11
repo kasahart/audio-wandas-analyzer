@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import type { AnalysisResultWithError, SpectrogramSettings } from '../shared/analysis/analysisTypes';
 import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
-import { getCalibrationRenderScript } from '../webview/calibrationRenderScript';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import { PythonBackendServer } from './pythonBackendServer';
 import {
     configureCalibrationProfile,
+    discardMismatchedCalibrationProfile,
     getAnalysisRevision,
     getCalibrationProfile,
     type CalibrationChannelDescriptor,
@@ -38,22 +38,11 @@ type PanelContext = ResultsPanelContext | DirectoryPanelContext;
 const panelContexts = new WeakMap<vscode.WebviewPanel, PanelContext>();
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 const panelLifecycleInstalled = new WeakSet<vscode.WebviewPanel>();
+const openPanels = new Set<vscode.WebviewPanel>();
 const latestResultsByFilePath = new Map<string, AnalysisResultWithError>();
 let installed = false;
 let backendPatched = false;
 let activePanel: vscode.WebviewPanel | undefined;
-
-function isAnalysisResultArray(value: unknown): value is AnalysisResultWithError[] {
-    return Array.isArray(value) && value.every((entry) => {
-        if (!entry || typeof entry !== 'object') {
-            return false;
-        }
-        const candidate = entry as Record<string, unknown>;
-        return typeof candidate['filePath'] === 'string'
-            && typeof candidate['fileName'] === 'string'
-            && Array.isArray(candidate['channels']);
-    });
-}
 
 function rememberResults(results: AnalysisResultWithError[]): AnalysisResultWithError[] {
     return results.map((result) => {
@@ -68,37 +57,6 @@ function rememberResults(results: AnalysisResultWithError[]): AnalysisResultWith
     });
 }
 
-function injectCalibrationRuntime(html: string): string {
-    if (html.includes('__AWA_CALIBRATION_RUNTIME__')) {
-        return html;
-    }
-    const stateMarker = '        window.__APP_STATE__ =';
-    if (!html.includes(stateMarker)) {
-        throw new Error('Comparison Webview state marker was not found');
-    }
-    const acquireWrapper = [
-        '        const __AWA_CALIBRATION_RUNTIME__ = true;',
-        '        const __AWA_NATIVE_ACQUIRE_VSCODE_API__ = acquireVsCodeApi;',
-        '        window.acquireVsCodeApi = function() {',
-        '            if (!window.__AWA_VSCODE_API__) {',
-        '                window.__AWA_VSCODE_API__ = __AWA_NATIVE_ACQUIRE_VSCODE_API__();',
-        '            }',
-        '            return window.__AWA_VSCODE_API__;',
-        '        };',
-        '',
-    ].join('\n');
-    const nonceMatch = html.match(/<script nonce="([^"]+)">/u);
-    if (!nonceMatch) {
-        throw new Error('Comparison Webview nonce was not found');
-    }
-    return html
-        .replace(stateMarker, acquireWrapper + stateMarker)
-        .replace(
-            '</body>',
-            `    <script nonce="${nonceMatch[1]}">${getCalibrationRenderScript()}</script>\n</body>`,
-        );
-}
-
 function channelDescriptors(result: AnalysisResultWithError): CalibrationChannelDescriptor[] {
     return (result.channels ?? []).map((channel, channelIndex) => ({
         channelIndex,
@@ -109,7 +67,6 @@ function channelDescriptors(result: AnalysisResultWithError): CalibrationChannel
 
 async function configureResult(
     extensionContext: vscode.ExtensionContext,
-    panel: vscode.WebviewPanel,
     result: AnalysisResultWithError,
 ): Promise<void> {
     const changed = await configureCalibrationProfile(
@@ -118,11 +75,17 @@ async function configureResult(
         channelDescriptors(result),
     );
     if (changed) {
-        await panel.webview.postMessage({
+        const notification = {
             type: 'calibration-configured',
             filePath: result.filePath,
             analysisRevision: getAnalysisRevision(result.filePath),
-        });
+        };
+        await Promise.all(Array.from(openPanels, async (panel) => {
+            const context = panelContexts.get(panel);
+            if (context?.results.some((candidate) => candidate.filePath === result.filePath)) {
+                await panel.webview.postMessage(notification);
+            }
+        }));
     }
 }
 
@@ -149,43 +112,19 @@ async function configureActivePanel(extensionContext: vscode.ExtensionContext): 
         }
         selected = picked.result;
     }
-    await configureResult(extensionContext, panel, selected);
+    await configureResult(extensionContext, selected);
 }
 
 const originalShow = ComparisonPanel.show.bind(ComparisonPanel);
 const originalShowDirectorySelection = ComparisonPanel.showDirectorySelection.bind(ComparisonPanel);
 let contextExtension: vscode.ExtensionContext;
 
-function renderPanel(panel: vscode.WebviewPanel, context: PanelContext): void {
-    const results = rememberResults(context.results);
-    if (context.mode === 'results') {
-        originalShow(
-            context.extensionUri,
-            results,
-            panel,
-            context.spectrogramSettings,
-        );
-        installOnPanel(panel, { ...context, results });
-        return;
-    }
-    originalShowDirectorySelection(
-        context.extensionUri,
-        context.rootPath,
-        context.allFilePaths,
-        context.selectedFilePaths,
-        results,
-        context.pythonEnvironmentState,
-        panel,
-        context.spectrogramSettings,
-    );
-    installOnPanel(panel, { ...context, results });
-}
-
 function installPanelLifecycle(panel: vscode.WebviewPanel): void {
     if (panelLifecycleInstalled.has(panel)) {
         return;
     }
     panelLifecycleInstalled.add(panel);
+    openPanels.add(panel);
     panel.onDidChangeViewState((event) => {
         if (event.webviewPanel.active) {
             activePanel = event.webviewPanel;
@@ -196,6 +135,7 @@ function installPanelLifecycle(panel: vscode.WebviewPanel): void {
     panel.onDidDispose(() => {
         panelMessageDisposables.get(panel)?.dispose();
         panelMessageDisposables.delete(panel);
+        openPanels.delete(panel);
         if (activePanel === panel) {
             activePanel = undefined;
         }
@@ -207,7 +147,6 @@ function installOnPanel(panel: vscode.WebviewPanel, context: PanelContext): void
         activePanel = panel;
     }
     panelContexts.set(panel, context);
-    panel.webview.html = injectCalibrationRuntime(panel.webview.html);
     installPanelLifecycle(panel);
 
     panelMessageDisposables.get(panel)?.dispose();
@@ -215,19 +154,10 @@ function installOnPanel(panel: vscode.WebviewPanel, context: PanelContext): void
         if (isConfigureCalibrationMessage(message)) {
             const result = context.results.find((candidate) => candidate.filePath === message.filePath);
             if (result) {
-                await configureResult(contextExtension, panel, result);
+                await configureResult(contextExtension, result);
             }
             return;
         }
-        if (!message || typeof message !== 'object') {
-            return;
-        }
-        const candidate = message as Record<string, unknown>;
-        if (candidate['type'] !== 'calibration-reload' || !isAnalysisResultArray(candidate['results'])) {
-            return;
-        }
-        const results = rememberResults(candidate['results']);
-        renderPanel(panel, { ...context, results });
     });
     panelMessageDisposables.set(panel, disposable);
 }
@@ -243,12 +173,25 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
     const requestTrackDetail = prototype.requestTrackDetail;
     const requestSpectrumSlice = prototype.requestSpectrumSlice;
 
-    prototype.analyze = function(filePath, options) {
-        return analyze.call(this, filePath, {
-            ...options,
-            calibrationProfile: getCalibrationProfile(extensionContext, filePath),
-            analysisRevision: getAnalysisRevision(filePath),
-        });
+    prototype.analyze = async function(filePath, options) {
+        const calibrationProfile = getCalibrationProfile(extensionContext, filePath);
+        try {
+            return await analyze.call(this, filePath, {
+                ...options,
+                calibrationProfile,
+                analysisRevision: getAnalysisRevision(filePath),
+            });
+        } catch (error) {
+            const discarded = await discardMismatchedCalibrationProfile(extensionContext, filePath, error);
+            if (!discarded) {
+                throw error;
+            }
+            return analyze.call(this, filePath, {
+                ...options,
+                calibrationProfile: undefined,
+                analysisRevision: getAnalysisRevision(filePath),
+            });
+        }
     };
     prototype.requestRange = function(filePath, startNorm, endNorm, points, requestId, calibration = {}) {
         return requestRange.call(

@@ -108,3 +108,52 @@ test('report export records calibration and generates a reproducible notebook', 
     expect(String(exported?.['notebookContent'])).toContain('.with_calibration([');
     expect(String(exported?.['notebookContent'])).toContain('wd.ChannelCalibration(factor=2');
 });
+
+test('calibration update preserves runtime state without requesting a Webview reload', async ({ page }) => {
+    await loadCalibrationUi(page);
+
+    const offset = page.locator('#track-row-0 .track-offset-val');
+    await offset.click();
+    const input = page.locator('#track-row-0 .track-offset-input');
+    await input.fill('2000');
+    await input.press('Enter');
+    await expect(offset).toContainText('2.000');
+
+    await page.evaluate(() => {
+        const appWindow = window as unknown as {
+            __APP_STATE__: { results: unknown[] };
+            __uiSmokePostedMessages: PostedMessage[];
+        };
+        appWindow.__uiSmokePostedMessages = [];
+        window.dispatchEvent(new MessageEvent('message', {
+            data: { type: 'calibration-configured' },
+        }));
+        window.dispatchEvent(new MessageEvent('message', {
+            data: { type: 'analysis-update', results: appWindow.__APP_STATE__.results },
+        }));
+    });
+
+    await expect(offset).toContainText('2.000');
+    const messages = await postedMessages(page);
+    expect(messages.some((message) => message['type'] === 'calibration-reload')).toBe(false);
+});
+
+test('calibration report includes active tracks only', async ({ page }) => {
+    await loadCalibrationUi(page);
+
+    await page.locator('#track-row-1 [data-action="remove-track"]').click();
+    await expect(page.locator('#track-row-1')).toHaveCount(0);
+    await page.evaluate(() => {
+        const button = document.querySelector<HTMLElement>('[data-action="export-report"]');
+        if (!button) { throw new Error('Report export button was not found'); }
+        button.click();
+    });
+
+    await expect.poll(async () => {
+        return (await postedMessages(page)).find((message) => message['type'] === 'export-report-options');
+    }).toBeTruthy();
+    const exported = (await postedMessages(page)).find((message) => message['type'] === 'export-report-options');
+    expect(String(exported?.['markdownContent'])).toContain('demo-tone.wav');
+    expect(String(exported?.['markdownContent'])).not.toContain('acceleration.wav');
+    expect(String(exported?.['notebookContent'])).not.toContain('acceleration.wav');
+});

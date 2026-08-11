@@ -1,5 +1,4 @@
 import { buildResultsPreviewHtml, buildSelectionPreviewHtml } from '../../tools/comparisonPreview';
-import { getCalibrationRenderScript } from '../../webview/calibrationRenderScript';
 
 function buildVsCodeApiStub(nonce: string): string {
     return `<script nonce="${nonce}">
@@ -46,17 +45,6 @@ function finalizeUiSmokeHtml(html: string): string {
     }
     const nonce = nonceMatch[1];
     return html.replace('<div id="app"></div>', `<div id="app"></div>\n    ${buildVsCodeApiStub(nonce)}`);
-}
-
-function injectCalibrationRuntime(html: string): string {
-    const nonceMatch = html.match(/<script nonce="([^"]+)">/u);
-    if (!nonceMatch) {
-        throw new Error('Could not extract the comparison Webview nonce');
-    }
-    return html.replace(
-        '</body>',
-        `    <script nonce="${nonceMatch[1]}">${getCalibrationRenderScript()}</script>\n</body>`,
-    );
 }
 
 interface PreviewResult {
@@ -117,7 +105,7 @@ function buildCalibrationStateHtml(): string {
         firstChannel['rmsLevelDb'] = 70.0;
         firstChannel['peakLevelDb'] = 80.0;
         firstChannel['rawPeakFullScale'] = 0.5;
-        firstChannel['clipped'] = false;
+        delete firstChannel['clipped'];
         firstChannel['peaks'] = [
             { freqHz: 1000, magnitude: 0.2, levelDb: 80, amplitudeDb: 80 },
         ];
@@ -143,7 +131,7 @@ export function buildUiSmokeHtml(): string {
 }
 
 export function buildUiSmokeCalibrationHtml(): string {
-    return finalizeUiSmokeHtml(injectCalibrationRuntime(buildCalibrationStateHtml()));
+    return finalizeUiSmokeHtml(buildCalibrationStateHtml());
 }
 
 export function buildUiSmokeSelectionHtml(): string {
