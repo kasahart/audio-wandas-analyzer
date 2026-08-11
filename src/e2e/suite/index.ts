@@ -402,6 +402,7 @@ export async function run(): Promise<void> {
             name: 'axis labels with units are emitted for waveform / spectrogram / spectrum',
             requires: 'single-track',
             run: async () => {
+                await runViewModeScenario(['content-spectrogram']);
                 const axisSnapshot = await waitForSnapshotWhere((snapshot) => {
                     const axes = snapshot.renderedUi?.axisLabels;
                     if (!axes) { return false; }
