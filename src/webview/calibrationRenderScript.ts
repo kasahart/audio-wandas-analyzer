@@ -410,8 +410,8 @@ export function getCalibrationRenderScript(): string {
                 if (!message) { return; }
                 if (message.type === 'calibration-configured') {
                     calibrationRefreshPending = true;
-                    const settings = typeof __spectrogramSettings !== 'undefined'
-                        ? __spectrogramSettings
+                    const settings = window.__AWA_SPECTROGRAM_SETTINGS__
+                        ? window.__AWA_SPECTROGRAM_SETTINGS__
                         : {
                             auto: true,
                             stft: { nFft: 1024, hopSize: 256, window: 'hann' },

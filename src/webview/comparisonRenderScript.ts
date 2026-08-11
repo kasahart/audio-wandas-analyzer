@@ -4558,6 +4558,7 @@ export function getComparisonRenderScript(): string {
                 stft: { nFft: 1024, hopSize: 256, window: 'hann' },
                 display: { dbMin: null, dbMax: null, maxFrequencyHz: null }
             };
+            window.__AWA_SPECTROGRAM_SETTINGS__ = __spectrogramSettings;
 
             function __updateSpecGearVisibility() {
                 const gear = document.querySelector('[data-action="spectrogram-settings"]');
@@ -4656,6 +4657,7 @@ export function getComparisonRenderScript(): string {
 
             document.getElementById('spec-reset').addEventListener('click', function() {
                 __spectrogramSettings = { auto: true, stft: { nFft: 1024, hopSize: 256, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
+                window.__AWA_SPECTROGRAM_SETTINGS__ = __spectrogramSettings;
                 __syncSpecFormFromState();
                 vscode.postMessage({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
                 scheduleRender();
@@ -4671,6 +4673,7 @@ export function getComparisonRenderScript(): string {
                     },
                     display: __readDisplayFromForm()
                 };
+                window.__AWA_SPECTROGRAM_SETTINGS__ = __spectrogramSettings;
                 __setReanalyzeBusy(true, STR.reanalyzingStft);
                 vscode.postMessage({ type: 'request-reanalyze', settings: __spectrogramSettings });
                 __closeSpecPopover();

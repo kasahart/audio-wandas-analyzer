@@ -42,6 +42,22 @@ test('incompatible level references disable only the shared spectrum overlay', a
 test('calibration controls post exact configuration and reanalysis messages', async ({ page }) => {
     await loadCalibrationUi(page);
 
+    await page.evaluate(() => {
+        const auto = document.querySelector<HTMLInputElement>('#spec-auto');
+        const nFft = document.querySelector<HTMLSelectElement>('#spec-nfft');
+        const hop = document.querySelector<HTMLInputElement>('#spec-hop');
+        const windowType = document.querySelector<HTMLSelectElement>('#spec-window');
+        const apply = document.querySelector<HTMLButtonElement>('#spec-apply');
+        if (!auto || !nFft || !hop || !windowType || !apply) {
+            throw new Error('Spectrogram settings controls were not found');
+        }
+        auto.checked = false;
+        nFft.value = '512';
+        hop.value = '128';
+        windowType.value = 'hamming';
+        apply.click();
+    });
+
     await page.locator('#track-row-0 [data-action="configure-calibration"]').click();
     await expect.poll(async () => {
         const messages = await postedMessages(page);
@@ -54,6 +70,7 @@ test('calibration controls post exact configuration and reanalysis messages', as
     });
 
     await page.evaluate(() => {
+        (window as unknown as { __uiSmokePostedMessages: PostedMessage[] }).__uiSmokePostedMessages = [];
         window.dispatchEvent(new MessageEvent('message', {
             data: { type: 'calibration-configured' },
         }));
