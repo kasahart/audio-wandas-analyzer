@@ -348,10 +348,23 @@ export class PanelController implements vscode.Disposable {
                 session,
             );
             if (session.isCurrent(revision)) {
-                session.cacheResults(results);
-                session.setActiveResults(results.map((result) => result.filePath));
-                ComparisonPanel.updateResults?.(session.panel, results);
-                await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
+                const displayedByPath = new Map(
+                    ComparisonPanel.getResults(session.panel).map((result) => [result.filePath, result]),
+                );
+                const acceptedResults = results.map((result) => {
+                    const expectedRevision = getAnalysisRevision(result.filePath);
+                    if (result.error || (result.analysisRevision ?? 0) === expectedRevision) {
+                        return result;
+                    }
+                    return displayedByPath.get(result.filePath) ?? result;
+                });
+                session.cacheResults(acceptedResults);
+                session.setActiveResults(acceptedResults.map((result) => result.filePath));
+                ComparisonPanel.updateResults(session.panel, acceptedResults);
+                await session.postMessage({
+                    type: 'analysis-update',
+                    results: acceptedResults,
+                } satisfies AnalysisUpdateMessage);
             }
         } finally {
             if (session.isCurrent(revision)) { await session.postMessage({ type: 'reanalyze-end' }); }
@@ -384,32 +397,27 @@ export class PanelController implements vscode.Disposable {
             || getAnalysisRevision(message.filePath) !== message.analysisRevision) {
             return;
         }
-        const revision = session.beginStateRequest();
-        await session.postMessage({ type: 'reanalyze-start', count: 1 });
-        try {
-            const [result] = await this.analysis.analyzeFiles(
-                [message.filePath],
-                undefined,
-                'Applying calibration (1 file)',
-                session,
-                false,
-            );
-            if (!result
-                || !session.isCurrent(revision)
-                || getAnalysisRevision(message.filePath) !== message.analysisRevision) {
-                return;
-            }
-            const acceptedResult = result.error
-                ? { ...result, analysisRevision: message.analysisRevision }
-                : result;
-            if (acceptedResult.analysisRevision !== message.analysisRevision) { return; }
-            const results = ComparisonPanel.replaceResult(session.panel, acceptedResult);
-            if (!results) { return; }
-            session.cacheResults([acceptedResult]);
-            await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
-        } finally {
-            if (session.isCurrent(revision)) { await session.postMessage({ type: 'reanalyze-end' }); }
+        const [result] = await this.analysis.analyzeFiles(
+            [message.filePath],
+            undefined,
+            'Applying calibration (1 file)',
+            undefined,
+            false,
+        );
+        if (!result
+            || session.isDisposed
+            || !session.getActiveFilePaths().includes(message.filePath)
+            || getAnalysisRevision(message.filePath) !== message.analysisRevision) {
+            return;
         }
+        const acceptedResult = result.error
+            ? { ...result, analysisRevision: message.analysisRevision }
+            : result;
+        if (acceptedResult.analysisRevision !== message.analysisRevision) { return; }
+        const results = ComparisonPanel.replaceResult(session.panel, acceptedResult);
+        if (!results) { return; }
+        session.cacheResults([acceptedResult]);
+        await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
     }
 
     private handleWaveformRange(session: PanelSession<PanelHandle>, request: WaveformRangeRequest): void {
