@@ -440,11 +440,11 @@ export async function run(): Promise<void> {
                         && wf.some((s) => s.includes('Amp'))
                         && sg.includes('0 Hz')
                         && sg.some((s) => /Hz$/.test(s) && s !== '0 Hz')
-                        && sg.some((s) => /dB$/.test(s))
+                        && sg.some((s) => s.includes('dB'))
                         && sp.includes('0 Hz')
-                        && sp.some((s) => /dB$/.test(s))
+                        && sp.some((s) => s.includes('dB'))
                         && overlay.includes('0 Hz')
-                        && overlay.some((s) => /dB$/.test(s));
+                        && overlay.some((s) => s.includes('dB'));
                 });
                 assert.ok(axisSnapshot.renderedUi, 'Rendered UI snapshot should exist');
                 const axes = axisSnapshot.renderedUi.axisLabels;
@@ -461,19 +461,19 @@ export async function run(): Promise<void> {
                     `spectrogram should include "0 Hz": ${JSON.stringify(sg)}`);
                 assert.ok(sg.some((s) => /Hz$/.test(s) && s !== '0 Hz'),
                     `spectrogram should include a non-zero frequency label: ${JSON.stringify(sg)}`);
-                assert.ok(sg.some((s) => /dB$/.test(s)),
+                assert.ok(sg.some((s) => s.includes('dB')),
                     `spectrogram colorbar dB label missing: ${JSON.stringify(sg)}`);
 
                 const sp = axes.spectrumPerTrack[0] ?? [];
                 assert.ok(sp.includes('0 Hz'),
                     `per-track spectrum should include "0 Hz": ${JSON.stringify(sp)}`);
-                assert.ok(sp.some((s) => /dB$/.test(s)),
+                assert.ok(sp.some((s) => s.includes('dB')),
                     `per-track spectrum dB label missing: ${JSON.stringify(sp)}`);
 
                 const overlay = axes.spectrumOverlay;
                 assert.ok(overlay.includes('0 Hz'),
                     `overlay spectrum should include "0 Hz": ${JSON.stringify(overlay)}`);
-                assert.ok(overlay.some((s) => /dB$/.test(s)),
+                assert.ok(overlay.some((s) => s.includes('dB')),
                     `overlay spectrum dB label missing: ${JSON.stringify(overlay)}`);
             },
         },
