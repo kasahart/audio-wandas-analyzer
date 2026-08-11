@@ -65,7 +65,7 @@ export type HostInboundMessage =
     | {
         type: 'comparison-panel-test-action';
         actionId?: string;
-        actions?: Array<string | { action: string; trackIndex?: number; payload?: Record<string, unknown> }>;
+        actions?: Array<string | { action: string; trackId?: string; trackIndex?: number; payload?: Record<string, unknown> }>;
         inputValues?: Record<string, string | number>;
     }
     | { type: 'reanalyze-start'; count: number }
