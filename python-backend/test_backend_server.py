@@ -394,7 +394,8 @@ def test_engine_counts_compact_wandas_cache_storage(tmp_path: Path) -> None:
 
     entry = engine.get_file(wav)
     spectrogram = engine.get_spectrogram(wav, 256, 128, "hann")
-    key = (256, 128, "hann")
+    _cached, _analysis_frame, resolved = engine.get_analysis(wav)
+    key = (resolved.signature, 256, 128, "hann")
 
     assert entry.frame_nbytes == int(np.prod(entry.frame.shape)) * np.dtype("float32").itemsize
     assert entry.spectrogram_nbytes[key] == int(np.prod(spectrogram.shape)) * np.dtype("complex64").itemsize

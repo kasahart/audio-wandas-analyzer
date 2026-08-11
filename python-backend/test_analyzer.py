@@ -34,10 +34,28 @@ def test_analyze_audio_defaults(tmp_path: Path) -> None:
     spec = ch["spectrogram"]
     assert spec["windowSize"] > 0
     assert spec["hopSize"] > 0
-    assert ch["unit"] is None
-    assert result["units"]["spectrumLevel"] == {"unit": "dB", "axisLabel": "Spectrum level [dB]"}
-    assert result["units"]["spectrogramLevel"] == {"unit": "dB", "axisLabel": "Spectrum level [dB]"}
-    assert result["units"]["amplitudeLevel"] == {"unit": "dB", "axisLabel": "Amplitude level [dB]"}
+    assert ch["unit"] == "FS"
+    assert result["units"]["spectrumLevel"] == {
+        "unit": "dBFS",
+        "axisLabel": "Spectrum amplitude level [dBFS]",
+        "referenceValue": 1.0,
+        "referenceUnit": "FS",
+        "levelReferenceLabel": "dBFS",
+    }
+    assert result["units"]["spectrogramLevel"] == {
+        "unit": "dBFS",
+        "axisLabel": "STFT amplitude level [dBFS]",
+        "referenceValue": 1.0,
+        "referenceUnit": "FS",
+        "levelReferenceLabel": "dBFS",
+    }
+    assert result["units"]["amplitudeLevel"] == {
+        "unit": "dBFS",
+        "axisLabel": "Amplitude level [dBFS]",
+        "referenceValue": 1.0,
+        "referenceUnit": "FS",
+        "levelReferenceLabel": "dBFS",
+    }
 
 
 def test_analyze_from_frame_includes_channel_unit(tmp_path: Path) -> None:
@@ -84,7 +102,7 @@ def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: 
     assert matching_peaks
     assert matching_peaks[0]["amplitudeDb"] == pytest.approx(expected_db, abs=0.01)
     assert channel["spectrogram"]["maxDb"] == pytest.approx(expected_db, abs=0.01)
-    assert channel["spectrogram"]["axisLabel"] == "Spectrum level [dB]"
+    assert channel["spectrogram"]["axisLabel"] == "STFT amplitude level [dBFS]"
 
 
 def test_analyze_range_uses_same_pcm_scale_as_overview(tmp_path: Path) -> None:
@@ -187,7 +205,7 @@ def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
     assert spec["minDb"] == pytest.approx(-120.0)
     assert spec["maxDb"] == pytest.approx(-120.0)
     assert spec["unit"] == "dB"
-    assert spec["axisLabel"] == "Spectrum level [dB]"
+    assert spec["axisLabel"] == "Spectrum amplitude level [dB]"
 
 
 def test_analyze_audio_rejects_bad_options(tmp_path: Path) -> None:
