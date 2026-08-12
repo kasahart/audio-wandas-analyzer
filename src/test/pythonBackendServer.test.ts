@@ -46,6 +46,159 @@ function makePending(
     };
 }
 
+function calibratedAnalyzeResponse(): { [key: string]: unknown } {
+    const measurement = {
+        calibrationStatus: 'calibrated',
+        calibrationSource: 'manual',
+        factor: 2,
+        linearUnit: 'Pa',
+        referenceValue: 2e-5,
+        referenceUnit: 'Pa',
+        levelUnit: 'dB SPL',
+        levelReferenceLabel: 're 20 µPa',
+    };
+    const scale = {
+        unit: 'dB SPL',
+        axisLabel: 'Amplitude level [re 20 µPa]',
+        referenceValue: 2e-5,
+        referenceUnit: 'Pa',
+        levelReferenceLabel: 're 20 µPa',
+    };
+    return {
+        schemaVersion: 2,
+        filePath: '/tmp/calibrated.wav',
+        fileName: 'calibrated.wav',
+        sampleRateHz: 48_000,
+        durationSeconds: 1,
+        channelCount: 1,
+        sampleCount: 48_000,
+        calibrationSignature: 'cal-v1',
+        analysisRevision: 3,
+        calibrationProfile: {
+            schemaVersion: 1,
+            channels: [{
+                channelIndex: 0,
+                expectedLabel: 'microphone',
+                status: 'calibrated',
+                source: 'manual',
+                factor: 2,
+                unit: 'Pa',
+                referenceValue: 2e-5,
+            }],
+        },
+        units: { amplitudeLevel: scale, spectrumLevel: scale, spectrogramLevel: scale },
+        channels: [{
+            label: 'microphone',
+            unit: 'Pa',
+            measurement,
+            rms: 0.1,
+            peakAbsolute: 0.2,
+            rmsLevelDb: 74,
+            peakLevelDb: 80,
+            rawPeakFullScale: 0.1,
+            clipped: false,
+            dominantFrequencies: [{ frequencyHz: 1_000, magnitude: 0.1 }],
+            peaks: [{ freqHz: 1_000, amplitudeDb: 74, magnitude: 0.1, levelDb: 74 }],
+            waveform: { min: [-0.1], max: [0.1], samples: [0], absolutePeak: 0.1 },
+            spectrogram: {
+                values: [[74]],
+                timeBins: 1,
+                frequencyBins: 1,
+                windowSize: 1024,
+                hopSize: 256,
+                maxFrequencyHz: 24_000,
+                minDb: 74,
+                maxDb: 74,
+                ...scale,
+            },
+        }],
+    };
+}
+
+function cloneRecord(value: { [key: string]: unknown }): { [key: string]: unknown } {
+    return JSON.parse(JSON.stringify(value)) as { [key: string]: unknown };
+}
+
+test('parseBackendResult accepts a complete calibrated analysis response', () => {
+    assert.doesNotThrow(() => parseBackendResult('analyze', calibratedAnalyzeResponse()));
+});
+
+test('parseBackendResult rejects malformed calibration analysis fields', () => {
+    const mutations: Array<[string, (candidate: { [key: string]: unknown }) => void]> = [
+        ['schema version', (candidate) => { candidate['schemaVersion'] = 1; }],
+        ['analysis revision', (candidate) => { candidate['analysisRevision'] = -1; }],
+        ['calibration signature', (candidate) => { candidate['calibrationSignature'] = 2; }],
+        ['profile factor', (candidate) => {
+            const profile = candidate['calibrationProfile'] as { channels: Array<{ factor: unknown }> };
+            profile.channels[0].factor = 1e308;
+        }],
+        ['measurement source', (candidate) => {
+            const channels = candidate['channels'] as Array<{ measurement: { calibrationSource: unknown } }>;
+            channels[0].measurement.calibrationSource = 'unknown';
+        }],
+        ['measurement reference', (candidate) => {
+            const channels = candidate['channels'] as Array<{ measurement: { referenceValue: unknown } }>;
+            channels[0].measurement.referenceValue = 0;
+        }],
+        ['RMS level', (candidate) => {
+            const channels = candidate['channels'] as Array<{ rmsLevelDb: unknown }>;
+            channels[0].rmsLevelDb = '74';
+        }],
+        ['clipping state', (candidate) => {
+            const channels = candidate['channels'] as Array<{ clipped: unknown }>;
+            channels[0].clipped = 'false';
+        }],
+        ['spectrum magnitude', (candidate) => {
+            const channels = candidate['channels'] as Array<{ peaks: Array<{ magnitude: unknown }> }>;
+            channels[0].peaks[0].magnitude = '0.1';
+        }],
+        ['spectrogram reference', (candidate) => {
+            const channels = candidate['channels'] as Array<{ spectrogram: { referenceValue: unknown } }>;
+            channels[0].spectrogram.referenceValue = -1;
+        }],
+        ['shared unit metadata', (candidate) => {
+            const units = candidate['units'] as { amplitudeLevel: { referenceValue: unknown } };
+            units.amplitudeLevel.referenceValue = '2e-5';
+        }],
+    ];
+
+    for (const [label, mutate] of mutations) {
+        const candidate = cloneRecord(calibratedAnalyzeResponse());
+        mutate(candidate);
+        assert.throws(() => parseBackendResult('analyze', candidate), BackendProtocolError, label);
+    }
+});
+
+test('parseBackendResult validates calibration identity on lazy results', () => {
+    assert.throws(() => parseBackendResult('range', {
+        startNorm: 0,
+        endNorm: 1,
+        channels: [],
+        calibrationSignature: 1,
+    }), BackendProtocolError);
+    assert.throws(() => parseBackendResult('track-detail', {
+        trackIndex: 0,
+        analysisId: 'analysis',
+        settingsSignature: 'settings',
+        filePath: '/tmp/calibrated.wav',
+        channels: [],
+        analysisRevision: -1,
+    }), BackendProtocolError);
+    assert.throws(() => parseBackendResult('spectrum-slice', {
+        trackIndex: 0,
+        channelIndex: 0,
+        analysisId: 'analysis',
+        settingsSignature: 'settings',
+        filePath: '/tmp/calibrated.wav',
+        values: [74],
+        frequencyBins: 1,
+        maxFrequencyHz: 24_000,
+        minDb: 74,
+        maxDb: 74,
+        referenceValue: 0,
+    }), BackendProtocolError);
+});
+
 test('processStdoutChunk validates and resolves every command response', () => {
     for (const { command, response } of loadValidResponseFixtures()) {
         const pending = new Map<string, PendingRequest>();

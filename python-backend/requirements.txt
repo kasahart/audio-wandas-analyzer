@@ -3,5 +3,5 @@
 # (uses pyproject.toml to also pull in ruff + pytest).
 numpy>=2.0.2
 scipy>=1.13
-wandas[psychoacoustic]>=0.7.1,<0.8.0
+wandas[psychoacoustic]>=0.7.2,<0.8.0
 soundfile>=0.12

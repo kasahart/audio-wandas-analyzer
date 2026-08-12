@@ -69,7 +69,7 @@ def main() -> int:
         return 1
 
     t_dump = time.perf_counter()
-    payload = json.dumps(result, ensure_ascii=False)
+    payload = json.dumps(result, ensure_ascii=False, allow_nan=False)
     _perf("json_dumps", t_dump, bytes=len(payload))
     print(payload)
     _perf("main_total", t_start)

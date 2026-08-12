@@ -49,6 +49,22 @@ export class PanelSession<P extends PanelPort = PanelPort> {
         this.activeResultPaths = [...filePaths];
     }
 
+    cacheResults(results: AnalysisResultWithError[]): void {
+        if (!this.directorySelection) { return; }
+        for (const result of results) {
+            this.directorySelection.cachedResultsByFilePath.set(result.filePath, result);
+        }
+    }
+
+    hasCachedResult(filePath: string, expectedAnalysisRevision: number): boolean {
+        const cache = this.directorySelection?.cachedResultsByFilePath;
+        const result = cache?.get(filePath);
+        if (!result) { return false; }
+        if ((result.analysisRevision ?? 0) === expectedAnalysisRevision) { return true; }
+        cache?.delete(filePath);
+        return false;
+    }
+
     clearDirectorySelection(): void {
         this.invalidateState();
         this.directorySelection = null;

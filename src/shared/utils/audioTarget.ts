@@ -148,6 +148,42 @@ export function isReleaseTrackDetailMessage(message: unknown): message is TrackD
     );
 }
 
+export interface ConfigureCalibrationChannel {
+    channelIndex: number;
+    label: string;
+}
+
+export interface ConfigureCalibrationMessage {
+    type: 'configure-calibration';
+    trackIndex: number;
+    filePath: string;
+    channels: ConfigureCalibrationChannel[];
+}
+
+export function isConfigureCalibrationMessage(message: unknown): message is ConfigureCalibrationMessage {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+    const candidate = message as Record<string, unknown>;
+    return candidate['type'] === 'configure-calibration'
+        && Number.isInteger(candidate['trackIndex'])
+        && (candidate['trackIndex'] as number) >= 0
+        && typeof candidate['filePath'] === 'string'
+        && candidate['filePath'].length > 0
+        && Array.isArray(candidate['channels'])
+        && candidate['channels'].length > 0
+        && candidate['channels'].every((channel) => {
+            if (!channel || typeof channel !== 'object') {
+                return false;
+            }
+            const entry = channel as Record<string, unknown>;
+            return Number.isInteger(entry['channelIndex'])
+                && (entry['channelIndex'] as number) >= 0
+                && typeof entry['label'] === 'string'
+                && entry['label'].trim().length > 0;
+        });
+}
+
 export interface ExportWavLoopMessage {
     type: 'export-wav-loop';
     filePaths: string[];

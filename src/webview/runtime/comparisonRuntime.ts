@@ -267,6 +267,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return { offsetSeconds: 0, hidden: false, color: null, defaultColor: defaultColor };
     }
     const trackStore = new TrackStore(state.results, createTrackRuntime);
+    window.__AWA_ACTIVE_TRACKS__ = function () {
+        return trackStore.activeIds().map(function (trackId) {
+            const record = trackStore.require(trackId);
+            return { trackIndex: record.protocolIndex, result: record.result };
+        });
+    };
     const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
     let analysisGeneration = 0;
     function createAnalysisId(): string {
@@ -373,8 +379,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function trackSpectrumCanvasId(trackIndex: number, channelIndex: number) {
         return 'track-spectrum-' + trackIndex + channelCanvasSuffix(channelIndex);
     }
-    function channelDb(value: number): string {
-        return (20 * Math.log10(Math.max(value, 1e-9))).toFixed(1) + ' dB';
+    function channelLevel(channel: ChannelSummary, levelDb: number | undefined): string {
+        if (!Number.isFinite(levelDb)) { return '—'; }
+        return Number(levelDb).toFixed(1) + ' ' + (channel.measurement?.levelUnit ?? 'dB');
     }
     function channelDominantFrequencyLabel(channel: ChannelSummary) {
         return channel && channel.dominantFrequencies && channel.dominantFrequencies[0]
@@ -908,6 +915,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         renderAll();
         scheduleSpectrumRefresh('immediate');
         publishTestSnapshot();
+        messaging.post({
+            type: 'comparison-panel-ready',
+            calibrationRevisions: state.results.map(function(result) {
+                return {
+                    filePath: result.filePath,
+                    analysisRevision: result.analysisRevision || 0,
+                };
+            }),
+        });
     });
     function isReanalyzeBusy() {
         const overlay = document.getElementById('reanalyze-overlay');
@@ -1329,8 +1345,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '<span id="loop-time-display" title="' + escHtml(STR.loopTimeDisplayTitle) + '" style="display:none;"></span>';
     }
     function channelMetricSummaryHtml(ch: ChannelSummary) {
-        const rmsDb = ch ? channelDb(ch.rms) : '—';
-        const peakDb = ch ? channelDb(ch.peakAbsolute) : '—';
+        const rmsDb = ch ? channelLevel(ch, ch.rmsLevelDb) : '—';
+        const peakDb = ch ? channelLevel(ch, ch.peakLevelDb) : '—';
         const domHz = channelDominantFrequencyLabel(ch);
         return '<span>RMS ' + escHtml(rmsDb) + '</span> <span>Peak ' + escHtml(peakDb) + '</span> <span>' + escHtml(domHz) + '</span>';
     }
@@ -1364,6 +1380,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return buildChannelLane(result, i, channelIndex);
         }).join('');
     }
+    function isChannelClipped(channel: ChannelSummary): boolean {
+        if (channel.clipped !== undefined) {
+            return channel.clipped;
+        }
+        if (Number.isFinite(channel.rawPeakFullScale)) {
+            return Number(channel.rawPeakFullScale) >= 0.99;
+        }
+        return (!channel.measurement || channel.measurement.calibrationStatus === 'uncalibrated')
+            && channel.peakAbsolute >= 0.99;
+    }
     function buildTrackRow(result: ComparisonTrackState, i: number) {
         const trackId = trackIdAtIndex(i);
         if (!trackId) {
@@ -1379,7 +1405,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaDragHandle) + '" title="' + escHtml(STR.ariaDragHandle) + '">≡</div>'
             + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escHtml(STR.ariaPickColor) + '" title="' + escHtml(STR.trackPickColor) + '"></div>'
             + '    <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
-            + (channels.some(function (ch: ChannelSummary) { return ch && ch.peakAbsolute >= 0.99; }) ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+            + (channels.some(isChannelClipped) ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
             + '  </div>'
             + '  <div class="track-meta">Total: ' + result.channelCount + ' ch &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
             + '  <div class="track-btns">'
@@ -1913,7 +1939,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function formatDbLevel(value: number, source: { unit?: string } | null): string {
         return value.toFixed(0) + ' ' + dbLevelUnitFor(source);
     }
-    function spectrumLevelAxisLabel(result: ComparisonTrackState) {
+    function spectrumLevelAxisLabel(result: ComparisonTrackState, channel?: ChannelSummary) {
+        if (channel?.measurement) {
+            return 'Spectrum amplitude level [' + channel.measurement.levelReferenceLabel + ']';
+        }
         return result && result.units && result.units.spectrumLevel && result.units.spectrumLevel.axisLabel
             ? result.units.spectrumLevel.axisLabel
             : 'Spectrum level [dB]';
@@ -3541,7 +3570,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function exportPng() {
         const wrapper = document.getElementById('tracks-wrapper');
         const canvases: RuntimeElement[] = wrapper
-            ? Array.from(wrapper.querySelectorAll('canvas:not(.track-axis-canvas)')).filter(function (c) { return c.offsetParent !== null; })
+            ? Array.from(wrapper.querySelectorAll('canvas:not(.track-axis-canvas)')).filter(function (c) {
+                return c.offsetParent !== null && c.getAttribute('data-calibration-hidden') !== 'true';
+            })
             : [];
         if (canvases.length === 0) {
             messaging.post({ type: 'show-info', message: STR.announceExportPngFailed || 'PNG export failed: no visible canvases' });
@@ -3671,20 +3702,38 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         var s = (secs - m * 60).toFixed(3);
         return (m > 0 ? m + 'm ' : '') + s + 's';
     }
-    function _dbLevel(rms: number) {
-        return (20 * Math.log10(Math.max(rms, 1e-9))).toFixed(1) + ' dB';
-    }
     function _markdownInline(value: unknown): string {
         return String(value).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     }
     function _markdownTableCell(value: unknown): string {
         return _markdownInline(value).split('|').join('\\|');
     }
-    function buildMarkdownReport() {
-        var now = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-        const reportRecords = trackStore.activeIds().map(function (trackId) {
+    function _formatReportNumber(value: unknown): string {
+        const numberValue = Number(value);
+        if (!Number.isFinite(numberValue)) { return '—'; }
+        const absolute = Math.abs(numberValue);
+        if (absolute >= 100) { return numberValue.toFixed(0); }
+        if (absolute >= 1) { return numberValue.toFixed(2); }
+        if (absolute >= 0.01) { return numberValue.toFixed(3); }
+        return numberValue.toPrecision(3);
+    }
+    function _reportLevel(channel: ChannelSummary, linearValue: number, levelValue: number | undefined): string {
+        const measurement = channel.measurement;
+        if (!Number.isFinite(levelValue)) { return '—'; }
+        const level = Number(levelValue).toFixed(1) + ' ' + (measurement?.levelUnit ?? 'dB');
+        if (!measurement || measurement.calibrationStatus === 'uncalibrated') {
+            return level;
+        }
+        return _formatReportNumber(linearValue) + ' ' + measurement.linearUnit + ' / ' + level;
+    }
+    function _activeReportRecords() {
+        return trackStore.activeIds().map(function (trackId) {
             return trackStore.require(trackId);
         });
+    }
+    function buildMarkdownReport() {
+        var now = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+        const reportRecords = _activeReportRecords();
         var lines = [
             '# Audio Analysis Report',
             '',
@@ -3699,12 +3748,55 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const r = record.result;
             var dur = r.durationSeconds ? _fmtSec(r.durationSeconds) : '-';
             channelsForResult(r).forEach(function (ch: ChannelSummary, channelIndex: number) {
-                var rms = ch ? _dbLevel(ch.rms) : '-';
-                var peak = ch ? _dbLevel(ch.peakAbsolute) : '-';
+                var rms = ch ? _markdownTableCell(_reportLevel(ch, ch.rms, ch.rmsLevelDb)) : '-';
+                var peak = ch ? _markdownTableCell(_reportLevel(ch, ch.peakAbsolute, ch.peakLevelDb)) : '-';
                 lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + _markdownTableCell(channelLabel(r, channelIndex)) + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + rms + ' | ' + peak + ' |');
             });
         });
         lines.push('');
+        const measuredRecords = reportRecords.filter(function (record) {
+            return channelsForResult(record.result).some(function (channel) {
+                return !!channel.measurement;
+            });
+        });
+        if (measuredRecords.length > 0) {
+            lines.push('## Calibration', '');
+            lines.push('| File | Channel | State | Factor | Linear Unit | Level Reference | Source |');
+            lines.push('|------|---------|-------|--------|-------------|-----------------|--------|');
+            measuredRecords.forEach(function (record) {
+                const r = record.result;
+                channelsForResult(r).forEach(function (channel, channelIndex) {
+                    const measurement = channel.measurement;
+                    if (!measurement) { return; }
+                    lines.push('| ' + _markdownTableCell(r.fileName)
+                        + ' | ' + _markdownTableCell(channelLabel(r, channelIndex))
+                        + ' | ' + _markdownTableCell(measurement.calibrationStatus)
+                        + ' | ' + _formatReportNumber(measurement.factor)
+                        + ' | ' + _markdownTableCell(measurement.linearUnit)
+                        + ' | ' + _markdownTableCell(measurement.levelReferenceLabel)
+                        + ' | ' + _markdownTableCell(measurement.calibrationSource) + ' |');
+                });
+            });
+            lines.push('', '## Measurements', '');
+            lines.push('| File | Channel | RMS | RMS Level | Peak | Peak Level | Raw Peak | Clipped |');
+            lines.push('|------|---------|-----|-----------|------|------------|----------|---------|');
+            measuredRecords.forEach(function (record) {
+                const r = record.result;
+                channelsForResult(r).forEach(function (channel, channelIndex) {
+                    const measurement = channel.measurement;
+                    if (!measurement) { return; }
+                    lines.push('| ' + _markdownTableCell(r.fileName)
+                        + ' | ' + _markdownTableCell(channelLabel(r, channelIndex))
+                        + ' | ' + _formatReportNumber(channel.rms) + ' ' + _markdownTableCell(measurement.linearUnit)
+                        + ' | ' + _formatReportDb(channel.rmsLevelDb, measurement.levelUnit)
+                        + ' | ' + _formatReportNumber(channel.peakAbsolute) + ' ' + _markdownTableCell(measurement.linearUnit)
+                        + ' | ' + _formatReportDb(channel.peakLevelDb, measurement.levelUnit)
+                        + ' | ' + _formatReportNumber(channel.rawPeakFullScale) + ' FS'
+                        + ' | ' + (channel.clipped ? 'Yes' : 'No') + ' |');
+                });
+            });
+            lines.push('');
+        }
         // Loop region
         if (loopRegion && reportRecords.length > 0) {
             var gs = computeGlobalSpan();
@@ -3747,10 +3839,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (peaks && peaks.length > 0) {
                     lines.push('## Spectral Peaks (first track, ' + _markdownTableCell(channelLabel(firstResult, channelIndex)) + ')');
                     lines.push('');
-                    lines.push('| Frequency (Hz) | ' + _markdownTableCell(spectrumLevelAxisLabel(firstResult)) + ' |');
+                    lines.push('| Frequency (Hz) | ' + _markdownTableCell(spectrumLevelAxisLabel(firstResult, firstChannel)) + ' |');
                     lines.push('|---------------|------------|');
                     peaks.forEach(function (p) {
-                        lines.push('| ' + p.freqHz.toFixed(1) + ' | ' + p.amplitudeDb.toFixed(1) + ' |');
+                        const level = p.levelDb ?? p.amplitudeDb;
+                        lines.push('| ' + p.freqHz.toFixed(1) + ' | ' + level.toFixed(1) + ' |');
                     });
                     lines.push('');
                 }
@@ -3758,12 +3851,34 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         return lines.join('\n');
     }
+    function _formatReportDb(value: number | undefined, unit: string): string {
+        return Number.isFinite(value) ? Number(value).toFixed(1) + ' ' + _markdownTableCell(unit) : '—';
+    }
+    function _pythonString(value: string): string {
+        return JSON.stringify(value);
+    }
     function buildNotebook() {
-        var filePaths = (state.results || []).map(function (r) { return r.filePath; });
-        var loadCode = filePaths.map(function (p) {
-            var safePath = p.split('\\').join('\\\\').split('"').join('\\"');
-            return 'sig = wd.read("' + safePath + '")\n' +
-                'sig.describe()';
+        const reportRecords = _activeReportRecords();
+        var loadCode = reportRecords.map(function (record, resultIndex) {
+            const result = record.result;
+            const channels = channelsForResult(result);
+            const variable = 'signal_' + (resultIndex + 1);
+            const code = [variable + ' = wd.read(' + _pythonString(result.filePath) + ')'];
+            if (channels.some(function (channel) {
+                return channel.measurement?.calibrationStatus === 'calibrated';
+            })) {
+                code.push(variable + ' = ' + variable + '.with_calibration([');
+                channels.forEach(function (channel) {
+                    const measurement = channel.measurement;
+                    const calibrated = measurement?.calibrationStatus === 'calibrated';
+                    code.push('    wd.ChannelCalibration(factor=' + (calibrated ? measurement.factor : 1)
+                        + ', unit=' + _pythonString(calibrated ? measurement.linearUnit : '')
+                        + ', ref=' + (calibrated ? measurement.referenceValue : 1) + '),');
+                });
+                code.push('])');
+            }
+            code.push(variable + '.describe()');
+            return code.join('\n');
         }).join('\n\n');
         var nb = {
             nbformat: 4,
@@ -3804,13 +3919,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return JSON.stringify(nb, null, 2);
     }
     function exportReport() {
-        if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
+        const reportRecords = _activeReportRecords();
+        if (reportRecords.length === 0) {
             messaging.post({ type: 'show-info', message: STR.exportReportNoData });
             return;
         }
         var mdContent = buildMarkdownReport();
         var nbContent = buildNotebook();
-        var defaultName = (state.results[0].fileName || 'analysis').replace(/.[^.]+$/, '');
+        var defaultName = (reportRecords[0].result.fileName || 'analysis').replace(/.[^.]+$/, '');
         messaging.post({
             type: 'export-report-options',
             defaultName: defaultName,
@@ -4881,7 +4997,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         _lastSpectrumMaxF = maxF;
         _lastVisDbMin = visDbMinO;
         _lastVisDbMax = visDbMaxO;
-        const sharedAxis = { values: [], frequencyBins: 1, maxFrequencyHz: maxF, minDb: visDbMinO, maxDb: visDbMaxO };
+        const commonSlice = slices[0].slice;
+        const sharedAxis = {
+            values: [],
+            frequencyBins: 1,
+            maxFrequencyHz: maxF,
+            minDb: visDbMinO,
+            maxDb: visDbMaxO,
+            unit: commonSlice.unit,
+            axisLabel: commonSlice.axisLabel,
+        };
         drawSpectrumAxes(ctx, W, H, sharedAxis, padL, padR, padT, padB, visFreqMinO, visFreqMaxO, visDbMinO, visDbMaxO);
         const plotW = W - padL - padR;
         const plotH = H - padT - padB;

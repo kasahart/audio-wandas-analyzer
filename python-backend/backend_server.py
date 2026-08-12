@@ -117,11 +117,21 @@ def _stft_options(command: Command) -> Mapping[str, object] | None:
     return raw
 
 
+def _calibration_profile(command: Command) -> object:
+    return command.get("calibrationProfile")
+
+
+def _analysis_revision(command: Command) -> object:
+    return command.get("analysisRevision", 0)
+
+
 def handle_analyze(service: AnalysisService, command: Command) -> dict[str, object]:
     return service.analyze(
         str(command["filePath"]),
         peak_count=int(command.get("peakCount", 5)),
         stft_options=_stft_options(command),
+        calibration_profile=_calibration_profile(command),
+        analysis_revision=_analysis_revision(command),
     )
 
 
@@ -133,6 +143,8 @@ def handle_track_detail(service: AnalysisService, command: Command) -> dict[str,
         settings_signature=command.get("settingsSignature"),
         peak_count=int(command.get("peakCount", 5)),
         stft_options=_stft_options(command),
+        calibration_profile=_calibration_profile(command),
+        analysis_revision=_analysis_revision(command),
     )
 
 
@@ -145,6 +157,8 @@ def handle_spectrum_slice(service: AnalysisService, command: Command) -> dict[st
         analysis_id=command.get("analysisId"),
         settings_signature=command.get("settingsSignature"),
         stft_options=_stft_options(command),
+        calibration_profile=_calibration_profile(command),
+        analysis_revision=_analysis_revision(command),
     )
 
 
@@ -154,6 +168,8 @@ def handle_range(service: AnalysisService, command: Command) -> dict[str, object
         start_norm=float(command["startNorm"]),
         end_norm=float(command["endNorm"]),
         point_count=int(command.get("points", 2000)),
+        calibration_profile=_calibration_profile(command),
+        analysis_revision=_analysis_revision(command),
     )
 
 
@@ -211,7 +227,7 @@ def main(service: AnalysisService | None = None) -> None:
             result = dispatch(command, active_service)
             name = command.get("cmd")
             _perf(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
-            print(json.dumps({**result, "requestId": request_id}, ensure_ascii=False), flush=True)
+            print(json.dumps({**result, "requestId": request_id}, ensure_ascii=False, allow_nan=False), flush=True)
         except Exception as error:
             print(json.dumps({"requestId": request_id, "error": str(error)}), flush=True)
 

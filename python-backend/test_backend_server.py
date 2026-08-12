@@ -19,7 +19,7 @@ import wandas as wd
 
 from analysis_engine import AnalysisEngine, CachedAnalysis
 from analysis_service import AnalysisService
-from backend_server import dispatch, validate_request
+from backend_server import dispatch, main, validate_request
 
 ROOT = Path(__file__).parent
 PROTOCOL_FIXTURES = json.loads(
@@ -421,11 +421,46 @@ def test_engine_counts_compact_wandas_cache_storage(tmp_path: Path) -> None:
 
     entry = engine.get_file(wav)
     spectrogram = engine.get_spectrogram(wav, 256, 128, "hann")
-    key = (256, 128, "hann")
+    _cached, _analysis_frame, resolved = engine.get_analysis(wav)
+    key = (resolved.signature, 256, 128, "hann")
 
     assert entry.frame_nbytes == int(np.prod(entry.frame.shape)) * np.dtype("float32").itemsize
     assert entry.spectrogram_nbytes[key] == int(np.prod(spectrogram.shape)) * np.dtype("complex64").itemsize
     assert entry.nbytes == entry.frame_nbytes + entry.spectrogram_nbytes[key]
+
+
+def test_engine_reuses_cached_source_peaks_for_calibration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import calibration_profile
+
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    entry = engine.get_file(wav)
+    profile = {
+        "schemaVersion": 1,
+        "channels": [
+            {
+                "channelIndex": 0,
+                "expectedLabel": str(entry.frame.labels[0]),
+                "status": "calibrated",
+                "source": "manual",
+                "factor": 2.0,
+                "unit": "Pa",
+                "referenceValue": 2e-5,
+            }
+        ],
+    }
+
+    monkeypatch.setattr(
+        calibration_profile,
+        "source_channel_peaks",
+        lambda _frame: (_ for _ in ()).throw(AssertionError("source peaks must be cached")),
+    )
+
+    engine.get_analysis(wav, profile)
 
 
 def test_engine_caches_file_frame_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -526,6 +561,26 @@ def test_dispatch_uses_injected_service_without_creating_an_engine() -> None:
     )
 
     assert result == {"filePath": "/tmp/tone.wav", "peakCount": 7}
+
+
+def test_non_finite_response_becomes_request_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class FakeService:
+        def analyze(self, _file_path: str, **_options: object) -> dict[str, object]:
+            return {"rms": math.inf}
+
+    request = {"cmd": "analyze", "requestId": "r1", "filePath": "/tmp/tone.wav", "peakCount": 1}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(request) + "\n"))
+
+    main(FakeService())  # type: ignore[arg-type]
+
+    lines = capsys.readouterr().out.splitlines()
+    response = json.loads(lines[-1])
+    assert response["requestId"] == "r1"
+    assert "Out of range float values" in response["error"]
+    assert "Infinity" not in lines[-1]
 
 
 def test_analyze_then_range_share_cache(server: _ServerHandle, tmp_path: Path) -> None:

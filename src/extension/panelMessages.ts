@@ -1,4 +1,5 @@
 import type {
+    ComparisonPanelReadyMessage,
     RequestReanalyzeMessage,
     UpdateSpectrogramSettingsMessage,
 } from '../shared/analysis/analysisTypes';
@@ -41,6 +42,7 @@ export type PanelMessage =
     | AnalyzeSelectedFilesMessage
     | SelectPythonEnvironmentMessage
     | SelectTargetMessage
+    | ComparisonPanelReadyMessage
     | RequestReanalyzeMessage
     | UpdateSpectrogramSettingsMessage
     | WaveformRangeRequest
@@ -56,6 +58,59 @@ function hasType(value: unknown, type: string): boolean {
     return !!value && typeof value === 'object' && (value as { type?: unknown }).type === type;
 }
 
+function isSpectrogramSettings(value: unknown): boolean {
+    if (!value || typeof value !== 'object') { return false; }
+    const settings = value as Record<string, unknown>;
+    const stft = settings['stft'];
+    const display = settings['display'];
+    if (typeof settings['auto'] !== 'boolean'
+        || !stft || typeof stft !== 'object'
+        || !display || typeof display !== 'object') {
+        return false;
+    }
+    const stftRecord = stft as Record<string, unknown>;
+    const displayRecord = display as Record<string, unknown>;
+    const nullableNumber = (candidate: unknown): boolean => candidate === null
+        || (typeof candidate === 'number' && Number.isFinite(candidate));
+    return typeof stftRecord['nFft'] === 'number'
+        && Number.isInteger(stftRecord['nFft'])
+        && stftRecord['nFft'] > 0
+        && typeof stftRecord['hopSize'] === 'number'
+        && Number.isInteger(stftRecord['hopSize'])
+        && stftRecord['hopSize'] > 0
+        && typeof stftRecord['window'] === 'string'
+        && ['hann', 'hamming', 'blackman', 'boxcar'].includes(stftRecord['window'])
+        && nullableNumber(displayRecord['dbMin'])
+        && nullableNumber(displayRecord['dbMax'])
+        && nullableNumber(displayRecord['maxFrequencyHz']);
+}
+
+function isRequestReanalyzeMessage(value: unknown): value is RequestReanalyzeMessage {
+    if (!hasType(value, 'request-reanalyze')) { return false; }
+    const message = value as Record<string, unknown>;
+    return isSpectrogramSettings(message['settings']) && message['reason'] === undefined;
+}
+
+function isComparisonPanelReadyMessage(value: unknown): value is ComparisonPanelReadyMessage {
+    if (!hasType(value, 'comparison-panel-ready')) { return false; }
+    const message = value as Record<string, unknown>;
+    return Array.isArray(message['calibrationRevisions'])
+        && message['calibrationRevisions'].every((entry) => {
+            if (!entry || typeof entry !== 'object') { return false; }
+            const revision = entry as Record<string, unknown>;
+            return typeof revision['filePath'] === 'string'
+                && revision['filePath'].length > 0
+                && typeof revision['analysisRevision'] === 'number'
+                && Number.isInteger(revision['analysisRevision'])
+                && revision['analysisRevision'] >= 0;
+        });
+}
+
+function isUpdateSpectrogramSettingsMessage(value: unknown): value is UpdateSpectrogramSettingsMessage {
+    return hasType(value, 'update-spectrogram-settings')
+        && isSpectrogramSettings((value as Record<string, unknown>)['settings']);
+}
+
 export function parsePanelMessage(value: unknown): PanelMessage | undefined {
     if (!value || typeof value !== 'object') { return undefined; }
     const type = (value as { type?: unknown }).type;
@@ -63,9 +118,11 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'analyze-selected-files': return isAnalyzeSelectedFilesMessage(value) ? value : undefined;
         case 'select-python-environment': return isSelectPythonEnvironmentMessage(value) ? value : undefined;
         case 'select-target': return isSelectTargetMessage(value) ? value : undefined;
-        case 'request-reanalyze': return hasType(value, 'request-reanalyze') ? value as RequestReanalyzeMessage : undefined;
+        case 'comparison-panel-ready':
+            return isComparisonPanelReadyMessage(value) ? value : undefined;
+        case 'request-reanalyze': return isRequestReanalyzeMessage(value) ? value : undefined;
         case 'update-spectrogram-settings':
-            return hasType(value, 'update-spectrogram-settings') ? value as UpdateSpectrogramSettingsMessage : undefined;
+            return isUpdateSpectrogramSettingsMessage(value) ? value : undefined;
         case 'request-waveform-range': return isRequestWaveformRangeMessage(value) ? value : undefined;
         case 'request-track-detail': return isRequestTrackDetailMessage(value) ? value : undefined;
         case 'release-track-detail': return isReleaseTrackDetailMessage(value) ? value : undefined;

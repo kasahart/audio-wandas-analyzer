@@ -19,6 +19,7 @@ interface GuiFeatureInventoryModule {
 }
 
 interface GuiTriggerabilityAuditModule {
+    collectWebviewActionIdsFromSource(source: string): string[];
     verifyGuiTriggerability(repoRoot: string): {
         missingCommands: string[];
         unexpectedCommands: string[];
@@ -36,6 +37,20 @@ interface GuiTriggerabilityAuditModule {
     };
 }
 
+test('GUI triggerability collector distinguishes controls from selector guards', () => {
+    const audit = require('../../scripts/verify-gui-triggerability.js') as GuiTriggerabilityAuditModule;
+    const source = `
+        root.querySelector('[data-action="guard-only"]');
+        button.setAttribute('data-action', 'assigned-action');
+        const html = '<button data-action="literal-action">Run</button>';
+    `;
+
+    assert.deepEqual(audit.collectWebviewActionIdsFromSource(source), [
+        'assigned-action',
+        'literal-action',
+    ]);
+});
+
 test('GUI triggerability inventory lists in-scope commands and excludes debug-only command', () => {
     const inventory = require('../shared/gui/guiTriggerabilityInventory') as GuiFeatureInventoryModule;
 
@@ -44,6 +59,7 @@ test('GUI triggerability inventory lists in-scope commands and excludes debug-on
         'audioWandasAnalyzer.analyzeThisTarget',
         'audioWandasAnalyzer.selectPythonEnvironment',
         'audioWandasAnalyzer.runRecipe',
+        'audioWandasAnalyzer.configureCalibration',
     ]);
     assert.deepEqual(inventory.GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS, [
         'audioWandasAnalyzer.analyzeDebugFile',
@@ -51,10 +67,12 @@ test('GUI triggerability inventory lists in-scope commands and excludes debug-on
     assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('selection-select-all'));
     assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('content-spectrogram'));
     assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('toggle-playback'));
+    assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('configure-calibration'));
     assert.ok(inventory.GUI_TRIGGERABILITY_SCOPED_SHORTCUTS.includes('?'));
     assert.ok(inventory.GUI_TRIGGERABILITY_SCOPED_SHORTCUTS.includes('Esc'));
     assert.ok(inventory.GUI_TRIGGERABILITY_FEATURES.some((feature) => feature.id === 'welcome-open-target'));
     assert.ok(inventory.GUI_TRIGGERABILITY_FEATURES.some((feature) => feature.id === 'export-report'));
+    assert.ok(inventory.GUI_TRIGGERABILITY_FEATURES.some((feature) => feature.id === 'calibration'));
 });
 
 test('GUI triggerability inventory has no planned regression layer or uncovered feature', () => {

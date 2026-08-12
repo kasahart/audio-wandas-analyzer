@@ -14,6 +14,7 @@ import {
     type BackendCommand,
     type BackendPayload,
     type BackendResult,
+    type CalibrationRequestContext,
     type ExportWavLoopResult,
     type RangeResult,
     type SpectrumSlicePayload,
@@ -24,6 +25,13 @@ import {
 import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
+
+export class AnalysisRequestError extends Error {
+    constructor(message: string, readonly analysisRevision: number) {
+        super(message);
+        this.name = 'AnalysisRequestError';
+    }
+}
 
 export class PythonBackendServer {
     private proc: ChildProcess | null = null;
@@ -47,11 +55,20 @@ export class PythonBackendServer {
     }
 
     async analyze(filePath: string, options: AnalyzeOptions): Promise<BackendResult<'analyze'>> {
-        return this.request('analyze', {
-            filePath,
-            peakCount: options.peakCount,
-            ...(options.stftOptions ? { stftOptions: options.stftOptions } : {}),
-        });
+        const analysisRevision = options.analysisRevision ?? 0;
+        try {
+            return await this.request('analyze', {
+                filePath,
+                peakCount: options.peakCount,
+                ...(options.stftOptions ? { stftOptions: options.stftOptions } : {}),
+                ...this.calibrationPayload(options),
+            });
+        } catch (error) {
+            throw new AnalysisRequestError(
+                error instanceof Error ? error.message : String(error),
+                analysisRevision,
+            );
+        }
     }
 
     async requestRange(
@@ -60,10 +77,11 @@ export class PythonBackendServer {
         endNorm: number,
         points: number,
         requestId?: string,
+        calibration: CalibrationRequestContext = {},
     ): Promise<RangeResult> {
         return this.request(
             'range',
-            { filePath, startNorm, endNorm, points },
+            { filePath, startNorm, endNorm, points, ...this.calibrationPayload(calibration) },
             requestId,
         );
     }
@@ -81,6 +99,7 @@ export class PythonBackendServer {
                 analysisId: payload.analysisId,
                 settingsSignature: payload.settingsSignature,
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
+                ...this.calibrationPayload(payload),
             },
             requestId,
         );
@@ -105,6 +124,7 @@ export class PythonBackendServer {
                 cursorNorm: payload.cursorNorm,
                 channelIndex: payload.channelIndex,
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
+                ...this.calibrationPayload(payload),
             },
             requestId,
         );
@@ -126,6 +146,13 @@ export class PythonBackendServer {
         this.proc?.kill();
         this.proc = null;
         this.rejectAll(new Error('PythonBackendServer disposed'));
+    }
+
+    private calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {
+        return {
+            ...(context.calibrationProfile ? { calibrationProfile: context.calibrationProfile } : {}),
+            analysisRevision: context.analysisRevision ?? 0,
+        };
     }
 
     private async request<K extends BackendCommand>(

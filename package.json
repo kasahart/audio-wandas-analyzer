@@ -17,7 +17,7 @@
     "activationEvents": [
         "onStartupFinished"
     ],
-    "main": "./dist/extension/index.js",
+    "main": "./dist/extension/bootstrap.js",
     "icon": "media/Marketplace-icon.png",
     "contributes": {
         "commands": [
@@ -40,6 +40,10 @@
             {
                 "command": "audioWandasAnalyzer.runRecipe",
                 "title": "%command.runRecipe.title%"
+            },
+            {
+                "command": "audioWandasAnalyzer.configureCalibration",
+                "title": "%command.configureCalibration.title%"
             }
         ],
         "menus": {

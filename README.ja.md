@@ -47,7 +47,7 @@ python3 --version
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install "wandas[psychoacoustic]>=0.7.1,<0.8.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
+pip install "wandas[psychoacoustic]>=0.7.2,<0.8.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
 ```
 
 ### 3. VS Code で Python 環境を選択

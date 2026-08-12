@@ -11,13 +11,12 @@ import soundfile as sf
 
 from analysis_engine import AnalysisEngine
 from analyzer import (
-    DB_UNIT,
     SPECTROGRAM_FREQUENCY_BIN_LIMIT,
-    SPECTRUM_LEVEL_AXIS_LABEL,
     StftOptions,
     analyze_from_frame,
     build_waveform_envelope,
     channels_first,
+    level_scale_metadata,
     resample_frequency_bins,
     resolve_stft_params,
 )
@@ -29,6 +28,8 @@ class TrackDetailResult(TypedDict):
     settingsSignature: str | None
     filePath: str
     channels: list[dict[str, object]]
+    calibrationSignature: str
+    analysisRevision: int
 
 
 class SpectrumSliceResult(TypedDict):
@@ -44,12 +45,19 @@ class SpectrumSliceResult(TypedDict):
     maxDb: float
     unit: str
     axisLabel: str
+    referenceValue: float
+    referenceUnit: str
+    levelReferenceLabel: str
+    calibrationSignature: str
+    analysisRevision: int
 
 
 class WaveformRangeResult(TypedDict):
     startNorm: float
     endNorm: float
     channels: list[dict[str, object]]
+    calibrationSignature: str
+    analysisRevision: int
 
 
 class WavLoopExportResult(TypedDict):
@@ -59,6 +67,12 @@ class WavLoopExportResult(TypedDict):
 
 def _optional_text(value: object) -> str | None:
     return None if value is None else str(value)
+
+
+def _analysis_revision(value: object) -> int:
+    if isinstance(value, bool):
+        raise TypeError("analysisRevision must be an integer")
+    return int(value)
 
 
 class AnalysisService:
@@ -71,15 +85,21 @@ class AnalysisService:
         *,
         peak_count: int = 5,
         stft_options: Mapping[str, object] | None = None,
+        calibration_profile: object = None,
+        analysis_revision: object = 0,
     ) -> dict[str, object]:
-        cached = self.engine.get_file(file_path)
-        return analyze_from_frame(
-            cached.frame,
+        cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
+        result = analyze_from_frame(
+            analysis_frame,
             cached.path,
             peak_count=peak_count,
+            raw_frame=cached.frame,
+            calibration_profile=resolved,
             stft_options=stft_options,
             include_spectrogram=False,
         )
+        result["analysisRevision"] = _analysis_revision(analysis_revision)
+        return result
 
     def track_detail(
         self,
@@ -90,14 +110,24 @@ class AnalysisService:
         settings_signature: object = None,
         peak_count: int = 5,
         stft_options: Mapping[str, object] | None = None,
+        calibration_profile: object = None,
+        analysis_revision: object = 0,
     ) -> TrackDetailResult:
-        cached = self.engine.get_file(file_path)
-        n_fft, hop_length, window = resolve_stft_params(cached.frame.n_samples, stft_options)
-        spectrogram = self.engine.get_spectrogram(cached.path, n_fft, hop_length, window)
+        cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
+        n_fft, hop_length, window = resolve_stft_params(analysis_frame.n_samples, stft_options)
+        spectrogram = self.engine.get_spectrogram(
+            cached.path,
+            n_fft,
+            hop_length,
+            window,
+            calibration_profile,
+        )
         result = analyze_from_frame(
-            cached.frame,
+            analysis_frame,
             cached.path,
             peak_count=peak_count,
+            raw_frame=cached.frame,
+            calibration_profile=resolved,
             stft_options=stft_options,
             spectrogram_frame=spectrogram,
             include_spectrogram=True,
@@ -108,6 +138,8 @@ class AnalysisService:
             "settingsSignature": _optional_text(settings_signature),
             "filePath": str(cached.path),
             "channels": result["channels"],
+            "calibrationSignature": resolved.signature,
+            "analysisRevision": _analysis_revision(analysis_revision),
         }
 
     def spectrum_slice(
@@ -120,14 +152,22 @@ class AnalysisService:
         analysis_id: object = None,
         settings_signature: object = None,
         stft_options: Mapping[str, object] | None = None,
+        calibration_profile: object = None,
+        analysis_revision: object = 0,
     ) -> SpectrumSliceResult:
-        cached = self.engine.get_file(file_path)
-        window_size, hop_size, window_name = resolve_stft_params(cached.frame.n_samples, stft_options)
+        cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
+        window_size, hop_size, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
         clipped_norm = max(0.0, min(1.0, cursor_norm))
-        if channel_index < 0 or channel_index >= cached.frame.n_channels:
+        if channel_index < 0 or channel_index >= analysis_frame.n_channels:
             raise ValueError(f"channelIndex out of range: {channel_index}")
 
-        spectrogram = self.engine.get_cached_spectrogram(cached.path, window_size, hop_size, window_name)
+        spectrogram = self.engine.get_cached_spectrogram(
+            cached.path,
+            window_size,
+            hop_size,
+            window_name,
+            calibration_profile,
+        )
         if spectrogram is not None:
             time_bins = int(spectrogram.n_frames)
             if time_bins <= 0:
@@ -136,17 +176,18 @@ class AnalysisService:
             spectrum = spectrogram.get_frame_at(time_index)
             max_frequency_hz = float(spectrogram.freqs[-1])
         else:
-            center_sample = min(int(clipped_norm * cached.frame.n_samples), cached.frame.n_samples - 1)
+            center_sample = min(int(clipped_norm * analysis_frame.n_samples), analysis_frame.n_samples - 1)
             start_sample = max(0, center_sample - window_size // 2)
-            end_sample = min(cached.frame.n_samples, start_sample + window_size)
+            end_sample = min(analysis_frame.n_samples, start_sample + window_size)
             start_sample = max(0, end_sample - window_size)
-            spectrum = cached.frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
+            spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
             max_frequency_hz = float(spectrum.freqs[-1])
 
         values = np.asarray(spectrum.dB, dtype=np.float64)
         if values.ndim == 2:
             values = values[channel_index]
         row = resample_frequency_bins(values.reshape(1, -1), SPECTROGRAM_FREQUENCY_BIN_LIMIT)[0]
+        reference = analysis_frame.channels[channel_index].level_reference
         return {
             "trackIndex": track_index,
             "channelIndex": channel_index,
@@ -158,8 +199,9 @@ class AnalysisService:
             "maxFrequencyHz": max_frequency_hz,
             "minDb": float(np.min(row)),
             "maxDb": float(np.max(row)),
-            "unit": DB_UNIT,
-            "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
+            "calibrationSignature": resolved.signature,
+            "analysisRevision": _analysis_revision(analysis_revision),
+            **level_scale_metadata(reference, "Spectrum amplitude level"),
         }
 
     def waveform_range(
@@ -169,17 +211,19 @@ class AnalysisService:
         start_norm: float,
         end_norm: float,
         point_count: int = 2000,
+        calibration_profile: object = None,
+        analysis_revision: object = 0,
     ) -> WaveformRangeResult:
-        cached = self.engine.get_file(file_path)
-        sample_count = cached.frame.n_samples
+        cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
+        sample_count = analysis_frame.n_samples
         start_idx = max(0, int(start_norm * sample_count))
         end_idx = min(sample_count, int(end_norm * sample_count))
 
         channels: list[dict[str, object]] = []
         if end_idx > start_idx:
-            range_frame = cached.frame[:, start_idx:end_idx]
-            data = channels_first(range_frame.data, cached.frame.n_channels, end_idx - start_idx)
-            for channel_index in range(cached.frame.n_channels):
+            range_frame = analysis_frame[:, start_idx:end_idx]
+            data = channels_first(range_frame.data, analysis_frame.n_channels, end_idx - start_idx)
+            for channel_index in range(analysis_frame.n_channels):
                 channels.append(
                     build_waveform_envelope(
                         data[channel_index],
@@ -189,7 +233,13 @@ class AnalysisService:
                     )
                 )
 
-        return {"startNorm": start_norm, "endNorm": end_norm, "channels": channels}
+        return {
+            "startNorm": start_norm,
+            "endNorm": end_norm,
+            "channels": channels,
+            "calibrationSignature": resolved.signature,
+            "analysisRevision": _analysis_revision(analysis_revision),
+        }
 
     def export_wav_loop(
         self,

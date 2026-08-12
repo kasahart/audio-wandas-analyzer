@@ -43,6 +43,8 @@ const DUMMY_APP_STATE = JSON.stringify({
                 label: 'L',
                 rms: 0.1,
                 peakAbsolute: 0.5,
+                rmsLevelDb: -20,
+                peakLevelDb: -6.0206,
                 dominantFrequencies: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
@@ -65,6 +67,8 @@ const DUMMY_APP_STATE = JSON.stringify({
                 label: 'L',
                 rms: 0.2,
                 peakAbsolute: 0.7,
+                rmsLevelDb: -13.9794,
+                peakLevelDb: -3.098,
                 dominantFrequencies: [],
                 waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
                 spectrogram: {
@@ -94,6 +98,8 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
                     label: 'Left',
                     rms: 0.1,
                     peakAbsolute: 0.5,
+                    rmsLevelDb: -20,
+                    peakLevelDb: -6.0206,
                     dominantFrequencies: [{ frequencyHz: 440, magnitude: 1 }],
                     peaks: [{ freqHz: 440, amplitudeDb: -12 }],
                     waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
@@ -107,6 +113,8 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
                     label: 'Right',
                     rms: 0.8,
                     peakAbsolute: 0.95,
+                    rmsLevelDb: -1.9382,
+                    peakLevelDb: -0.4455,
                     dominantFrequencies: [{ frequencyHz: 880, magnitude: 1 }],
                     peaks: [{ freqHz: 880, amplitudeDb: -3 }],
                     waveform: { min: [-0.95], max: [0.95], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.95 },
@@ -2480,6 +2488,26 @@ test('renderScript: multichannel track UI renders all channel sublanes without a
     env.dom.window.close();
 });
 
+test('renderScript: channel metrics use backend-provided levels without recalculating dB', async () => {
+    const state = JSON.parse(MULTICHANNEL_APP_STATE);
+    state.results[0].channels[0].rmsLevelDb = 12.3;
+    state.results[0].channels[0].peakLevelDb = 45.6;
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    const firstLane = env.dom.window.document.querySelector(
+        '#track-row-0 .track-channel-lane-header',
+    );
+    assert.match(firstLane?.textContent ?? '', /RMS 12\.3 dB.*Peak 45\.6 dB/);
+
+    env.dom.window.document.querySelector('[data-action="export-report"]')?.dispatchEvent(
+        new env.dom.window.MouseEvent('click', { bubbles: true }),
+    );
+    const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
+    assert.match(msg.markdownContent, /\| 12\.3 dB \| 45\.6 dB \|/);
+    env.dom.window.close();
+});
+
 function decodeDataUriPayload(uri: string): string {
     const comma = uri.indexOf(',');
     assert.ok(comma >= 0, 'data URI に payload があること');
@@ -2618,6 +2646,56 @@ test('renderScript: multichannel report sanitizes channel markdown', async () =>
     assert.ok(msg, 'report export message が送信されること');
     assert.match(msg.markdownContent, /Channel 1 \/ 2 \(Left \\| unsafe ## injected\)/);
     assert.doesNotMatch(msg.markdownContent, /\n## injected/);
+    env.dom.window.close();
+});
+
+test('renderScript: calibrated report escapes units and labels each channel peak reference', async () => {
+    const state = JSON.parse(MULTICHANNEL_APP_STATE);
+    Object.assign(state.results[0].channels[0], {
+        measurement: {
+            calibrationStatus: 'calibrated',
+            calibrationSource: 'manual',
+            factor: 2,
+            linearUnit: 'Pa|rms',
+            referenceValue: 1,
+            referenceUnit: 'Pa|ref',
+            levelUnit: 'dB',
+            levelReferenceLabel: 'dB re 1 Pa|ref',
+        },
+        rmsLevelDb: 74,
+        peakLevelDb: 80,
+        rawPeakFullScale: 0.25,
+        peaks: [{ freqHz: 440, magnitude: 0.5, levelDb: 80, amplitudeDb: 80 }],
+    });
+    Object.assign(state.results[0].channels[1], {
+        measurement: {
+            calibrationStatus: 'uncalibrated',
+            calibrationSource: 'default',
+            factor: 1,
+            linearUnit: 'FS',
+            referenceValue: 1,
+            referenceUnit: 'FS',
+            levelUnit: 'dBFS',
+            levelReferenceLabel: 'dBFS',
+        },
+        rmsLevelDb: -1.9,
+        peakLevelDb: -0.4,
+        rawPeakFullScale: 0.95,
+        peaks: [{ freqHz: 880, magnitude: 0.95, levelDb: -3, amplitudeDb: -3 }],
+    });
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.document.querySelector('[data-action="export-report"]')?.dispatchEvent(
+        new env.dom.window.MouseEvent('click', { bubbles: true }),
+    );
+
+    const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
+    assert.ok(msg, 'report export message should be sent');
+    assert.match(msg.markdownContent, /0\.100 Pa\\\|rms \/ 74\.0 dB/);
+    assert.match(msg.markdownContent, /Spectrum amplitude level \[dB re 1 Pa\\\|ref\]/);
+    assert.match(msg.markdownContent, /Spectrum amplitude level \[dBFS\]/);
+    assert.match(msg.markdownContent, /\| 440\.0 \| 80\.0 \|/);
     env.dom.window.close();
 });
 
@@ -3212,6 +3290,22 @@ function requestSpectrumSnapshot(env: ReturnType<typeof setupEnv>, actionId: str
         data: { type: 'comparison-panel-test-action', actions: [], actionId: actionId },
     }));
 }
+
+test('spectrum overlay preserves a compatible calibrated level unit', async () => {
+    const state = JSON.parse(DUMMY_APP_STATE);
+    state.results = state.results.slice(0, 1);
+    state.results[0].channels[0].spectrogram.unit = 'dB SPL';
+    state.results[0].channels[0].spectrogram.axisLabel = 'Spectrum amplitude level [dB SPL re 20 µPa]';
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    requestSpectrumSnapshot(env, 'calibrated-overlay-unit');
+    await nextAnimationFrame(env.dom);
+
+    const labels = latestSpectrumOverlayLabels(env);
+    assert.ok(labels?.slice(0, 3).every((label) => label.endsWith('dB SPL')), JSON.stringify(labels));
+    env.dom.window.close();
+});
 
 test('spectrum overlay: Y軸(dB) dblclick → popover が開き dB レンジを適用できる', async () => {
     const env = setupEnv();

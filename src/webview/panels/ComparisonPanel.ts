@@ -12,6 +12,7 @@ import type {
     ComparisonState,
     DirectorySelectionState,
 } from '../runtime/types';
+import { getCalibrationRenderScript } from '../calibrationRenderScript';
 
 export type { ComparisonState } from '../runtime/types';
 
@@ -92,6 +93,30 @@ export class ComparisonPanel {
     private static testSnapshotsByActionId = new Map<string, ComparisonPanelTestSnapshot>();
     private static activePanel: vscode.WebviewPanel | undefined;
     private static testMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
+    private static resultsByPanel = new WeakMap<object, AnalysisResultWithError[]>();
+
+    public static updateResults(panel: object, results: AnalysisResultWithError[]): void {
+        ComparisonPanel.resultsByPanel.set(panel, [...results]);
+    }
+
+    public static getResults(panel: object): AnalysisResultWithError[] {
+        return ComparisonPanel.resultsByPanel.get(panel) ?? [];
+    }
+
+    public static replaceResult(
+        panel: object,
+        replacement: AnalysisResultWithError,
+    ): AnalysisResultWithError[] | undefined {
+        const current = ComparisonPanel.resultsByPanel.get(panel);
+        if (!current?.some((result) => result.filePath === replacement.filePath)) {
+            return undefined;
+        }
+        const next = current.map((result) => (
+            result.filePath === replacement.filePath ? replacement : result
+        ));
+        ComparisonPanel.resultsByPanel.set(panel, next);
+        return [...next];
+    }
 
     public static show(
         extensionUri: vscode.Uri,
@@ -121,7 +146,9 @@ export class ComparisonPanel {
         };
         panel.reveal(vscode.ViewColumn.One, true);
         ComparisonPanel.activePanel = panel;
+        ComparisonPanel.updateResults(panel, results);
         panel.onDidDispose(() => {
+            ComparisonPanel.resultsByPanel.delete(panel);
             if (ComparisonPanel.activePanel === panel) {
                 ComparisonPanel.activePanel = undefined;
             }
@@ -179,7 +206,9 @@ export class ComparisonPanel {
         };
         panel.reveal(vscode.ViewColumn.One, true);
         ComparisonPanel.activePanel = panel;
+        ComparisonPanel.updateResults(panel, results);
         panel.onDidDispose(() => {
+            ComparisonPanel.resultsByPanel.delete(panel);
             if (ComparisonPanel.activePanel === panel) {
                 ComparisonPanel.activePanel = undefined;
             }
@@ -325,12 +354,21 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
     <div id="app"></div>
     <div id="canvas-tooltip"></div>
     <script nonce="${nonce}">
+        const __AWA_CALIBRATION_RUNTIME__ = true;
+        const __AWA_NATIVE_ACQUIRE_VSCODE_API__ = acquireVsCodeApi;
+        window.acquireVsCodeApi = function() {
+            if (!window.__AWA_VSCODE_API__) {
+                window.__AWA_VSCODE_API__ = __AWA_NATIVE_ACQUIRE_VSCODE_API__();
+            }
+            return window.__AWA_VSCODE_API__;
+        };
         window.__APP_STATE__ = ${serializeForScript(state)};
         window.__APP_STRINGS__ = ${serializeForScript(strings)};
         window.__APP_LOCALE__ = ${serializeForScript(locale)};
     </script>
     <script src="${waveformScriptUri}"></script>
     <script src="${runtimeScriptUri}"></script>
+    <script nonce="${nonce}">${getCalibrationRenderScript()}</script>
 </body>
 </html>`;
 }
