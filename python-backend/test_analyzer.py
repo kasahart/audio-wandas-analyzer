@@ -102,7 +102,7 @@ def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: 
     assert matching_peaks
     assert matching_peaks[0]["amplitudeDb"] == pytest.approx(expected_db, abs=0.01)
     assert channel["spectrogram"]["maxDb"] == pytest.approx(expected_db, abs=0.01)
-    assert channel["spectrogram"]["axisLabel"] == "STFT amplitude level [dBFS]"
+    assert channel["spectrogram"]["axisLabel"] == "STFT amplitude level [dB re 1 input unit]"
 
 
 def test_analyze_range_uses_same_pcm_scale_as_overview(tmp_path: Path) -> None:

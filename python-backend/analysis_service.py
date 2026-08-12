@@ -16,10 +16,10 @@ from analyzer import (
     analyze_from_frame,
     build_waveform_envelope,
     channels_first,
+    level_scale_metadata,
     resample_frequency_bins,
     resolve_stft_params,
 )
-from calibration_profile import level_scale_metadata, measurement_metadata
 
 
 class TrackDetailResult(TypedDict):
@@ -187,7 +187,7 @@ class AnalysisService:
         if values.ndim == 2:
             values = values[channel_index]
         row = resample_frequency_bins(values.reshape(1, -1), SPECTROGRAM_FREQUENCY_BIN_LIMIT)[0]
-        measurement = measurement_metadata(resolved.channels[channel_index])
+        reference = analysis_frame.channels[channel_index].level_reference
         return {
             "trackIndex": track_index,
             "channelIndex": channel_index,
@@ -201,7 +201,7 @@ class AnalysisService:
             "maxDb": float(np.max(row)),
             "calibrationSignature": resolved.signature,
             "analysisRevision": _analysis_revision(analysis_revision),
-            **level_scale_metadata(measurement, "Spectrum amplitude level"),
+            **level_scale_metadata(reference, "Spectrum amplitude level"),
         }
 
     def waveform_range(

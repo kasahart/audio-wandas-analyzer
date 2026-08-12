@@ -13,9 +13,7 @@ import wandas as wd
 
 from calibration_profile import (
     ResolvedCalibrationProfile,
-    amplitude_level,
-    level_scale_metadata,
-    measurement_metadata,
+    ResolvedChannelCalibration,
     resolve_calibration_profile,
 )
 from decimator import decimated_waveform
@@ -48,26 +46,37 @@ def _db_scale_metadata(axis_label: str) -> dict[str, str]:
     }
 
 
-def _analysis_units_metadata(measurements: list[dict[str, object]]) -> dict[str, object] | None:
-    if not measurements:
+def measurement_metadata(
+    channel: ResolvedChannelCalibration,
+    reference: wd.LevelReference,
+) -> dict[str, object]:
+    return {
+        "calibrationStatus": channel.status,
+        "calibrationSource": channel.source,
+        "factor": channel.factor,
+        "linearUnit": reference.reference_unit,
+        "referenceValue": reference.reference_value,
+        "referenceUnit": reference.reference_unit,
+        "levelUnit": reference.unit,
+        "levelReferenceLabel": reference.label,
+    }
+
+
+def level_scale_metadata(reference: wd.LevelReference, quantity_label: str) -> dict[str, object]:
+    return {
+        "unit": reference.unit,
+        "axisLabel": f"{quantity_label} [{reference.label}]",
+        "referenceValue": reference.reference_value,
+        "referenceUnit": reference.reference_unit,
+        "levelReferenceLabel": reference.label,
+    }
+
+
+def _analysis_units_metadata(references: list[wd.LevelReference]) -> dict[str, object] | None:
+    if not references:
         return None
-    first = measurements[0]
-    reference_key = (
-        first["levelUnit"],
-        first["referenceValue"],
-        first["referenceUnit"],
-        first["levelReferenceLabel"],
-    )
-    if any(
-        (
-            measurement["levelUnit"],
-            measurement["referenceValue"],
-            measurement["referenceUnit"],
-            measurement["levelReferenceLabel"],
-        )
-        != reference_key
-        for measurement in measurements[1:]
-    ):
+    first = references[0]
+    if any(reference != first for reference in references[1:]):
         return None
     return {
         "amplitudeLevel": level_scale_metadata(first, "Amplitude level"),
@@ -401,7 +410,8 @@ def analyze_from_frame(
     sample_rate_hz = int(frame.sampling_rate)
     labels = list(frame.labels)
     resolved = calibration_profile or _resolved_profile_from_frame(frame)
-    measurements = [measurement_metadata(channel) for channel in resolved.channels]
+    references = [frame.channels[index].level_reference for index in range(channel_count)]
+    measurements = [measurement_metadata(channel, references[index]) for index, channel in enumerate(resolved.channels)]
     data = channels_first(np.asarray(frame.data), channel_count, sample_count)
     rms_values = np.asarray(frame.rms, dtype=np.float64)
     raw_source = raw_frame or frame
@@ -445,7 +455,7 @@ def analyze_from_frame(
                 sample_rate_hz,
                 window_size,
                 hop_size,
-                level_scale_metadata(measurement, "STFT amplitude level"),
+                level_scale_metadata(references[index], "STFT amplitude level"),
             )
         channels.append(
             {
@@ -454,8 +464,8 @@ def analyze_from_frame(
                 "measurement": measurement,
                 "rms": rms,
                 "peakAbsolute": peak,
-                "rmsLevelDb": amplitude_level(rms, float(measurement["referenceValue"])),
-                "peakLevelDb": amplitude_level(peak, float(measurement["referenceValue"])),
+                "rmsLevelDb": references[index].to_level(rms),
+                "peakLevelDb": references[index].to_level(peak),
                 "rawPeakFullScale": raw_peak,
                 "clipped": raw_peak >= 0.99,
                 "dominantFrequencies": _dominant_frequencies(fft_magnitudes[index], fft_freqs, peak_count),
@@ -484,7 +494,7 @@ def analyze_from_frame(
         "calibrationProfile": resolved.to_dict(),
         "channels": channels,
     }
-    units = _analysis_units_metadata(measurements)
+    units = _analysis_units_metadata(references)
     if units is not None:
         result["units"] = units
     return result

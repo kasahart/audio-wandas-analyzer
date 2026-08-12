@@ -220,86 +220,9 @@ def resolve_calibration_profile(
     return ResolvedCalibrationProfile(1, channels, _signature(normalized))
 
 
-def format_reference_value(value: float) -> str:
-    if math.isclose(value, 2e-5, rel_tol=0.0, abs_tol=1e-15):
-        return "20 µ"
-    if value == 1.0:
-        return "1"
-    return f"{value:.6g}"
-
-
-def format_reference_label(value: float, unit: str) -> str:
-    formatted = format_reference_value(value)
-    separator = "" if formatted.endswith("µ") else " "
-    return f"{formatted}{separator}{unit}"
-
-
-def measurement_metadata(channel: ResolvedChannelCalibration) -> dict[str, object]:
-    linear_unit = channel.unit
-    reference_value = channel.reference_value
-    if channel.status == "uncalibrated" and not linear_unit:
-        linear_unit = "FS"
-        reference_value = 1.0
-
-    calibration = wd.ChannelCalibration(
-        factor=channel.factor,
-        unit=linear_unit,
-        ref=reference_value,
-    )
-    level_reference = getattr(calibration, "level_reference", None)
-    if level_reference is not None:
-        reference_unit = str(level_reference.reference_unit)
-        level_unit = str(level_reference.unit)
-        level_reference_label = str(level_reference.label)
-    else:
-        reference_unit = linear_unit
-        if linear_unit == "FS" and math.isclose(reference_value, 1.0, rel_tol=0.0, abs_tol=1e-15):
-            level_unit = "dBFS"
-            level_reference_label = "dBFS"
-        elif linear_unit == "Pa" and math.isclose(reference_value, 2e-5, rel_tol=0.0, abs_tol=1e-15):
-            level_unit = "dB SPL"
-            level_reference_label = "dB SPL re 20 µPa"
-        else:
-            level_unit = "dB"
-            level_reference_label = f"dB re {format_reference_label(reference_value, linear_unit)}"
-
-    return {
-        "calibrationStatus": channel.status,
-        "calibrationSource": channel.source,
-        "factor": channel.factor,
-        "linearUnit": linear_unit,
-        "referenceValue": reference_value,
-        "referenceUnit": reference_unit,
-        "levelUnit": level_unit,
-        "levelReferenceLabel": level_reference_label,
-    }
-
-
-def amplitude_level(value: float, reference_value: float) -> float:
-    ratio = max(abs(float(value)) / float(reference_value), 1e-12)
-    return 20.0 * math.log10(ratio)
-
-
-def level_scale_metadata(
-    measurement: dict[str, object],
-    quantity_label: str,
-) -> dict[str, object]:
-    reference_label = str(measurement["levelReferenceLabel"])
-    return {
-        "unit": str(measurement["levelUnit"]),
-        "axisLabel": f"{quantity_label} [{reference_label}]",
-        "referenceValue": float(measurement["referenceValue"]),
-        "referenceUnit": str(measurement["referenceUnit"]),
-        "levelReferenceLabel": reference_label,
-    }
-
-
 __all__ = [
     "ResolvedCalibrationProfile",
     "ResolvedChannelCalibration",
-    "amplitude_level",
-    "level_scale_metadata",
-    "measurement_metadata",
     "resolve_calibration_profile",
     "source_channel_peaks",
 ]

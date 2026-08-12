@@ -77,7 +77,7 @@ def test_channel_calibration_applies_to_linear_levels_and_raw_clipping() -> None
     assert accelerometer["clipped"] is True
 
 
-def test_uncalibrated_profile_is_explicit_full_scale() -> None:
+def test_unitless_numpy_profile_keeps_wandas_input_unit_reference() -> None:
     source = wd.from_numpy(
         np.array([[0.25, -0.25]], dtype=np.float64),
         sampling_rate=8_000,
@@ -87,19 +87,19 @@ def test_uncalibrated_profile_is_explicit_full_scale() -> None:
     result = analyze_from_frame(source, "fixture.wav", raw_frame=source, calibration_profile=resolved)
     channel = result["channels"][0]
 
-    assert channel["unit"] == "FS"
+    assert channel["unit"] == ""
     assert channel["measurement"] == {
         "calibrationStatus": "uncalibrated",
         "calibrationSource": "default",
         "factor": 1.0,
-        "linearUnit": "FS",
+        "linearUnit": "",
         "referenceValue": 1.0,
-        "referenceUnit": "FS",
-        "levelUnit": "dBFS",
-        "levelReferenceLabel": "dBFS",
+        "referenceUnit": "",
+        "levelUnit": "dB",
+        "levelReferenceLabel": "dB re 1 input unit",
     }
     assert math.isclose(channel["rmsLevelDb"], 20.0 * math.log10(0.25))
-    assert result["units"]["spectrumLevel"]["axisLabel"] == "Spectrum amplitude level [dBFS]"
+    assert result["units"]["spectrumLevel"]["axisLabel"] == "Spectrum amplitude level [dB re 1 input unit]"
 
 
 def test_full_scale_frame_fallback_is_uncalibrated_not_embedded_calibration() -> None:
@@ -200,7 +200,7 @@ def test_mixed_level_references_omit_aggregate_units() -> None:
 
     assert "units" not in result
     assert result["channels"][0]["measurement"]["levelUnit"] == "dB SPL"
-    assert result["channels"][1]["measurement"]["levelUnit"] == "dBFS"
+    assert result["channels"][1]["measurement"]["levelUnit"] == "dB"
 
 
 def test_real_wav_preserves_uncalibrated_domains_for_none_full_and_partial_profiles(tmp_path) -> None:
@@ -259,9 +259,9 @@ def test_micro_reference_prefix_attaches_to_non_pascal_unit() -> None:
         ch_labels=["voltage"],
     )
     resolved = resolve_calibration_profile(_profile(["voltage"], [1.0], ["V"], [2e-5]), source)
-    result = analyze_from_frame(source, "fixture.wav", raw_frame=source, calibration_profile=resolved)
+    result = analyze_from_frame(resolved.apply(source), "fixture.wav", raw_frame=source, calibration_profile=resolved)
 
-    assert result["channels"][0]["measurement"]["levelReferenceLabel"] == "dB re 20 µV"
+    assert result["channels"][0]["measurement"]["levelReferenceLabel"] == "dB re 2e-05 V"
 
 
 def test_profile_validation_is_strict_about_channel_labels() -> None:
