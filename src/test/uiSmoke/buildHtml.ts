@@ -1,4 +1,8 @@
-import { buildResultsPreviewHtml, buildSelectionPreviewHtml } from '../../tools/comparisonPreview';
+import {
+    buildExtensionHostPathPreviewHtml,
+    buildResultsPreviewHtml,
+    buildSelectionPreviewHtml,
+} from '../../tools/comparisonPreview';
 
 function buildVsCodeApiStub(nonce: string): string {
     return `<script nonce="${nonce}">
@@ -38,13 +42,102 @@ HTMLMediaElement.prototype.play = function() {
 </script>`;
 }
 
-function finalizeUiSmokeHtml(html: string): string {
+function buildExtensionHostApiStub(nonce: string, responseDelayMs: number): string {
+    return `<script nonce="${nonce}">
+window.__uiSmokePostedMessages = [];
+window.__uiSmokeState = {};
+window.__uiSmokeHostMetrics = {
+    requests: [],
+    responses: [],
+    spectrumPaints: [],
+    inFlight: 0,
+    maxInFlight: 0,
+};
+const uiSmokeSpectrumValues = function(cursorNorm, channelIndex) {
+    return Array.from({ length: 192 }, function(_, index) {
+        const frequencyNorm = index / 191;
+        const ridge = 0.18 + 0.55 * cursorNorm + channelIndex * 0.04;
+        return -100 + Math.max(0, 1 - Math.abs(frequencyNorm - ridge) * 8) * 88;
+    });
+};
+const uiSmokeSpectrumResponse = function(message) {
+    const identity = {
+        type: 'spectrum-slice-result',
+        requestId: message.requestId,
+        analysisId: message.analysisId,
+        settingsSignature: message.settingsSignature,
+        trackIndex: message.trackIndex,
+        filePath: message.filePath,
+        frequencyBins: 192,
+        maxFrequencyHz: 4000,
+    };
+    if (Number.isInteger(message.channelIndex)) {
+        return Object.assign(identity, {
+            channelIndex: message.channelIndex,
+            values: uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex),
+            minDb: -100,
+            maxDb: 0,
+        });
+    }
+    return Object.assign(identity, {
+        channels: [0, 1].map(function(channelIndex) {
+            return {
+                channelIndex: channelIndex,
+                values: uiSmokeSpectrumValues(message.cursorNorm, channelIndex),
+                minDb: -100,
+                maxDb: 0,
+            };
+        }),
+        computeMs: 7.1,
+    });
+};
+window.acquireVsCodeApi = function() {
+    return {
+        postMessage(message) {
+            window.__uiSmokePostedMessages.push(message);
+            if (!message || message.type !== 'request-spectrum-slice') {
+                return;
+            }
+            const metrics = window.__uiSmokeHostMetrics;
+            metrics.requests.push({
+                at: performance.now(),
+                requestId: message.requestId,
+                cursorNorm: message.cursorNorm,
+                channelIndex: message.channelIndex,
+            });
+            metrics.inFlight += 1;
+            metrics.maxInFlight = Math.max(metrics.maxInFlight, metrics.inFlight);
+            window.setTimeout(function() {
+                metrics.inFlight -= 1;
+                metrics.responses.push({
+                    at: performance.now(),
+                    requestId: message.requestId,
+                    cursorNorm: message.cursorNorm,
+                });
+                window.postMessage(uiSmokeSpectrumResponse(message), '*');
+            }, ${responseDelayMs});
+        },
+        setState() {},
+        getState() { return null; },
+    };
+};
+const originalClearRect = CanvasRenderingContext2D.prototype.clearRect;
+CanvasRenderingContext2D.prototype.clearRect = function() {
+    if (this.canvas && this.canvas.id === 'track-spectrum-0') {
+        window.__uiSmokeHostMetrics.spectrumPaints.push(performance.now());
+    }
+    return originalClearRect.apply(this, arguments);
+};
+</script>`;
+}
+
+function finalizeUiSmokeHtml(html: string, apiStub = buildVsCodeApiStub): string {
     const nonceMatch = html.match(/<script nonce="([^"]+)">/u);
     if (!nonceMatch) {
         throw new Error('Could not extract webview nonce from rendered HTML');
     }
     const nonce = nonceMatch[1];
-    return html.replace('<div id="app"></div>', `<div id="app"></div>\n    ${buildVsCodeApiStub(nonce)}`);
+    return html.replace('<div id="app"></div>', `<div id="app"></div>\n    ${apiStub(nonce)}`);
 }
 
 interface PreviewResult {
@@ -136,4 +229,11 @@ export function buildUiSmokeCalibrationHtml(): string {
 
 export function buildUiSmokeSelectionHtml(): string {
     return finalizeUiSmokeHtml(buildSelectionPreviewHtml());
+}
+
+export function buildExtensionHostPathUiSmokeHtml(responseDelayMs = 12): string {
+    return finalizeUiSmokeHtml(
+        buildExtensionHostPathPreviewHtml(),
+        (nonce) => buildExtensionHostApiStub(nonce, responseDelayMs),
+    );
 }
