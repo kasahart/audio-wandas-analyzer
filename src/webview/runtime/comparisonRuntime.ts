@@ -2304,6 +2304,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         if (loopStartTime !== null) {
                             try {
                                 playbackEl.currentTime = loopStartTime;
+                                invalidateDesiredSpectrumSliceRequests();
                             }
                             catch (_err) { }
                         }
@@ -2386,6 +2387,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         playbackTrackId = trackId;
         playbackEl = audio;
+        invalidateDesiredSpectrumSliceRequests();
         const durationSeconds = audio.duration || state.results[idx].durationSeconds || 0;
         const startNorm = loopRegion ? loopRegion.start : cursorNorm;
         let startTime = trackTimeFromGlobalNorm(idx, startNorm);
@@ -2434,6 +2436,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             audio.addEventListener('pause', function () {
                 if (playbackTrackId === trackId) {
+                    invalidateDesiredSpectrumSliceRequests();
                     updatePlaybackButtons();
                     if (audio.ended) {
                         stopPlayback(trackId, { keepCursor: true });
@@ -2454,6 +2457,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             audio.addEventListener('error', function () {
                 if (playbackTrackId === trackId) {
+                    invalidateDesiredSpectrumSliceRequests();
                     clearPlaybackState();
                 }
             });
@@ -2907,6 +2911,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (e.code === 'ArrowLeft') {
                     delta = -delta;
                 }
+                invalidateDesiredSpectrumSliceRequests();
                 cursorNorm = Math.max(0, Math.min(1, cursorNorm + delta));
                 updateCursorDisplay(cursorNorm);
                 scheduleRender();
@@ -4590,6 +4595,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (canvas) {
                 const hit = trackCanvasTimeHit(canvas, e.clientX);
                 if (hit) {
+                    invalidateDesiredSpectrumSliceRequests();
                     cursorNorm = Math.max(0, Math.min(1, hit.norm));
                     loopRegion = null;
                     updateLoopTimeDisplay();
