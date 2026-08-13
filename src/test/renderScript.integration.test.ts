@@ -1318,6 +1318,65 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
     env.dom.window.close();
 });
 
+test('renderScript: waveform seek invalidates an in-flight spectrum response', async () => {
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    const initial = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
+    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement;
+    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
+    assert.ok(initial && canvas && trackSpy);
+    canvas.getBoundingClientRect = () => ({
+        left: 0, top: 0, right: 800, bottom: 80, width: 800, height: 80,
+    } as DOMRect);
+    const strokesBeforeSeekResponse = trackSpy!.strokeCalls;
+
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', {
+        bubbles: true, button: 0, clientX: 600, clientY: 5,
+    }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', {
+        bubbles: true, button: 0, clientX: 600, clientY: 5,
+    }));
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: initial.requestId,
+        analysisId: initial.analysisId,
+        settingsSignature: initial.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ channelIndex: 0, values: [-40, -20], minDb: -90, maxDb: 0 }],
+        frequencyBins: 2,
+        maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
+    await new Promise((resolve) => env.dom.window.setTimeout(resolve, 40));
+
+    assert.equal(trackSpy!.strokeCalls, strokesBeforeSeekResponse,
+        'the response started before the seek must not be painted');
+    const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    assert.equal(requests.length, 2, 'seek should retain only one replacement request');
+    assert.ok(requests[1].cursorNorm > initial.cursorNorm, 'replacement request should target the seek cursor');
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: requests[1].requestId,
+        analysisId: requests[1].analysisId,
+        settingsSignature: requests[1].settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        frequencyBins: 2,
+        maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
+    assert.ok(trackSpy!.strokeCalls > strokesBeforeSeekResponse,
+        'the response for the seek cursor should be painted');
+    env.dom.window.close();
+});
+
 test('renderScript: lazy spectrum slices apply display range settings', async () => {
     const state = JSON.parse(makeLazySpectrogramState());
     state.results = state.results.slice(0, 1);
