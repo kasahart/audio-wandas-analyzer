@@ -177,7 +177,11 @@ function buildResultsPreviewHtmlInternal(options?: {
     injectVsCodeApiStub?: boolean;
     injectPreviewDemo?: boolean;
     includeDemoAudio?: boolean;
+    includeSpectrogram?: boolean;
+    channelCount?: number;
 }): string {
+    const channelCount = options?.channelCount ?? 1;
+    const includeSpectrogram = options?.includeSpectrogram !== false;
     return finalizePreviewHtml(getRenderHtml({
         mode: 'results',
         results: [
@@ -187,17 +191,18 @@ function buildResultsPreviewHtmlInternal(options?: {
                 audioSource: options?.includeDemoAudio ? DUMMY_AUDIO_DATA_URI : '',
                 sampleRateHz: DUMMY_AUDIO_SAMPLE_RATE,
                 durationSeconds: DUMMY_AUDIO_DURATION_SECONDS,
-                channelCount: 1,
+                channelCount,
                 sampleCount: DUMMY_AUDIO_SAMPLE_RATE * DUMMY_AUDIO_DURATION_SECONDS,
-                channels: [
-                    {
-                        label: 'L',
+                channels: Array.from({ length: channelCount }, (_, channelIndex) => {
+                    const phase = 0.08 + channelIndex * 0.17;
+                    return {
+                        label: channelIndex === 0 ? 'L' : 'R',
                         rms: 0.24,
                         peakAbsolute: 0.96,
                         dominantFrequencies: [],
-                        waveform: buildDummyWaveform(96, 0.08),
-                        spectrogram: {
-                            values: buildDummySpectrogram(64, 32, 0.1),
+                        waveform: buildDummyWaveform(96, phase),
+                        spectrogram: includeSpectrogram ? {
+                            values: buildDummySpectrogram(64, 32, phase),
                             timeBins: 64,
                             frequencyBins: 32,
                             windowSize: 512,
@@ -205,9 +210,9 @@ function buildResultsPreviewHtmlInternal(options?: {
                             maxFrequencyHz: DUMMY_AUDIO_SAMPLE_RATE / 2,
                             minDb: -90,
                             maxDb: 0,
-                        },
-                    },
-                ],
+                        } : null,
+                    };
+                }),
             },
         ],
         spectrogramSettings: {
@@ -239,6 +244,14 @@ export function buildResultsPreviewHtml(): string {
 
 export function buildSelectionPreviewHtml(): string {
     return buildSelectionPreviewHtmlInternal();
+}
+
+export function buildExtensionHostPathPreviewHtml(): string {
+    return buildResultsPreviewHtmlInternal({
+        includeDemoAudio: true,
+        includeSpectrogram: false,
+        channelCount: 2,
+    });
 }
 
 export function buildComparisonPreviewHtml(mode: ComparisonPreviewMode): string {

@@ -6,9 +6,10 @@ import { readFileSync } from 'node:fs';
 import {
     buildBrowserOpenCommand,
     buildComparisonPreviewHtml,
+    buildExtensionHostPathPreviewHtml,
     resolvePreviewOutputPath,
 } from '../tools/comparisonPreview';
-import { buildUiSmokeHtml } from './uiSmoke/buildHtml';
+import { buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml } from './uiSmoke/buildHtml';
 
 test('buildComparisonPreviewHtml returns results-mode ComparisonPanel HTML', () => {
     const html = buildComparisonPreviewHtml('results');
@@ -70,6 +71,19 @@ test('buildUiSmokeHtml keeps one capture stub behind the shared vscode api wrapp
     assert.match(html, /window\.__uiSmokePostedMessages\.push\(message\)/);
     assert.doesNotMatch(html, /data:audio\/wav;base64,/);
     assert.doesNotMatch(html, /window\.__comparisonPreviewDemo = true;/);
+});
+
+test('extension-host-path smoke fixture uses real playback and lazy stereo slices', () => {
+    const previewHtml = buildExtensionHostPathPreviewHtml();
+    const smokeHtml = buildExtensionHostPathUiSmokeHtml();
+
+    assert.match(previewHtml, /data:audio\/wav;base64,/);
+    assert.match(previewHtml, /"channelCount":2/);
+    assert.match(previewHtml, /"spectrogram":null/);
+    assert.doesNotMatch(previewHtml, /window\.__comparisonPreviewDemo = true;/);
+    assert.match(smokeHtml, /request-spectrum-slice/);
+    assert.match(smokeHtml, /window\.postMessage\(uiSmokeSpectrumResponse\(message\), '\*'\)/);
+    assert.doesNotMatch(smokeHtml, /HTMLMediaElement\.prototype\.play = function/);
 });
 
 test('resolvePreviewOutputPath creates a mode-specific html path under os.tmpdir()', () => {
