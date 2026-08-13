@@ -13,7 +13,8 @@ async function getPostedActionTypes(page: Page): Promise<string[]> {
         return messages
             .map((message) => message.type ?? '')
             .filter((type) => type !== 'comparison-panel-test-snapshot'
-                && type !== 'comparison-panel-ready');
+                && type !== 'comparison-panel-ready'
+                && type !== 'request-spectrum-slice');
     });
 }
 

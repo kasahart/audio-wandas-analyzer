@@ -22,7 +22,7 @@ import {
     zoomNormalizedRange,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
-import type { CanvasSyncOptions, ComparisonBootstrap, ComparisonTrackState, DragPoint, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, WaveformRangeCache, } from './types';
+import type { CanvasSyncOptions, ComparisonBootstrap, ComparisonTrackState, DragPoint, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, WaveformRangeCache, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
@@ -113,12 +113,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let playbackRafId: number | null = null;
     let playbackTrackId: TrackId | null = null;
     let followCursor = false;
-    const SPECTRUM_PLAYBACK_FRAME_MS = 1000 / 15;
+    const SPECTRUM_PLAYBACK_TARGET_FRAME_MS = 1000 / 32;
     let spectrumRafPending = false;
     let spectrumTimerId: number | null = null;
-    let lastSpectrumPaintAt = 0;
+    let spectrumRequestTimerId: number | null = null;
+    let lastSpectrumRequestAt = -Infinity;
     let spectrumAllowsSliceRequests = true;
     let spectrumCursorNorm = 0;
+    interface SpectrogramRasterCacheEntry {
+        source: SpectrogramData;
+        key: string;
+    }
+    const spectrogramRasterCache = new Map<string, SpectrogramRasterCacheEntry>();
     let attachRebuiltTrackEvents: () => void = () => undefined;
     function scheduleRender() {
         if (rafPending) {
@@ -182,7 +188,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumAllowsSliceRequests = allowSliceRequests !== false;
         try {
             refreshSpectrumViews();
-            lastSpectrumPaintAt = spectrumNow();
         }
         finally {
             spectrumAllowsSliceRequests = prevAllows;
@@ -206,22 +211,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (kind === 'playback') {
-            const elapsed = spectrumNow() - lastSpectrumPaintAt;
-            if (elapsed >= SPECTRUM_PLAYBACK_FRAME_MS) {
-                if (spectrumTimerId !== null) {
-                    clearTimeout(spectrumTimerId);
-                    spectrumTimerId = null;
-                }
-                scheduleSpectrumFrame(true, true);
-                return;
-            }
-            if (spectrumTimerId !== null) {
-                return;
-            }
-            spectrumTimerId = setTimeout(function () {
-                spectrumTimerId = null;
-                scheduleSpectrumFrame(true, true);
-            }, Math.max(0, SPECTRUM_PLAYBACK_FRAME_MS - elapsed));
+            queuePlaybackSpectrumRequests(cursorNorm);
             return;
         }
         if (spectrumTimerId !== null) {
@@ -322,6 +312,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     let overlaySpectrumPainted = false;
     let lazyRequestCounter = 0;
+    interface DesiredSpectrumSliceRequest extends LazyRequestState {
+        trackIndex: number;
+        filePath: string;
+        generation: number;
+        cursorNorm: number;
+        globalCursorNorm: number;
+        requestedAt: number;
+    }
+    let spectrumRequestGeneration = 0;
+    let activeSpectrumSliceRequest: DesiredSpectrumSliceRequest | null = null;
+    const desiredSpectrumSliceRequests = new Map<string, DesiredSpectrumSliceRequest>();
     function nextLazyRequestId(prefix: string, i: number | string): string {
         lazyRequestCounter += 1;
         return prefix + '-' + i + '-' + Date.now() + '-' + lazyRequestCounter.toString(36);
@@ -336,6 +337,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         catch (e) {
             return 'spectrum-data-settings';
+        }
+    }
+    function spectrumSliceRequestKey(trackId: TrackId) {
+        return trackId;
+    }
+    function invalidateDesiredSpectrumSliceRequests() {
+        spectrumRequestGeneration += 1;
+        desiredSpectrumSliceRequests.clear();
+        if (spectrumRequestTimerId !== null) {
+            clearTimeout(spectrumRequestTimerId);
+            spectrumRequestTimerId = null;
         }
     }
     function channelsForResult(result: ComparisonTrackState) {
@@ -375,6 +387,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function trackAxisCanvasId(trackIndex: number, channelIndex: number) {
         return 'track-axis-canvas-' + trackIndex + channelCanvasSuffix(channelIndex);
+    }
+    function trackSpectrogramOverlayCanvasId(trackIndex: number, channelIndex: number) {
+        return 'track-spectrogram-overlay-' + trackIndex + channelCanvasSuffix(channelIndex);
     }
     function trackSpectrumCanvasId(trackIndex: number, channelIndex: number) {
         return 'track-spectrum-' + trackIndex + channelCanvasSuffix(channelIndex);
@@ -448,6 +463,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
         }
         record.detailRequest = null;
+        desiredSpectrumSliceRequests.delete(spectrumSliceRequestKey(record.id));
         record.spectrumSliceRequests.clear();
         record.spectrumSliceCache.clear();
         record.spectrumPainted.clear();
@@ -467,11 +483,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (dur <= 0) {
             return 0.002;
         }
-        return Math.min(0.002, 0.02 / dur);
+        return Math.min(0.002, 0.01 / dur);
     }
-    function isSpectrumSliceRequestPendingForCursor(i: number, cursorNormValue: number, channelIndex: number) {
+    function isSpectrumSliceRequestPendingForCursor(i: number, cursorNormValue: number) {
         const record = trackRecordAtIndex(i);
-        const pending = record?.spectrumSliceRequests.get(channelIndex);
+        const pending = record
+            ? desiredSpectrumSliceRequests.get(spectrumSliceRequestKey(record.id))
+                || record.spectrumSliceRequests.get(0)
+            : undefined;
         if (!pending) {
             return false;
         }
@@ -481,10 +500,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return false;
         }
         return pending.settingsSignature === currentSpectrumDataSignature()
-            && pending.channelIndex === channelIndex
             && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result);
     }
-    function requestSpectrumSlice(i: number, cursorNormValue: number, channelIndex: number) {
+    function requestSpectrumSlice(i: number, cursorNormValue: number) {
         if (!spectrumAllowsSliceRequests) {
             return;
         }
@@ -497,32 +515,85 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (localNorm === null) {
             return;
         }
-        const channels = channelsForResult(result);
-        const ch = channels[channelIndex];
-        if (!ch || ch.spectrogram) {
-            return;
-        }
         const settingsSignature = currentSpectrumDataSignature();
-        const cached = record.spectrumSliceCache.get(channelIndex);
-        if (cached && cached.settingsSignature === settingsSignature && cached.channelIndex === channelIndex && Math.abs((cached.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
+        const cached = record.spectrumSliceCache.get(0);
+        if (cached && cached.settingsSignature === settingsSignature && Math.abs((cached.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
             return;
         }
-        const pending = record.spectrumSliceRequests.get(channelIndex);
-        if (pending && pending.settingsSignature === settingsSignature && pending.channelIndex === channelIndex && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
+        const key = spectrumSliceRequestKey(record.id);
+        const pending = desiredSpectrumSliceRequests.get(key) || record.spectrumSliceRequests.get(0);
+        if (pending && pending.settingsSignature === settingsSignature && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
             return;
         }
-        const requestId = nextLazyRequestId('slice', i + '-' + channelIndex);
-        record.spectrumSliceRequests.set(channelIndex, { trackId: record.id, requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature, cursorNorm: localNorm, channelIndex: channelIndex });
-        messaging.post({
-            type: 'request-spectrum-slice',
+        const requestId = nextLazyRequestId('slice', i);
+        desiredSpectrumSliceRequests.set(key, {
+            trackId: record.id,
             requestId: requestId,
             analysisId: analysisId,
             settingsSignature: settingsSignature,
+            cursorNorm: localNorm,
+            globalCursorNorm: cursorNormValue,
             trackIndex: i,
             filePath: result.filePath,
-            cursorNorm: localNorm,
-            channelIndex: channelIndex,
+            generation: spectrumRequestGeneration,
+            requestedAt: spectrumNow(),
         });
+        pumpSpectrumSliceRequests();
+    }
+    function queuePlaybackSpectrumRequests(cursorNormValue: number) {
+        trackStore.activeIds().forEach(function (trackId) {
+            const index = trackStore.protocolIndexForId(trackId);
+            if (index !== null) {
+                requestSpectrumSlice(index, cursorNormValue);
+            }
+        });
+    }
+    function pumpSpectrumSliceRequests() {
+        if (activeSpectrumSliceRequest) {
+            return;
+        }
+        if (desiredSpectrumSliceRequests.size > 0) {
+            const remainingMs = SPECTRUM_PLAYBACK_TARGET_FRAME_MS - (spectrumNow() - lastSpectrumRequestAt);
+            if (remainingMs > 1) {
+                if (spectrumRequestTimerId === null) {
+                    spectrumRequestTimerId = window.setTimeout(function () {
+                        spectrumRequestTimerId = null;
+                        pumpSpectrumSliceRequests();
+                    }, remainingMs);
+                }
+                return;
+            }
+        }
+        while (desiredSpectrumSliceRequests.size > 0) {
+            const entry = desiredSpectrumSliceRequests.entries().next().value as [string, DesiredSpectrumSliceRequest] | undefined;
+            if (!entry) {
+                return;
+            }
+            const [key, request] = entry;
+            desiredSpectrumSliceRequests.delete(key);
+            const record = trackStore.get(request.trackId);
+            const currentTrackIndex = record ? trackStore.protocolIndexForId(record.id) : null;
+            if (!record || currentTrackIndex === null || currentTrackIndex !== request.trackIndex
+                || request.generation !== spectrumRequestGeneration
+                || request.analysisId !== analysisId
+                || request.settingsSignature !== currentSpectrumDataSignature()
+                || record.runtime.hidden || record.result.error) {
+                continue;
+            }
+            activeSpectrumSliceRequest = request;
+            lastSpectrumRequestAt = spectrumNow();
+            record.spectrumSliceRequests.set(0, request);
+            messaging.post({
+                type: 'request-spectrum-slice',
+                requestId: request.requestId,
+                analysisId: request.analysisId,
+                settingsSignature: request.settingsSignature,
+                trackIndex: request.trackIndex,
+                filePath: request.filePath,
+                cursorNorm: request.cursorNorm,
+            });
+            return;
+        }
     }
     function applySpectrumDisplaySettings(slice: SpectrumSlice) {
         const displaySettings = __spectrogramSettings.display;
@@ -642,38 +713,59 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!msg || (msg.type !== 'spectrum-slice-result' && msg.type !== 'spectrum-slice-error')) {
             return;
         }
+        const active = activeSpectrumSliceRequest;
+        if (!active || active.requestId !== msg.requestId) {
+            return;
+        }
+        activeSpectrumSliceRequest = null;
         const i = msg.trackIndex;
         const trackId = trackIdAtProtocolBoundary(i, msg.type);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
+            pumpSpectrumSliceRequests();
             return;
         }
-        const channelIndex = Number.isInteger(msg.channelIndex) ? msg.channelIndex : 0;
-        const pending = record.spectrumSliceRequests.get(channelIndex);
-        if (!pending || pending.trackId !== trackId || pending.requestId !== msg.requestId || pending.analysisId !== msg.analysisId || pending.settingsSignature !== msg.settingsSignature || pending.channelIndex !== channelIndex) {
+        const pending = record.spectrumSliceRequests.get(0);
+        if (!pending || pending.trackId !== trackId || pending.requestId !== msg.requestId || pending.analysisId !== msg.analysisId || pending.settingsSignature !== msg.settingsSignature) {
+            pumpSpectrumSliceRequests();
             return;
         }
-        record.spectrumSliceRequests.delete(channelIndex);
-        if (msg.type === 'spectrum-slice-error') {
-            runSpectrumRefresh(false, false);
-            requestAnimationFrame(function () { publishTestSnapshot(); });
-            return;
+        record.spectrumSliceRequests.delete(0);
+        const isCurrent = active.generation === spectrumRequestGeneration
+            && pending.analysisId === analysisId
+            && pending.settingsSignature === currentSpectrumDataSignature();
+        if (msg.type === 'spectrum-slice-result' && isCurrent) {
+            msg.channels.forEach(function (channel) {
+                record.spectrumSliceCache.set(channel.channelIndex, {
+                    settingsSignature: msg.settingsSignature,
+                    cursorNorm: pending.cursorNorm,
+                    channelIndex: channel.channelIndex,
+                    values: channel.values,
+                    frequencyBins: msg.frequencyBins,
+                    originalMaxFrequencyHz: msg.maxFrequencyHz,
+                    maxFrequencyHz: msg.maxFrequencyHz,
+                    minDb: channel.minDb,
+                    maxDb: channel.maxDb,
+                    unit: channel.unit,
+                    axisLabel: channel.axisLabel,
+                });
+            });
+            spectrumCursorNorm = active.globalCursorNorm;
+            if (testBridge.state) {
+                testBridge.state.spectrumPerformance = {
+                    requestId: msg.requestId,
+                    cursorNorm: active.cursorNorm,
+                    backendComputeMs: msg.computeMs,
+                    cursorToResponseMs: Math.max(0, spectrumNow() - active.requestedAt),
+                    responseAt: spectrumNow(),
+                    inFlight: 0,
+                    desiredCount: desiredSpectrumSliceRequests.size,
+                };
+            }
         }
-        record.spectrumSliceCache.set(channelIndex, {
-            settingsSignature: msg.settingsSignature,
-            cursorNorm: pending.cursorNorm,
-            channelIndex: pending.channelIndex,
-            values: msg.values,
-            frequencyBins: msg.frequencyBins,
-            originalMaxFrequencyHz: msg.maxFrequencyHz,
-            maxFrequencyHz: msg.maxFrequencyHz,
-            minDb: msg.minDb,
-            maxDb: msg.maxDb,
-            unit: msg.unit,
-            axisLabel: msg.axisLabel,
-        });
-        runSpectrumRefresh(false, false);
+        scheduleSpectrumFrame(false, false);
         requestAnimationFrame(function () { publishTestSnapshot(); });
+        pumpSpectrumSliceRequests();
     });
     messaging.onMessage(function (msg) {
         if (!msg || msg.type !== 'python-environment-state') {
@@ -768,6 +860,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             document.getElementById('spec-apply').click();
         }
         if (entry.action === 'set-cursor' && entry.payload) {
+            invalidateDesiredSpectrumSliceRequests();
             cursorNorm = Math.max(0, Math.min(1, Number(entry.payload.cursorNorm)));
             updateCursorDisplay(cursorNorm);
             scheduleRender();
@@ -779,6 +872,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             trackRuntimeAt(idx).offsetSeconds = offsetSeconds;
+            invalidateDesiredSpectrumSliceRequests();
             updateOffsetDisplays();
             updateLoopTimeDisplay();
             scheduleRender();
@@ -1368,6 +1462,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '    <div class="track-canvas-wrap" id="track-canvas-wrap-' + trackIndex + suffix + '">'
             + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + AXIS_W + 'px" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '"></canvas>'
             + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" style="outline:none;flex:1"></canvas>'
+            + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" aria-hidden="true" style="display:none;position:absolute;left:' + AXIS_W + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
             + '    </div>'
             + '    <div class="track-spectrum-wrap" id="track-spectrum-wrap-' + trackIndex + suffix + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
             + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" aria-label="' + escHtml(result.fileName + ' ' + label + ' ' + STR.trackSpectrumTitle) + '"></canvas>'
@@ -1504,6 +1599,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
                 canvasWidthCache[cacheIdx] = cacheKey;
                 syncCanvasSize(canvas, newW - AXIS_W, trackHeight);
+                const spectrogramOverlay = document.getElementById(trackSpectrogramOverlayCanvasId(i, channelIndex));
+                if (spectrogramOverlay) {
+                    syncCanvasSize(spectrogramOverlay, newW - AXIS_W, trackHeight);
+                }
                 const axisCanvas = document.getElementById(trackAxisCanvasId(i, channelIndex));
                 if (axisCanvas) {
                     syncCanvasSize(axisCanvas, AXIS_W, trackHeight);
@@ -1613,6 +1712,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return;
                 }
                 if (contentType === 'waveform') {
+                    spectrogramRasterCache.delete(trackId + ':' + channelIndex);
+                    const spectrogramOverlay = document.getElementById(trackSpectrogramOverlayCanvasId(i, channelIndex));
+                    if (spectrogramOverlay) {
+                        spectrogramOverlay.style.display = 'none';
+                    }
                     const axisC = document.getElementById(trackAxisCanvasId(i, channelIndex));
                     if (axisC) {
                         const ac = axisC.getContext('2d');
@@ -1771,7 +1875,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ctx = canvas.getContext('2d');
         const W = canvas.width;
         const H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
+        const overlayCanvas = document.getElementById(trackSpectrogramOverlayCanvasId(trackIndex, channelIndex));
+        const overlayCtx = overlayCanvas ? overlayCanvas.getContext('2d') : null;
+        if (overlayCanvas) {
+            overlayCanvas.style.display = '';
+        }
+        if (overlayCtx && overlayCanvas) {
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        }
         const axisCanvas = document.getElementById(trackAxisCanvasId(trackIndex, channelIndex));
         const axisCtx = axisCanvas ? axisCanvas.getContext('2d') : null;
         if (axisCtx) {
@@ -1779,6 +1890,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const ch = channelsForResult(result)[channelIndex];
         if (!ch || !ch.spectrogram) {
+            ctx.clearRect(0, 0, W, H);
             requestTrackDetail(trackIndex);
             ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
             ctx.font = '11px sans-serif';
@@ -1797,48 +1909,67 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const dbLo = (dispCfg.dbMin != null) ? dispCfg.dbMin : spec.minDb;
         const dbHi = (dispCfg.dbMax != null) ? dispCfg.dbMax : spec.maxDb;
         const maxFreq = (dispCfg.maxFrequencyHz != null) ? Math.min(dispCfg.maxFrequencyHz, spec.maxFrequencyHz) : spec.maxFrequencyHz;
-        const freqPerBin = spec.maxFrequencyHz / Math.max(fBins, 1);
         const plotW = spectrogramPlotWidth(W);
-        const imageData = ctx.createImageData(plotW, H);
-        const data = imageData.data;
-        for (let px = 0; px < plotW; px++) {
-            const tNorm = zoomStart + (px / plotW) * (zoomEnd - zoomStart);
-            const tAdj = (tNorm - trackStart) / trackDurRatio;
-            const tIdx = Math.floor(tAdj * tBins);
-            if (tIdx < 0 || tIdx >= tBins) {
-                continue;
-            }
-            for (let py = 0; py < H; py++) {
-                const fIdx = Math.floor((1 - py / H) * fBins);
-                if (fIdx < 0 || fIdx >= fBins) {
+        const cacheId = trackRecordAtIndex(trackIndex)!.id + ':' + channelIndex;
+        const rasterKey = [plotW, H, zoomStart, zoomEnd, trackStart, trackDurRatio, dbLo, dbHi, maxFreq].join(':');
+        let raster = spectrogramRasterCache.get(cacheId);
+        if (!raster || raster.source !== spec || raster.key !== rasterKey) {
+            ctx.clearRect(0, 0, W, H);
+            const imageData = ctx.createImageData(plotW, H);
+            const data = imageData.data;
+            const visibleFreqRatio = Math.max(0, Math.min(1, maxFreq / Math.max(spec.maxFrequencyHz, 1)));
+            const range = dbHi - dbLo;
+            for (let px = 0; px < plotW; px++) {
+                const globalStart = zoomStart + (px / plotW) * (zoomEnd - zoomStart);
+                const globalEnd = zoomStart + ((px + 1) / plotW) * (zoomEnd - zoomStart);
+                const localStart = (globalStart - trackStart) / trackDurRatio;
+                const localEnd = (globalEnd - trackStart) / trackDurRatio;
+                const t0 = Math.max(0, Math.floor(localStart * tBins));
+                const t1 = Math.min(tBins, Math.max(t0 + 1, Math.ceil(localEnd * tBins)));
+                if (localEnd <= 0 || localStart >= 1 || t0 >= tBins || t1 <= 0) {
                     continue;
                 }
-                const fHz = fIdx * freqPerBin;
-                if (fHz > maxFreq) {
-                    continue;
+                for (let py = 0; py < H; py++) {
+                    const highRatio = (1 - py / H) * visibleFreqRatio;
+                    const lowRatio = (1 - (py + 1) / H) * visibleFreqRatio;
+                    const f0 = Math.max(0, Math.floor(lowRatio * fBins));
+                    const f1 = Math.min(fBins, Math.max(f0 + 1, Math.ceil(highRatio * fBins)));
+                    let peakDb = -Infinity;
+                    for (let ti = t0; ti < t1; ti++) {
+                        const row = spec.values[ti];
+                        if (!row) {
+                            continue;
+                        }
+                        for (let fi = f0; fi < f1; fi++) {
+                            const value = row[fi];
+                            if (value !== undefined && value > peakDb) {
+                                peakDb = value;
+                            }
+                        }
+                    }
+                    const value = Number.isFinite(peakDb) ? peakDb : dbLo;
+                    const norm = range !== 0 ? Math.max(0, Math.min(1, (value - dbLo) / range)) : 0;
+                    const off = (py * plotW + px) * 4;
+                    const rgb = dbToRgb(norm);
+                    data[off] = rgb[0];
+                    data[off + 1] = rgb[1];
+                    data[off + 2] = rgb[2];
+                    data[off + 3] = 255;
                 }
-                const val = (spec.values[tIdx] && spec.values[tIdx][fIdx] !== undefined)
-                    ? spec.values[tIdx][fIdx] : dbLo;
-                const range = dbHi - dbLo;
-                const norm = range !== 0
-                    ? Math.max(0, Math.min(1, (val - dbLo) / range))
-                    : 0;
-                const off = (py * plotW + px) * 4;
-                const rgb = dbToRgb(norm);
-                data[off] = rgb[0];
-                data[off + 1] = rgb[1];
-                data[off + 2] = rgb[2];
-                data[off + 3] = 255;
             }
+            ctx.putImageData(imageData, 0, 0);
+            drawSpectrogramColorbar(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi });
+            raster = { source: spec, key: rasterKey };
+            spectrogramRasterCache.set(cacheId, raster);
         }
-        ctx.putImageData(imageData, 0, 0);
         if (axisCtx) {
             drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq });
         }
-        drawSpectrogramColorbar(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi });
-        drawLoopRegionOnCanvas(ctx, plotW, H);
-        drawCursorOnCanvas(ctx, plotW, H);
-        drawHoverLineOnCanvas(ctx, plotW, H);
+        if (overlayCtx) {
+            drawLoopRegionOnCanvas(overlayCtx, plotW, H);
+            drawCursorOnCanvas(overlayCtx, plotW, H);
+            drawHoverLineOnCanvas(overlayCtx, plotW, H);
+        }
     }
     function drawSpectrogramFrequencyAxis(ctx: CanvasRenderingContext2D, W: number, H: number, spec: SpectrogramData, opts: { maxFreq?: number } = {}): void {
         const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
@@ -2225,6 +2356,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 cursorNorm = playbackStartNorm;
                 updateCursorDisplay(cursorNorm);
             }
+            invalidateDesiredSpectrumSliceRequests();
             clearPlaybackState();
             scheduleRender();
             scheduleSpectrumRefresh('immediate');
@@ -2240,6 +2372,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (playbackTrackId === trackId && playbackEl === audio && !audio.paused) {
             audio.pause();
+            invalidateDesiredSpectrumSliceRequests();
             updatePlaybackButtons();
             stopPlaybackLoop();
             scheduleSpectrumRefresh('immediate');
@@ -4589,29 +4722,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (trackLocalSec >= dur) {
             return makeSilentSpectrumSlice(result, spec, cached);
         }
-        if (!spec || !spec.values || spec.timeBins <= 0 || spec.frequencyBins <= 0) {
-            if (idx >= 0) {
-                const localNorm = trackLocalSec / dur;
-                requestSpectrumSlice(idx, cursorNormValue, chIdx);
-                if (cached && cached.settingsSignature === currentSpectrumDataSignature() && Math.abs((cached.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
-                    return applySpectrumDisplaySettings(cached);
-                }
+        if (idx >= 0) {
+            requestSpectrumSlice(idx, cursorNormValue);
+            if (cached && cached.settingsSignature === currentSpectrumDataSignature()) {
+                return applySpectrumDisplaySettings(cached);
             }
+        }
+        if (!spec || !spec.values || spec.timeBins <= 0 || spec.frequencyBins <= 0) {
             return null;
         }
-        let tIdx = Math.floor((trackLocalSec / dur) * spec.timeBins);
-        if (tIdx < 0) {
-            tIdx = 0;
-        }
-        if (tIdx >= spec.timeBins) {
-            tIdx = spec.timeBins - 1;
-        }
-        const slice = spec.values[tIdx];
-        if (!slice || slice.length === 0) {
+        let timeIndex = Math.floor((trackLocalSec / dur) * spec.timeBins);
+        timeIndex = Math.max(0, Math.min(spec.timeBins - 1, timeIndex));
+        const values = spec.values[timeIndex];
+        if (!values || values.length === 0) {
             return null;
         }
         return applySpectrumDisplaySettings({
-            values: slice,
+            values: values,
             frequencyBins: spec.frequencyBins,
             originalMaxFrequencyHz: spec.maxFrequencyHz,
             maxFrequencyHz: spec.maxFrequencyHz,
@@ -4870,7 +4997,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
                 const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, spectrumCursorNorm, channelIndex);
                 if (!slice) {
-                    if (paintedByChannel.get(channelIndex) && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm, channelIndex)) {
+                    if (paintedByChannel.get(channelIndex) && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) {
                         return;
                     }
                     ctx.clearRect(0, 0, W, H);
@@ -4959,7 +5086,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         label: spectrumSeriesLabel(result, channelIndex),
                     });
                 }
-                else if (isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm, channelIndex)) {
+                else if (isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) {
                     pendingVisibleSlice = true;
                 }
             });
@@ -5191,6 +5318,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function adjustOffset(idx: number, deltaSeconds: number) {
         trackRuntimeAt(idx).offsetSeconds += deltaSeconds;
+        invalidateDesiredSpectrumSliceRequests();
         updateOffsetDisplays();
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
@@ -5313,6 +5441,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             },
             display: __readDisplayFromForm()
         };
+        invalidateDesiredSpectrumSliceRequests();
         __setReanalyzeBusy(true, STR.reanalyzingStft);
         messaging.post({ type: 'request-reanalyze', settings: __spectrogramSettings });
         __closeSpecPopover();
@@ -5477,6 +5606,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
             __setReanalyzeBusy(false);
+            invalidateDesiredSpectrumSliceRequests();
             const reconciliation = trackStore.reconcile(msg.results, function (nextResult, previousResult) {
                 return Object.assign({}, nextResult, { audioSource: previousResult?.audioSource || nextResult.audioSource || '' });
             });

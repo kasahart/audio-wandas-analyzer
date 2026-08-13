@@ -568,7 +568,6 @@ export class PanelController implements vscode.Disposable {
                 analysisId: request.analysisId,
                 settingsSignature: request.settingsSignature,
                 cursorNorm: request.cursorNorm,
-                channelIndex: request.channelIndex,
                 stftOptions: loadPersistedStftOptions(this.context),
                 ...calibration,
             },
@@ -581,15 +580,11 @@ export class PanelController implements vscode.Disposable {
                 analysisId: request.analysisId,
                 settingsSignature: request.settingsSignature,
                 trackIndex: request.trackIndex,
-                channelIndex: request.channelIndex,
                 filePath: request.filePath,
-                values: result.values,
+                channels: result.channels,
                 frequencyBins: result.frequencyBins,
                 maxFrequencyHz: result.maxFrequencyHz,
-                minDb: result.minDb,
-                maxDb: result.maxDb,
-                unit: result.unit,
-                axisLabel: result.axisLabel,
+                computeMs: result.computeMs,
             });
         }).catch((error) => {
             if (!this.canPostLazyResult(session, request.filePath, calibration.analysisRevision)) { return; }
@@ -599,7 +594,6 @@ export class PanelController implements vscode.Disposable {
                 analysisId: request.analysisId,
                 settingsSignature: request.settingsSignature,
                 trackIndex: request.trackIndex,
-                channelIndex: request.channelIndex,
                 filePath: request.filePath,
                 error: error instanceof Error ? error.message : String(error),
             });

@@ -122,7 +122,6 @@ export class PythonBackendServer {
                 analysisId: payload.analysisId,
                 settingsSignature: payload.settingsSignature,
                 cursorNorm: payload.cursorNorm,
-                channelIndex: payload.channelIndex,
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
                 ...this.calibrationPayload(payload),
             },

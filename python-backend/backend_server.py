@@ -53,7 +53,6 @@ _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
     "spectrum-slice": {
         "filePath": _is_string,
         "trackIndex": _is_integer,
-        "channelIndex": _is_integer,
         "analysisId": _is_string,
         "settingsSignature": _is_string,
         "cursorNorm": _is_finite_number,
@@ -153,7 +152,6 @@ def handle_spectrum_slice(service: AnalysisService, command: Command) -> dict[st
         str(command["filePath"]),
         cursor_norm=float(command.get("cursorNorm", command.get("trackLocalNorm", 0.0))),
         track_index=int(command.get("trackIndex", -1)),
-        channel_index=int(command.get("channelIndex", 0)),
         analysis_id=command.get("analysisId"),
         settings_signature=command.get("settingsSignature"),
         stft_options=_stft_options(command),

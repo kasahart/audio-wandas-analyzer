@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TypedDict
@@ -34,20 +35,13 @@ class TrackDetailResult(TypedDict):
 
 class SpectrumSliceResult(TypedDict):
     trackIndex: int
-    channelIndex: int
     analysisId: str | None
     settingsSignature: str | None
     filePath: str
-    values: list[float]
+    channels: list[dict[str, object]]
     frequencyBins: int
     maxFrequencyHz: float
-    minDb: float
-    maxDb: float
-    unit: str
-    axisLabel: str
-    referenceValue: float
-    referenceUnit: str
-    levelReferenceLabel: str
+    computeMs: float
     calibrationSignature: str
     analysisRevision: int
 
@@ -148,18 +142,17 @@ class AnalysisService:
         *,
         cursor_norm: float,
         track_index: int = -1,
-        channel_index: int = 0,
         analysis_id: object = None,
         settings_signature: object = None,
         stft_options: Mapping[str, object] | None = None,
         calibration_profile: object = None,
         analysis_revision: object = 0,
     ) -> SpectrumSliceResult:
+        compute_started = time.perf_counter()
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         window_size, hop_size, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
         clipped_norm = max(0.0, min(1.0, cursor_norm))
-        if channel_index < 0 or channel_index >= analysis_frame.n_channels:
-            raise ValueError(f"channelIndex out of range: {channel_index}")
+        revision = _analysis_revision(analysis_revision)
 
         spectrogram = self.engine.get_cached_spectrogram(
             cached.path,
@@ -175,33 +168,59 @@ class AnalysisService:
             time_index = min(int(np.floor(clipped_norm * time_bins)), time_bins - 1)
             spectrum = spectrogram.get_frame_at(time_index)
             max_frequency_hz = float(spectrogram.freqs[-1])
+            values = np.asarray(spectrum.dB, dtype=np.float64)
+            rows = resample_frequency_bins(
+                values.reshape(analysis_frame.n_channels, -1),
+                SPECTROGRAM_FREQUENCY_BIN_LIMIT,
+            )
         else:
             center_sample = min(int(clipped_norm * analysis_frame.n_samples), analysis_frame.n_samples - 1)
-            start_sample = max(0, center_sample - window_size // 2)
-            end_sample = min(analysis_frame.n_samples, start_sample + window_size)
-            start_sample = max(0, end_sample - window_size)
-            spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
-            max_frequency_hz = float(spectrum.freqs[-1])
-
-        values = np.asarray(spectrum.dB, dtype=np.float64)
-        if values.ndim == 2:
-            values = values[channel_index]
-        row = resample_frequency_bins(values.reshape(1, -1), SPECTROGRAM_FREQUENCY_BIN_LIMIT)[0]
-        reference = analysis_frame.channels[channel_index].level_reference
+            live_quantum = max(1, int(round(float(analysis_frame.sampling_rate) / 30.0)))
+            quantized_center = min(
+                analysis_frame.n_samples - 1,
+                int(round(center_sample / live_quantum)) * live_quantum,
+            )
+            slice_key = (resolved.signature, window_size, window_name, revision, quantized_center)
+            cached_slice = self.engine.get_spectrum_slice(cached, slice_key)
+            if cached_slice is not None:
+                rows, max_frequency_hz = cached_slice
+                spectrum = None
+            else:
+                center_sample = quantized_center
+                start_sample = max(0, center_sample - window_size // 2)
+                end_sample = min(analysis_frame.n_samples, start_sample + window_size)
+                start_sample = max(0, end_sample - window_size)
+                spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
+                max_frequency_hz = float(spectrum.freqs[-1])
+                values = np.asarray(spectrum.dB, dtype=np.float64)
+                rows = resample_frequency_bins(
+                    values.reshape(analysis_frame.n_channels, -1),
+                    SPECTROGRAM_FREQUENCY_BIN_LIMIT,
+                ).astype(np.float32, copy=False)
+                self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
+        channels: list[dict[str, object]] = []
+        for channel_index, row in enumerate(rows):
+            reference = analysis_frame.channels[channel_index].level_reference
+            channels.append(
+                {
+                    "channelIndex": channel_index,
+                    "values": row.tolist(),
+                    "minDb": float(np.min(row)),
+                    "maxDb": float(np.max(row)),
+                    **level_scale_metadata(reference, "Spectrum amplitude level"),
+                }
+            )
         return {
             "trackIndex": track_index,
-            "channelIndex": channel_index,
             "analysisId": _optional_text(analysis_id),
             "settingsSignature": _optional_text(settings_signature),
             "filePath": str(cached.path),
-            "values": row.tolist(),
-            "frequencyBins": int(row.shape[0]),
+            "channels": channels,
+            "frequencyBins": int(rows.shape[1]),
             "maxFrequencyHz": max_frequency_hz,
-            "minDb": float(np.min(row)),
-            "maxDb": float(np.max(row)),
+            "computeMs": (time.perf_counter() - compute_started) * 1000.0,
             "calibrationSignature": resolved.signature,
-            "analysisRevision": _analysis_revision(analysis_revision),
-            **level_scale_metadata(reference, "Spectrum amplitude level"),
+            "analysisRevision": revision,
         }
 
     def waveform_range(
@@ -270,7 +289,6 @@ class AnalysisService:
         }
 
     def release_track_detail(self, file_path: str | Path) -> dict[str, object]:
-        self.engine.discard_spectrograms(file_path)
         return {}
 
 

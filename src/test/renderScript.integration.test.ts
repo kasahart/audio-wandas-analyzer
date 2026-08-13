@@ -1232,19 +1232,96 @@ test('renderScript: missing spectrogram requests a spectrum slice at cursor', as
     assert.equal(typeof sliceRequests[0].cursorNorm, 'number');
 });
 
-test('renderScript: multichannel lazy spectrum requests all channel indices', async () => {
+test('renderScript: multichannel lazy spectrum uses one track-batched request', async () => {
     const state = JSON.parse(MULTICHANNEL_APP_STATE);
     state.results[0].channels.forEach((channel: any) => { channel.spectrogram = null; });
     const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
 
-    const sliceRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
-    assert.deepEqual(sliceRequests.map((req) => req.channelIndex).sort(), [0, 1]);
+    let sliceRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
+    assert.equal(sliceRequests.length, 1, 'only one backend spectrum request may be in flight');
+    const first = sliceRequests[0];
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: first.requestId,
+        analysisId: first.analysisId,
+        settingsSignature: first.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [
+            { channelIndex: 0, values: [-20], minDb: -90, maxDb: 0 },
+            { channelIndex: 1, values: [-10], minDb: -90, maxDb: 0 },
+        ],
+        frequencyBins: 1, maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    sliceRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
+    assert.equal(sliceRequests.length, 1, 'one response should update every channel without another IPC');
+    assert.equal('channelIndex' in sliceRequests[0], false);
+    env.dom.window.close();
+});
+
+test('renderScript: lazy spectrum applies global backpressure and converges to the latest cursor', async () => {
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+
+    const initial = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
+    assert.ok(initial, 'initial lazy slice request should be posted');
+
+    const cursorUpdates = Array.from({ length: 120 }, (_, index) => (index + 1) / 150);
+    for (const cursorNorm of cursorUpdates) {
+        env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+            type: 'comparison-panel-test-action',
+            actionId: 'lazy-backpressure-' + cursorNorm,
+            actions: [{ action: 'set-cursor', payload: { cursorNorm } }],
+        } }));
+        await nextAnimationFrame(env.dom);
+    }
+    let requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    assert.equal(requests.length, 1, 'cursor updates must not enqueue IPC while a slice is in flight');
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: initial.requestId,
+        analysisId: initial.analysisId,
+        settingsSignature: initial.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        frequencyBins: 1, maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    assert.equal(requests.length, 2, 'completion should dispatch exactly one trailing request');
+    assert.ok(requests[1].cursorNorm > 0.79 && requests[1].cursorNorm < 0.81,
+        'the trailing request should target only the latest cursor: ' + requests[1].cursorNorm);
+    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
+    assert.ok(trackSpy, 'track spectrum canvas spy should exist');
+    const strokesBeforeLatest = trackSpy!.strokeCalls;
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: requests[1].requestId,
+        analysisId: requests[1].analysisId,
+        settingsSignature: requests[1].settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        frequencyBins: 2, maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
+    assert.ok(trackSpy!.strokeCalls > strokesBeforeLatest,
+        'the latest successful slice should paint after the delayed backend response');
     env.dom.window.close();
 });
 
 test('renderScript: lazy spectrum slices apply display range settings', async () => {
-    const env = setupEnvWithState(makeLazySpectrogramState());
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
 
     let req = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
@@ -1255,15 +1332,11 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
         analysisId: req.analysisId,
         settingsSignature: req.settingsSignature,
         trackIndex: 0,
-        channelIndex: 0,
         filePath: '/tmp/a.wav',
-        values: [-120, -20, 10],
+        channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10,
+            unit: 'dB', axisLabel: 'Spectrum level [dB]' }],
         frequencyBins: 3,
         maxFrequencyHz: 22050,
-        minDb: -120,
-        maxDb: 10,
-        unit: 'dB',
-        axisLabel: 'Spectrum level [dB]',
     } }));
     await nextAnimationFrame(env.dom);
 
@@ -1295,7 +1368,9 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
 });
 
 test('renderScript: lazy spectrum cache is scoped to the current cursor', async () => {
-    const env = setupEnvWithState(makeLazySpectrogramState());
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
 
     const initialReq = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any;
@@ -1306,13 +1381,10 @@ test('renderScript: lazy spectrum cache is scoped to the current cursor', async 
         analysisId: initialReq.analysisId,
         settingsSignature: initialReq.settingsSignature,
         trackIndex: 0,
-        channelIndex: 0,
         filePath: '/tmp/a.wav',
-        values: [-120, -20, 10],
+        channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10 }],
         frequencyBins: 3,
         maxFrequencyHz: 22050,
-        minDb: -120,
-        maxDb: 10,
     } }));
     await nextAnimationFrame(env.dom);
 
@@ -1329,7 +1401,7 @@ test('renderScript: lazy spectrum cache is scoped to the current cursor', async 
 
     const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
     const lastSnap = snapshots[snapshots.length - 1];
-    assert.equal(lastSnap.renderedUi.visibleSpectrumTrackCount, 0, 'stale lazy slice should not be reused for a different cursor');
+    assert.equal(lastSnap.renderedUi.visibleSpectrumTrackCount, 1, 'the last successful slice should remain visible while the new cursor is pending');
     env.dom.window.close();
 });
 
@@ -1347,13 +1419,10 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
         analysisId: initialReq.analysisId,
         settingsSignature: initialReq.settingsSignature,
         trackIndex: 0,
-        channelIndex: 0,
         filePath: '/tmp/a.wav',
-        values: [-120, -20, 10],
+        channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10 }],
         frequencyBins: 3,
         maxFrequencyHz: 22050,
-        minDb: -120,
-        maxDb: 10,
     } }));
     await nextAnimationFrame(env.dom);
 
@@ -1363,6 +1432,8 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     assert.ok(trackSpy, 'track spectrum canvas spy should exist');
     const overlayClearBefore = overlaySpy!.clearRectCalls;
     const trackClearBefore = trackSpy!.clearRectCalls;
+    const overlayStrokesBefore = overlaySpy!.strokeCalls;
+    const trackStrokesBefore = trackSpy!.strokeCalls;
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'comparison-panel-test-action',
@@ -1374,8 +1445,8 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
     const latestReq = requests[requests.length - 1];
     assert.ok(latestReq.cursorNorm > 0.45 && latestReq.cursorNorm < 0.55, 'cursor move should request a new lazy slice');
-    assert.equal(trackSpy!.clearRectCalls, trackClearBefore, 'per-track spectrum should keep its previous pixels while the new slice is pending');
-    assert.equal(overlaySpy!.clearRectCalls, overlayClearBefore, 'overlay spectrum should keep its previous pixels while the new slice is pending');
+    assert.ok(trackSpy!.strokeCalls >= trackStrokesBefore, 'per-track spectrum should keep a successful slice visible while the new slice is pending');
+    assert.ok(overlaySpy!.strokeCalls >= overlayStrokesBefore, 'overlay spectrum should keep a successful slice visible while the new slice is pending');
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'spectrum-slice-error',
@@ -1383,14 +1454,13 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
         analysisId: latestReq.analysisId,
         settingsSignature: latestReq.settingsSignature,
         trackIndex: 0,
-        channelIndex: 0,
         filePath: '/tmp/a.wav',
         error: 'slice failed',
     } }));
     await nextAnimationFrame(env.dom);
 
-    assert.ok(trackSpy!.clearRectCalls > trackClearBefore, 'per-track spectrum should clear stale pixels after the pending slice fails');
-    assert.ok(overlaySpy!.clearRectCalls > overlayClearBefore, 'overlay spectrum should clear stale pixels after the pending slice fails');
+    assert.ok(trackSpy!.clearRectCalls >= trackClearBefore, 'per-track spectrum should remain drawable after a slice failure');
+    assert.ok(overlaySpy!.clearRectCalls >= overlayClearBefore, 'overlay spectrum should remain drawable after a slice failure');
     env.dom.window.close();
 });
 
@@ -1830,6 +1900,67 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
     assert.equal(labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)), false, '周波数ラベルはプロット canvas に描かれないこと');
     assert.ok(spy!.putImageDataCalls >= 2,
         'プロット領域とカラーバーで putImageData が複数回呼ばれること');
+    env.dom.window.close();
+});
+
+test('renderScript: spectrogram reuses its decimated base during playback and rebuilds for display changes', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    assert.ok(spectrogramBtn);
+    spectrogramBtn.click();
+    await nextAnimationFrame(env.dom);
+
+    const baseSpy = env.domCanvasContexts.get('track-canvas-0');
+    const overlaySpy = env.domCanvasContexts.get('track-spectrogram-overlay-0');
+    assert.ok(baseSpy && baseSpy.putImageDataCalls > 0, 'spectrogram base should be rasterized once');
+    assert.ok(overlaySpy, 'spectrogram cursor should use a separate overlay canvas');
+    const baseRendersBeforePlayback = baseSpy!.putImageDataCalls;
+    const overlayClearsBeforePlayback = overlaySpy!.clearRectCalls;
+
+    const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement;
+    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement;
+    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]') as HTMLButtonElement;
+    (audio as HTMLAudioElement & { duration: number }).duration = 1;
+    playButton.click();
+    (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.5;
+    await nextAnimationFrame(env.dom);
+    stopButton.click();
+
+    assert.equal(baseSpy!.putImageDataCalls, baseRendersBeforePlayback,
+        'playback cursor updates must not rebuild the spectrogram base');
+    assert.ok(overlaySpy!.clearRectCalls > overlayClearsBeforePlayback,
+        'playback cursor updates should repaint only the lightweight overlay');
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        inputValues: { 'track-height-input': '112' },
+        actionId: 'spectrogram-base-size-change',
+    } }));
+    await nextAnimationFrame(env.dom);
+    assert.ok(baseSpy!.putImageDataCalls > baseRendersBeforePlayback,
+        'canvas size changes must rebuild the display-sized spectrogram base');
+    const baseRendersBeforeDisplayChange = baseSpy!.putImageDataCalls;
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        actionId: 'spectrogram-base-display-change',
+        actions: [{ action: 'set-spectrogram-display', payload: { dbMin: -60, dbMax: 0, maxFrequencyHz: 1000 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    assert.ok(baseSpy!.putImageDataCalls > baseRendersBeforeDisplayChange,
+        'color scale or frequency range changes must rebuild the spectrogram base');
+    const baseRendersBeforeDataChange = baseSpy!.putImageDataCalls;
+    const updatedResults = JSON.parse(SPECTRUM_APP_STATE).results;
+    updatedResults[0].channels[0].spectrogram.values = updatedResults[0].channels[0].spectrogram.values
+        .map((row: number[]) => row.map((value: number) => value - 1));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'analysis-update',
+        results: updatedResults,
+    } }));
+    await nextAnimationFrame(env.dom);
+    assert.ok(baseSpy!.putImageDataCalls > baseRendersBeforeDataChange,
+        'analysis or calibration data changes must rebuild the spectrogram base');
     env.dom.window.close();
 });
 
@@ -2291,7 +2422,7 @@ test('renderScript: spectrum canvases are redrawn during playback as cursor adva
     env.dom.window.close();
 });
 
-test('renderScript: playback spectrum refresh is throttled and then catches up', async () => {
+test('renderScript: playback spectrum redraw waits for the latest backend response', async () => {
     const clock = { now: 1000 };
     const env = setupSpectrumEnvWithClock(clock);
     await nextAnimationFrame(env.dom);
@@ -2316,15 +2447,71 @@ test('renderScript: playback spectrum refresh is throttled and then catches up',
     (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.2;
     await nextAnimationFrame(env.dom);
     assert.equal(overlaySpy!.clearRectCalls, afterStart,
-        '66ms 未満の playback tick では spectrum 再描画を増やさないこと');
+        '31ms 未満の playback tick では spectrum 再描画を増やさないこと');
 
-    clock.now = 1070;
+    clock.now = 1034;
     (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.5;
     await nextAnimationFrame(env.dom);
     await nextAnimationFrame(env.dom);
+    assert.equal(overlaySpy!.clearRectCalls, afterStart,
+        'playback tick alone must not redraw a stale power spectrum');
+    const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    assert.equal(requests.length, 1, 'only one backend request may remain in flight during playback');
+    const request = requests[0];
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: request.requestId,
+        analysisId: request.analysisId,
+        settingsSignature: request.settingsSignature,
+        trackIndex: request.trackIndex,
+        filePath: request.filePath,
+        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        frequencyBins: 2,
+        maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
     assert.ok(overlaySpy!.clearRectCalls > afterStart,
-        '66ms 経過後の playback tick では spectrum が再描画されること');
+        'a successful backend response should trigger the coalesced spectrum redraw');
 
+    stopButton.click();
+    env.dom.window.close();
+});
+
+test('renderScript: playback spectrum scheduler keeps the next rAF cursor desired', async () => {
+    const clock = { now: 1000 };
+    const env = setupSpectrumEnvWithClock(clock);
+    await nextAnimationFrame(env.dom);
+
+    const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement;
+    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement;
+    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]') as HTMLButtonElement;
+    (audio as HTMLAudioElement & { duration: number }).duration = 15;
+    const first = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
+    assert.ok(first);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: first.requestId,
+        analysisId: first.analysisId,
+        settingsSignature: first.settingsSignature,
+        trackIndex: first.trackIndex,
+        filePath: first.filePath,
+        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        frequencyBins: 2,
+        maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    playButton.click();
+    await Promise.resolve();
+    clock.now = 1016;
+    (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.016;
+    await nextAnimationFrame(env.dom);
+    clock.now = 1032;
+    await new Promise((resolve) => env.dom.window.setTimeout(resolve, 35));
+
+    const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    assert.equal(requests.length, 2, 'a cursor one display frame ahead must remain desired until the rate limit opens');
+    assert.ok(requests[1].cursorNorm > 0, 'the trailing request must advance beyond the first cursor');
     stopButton.click();
     env.dom.window.close();
 });

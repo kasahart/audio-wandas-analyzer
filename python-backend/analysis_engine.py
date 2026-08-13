@@ -11,6 +11,7 @@ import wandas as wd
 from calibration_profile import ResolvedCalibrationProfile, resolve_calibration_profile, source_channel_peaks
 
 StftKey = tuple[str, int, int, str]
+SpectrumSliceKey = tuple[str, int, str, int, int]
 AUDIO_CACHE_DTYPE = np.dtype("float32")
 SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
 
@@ -24,6 +25,7 @@ class CachedAnalysis:
     source_peaks: tuple[float, ...] = ()
     spectrograms: dict[StftKey, wd.SpectrogramFrame] = field(default_factory=dict)
     spectrogram_nbytes: dict[StftKey, int] = field(default_factory=dict)
+    spectrum_slices: OrderedDict[SpectrumSliceKey, tuple[np.ndarray, float]] = field(default_factory=OrderedDict)
 
     @property
     def nbytes(self) -> int:
@@ -36,6 +38,7 @@ class AnalysisEngine:
             cache_limit_bytes = int(os.environ.get("AWA_CACHE_MB", "1024")) * 1024 * 1024
         self.cache_limit_bytes = max(0, cache_limit_bytes)
         self._files: OrderedDict[Path, CachedAnalysis] = OrderedDict()
+        self.spectrum_slice_cache_entries = 64
 
     def get_file(self, file_path: str | Path) -> CachedAnalysis:
         path = Path(file_path).expanduser().resolve()
@@ -113,6 +116,28 @@ class AnalysisEngine:
         if cached is not None:
             cached.spectrograms.clear()
             cached.spectrogram_nbytes.clear()
+
+    def get_spectrum_slice(
+        self,
+        cached: CachedAnalysis,
+        key: SpectrumSliceKey,
+    ) -> tuple[np.ndarray, float] | None:
+        value = cached.spectrum_slices.get(key)
+        if value is not None:
+            cached.spectrum_slices.move_to_end(key)
+        return value
+
+    def put_spectrum_slice(
+        self,
+        cached: CachedAnalysis,
+        key: SpectrumSliceKey,
+        rows: np.ndarray,
+        max_frequency_hz: float,
+    ) -> None:
+        cached.spectrum_slices[key] = (rows, max_frequency_hz)
+        cached.spectrum_slices.move_to_end(key)
+        while len(cached.spectrum_slices) > self.spectrum_slice_cache_entries:
+            cached.spectrum_slices.popitem(last=False)
 
     def clear(self) -> None:
         self._files.clear()

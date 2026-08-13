@@ -38,7 +38,6 @@ export interface TrackDetailPayload extends CalibrationRequestContext {
 
 export interface SpectrumSlicePayload extends TrackDetailPayload {
     cursorNorm: number;
-    channelIndex: number;
 }
 
 export interface ReleaseTrackDetailPayload {
@@ -71,20 +70,23 @@ export interface TrackDetailResult {
 
 export interface SpectrumSliceResult {
     trackIndex: number;
-    channelIndex: number;
     analysisId: string;
     settingsSignature: string;
     filePath: string;
-    values: number[];
+    channels: Array<{
+        channelIndex: number;
+        values: number[];
+        minDb: number;
+        maxDb: number;
+        unit?: string;
+        axisLabel?: string;
+        referenceValue?: number;
+        referenceUnit?: string;
+        levelReferenceLabel?: string;
+    }>;
     frequencyBins: number;
     maxFrequencyHz: number;
-    minDb: number;
-    maxDb: number;
-    unit?: string;
-    axisLabel?: string;
-    referenceValue?: number;
-    referenceUnit?: string;
-    levelReferenceLabel?: string;
+    computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;
 }
@@ -354,24 +356,29 @@ function isTrackDetailResult(value: unknown): value is TrackDetailResult {
 }
 
 function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
+    const channels = isJsonObject(value) ? value['channels'] : undefined;
     return isJsonObject(value)
         && isInteger(value['trackIndex'])
-        && isInteger(value['channelIndex'])
         && typeof value['analysisId'] === 'string'
         && typeof value['settingsSignature'] === 'string'
         && typeof value['filePath'] === 'string'
-        && isFiniteNumberArray(value['values'])
+        && Array.isArray(channels)
+        && channels.every((channel) => isJsonObject(channel)
+            && isInteger(channel['channelIndex'])
+            && isFiniteNumberArray(channel['values'])
+            && isFiniteNumber(channel['minDb'])
+            && isFiniteNumber(channel['maxDb'])
+            && isOptionalString(channel['unit'])
+            && isOptionalString(channel['axisLabel'])
+            && (channel['referenceValue'] === undefined || isSafeCalibrationValue(channel['referenceValue']))
+            && isOptionalString(channel['referenceUnit'])
+            && isOptionalString(channel['levelReferenceLabel'])
+            && channel['values'].length === value['frequencyBins'])
         && isInteger(value['frequencyBins'])
         && isFiniteNumber(value['maxFrequencyHz'])
-        && isFiniteNumber(value['minDb'])
-        && isFiniteNumber(value['maxDb'])
-        && isOptionalString(value['unit'])
-        && isOptionalString(value['axisLabel'])
-        && (value['referenceValue'] === undefined || isSafeCalibrationValue(value['referenceValue']))
-        && isOptionalString(value['referenceUnit'])
-        && isOptionalString(value['levelReferenceLabel'])
+        && isFiniteNumber(value['computeMs'])
         && hasCalibrationResultMetadata(value)
-        && value['values'].length === value['frequencyBins'];
+        && channels.length > 0;
 }
 
 function isExportWavLoopResult(value: unknown): value is ExportWavLoopResult {
