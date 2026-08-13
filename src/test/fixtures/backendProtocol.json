@@ -18,7 +18,7 @@
     },
     {
       "command": "spectrum-slice",
-      "request": { "cmd": "spectrum-slice", "requestId": "r1", "filePath": "tone.wav", "trackIndex": 0, "channelIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "cursorNorm": 0.5 }
+      "request": { "cmd": "spectrum-slice", "requestId": "r1", "filePath": "tone.wav", "trackIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "cursorNorm": 0.5 }
     },
     {
       "command": "export-wav-loop",
@@ -38,7 +38,7 @@
     { "command": "range", "response": { "requestId": "range", "startNorm": 0, "endNorm": 1, "channels": [] } },
     { "command": "track-detail", "response": { "requestId": "track-detail", "trackIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "filePath": "tone.wav", "channels": [] } },
     { "command": "release-track-detail", "response": { "requestId": "release-track-detail" } },
-    { "command": "spectrum-slice", "response": { "requestId": "spectrum-slice", "trackIndex": 0, "channelIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "filePath": "tone.wav", "values": [], "frequencyBins": 0, "maxFrequencyHz": 8000, "minDb": 0, "maxDb": 0 } },
+    { "command": "spectrum-slice", "response": { "requestId": "spectrum-slice", "trackIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "filePath": "tone.wav", "channels": [{ "channelIndex": 0, "values": [], "minDb": 0, "maxDb": 0 }], "frequencyBins": 0, "maxFrequencyHz": 8000, "computeMs": 0.1 } },
     { "command": "export-wav-loop", "response": { "requestId": "export-wav-loop", "wavBase64": "UklGRg==", "sampleRate": 16000 } }
   ]
 }

@@ -55,16 +55,19 @@ export type HostInboundMessage =
     | (LazyResponseIdentity & { type: 'track-detail-error'; error: string; channelIndex?: number })
     | (LazyResponseIdentity & {
         type: 'spectrum-slice-result';
-        channelIndex: number;
-        values: number[];
+        channels: Array<{
+            channelIndex: number;
+            values: number[];
+            minDb: number;
+            maxDb: number;
+            unit?: string;
+            axisLabel?: string;
+        }>;
         frequencyBins: number;
         maxFrequencyHz: number;
-        minDb: number;
-        maxDb: number;
-        unit?: string;
-        axisLabel?: string;
+        computeMs?: number;
     })
-    | (LazyResponseIdentity & { type: 'spectrum-slice-error'; channelIndex: number; error: string })
+    | (LazyResponseIdentity & { type: 'spectrum-slice-error'; error: string })
     | { type: 'python-environment-state'; pythonCommand: string; status: string; tooltip: string }
     | {
         type: 'comparison-panel-test-action';
@@ -108,13 +111,18 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
         case 'spectrum-slice-error':
             return hasString(value, 'requestId') && hasString(value, 'analysisId')
                 && hasString(value, 'settingsSignature') && hasNumber(value, 'trackIndex')
-                && hasString(value, 'filePath') && hasNumber(value, 'channelIndex') && hasString(value, 'error');
+                && hasString(value, 'filePath') && hasString(value, 'error');
         case 'spectrum-slice-result':
             return hasString(value, 'requestId') && hasString(value, 'analysisId')
                 && hasString(value, 'settingsSignature') && hasNumber(value, 'trackIndex')
-                && hasString(value, 'filePath') && hasNumber(value, 'channelIndex')
-                && Array.isArray(value.values) && hasNumber(value, 'frequencyBins')
-                && hasNumber(value, 'maxFrequencyHz') && hasNumber(value, 'minDb') && hasNumber(value, 'maxDb');
+                && hasString(value, 'filePath') && Array.isArray(value.channels)
+                && value.channels.every((channel) => isRecord(channel)
+                    && hasNumber(channel, 'channelIndex') && Array.isArray(channel.values)
+                    && channel.values.length === value.frequencyBins
+                    && channel.values.every((item) => typeof item === 'number' && Number.isFinite(item))
+                    && hasNumber(channel, 'minDb') && hasNumber(channel, 'maxDb'))
+                && hasNumber(value, 'frequencyBins') && hasNumber(value, 'maxFrequencyHz')
+                && (value.computeMs === undefined || hasNumber(value, 'computeMs'));
         case 'python-environment-state':
             return hasString(value, 'pythonCommand') && hasString(value, 'status') && hasString(value, 'tooltip');
         case 'comparison-panel-test-action':

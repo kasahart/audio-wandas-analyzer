@@ -186,16 +186,12 @@ test('parseBackendResult validates calibration identity on lazy results', () => 
     }), BackendProtocolError);
     assert.throws(() => parseBackendResult('spectrum-slice', {
         trackIndex: 0,
-        channelIndex: 0,
         analysisId: 'analysis',
         settingsSignature: 'settings',
         filePath: '/tmp/calibrated.wav',
-        values: [74],
+        channels: [{ channelIndex: 0, values: [74], minDb: 74, maxDb: 74, referenceValue: 0 }],
         frequencyBins: 1,
         maxFrequencyHz: 24_000,
-        minDb: 74,
-        maxDb: 74,
-        referenceValue: 0,
     }), BackendProtocolError);
 });
 

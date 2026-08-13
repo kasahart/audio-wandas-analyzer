@@ -106,7 +106,6 @@ export interface SpectrumSliceRequest {
     trackIndex: number;
     filePath: string;
     cursorNorm: number;
-    channelIndex: number;
 }
 
 export function isRequestSpectrumSliceMessage(message: unknown): message is SpectrumSliceRequest {
@@ -121,8 +120,7 @@ export function isRequestSpectrumSliceMessage(message: unknown): message is Spec
         typeof m['settingsSignature'] === 'string' &&
         typeof m['trackIndex'] === 'number' &&
         typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0 &&
-        typeof m['cursorNorm'] === 'number' &&
-        typeof m['channelIndex'] === 'number'
+        typeof m['cursorNorm'] === 'number'
     );
 }
 

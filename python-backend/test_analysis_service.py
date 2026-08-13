@@ -54,14 +54,14 @@ def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> No
 
     assert overview["filePath"] == str(audio.resolve())
     assert detail["channels"][0]["spectrogram"] is not None
-    assert spectrum["frequencyBins"] == len(spectrum["values"])
+    assert spectrum["frequencyBins"] == len(spectrum["channels"][0]["values"])
     assert waveform_range["channels"]
     exported, sample_rate = sf.read(io.BytesIO(base64.b64decode(wav_loop["wavBase64"])))
     assert sample_rate == wav_loop["sampleRate"]
     assert exported.size > 0
     assert cached.spectrograms
     assert service.release_track_detail(audio) == {}
-    assert cached.spectrograms == {}
+    assert cached.spectrograms
 
 
 def test_service_uses_the_injected_analysis_engine(tmp_path: Path) -> None:

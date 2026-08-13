@@ -281,8 +281,9 @@ def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> N
     assert resp["trackIndex"] == 0
     assert resp["frequencyBins"] == spec["frequencyBins"]
     assert resp["maxFrequencyHz"] == spec["maxFrequencyHz"]
-    assert int(np.argmax(resp["values"])) == int(np.argmax(expected_row))
-    assert abs(float(resp["maxDb"]) - float(np.max(expected_row))) < 1.0
+    channel = resp["channels"][0]
+    assert int(np.argmax(channel["values"])) == int(np.argmax(expected_row))
+    assert abs(float(channel["maxDb"]) - float(np.max(expected_row))) < 1.0
 
 
 @pytest.mark.parametrize("cursor_norm", [-1.0, 0.0, 1.0, 2.0])
@@ -297,7 +298,7 @@ def test_spectrum_slice_clamps_cursor_to_cached_stft_bounds(tmp_path: Path, curs
         }
     )
     assert response["frequencyBins"] > 0
-    assert all(np.isfinite(response["values"]))
+    assert all(np.isfinite(response["channels"][0]["values"]))
 
 
 def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path) -> None:
@@ -320,7 +321,7 @@ def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path)
     )
 
     assert resp["frequencyBins"] > 0
-    assert len(resp["values"]) == resp["frequencyBins"]
+    assert len(resp["channels"][0]["values"]) == resp["frequencyBins"]
 
 
 def test_spectrum_slice_uses_cached_wandas_spectrogram(monkeypatch, tmp_path: Path) -> None:
@@ -342,7 +343,7 @@ def test_spectrum_slice_uses_cached_wandas_spectrogram(monkeypatch, tmp_path: Pa
 
     assert engine.get_spectrogram(wav, 256, 128, "hann") is spectrogram
     assert first["frequencyBins"] == second["frequencyBins"]
-    assert second["values"] == third["values"]
+    assert second["channels"] == third["channels"]
 
 
 def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, tmp_path: Path) -> None:
@@ -367,7 +368,7 @@ def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, 
     assert response["frequencyBins"] > 0
 
 
-def test_spectrum_slice_uses_requested_channel(tmp_path: Path) -> None:
+def test_spectrum_slice_batches_all_channels(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     t = np.linspace(0, 0.5, 8000, endpoint=False)
     left = (0.5 * np.sin(2 * math.pi * 440.0 * t) * 32767).astype(np.int16)
@@ -378,26 +379,25 @@ def test_spectrum_slice_uses_requested_channel(tmp_path: Path) -> None:
         w.setsampwidth(2)
         w.setframerate(16000)
         w.writeframes(stereo.tobytes())
-    left_resp = handle_spectrum_slice(
-        {
-            "filePath": str(wav),
-            "trackIndex": 0,
-            "cursorNorm": 0.5,
-            "channelIndex": 0,
-            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
-        }
-    )
-    right_resp = handle_spectrum_slice(
-        {
-            "filePath": str(wav),
-            "trackIndex": 0,
-            "cursorNorm": 0.5,
-            "channelIndex": 1,
-            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
-        }
-    )
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    service = AnalysisService(engine)
+    command = {
+        "filePath": str(wav),
+        "trackIndex": 0,
+        "cursorNorm": 0.5,
+        "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+    }
+    response = handle_spectrum_slice(command, service)
 
-    assert np.argmax(left_resp["values"]) != np.argmax(right_resp["values"])
+    assert [channel["channelIndex"] for channel in response["channels"]] == [0, 1]
+    assert np.argmax(response["channels"][0]["values"]) != np.argmax(response["channels"][1]["values"])
+    cached = engine.get_file(wav)
+    assert len(cached.spectrum_slices) == 1
+    assert handle_spectrum_slice(command, service)["channels"] == response["channels"]
+    assert len(cached.spectrum_slices) == 1
+    revised = dict(command, analysisRevision=1)
+    handle_spectrum_slice(revised, service)
+    assert len(cached.spectrum_slices) == 2
 
 
 def test_engine_keeps_materialized_wandas_frame(tmp_path: Path) -> None:
@@ -851,7 +851,9 @@ def test_cache_size_uses_stored_metadata_without_materializing_frames() -> None:
     assert entry.nbytes == 240
 
 
-def test_release_track_detail_drops_stft_but_keeps_file_frame(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_release_track_detail_keeps_reusable_stft_and_file_frame(
+    tmp_path: Path,
+) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
@@ -861,7 +863,7 @@ def test_release_track_detail_drops_stft_but_keeps_file_frame(monkeypatch: pytes
 
     assert handle_release_track_detail({"filePath": str(wav)}, service) == {}
     assert engine.get_file(wav) is cached
-    assert cached.spectrograms == {}
+    assert cached.spectrograms
 
 
 def test_backend_has_no_scipy_stft_implementation() -> None:
