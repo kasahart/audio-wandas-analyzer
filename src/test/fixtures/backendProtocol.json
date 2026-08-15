@@ -2,7 +2,7 @@
   "validRequests": [
     {
       "command": "analyze",
-      "request": { "cmd": "analyze", "requestId": "r1", "filePath": "tone.wav", "peakCount": 5 }
+      "request": { "cmd": "analyze", "requestId": "r1", "filePath": "tone.wav" }
     },
     {
       "command": "range",
@@ -27,9 +27,9 @@
   ],
   "invalidRequests": [
     { "request": [], "errorField": "JSON object" },
-    { "request": { "cmd": "analyze", "filePath": "tone.wav", "peakCount": 5 }, "errorField": "requestId" },
+    { "request": { "cmd": "analyze", "filePath": "tone.wav" }, "errorField": "requestId" },
     { "request": { "cmd": 1, "requestId": "r1" }, "errorField": "cmd" },
-    { "request": { "cmd": "analyze", "requestId": "r1", "filePath": "tone.wav" }, "errorField": "peakCount" },
+    { "request": { "cmd": "analyze", "requestId": "r1" }, "errorField": "filePath" },
     { "request": { "cmd": "track-detail", "requestId": "r1", "filePath": "tone.wav", "trackIndex": 0, "analysisId": "analysis-1", "settingsSignature": "settings-1", "stftOptions": { "nFft": 1024, "hopSize": "256", "window": "hann" } }, "errorField": "stftOptions.hopSize" },
     { "request": { "cmd": "unknown", "requestId": "r1" }, "errorField": "unknown cmd" }
   ],

@@ -193,15 +193,10 @@ function buildCalibrationStateHtml(): string {
         const firstChannel = first.channels[0];
         firstChannel['unit'] = 'Pa';
         firstChannel['measurement'] = measurement('Pa', 'dB SPL', 2e-5, 'dB SPL re 20 µPa', 2.0);
-        firstChannel['rms'] = 0.063;
         firstChannel['peakAbsolute'] = 5.0;
-        firstChannel['rmsLevelDb'] = 70.0;
         firstChannel['peakLevelDb'] = 80.0;
         firstChannel['rawPeakFullScale'] = 0.5;
         delete firstChannel['clipped'];
-        firstChannel['peaks'] = [
-            { freqHz: 1000, magnitude: 0.2, levelDb: 80, amplitudeDb: 80 },
-        ];
 
         const second = JSON.parse(JSON.stringify(first)) as PreviewResult;
         second.filePath = '/preview/acceleration.wav';
@@ -209,9 +204,7 @@ function buildCalibrationStateHtml(): string {
         const secondChannel = second.channels[0];
         secondChannel['unit'] = 'm/s^2';
         secondChannel['measurement'] = measurement('m/s^2', 'dB', 1, 'dB re 1 m/s^2', 9.81);
-        secondChannel['rms'] = 1.25;
         secondChannel['peakAbsolute'] = 4.0;
-        secondChannel['rmsLevelDb'] = 1.94;
         secondChannel['peakLevelDb'] = 12.04;
         secondChannel['rawPeakFullScale'] = 0.4;
         secondChannel['clipped'] = false;

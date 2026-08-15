@@ -32,7 +32,7 @@ def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> No
     service = AnalysisService(engine)
     stft_options = {"nFft": 256, "hopSize": 128, "window": "hann"}
 
-    overview = service.analyze(audio, peak_count=3, stft_options=stft_options)
+    overview = service.analyze(audio, stft_options=stft_options)
     detail = service.track_detail(
         audio,
         track_index=2,

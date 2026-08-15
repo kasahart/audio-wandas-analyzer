@@ -22,7 +22,6 @@ test('calibrated channels show physical metrics and reference badges', async ({ 
     await expect(badges.nth(0)).toHaveText('CAL: Pa');
     await expect(badges.nth(1)).toHaveText('CAL: m/s^2');
 
-    await expect(page.locator('#track-row-0 .track-meta')).toContainText('RMS 0.063 Pa / 70.0 dB SPL');
     await expect(page.locator('#track-row-0 .track-meta')).toContainText('Peak 5.00 Pa / 80.0 dB SPL');
 
     await expect(page.locator('#track-row-0 .clip-badge')).toHaveCount(0);
@@ -106,7 +105,7 @@ test('report export records calibration and generates a reproducible notebook', 
     const exported = (await postedMessages(page)).find((message) => message['type'] === 'export-report-options');
     expect(exported).toBeDefined();
     const markdown = String(exported?.['markdownContent']);
-    expect(markdown).toContain('| File | Channel | Sample Rate | Duration | Channels | RMS | Peak |');
+    expect(markdown).toContain('| File | Channel | Sample Rate | Duration | Channels | Peak |');
     expect(markdown).toContain('| demo-tone.wav | Channel 1 (L) | 8000 Hz | 2.000s | 1 |');
     expect(markdown).toContain('## Calibration');
     expect(markdown).toContain('dB SPL re 20 µPa');

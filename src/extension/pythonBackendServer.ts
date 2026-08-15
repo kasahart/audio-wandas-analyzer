@@ -59,7 +59,6 @@ export class PythonBackendServer {
         try {
             return await this.request('analyze', {
                 filePath,
-                peakCount: options.peakCount,
                 ...(options.stftOptions ? { stftOptions: options.stftOptions } : {}),
                 ...this.calibrationPayload(options),
             });

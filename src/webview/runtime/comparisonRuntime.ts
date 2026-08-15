@@ -398,11 +398,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!Number.isFinite(levelDb)) { return '—'; }
         return Number(levelDb).toFixed(1) + ' ' + (channel.measurement?.levelUnit ?? 'dB');
     }
-    function channelDominantFrequencyLabel(channel: ChannelSummary) {
-        return channel && channel.dominantFrequencies && channel.dominantFrequencies[0]
-            ? Math.round(channel.dominantFrequencies[0].frequencyHz) + ' Hz'
-            : '—';
-    }
     function trackLocalCursorNorm(i: number, cursorNormValue: number) {
         const result = state.results[i];
         if (!result || result.error) {
@@ -1439,10 +1434,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '<span id="loop-time-display" title="' + escHtml(STR.loopTimeDisplayTitle) + '" style="display:none;"></span>';
     }
     function channelMetricSummaryHtml(ch: ChannelSummary) {
-        const rmsDb = ch ? channelLevel(ch, ch.rmsLevelDb) : '—';
         const peakDb = ch ? channelLevel(ch, ch.peakLevelDb) : '—';
-        const domHz = channelDominantFrequencyLabel(ch);
-        return '<span>RMS ' + escHtml(rmsDb) + '</span> <span>Peak ' + escHtml(peakDb) + '</span> <span>' + escHtml(domHz) + '</span>';
+        return '<span>Peak ' + escHtml(peakDb) + '</span>';
     }
     function buildChannelLane(result: ComparisonTrackState, trackIndex: number, channelIndex: number) {
         const trackId = trackIdAtIndex(trackIndex);
@@ -3879,16 +3872,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             '',
             '## Tracks',
             '',
-            '| File | Channel | Sample Rate | Duration | Channels | RMS | Peak |',
-            '|------|---------|-------------|----------|----------|-----|------|',
+            '| File | Channel | Sample Rate | Duration | Channels | Peak |',
+            '|------|---------|-------------|----------|----------|------|',
         ];
         reportRecords.forEach(function (record) {
             const r = record.result;
             var dur = r.durationSeconds ? _fmtSec(r.durationSeconds) : '-';
             channelsForResult(r).forEach(function (ch: ChannelSummary, channelIndex: number) {
-                var rms = ch ? _markdownTableCell(_reportLevel(ch, ch.rms, ch.rmsLevelDb)) : '-';
                 var peak = ch ? _markdownTableCell(_reportLevel(ch, ch.peakAbsolute, ch.peakLevelDb)) : '-';
-                lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + _markdownTableCell(channelLabel(r, channelIndex)) + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + rms + ' | ' + peak + ' |');
+                lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + _markdownTableCell(channelLabel(r, channelIndex)) + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + peak + ' |');
             });
         });
         lines.push('');
@@ -3916,8 +3908,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 });
             });
             lines.push('', '## Measurements', '');
-            lines.push('| File | Channel | RMS | RMS Level | Peak | Peak Level | Raw Peak | Clipped |');
-            lines.push('|------|---------|-----|-----------|------|------------|----------|---------|');
+            lines.push('| File | Channel | Peak | Peak Level | Raw Peak | Clipped |');
+            lines.push('|------|---------|------|------------|----------|---------|');
             measuredRecords.forEach(function (record) {
                 const r = record.result;
                 channelsForResult(r).forEach(function (channel, channelIndex) {
@@ -3925,8 +3917,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     if (!measurement) { return; }
                     lines.push('| ' + _markdownTableCell(r.fileName)
                         + ' | ' + _markdownTableCell(channelLabel(r, channelIndex))
-                        + ' | ' + _formatReportNumber(channel.rms) + ' ' + _markdownTableCell(measurement.linearUnit)
-                        + ' | ' + _formatReportDb(channel.rmsLevelDb, measurement.levelUnit)
                         + ' | ' + _formatReportNumber(channel.peakAbsolute) + ' ' + _markdownTableCell(measurement.linearUnit)
                         + ' | ' + _formatReportDb(channel.peakLevelDb, measurement.levelUnit)
                         + ' | ' + _formatReportNumber(channel.rawPeakFullScale) + ' FS'
@@ -3968,24 +3958,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + offset.toFixed(3) + ' s | ' + localStartText + ' | ' + localEndText + ' | ' + localDurationText + ' | ' + status + ' |');
             });
             lines.push('');
-        }
-        // Spectrum peaks
-        if (reportRecords.length > 0) {
-            var firstResult = reportRecords[0].result;
-            channelsForResult(firstResult).forEach(function (firstChannel: ChannelSummary, channelIndex: number) {
-                var peaks = firstChannel ? firstChannel.peaks : undefined;
-                if (peaks && peaks.length > 0) {
-                    lines.push('## Spectral Peaks (first track, ' + _markdownTableCell(channelLabel(firstResult, channelIndex)) + ')');
-                    lines.push('');
-                    lines.push('| Frequency (Hz) | ' + _markdownTableCell(spectrumLevelAxisLabel(firstResult, firstChannel)) + ' |');
-                    lines.push('|---------------|------------|');
-                    peaks.forEach(function (p) {
-                        const level = p.levelDb ?? p.amplitudeDb;
-                        lines.push('| ' + p.freqHz.toFixed(1) + ' | ' + level.toFixed(1) + ' |');
-                    });
-                    lines.push('');
-                }
-            });
         }
         return lines.join('\n');
     }

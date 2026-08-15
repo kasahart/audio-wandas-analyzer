@@ -13,7 +13,6 @@ export interface ProgressMessageSink {
 }
 
 export interface AnalysisHost {
-    getDefaultPeakCount(): number;
     withProgress<T>(
         options: vscode.ProgressOptions,
         task: (
@@ -24,9 +23,6 @@ export interface AnalysisHost {
 }
 
 const defaultHost: AnalysisHost = {
-    getDefaultPeakCount: () => vscode.workspace
-        .getConfiguration('audioWandasAnalyzer')
-        .get<number>('defaultPeakCount', 5),
     withProgress: (options, task) => vscode.window.withProgress(options, task),
 };
 
@@ -103,7 +99,6 @@ export class AnalysisOrchestrator {
         this.logPerf(`[ts] analyze start file=${fileLabel}`);
         try {
             const result = await this.backend.analyze(filePath, {
-                peakCount: this.host.getDefaultPeakCount(),
                 stftOptions,
             });
             this.logPerf(`[ts] analyze done  file=${fileLabel} total_ms=${Date.now() - startedAt}`);

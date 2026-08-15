@@ -29,7 +29,6 @@ test('AnalysisOrchestrator exposes non-cancellable progress for calibration rean
 
     const cancellable: Array<boolean | undefined> = [];
     const host: AnalysisHost = {
-        getDefaultPeakCount: () => 5,
         withProgress: async <T>(
             options: vscode.ProgressOptions,
             task: (
@@ -68,7 +67,6 @@ test('AnalysisOrchestrator preserves the requested calibration revision on error
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { AnalysisOrchestrator } = require('../extension/analysisOrchestrator') as typeof import('../extension/analysisOrchestrator');
     const host: AnalysisHost = {
-        getDefaultPeakCount: () => 5,
         withProgress: async <T>(
             _options: vscode.ProgressOptions,
             task: (

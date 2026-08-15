@@ -102,10 +102,8 @@ export function getCalibrationRenderScript(): string {
                 const spans = Array.from(container.children).filter(function(child) {
                     return child.tagName === 'SPAN';
                 });
-                const rmsText = levelText(channel, 'rms', 'rmsLevelDb', 'RMS');
                 const peakText = levelText(channel, 'peakAbsolute', 'peakLevelDb', 'Peak');
-                if (rmsText && spans[labelOffset]) { setText(spans[labelOffset], rmsText); }
-                if (peakText && spans[labelOffset + 1]) { setText(spans[labelOffset + 1], peakText); }
+                if (peakText && spans[labelOffset]) { setText(spans[labelOffset], peakText); }
             }
 
             function ensureCalibrationButton(buttons, result, trackIndex, channels) {

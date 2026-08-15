@@ -36,7 +36,7 @@ def _is_finite_number(value: object) -> bool:
 
 
 _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
-    "analyze": {"filePath": _is_string, "peakCount": _is_integer},
+    "analyze": {"filePath": _is_string},
     "range": {
         "filePath": _is_string,
         "startNorm": _is_finite_number,
@@ -127,7 +127,6 @@ def _analysis_revision(command: Command) -> object:
 def handle_analyze(service: AnalysisService, command: Command) -> dict[str, object]:
     return service.analyze(
         str(command["filePath"]),
-        peak_count=int(command.get("peakCount", 5)),
         stft_options=_stft_options(command),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
@@ -140,7 +139,6 @@ def handle_track_detail(service: AnalysisService, command: Command) -> dict[str,
         track_index=int(command.get("trackIndex", -1)),
         analysis_id=command.get("analysisId"),
         settings_signature=command.get("settingsSignature"),
-        peak_count=int(command.get("peakCount", 5)),
         stft_options=_stft_options(command),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),

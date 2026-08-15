@@ -91,14 +91,10 @@ function calibratedAnalyzeResponse(): { [key: string]: unknown } {
             label: 'microphone',
             unit: 'Pa',
             measurement,
-            rms: 0.1,
             peakAbsolute: 0.2,
-            rmsLevelDb: 74,
             peakLevelDb: 80,
             rawPeakFullScale: 0.1,
             clipped: false,
-            dominantFrequencies: [{ frequencyHz: 1_000, magnitude: 0.1 }],
-            peaks: [{ freqHz: 1_000, amplitudeDb: 74, magnitude: 0.1, levelDb: 74 }],
             waveform: { min: [-0.1], max: [0.1], samples: [0], absolutePeak: 0.1 },
             spectrogram: {
                 values: [[74]],
@@ -140,17 +136,13 @@ test('parseBackendResult rejects malformed calibration analysis fields', () => {
             const channels = candidate['channels'] as Array<{ measurement: { referenceValue: unknown } }>;
             channels[0].measurement.referenceValue = 0;
         }],
-        ['RMS level', (candidate) => {
-            const channels = candidate['channels'] as Array<{ rmsLevelDb: unknown }>;
-            channels[0].rmsLevelDb = '74';
+        ['peak level', (candidate) => {
+            const channels = candidate['channels'] as Array<{ peakLevelDb: unknown }>;
+            channels[0].peakLevelDb = '80';
         }],
         ['clipping state', (candidate) => {
             const channels = candidate['channels'] as Array<{ clipped: unknown }>;
             channels[0].clipped = 'false';
-        }],
-        ['spectrum magnitude', (candidate) => {
-            const channels = candidate['channels'] as Array<{ peaks: Array<{ magnitude: unknown }> }>;
-            channels[0].peaks[0].magnitude = '0.1';
         }],
         ['spectrogram reference', (candidate) => {
             const channels = candidate['channels'] as Array<{ spectrogram: { referenceValue: unknown } }>;

@@ -77,6 +77,23 @@ def test_analyze_from_frame_defaults_to_summary_without_spectrogram(tmp_path: Pa
     assert result["channels"][0]["spectrogram"] is None
 
 
+def test_analyze_from_frame_summary_skips_rms_and_full_file_fft(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    frame = wd.from_numpy(np.array([0.0, 0.5, -0.5]), sampling_rate=1000)
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("summary analysis must not compute RMS or a full-file FFT")
+
+    monkeypatch.setattr(type(frame), "rms", property(fail))
+    monkeypatch.setattr(type(frame), "fft", fail)
+
+    result = analyze_from_frame(frame, tmp_path / "summary.wav")
+
+    assert result["channels"][0]["peakAbsolute"] == pytest.approx(0.5)
+
+
 def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: Path) -> None:
     sample_rate = 1024
     sample_count = 1024
@@ -90,7 +107,6 @@ def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: 
     result = analyze_from_frame(
         frame,
         tmp_path / "sine.wav",
-        peak_count=3,
         stft_options={"n_fft": 256, "hop_size": 128, "window": "boxcar"},
         spectrogram_frame=spectrogram,
         include_spectrogram=True,
@@ -98,9 +114,6 @@ def test_analyze_from_frame_reports_wandas_db_for_representative_sine(tmp_path: 
 
     expected_db = 20 * math.log10(amplitude)
     channel = result["channels"][0]
-    matching_peaks = [peak for peak in channel["peaks"] if peak["freqHz"] == pytest.approx(frequency_hz, abs=0.2)]
-    assert matching_peaks
-    assert matching_peaks[0]["amplitudeDb"] == pytest.approx(expected_db, abs=0.01)
     assert channel["spectrogram"]["maxDb"] == pytest.approx(expected_db, abs=0.01)
     assert channel["spectrogram"]["axisLabel"] == "STFT amplitude level [dB re 1 input unit]"
 
@@ -129,12 +142,12 @@ def test_analyze_audio_accepts_flac_from_supported_ui_formats(tmp_path: Path) ->
     samples = (0.5 * np.sin(2 * math.pi * 440.0 * t)).astype(np.float32)
     sf.write(flac, samples, sr, format="FLAC")
 
-    result = analyze_audio(flac, peak_count=3)
+    result = analyze_audio(flac)
 
     assert result["fileName"] == "tone.flac"
     assert result["sampleRateHz"] == sr
     assert result["channelCount"] == 1
-    assert len(result["channels"][0]["peaks"]) > 0
+    assert result["channels"][0]["waveform"]["absolutePeak"] == pytest.approx(0.5, abs=0.01)
 
 
 def test_analyze_audio_with_stft_options(tmp_path: Path) -> None:
@@ -217,26 +230,18 @@ def test_analyze_audio_rejects_bad_options(tmp_path: Path) -> None:
         analyze_audio(wav, stft_options={"n_fft": 256, "hop_size": 512, "window": "hann"})
 
 
-def test_analyze_audio_peaks_contains_440hz(tmp_path: Path) -> None:
-    """peaks list should contain 440 Hz (within ±20 Hz) for a 440 Hz sine wave."""
+def test_analyze_audio_summary_omits_rms_and_full_file_spectrum(tmp_path: Path) -> None:
     wav = tmp_path / "tone440.wav"
     _write_sine_wav(wav, freq_hz=440.0, seconds=2.0, sr=44100)
-    result = analyze_audio(wav, peak_count=3)
+    result = analyze_audio(wav)
     ch = result["channels"][0]
-    assert "peaks" in ch, "peaks key missing from channel result"
-    peaks = ch["peaks"]
-    assert isinstance(peaks, list), "peaks should be a list"
-    assert len(peaks) > 0, "peaks list should not be empty"
-    # Every peak must have the required keys
-    for peak in peaks:
-        assert "freqHz" in peak, "each peak must have freqHz"
-        assert "amplitudeDb" in peak, "each peak must have amplitudeDb"
-    # At least one peak should be near 440 Hz
-    freq_values = [p["freqHz"] for p in peaks]
-    assert any(abs(f - 440.0) <= 20.0 for f in freq_values), f"Expected a peak near 440 Hz, got: {freq_values}"
+    assert "rms" not in ch
+    assert "rmsLevelDb" not in ch
+    assert "dominantFrequencies" not in ch
+    assert "peaks" not in ch
 
 
-def test_analyze_audio_keeps_multichannel_metrics_and_peaks_separate(tmp_path: Path) -> None:
+def test_analyze_audio_keeps_multichannel_peak_amplitudes_separate(tmp_path: Path) -> None:
     wav = tmp_path / "stereo.wav"
     sr = 16000
     seconds = 1.0
@@ -245,17 +250,11 @@ def test_analyze_audio_keeps_multichannel_metrics_and_peaks_separate(tmp_path: P
     right = 0.8 * np.sin(2 * math.pi * 880.0 * t)
     sf.write(wav, np.column_stack([left, right]).astype(np.float32), sr)
 
-    result = analyze_audio(wav, peak_count=5)
+    result = analyze_audio(wav)
 
     assert result["channelCount"] == 2
     assert len(result["channels"]) == 2
     left_ch, right_ch = result["channels"]
     assert left_ch["label"] in {"Channel 1", "Left", "L", "ch0"}
     assert right_ch["label"] in {"Channel 2", "Right", "R", "ch1"}
-    assert left_ch["rms"] < right_ch["rms"]
     assert left_ch["peakAbsolute"] < right_ch["peakAbsolute"]
-
-    left_freqs = [peak["freqHz"] for peak in left_ch["peaks"]]
-    right_freqs = [peak["freqHz"] for peak in right_ch["peaks"]]
-    assert any(abs(freq - 440.0) <= 20.0 for freq in left_freqs), left_freqs
-    assert any(abs(freq - 880.0) <= 20.0 for freq in right_freqs), right_freqs

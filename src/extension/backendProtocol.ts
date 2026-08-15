@@ -17,7 +17,6 @@ export interface CalibrationRequestContext {
 
 export interface AnalyzePayload extends CalibrationRequestContext {
     filePath: string;
-    peakCount: number;
     stftOptions?: StftOptions;
 }
 
@@ -277,40 +276,18 @@ function isSpectrogramData(value: unknown): value is SpectrogramData {
         && value['values'].every((row) => row.length === value['frequencyBins']);
 }
 
-function isFrequencyPeak(value: unknown): boolean {
-    return isJsonObject(value)
-        && isFiniteNumber(value['frequencyHz'])
-        && isFiniteNumber(value['magnitude']);
-}
-
-function isSpectrumPeak(value: unknown): boolean {
-    return isJsonObject(value)
-        && isFiniteNumber(value['freqHz'])
-        && isFiniteNumber(value['amplitudeDb'])
-        && isOptionalFiniteNumber(value['magnitude'])
-        && isOptionalFiniteNumber(value['levelDb']);
-}
-
 function isChannelSummary(value: unknown): value is ChannelSummary {
     if (!isJsonObject(value)
         || typeof value['label'] !== 'string'
         || !(value['unit'] === undefined || value['unit'] === null || typeof value['unit'] === 'string')
-        || !isFiniteNumber(value['rms'])
         || !isFiniteNumber(value['peakAbsolute'])
-        || !Array.isArray(value['dominantFrequencies'])
-        || !value['dominantFrequencies'].every(isFrequencyPeak)
         || !isWaveformEnvelope(value['waveform'])) {
         return false;
     }
     if ((value['measurement'] !== undefined && !isChannelMeasurementContext(value['measurement']))
-        || !isOptionalFiniteNumber(value['rmsLevelDb'])
         || !isOptionalFiniteNumber(value['peakLevelDb'])
         || !isOptionalFiniteNumber(value['rawPeakFullScale'])
         || !isOptionalBoolean(value['clipped'])) {
-        return false;
-    }
-    if (value['peaks'] !== undefined
-        && (!Array.isArray(value['peaks']) || !value['peaks'].every(isSpectrumPeak))) {
         return false;
     }
     return value['spectrogram'] === null || isSpectrogramData(value['spectrogram']);

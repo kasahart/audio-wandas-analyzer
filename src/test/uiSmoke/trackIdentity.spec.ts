@@ -12,9 +12,7 @@ function dispatchAnalysisUpdate(paths: string[]): void {
         sampleCount: 16000,
         channels: [{
             label: 'L',
-            rms: 0.2 + index * 0.01,
-            peakAbsolute: 0.8,
-            dominantFrequencies: [],
+            peakAbsolute: 0.8 + index * 0.01,
             waveform: {
                 min: [-0.2, -0.4],
                 max: [0.2, 0.4],

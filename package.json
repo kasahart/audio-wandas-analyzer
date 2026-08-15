@@ -91,13 +91,6 @@
                     "default": "python3",
                     "description": "%configuration.pythonCommand.description%"
                 },
-                "audioWandasAnalyzer.defaultPeakCount": {
-                    "type": "integer",
-                    "default": 5,
-                    "minimum": 1,
-                    "maximum": 20,
-                    "description": "%configuration.defaultPeakCount.description%"
-                },
                 "audioWandasAnalyzer.debugFilePath": {
                     "type": "string",
                     "default": "media/debug",

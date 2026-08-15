@@ -197,9 +197,7 @@ function buildResultsPreviewHtmlInternal(options?: {
                     const phase = 0.08 + channelIndex * 0.17;
                     return {
                         label: channelIndex === 0 ? 'L' : 'R',
-                        rms: 0.24,
                         peakAbsolute: 0.96,
-                        dominantFrequencies: [],
                         waveform: buildDummyWaveform(96, phase),
                         spectrogram: includeSpectrogram ? {
                             values: buildDummySpectrogram(64, 32, phase),

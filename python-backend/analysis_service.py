@@ -77,7 +77,6 @@ class AnalysisService:
         self,
         file_path: str | Path,
         *,
-        peak_count: int = 5,
         stft_options: Mapping[str, object] | None = None,
         calibration_profile: object = None,
         analysis_revision: object = 0,
@@ -86,7 +85,6 @@ class AnalysisService:
         result = analyze_from_frame(
             analysis_frame,
             cached.path,
-            peak_count=peak_count,
             raw_frame=cached.frame,
             calibration_profile=resolved,
             stft_options=stft_options,
@@ -102,7 +100,6 @@ class AnalysisService:
         track_index: int = -1,
         analysis_id: object = None,
         settings_signature: object = None,
-        peak_count: int = 5,
         stft_options: Mapping[str, object] | None = None,
         calibration_profile: object = None,
         analysis_revision: object = 0,
@@ -119,7 +116,6 @@ class AnalysisService:
         result = analyze_from_frame(
             analysis_frame,
             cached.path,
-            peak_count=peak_count,
             raw_frame=cached.frame,
             calibration_profile=resolved,
             stft_options=stft_options,
