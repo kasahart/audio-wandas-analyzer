@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
+    backendStartupError,
     processStdoutChunk,
     rejectPendingRequests,
     type BackendDiagnostic,
@@ -44,6 +45,7 @@ export class PythonBackendServer {
     private watchdogTimer: ReturnType<typeof setInterval> | null = null;
     private static readonly HEARTBEAT_TIMEOUT_MS = 15_000;
     private static readonly WATCHDOG_INTERVAL_MS = 5_000;
+    private static readonly STARTUP_TIMEOUT_MS = 120_000;
 
     constructor(
         private readonly extensionPath: string,
@@ -177,12 +179,13 @@ export class PythonBackendServer {
     }
 
     private ensureRunning(): Promise<void> {
+        if (this.startPromise) {
+            return this.startPromise;
+        }
         if (this.proc && !this.proc.killed) {
             return Promise.resolve();
         }
-        if (!this.startPromise) {
-            this.startPromise = this.startServer();
-        }
+        this.startPromise = this.startServer();
         return this.startPromise;
     }
 
@@ -193,7 +196,9 @@ export class PythonBackendServer {
             const cacheMb = Math.max(64, config.get<number>('cacheMemoryMb', 1024));
             const scriptPath = path.join(this.extensionPath, 'python-backend', 'backend_server.py');
 
-            this.proc = spawn(pythonCommand, [scriptPath], {
+            this.stdoutBuf.value = '';
+            this.stderrBuf = '';
+            const child = spawn(pythonCommand, [scriptPath], {
                 cwd: this.extensionPath,
                 stdio: ['pipe', 'pipe', 'pipe'],
                 env: {
@@ -202,10 +207,29 @@ export class PythonBackendServer {
                     // AWA_PERF_LOG: inherit from env (default '0' = opt-in)
                 },
             });
+            this.proc = child;
+
+            let startupFinished = false;
+            let startupStderr = '';
+            const failStartup = (error: Error): void => {
+                if (startupFinished) { return; }
+                startupFinished = true;
+                clearTimeout(timeout);
+                this.startPromise = null;
+                reject(error);
+            };
 
             const timeout = setTimeout(
-                () => reject(new Error('PythonBackendServer startup timed out')),
-                30_000,
+                () => {
+                    const error = backendStartupError(
+                        `PythonBackendServer startup timed out after ${PythonBackendServer.STARTUP_TIMEOUT_MS / 1000} seconds`,
+                        startupStderr,
+                    );
+                    if (this.proc === child) { this.proc = null; }
+                    failStartup(error);
+                    child.kill();
+                },
+                PythonBackendServer.STARTUP_TIMEOUT_MS,
             );
 
             const handleReadyOrLine = (chunk: Buffer | string): void => {
@@ -234,10 +258,12 @@ export class PythonBackendServer {
                         });
                         continue;
                     }
+                    if (startupFinished || this.proc !== child) { return; }
+                    startupFinished = true;
                     clearTimeout(timeout);
                     this.startPromise = null;
-                    this.proc!.stdout!.off('data', handleReadyOrLine);
-                    this.proc!.stdout!.on('data', (data: Buffer | string) => {
+                    child.stdout!.off('data', handleReadyOrLine);
+                    child.stdout!.on('data', (data: Buffer | string) => {
                         processStdoutChunk(this.stdoutBuf, data.toString(), this.pending, {
                             onNotification: (message) => {
                                 if (message.type === 'heartbeat') { this.onHeartbeat(); }
@@ -250,10 +276,12 @@ export class PythonBackendServer {
                     return;
                 }
             };
-            this.proc.stdout!.on('data', handleReadyOrLine);
+            child.stdout!.on('data', handleReadyOrLine);
 
-            this.proc.stderr!.on('data', (chunk: Buffer | string) => {
-                this.stderrBuf += chunk.toString();
+            child.stderr!.on('data', (chunk: Buffer | string) => {
+                const text = chunk.toString();
+                if (!startupFinished) { startupStderr += text; }
+                this.stderrBuf += text;
                 const lines = this.stderrBuf.split('\n');
                 this.stderrBuf = lines.pop() ?? '';
                 for (const line of lines) {
@@ -263,20 +291,26 @@ export class PythonBackendServer {
                 }
             });
 
-            this.proc.on('error', (err) => {
-                clearTimeout(timeout);
-                this.proc = null;
-                this.startPromise = null;
-                this.rejectAll(err);
-                reject(err);
+            child.on('error', (err) => {
+                const error = backendStartupError(`Failed to start Python backend (${pythonCommand}): ${err.message}`, startupStderr);
+                if (this.proc === child) { this.proc = null; }
+                failStartup(error);
+                this.rejectAll(error);
             });
 
-            this.proc.on('exit', () => {
-                clearTimeout(timeout);
+            child.on('exit', (code, signal) => {
+                const suffix = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
+                const error = backendStartupError(
+                    startupFinished
+                        ? `PythonBackendServer exited unexpectedly (${suffix})`
+                        : `Python backend exited before ready (${suffix})`,
+                    startupStderr,
+                );
+                failStartup(error);
                 this.stopWatchdog();
-                this.proc = null;
+                if (this.proc === child) { this.proc = null; }
                 this.startPromise = null;
-                this.rejectAll(new Error('PythonBackendServer exited unexpectedly'));
+                this.rejectAll(error);
             });
         });
     }

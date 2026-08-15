@@ -37,6 +37,11 @@ export function rejectPendingRequests(pending: Map<string, PendingRequest>, erro
     pending.clear();
 }
 
+export function backendStartupError(message: string, stderr: string): Error {
+    const details = stderr.trim();
+    return new Error(details ? `${message}: ${details}` : message);
+}
+
 function protocolError(message: string): BackendProtocolError {
     return new BackendProtocolError(message);
 }

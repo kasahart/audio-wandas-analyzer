@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import {
+    backendStartupError,
     processStdoutChunk,
     rejectPendingRequests,
     type BackendDiagnostic,
@@ -45,6 +46,18 @@ function makePending(
         reject: (error) => { rejected.push(error); },
     };
 }
+
+test('backendStartupError includes stderr when Python exits before ready', () => {
+    const error = backendStartupError(
+        'Python backend exited before ready (code 1)',
+        'Traceback\nModuleNotFoundError: No module named numpy\n',
+    );
+
+    assert.equal(
+        error.message,
+        'Python backend exited before ready (code 1): Traceback\nModuleNotFoundError: No module named numpy',
+    );
+});
 
 function calibratedAnalyzeResponse(): { [key: string]: unknown } {
     const measurement = {
