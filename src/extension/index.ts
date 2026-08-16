@@ -14,6 +14,7 @@ import { PythonBackendServer } from './pythonBackendServer';
 import { RecipeFlow } from './recipeFlow';
 
 export function activate(context: vscode.ExtensionContext): void {
+    let deactivated = false;
     const perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
     const logPerf = (line: string): void => { perfChannel.appendLine(line); };
     const backend = new PythonBackendServer(context.extensionPath, (line) => {
@@ -34,7 +35,10 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         pythonStatusBarItem,
         panelController,
-        { dispose: () => backend.dispose() },
+        { dispose: () => {
+            deactivated = true;
+            backend.dispose();
+        } },
         perfChannel,
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration('audioWandasAnalyzer.pythonCommand')) {
@@ -68,14 +72,15 @@ export function activate(context: vscode.ExtensionContext): void {
         .getConfiguration('audioWandasAnalyzer')
         .get<string>('pythonCommand', 'python3');
     setStatusBarNormal(pythonStatusBarItem, pythonCommand);
-    void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem).then(async () => {
+    void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem).then(async (dependenciesReady) => {
         const currentPythonCommand = vscode.workspace
             .getConfiguration('audioWandasAnalyzer')
             .get<string>('pythonCommand', 'python3');
-        if (currentPythonCommand !== pythonCommand) { return; }
+        if (!dependenciesReady || deactivated || currentPythonCommand !== pythonCommand) { return; }
         setStatusBarImporting(pythonStatusBarItem, pythonCommand);
         try {
             await backend.warmup();
+            if (deactivated) { return; }
             if (vscode.workspace.getConfiguration('audioWandasAnalyzer')
                 .get<string>('pythonCommand', 'python3') === pythonCommand) {
                 setStatusBarNormal(pythonStatusBarItem, pythonCommand);

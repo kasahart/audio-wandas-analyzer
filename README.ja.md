@@ -99,7 +99,6 @@ Audio Analyzer: Select Python Environment
 | 設定キー | 既定値 | 説明 |
 | --- | --- | --- |
 | `audioWandasAnalyzer.pythonCommand` | `python3` | バックエンドに使う Python 環境フォルダまたは実行ファイル |
-| `audioWandasAnalyzer.defaultPeakCount` | `5` | チャンネルごとに表示する主要周波数ピーク数。1 から 20 まで |
 | `audioWandasAnalyzer.cacheMemoryMb` | `1024` | 常駐 Python 波形バックエンドが使う音声キャッシュの上限 MB |
 | `audioWandasAnalyzer.debugFilePath` | `media/debug` | **Audio Analyzer: Analyze Debug Path** で開く既定パス |
 

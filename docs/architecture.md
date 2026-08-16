@@ -66,7 +66,7 @@ flowchart LR
 - 対象の音声ファイルまたはディレクトリを選択または解決する
 - 受け取った対象を単一ファイル解析導線または比較ビュー導線へ振り分ける
 - Webview から `select-target`、`analyze-selected-files`、`request-waveform-range` を受け取る
-- 設定値 `pythonCommand`、`defaultPeakCount`、`debugFilePath` を読み込む
+- 設定値 `pythonCommand`、`cacheMemoryMb`、`debugFilePath` を読み込む
 - Python バックエンドを子プロセスとして起動する
 - 標準出力の JSON を `AnalysisResult` として解釈し、失敗時は `error` 付きの結果へ変換して `AnalysisResultWithError[]` に蓄積する
 - ディレクトリ指定時は `ComparisonPanel` を選択モードで開き、チェック変更のたびに同じ panel 内のトラック表示を更新する
@@ -99,7 +99,7 @@ flowchart LR
 
 責務:
 
-- コマンドライン引数 `--file` と `--peaks` を受け取る
+- コマンドライン引数 `--file` を受け取る
 - `analyze_audio` を呼び出す
 - 解析結果を JSON として標準出力に書き出す
 - 例外発生時は標準エラー出力にメッセージを出し、非ゼロ終了コードで終了する
@@ -394,7 +394,7 @@ docs/
 プロジェクト設定の主要な境界は以下です。
 
 - `audioWandasAnalyzer.pythonCommand`: Python 実行コマンド
-- `audioWandasAnalyzer.defaultPeakCount`: チャンネルごとの優勢周波数件数
+- `audioWandasAnalyzer.cacheMemoryMb`: 常駐 Python バックエンドの音声キャッシュ上限
 - `audioWandasAnalyzer.debugFilePath`: デバッグ用音声ファイルまたはディレクトリのパス
 
 この構成により、実行環境の違いは主に Python コマンド解決へ閉じ込められます。

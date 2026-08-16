@@ -5,7 +5,7 @@ import type { AnalyzeOptions } from './pythonBackendServer';
 
 export interface AnalysisBackend {
     analyze(filePath: string, options: AnalyzeOptions): Promise<AnalysisResult>;
-    warmup(): void;
+    warmup(): Promise<void>;
 }
 
 export interface ProgressMessageSink {
@@ -40,7 +40,10 @@ export class AnalysisOrchestrator {
     ) {}
 
     warmup(): void {
-        this.backend.warmup();
+        void this.backend.warmup().catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logPerf(`[ts] backend warmup failed error=${message}`);
+        });
     }
 
     async analyzeFiles(
@@ -75,22 +78,38 @@ export class AnalysisOrchestrator {
                     try {
                         results.push(await this.analyzeFile(filePath, stftOptions));
                     } catch (error) {
-                        results.push({
-                            filePath,
-                            fileName,
-                            sampleRateHz: 0,
-                            durationSeconds: 0,
-                            channelCount: 0,
-                            sampleCount: 0,
-                            channels: [],
-                            analysisRevision: errorAnalysisRevision(error),
-                            error: error instanceof Error ? error.message : String(error),
-                        });
+                        const message = error instanceof Error ? error.message : String(error);
+                        results.push(this.errorResult(filePath, message, errorAnalysisRevision(error)));
+                        if (this.isBackendStartupFailure(error)) {
+                            for (const skippedPath of filePaths.slice(index + 1)) {
+                                results.push(this.errorResult(skippedPath, message, errorAnalysisRevision(error)));
+                            }
+                            break;
+                        }
                     }
                 }
                 return results;
             },
         );
+    }
+
+    private isBackendStartupFailure(error: unknown): boolean {
+        return Boolean(error && typeof error === 'object'
+            && (error as { backendStartupFailure?: unknown }).backendStartupFailure === true);
+    }
+
+    private errorResult(filePath: string, message: string, analysisRevision: number): AnalysisResultWithError {
+        return {
+            filePath,
+            fileName: path.basename(filePath),
+            sampleRateHz: 0,
+            durationSeconds: 0,
+            channelCount: 0,
+            sampleCount: 0,
+            channels: [],
+            analysisRevision,
+            error: message,
+        };
     }
 
     private async analyzeFile(filePath: string, stftOptions?: StftOptions): Promise<AnalysisResult> {

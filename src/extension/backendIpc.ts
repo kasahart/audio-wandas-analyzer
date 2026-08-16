@@ -37,9 +37,16 @@ export function rejectPendingRequests(pending: Map<string, PendingRequest>, erro
     pending.clear();
 }
 
-export function backendStartupError(message: string, stderr: string): Error {
+export class BackendStartupError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'BackendStartupError';
+    }
+}
+
+export function backendStartupError(message: string, stderr: string): BackendStartupError {
     const details = stderr.trim();
-    return new Error(details ? `${message}: ${details}` : message);
+    return new BackendStartupError(details ? `${message}: ${details}` : message);
 }
 
 export function formatPythonImportTiming(line: string, minimumCumulativeMs = 100): string | null {

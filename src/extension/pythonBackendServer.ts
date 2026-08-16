@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import {
     backendStartupError,
+    BackendStartupError,
     formatPythonImportTiming,
     processStdoutChunk,
     rejectPendingRequests,
@@ -29,7 +30,11 @@ import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
 
 export class AnalysisRequestError extends Error {
-    constructor(message: string, readonly analysisRevision: number) {
+    constructor(
+        message: string,
+        readonly analysisRevision: number,
+        readonly backendStartupFailure = false,
+    ) {
         super(message);
         this.name = 'AnalysisRequestError';
     }
@@ -69,6 +74,7 @@ export class PythonBackendServer {
             throw new AnalysisRequestError(
                 error instanceof Error ? error.message : String(error),
                 analysisRevision,
+                error instanceof BackendStartupError,
             );
         }
     }
@@ -302,7 +308,9 @@ export class PythonBackendServer {
             });
 
             child.on('error', (err) => {
-                const error = backendStartupError(`Failed to start Python backend (${pythonCommand}): ${err.message}`, startupStderr);
+                const error = startupFinished
+                    ? new Error(`Python backend process error (${pythonCommand}): ${err.message}`)
+                    : backendStartupError(`Failed to start Python backend (${pythonCommand}): ${err.message}`, startupStderr);
                 const wasCurrent = this.proc === child;
                 failStartup(error);
                 if (wasCurrent) {
@@ -314,12 +322,9 @@ export class PythonBackendServer {
             child.on('exit', (code, signal) => {
                 const wasCurrent = this.proc === child;
                 const suffix = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
-                const error = backendStartupError(
-                    startupFinished
-                        ? `PythonBackendServer exited unexpectedly (${suffix})`
-                        : `Python backend exited before ready (${suffix})`,
-                    startupStderr,
-                );
+                const error = startupFinished
+                    ? new Error(`PythonBackendServer exited unexpectedly (${suffix})`)
+                    : backendStartupError(`Python backend exited before ready (${suffix})`, startupStderr);
                 failStartup(error);
                 if (wasCurrent) {
                     this.stopWatchdog();

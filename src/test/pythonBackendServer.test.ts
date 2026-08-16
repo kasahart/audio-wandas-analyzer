@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import {
     backendStartupError,
+    BackendStartupError,
     formatPythonImportTiming,
     processStdoutChunk,
     rejectPendingRequests,
@@ -58,6 +59,7 @@ test('backendStartupError includes stderr when Python exits before ready', () =>
         error.message,
         'Python backend exited before ready (code 1): Traceback\nModuleNotFoundError: No module named numpy',
     );
+    assert.ok(error instanceof BackendStartupError);
 });
 
 test('formatPythonImportTiming keeps only slow imports as structured milliseconds', () => {
