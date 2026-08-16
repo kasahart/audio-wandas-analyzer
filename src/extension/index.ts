@@ -32,6 +32,35 @@ export function activate(context: vscode.ExtensionContext): void {
     const pythonStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
     pythonStatusBarItem.command = 'audioWandasAnalyzer.selectPythonEnvironment';
 
+    const warmPythonBackend = (pythonCommand: string): void => {
+        void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem).then(async (dependenciesReady) => {
+            const currentPythonCommand = vscode.workspace
+                .getConfiguration('audioWandasAnalyzer')
+                .get<string>('pythonCommand', 'python3');
+            if (!dependenciesReady || deactivated || currentPythonCommand !== pythonCommand) { return; }
+            setStatusBarImporting(pythonStatusBarItem, pythonCommand);
+            try {
+                await backend.warmup();
+                if (deactivated) { return; }
+                if (vscode.workspace.getConfiguration('audioWandasAnalyzer')
+                    .get<string>('pythonCommand', 'python3') === pythonCommand) {
+                    setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                logPerf(`[ts] backend warmup failed error=${message}`);
+                if (vscode.workspace.getConfiguration('audioWandasAnalyzer')
+                    .get<string>('pythonCommand', 'python3') === pythonCommand) {
+                    setStatusBarWarning(
+                        pythonStatusBarItem,
+                        pythonCommand,
+                        `Python backend failed to start: ${message}`,
+                    );
+                }
+            }
+        });
+    };
+
     context.subscriptions.push(
         pythonStatusBarItem,
         panelController,
@@ -43,6 +72,11 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration('audioWandasAnalyzer.pythonCommand')) {
                 backend.dispose();
+                const pythonCommand = vscode.workspace
+                    .getConfiguration('audioWandasAnalyzer')
+                    .get<string>('pythonCommand', 'python3');
+                setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+                warmPythonBackend(pythonCommand);
             }
         }),
     );
@@ -72,32 +106,7 @@ export function activate(context: vscode.ExtensionContext): void {
         .getConfiguration('audioWandasAnalyzer')
         .get<string>('pythonCommand', 'python3');
     setStatusBarNormal(pythonStatusBarItem, pythonCommand);
-    void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem).then(async (dependenciesReady) => {
-        const currentPythonCommand = vscode.workspace
-            .getConfiguration('audioWandasAnalyzer')
-            .get<string>('pythonCommand', 'python3');
-        if (!dependenciesReady || deactivated || currentPythonCommand !== pythonCommand) { return; }
-        setStatusBarImporting(pythonStatusBarItem, pythonCommand);
-        try {
-            await backend.warmup();
-            if (deactivated) { return; }
-            if (vscode.workspace.getConfiguration('audioWandasAnalyzer')
-                .get<string>('pythonCommand', 'python3') === pythonCommand) {
-                setStatusBarNormal(pythonStatusBarItem, pythonCommand);
-            }
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            logPerf(`[ts] backend warmup failed error=${message}`);
-            if (vscode.workspace.getConfiguration('audioWandasAnalyzer')
-                .get<string>('pythonCommand', 'python3') === pythonCommand) {
-                setStatusBarWarning(
-                    pythonStatusBarItem,
-                    pythonCommand,
-                    `Python backend failed to start: ${message}`,
-                );
-            }
-        }
-    });
+    warmPythonBackend(pythonCommand);
 }
 
 export function deactivate(): void {}

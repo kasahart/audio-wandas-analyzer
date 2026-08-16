@@ -4,7 +4,11 @@ import type { AnalysisResult, AnalysisResultWithError, StftOptions } from '../sh
 import type { AnalyzeOptions } from './pythonBackendServer';
 
 export interface AnalysisBackend {
-    analyze(filePath: string, options: AnalyzeOptions): Promise<AnalysisResult>;
+    analyze(
+        filePath: string,
+        options: AnalyzeOptions,
+        cancellation?: vscode.CancellationToken,
+    ): Promise<AnalysisResult>;
     warmup(): Promise<void>;
 }
 
@@ -76,8 +80,9 @@ export class AnalysisOrchestrator {
                         fileName,
                     });
                     try {
-                        results.push(await this.analyzeFile(filePath, stftOptions));
+                        results.push(await this.analyzeFile(filePath, stftOptions, cancellable ? token : undefined));
                     } catch (error) {
+                        if (error instanceof vscode.CancellationError) { throw error; }
                         const message = error instanceof Error ? error.message : String(error);
                         results.push(this.errorResult(filePath, message, errorAnalysisRevision(error)));
                         if (this.isBackendStartupFailure(error)) {
@@ -112,14 +117,18 @@ export class AnalysisOrchestrator {
         };
     }
 
-    private async analyzeFile(filePath: string, stftOptions?: StftOptions): Promise<AnalysisResult> {
+    private async analyzeFile(
+        filePath: string,
+        stftOptions?: StftOptions,
+        cancellation?: vscode.CancellationToken,
+    ): Promise<AnalysisResult> {
         const fileLabel = path.basename(filePath);
         const startedAt = Date.now();
         this.logPerf(`[ts] analyze start file=${fileLabel}`);
         try {
             const result = await this.backend.analyze(filePath, {
                 stftOptions,
-            });
+            }, cancellation);
             this.logPerf(`[ts] analyze done  file=${fileLabel} total_ms=${Date.now() - startedAt}`);
             return result;
         } catch (error) {

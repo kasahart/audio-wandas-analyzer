@@ -4,9 +4,11 @@ import * as vscode from 'vscode';
 import {
     backendStartupError,
     BackendStartupError,
+    BackendStartupCancelledError,
     formatPythonImportTiming,
     processStdoutChunk,
     rejectPendingRequests,
+    waitForBackendStartup,
     type BackendDiagnostic,
     type PendingRequest,
 } from './backendIpc';
@@ -62,15 +64,22 @@ export class PythonBackendServer {
         return this.ensureRunning();
     }
 
-    async analyze(filePath: string, options: AnalyzeOptions): Promise<BackendResult<'analyze'>> {
+    async analyze(
+        filePath: string,
+        options: AnalyzeOptions,
+        cancellation?: vscode.CancellationToken,
+    ): Promise<BackendResult<'analyze'>> {
         const analysisRevision = options.analysisRevision ?? 0;
         try {
             return await this.request('analyze', {
                 filePath,
                 ...(options.stftOptions ? { stftOptions: options.stftOptions } : {}),
                 ...this.calibrationPayload(options),
-            });
+            }, undefined, cancellation);
         } catch (error) {
+            if (error instanceof BackendStartupCancelledError) {
+                throw new vscode.CancellationError();
+            }
             throw new AnalysisRequestError(
                 error instanceof Error ? error.message : String(error),
                 analysisRevision,
@@ -167,8 +176,12 @@ export class PythonBackendServer {
         command: K,
         payload: BackendPayload<K>,
         requestId?: string,
+        cancellation?: vscode.CancellationToken,
     ): Promise<BackendResult<K>> {
-        await this.ensureRunning();
+        await waitForBackendStartup(this.ensureRunning(), cancellation);
+        if (cancellation?.isCancellationRequested) {
+            throw new BackendStartupCancelledError();
+        }
         const id = requestId ?? `r${this.nextId++}`;
         return new Promise<BackendResult<K>>((resolve, reject) => {
             this.pending.set(id, {

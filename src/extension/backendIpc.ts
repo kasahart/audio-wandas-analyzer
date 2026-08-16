@@ -37,6 +37,57 @@ export function rejectPendingRequests(pending: Map<string, PendingRequest>, erro
     pending.clear();
 }
 
+export interface CancellationSignal {
+    readonly isCancellationRequested: boolean;
+    onCancellationRequested(listener: () => void): { dispose(): void };
+}
+
+export class BackendStartupCancelledError extends Error {
+    constructor() {
+        super('Python backend startup cancelled');
+        this.name = 'BackendStartupCancelledError';
+    }
+}
+
+export async function waitForBackendStartup(
+    startup: Promise<void>,
+    cancellation?: CancellationSignal,
+): Promise<void> {
+    if (!cancellation) {
+        await startup;
+        return;
+    }
+    if (cancellation.isCancellationRequested) {
+        throw new BackendStartupCancelledError();
+    }
+    await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let disposable: { dispose(): void } | undefined;
+        const cancel = (): void => {
+            if (settled) { return; }
+            settled = true;
+            disposable?.dispose();
+            reject(new BackendStartupCancelledError());
+        };
+        disposable = cancellation.onCancellationRequested(cancel);
+        if (cancellation.isCancellationRequested) { cancel(); }
+        void startup.then(
+            () => {
+                if (settled) { return; }
+                settled = true;
+                disposable.dispose();
+                resolve();
+            },
+            (error: unknown) => {
+                if (settled) { return; }
+                settled = true;
+                disposable.dispose();
+                reject(error);
+            },
+        );
+    });
+}
+
 export class BackendStartupError extends Error {
     constructor(message: string) {
         super(message);

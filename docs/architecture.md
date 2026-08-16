@@ -117,7 +117,7 @@ flowchart LR
 
 - `wandas.read()` による音声データ読み込み
 - チャンネル向きの正規化
-- RMS、ピーク値、優勢周波数の算出
+- ピーク値の算出
 - 波形エンベロープ生成（`decimator.py` 経由）
 - スペクトログラム生成と可視化向けの縮約
 - UI が扱いやすい辞書構造への整形
@@ -247,7 +247,7 @@ sequenceDiagram
     U->>E: Analyze File / Analyze Debug Path
     E->>E: 設定読込と対象パス解決
     E->>P: 子プロセス起動
-    P->>A: analyze_audio(file, peak_count)
+    P->>A: analyze_audio(file)
     A-->>P: 解析結果 dict
     P-->>E: stdout に JSON 出力
     E->>E: JSON.parse / AnalysisResultWithError[] を構築
@@ -270,7 +270,7 @@ sequenceDiagram
     C->>E: analyze-selected-files
     loop selected filePaths
         E->>P: 子プロセス起動
-        P->>A: analyze_audio(file, peak_count)
+        P->>A: analyze_audio(file)
         A-->>P: 解析結果 dict
         P-->>E: stdout に JSON 出力
         E->>E: JSON.parse / AnalysisResultWithError[] へ追加
@@ -313,11 +313,9 @@ interface AnalysisResult {
 各 `ChannelSummary` は以下を保持します。
 
 - ラベル
-- RMS
 - Peak absolute value
-- 優勢周波数の配列
 - 波形エンベロープ
-- スペクトログラム
+- 遅延解析で取得したスペクトログラム（未取得時は `null`）
 
 この構造により、バックエンドと UI の依存関係は明確で、互いの内部実装を知らなくても境界契約だけで接続できます。
 

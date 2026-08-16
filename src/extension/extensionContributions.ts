@@ -1,11 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { isSupportedAudioFile } from '../shared/utils/audioTarget';
-import {
-    checkAndPromptInstallDependencies,
-    selectPythonEnvironment,
-    setStatusBarNormal,
-} from './pythonEnvironment';
+import { selectPythonEnvironment } from './pythonEnvironment';
 import type { RecipeFlow } from './recipeFlow';
 import { getDebugTargetUri, pickAudioTarget } from './targetDiscovery';
 
@@ -138,13 +134,5 @@ export function registerExtensionContributions(
             'audioWandasAnalyzer.runRecipe',
             async (filePaths?: string[]) => { await recipeFlow.run(filePaths); },
         ),
-        vscode.workspace.onDidChangeConfiguration((event) => {
-            if (!event.affectsConfiguration('audioWandasAnalyzer.pythonCommand')) { return; }
-            const pythonCommand = vscode.workspace
-                .getConfiguration('audioWandasAnalyzer')
-                .get<string>('pythonCommand', 'python3');
-            setStatusBarNormal(pythonStatusBarItem, pythonCommand);
-            void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
-        }),
     );
 }

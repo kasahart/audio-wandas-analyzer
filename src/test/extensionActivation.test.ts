@@ -11,7 +11,10 @@ test('activate keeps analyze commands available and warms Python when workspace 
     const registeredCommandIds: string[] = [];
     const createdTreeViewIds: string[] = [];
     let backendWarmupCalls = 0;
+    let backendDisposeCalls = 0;
     let importingStatusCalls = 0;
+    let currentPythonCommand = 'python3';
+    let configurationListener: ((event: { affectsConfiguration(section: string): boolean }) => void) | undefined;
     let createdTreeViewOptions: {
         treeDataProvider?: { getChildren(): unknown[]; getTreeItem(element: unknown): unknown };
         dragAndDropController?: unknown;
@@ -44,9 +47,16 @@ test('activate keeps analyze commands available and warms Python when workspace 
         },
         workspace: {
             getConfiguration: () => ({
-                get: <T>(_key: string, defaultValue: T) => defaultValue,
+                get: <T>(key: string, defaultValue: T) => (
+                    key === 'pythonCommand' ? currentPythonCommand as T : defaultValue
+                ),
             }),
-            onDidChangeConfiguration: () => ({ dispose() {} }),
+            onDidChangeConfiguration: (
+                listener: (event: { affectsConfiguration(section: string): boolean }) => void,
+            ) => {
+                configurationListener = listener;
+                return { dispose() {} };
+            },
         },
         StatusBarAlignment: {
             Left: 1,
@@ -111,7 +121,7 @@ test('activate keeps analyze commands available and warms Python when workspace 
                     async warmup(): Promise<void> {
                         backendWarmupCalls += 1;
                     }
-                    dispose(): void {}
+                    dispose(): void { backendDisposeCalls += 1; }
                 },
             };
         }
@@ -170,6 +180,17 @@ test('activate keeps analyze commands available and warms Python when workspace 
         assert.deepEqual(createdTreeViewIds, ['audioWandasAnalyzer.welcomeView']);
         assert.equal(importingStatusCalls, 1);
         assert.equal(backendWarmupCalls, 1);
+
+        currentPythonCommand = '.venv';
+        configurationListener?.({
+            affectsConfiguration: (section) => section === 'audioWandasAnalyzer.pythonCommand',
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        assert.equal(backendDisposeCalls, 1);
+        assert.equal(importingStatusCalls, 2);
+        assert.equal(backendWarmupCalls, 2);
         const welcomeItems = createdTreeViewOptions?.treeDataProvider?.getChildren() as Array<{
             label: string;
             description?: string;

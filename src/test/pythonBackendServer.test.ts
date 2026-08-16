@@ -5,9 +5,11 @@ import { test } from 'node:test';
 import {
     backendStartupError,
     BackendStartupError,
+    BackendStartupCancelledError,
     formatPythonImportTiming,
     processStdoutChunk,
     rejectPendingRequests,
+    waitForBackendStartup,
     type BackendDiagnostic,
     type PendingRequest,
 } from '../extension/backendIpc';
@@ -69,6 +71,24 @@ test('formatPythonImportTiming keeps only slow imports as structured millisecond
     );
     assert.equal(formatPythonImportTiming('import time:       100 |       9999 | small_module'), null);
     assert.equal(formatPythonImportTiming('import time: self [us] | cumulative | imported package'), null);
+});
+
+test('waitForBackendStartup lets cancellation interrupt a pending startup', async () => {
+    let cancel: (() => void) | undefined;
+    let resolveStartup: (() => void) | undefined;
+    const startup = new Promise<void>((resolve) => { resolveStartup = resolve; });
+    const waiting = waitForBackendStartup(startup, {
+        isCancellationRequested: false,
+        onCancellationRequested: (listener) => {
+            cancel = listener;
+            return { dispose: () => { cancel = undefined; } };
+        },
+    });
+
+    cancel?.();
+
+    await assert.rejects(waiting, BackendStartupCancelledError);
+    resolveStartup?.();
 });
 
 function calibratedAnalyzeResponse(): { [key: string]: unknown } {
