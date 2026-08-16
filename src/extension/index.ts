@@ -6,7 +6,9 @@ import { autoOpenDebugTarget, registerExtensionContributions } from './extension
 import { PanelController } from './panelController';
 import {
     checkAndPromptInstallDependencies,
+    setStatusBarImporting,
     setStatusBarNormal,
+    setStatusBarWarning,
 } from './pythonEnvironment';
 import { PythonBackendServer } from './pythonBackendServer';
 import { RecipeFlow } from './recipeFlow';
@@ -34,6 +36,11 @@ export function activate(context: vscode.ExtensionContext): void {
         panelController,
         { dispose: () => backend.dispose() },
         perfChannel,
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (event.affectsConfiguration('audioWandasAnalyzer.pythonCommand')) {
+                backend.dispose();
+            }
+        }),
     );
     registerExtensionContributions(context, pythonStatusBarItem, panelController, recipeFlow);
 
@@ -61,7 +68,31 @@ export function activate(context: vscode.ExtensionContext): void {
         .getConfiguration('audioWandasAnalyzer')
         .get<string>('pythonCommand', 'python3');
     setStatusBarNormal(pythonStatusBarItem, pythonCommand);
-    void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
+    void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem).then(async () => {
+        const currentPythonCommand = vscode.workspace
+            .getConfiguration('audioWandasAnalyzer')
+            .get<string>('pythonCommand', 'python3');
+        if (currentPythonCommand !== pythonCommand) { return; }
+        setStatusBarImporting(pythonStatusBarItem, pythonCommand);
+        try {
+            await backend.warmup();
+            if (vscode.workspace.getConfiguration('audioWandasAnalyzer')
+                .get<string>('pythonCommand', 'python3') === pythonCommand) {
+                setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logPerf(`[ts] backend warmup failed error=${message}`);
+            if (vscode.workspace.getConfiguration('audioWandasAnalyzer')
+                .get<string>('pythonCommand', 'python3') === pythonCommand) {
+                setStatusBarWarning(
+                    pythonStatusBarItem,
+                    pythonCommand,
+                    `Python backend failed to start: ${message}`,
+                );
+            }
+        }
+    });
 }
 
 export function deactivate(): void {}

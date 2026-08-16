@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-test('activate keeps analyze commands available when workspace test registration fails', () => {
+test('activate keeps analyze commands available and warms Python when workspace test registration fails', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as {
         _load: (request: string, parent: unknown, isMain: boolean) => unknown;
@@ -10,6 +10,8 @@ test('activate keeps analyze commands available when workspace test registration
     const originalConsoleError = console.error;
     const registeredCommandIds: string[] = [];
     const createdTreeViewIds: string[] = [];
+    let backendWarmupCalls = 0;
+    let importingStatusCalls = 0;
     let createdTreeViewOptions: {
         treeDataProvider?: { getChildren(): unknown[]; getTreeItem(element: unknown): unknown };
         dragAndDropController?: unknown;
@@ -106,6 +108,9 @@ test('activate keeps analyze commands available when workspace test registration
         if (request === './pythonBackendServer') {
             return {
                 PythonBackendServer: class {
+                    async warmup(): Promise<void> {
+                        backendWarmupCalls += 1;
+                    }
                     dispose(): void {}
                 },
             };
@@ -121,7 +126,9 @@ test('activate keeps analyze commands available when workspace test registration
                     tooltip: 'Click to select Python environment',
                 }),
                 onDidChangePythonEnvironmentState: () => ({ dispose() {} }),
+                setStatusBarImporting: () => { importingStatusCalls += 1; },
                 setStatusBarNormal: () => {},
+                setStatusBarWarning: () => {},
             };
         }
 
@@ -150,6 +157,8 @@ test('activate keeps analyze commands available when workspace test registration
                 subscriptions: [],
             });
         });
+        await Promise.resolve();
+        await Promise.resolve();
 
         assert.deepEqual(registeredCommandIds, [
             'audioWandasAnalyzer.analyzeFile',
@@ -159,6 +168,8 @@ test('activate keeps analyze commands available when workspace test registration
             'audioWandasAnalyzer.runRecipe',
         ]);
         assert.deepEqual(createdTreeViewIds, ['audioWandasAnalyzer.welcomeView']);
+        assert.equal(importingStatusCalls, 1);
+        assert.equal(backendWarmupCalls, 1);
         const welcomeItems = createdTreeViewOptions?.treeDataProvider?.getChildren() as Array<{
             label: string;
             description?: string;

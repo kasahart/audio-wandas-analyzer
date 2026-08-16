@@ -157,6 +157,29 @@ test('setStatusBarNormal clears warning state and shows the item', () => {
     }
 });
 
+test('setStatusBarImporting shows background module import progress', () => {
+    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({});
+    const item = {
+        text: '',
+        tooltip: '',
+        backgroundColor: 'warning',
+        showCalls: 0,
+        show() {
+            this.showCalls += 1;
+        },
+    };
+
+    try {
+        pythonEnvironment.setStatusBarImporting(item as never, '.venv/bin/python');
+        assert.equal(item.text, '$(sync~spin) Python: importing modules');
+        assert.equal(item.tooltip, 'Importing Python analysis modules in the background.\n.venv/bin/python');
+        assert.equal(item.backgroundColor, undefined);
+        assert.equal(item.showCalls, 1);
+    } finally {
+        restore();
+    }
+});
+
 test('setStatusBarNormal updates the shared Python environment state', () => {
     const { pythonEnvironment, restore } = loadPythonEnvironmentModule({});
     const emittedStates: Array<{ pythonCommand: string; status: string; tooltip: string }> = [];

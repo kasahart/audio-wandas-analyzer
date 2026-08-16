@@ -89,6 +89,7 @@ export const MISSING_DEPENDENCIES_TOOLTIP = 'Python dependencies are missing or 
 export const MISSING_INTERPRETER_TOOLTIP = 'Python interpreter was not found. Click to select another environment.';
 export const PIP_UNAVAILABLE_TOOLTIP = 'pip is not available in this environment. Click to select another environment.';
 export const CHECK_FAILED_TOOLTIP = 'Python environment check failed. Click to select another environment.';
+export const IMPORTING_MODULES_TOOLTIP = 'Importing Python analysis modules in the background.';
 
 export interface PythonEnvironmentState {
     pythonCommand: string;
@@ -177,6 +178,13 @@ export function setStatusBarNormal(item: vscode.StatusBarItem, pythonCommand: st
         tooltip: SELECT_PYTHON_INTERPRETER_TOOLTIP,
     };
     pythonEnvironmentStateEmitter.fire(currentPythonEnvironmentState);
+}
+
+export function setStatusBarImporting(item: vscode.StatusBarItem, pythonCommand: string): void {
+    item.text = `$(sync~spin) Python: importing modules`;
+    item.tooltip = `${IMPORTING_MODULES_TOOLTIP}\n${pythonCommand}`;
+    item.backgroundColor = undefined;
+    item.show();
 }
 
 export function setStatusBarWarning(

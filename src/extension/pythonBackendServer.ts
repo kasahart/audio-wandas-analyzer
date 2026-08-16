@@ -53,8 +53,8 @@ export class PythonBackendServer {
         private readonly onPerfLine: (line: string) => void = () => { /* no-op */ },
     ) {}
 
-    warmup(): void {
-        void this.ensureRunning().catch(() => { /* surfaced on first request */ });
+    warmup(): Promise<void> {
+        return this.ensureRunning();
     }
 
     async analyze(filePath: string, options: AnalyzeOptions): Promise<BackendResult<'analyze'>> {
@@ -146,6 +146,7 @@ export class PythonBackendServer {
         this.stopWatchdog();
         this.proc?.kill();
         this.proc = null;
+        this.startPromise = null;
         this.rejectAll(new Error('PythonBackendServer disposed'));
     }
 
@@ -220,7 +221,7 @@ export class PythonBackendServer {
                 if (startupFinished) { return; }
                 startupFinished = true;
                 clearTimeout(timeout);
-                this.startPromise = null;
+                if (this.proc === child) { this.startPromise = null; }
                 reject(error);
             };
 
@@ -230,8 +231,8 @@ export class PythonBackendServer {
                         `PythonBackendServer startup timed out after ${PythonBackendServer.STARTUP_TIMEOUT_MS / 1000} seconds`,
                         startupStderr,
                     );
-                    if (this.proc === child) { this.proc = null; }
                     failStartup(error);
+                    if (this.proc === child) { this.proc = null; }
                     child.kill();
                 },
                 PythonBackendServer.STARTUP_TIMEOUT_MS,
@@ -302,12 +303,16 @@ export class PythonBackendServer {
 
             child.on('error', (err) => {
                 const error = backendStartupError(`Failed to start Python backend (${pythonCommand}): ${err.message}`, startupStderr);
-                if (this.proc === child) { this.proc = null; }
+                const wasCurrent = this.proc === child;
                 failStartup(error);
-                this.rejectAll(error);
+                if (wasCurrent) {
+                    this.proc = null;
+                    this.rejectAll(error);
+                }
             });
 
             child.on('exit', (code, signal) => {
+                const wasCurrent = this.proc === child;
                 const suffix = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
                 const error = backendStartupError(
                     startupFinished
@@ -316,10 +321,12 @@ export class PythonBackendServer {
                     startupStderr,
                 );
                 failStartup(error);
-                this.stopWatchdog();
-                if (this.proc === child) { this.proc = null; }
-                this.startPromise = null;
-                this.rejectAll(error);
+                if (wasCurrent) {
+                    this.stopWatchdog();
+                    this.proc = null;
+                    this.startPromise = null;
+                    this.rejectAll(error);
+                }
             });
         });
     }
