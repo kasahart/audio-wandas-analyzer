@@ -109,70 +109,6 @@ def channels_first(data: np.ndarray, channel_count: int, sample_count: int) -> n
     )
 
 
-def _dominant_frequencies(
-    magnitudes: np.ndarray,
-    freqs: np.ndarray,
-    peak_count: int,
-) -> list[dict[str, float]]:
-    if magnitudes.size <= 1 or freqs.size != magnitudes.size:
-        return []
-
-    magnitudes = np.asarray(magnitudes, dtype=np.float64).copy()
-    freqs = np.asarray(freqs, dtype=np.float64)
-    magnitudes[0] = 0.0
-    candidate_count = min(peak_count, magnitudes.size)
-    top_indices = np.argpartition(magnitudes, -candidate_count)[-candidate_count:]
-    sorted_indices = top_indices[np.argsort(magnitudes[top_indices])[::-1]]
-
-    return [
-        {
-            "frequencyHz": float(freqs[index]),
-            "magnitude": float(magnitudes[index]),
-        }
-        for index in sorted_indices
-    ]
-
-
-def _spectrum_peaks(
-    magnitudes: np.ndarray,
-    levels_db: np.ndarray,
-    freqs: np.ndarray,
-    peak_count: int,
-) -> list[dict[str, float]]:
-    """Return up to *peak_count* peaks as {freqHz, amplitudeDb} dicts.
-
-    Uses scipy.signal.find_peaks for proper local-maxima detection, then
-    converts magnitude (linear) to dB and returns the top-N by amplitude.
-    """
-    from scipy.signal import find_peaks  # lazy import — not all callers need this
-
-    if magnitudes.size <= 2 or freqs.size != magnitudes.size:
-        return []
-
-    mag = np.asarray(magnitudes, dtype=np.float64).copy()
-    levels = np.asarray(levels_db, dtype=np.float64)
-    fr = np.asarray(freqs, dtype=np.float64)
-    if levels.size != mag.size:
-        raise ValueError("Spectrum level and magnitude shapes must match")
-    mag[0] = 0.0  # suppress DC bin
-
-    indices, _ = find_peaks(mag, height=0)
-    if indices.size == 0:
-        return []
-
-    count = min(peak_count, indices.size)
-    top_indices = indices[np.argsort(mag[indices])[::-1][:count]]
-    return [
-        {
-            "freqHz": float(fr[index]),
-            "magnitude": float(mag[index]),
-            "levelDb": float(round(levels[index], 2)),
-            "amplitudeDb": float(round(levels[index], 2)),
-        }
-        for index in top_indices
-    ]
-
-
 def build_waveform_envelope(
     samples: np.ndarray,
     point_limit: int = WAVEFORM_POINT_LIMIT,
@@ -393,7 +329,6 @@ def _resolved_profile_from_frame(frame: wd.ChannelFrame) -> ResolvedCalibrationP
 def analyze_from_frame(
     frame: wd.ChannelFrame,
     file_path: str | Path,
-    peak_count: int = 5,
     *,
     raw_frame: wd.ChannelFrame | None = None,
     calibration_profile: ResolvedCalibrationProfile | None = None,
@@ -402,7 +337,6 @@ def analyze_from_frame(
     include_spectrogram: bool = False,
 ) -> dict[str, object]:
     """Build the AnalysisResult JSON payload from a ChannelFrame."""
-    peak_count = max(0, int(peak_count))  # guard against negative/zero from user config
     target = Path(file_path)
     t_frame = time.perf_counter()
     channel_count = int(frame.n_channels)
@@ -413,20 +347,12 @@ def analyze_from_frame(
     references = [frame.channels[index].level_reference for index in range(channel_count)]
     measurements = [measurement_metadata(channel, references[index]) for index, channel in enumerate(resolved.channels)]
     data = channels_first(np.asarray(frame.data), channel_count, sample_count)
-    rms_values = np.asarray(frame.rms, dtype=np.float64)
     raw_source = raw_frame or frame
     raw_data = channels_first(np.asarray(raw_source.data), channel_count, sample_count)
     if raw_frame is None and not resolved.is_identity:
         for index, channel in enumerate(resolved.channels):
             raw_data[index] = raw_data[index] / channel.factor
     _perf("read_frame", t_frame, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
-
-    t_fft = time.perf_counter()
-    fft = frame.fft()
-    fft_freqs = np.asarray(fft.freqs, dtype=np.float64)
-    fft_magnitudes = channels_first(np.asarray(fft.magnitude), channel_count, fft_freqs.size)
-    fft_levels = channels_first(np.asarray(fft.dB), channel_count, fft_freqs.size)
-    _perf("fft", t_fft, bins=fft_freqs.size)
 
     window_size, hop_size, window_name = resolve_stft_params(sample_count, stft_options)
     stft_db: np.ndarray | None = None
@@ -444,7 +370,6 @@ def analyze_from_frame(
     for index in range(channel_count):
         samples = data[index]
         measurement = measurements[index]
-        rms = float(rms_values[index])
         peak = float(np.max(np.abs(samples)))
         raw_peak = float(np.max(np.abs(raw_data[index])))
         spectrogram = None
@@ -462,14 +387,10 @@ def analyze_from_frame(
                 "label": labels[index] if index < len(labels) else f"Channel {index + 1}",
                 "unit": measurement["linearUnit"],
                 "measurement": measurement,
-                "rms": rms,
                 "peakAbsolute": peak,
-                "rmsLevelDb": references[index].to_level(rms),
                 "peakLevelDb": references[index].to_level(peak),
                 "rawPeakFullScale": raw_peak,
                 "clipped": raw_peak >= 0.99,
-                "dominantFrequencies": _dominant_frequencies(fft_magnitudes[index], fft_freqs, peak_count),
-                "peaks": _spectrum_peaks(fft_magnitudes[index], fft_levels[index], fft_freqs, peak_count),
                 "waveform": build_waveform_envelope(
                     samples,
                     WAVEFORM_POINT_LIMIT,
@@ -502,7 +423,6 @@ def analyze_from_frame(
 
 def analyze_audio(
     file_path: str | Path,
-    peak_count: int = 5,
     *,
     stft_options: Mapping[str, object] | None = None,
     calibration_profile: object = None,
@@ -515,7 +435,6 @@ def analyze_audio(
     return analyze_from_frame(
         frame,
         target,
-        peak_count=peak_count,
         raw_frame=source_frame,
         calibration_profile=resolved,
         stft_options=stft_options,

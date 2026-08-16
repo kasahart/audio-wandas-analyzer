@@ -99,7 +99,6 @@ The comparison toolbar includes export actions for everyday handoff work:
 | Key | Default | Description |
 | --- | --- | --- |
 | `audioWandasAnalyzer.pythonCommand` | `python3` | Python environment folder or executable used for the backend |
-| `audioWandasAnalyzer.defaultPeakCount` | `5` | Number of dominant frequency peaks shown per channel, from 1 to 20 |
 | `audioWandasAnalyzer.cacheMemoryMb` | `1024` | Maximum audio cache size used by the persistent Python waveform backend |
 | `audioWandasAnalyzer.debugFilePath` | `media/debug` | Default path for **Audio Analyzer: Analyze Debug Path** |
 

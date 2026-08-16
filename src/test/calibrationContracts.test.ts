@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -61,7 +61,8 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     const script = getCalibrationRenderScript();
 
     assert.match(script, /data-action="configure-calibration"/);
-    assert.match(script, /rmsLevelDb/);
+    assert.match(script, /peakLevelDb/);
+    assert.doesNotMatch(script, /rmsLevelDb/);
     assert.match(script, /rawPeakFullScale/);
     assert.match(script, /levelReferenceLabel/);
     assert.match(script, /Spectrum overlay is unavailable/);
@@ -69,6 +70,17 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     assert.doesNotMatch(script, /stopImmediatePropagation/);
     assert.match(script, /__AWA_ACTIVE_TRACKS__/);
     assert.doesNotMatch(script, /request-calibration-refresh/);
+});
+
+test('production calibration wrapper forwards analysis cancellation and exposes per-file revisions', () => {
+    const source = readFileSync(
+        path.resolve(process.cwd(), 'src/extension/calibrationPanelRuntime.ts'),
+        'utf8',
+    );
+
+    assert.match(source, /prototype\.analysisRevisionFor = function\(filePath\)/u);
+    assert.match(source, /prototype\.analyze = async function\(filePath, options, cancellation\)/u);
+    assert.equal(source.match(/\}, cancellation\);/gu)?.length, 2);
 });
 
 test('ComparisonPanel result ownership follows accepted in-place reanalysis', () => {

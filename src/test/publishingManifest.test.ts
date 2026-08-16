@@ -28,15 +28,12 @@ test('package.json and verify.sh include the GUI triggerability audit', () => {
     assert.match(verifyScript, /npm run lint:gui-triggerability/u);
 });
 
-test('default peak count accepts only values supported by the backend protocol', () => {
+test('package manifest does not expose obsolete full-file spectrum settings', () => {
     const manifest = readJson<{
         contributes?: { configuration?: { properties?: Record<string, { type?: string }> } };
     }>('package.json');
 
-    assert.equal(
-        manifest.contributes?.configuration?.properties?.['audioWandasAnalyzer.defaultPeakCount']?.type,
-        'integer',
-    );
+    assert.equal(manifest.contributes?.configuration?.properties?.['audioWandasAnalyzer.defaultPeakCount'], undefined);
 });
 
 test('package.json contributes GUI entry points for analysis', () => {

@@ -66,7 +66,7 @@ flowchart LR
 - 対象の音声ファイルまたはディレクトリを選択または解決する
 - 受け取った対象を単一ファイル解析導線または比較ビュー導線へ振り分ける
 - Webview から `select-target`、`analyze-selected-files`、`request-waveform-range` を受け取る
-- 設定値 `pythonCommand`、`defaultPeakCount`、`debugFilePath` を読み込む
+- 設定値 `pythonCommand`、`cacheMemoryMb`、`debugFilePath` を読み込む
 - Python バックエンドを子プロセスとして起動する
 - 標準出力の JSON を `AnalysisResult` として解釈し、失敗時は `error` 付きの結果へ変換して `AnalysisResultWithError[]` に蓄積する
 - ディレクトリ指定時は `ComparisonPanel` を選択モードで開き、チェック変更のたびに同じ panel 内のトラック表示を更新する
@@ -99,7 +99,7 @@ flowchart LR
 
 責務:
 
-- コマンドライン引数 `--file` と `--peaks` を受け取る
+- コマンドライン引数 `--file` を受け取る
 - `analyze_audio` を呼び出す
 - 解析結果を JSON として標準出力に書き出す
 - 例外発生時は標準エラー出力にメッセージを出し、非ゼロ終了コードで終了する
@@ -117,7 +117,7 @@ flowchart LR
 
 - `wandas.read()` による音声データ読み込み
 - チャンネル向きの正規化
-- RMS、ピーク値、優勢周波数の算出
+- ピーク値の算出
 - 波形エンベロープ生成（`decimator.py` 経由）
 - スペクトログラム生成と可視化向けの縮約
 - UI が扱いやすい辞書構造への整形
@@ -247,7 +247,7 @@ sequenceDiagram
     U->>E: Analyze File / Analyze Debug Path
     E->>E: 設定読込と対象パス解決
     E->>P: 子プロセス起動
-    P->>A: analyze_audio(file, peak_count)
+    P->>A: analyze_audio(file)
     A-->>P: 解析結果 dict
     P-->>E: stdout に JSON 出力
     E->>E: JSON.parse / AnalysisResultWithError[] を構築
@@ -270,7 +270,7 @@ sequenceDiagram
     C->>E: analyze-selected-files
     loop selected filePaths
         E->>P: 子プロセス起動
-        P->>A: analyze_audio(file, peak_count)
+        P->>A: analyze_audio(file)
         A-->>P: 解析結果 dict
         P-->>E: stdout に JSON 出力
         E->>E: JSON.parse / AnalysisResultWithError[] へ追加
@@ -313,11 +313,9 @@ interface AnalysisResult {
 各 `ChannelSummary` は以下を保持します。
 
 - ラベル
-- RMS
 - Peak absolute value
-- 優勢周波数の配列
 - 波形エンベロープ
-- スペクトログラム
+- 遅延解析で取得したスペクトログラム（未取得時は `null`）
 
 この構造により、バックエンドと UI の依存関係は明確で、互いの内部実装を知らなくても境界契約だけで接続できます。
 
@@ -394,7 +392,7 @@ docs/
 プロジェクト設定の主要な境界は以下です。
 
 - `audioWandasAnalyzer.pythonCommand`: Python 実行コマンド
-- `audioWandasAnalyzer.defaultPeakCount`: チャンネルごとの優勢周波数件数
+- `audioWandasAnalyzer.cacheMemoryMb`: 常駐 Python バックエンドの音声キャッシュ上限
 - `audioWandasAnalyzer.debugFilePath`: デバッグ用音声ファイルまたはディレクトリのパス
 
 この構成により、実行環境の違いは主に Python コマンド解決へ閉じ込められます。

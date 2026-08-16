@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import math
 import os
@@ -10,16 +11,17 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from analysis_engine import AnalysisEngine
-from analysis_service import AnalysisService
+if TYPE_CHECKING:
+    from analysis_service import AnalysisService
 
+_PROCESS_STARTED = time.perf_counter()
 _PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
 _HEARTBEAT_INTERVAL: float = 5.0
 
 Command = dict[str, Any]
-CommandHandler = Callable[[AnalysisService, Command], dict[str, object]]
+CommandHandler = Callable[[Any, Command], dict[str, object]]
 FieldValidator = Callable[[object], bool]
 
 
@@ -36,7 +38,7 @@ def _is_finite_number(value: object) -> bool:
 
 
 _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
-    "analyze": {"filePath": _is_string, "peakCount": _is_integer},
+    "analyze": {"filePath": _is_string},
     "range": {
         "filePath": _is_string,
         "startNorm": _is_finite_number,
@@ -107,6 +109,21 @@ def _perf(phase: str, started: float, **extra: object) -> None:
     print("[perf] " + " ".join(parts), file=sys.stderr, flush=True)
 
 
+def _load_default_service() -> AnalysisService:
+    started = time.perf_counter()
+    analysis_engine = importlib.import_module("analysis_engine")
+    _perf("startup_import_analysis_engine", started)
+
+    started = time.perf_counter()
+    analysis_service = importlib.import_module("analysis_service")
+    _perf("startup_import_analysis_service", started)
+
+    started = time.perf_counter()
+    service = analysis_service.AnalysisService(analysis_engine.AnalysisEngine())
+    _perf("startup_create_service", started)
+    return service
+
+
 def _stft_options(command: Command) -> Mapping[str, object] | None:
     raw = command.get("stftOptions")
     if raw is None:
@@ -127,7 +144,6 @@ def _analysis_revision(command: Command) -> object:
 def handle_analyze(service: AnalysisService, command: Command) -> dict[str, object]:
     return service.analyze(
         str(command["filePath"]),
-        peak_count=int(command.get("peakCount", 5)),
         stft_options=_stft_options(command),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
@@ -140,7 +156,6 @@ def handle_track_detail(service: AnalysisService, command: Command) -> dict[str,
         track_index=int(command.get("trackIndex", -1)),
         analysis_id=command.get("analysisId"),
         settings_signature=command.get("settingsSignature"),
-        peak_count=int(command.get("peakCount", 5)),
         stft_options=_stft_options(command),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
@@ -208,8 +223,10 @@ def _heartbeat_loop() -> None:
 
 
 def main(service: AnalysisService | None = None) -> None:
-    active_service = service or AnalysisService(AnalysisEngine())
+    _perf("startup_begin", _PROCESS_STARTED, pid=os.getpid(), python=sys.executable)
+    active_service = service or _load_default_service()
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    _perf("startup_ready", _PROCESS_STARTED)
     print(json.dumps({"type": "ready"}), flush=True)
     for raw_line in sys.stdin:
         line = raw_line.strip()

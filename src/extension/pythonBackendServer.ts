@@ -2,8 +2,13 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
+    backendStartupError,
+    BackendStartupError,
+    BackendStartupCancelledError,
+    formatPythonImportTiming,
     processStdoutChunk,
     rejectPendingRequests,
+    waitForBackendStartup,
     type BackendDiagnostic,
     type PendingRequest,
 } from './backendIpc';
@@ -27,7 +32,11 @@ import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
 
 export class AnalysisRequestError extends Error {
-    constructor(message: string, readonly analysisRevision: number) {
+    constructor(
+        message: string,
+        readonly analysisRevision: number,
+        readonly backendStartupFailure = false,
+    ) {
         super(message);
         this.name = 'AnalysisRequestError';
     }
@@ -44,29 +53,42 @@ export class PythonBackendServer {
     private watchdogTimer: ReturnType<typeof setInterval> | null = null;
     private static readonly HEARTBEAT_TIMEOUT_MS = 15_000;
     private static readonly WATCHDOG_INTERVAL_MS = 5_000;
+    private static readonly STARTUP_TIMEOUT_MS = 120_000;
 
     constructor(
         private readonly extensionPath: string,
         private readonly onPerfLine: (line: string) => void = () => { /* no-op */ },
+        private readonly onReady: () => void = () => { /* no-op */ },
     ) {}
 
-    warmup(): void {
-        void this.ensureRunning().catch(() => { /* surfaced on first request */ });
+    analysisRevisionFor(_filePath: string): number {
+        return 0;
     }
 
-    async analyze(filePath: string, options: AnalyzeOptions): Promise<BackendResult<'analyze'>> {
+    warmup(): Promise<void> {
+        return this.ensureRunning();
+    }
+
+    async analyze(
+        filePath: string,
+        options: AnalyzeOptions,
+        cancellation?: vscode.CancellationToken,
+    ): Promise<BackendResult<'analyze'>> {
         const analysisRevision = options.analysisRevision ?? 0;
         try {
             return await this.request('analyze', {
                 filePath,
-                peakCount: options.peakCount,
                 ...(options.stftOptions ? { stftOptions: options.stftOptions } : {}),
                 ...this.calibrationPayload(options),
-            });
+            }, undefined, cancellation);
         } catch (error) {
+            if (error instanceof BackendStartupCancelledError) {
+                throw new vscode.CancellationError();
+            }
             throw new AnalysisRequestError(
                 error instanceof Error ? error.message : String(error),
                 analysisRevision,
+                error instanceof BackendStartupError,
             );
         }
     }
@@ -144,6 +166,7 @@ export class PythonBackendServer {
         this.stopWatchdog();
         this.proc?.kill();
         this.proc = null;
+        this.startPromise = null;
         this.rejectAll(new Error('PythonBackendServer disposed'));
     }
 
@@ -158,8 +181,12 @@ export class PythonBackendServer {
         command: K,
         payload: BackendPayload<K>,
         requestId?: string,
+        cancellation?: vscode.CancellationToken,
     ): Promise<BackendResult<K>> {
-        await this.ensureRunning();
+        await waitForBackendStartup(this.ensureRunning(), cancellation);
+        if (cancellation?.isCancellationRequested) {
+            throw new BackendStartupCancelledError();
+        }
         const id = requestId ?? `r${this.nextId++}`;
         return new Promise<BackendResult<K>>((resolve, reject) => {
             this.pending.set(id, {
@@ -178,12 +205,13 @@ export class PythonBackendServer {
     }
 
     private ensureRunning(): Promise<void> {
+        if (this.startPromise) {
+            return this.startPromise;
+        }
         if (this.proc && !this.proc.killed) {
             return Promise.resolve();
         }
-        if (!this.startPromise) {
-            this.startPromise = this.startServer();
-        }
+        this.startPromise = this.startServer();
         return this.startPromise;
     }
 
@@ -193,8 +221,14 @@ export class PythonBackendServer {
             const pythonCommand = resolveConfiguredPythonCommand(config.get<string>('pythonCommand', 'python3'));
             const cacheMb = Math.max(64, config.get<number>('cacheMemoryMb', 1024));
             const scriptPath = path.join(this.extensionPath, 'python-backend', 'backend_server.py');
+            const importTimingEnabled = globalThis.process.env['AWA_IMPORT_TIME'] === '1';
+            const pythonArgs = importTimingEnabled ? ['-X', 'importtime', scriptPath] : [scriptPath];
+            const startupStartedAt = Date.now();
 
-            this.proc = spawn(pythonCommand, [scriptPath], {
+            this.stdoutBuf.value = '';
+            this.stderrBuf = '';
+            this.onPerfLine(`[ts] backend spawn python=${pythonCommand} import_time=${importTimingEnabled ? 'on' : 'off'}`);
+            const child = spawn(pythonCommand, pythonArgs, {
                 cwd: this.extensionPath,
                 stdio: ['pipe', 'pipe', 'pipe'],
                 env: {
@@ -203,10 +237,29 @@ export class PythonBackendServer {
                     // AWA_PERF_LOG: inherit from env (default '0' = opt-in)
                 },
             });
+            this.proc = child;
+
+            let startupFinished = false;
+            let startupStderr = '';
+            const failStartup = (error: Error): void => {
+                if (startupFinished) { return; }
+                startupFinished = true;
+                clearTimeout(timeout);
+                if (this.proc === child) { this.startPromise = null; }
+                reject(error);
+            };
 
             const timeout = setTimeout(
-                () => reject(new Error('PythonBackendServer startup timed out')),
-                30_000,
+                () => {
+                    const error = backendStartupError(
+                        `PythonBackendServer startup timed out after ${PythonBackendServer.STARTUP_TIMEOUT_MS / 1000} seconds`,
+                        startupStderr,
+                    );
+                    failStartup(error);
+                    if (this.proc === child) { this.proc = null; }
+                    child.kill();
+                },
+                PythonBackendServer.STARTUP_TIMEOUT_MS,
             );
 
             const handleReadyOrLine = (chunk: Buffer | string): void => {
@@ -235,10 +288,12 @@ export class PythonBackendServer {
                         });
                         continue;
                     }
+                    if (startupFinished || this.proc !== child) { return; }
+                    startupFinished = true;
                     clearTimeout(timeout);
                     this.startPromise = null;
-                    this.proc!.stdout!.off('data', handleReadyOrLine);
-                    this.proc!.stdout!.on('data', (data: Buffer | string) => {
+                    child.stdout!.off('data', handleReadyOrLine);
+                    child.stdout!.on('data', (data: Buffer | string) => {
                         processStdoutChunk(this.stdoutBuf, data.toString(), this.pending, {
                             onNotification: (message) => {
                                 if (message.type === 'heartbeat') { this.onHeartbeat(); }
@@ -247,37 +302,55 @@ export class PythonBackendServer {
                         });
                     });
                     this.startWatchdog();
+                    this.onPerfLine(`[ts] backend ready total_ms=${Date.now() - startupStartedAt}`);
+                    this.onReady();
                     resolve();
                     return;
                 }
             };
-            this.proc.stdout!.on('data', handleReadyOrLine);
+            child.stdout!.on('data', handleReadyOrLine);
 
-            this.proc.stderr!.on('data', (chunk: Buffer | string) => {
-                this.stderrBuf += chunk.toString();
+            child.stderr!.on('data', (chunk: Buffer | string) => {
+                const text = chunk.toString();
+                if (!startupFinished) { startupStderr += text; }
+                this.stderrBuf += text;
                 const lines = this.stderrBuf.split('\n');
                 this.stderrBuf = lines.pop() ?? '';
                 for (const line of lines) {
                     if (line.startsWith('[perf]')) {
                         this.onPerfLine(line);
+                    } else if (importTimingEnabled) {
+                        const importTiming = formatPythonImportTiming(line);
+                        if (importTiming) { this.onPerfLine(importTiming); }
                     }
                 }
             });
 
-            this.proc.on('error', (err) => {
-                clearTimeout(timeout);
-                this.proc = null;
-                this.startPromise = null;
-                this.rejectAll(err);
-                reject(err);
+            child.on('error', (err) => {
+                const error = startupFinished
+                    ? new Error(`Python backend process error (${pythonCommand}): ${err.message}`)
+                    : backendStartupError(`Failed to start Python backend (${pythonCommand}): ${err.message}`, startupStderr);
+                const wasCurrent = this.proc === child;
+                failStartup(error);
+                if (wasCurrent) {
+                    this.proc = null;
+                    this.rejectAll(error);
+                }
             });
 
-            this.proc.on('exit', () => {
-                clearTimeout(timeout);
-                this.stopWatchdog();
-                this.proc = null;
-                this.startPromise = null;
-                this.rejectAll(new Error('PythonBackendServer exited unexpectedly'));
+            child.on('exit', (code, signal) => {
+                const wasCurrent = this.proc === child;
+                const suffix = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
+                const error = startupFinished
+                    ? new Error(`PythonBackendServer exited unexpectedly (${suffix})`)
+                    : backendStartupError(`Python backend exited before ready (${suffix})`, startupStderr);
+                failStartup(error);
+                if (wasCurrent) {
+                    this.stopWatchdog();
+                    this.proc = null;
+                    this.startPromise = null;
+                    this.rejectAll(error);
+                }
             });
         });
     }
@@ -289,9 +362,13 @@ export class PythonBackendServer {
             const elapsed = Date.now() - this.lastHeartbeatAt;
             if (elapsed > PythonBackendServer.HEARTBEAT_TIMEOUT_MS) {
                 this.onPerfLine('[watchdog] heartbeat timeout — restarting backend');
-                this.proc?.kill();
+                const child = this.proc;
+                const error = new Error('Python backend heartbeat timed out');
+                this.stopWatchdog();
                 this.proc = null;
                 this.startPromise = null;
+                this.rejectAll(error);
+                child?.kill();
                 void this.ensureRunning().catch(() => { /* surfaced on next request */ });
             }
         }, PythonBackendServer.WATCHDOG_INTERVAL_MS);

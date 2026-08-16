@@ -37,6 +37,78 @@ export function rejectPendingRequests(pending: Map<string, PendingRequest>, erro
     pending.clear();
 }
 
+export interface CancellationSignal {
+    readonly isCancellationRequested: boolean;
+    onCancellationRequested(listener: () => void): { dispose(): void };
+}
+
+export class BackendStartupCancelledError extends Error {
+    constructor() {
+        super('Python backend startup cancelled');
+        this.name = 'BackendStartupCancelledError';
+    }
+}
+
+export async function waitForBackendStartup(
+    startup: Promise<void>,
+    cancellation?: CancellationSignal,
+): Promise<void> {
+    if (!cancellation) {
+        await startup;
+        return;
+    }
+    if (cancellation.isCancellationRequested) {
+        throw new BackendStartupCancelledError();
+    }
+    await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let disposable: { dispose(): void } | undefined;
+        const cancel = (): void => {
+            if (settled) { return; }
+            settled = true;
+            disposable?.dispose();
+            reject(new BackendStartupCancelledError());
+        };
+        disposable = cancellation.onCancellationRequested(cancel);
+        if (cancellation.isCancellationRequested) { cancel(); }
+        void startup.then(
+            () => {
+                if (settled) { return; }
+                settled = true;
+                disposable.dispose();
+                resolve();
+            },
+            (error: unknown) => {
+                if (settled) { return; }
+                settled = true;
+                disposable.dispose();
+                reject(error);
+            },
+        );
+    });
+}
+
+export class BackendStartupError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'BackendStartupError';
+    }
+}
+
+export function backendStartupError(message: string, stderr: string): BackendStartupError {
+    const details = stderr.trim();
+    return new BackendStartupError(details ? `${message}: ${details}` : message);
+}
+
+export function formatPythonImportTiming(line: string, minimumCumulativeMs = 100): string | null {
+    const match = /^import time:\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(.+)$/u.exec(line);
+    if (!match) { return null; }
+    const selfMs = Number(match[1]) / 1000;
+    const cumulativeMs = Number(match[2]) / 1000;
+    if (cumulativeMs < minimumCumulativeMs) { return null; }
+    return `[import] module=${match[3].trim()} self_ms=${selfMs.toFixed(2)} cumulative_ms=${cumulativeMs.toFixed(2)}`;
+}
+
 function protocolError(message: string): BackendProtocolError {
     return new BackendProtocolError(message);
 }

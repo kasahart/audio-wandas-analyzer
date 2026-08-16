@@ -41,11 +41,8 @@ const DUMMY_APP_STATE = JSON.stringify({
             error: undefined,
             channels: [{
                 label: 'L',
-                rms: 0.1,
                 peakAbsolute: 0.5,
-                rmsLevelDb: -20,
                 peakLevelDb: -6.0206,
-                dominantFrequencies: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -65,11 +62,8 @@ const DUMMY_APP_STATE = JSON.stringify({
             error: undefined,
             channels: [{
                 label: 'L',
-                rms: 0.2,
                 peakAbsolute: 0.7,
-                rmsLevelDb: -13.9794,
                 peakLevelDb: -3.098,
-                dominantFrequencies: [],
                 waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -96,12 +90,8 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
             channels: [
                 {
                     label: 'Left',
-                    rms: 0.1,
                     peakAbsolute: 0.5,
-                    rmsLevelDb: -20,
                     peakLevelDb: -6.0206,
-                    dominantFrequencies: [{ frequencyHz: 440, magnitude: 1 }],
-                    peaks: [{ freqHz: 440, amplitudeDb: -12 }],
                     waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                     spectrogram: {
                         values: [[-12, -48, -72]], timeBins: 1, frequencyBins: 3,
@@ -111,12 +101,8 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
                 },
                 {
                     label: 'Right',
-                    rms: 0.8,
                     peakAbsolute: 0.95,
-                    rmsLevelDb: -1.9382,
                     peakLevelDb: -0.4455,
-                    dominantFrequencies: [{ frequencyHz: 880, magnitude: 1 }],
-                    peaks: [{ freqHz: 880, amplitudeDb: -3 }],
                     waveform: { min: [-0.95], max: [0.95], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.95 },
                     spectrogram: {
                         values: [[-72, -48, -3]], timeBins: 1, frequencyBins: 3,
@@ -164,9 +150,7 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
             error: undefined,
             channels: [{
                 label: 'L',
-                rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -200,9 +184,7 @@ const DUMMY_SELECTION_WITH_B_RESULT_STATE = JSON.stringify({
             error: undefined,
             channels: [{
                 label: 'L',
-                rms: 0.2,
                 peakAbsolute: 0.7,
-                dominantFrequencies: [],
                 waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -357,7 +339,7 @@ test('renderScript: monaural tracks keep waveform and power spectrum in one body
     assert.equal(row!.querySelector('.track-channel-lane-header'), null);
 
     const meta = row!.querySelector('.track-meta');
-    assert.match(meta?.textContent || '', /Total: 1 ch.*RMS -20\.0 dB.*Peak -6\.0 dB.*—/,
+    assert.match(meta?.textContent || '', /Total: 1 ch.*Peak -6\.0 dB/,
         'mono track の概要値は下部凡例ではなく track meta に表示されること');
 
     const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0') as HTMLElement | null;
@@ -775,9 +757,7 @@ test('directory selection mode keeps existing track color stable when a new earl
                     error: undefined,
                     channels: [{
                         label: 'L',
-                        rms: 0.1,
                         peakAbsolute: 0.5,
-                        dominantFrequencies: [],
                         waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                         spectrogram: {
                             values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -797,9 +777,7 @@ test('directory selection mode keeps existing track color stable when a new earl
                     error: undefined,
                     channels: [{
                         label: 'L',
-                        rms: 0.2,
                         peakAbsolute: 0.7,
-                        dominantFrequencies: [],
                         waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
                         spectrogram: {
                             values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -1631,9 +1609,7 @@ const SPECTRUM_APP_STATE = JSON.stringify({
         error: undefined,
         channels: [{
             label: 'L',
-            rms: 0.1,
             peakAbsolute: 0.5,
-            dominantFrequencies: [],
             waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
             spectrogram: {
                 values: [
@@ -1668,9 +1644,7 @@ const REAL_SCALE_AXIS_APP_STATE = JSON.stringify({
             error: undefined,
             channels: [{
                 label: 'L',
-                rms: 1024,
                 peakAbsolute: 16383,
-                dominantFrequencies: [],
                 unit: null,
                 waveform: { min: [-16383], max: [16383], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 16383 },
                 spectrogram: null,
@@ -1687,9 +1661,7 @@ const REAL_SCALE_AXIS_APP_STATE = JSON.stringify({
             error: undefined,
             channels: [{
                 label: 'L',
-                rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
                 unit: 'Pa',
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: null,
@@ -1713,9 +1685,7 @@ const HIGH_FREQUENCY_READOUT_STATE = JSON.stringify({
             error: undefined,
             channels: [{
                 label: 'L',
-                rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[-80, -60, -40, -20]],
@@ -1747,9 +1717,7 @@ const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
             error: undefined,
             channels: [{
                 label: 'L',
-                rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[-80, -60, -40, -20]],
@@ -1774,9 +1742,7 @@ const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
             error: undefined,
             channels: [{
                 label: 'L',
-                rms: 0.1,
                 peakAbsolute: 0.5,
-                dominantFrequencies: [],
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[-20, -35, -50, -65, -80, -85]],
@@ -2726,17 +2692,16 @@ test('renderScript: multichannel track UI renders all channel sublanes without a
 
     const laneTexts = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-channel-lane-header'))
         .map((el) => el.textContent || '');
-    assert.ok(laneTexts.some((text) => /Channel 1 \/ 2 \(Left\).*RMS -20\.0 dB.*Peak -6\.0 dB.*440 Hz/.test(text)), laneTexts.join('\n'));
-    assert.ok(laneTexts.some((text) => /Channel 2 \/ 2 \(Right\).*RMS -1\.9 dB.*Peak -0\.4 dB.*880 Hz/.test(text)), laneTexts.join('\n'));
+    assert.ok(laneTexts.some((text) => /Channel 1 \/ 2 \(Left\).*Peak -6\.0 dB/.test(text)), laneTexts.join('\n'));
+    assert.ok(laneTexts.some((text) => /Channel 2 \/ 2 \(Right\).*Peak -0\.4 dB/.test(text)), laneTexts.join('\n'));
 
     assert.equal(env.dom.window.document.getElementById('metrics-bar'), null);
     assert.equal(env.dom.window.document.querySelector('#metrics-item-0'), null);
     env.dom.window.close();
 });
 
-test('renderScript: channel metrics use backend-provided levels without recalculating dB', async () => {
+test('renderScript: channel peak metrics use backend-provided levels without recalculating dB', async () => {
     const state = JSON.parse(MULTICHANNEL_APP_STATE);
-    state.results[0].channels[0].rmsLevelDb = 12.3;
     state.results[0].channels[0].peakLevelDb = 45.6;
     const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
@@ -2744,13 +2709,13 @@ test('renderScript: channel metrics use backend-provided levels without recalcul
     const firstLane = env.dom.window.document.querySelector(
         '#track-row-0 .track-channel-lane-header',
     );
-    assert.match(firstLane?.textContent ?? '', /RMS 12\.3 dB.*Peak 45\.6 dB/);
+    assert.match(firstLane?.textContent ?? '', /Peak 45\.6 dB/);
 
     env.dom.window.document.querySelector('[data-action="export-report"]')?.dispatchEvent(
         new env.dom.window.MouseEvent('click', { bubbles: true }),
     );
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
-    assert.match(msg.markdownContent, /\| 12\.3 dB \| 45\.6 dB \|/);
+    assert.match(msg.markdownContent, /\| 45\.6 dB \|/);
     env.dom.window.close();
 });
 
@@ -2853,7 +2818,7 @@ test('renderScript: export-csv keeps original frequency axis after display max f
     }
 });
 
-test('renderScript: multichannel report lists all RMS peak and spectrum channels', async () => {
+test('renderScript: multichannel report lists peak metrics for every channel', async () => {
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
 
@@ -2863,13 +2828,10 @@ test('renderScript: multichannel report lists all RMS peak and spectrum channels
 
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message が送信されること');
-    assert.match(msg.markdownContent, /\| File \| Channel \| Sample Rate \| Duration \| Channels \| RMS \| Peak \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| -20\.0 dB \| -6\.0 dB \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| -1\.9 dB \| -0\.4 dB \|/);
-    assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 1 \/ 2 \(Left\)\)/);
-    assert.match(msg.markdownContent, /\| 440\.0 \| -12\.0 \|/);
-    assert.match(msg.markdownContent, /## Spectral Peaks \(first track, Channel 2 \/ 2 \(Right\)\)/);
-    assert.match(msg.markdownContent, /\| 880\.0 \| -3\.0 \|/);
+    assert.match(msg.markdownContent, /\| File \| Channel \| Sample Rate \| Duration \| Channels \| Peak \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| -6\.0 dB \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| -0\.4 dB \|/);
+    assert.doesNotMatch(msg.markdownContent, /Spectral Peaks/);
     const notebook = JSON.parse(msg.notebookContent) as { cells: Array<{ id: string; source: string[] }> };
     const loadCell = notebook.cells.find((cell) => cell.id === 'load-files');
     assert.ok(loadCell);
@@ -2895,7 +2857,7 @@ test('renderScript: multichannel report sanitizes channel markdown', async () =>
     env.dom.window.close();
 });
 
-test('renderScript: calibrated report escapes units and labels each channel peak reference', async () => {
+test('renderScript: calibrated report escapes units and keeps peak references', async () => {
     const state = JSON.parse(MULTICHANNEL_APP_STATE);
     Object.assign(state.results[0].channels[0], {
         measurement: {
@@ -2908,10 +2870,8 @@ test('renderScript: calibrated report escapes units and labels each channel peak
             levelUnit: 'dB',
             levelReferenceLabel: 'dB re 1 Pa|ref',
         },
-        rmsLevelDb: 74,
         peakLevelDb: 80,
         rawPeakFullScale: 0.25,
-        peaks: [{ freqHz: 440, magnitude: 0.5, levelDb: 80, amplitudeDb: 80 }],
     });
     Object.assign(state.results[0].channels[1], {
         measurement: {
@@ -2924,10 +2884,8 @@ test('renderScript: calibrated report escapes units and labels each channel peak
             levelUnit: 'dBFS',
             levelReferenceLabel: 'dBFS',
         },
-        rmsLevelDb: -1.9,
         peakLevelDb: -0.4,
         rawPeakFullScale: 0.95,
-        peaks: [{ freqHz: 880, magnitude: 0.95, levelDb: -3, amplitudeDb: -3 }],
     });
     const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
@@ -2938,10 +2896,8 @@ test('renderScript: calibrated report escapes units and labels each channel peak
 
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message should be sent');
-    assert.match(msg.markdownContent, /0\.100 Pa\\\|rms \/ 74\.0 dB/);
-    assert.match(msg.markdownContent, /Spectrum amplitude level \[dB re 1 Pa\\\|ref\]/);
-    assert.match(msg.markdownContent, /Spectrum amplitude level \[dBFS\]/);
-    assert.match(msg.markdownContent, /\| 440\.0 \| 80\.0 \|/);
+    assert.match(msg.markdownContent, /0\.500 Pa\\\|rms \/ 80\.0 dB/);
+    assert.doesNotMatch(msg.markdownContent, /Spectral Peaks/);
     env.dom.window.close();
 });
 

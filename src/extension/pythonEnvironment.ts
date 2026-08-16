@@ -89,6 +89,7 @@ export const MISSING_DEPENDENCIES_TOOLTIP = 'Python dependencies are missing or 
 export const MISSING_INTERPRETER_TOOLTIP = 'Python interpreter was not found. Click to select another environment.';
 export const PIP_UNAVAILABLE_TOOLTIP = 'pip is not available in this environment. Click to select another environment.';
 export const CHECK_FAILED_TOOLTIP = 'Python environment check failed. Click to select another environment.';
+export const IMPORTING_MODULES_TOOLTIP = 'Importing Python analysis modules in the background.';
 
 export interface PythonEnvironmentState {
     pythonCommand: string;
@@ -179,6 +180,13 @@ export function setStatusBarNormal(item: vscode.StatusBarItem, pythonCommand: st
     pythonEnvironmentStateEmitter.fire(currentPythonEnvironmentState);
 }
 
+export function setStatusBarImporting(item: vscode.StatusBarItem, pythonCommand: string): void {
+    item.text = `$(sync~spin) Python: importing modules`;
+    item.tooltip = `${IMPORTING_MODULES_TOOLTIP}\n${pythonCommand}`;
+    item.backgroundColor = undefined;
+    item.show();
+}
+
 export function setStatusBarWarning(
     item: vscode.StatusBarItem,
     pythonCommand: string,
@@ -196,7 +204,7 @@ export function setStatusBarWarning(
     pythonEnvironmentStateEmitter.fire(currentPythonEnvironmentState);
 }
 
-export async function selectPythonEnvironment(statusBarItem: vscode.StatusBarItem): Promise<void> {
+export async function selectPythonEnvironment(_statusBarItem: vscode.StatusBarItem): Promise<string | undefined> {
     const selectedItem = await vscode.window.showQuickPick<PythonQuickPickItem>([
         { label: '.venv', pythonCommand: '.venv' },
         { label: 'venv', pythonCommand: 'venv' },
@@ -228,56 +236,57 @@ export async function selectPythonEnvironment(statusBarItem: vscode.StatusBarIte
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
     const currentPythonCommand = config.get<string>('pythonCommand', 'python3');
     if (chosen === currentPythonCommand) {
-        await checkAndPromptInstallDependencies(chosen, statusBarItem);
-        return;
+        return chosen;
     }
     const target = vscode.workspace.workspaceFolders?.length
         ? vscode.ConfigurationTarget.Workspace
         : vscode.ConfigurationTarget.Global;
     await config.update('pythonCommand', chosen, target);
+    return undefined;
 }
 
 export async function checkAndPromptInstallDependencies(
     pythonCommand: string,
     statusBarItem: vscode.StatusBarItem,
-): Promise<void> {
+): Promise<boolean> {
     const requestId = ++latestDependencyCheckRequestId;
     const isLatestRequest = () => requestId === latestDependencyCheckRequestId;
 
     try {
         const { missingPackages } = await checkMissingDependencies(pythonCommand);
         if (!isLatestRequest()) {
-            return;
+            return false;
         }
 
         if (missingPackages.length === 0) {
             setStatusBarNormal(statusBarItem, pythonCommand);
-            return;
+            return true;
         }
 
         setStatusBarWarning(statusBarItem, pythonCommand);
-        await promptAndInstallDependencies(pythonCommand, missingPackages, statusBarItem, isLatestRequest);
+        return await promptAndInstallDependencies(pythonCommand, missingPackages, statusBarItem, isLatestRequest);
     } catch (error) {
         if (!isLatestRequest()) {
-            return;
+            return false;
         }
 
         if (error instanceof PythonNotFoundError) {
             setStatusBarWarning(statusBarItem, pythonCommand, MISSING_INTERPRETER_TOOLTIP);
             void vscode.window.showWarningMessage(error.message);
-            return;
+            return false;
         }
 
         if (error instanceof PipNotAvailableError) {
             setStatusBarWarning(statusBarItem, pythonCommand, PIP_UNAVAILABLE_TOOLTIP);
             void vscode.window.showWarningMessage(error.message);
-            return;
+            return false;
         }
 
         const message = error instanceof Error ? error.message : String(error);
         console.error(`Failed to check Python dependencies for ${pythonCommand}: ${message}`);
         setStatusBarWarning(statusBarItem, pythonCommand, CHECK_FAILED_TOOLTIP);
         void vscode.window.showErrorMessage(`Failed to check Python dependencies: ${message}`);
+        return false;
     }
 }
 
@@ -346,7 +355,7 @@ async function promptAndInstallDependencies(
     missingPackages: string[],
     statusBarItem: vscode.StatusBarItem,
     isLatestRequest: () => boolean,
-): Promise<void> {
+): Promise<boolean> {
     const answer = await vscode.window.showWarningMessage(
         `Audio Wandas Analyzer requires compatible Python packages: ${missingPackages.join(', ')}. Install or upgrade them now?`,
         'Install',
@@ -354,11 +363,11 @@ async function promptAndInstallDependencies(
     );
 
     if (!isLatestRequest()) {
-        return;
+        return false;
     }
 
     if (answer !== 'Install') {
-        return;
+        return false;
     }
 
     try {
@@ -370,24 +379,26 @@ async function promptAndInstallDependencies(
             async () => installPackages(pythonCommand, missingPackages),
         );
         if (!isLatestRequest()) {
-            return;
+            return false;
         }
 
         setStatusBarNormal(statusBarItem, pythonCommand);
         void vscode.window.showInformationMessage('Packages installed successfully.');
+        return true;
     } catch (error) {
         if (!isLatestRequest()) {
-            return;
+            return false;
         }
 
         if (error instanceof PipNotAvailableError) {
             setStatusBarWarning(statusBarItem, pythonCommand, PIP_UNAVAILABLE_TOOLTIP);
             void vscode.window.showWarningMessage(error.message);
-            return;
+            return false;
         }
 
         const message = error instanceof Error ? error.message : String(error);
         void vscode.window.showErrorMessage(`Failed to install packages: ${message}`);
+        return false;
     }
 }
 

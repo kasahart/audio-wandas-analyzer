@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-test('activate keeps analyze commands available when workspace test registration fails', () => {
+test('activate keeps analyze commands available and warms Python when workspace test registration fails', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as {
         _load: (request: string, parent: unknown, isMain: boolean) => unknown;
@@ -9,7 +9,14 @@ test('activate keeps analyze commands available when workspace test registration
     const originalLoad = NodeModule._load;
     const originalConsoleError = console.error;
     const registeredCommandIds: string[] = [];
+    const registeredCommandHandlers = new Map<string, (...args: unknown[]) => unknown>();
     const createdTreeViewIds: string[] = [];
+    let backendWarmupCalls = 0;
+    let backendDisposeCalls = 0;
+    let importingStatusCalls = 0;
+    let normalStatusCalls = 0;
+    let currentPythonCommand = 'python3';
+    let configurationListener: ((event: { affectsConfiguration(section: string): boolean }) => void) | undefined;
     let createdTreeViewOptions: {
         treeDataProvider?: { getChildren(): unknown[]; getTreeItem(element: unknown): unknown };
         dragAndDropController?: unknown;
@@ -17,8 +24,9 @@ test('activate keeps analyze commands available when workspace test registration
 
     const vscodeStub = {
         commands: {
-            registerCommand: (commandId: string) => {
+            registerCommand: (commandId: string, handler: (...args: unknown[]) => unknown) => {
                 registeredCommandIds.push(commandId);
+                registeredCommandHandlers.set(commandId, handler);
                 return { dispose() {} };
             },
             executeCommand: () => Promise.resolve(),
@@ -42,9 +50,16 @@ test('activate keeps analyze commands available when workspace test registration
         },
         workspace: {
             getConfiguration: () => ({
-                get: <T>(_key: string, defaultValue: T) => defaultValue,
+                get: <T>(key: string, defaultValue: T) => (
+                    key === 'pythonCommand' ? currentPythonCommand as T : defaultValue
+                ),
             }),
-            onDidChangeConfiguration: () => ({ dispose() {} }),
+            onDidChangeConfiguration: (
+                listener: (event: { affectsConfiguration(section: string): boolean }) => void,
+            ) => {
+                configurationListener = listener;
+                return { dispose() {} };
+            },
         },
         StatusBarAlignment: {
             Left: 1,
@@ -106,22 +121,33 @@ test('activate keeps analyze commands available when workspace test registration
         if (request === './pythonBackendServer') {
             return {
                 PythonBackendServer: class {
-                    dispose(): void {}
+                    constructor(
+                        _extensionPath: string,
+                        _onPerfLine: (line: string) => void,
+                        private readonly onReady: () => void,
+                    ) {}
+                    async warmup(): Promise<void> {
+                        backendWarmupCalls += 1;
+                        this.onReady();
+                    }
+                    dispose(): void { backendDisposeCalls += 1; }
                 },
             };
         }
 
         if (request === './pythonEnvironment') {
             return {
-                selectPythonEnvironment: async () => {},
-                checkAndPromptInstallDependencies: async () => {},
+                selectPythonEnvironment: async () => currentPythonCommand,
+                checkAndPromptInstallDependencies: async () => true,
                 getCurrentPythonEnvironmentState: () => ({
                     pythonCommand: 'python3',
                     status: 'normal',
                     tooltip: 'Click to select Python environment',
                 }),
                 onDidChangePythonEnvironmentState: () => ({ dispose() {} }),
-                setStatusBarNormal: () => {},
+                setStatusBarImporting: () => { importingStatusCalls += 1; },
+                setStatusBarNormal: () => { normalStatusCalls += 1; },
+                setStatusBarWarning: () => {},
             };
         }
 
@@ -150,6 +176,8 @@ test('activate keeps analyze commands available when workspace test registration
                 subscriptions: [],
             });
         });
+        await Promise.resolve();
+        await Promise.resolve();
 
         assert.deepEqual(registeredCommandIds, [
             'audioWandasAnalyzer.analyzeFile',
@@ -159,6 +187,28 @@ test('activate keeps analyze commands available when workspace test registration
             'audioWandasAnalyzer.runRecipe',
         ]);
         assert.deepEqual(createdTreeViewIds, ['audioWandasAnalyzer.welcomeView']);
+        assert.equal(importingStatusCalls, 1);
+        assert.equal(backendWarmupCalls, 1);
+
+        currentPythonCommand = '.venv';
+        configurationListener?.({
+            affectsConfiguration: (section) => section === 'audioWandasAnalyzer.pythonCommand',
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        assert.equal(backendDisposeCalls, 1);
+        assert.equal(importingStatusCalls, 2);
+        assert.equal(backendWarmupCalls, 2);
+        assert.equal(normalStatusCalls, 6);
+
+        await registeredCommandHandlers.get('audioWandasAnalyzer.selectPythonEnvironment')?.();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        assert.equal(importingStatusCalls, 3);
+        assert.equal(backendWarmupCalls, 3);
+        assert.equal(normalStatusCalls, 8);
         const welcomeItems = createdTreeViewOptions?.treeDataProvider?.getChildren() as Array<{
             label: string;
             description?: string;

@@ -63,14 +63,12 @@ def test_channel_calibration_applies_to_linear_levels_and_raw_clipping() -> None
     assert microphone["unit"] == "Pa"
     assert microphone["measurement"]["levelUnit"] == "dB SPL"
     assert microphone["measurement"]["levelReferenceLabel"] == "dB SPL re 20 µPa"
-    assert microphone["rms"] == 1.0
     assert microphone["peakAbsolute"] == 1.0
-    assert math.isclose(microphone["rmsLevelDb"], 20.0 * math.log10(1.0 / 2e-5))
+    assert math.isclose(microphone["peakLevelDb"], 20.0 * math.log10(1.0 / 2e-5))
     assert microphone["rawPeakFullScale"] == 0.5
     assert microphone["clipped"] is False
 
     assert accelerometer["unit"] == "m/s^2"
-    assert accelerometer["rms"] == 0.5
     assert accelerometer["peakAbsolute"] == 0.5
     assert math.isclose(accelerometer["peakLevelDb"], 20.0 * math.log10(0.5))
     assert accelerometer["rawPeakFullScale"] == 1.0
@@ -98,7 +96,7 @@ def test_unitless_numpy_profile_keeps_wandas_input_unit_reference() -> None:
         "levelUnit": "dB",
         "levelReferenceLabel": "dB re 1 input unit",
     }
-    assert math.isclose(channel["rmsLevelDb"], 20.0 * math.log10(0.25))
+    assert math.isclose(channel["peakLevelDb"], 20.0 * math.log10(0.25))
     assert result["units"]["spectrumLevel"]["axisLabel"] == "Spectrum amplitude level [dB re 1 input unit]"
 
 

@@ -157,6 +157,29 @@ test('setStatusBarNormal clears warning state and shows the item', () => {
     }
 });
 
+test('setStatusBarImporting shows background module import progress', () => {
+    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({});
+    const item = {
+        text: '',
+        tooltip: '',
+        backgroundColor: 'warning',
+        showCalls: 0,
+        show() {
+            this.showCalls += 1;
+        },
+    };
+
+    try {
+        pythonEnvironment.setStatusBarImporting(item as never, '.venv/bin/python');
+        assert.equal(item.text, '$(sync~spin) Python: importing modules');
+        assert.equal(item.tooltip, 'Importing Python analysis modules in the background.\n.venv/bin/python');
+        assert.equal(item.backgroundColor, undefined);
+        assert.equal(item.showCalls, 1);
+    } finally {
+        restore();
+    }
+});
+
 test('setStatusBarNormal updates the shared Python environment state', () => {
     const { pythonEnvironment, restore } = loadPythonEnvironmentModule({});
     const emittedStates: Array<{ pythonCommand: string; status: string; tooltip: string }> = [];
@@ -301,33 +324,20 @@ test('selectPythonEnvironment updates workspace pythonCommand from quick pick en
     }
 });
 
-test('selectPythonEnvironment re-checks immediately when the selected environment folder is already configured', async () => {
-    let spawnedCommand = '';
+test('selectPythonEnvironment reports the selected environment when it is already configured', async () => {
     const { pythonEnvironment, updates, restore } = loadPythonEnvironmentModule({
         showQuickPickResult: { label: '.venv', pythonCommand: '.venv' },
         currentPythonCommand: '.venv',
-        workspaceFolderRoot: '/workspace/project',
-        spawnImpl: (pythonCommand?: unknown) => {
-            spawnedCommand = String(pythonCommand);
-            const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
-            proc.stdout = new EventEmitter();
-            proc.stderr = new EventEmitter();
-            process.nextTick(() => {
-                proc.stdout.emit('data', Buffer.from('[]\n'));
-                proc.emit('close', 0);
-            });
-            return proc;
-        },
     });
 
     try {
-        await pythonEnvironment.selectPythonEnvironment({
+        const reselected = await pythonEnvironment.selectPythonEnvironment({
             text: '',
             tooltip: '',
             backgroundColor: undefined,
             show() {},
         } as never);
-        assert.equal(spawnedCommand, '/workspace/project/.venv/bin/python');
+        assert.equal(reselected, '.venv');
         assert.deepEqual(updates, []);
     } finally {
         restore();

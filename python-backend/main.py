@@ -21,7 +21,6 @@ def _perf(phase: str, started: float, **extra: object) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze an audio file with wandas")
     parser.add_argument("--file", required=True, help="Path to the audio file")
-    parser.add_argument("--peaks", type=int, default=5, help="Number of dominant frequency peaks to return")
     parser.add_argument("--range-start", type=float, default=None, dest="range_start")
     parser.add_argument("--range-end", type=float, default=None, dest="range_end")
     parser.add_argument("--range-points", type=int, default=2000, dest="range_points")
@@ -62,7 +61,7 @@ def main() -> int:
                     "window": args.stft_window or "hann",
                 }
             t_an = time.perf_counter()
-            result = analyze_audio(args.file, peak_count=args.peaks, stft_options=stft_options)
+            result = analyze_audio(args.file, stft_options=stft_options)
             _perf("analyze_audio_total", t_an)
     except Exception as error:
         print(str(error), file=sys.stderr)

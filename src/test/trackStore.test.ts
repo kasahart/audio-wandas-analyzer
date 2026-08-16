@@ -3,7 +3,7 @@ import test from 'node:test';
 import { TrackStore } from '../webview/runtime/trackStore';
 import type { ComparisonTrackState, TrackRuntimeState } from '../webview/runtime/types';
 
-function result(filePath: string, rms = 0.1): ComparisonTrackState {
+function result(filePath: string, peakAbsolute = 0.5): ComparisonTrackState {
     return {
         filePath,
         fileName: filePath.split('/').at(-1) ?? filePath,
@@ -13,9 +13,7 @@ function result(filePath: string, rms = 0.1): ComparisonTrackState {
         sampleCount: 48_000,
         channels: [{
             label: 'L',
-            rms,
-            peakAbsolute: 0.5,
-            dominantFrequencies: [],
+            peakAbsolute,
             waveform: { min: [-0.5], max: [0.5], samples: [0], absolutePeak: 0.5 },
             spectrogram: null,
         }],
@@ -64,8 +62,8 @@ test('TrackStore keeps duplicate-path occurrence identities stable during update
     const originalIds = store.activeIds();
     store.reconcile([result('/same.wav', 0.3), result('/same.wav', 0.4)], (next) => next);
     assert.deepEqual(store.activeIds(), originalIds);
-    assert.equal(store.require(originalIds[0]).result.channels[0].rms, 0.3);
-    assert.equal(store.require(originalIds[1]).result.channels[0].rms, 0.4);
+    assert.equal(store.require(originalIds[0]).result.channels[0].peakAbsolute, 0.3);
+    assert.equal(store.require(originalIds[1]).result.channels[0].peakAbsolute, 0.4);
 });
 
 test('TrackStore tombstones removals and does not reuse identity at the same protocol index', () => {

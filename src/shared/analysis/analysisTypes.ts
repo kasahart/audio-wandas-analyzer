@@ -1,16 +1,3 @@
-export interface FrequencyPeak {
-    frequencyHz: number;
-    magnitude: number;
-}
-
-export interface SpectrumPeak {
-    freqHz: number;
-    /** @deprecated Use levelDb. */
-    amplitudeDb: number;
-    magnitude?: number;
-    levelDb?: number;
-}
-
 export interface DbScaleMetadata {
     unit: string;
     axisLabel: string;
@@ -96,15 +83,11 @@ export interface SpectrogramData {
 export interface ChannelSummary {
     label: string;
     unit?: string | null;
-    rms: number;
     peakAbsolute: number;
     measurement?: ChannelMeasurementContext;
-    rmsLevelDb?: number;
     peakLevelDb?: number;
     rawPeakFullScale?: number;
     clipped?: boolean;
-    dominantFrequencies: FrequencyPeak[];
-    peaks?: SpectrumPeak[];
     waveform: WaveformEnvelope;
     spectrogram: SpectrogramData | null;
 }

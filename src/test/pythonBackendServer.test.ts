@@ -3,8 +3,13 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import {
+    backendStartupError,
+    BackendStartupError,
+    BackendStartupCancelledError,
+    formatPythonImportTiming,
     processStdoutChunk,
     rejectPendingRequests,
+    waitForBackendStartup,
     type BackendDiagnostic,
     type PendingRequest,
 } from '../extension/backendIpc';
@@ -45,6 +50,58 @@ function makePending(
         reject: (error) => { rejected.push(error); },
     };
 }
+
+test('backendStartupError includes stderr when Python exits before ready', () => {
+    const error = backendStartupError(
+        'Python backend exited before ready (code 1)',
+        'Traceback\nModuleNotFoundError: No module named numpy\n',
+    );
+
+    assert.equal(
+        error.message,
+        'Python backend exited before ready (code 1): Traceback\nModuleNotFoundError: No module named numpy',
+    );
+    assert.ok(error instanceof BackendStartupError);
+});
+
+test('formatPythonImportTiming keeps only slow imports as structured milliseconds', () => {
+    assert.equal(
+        formatPythonImportTiming('import time:     23157 |   15918135 | wandas'),
+        '[import] module=wandas self_ms=23.16 cumulative_ms=15918.14',
+    );
+    assert.equal(formatPythonImportTiming('import time:       100 |       9999 | small_module'), null);
+    assert.equal(formatPythonImportTiming('import time: self [us] | cumulative | imported package'), null);
+});
+
+test('waitForBackendStartup lets cancellation interrupt a pending startup', async () => {
+    let cancel: (() => void) | undefined;
+    let resolveStartup: (() => void) | undefined;
+    const startup = new Promise<void>((resolve) => { resolveStartup = resolve; });
+    const waiting = waitForBackendStartup(startup, {
+        isCancellationRequested: false,
+        onCancellationRequested: (listener) => {
+            cancel = listener;
+            return { dispose: () => { cancel = undefined; } };
+        },
+    });
+
+    cancel?.();
+
+    await assert.rejects(waiting, BackendStartupCancelledError);
+    resolveStartup?.();
+});
+
+test('heartbeat restart rejects requests owned by the killed backend before replacing it', () => {
+    const source = readFileSync(
+        path.resolve(process.cwd(), 'src/extension/pythonBackendServer.ts'),
+        'utf8',
+    );
+
+    assert.match(
+        source,
+        /this\.stopWatchdog\(\);[\s\S]*this\.rejectAll\(error\);[\s\S]*child\?\.kill\(\);[\s\S]*this\.ensureRunning\(\)/u,
+    );
+});
 
 function calibratedAnalyzeResponse(): { [key: string]: unknown } {
     const measurement = {
@@ -91,14 +148,10 @@ function calibratedAnalyzeResponse(): { [key: string]: unknown } {
             label: 'microphone',
             unit: 'Pa',
             measurement,
-            rms: 0.1,
             peakAbsolute: 0.2,
-            rmsLevelDb: 74,
             peakLevelDb: 80,
             rawPeakFullScale: 0.1,
             clipped: false,
-            dominantFrequencies: [{ frequencyHz: 1_000, magnitude: 0.1 }],
-            peaks: [{ freqHz: 1_000, amplitudeDb: 74, magnitude: 0.1, levelDb: 74 }],
             waveform: { min: [-0.1], max: [0.1], samples: [0], absolutePeak: 0.1 },
             spectrogram: {
                 values: [[74]],
@@ -140,17 +193,13 @@ test('parseBackendResult rejects malformed calibration analysis fields', () => {
             const channels = candidate['channels'] as Array<{ measurement: { referenceValue: unknown } }>;
             channels[0].measurement.referenceValue = 0;
         }],
-        ['RMS level', (candidate) => {
-            const channels = candidate['channels'] as Array<{ rmsLevelDb: unknown }>;
-            channels[0].rmsLevelDb = '74';
+        ['peak level', (candidate) => {
+            const channels = candidate['channels'] as Array<{ peakLevelDb: unknown }>;
+            channels[0].peakLevelDb = '80';
         }],
         ['clipping state', (candidate) => {
             const channels = candidate['channels'] as Array<{ clipped: unknown }>;
             channels[0].clipped = 'false';
-        }],
-        ['spectrum magnitude', (candidate) => {
-            const channels = candidate['channels'] as Array<{ peaks: Array<{ magnitude: unknown }> }>;
-            channels[0].peaks[0].magnitude = '0.1';
         }],
         ['spectrogram reference', (candidate) => {
             const channels = candidate['channels'] as Array<{ spectrogram: { referenceValue: unknown } }>;

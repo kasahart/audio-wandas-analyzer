@@ -4,8 +4,13 @@ import type { AnalysisResult, AnalysisResultWithError, StftOptions } from '../sh
 import type { AnalyzeOptions } from './pythonBackendServer';
 
 export interface AnalysisBackend {
-    analyze(filePath: string, options: AnalyzeOptions): Promise<AnalysisResult>;
-    warmup(): void;
+    analyze(
+        filePath: string,
+        options: AnalyzeOptions,
+        cancellation?: vscode.CancellationToken,
+    ): Promise<AnalysisResult>;
+    analysisRevisionFor?(filePath: string): number;
+    warmup(): Promise<void>;
 }
 
 export interface ProgressMessageSink {
@@ -13,7 +18,6 @@ export interface ProgressMessageSink {
 }
 
 export interface AnalysisHost {
-    getDefaultPeakCount(): number;
     withProgress<T>(
         options: vscode.ProgressOptions,
         task: (
@@ -24,9 +28,6 @@ export interface AnalysisHost {
 }
 
 const defaultHost: AnalysisHost = {
-    getDefaultPeakCount: () => vscode.workspace
-        .getConfiguration('audioWandasAnalyzer')
-        .get<number>('defaultPeakCount', 5),
     withProgress: (options, task) => vscode.window.withProgress(options, task),
 };
 
@@ -44,7 +45,10 @@ export class AnalysisOrchestrator {
     ) {}
 
     warmup(): void {
-        this.backend.warmup();
+        void this.backend.warmup().catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logPerf(`[ts] backend warmup failed error=${message}`);
+        });
     }
 
     async analyzeFiles(
@@ -77,19 +81,18 @@ export class AnalysisOrchestrator {
                         fileName,
                     });
                     try {
-                        results.push(await this.analyzeFile(filePath, stftOptions));
+                        results.push(await this.analyzeFile(filePath, stftOptions, cancellable ? token : undefined));
                     } catch (error) {
-                        results.push({
-                            filePath,
-                            fileName,
-                            sampleRateHz: 0,
-                            durationSeconds: 0,
-                            channelCount: 0,
-                            sampleCount: 0,
-                            channels: [],
-                            analysisRevision: errorAnalysisRevision(error),
-                            error: error instanceof Error ? error.message : String(error),
-                        });
+                        if (error instanceof vscode.CancellationError) { throw error; }
+                        const message = error instanceof Error ? error.message : String(error);
+                        results.push(this.errorResult(filePath, message, errorAnalysisRevision(error)));
+                        if (this.isBackendStartupFailure(error)) {
+                            for (const skippedPath of filePaths.slice(index + 1)) {
+                                const revision = this.backend.analysisRevisionFor?.(skippedPath) ?? 0;
+                                results.push(this.errorResult(skippedPath, message, revision));
+                            }
+                            break;
+                        }
                     }
                 }
                 return results;
@@ -97,15 +100,37 @@ export class AnalysisOrchestrator {
         );
     }
 
-    private async analyzeFile(filePath: string, stftOptions?: StftOptions): Promise<AnalysisResult> {
+    private isBackendStartupFailure(error: unknown): boolean {
+        return Boolean(error && typeof error === 'object'
+            && (error as { backendStartupFailure?: unknown }).backendStartupFailure === true);
+    }
+
+    private errorResult(filePath: string, message: string, analysisRevision: number): AnalysisResultWithError {
+        return {
+            filePath,
+            fileName: path.basename(filePath),
+            sampleRateHz: 0,
+            durationSeconds: 0,
+            channelCount: 0,
+            sampleCount: 0,
+            channels: [],
+            analysisRevision,
+            error: message,
+        };
+    }
+
+    private async analyzeFile(
+        filePath: string,
+        stftOptions?: StftOptions,
+        cancellation?: vscode.CancellationToken,
+    ): Promise<AnalysisResult> {
         const fileLabel = path.basename(filePath);
         const startedAt = Date.now();
         this.logPerf(`[ts] analyze start file=${fileLabel}`);
         try {
             const result = await this.backend.analyze(filePath, {
-                peakCount: this.host.getDefaultPeakCount(),
                 stftOptions,
-            });
+            }, cancellation);
             this.logPerf(`[ts] analyze done  file=${fileLabel} total_ms=${Date.now() - startedAt}`);
             return result;
         } catch (error) {

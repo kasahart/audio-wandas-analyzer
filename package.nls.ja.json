@@ -10,6 +10,5 @@
   "viewsWelcome.contents": "音声ファイルまたはフォルダを解析します。\n\n[ファイル・フォルダを選択して解析](command:audioWandasAnalyzer.analyzeFile)\n\nエクスプローラーで音声ファイルまたはフォルダを右クリックして「Audio Analyzer で解析」を選択することもできます。",
   "configuration.title": "Audio Wandas Analyzer",
   "configuration.pythonCommand.description": "解析バックエンドを起動する Python 環境フォルダ。既存の Python 実行ファイル指定も引き続き利用できます。",
-  "configuration.defaultPeakCount.description": "チャンネルごとに表示する周波数ピーク数。",
   "configuration.debugFilePath.description": "Audio Analyzer: デバッグパスを解析 コマンドで開く既定パス。相対パスは最初のワークスペースフォルダから解決されます。"
 }

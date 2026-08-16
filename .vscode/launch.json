@@ -26,7 +26,9 @@
       ],
       "env": {
         "AUDIO_WANDAS_AUTO_OPEN_DEBUG": "1",
-        "AUDIO_WANDAS_CLOSE_PANEL_ON_STARTUP": "1"
+        "AUDIO_WANDAS_CLOSE_PANEL_ON_STARTUP": "1",
+        "AWA_PERF_LOG": "1",
+        "AWA_IMPORT_TIME": "1"
       },
       "outFiles": [
         "${workspaceFolder}/dist/**/*.js"

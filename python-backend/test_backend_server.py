@@ -136,7 +136,7 @@ def server() -> _ServerHandle:
 def test_analyze_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
-    resp = server.request({"cmd": "analyze", "filePath": str(wav), "peakCount": 3})
+    resp = server.request({"cmd": "analyze", "filePath": str(wav)})
     assert "error" not in resp, resp
     assert resp["fileName"] == "tone.wav"
     assert resp["channelCount"] == 1
@@ -147,7 +147,7 @@ def test_analyze_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
 def test_analyze_round_trip_accepts_flac_from_supported_ui_formats(server: _ServerHandle, tmp_path: Path) -> None:
     flac = tmp_path / "tone.flac"
     _write_sine_flac(flac)
-    resp = server.request({"cmd": "analyze", "filePath": str(flac), "peakCount": 3})
+    resp = server.request({"cmd": "analyze", "filePath": str(flac)})
     assert "error" not in resp, resp
     assert resp["fileName"] == "tone.flac"
     assert resp["channelCount"] == 1
@@ -204,7 +204,7 @@ def test_handle_range_uses_same_pcm_scale_as_analysis(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav, seconds=1.0)
 
-    overview = handle_analyze({"filePath": str(wav), "peakCount": 3})["channels"][0]["waveform"]
+    overview = handle_analyze({"filePath": str(wav)})["channels"][0]["waveform"]
     response = handle_range({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.75, "points": 128})
     waveform = response["channels"][0]
 
@@ -553,14 +553,47 @@ def test_invalid_payload_returns_deterministic_error_response(server: _ServerHan
 def test_dispatch_uses_injected_service_without_creating_an_engine() -> None:
     class FakeService:
         def analyze(self, file_path: str, **options: object) -> dict[str, object]:
-            return {"filePath": file_path, "peakCount": options["peak_count"]}
+            return {"filePath": file_path, "options": options}
 
     result = dispatch(
-        {"cmd": "analyze", "filePath": "/tmp/tone.wav", "peakCount": 7},
+        {"cmd": "analyze", "filePath": "/tmp/tone.wav"},
         FakeService(),  # type: ignore[arg-type]
     )
 
-    assert result == {"filePath": "/tmp/tone.wav", "peakCount": 7}
+    assert result == {
+        "filePath": "/tmp/tone.wav",
+        "options": {"stft_options": None, "calibration_profile": None, "analysis_revision": 0},
+    }
+
+
+def test_default_service_loader_reports_startup_phases(monkeypatch: pytest.MonkeyPatch) -> None:
+    import backend_server
+
+    phases: list[str] = []
+
+    class FakeEngine:
+        pass
+
+    class FakeService:
+        def __init__(self, engine: object) -> None:
+            self.engine = engine
+
+    modules = {
+        "analysis_engine": type("EngineModule", (), {"AnalysisEngine": FakeEngine}),
+        "analysis_service": type("ServiceModule", (), {"AnalysisService": FakeService}),
+    }
+    monkeypatch.setattr(backend_server.importlib, "import_module", modules.__getitem__)
+    monkeypatch.setattr(backend_server, "_perf", lambda phase, _started, **_extra: phases.append(phase))
+
+    service = backend_server._load_default_service()
+
+    assert isinstance(service, FakeService)
+    assert isinstance(service.engine, FakeEngine)
+    assert phases == [
+        "startup_import_analysis_engine",
+        "startup_import_analysis_service",
+        "startup_create_service",
+    ]
 
 
 def test_non_finite_response_becomes_request_error(
@@ -571,7 +604,7 @@ def test_non_finite_response_becomes_request_error(
         def analyze(self, _file_path: str, **_options: object) -> dict[str, object]:
             return {"rms": math.inf}
 
-    request = {"cmd": "analyze", "requestId": "r1", "filePath": "/tmp/tone.wav", "peakCount": 1}
+    request = {"cmd": "analyze", "requestId": "r1", "filePath": "/tmp/tone.wav"}
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(request) + "\n"))
 
     main(FakeService())  # type: ignore[arg-type]
@@ -586,7 +619,7 @@ def test_non_finite_response_becomes_request_error(
 def test_analyze_then_range_share_cache(server: _ServerHandle, tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
-    server.request({"cmd": "analyze", "filePath": str(wav), "peakCount": 3})
+    server.request({"cmd": "analyze", "filePath": str(wav)})
     t = time.perf_counter()
     server.request(
         {
