@@ -9,6 +9,7 @@ test('activate keeps analyze commands available and warms Python when workspace 
     const originalLoad = NodeModule._load;
     const originalConsoleError = console.error;
     const registeredCommandIds: string[] = [];
+    const registeredCommandHandlers = new Map<string, (...args: unknown[]) => unknown>();
     const createdTreeViewIds: string[] = [];
     let backendWarmupCalls = 0;
     let backendDisposeCalls = 0;
@@ -23,8 +24,9 @@ test('activate keeps analyze commands available and warms Python when workspace 
 
     const vscodeStub = {
         commands: {
-            registerCommand: (commandId: string) => {
+            registerCommand: (commandId: string, handler: (...args: unknown[]) => unknown) => {
                 registeredCommandIds.push(commandId);
+                registeredCommandHandlers.set(commandId, handler);
                 return { dispose() {} };
             },
             executeCommand: () => Promise.resolve(),
@@ -135,7 +137,7 @@ test('activate keeps analyze commands available and warms Python when workspace 
 
         if (request === './pythonEnvironment') {
             return {
-                selectPythonEnvironment: async () => {},
+                selectPythonEnvironment: async () => currentPythonCommand,
                 checkAndPromptInstallDependencies: async () => true,
                 getCurrentPythonEnvironmentState: () => ({
                     pythonCommand: 'python3',
@@ -199,6 +201,14 @@ test('activate keeps analyze commands available and warms Python when workspace 
         assert.equal(importingStatusCalls, 2);
         assert.equal(backendWarmupCalls, 2);
         assert.equal(normalStatusCalls, 6);
+
+        await registeredCommandHandlers.get('audioWandasAnalyzer.selectPythonEnvironment')?.();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        assert.equal(importingStatusCalls, 3);
+        assert.equal(backendWarmupCalls, 3);
+        assert.equal(normalStatusCalls, 8);
         const welcomeItems = createdTreeViewOptions?.treeDataProvider?.getChildren() as Array<{
             label: string;
             description?: string;

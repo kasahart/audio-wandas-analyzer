@@ -324,33 +324,20 @@ test('selectPythonEnvironment updates workspace pythonCommand from quick pick en
     }
 });
 
-test('selectPythonEnvironment re-checks immediately when the selected environment folder is already configured', async () => {
-    let spawnedCommand = '';
+test('selectPythonEnvironment reports the selected environment when it is already configured', async () => {
     const { pythonEnvironment, updates, restore } = loadPythonEnvironmentModule({
         showQuickPickResult: { label: '.venv', pythonCommand: '.venv' },
         currentPythonCommand: '.venv',
-        workspaceFolderRoot: '/workspace/project',
-        spawnImpl: (pythonCommand?: unknown) => {
-            spawnedCommand = String(pythonCommand);
-            const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
-            proc.stdout = new EventEmitter();
-            proc.stderr = new EventEmitter();
-            process.nextTick(() => {
-                proc.stdout.emit('data', Buffer.from('[]\n'));
-                proc.emit('close', 0);
-            });
-            return proc;
-        },
     });
 
     try {
-        await pythonEnvironment.selectPythonEnvironment({
+        const reselected = await pythonEnvironment.selectPythonEnvironment({
             text: '',
             tooltip: '',
             backgroundColor: undefined,
             show() {},
         } as never);
-        assert.equal(spawnedCommand, '/workspace/project/.venv/bin/python');
+        assert.equal(reselected, '.venv');
         assert.deepEqual(updates, []);
     } finally {
         restore();

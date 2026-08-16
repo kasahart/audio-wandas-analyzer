@@ -204,7 +204,7 @@ export function setStatusBarWarning(
     pythonEnvironmentStateEmitter.fire(currentPythonEnvironmentState);
 }
 
-export async function selectPythonEnvironment(statusBarItem: vscode.StatusBarItem): Promise<void> {
+export async function selectPythonEnvironment(_statusBarItem: vscode.StatusBarItem): Promise<string | undefined> {
     const selectedItem = await vscode.window.showQuickPick<PythonQuickPickItem>([
         { label: '.venv', pythonCommand: '.venv' },
         { label: 'venv', pythonCommand: 'venv' },
@@ -236,13 +236,13 @@ export async function selectPythonEnvironment(statusBarItem: vscode.StatusBarIte
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
     const currentPythonCommand = config.get<string>('pythonCommand', 'python3');
     if (chosen === currentPythonCommand) {
-        await checkAndPromptInstallDependencies(chosen, statusBarItem);
-        return;
+        return chosen;
     }
     const target = vscode.workspace.workspaceFolders?.length
         ? vscode.ConfigurationTarget.Workspace
         : vscode.ConfigurationTarget.Global;
     await config.update('pythonCommand', chosen, target);
+    return undefined;
 }
 
 export async function checkAndPromptInstallDependencies(
