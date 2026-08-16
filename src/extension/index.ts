@@ -17,20 +17,25 @@ export function activate(context: vscode.ExtensionContext): void {
     let deactivated = false;
     const perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
     const logPerf = (line: string): void => { perfChannel.appendLine(line); };
+    const pythonStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
+    pythonStatusBarItem.command = 'audioWandasAnalyzer.selectPythonEnvironment';
     const backend = new PythonBackendServer(context.extensionPath, (line) => {
         if (line.startsWith('[ts]')) {
             logPerf(line);
             return;
         }
         logPerf(`[py] ${line.startsWith('[perf]') ? line.slice(7) : line}`);
+    }, () => {
+        if (deactivated) { return; }
+        const pythonCommand = vscode.workspace
+            .getConfiguration('audioWandasAnalyzer')
+            .get<string>('pythonCommand', 'python3');
+        setStatusBarNormal(pythonStatusBarItem, pythonCommand);
     });
     const analysis = new AnalysisOrchestrator(backend, logPerf);
     const exports = new ExportFlows(backend);
     const recipeFlow = new RecipeFlow(context.extensionPath, context.extensionUri);
     const panelController = new PanelController(context, backend, analysis, exports);
-
-    const pythonStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
-    pythonStatusBarItem.command = 'audioWandasAnalyzer.selectPythonEnvironment';
 
     const warmPythonBackend = (pythonCommand: string): void => {
         void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem).then(async (dependenciesReady) => {

@@ -13,6 +13,7 @@ test('activate keeps analyze commands available and warms Python when workspace 
     let backendWarmupCalls = 0;
     let backendDisposeCalls = 0;
     let importingStatusCalls = 0;
+    let normalStatusCalls = 0;
     let currentPythonCommand = 'python3';
     let configurationListener: ((event: { affectsConfiguration(section: string): boolean }) => void) | undefined;
     let createdTreeViewOptions: {
@@ -118,8 +119,14 @@ test('activate keeps analyze commands available and warms Python when workspace 
         if (request === './pythonBackendServer') {
             return {
                 PythonBackendServer: class {
+                    constructor(
+                        _extensionPath: string,
+                        _onPerfLine: (line: string) => void,
+                        private readonly onReady: () => void,
+                    ) {}
                     async warmup(): Promise<void> {
                         backendWarmupCalls += 1;
+                        this.onReady();
                     }
                     dispose(): void { backendDisposeCalls += 1; }
                 },
@@ -137,7 +144,7 @@ test('activate keeps analyze commands available and warms Python when workspace 
                 }),
                 onDidChangePythonEnvironmentState: () => ({ dispose() {} }),
                 setStatusBarImporting: () => { importingStatusCalls += 1; },
-                setStatusBarNormal: () => {},
+                setStatusBarNormal: () => { normalStatusCalls += 1; },
                 setStatusBarWarning: () => {},
             };
         }
@@ -191,6 +198,7 @@ test('activate keeps analyze commands available and warms Python when workspace 
         assert.equal(backendDisposeCalls, 1);
         assert.equal(importingStatusCalls, 2);
         assert.equal(backendWarmupCalls, 2);
+        assert.equal(normalStatusCalls, 6);
         const welcomeItems = createdTreeViewOptions?.treeDataProvider?.getChildren() as Array<{
             label: string;
             description?: string;

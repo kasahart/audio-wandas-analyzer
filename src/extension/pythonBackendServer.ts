@@ -58,7 +58,12 @@ export class PythonBackendServer {
     constructor(
         private readonly extensionPath: string,
         private readonly onPerfLine: (line: string) => void = () => { /* no-op */ },
+        private readonly onReady: () => void = () => { /* no-op */ },
     ) {}
+
+    analysisRevisionFor(_filePath: string): number {
+        return 0;
+    }
 
     warmup(): Promise<void> {
         return this.ensureRunning();
@@ -298,6 +303,7 @@ export class PythonBackendServer {
                     });
                     this.startWatchdog();
                     this.onPerfLine(`[ts] backend ready total_ms=${Date.now() - startupStartedAt}`);
+                    this.onReady();
                     resolve();
                     return;
                 }
@@ -356,9 +362,13 @@ export class PythonBackendServer {
             const elapsed = Date.now() - this.lastHeartbeatAt;
             if (elapsed > PythonBackendServer.HEARTBEAT_TIMEOUT_MS) {
                 this.onPerfLine('[watchdog] heartbeat timeout — restarting backend');
-                this.proc?.kill();
+                const child = this.proc;
+                const error = new Error('Python backend heartbeat timed out');
+                this.stopWatchdog();
                 this.proc = null;
                 this.startPromise = null;
+                this.rejectAll(error);
+                child?.kill();
                 void this.ensureRunning().catch(() => { /* surfaced on next request */ });
             }
         }, PythonBackendServer.WATCHDOG_INTERVAL_MS);

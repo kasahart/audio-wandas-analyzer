@@ -122,12 +122,18 @@ test('AnalysisOrchestrator does not retry a shared backend startup failure for e
         ),
     };
     let analyzeCalls = 0;
+    const revisions = new Map([
+        ['/tmp/one.wav', 2],
+        ['/tmp/two.wav', 5],
+        ['/tmp/three.wav', 8],
+    ]);
     const startupError = Object.assign(new Error('startup timed out'), {
         analysisRevision: 2,
         backendStartupFailure: true,
     });
     const orchestrator = new AnalysisOrchestrator({
         warmup: async () => undefined,
+        analysisRevisionFor: (filePath) => revisions.get(filePath) ?? 0,
         analyze: async () => {
             analyzeCalls += 1;
             throw startupError;
@@ -143,7 +149,7 @@ test('AnalysisOrchestrator does not retry a shared backend startup failure for e
         analysisRevision: result.analysisRevision,
     })), [
         { fileName: 'one.wav', error: 'startup timed out', analysisRevision: 2 },
-        { fileName: 'two.wav', error: 'startup timed out', analysisRevision: 2 },
-        { fileName: 'three.wav', error: 'startup timed out', analysisRevision: 2 },
+        { fileName: 'two.wav', error: 'startup timed out', analysisRevision: 5 },
+        { fileName: 'three.wav', error: 'startup timed out', analysisRevision: 8 },
     ]);
 });

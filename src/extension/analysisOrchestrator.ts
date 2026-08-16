@@ -9,6 +9,7 @@ export interface AnalysisBackend {
         options: AnalyzeOptions,
         cancellation?: vscode.CancellationToken,
     ): Promise<AnalysisResult>;
+    analysisRevisionFor?(filePath: string): number;
     warmup(): Promise<void>;
 }
 
@@ -87,7 +88,8 @@ export class AnalysisOrchestrator {
                         results.push(this.errorResult(filePath, message, errorAnalysisRevision(error)));
                         if (this.isBackendStartupFailure(error)) {
                             for (const skippedPath of filePaths.slice(index + 1)) {
-                                results.push(this.errorResult(skippedPath, message, errorAnalysisRevision(error)));
+                                const revision = this.backend.analysisRevisionFor?.(skippedPath) ?? 0;
+                                results.push(this.errorResult(skippedPath, message, revision));
                             }
                             break;
                         }

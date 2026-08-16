@@ -147,14 +147,17 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
         };
     }
 
-    prototype.analyze = async function(filePath, options) {
+    prototype.analysisRevisionFor = function(filePath) {
+        return getAnalysisRevision(filePath);
+    };
+    prototype.analyze = async function(filePath, options, cancellation) {
         const calibrationProfile = getCalibrationProfile(extensionContext, filePath);
         try {
             return await analyze.call(this, filePath, {
                 ...options,
                 calibrationProfile,
                 analysisRevision: getAnalysisRevision(filePath),
-            });
+            }, cancellation);
         } catch (error) {
             const discarded = calibrationProfile
                 ? await discardStaleCalibrationProfile(extensionContext, filePath, error, calibrationProfile)
@@ -166,7 +169,7 @@ function patchBackendCalibration(extensionContext: vscode.ExtensionContext): voi
                 ...options,
                 calibrationProfile: undefined,
                 analysisRevision: getAnalysisRevision(filePath),
-            });
+            }, cancellation);
         }
     };
     prototype.requestRange = function(filePath, startNorm, endNorm, points, requestId, calibration = {}) {

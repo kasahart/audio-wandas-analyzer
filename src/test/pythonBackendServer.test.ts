@@ -91,6 +91,18 @@ test('waitForBackendStartup lets cancellation interrupt a pending startup', asyn
     resolveStartup?.();
 });
 
+test('heartbeat restart rejects requests owned by the killed backend before replacing it', () => {
+    const source = readFileSync(
+        path.resolve(process.cwd(), 'src/extension/pythonBackendServer.ts'),
+        'utf8',
+    );
+
+    assert.match(
+        source,
+        /this\.stopWatchdog\(\);[\s\S]*this\.rejectAll\(error\);[\s\S]*child\?\.kill\(\);[\s\S]*this\.ensureRunning\(\)/u,
+    );
+});
+
 function calibratedAnalyzeResponse(): { [key: string]: unknown } {
     const measurement = {
         calibrationStatus: 'calibrated',
