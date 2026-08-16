@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import {
     backendStartupError,
+    formatPythonImportTiming,
     processStdoutChunk,
     rejectPendingRequests,
     type BackendDiagnostic,
@@ -57,6 +58,15 @@ test('backendStartupError includes stderr when Python exits before ready', () =>
         error.message,
         'Python backend exited before ready (code 1): Traceback\nModuleNotFoundError: No module named numpy',
     );
+});
+
+test('formatPythonImportTiming keeps only slow imports as structured milliseconds', () => {
+    assert.equal(
+        formatPythonImportTiming('import time:     23157 |   15918135 | wandas'),
+        '[import] module=wandas self_ms=23.16 cumulative_ms=15918.14',
+    );
+    assert.equal(formatPythonImportTiming('import time:       100 |       9999 | small_module'), null);
+    assert.equal(formatPythonImportTiming('import time: self [us] | cumulative | imported package'), null);
 });
 
 function calibratedAnalyzeResponse(): { [key: string]: unknown } {

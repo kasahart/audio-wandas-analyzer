@@ -566,6 +566,36 @@ def test_dispatch_uses_injected_service_without_creating_an_engine() -> None:
     }
 
 
+def test_default_service_loader_reports_startup_phases(monkeypatch: pytest.MonkeyPatch) -> None:
+    import backend_server
+
+    phases: list[str] = []
+
+    class FakeEngine:
+        pass
+
+    class FakeService:
+        def __init__(self, engine: object) -> None:
+            self.engine = engine
+
+    modules = {
+        "analysis_engine": type("EngineModule", (), {"AnalysisEngine": FakeEngine}),
+        "analysis_service": type("ServiceModule", (), {"AnalysisService": FakeService}),
+    }
+    monkeypatch.setattr(backend_server.importlib, "import_module", modules.__getitem__)
+    monkeypatch.setattr(backend_server, "_perf", lambda phase, _started, **_extra: phases.append(phase))
+
+    service = backend_server._load_default_service()
+
+    assert isinstance(service, FakeService)
+    assert isinstance(service.engine, FakeEngine)
+    assert phases == [
+        "startup_import_analysis_engine",
+        "startup_import_analysis_service",
+        "startup_create_service",
+    ]
+
+
 def test_non_finite_response_becomes_request_error(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

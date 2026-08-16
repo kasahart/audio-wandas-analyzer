@@ -42,6 +42,15 @@ export function backendStartupError(message: string, stderr: string): Error {
     return new Error(details ? `${message}: ${details}` : message);
 }
 
+export function formatPythonImportTiming(line: string, minimumCumulativeMs = 100): string | null {
+    const match = /^import time:\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(.+)$/u.exec(line);
+    if (!match) { return null; }
+    const selfMs = Number(match[1]) / 1000;
+    const cumulativeMs = Number(match[2]) / 1000;
+    if (cumulativeMs < minimumCumulativeMs) { return null; }
+    return `[import] module=${match[3].trim()} self_ms=${selfMs.toFixed(2)} cumulative_ms=${cumulativeMs.toFixed(2)}`;
+}
+
 function protocolError(message: string): BackendProtocolError {
     return new BackendProtocolError(message);
 }

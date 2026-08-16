@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import {
     backendStartupError,
+    formatPythonImportTiming,
     processStdoutChunk,
     rejectPendingRequests,
     type BackendDiagnostic,
@@ -195,10 +196,14 @@ export class PythonBackendServer {
             const pythonCommand = resolveConfiguredPythonCommand(config.get<string>('pythonCommand', 'python3'));
             const cacheMb = Math.max(64, config.get<number>('cacheMemoryMb', 1024));
             const scriptPath = path.join(this.extensionPath, 'python-backend', 'backend_server.py');
+            const importTimingEnabled = globalThis.process.env['AWA_IMPORT_TIME'] === '1';
+            const pythonArgs = importTimingEnabled ? ['-X', 'importtime', scriptPath] : [scriptPath];
+            const startupStartedAt = Date.now();
 
             this.stdoutBuf.value = '';
             this.stderrBuf = '';
-            const child = spawn(pythonCommand, [scriptPath], {
+            this.onPerfLine(`[ts] backend spawn python=${pythonCommand} import_time=${importTimingEnabled ? 'on' : 'off'}`);
+            const child = spawn(pythonCommand, pythonArgs, {
                 cwd: this.extensionPath,
                 stdio: ['pipe', 'pipe', 'pipe'],
                 env: {
@@ -272,6 +277,7 @@ export class PythonBackendServer {
                         });
                     });
                     this.startWatchdog();
+                    this.onPerfLine(`[ts] backend ready total_ms=${Date.now() - startupStartedAt}`);
                     resolve();
                     return;
                 }
@@ -287,6 +293,9 @@ export class PythonBackendServer {
                 for (const line of lines) {
                     if (line.startsWith('[perf]')) {
                         this.onPerfLine(line);
+                    } else if (importTimingEnabled) {
+                        const importTiming = formatPythonImportTiming(line);
+                        if (importTiming) { this.onPerfLine(importTiming); }
                     }
                 }
             });

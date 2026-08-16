@@ -15,6 +15,10 @@ export function activate(context: vscode.ExtensionContext): void {
     const perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
     const logPerf = (line: string): void => { perfChannel.appendLine(line); };
     const backend = new PythonBackendServer(context.extensionPath, (line) => {
+        if (line.startsWith('[ts]')) {
+            logPerf(line);
+            return;
+        }
         logPerf(`[py] ${line.startsWith('[perf]') ? line.slice(7) : line}`);
     });
     const analysis = new AnalysisOrchestrator(backend, logPerf);

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import math
 import os
@@ -10,16 +11,17 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from analysis_engine import AnalysisEngine
-from analysis_service import AnalysisService
+if TYPE_CHECKING:
+    from analysis_service import AnalysisService
 
+_PROCESS_STARTED = time.perf_counter()
 _PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
 _HEARTBEAT_INTERVAL: float = 5.0
 
 Command = dict[str, Any]
-CommandHandler = Callable[[AnalysisService, Command], dict[str, object]]
+CommandHandler = Callable[[Any, Command], dict[str, object]]
 FieldValidator = Callable[[object], bool]
 
 
@@ -105,6 +107,21 @@ def _perf(phase: str, started: float, **extra: object) -> None:
     parts = [f"phase={phase}", f"ms={ms:.2f}"]
     parts.extend(f"{key}={value}" for key, value in extra.items())
     print("[perf] " + " ".join(parts), file=sys.stderr, flush=True)
+
+
+def _load_default_service() -> AnalysisService:
+    started = time.perf_counter()
+    analysis_engine = importlib.import_module("analysis_engine")
+    _perf("startup_import_analysis_engine", started)
+
+    started = time.perf_counter()
+    analysis_service = importlib.import_module("analysis_service")
+    _perf("startup_import_analysis_service", started)
+
+    started = time.perf_counter()
+    service = analysis_service.AnalysisService(analysis_engine.AnalysisEngine())
+    _perf("startup_create_service", started)
+    return service
 
 
 def _stft_options(command: Command) -> Mapping[str, object] | None:
@@ -206,8 +223,10 @@ def _heartbeat_loop() -> None:
 
 
 def main(service: AnalysisService | None = None) -> None:
-    active_service = service or AnalysisService(AnalysisEngine())
+    _perf("startup_begin", _PROCESS_STARTED, pid=os.getpid(), python=sys.executable)
+    active_service = service or _load_default_service()
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    _perf("startup_ready", _PROCESS_STARTED)
     print(json.dumps({"type": "ready"}), flush=True)
     for raw_line in sys.stdin:
         line = raw_line.strip()

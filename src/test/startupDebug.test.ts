@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
 import {
     getDebugStartupBehavior,
     isEnabledEnvFlag,
@@ -33,4 +35,16 @@ test('getDebugStartupBehavior enables auto-open and directory auto-select indepe
         autoSelectAllDirectoryFiles: true,
         closePanelOnStartup: true,
     });
+});
+
+test('debug directory launch profiles Python startup imports', () => {
+    const launch = JSON.parse(
+        readFileSync(path.resolve(process.cwd(), '.vscode/launch.json'), 'utf8'),
+    ) as { configurations: Array<{ name: string; env?: Record<string, string> }> };
+    const debugDirectory = launch.configurations.find(
+        (configuration) => configuration.name === 'Run Extension (Open Debug Directory)',
+    );
+
+    assert.equal(debugDirectory?.env?.['AWA_PERF_LOG'], '1');
+    assert.equal(debugDirectory?.env?.['AWA_IMPORT_TIME'], '1');
 });
