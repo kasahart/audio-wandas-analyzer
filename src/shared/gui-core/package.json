@@ -1,0 +1,7 @@
+{
+  "name": "@wandas/gui-core",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {".": "./index.ts"},
+  "dependencies": {}
+}
