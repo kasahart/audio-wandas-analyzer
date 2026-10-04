@@ -18,3 +18,5 @@ playwright-report/
 ux-audit-screenshots/
 UX_AUDIT_REPORT.md
 .ruff_cache/
+
+browser-dist/

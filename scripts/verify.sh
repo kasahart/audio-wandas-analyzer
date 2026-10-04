@@ -45,4 +45,10 @@ fi
 echo "==> pytest"
 python -m pytest python-backend
 
+if [ "${AWA_VERIFY_BROWSER:-0}" = "1" ]; then
+    echo "==> browser runtime asset integrity and Worker/native parity"
+    python3 scripts/prepare-browser-runtime.py --check
+    npm run test:browser
+fi
+
 echo "verify: OK"

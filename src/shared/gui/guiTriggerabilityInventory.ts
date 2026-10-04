@@ -41,6 +41,8 @@ export const GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS = [
 ] as const;
 
 export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
+    'browser-open-wav',
+    'browser-clear',
     'open-file',
     'open-folder',
     'select-python-environment',
@@ -200,7 +202,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Export the current loop region as WAV',
         entryPoints: ['results-toolbar', 'dialog'],
         triggers: ['export-wav'],
-        regressionLayers: ['ui-smoke'],
+        regressionLayers: ['ui-smoke', 'vscode-e2e'],
     },
     {
         id: 'export-report',
@@ -256,6 +258,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Open and dismiss the keyboard shortcut help overlay',
         entryPoints: ['keyboard', 'dialog'],
         triggers: ['?', 'Esc'],
+        regressionLayers: ['ui-smoke'],
+    },
+    {
+        id: 'static-browser-source',
+        label: 'Open short WAV in a local Python Worker, cancel and clear source memory',
+        entryPoints: ['dialog', 'results-toolbar'],
+        triggers: ['browser-open-wav', 'browser-clear'],
         regressionLayers: ['ui-smoke'],
     },
 ] as const;

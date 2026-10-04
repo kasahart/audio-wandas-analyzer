@@ -48,6 +48,7 @@ export interface PersistedWebviewState {
 }
 
 export interface WebviewHostApi {
+    onMessage?(listener: (message: unknown) => void): () => void;
     postMessage(message: unknown): void;
     getState(): PersistedWebviewState | undefined;
     setState(state: PersistedWebviewState): void;

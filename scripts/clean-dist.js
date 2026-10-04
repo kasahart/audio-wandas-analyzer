@@ -33,6 +33,7 @@ const MANAGED_EXTENSIONS = [
 const PROTECTED_RELATIVE = new Set([
     path.join('webview', 'comparisonWaveform.js'),
     path.join('webview', 'comparisonRuntime.js'),
+    path.join('webview', 'staticHost.js'),
 ]);
 
 if (!fs.existsSync(DIST_DIR)) {

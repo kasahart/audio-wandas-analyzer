@@ -27,3 +27,6 @@ python-backend/test_*.py
 .antigravitycli/**
 audio_wandas_analyzer_backend.egg-info/**
 
+browser/**
+browser-dist/**
+runtime/**

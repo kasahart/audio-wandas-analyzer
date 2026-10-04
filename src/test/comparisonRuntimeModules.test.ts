@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isHostInboundMessage } from '../webview/runtime/hostMessaging';
+import { HostMessenger, isHostInboundMessage } from '../webview/runtime/hostMessaging';
 import {
     createTrackTimeMapping,
     globalNormFromTrackTime,
@@ -14,7 +14,7 @@ import {
     canvasYToAmplitudeNorm,
     zoomNormalizedRange,
 } from '../webview/runtime/waveformInteraction';
-import type { PersistedWebviewState, WebviewHostApi } from '../webview/runtime/types';
+import type { PersistedWebviewState, RuntimeWindow, WebviewHostApi } from '../webview/runtime/types';
 
 test('playback mapping converts between track time and the global timeline', () => {
     const mapping = createTrackTimeMapping(4, 2, { startSeconds: -2, spanSeconds: 8 });
@@ -72,4 +72,39 @@ test('host message validation rejects unknown and incomplete payloads', () => {
     assert.equal(isHostInboundMessage({ type: 'unknown-message' }), false);
     assert.equal(isHostInboundMessage({ type: 'waveform-range-result', requestId: '1' }), false);
     assert.equal(isHostInboundMessage({ type: 'reanalyze-end' }), true);
+});
+
+
+test('static host subscription ignores window messages and validates its own payloads', () => {
+    let subscribed: ((message: unknown) => void) | undefined;
+    let windowSubscriptions = 0;
+    const host: WebviewHostApi = {
+        postMessage: () => undefined, getState: () => undefined, setState: () => undefined,
+        onMessage: listener => { subscribed = listener; return () => { subscribed = undefined; }; },
+    };
+    const browser = { addEventListener: () => { windowSubscriptions++; } } as unknown as RuntimeWindow;
+    const received: unknown[] = [];
+    const unsubscribe = new HostMessenger(host, browser).onMessage(message => received.push(message));
+    assert.equal(windowSubscriptions, 0);
+    subscribed!({ type: 'analysis-update', results: [] });
+    subscribed!({ type: 'unknown-message' });
+    assert.equal(received.length, 1);
+    unsubscribe();
+    assert.equal(subscribed, undefined);
+});
+
+test('desktop VS Code host keeps the window message transport', () => {
+    let handler: ((event: MessageEvent<unknown>) => void) | undefined;
+    const host: WebviewHostApi = { postMessage: () => undefined, getState: () => undefined, setState: () => undefined };
+    const browser = {
+        addEventListener: (_type: string, listener: typeof handler) => { handler = listener; },
+        removeEventListener: () => { handler = undefined; },
+    } as unknown as RuntimeWindow;
+    const received: unknown[] = [];
+    const unsubscribe = new HostMessenger(host, browser).onMessage(message => received.push(message));
+    handler!({ origin: 'vscode-webview://fixture', data: { type: 'analysis-update', results: [] } } as MessageEvent<unknown>);
+    handler!({ origin: '', data: { type: 'reanalyze-end' } } as MessageEvent<unknown>);
+    assert.equal(received.length, 2);
+    unsubscribe();
+    assert.equal(handler, undefined);
 });

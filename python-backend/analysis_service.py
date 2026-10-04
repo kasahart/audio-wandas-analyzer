@@ -161,7 +161,9 @@ class AnalysisService:
             time_bins = int(spectrogram.n_frames)
             if time_bins <= 0:
                 raise ValueError("no spectrogram available for spectrum slice")
-            time_index = min(int(np.floor(clipped_norm * time_bins)), time_bins - 1)
+            centers = np.asarray(spectrogram.frame_center_times[0], dtype=np.float64)
+            cursor_seconds = clipped_norm * float(analysis_frame.duration) + float(analysis_frame.source_time_offset[0])
+            time_index = int(np.argmin(np.abs(centers - cursor_seconds)))
             spectrum = spectrogram.get_frame_at(time_index)
             max_frequency_hz = float(spectrogram.freqs[-1])
             values = np.asarray(spectrum.dB, dtype=np.float64)
