@@ -259,13 +259,14 @@ export function getCalibrationRenderScript(): string {
                 requestAnimationFrame(decorate);
             }
 
-            window.addEventListener('message', function(event) {
-                const message = event.data;
+            function onHostMessage(message) {
                 if (!message) { return; }
                 if (message.type === 'analysis-update') {
                     scheduleDecoration();
                 }
-            });
+            }
+            if (vscode.onMessage) { vscode.onMessage(onHostMessage); }
+            else { window.addEventListener('message', function(event) { onHostMessage(event.data); }); }
 
             observer = new MutationObserver(scheduleDecoration);
             observeApp();

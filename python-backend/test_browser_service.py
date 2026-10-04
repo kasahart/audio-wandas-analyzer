@@ -34,12 +34,14 @@ def test_browser_source_bounds_release_and_stale_identity() -> None:
 
 def test_cursor_selects_nearest_actual_frame_center() -> None:
     service = create_service()
-    service.engine.load("selected.wav", FIXTURE.read_bytes())
+    changing_fixture = FIXTURE.with_name("changing-stereo.wav")
+    service.engine.load("selected.wav", changing_fixture.read_bytes())
     path = "/sources/selected.wav"
     spec = service.engine.get_spectrogram(path, 256, 64, "hann")
     cursor = 0.437
     centers = np.asarray(spec.frame_center_times[0])
-    expected_index = int(np.argmin(np.abs(centers - cursor)))
+    expected_index = int(np.argmin(np.abs(centers - cursor * 2.5)))
+    assert centers[expected_index] > 1.0
     expected = np.asarray(spec.get_frame_at(expected_index).dB)
     result = service.spectrum_slice(
         path, cursor_norm=cursor, stft_options={"nFft": 256, "hopSize": 64, "window": "hann"}

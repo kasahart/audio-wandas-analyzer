@@ -8,6 +8,8 @@ let persisted: PersistedWebviewState | undefined;
 let worker: Worker | undefined;
 let nextId = 0;
 let generation = 0;
+let reanalysisRevision = 0;
+const inboundListeners = new Set<(message: unknown) => void>();
 let sourceUrl: string | undefined;
 let sourcePath: string | undefined;
 let sourceName = '';
@@ -27,10 +29,11 @@ status.textContent = 'Static prototype: WAV ≤16 MiB / 30s / 2ch. Recipes, WDF,
 bar.append(pick, cancel, status);
 document.body.prepend(bar);
 const announce = (value: string): void => { status.textContent = value; };
-const emit = (message: HostInboundMessage): void => { window.dispatchEvent(new MessageEvent('message', { data: message })); };
+const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
 
 function dispose(): void {
     generation++;
+    reanalysisRevision++;
     worker?.terminate(); worker = undefined;
     for (const request of pending.values()) request.reject(new Error('Analysis cancelled'));
     pending.clear();
@@ -40,8 +43,11 @@ function dispose(): void {
 }
 function request(command: Record<string, unknown>, bytes?: ArrayBuffer): Promise<Record<string, unknown>> {
     if (!worker) {
-        worker = new Worker('./audio.worker.js', { type: 'module' });
+        if (command.cmd !== 'load') throw new Error('No selected source; choose the WAV again.');
+        const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
+        worker = activeWorker;
         worker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: string }>): void => {
+            if (worker !== activeWorker) return;
             const item = pending.get(event.data.requestId);
             if (!item) return;
             pending.delete(event.data.requestId);
@@ -49,7 +55,11 @@ function request(command: Record<string, unknown>, bytes?: ArrayBuffer): Promise
             else item.resolve(event.data.result!);
         };
         worker.onerror = (): void => {
-            dispose(); announce('Audio Worker failed; select the WAV again.'); emit({ type: 'reanalyze-end' });
+            if (worker !== activeWorker) return;
+            dispose();
+            emit({ type: 'analysis-update', results: [] });
+            announce('Audio Worker failed; select the WAV again.');
+            emit({ type: 'reanalyze-end' });
         };
     }
     const requestId = `browser-${++nextId}`;
@@ -67,6 +77,7 @@ function resultWithSource(result: Record<string, unknown>): AnalysisResultWithEr
 }
 async function post(message: HostOutboundMessage): Promise<void> {
     const myGeneration = generation;
+    const myReanalysis = message.type === 'request-reanalyze' ? ++reanalysisRevision : reanalysisRevision;
     try {
         switch (message.type) {
             case 'comparison-panel-ready': case 'comparison-panel-test-snapshot': return;
@@ -77,17 +88,22 @@ async function post(message: HostOutboundMessage): Promise<void> {
                 if (!sourcePath) return;
                 emit({ type: 'reanalyze-start', count: 1 });
                 const result = await request({ cmd: 'analyze', filePath: sourcePath, ...stft() });
-                if (generation === myGeneration) emit({ type: 'analysis-update', results: [resultWithSource(result)] });
-                emit({ type: 'reanalyze-end' }); return;
+                if (generation === myGeneration && reanalysisRevision === myReanalysis) {
+                    emit({ type: 'analysis-update', results: [resultWithSource(result)] });
+                }
+                return;
             }
             case 'request-track-detail': case 'request-spectrum-slice': case 'request-waveform-range': {
+                if (!worker || !sourcePath || sourcePath !== message.filePath) {
+                    throw new Error('Source is no longer selected; choose the WAV again.');
+                }
                 const cmd = message.type === 'request-track-detail' ? 'track-detail' : message.type === 'request-spectrum-slice' ? 'spectrum-slice' : 'range';
                 const result = await request({ ...message, cmd, ...stft() });
                 if (generation === myGeneration) emit({ ...message, ...result, type: message.type.replace('request-', '') + '-result' } as HostInboundMessage);
                 return;
             }
             case 'release-track-detail':
-                if (sourcePath) await request({ cmd: 'release-track-detail', filePath: sourcePath }); return;
+                if (sourcePath === message.filePath && worker) await request({ cmd: 'release-track-detail', filePath: sourcePath }); return;
             case 'export-wav-loop': {
                 if (!sourcePath || !message.filePaths.includes(sourcePath)) return;
                 const result = await request({ cmd: 'export-wav-loop', filePath: sourcePath, startNorm: message.startNorm, endNorm: message.endNorm });
@@ -102,16 +118,23 @@ async function post(message: HostOutboundMessage): Promise<void> {
             default: announce('This action is unavailable in the static WAV prototype.');
         }
     } catch (error) {
-        if (generation !== myGeneration) return;
+        if (generation !== myGeneration || (message.type === 'request-reanalyze' && reanalysisRevision !== myReanalysis)) return;
         const reason = error instanceof Error ? error.message : String(error);
         announce(reason);
         if (message.type === 'request-track-detail' || message.type === 'request-spectrum-slice') {
             emit({ ...message, type: message.type.replace('request-', '') + '-error', error: reason } as HostInboundMessage);
         }
-        emit({ type: 'reanalyze-end' });
+    } finally {
+        if (message.type === 'request-reanalyze' && generation === myGeneration && reanalysisRevision === myReanalysis) {
+            emit({ type: 'reanalyze-end' });
+        }
     }
 }
 browserWindow.__AWA_HOST__ = {
+    onMessage: (listener): (() => void) => {
+        inboundListeners.add(listener);
+        return () => { inboundListeners.delete(listener); };
+    },
     postMessage: (message: unknown): void => { void post(message as HostOutboundMessage); },
     getState: () => persisted,
     setState: (state): void => { persisted = state; },
@@ -131,7 +154,7 @@ pick.onchange = (): void => {
             const bytes = await file.arrayBuffer();
             if (generation !== myGeneration) return;
             sourceUrl = URL.createObjectURL(file);
-            const loaded = await request({ cmd: 'load', sourceId: 'selected.wav' }, bytes);
+            const loaded = await request({ cmd: 'load', sourceId: `selected-${myGeneration}.wav` }, bytes);
             if (generation !== myGeneration) return;
             sourcePath = String(loaded.filePath);
             const result = await request({ cmd: 'analyze', filePath: sourcePath, ...stft() });

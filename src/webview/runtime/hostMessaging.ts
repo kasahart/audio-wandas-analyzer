@@ -152,9 +152,11 @@ export class HostMessenger {
     }
 
     onMessage(listener: (message: HostInboundMessage) => void): () => void {
-        const handler = (event: MessageEvent<unknown>): void => {
-            if (isHostInboundMessage(event.data)) { listener(event.data); }
+        const receive = (value: unknown): void => {
+            if (isHostInboundMessage(value)) { listener(value); }
         };
+        if (this.host.onMessage) { return this.host.onMessage(receive); }
+        const handler = (event: MessageEvent<unknown>): void => { receive(event.data); };
         this.browserWindow.addEventListener('message', handler);
         return () => { this.browserWindow.removeEventListener('message', handler); };
     }
