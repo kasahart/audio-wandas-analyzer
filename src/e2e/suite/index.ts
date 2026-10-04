@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import * as path from 'node:path';
+import * as os from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { ExportFlows, type ExportHost } from '../../extension/exportFlows';
 import * as vscode from 'vscode';
 import { ComparisonPanel } from '../../webview/panels/ComparisonPanel';
 
@@ -475,6 +479,67 @@ export async function run(): Promise<void> {
                     `overlay spectrum should include "0 Hz": ${JSON.stringify(overlay)}`);
                 assert.ok(overlay.some((s) => s.includes('dB')),
                     `overlay spectrum dB label missing: ${JSON.stringify(overlay)}`);
+            },
+        },
+        {
+            name: 'short WAV cursor and loop export writes exact selected PCM to a temporary folder',
+            requires: 'single-track',
+            run: async () => {
+                const outputFolder = mkdtempSync(path.join(os.tmpdir(), 'awa-vscode-export-'));
+                const originalExport = ExportFlows.prototype.exportWavLoop;
+                let finished = false;
+                const errors: string[] = [];
+                ExportFlows.prototype.exportWavLoop = async function (message) {
+                    const instance = this as unknown as { host: ExportHost };
+                    const originalHost = instance.host;
+                    instance.host = {
+                        ...originalHost,
+                        pickOutputFolder: async () => vscode.Uri.file(outputFolder),
+                        showInformation: () => undefined,
+                        showError: (message) => { errors.push(message); },
+                    };
+                    try {
+                        await originalExport.call(this, message);
+                    } catch (error) {
+                        errors.push(String(error));
+                    } finally {
+                        instance.host = originalHost;
+                        finished = true;
+                    }
+                };
+                try {
+                    invalidateFixtureCache();
+                    const snapshot = await analyzeDebugPath('src/test/fixtures/short-stereo.wav');
+                    assert.deepEqual(snapshot.fileNames, ['short-stereo.wav']);
+                    const cursor = await postActionsAndWait(`loop-cursor-${Date.now()}`, [
+                        'content-spectrogram',
+                        { action: 'set-cursor', payload: { cursorNorm: 0.437 } },
+                    ]);
+                    assert.equal(cursor.renderedUi?.contentType, 'spectrogram');
+                    assert.equal(cursor.renderedUi?.cursorNorm, 0.437);
+                    await postActionsAndWait(`loop-export-${Date.now()}`, [
+                        { action: 'set-loop-region', payload: { start: 0.25, end: 0.75 } },
+                        'export-wav',
+                    ]);
+                    const deadline = Date.now() + COMMAND_TIMEOUT_MS;
+                    while (!finished && Date.now() < deadline) { await delay(100); }
+                    assert.equal(finished, true, 'VS Code export did not finish');
+                    assert.deepEqual(errors, []);
+                    const outputFile = path.join(outputFolder, 'short-stereo_loop.wav');
+                    execFileSync(pythonCommand, ['-c', [
+                        'import sys, soundfile as sf, numpy as np',
+                        'source, rate = sf.read(sys.argv[1], always_2d=True)',
+                        'output, output_rate = sf.read(sys.argv[2], always_2d=True)',
+                        'assert output_rate == rate == 8000',
+                        'assert output.shape == (4000, 2)',
+                        'assert sf.info(sys.argv[2]).subtype == "PCM_16"',
+                        'assert np.array_equal(output, source[2000:6000])',
+                    ].join('\n'), path.join(workspaceFolder.uri.fsPath, 'src/test/fixtures/short-stereo.wav'), outputFile]);
+                } finally {
+                    ExportFlows.prototype.exportWavLoop = originalExport;
+                    invalidateFixtureCache();
+                    rmSync(outputFolder, { recursive: true, force: true });
+                }
             },
         },
     ];

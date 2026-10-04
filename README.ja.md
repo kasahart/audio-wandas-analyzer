@@ -124,3 +124,5 @@ Audio Analyzer: Select Python Environment
 既存Comparison UIとPython AnalysisServiceを再利用し、ブラウザではPyodide Worker＋bytes/source-id adapterでWAVを解析します。音声は送信されません。1秒ステレオ固定fixtureのnative/Pyodide数値比較は、runtime準備後に `AWA_VERIFY_BROWSER=1 npm run verify` で実行します。
 
 試作上限: RIFF WAV 16 MiB・30秒・1–2ch・1–96kHz・32サンプル以上。選択した1ファイルのみ展開し、取消でWorkerを終了・Blobを解放します。STFTは半窓以上の音声長が必要で、384 MiB推定上限を超える設定を拒否します。区間出力は原音PCM16 WAV、再生はユーザー操作時のみです。Recipe・mosqito・WDF/h5py・全codec・directory scan・校正設定・vscode.devは未対応です。desktop VSCodeの既存機能は保持します。詳細とASD Insightとの最小UI共有案はREADME.mdの対応節を参照してください。
+
+`npm run verify:e2e` は実VSCode Webviewから短いステレオWAVのSTFT・cursor・区間保存を検証します。保存先選択のみ一時folderへ注入し、実Python backendとVSCodeファイル書込みを通したPCM16出力が原音区間と完全一致することを確認します。OS picker自体の操作は対象外、出力は自動削除され、再生操作は行いません。

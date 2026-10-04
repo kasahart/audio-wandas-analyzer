@@ -202,7 +202,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Export the current loop region as WAV',
         entryPoints: ['results-toolbar', 'dialog'],
         triggers: ['export-wav'],
-        regressionLayers: ['ui-smoke'],
+        regressionLayers: ['ui-smoke', 'vscode-e2e'],
     },
     {
         id: 'export-report',
