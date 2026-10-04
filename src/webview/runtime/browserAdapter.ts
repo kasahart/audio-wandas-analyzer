@@ -10,6 +10,7 @@ import type {
 export interface ComparisonWindow extends RuntimeWindow {
     __APP_STATE__?: ComparisonState;
     __APP_STRINGS__?: UiStrings;
+    __AWA_HOST__?: WebviewHostApi;
     acquireVsCodeApi?: () => WebviewHostApi;
 }
 
@@ -17,13 +18,13 @@ export function readComparisonBootstrap(browserWindow: ComparisonWindow): Compar
     const state = browserWindow.__APP_STATE__;
     const strings = browserWindow.__APP_STRINGS__;
     const acquireHost = browserWindow.acquireVsCodeApi;
-    if (!state || !strings || !acquireHost) {
+    if (!state || !strings || !acquireHost && !browserWindow.__AWA_HOST__) {
         throw new Error('Comparison Webview bootstrap data is unavailable');
     }
     return {
         state,
         strings,
-        host: acquireHost(),
+        host: browserWindow.__AWA_HOST__ ?? acquireHost!(),
         window: browserWindow,
         document: browserWindow.document as RuntimeDocument,
     };

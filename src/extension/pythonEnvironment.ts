@@ -19,9 +19,9 @@ const REQUIRED_PACKAGES = [
     {
         modules: ['wandas', 'mosqito'],
         distribution: 'wandas',
-        requirement: 'wandas[psychoacoustic]>=0.7.2,<0.8.0',
-        minimum: [0, 7, 2],
-        maximum: [0, 8, 0],
+        requirement: 'wandas[psychoacoustic]>=0.8.1,<0.9.0',
+        minimum: [0, 8, 1],
+        maximum: [0, 9, 0],
     },
 ] as const;
 const DEPENDENCY_CHECK_SCRIPT = `

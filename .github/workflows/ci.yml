@@ -127,3 +127,23 @@ jobs:
 
       - name: Run E2E
         run: npm run verify:e2e
+
+  browser-parity:
+    name: Static Worker/native parity (headless)
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: npm ci
+      - run: python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+      - run: npx playwright install --with-deps chromium
+      - run: npm run prepare:browser
+      - run: AWA_VERIFY_BROWSER=1 npm run verify

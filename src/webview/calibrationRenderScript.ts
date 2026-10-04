@@ -1,7 +1,7 @@
 export function getCalibrationRenderScript(): string {
     return `
         (function() {
-            const vscode = acquireVsCodeApi();
+            const vscode = window.__AWA_HOST__ || acquireVsCodeApi();
             const state = __APP_STATE__;
             const app = document.getElementById('app');
             let decorationPending = false;

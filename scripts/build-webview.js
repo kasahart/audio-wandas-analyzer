@@ -129,3 +129,12 @@ ${runtimeFactories}
 
 fs.writeFileSync(RUNTIME_OUT, runtimeWrapped);
 console.log(`build-webview: wrote ${path.relative(ROOT, RUNTIME_OUT)} (${runtimeWrapped.length} bytes)`);
+
+const hostEntry = path.join(ROOT, 'dist', 'webview', 'runtime', 'staticHost.js');
+const hostModules = collectRuntimeModules(hostEntry);
+const hostFactories = Array.from(hostModules, ([id, source]) =>
+    `${JSON.stringify(id)}: function (module, exports, require) {\n${source}\n}`,
+).join(',\n');
+const hostWrapped = runtimeWrapped.replace(runtimeFactories, hostFactories)
+    .replace(JSON.stringify(moduleId(RUNTIME_ENTRY)), JSON.stringify(moduleId(hostEntry)));
+fs.writeFileSync(path.join(OUT_DIR, 'staticHost.js'), hostWrapped);

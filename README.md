@@ -116,3 +116,33 @@ The comparison toolbar includes export actions for everyday handoff work:
 - Backend library: [wandas](https://github.com/kasahart/wandas)
 - Developer guide: [docs/developer-guide.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.md)
 - Issues and feature requests: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues)
+
+
+### Static browser prototype (Wandas 0.8.1)
+
+The desktop VS Code extension retains its native Python backend. The static build runs the same `AnalysisService`, Wandas DSP and Comparison Canvas UI in a Pyodide module Worker, using a bytes/source-id adapter instead of filesystem metadata. No analysis server is required and selected audio is never uploaded.
+
+```bash
+npm ci
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+npm run prepare:browser       # downloads SHA256-locked runtime assets + notices
+npm run build:browser         # emits browser-dist/; all URLs are relative
+AWA_VERIFY_BROWSER=1 npm run verify
+npm run test:ui
+python3 -m http.server 8080 --directory browser-dist  # local static preview
+```
+
+Open the preview over HTTP (not `file://`), select a short WAV, switch between waveform/STFT, move the cursor, drag a loop region, then use Export WAV. Playback is user initiated. Cancel/clear terminates the Worker and releases the source Blob; choosing another file replaces the active source. Only one selected file is decoded at a time. STFT detail is allocated lazily and released on detail cancellation, with an estimated allocation budget and bounded display arrays.
+
+Prototype capabilities: RIFF WAV, 16 MiB input, 30 seconds, 1–2 channels, 1–96 kHz, at least 32 samples; actual WAV support depends on the pinned libsndfile build. STFT requires at least half a window and rejects settings exceeding the 384 MiB estimate (not a guaranteed browser heap ceiling). Range export is uncalibrated PCM16. The hash lock, asset preparation and upstream notices follow [ASD Insight](https://github.com/kasahart/asd-insight/tree/main/runtime) and the Wandas 0.8.1 Pyodide harness. Worker initialization downloads are about 49 MiB; all assets are served from the static site itself. Internet is required only to prepare assets. Each Worker verifies pinned runtime hashes before loading Python.
+
+This is a desktop VS Code + static Web prototype, not a vscode.dev extension. Browser Recipe execution, mosqito psychoacoustics, WDF/h5py, all-codec compatibility, directory scanning, Python selection and calibration configuration are unavailable; the static host reports unsupported commands. Native recipes and calibration remain available in VS Code. No Pages deployment settings or publish workflow are changed. `browser-dist/` can be served under a GitHub Pages project subpath after separate publication approval.
+
+`npm run test:browser` compares a fixed 1-second stereo WAV through native filesystem, native bytes, and a real headless Chromium Pyodide Worker: waveform/STFT/cursor/range numeric arrays and PCM16 WAV bytes. The browser check also covers UI load, STFT switching, region download, cancellation, and no autoplay. Use `AWA_VERIFY_BROWSER=1 npm run verify` after runtime preparation to include this check in the canonical verifier. Standard verify remains network independent.
+
+### UI sharing with ASD Insight
+
+Both apps need time/frequency coordinates, waveform envelopes, STFT colors/axes and cursor/region interactions. Analyzer already owns a multi-track Canvas runtime (track identity, offsets, lazy detail, calibrated levels, playback); Insight uses a React spectrogram component and a compact time-major Float32Array contract for its mono overview. Their shells and data conventions differ, so copying either complete screen would duplicate product behavior.
+
+The smallest next shared boundary is a framework-neutral display contract (seconds/Hz, explicit frame centers and frequency axes, time-major arrays, quantity/reference/units, source/channel identities) plus pure coordinate/decimation/color/Canvas functions. React hooks and Analyzer host messages should wrap that core; file selection, playback lifecycle, persistence and native/Worker dispatch stay in host adapters. This prototype first extracts the host-neutral Comparison document and reuses the existing Analyzer UI without a second implementation. It does not migrate Insight or publish a new shared package. Keep DSP and frame/time metadata in Wandas, and UI components in a separately owned UI module; adding React/DOM dependencies to Wandas is unnecessary. An internal shared module should be proven against both consumers before choosing a repository or public package.

@@ -377,7 +377,7 @@ test('checkMissingDependencies reports missing or incompatible requirements from
             proc.stdout = new EventEmitter();
             proc.stderr = new EventEmitter();
             process.nextTick(() => {
-                proc.stdout.emit('data', Buffer.from('["wandas[psychoacoustic]>=0.7.2,<0.8.0"]\n'));
+                proc.stdout.emit('data', Buffer.from('["wandas[psychoacoustic]>=0.8.1,<0.9.0"]\n'));
                 proc.emit('close', 0);
             });
             return proc;
@@ -386,7 +386,7 @@ test('checkMissingDependencies reports missing or incompatible requirements from
 
     try {
         const result = await pythonEnvironment.checkMissingDependencies('python3');
-        assert.deepEqual(result, { missingPackages: ['wandas[psychoacoustic]>=0.7.2,<0.8.0'] });
+        assert.deepEqual(result, { missingPackages: ['wandas[psychoacoustic]>=0.8.1,<0.9.0'] });
     } finally {
         restore();
     }
@@ -414,8 +414,8 @@ test('checkMissingDependencies uses import and version checks instead of pip', a
         assert.equal(spawnedArgs[0], '-c');
         assert.match(String(spawnedArgs[1]), /numpy>=2\.0\.2/u);
         assert.match(String(spawnedArgs[1]), /scipy>=1\.13/u);
-        assert.match(String(spawnedArgs[1]), /wandas\[psychoacoustic\]>=0\.7\.2,<0\.8\.0/u);
-        assert.match(String(spawnedArgs[1]), /"minimum":\[0,7,2\]/u);
+        assert.match(String(spawnedArgs[1]), /wandas\[psychoacoustic\]>=0\.8\.1,<0\.9\.0/u);
+        assert.match(String(spawnedArgs[1]), /"minimum":\[0,8,1\]/u);
         assert.match(String(spawnedArgs[1]), /mosqito/u);
         assert.match(String(spawnedArgs[1]), /packaging\.version/u);
         assert.match(String(spawnedArgs[1]), /current\.is_prerelease/u);
@@ -576,7 +576,7 @@ test('install prompt still reports pip-specific failure when pip is unavailable'
                     proc.emit('close', 1);
                     return;
                 }
-                proc.stdout.emit('data', Buffer.from('["wandas[psychoacoustic]>=0.7.2,<0.8.0"]\n'));
+                proc.stdout.emit('data', Buffer.from('["wandas[psychoacoustic]>=0.8.1,<0.9.0"]\n'));
                 proc.emit('close', 0);
             });
             return proc;
@@ -593,7 +593,7 @@ test('install prompt still reports pip-specific failure when pip is unavailable'
         await pythonEnvironment.checkAndPromptInstallDependencies('python3', item as never);
         assert.equal(item.tooltip, 'pip is not available in this environment. Click to select another environment.');
         assert.deepEqual(warningMessages, [
-            'Audio Wandas Analyzer requires compatible Python packages: wandas[psychoacoustic]>=0.7.2,<0.8.0. Install or upgrade them now?',
+            'Audio Wandas Analyzer requires compatible Python packages: wandas[psychoacoustic]>=0.8.1,<0.9.0. Install or upgrade them now?',
             'pip is not available in python3',
         ]);
     } finally {
