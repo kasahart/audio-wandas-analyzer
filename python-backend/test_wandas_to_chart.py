@@ -64,7 +64,7 @@ def test_noct_frame_becomes_bar(mono_sin: wd.ChannelFrame) -> None:
     assert any(ch.replace(".", "").isdigit() for ch in spec["categories"][:1])
 
 
-def test_runtime_dependencies_pin_wandas_v07_with_psychoacoustics() -> None:
+def test_runtime_dependencies_pin_wandas_v08_with_psychoacoustics() -> None:
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
     dependencies = pyproject["project"]["dependencies"]
     assert "scipy>=1.13" in dependencies
