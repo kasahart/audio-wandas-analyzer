@@ -17,6 +17,7 @@ def test_browser_source_bounds_release_and_stale_identity() -> None:
         service.engine.load("selected.wav", b"not a wav")
     service.engine.load("selected.wav", FIXTURE.read_bytes())
     source = service.engine.get_file("/sources/selected.wav")
+    assert service.engine.get_file(source.path.as_posix()) is source
     service.track_detail(source.path, stft_options={"nFft": 256, "hopSize": 64, "window": "hann"})
     assert source.spectrograms
     service.release_track_detail(source.path)

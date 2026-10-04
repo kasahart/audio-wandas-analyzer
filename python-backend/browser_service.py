@@ -48,7 +48,7 @@ class BrowserEngine(AnalysisEngine):
         return {"filePath": str(path)}
 
     def get_file(self, file_path: str | Path) -> CachedAnalysis:
-        if self.source is None or str(file_path) != str(self.source.path):
+        if self.source is None or Path(file_path) != self.source.path:
             raise ValueError("Source is no longer selected")
         return self.source
 
