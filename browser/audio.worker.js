@@ -53,7 +53,12 @@ self.onmessage = ({ data }) => {
                 try { output = pyodide.runPython('dispatch_json(_command)'); }
                 finally { pyodide.globals.delete('_command'); }
             }
-            self.postMessage({ requestId: data.requestId, result: JSON.parse(output) });
+            const result = JSON.parse(output);
+            if (data.cmd === 'load' && result.inputError) {
+                self.postMessage({ requestId: data.requestId, error: result.inputError });
+            } else {
+                self.postMessage({ requestId: data.requestId, result });
+            }
         } catch (error) {
             self.postMessage({ requestId: data.requestId, error: String(error).slice(-1200) });
         }

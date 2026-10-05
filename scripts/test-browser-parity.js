@@ -111,6 +111,27 @@ const server = http.createServer((req,res) => {
         await page.waitForFunction(() => window.__testInbound.some(message => message.type === 'track-detail-result'
             && message.channels.every(channel => channel.spectrogram?.timeBins > 0)), undefined, {timeout:120000});
         assert.equal(await page.getByRole('status').filter({hasText:'Error'}).count(),0);
+        await page.evaluate(() => {
+            const download = window.__AWA_HOST__.downloadFile;
+            window.__AWA_HOST__.downloadFile = (content, name, mimeType) => {
+                window.__csvArtifact = {content, name, mimeType}; download(content, name, mimeType);
+            };
+        });
+        const csvMenu = page.locator('details').filter({has:page.locator('[data-action="export-csv"]')});
+        await csvMenu.locator('summary').click();
+        const [csvDownload] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-csv"]').click()]);
+        assert.equal(csvDownload.suggestedFilename(),'spectrum-export.csv');
+        assert.equal(await csvDownload.failure(),null);
+        const csv = fs.readFileSync(await csvDownload.path(),'utf8');
+        const artifact = await page.evaluate(()=>window.__csvArtifact);
+        assert.equal(csv,artifact.content);assert.equal(artifact.mimeType,'text/csv;charset=utf-8');
+        const csvRows = csv.trim().split('\n').map(line=>line.split(','));
+        assert.equal(csvRows[0].length,4,'stereo exports frequency/level for both channels');
+        assert.ok(csvRows.length>1 && csvRows.length<=193);
+        assert.ok(csvRows.slice(1).every(row=>row.length===4 && row.every(value=>Number.isFinite(Number(value)))));
+        assert.equal(Number(csvRows.at(-1)[0]),4000);assert.equal(Number(csvRows.at(-1)[2]),4000);
+        await csvMenu.locator('summary').click();
+        console.log('Real static CSV Blob download and UTF-8/channel/frequency content passed.');
         await page.locator('[data-action="spectrogram-settings"]').click();
         await page.locator('#spec-auto').uncheck();
         await page.locator('#spec-nfft').selectOption('256');
@@ -184,6 +205,7 @@ const server = http.createServer((req,res) => {
         }
         await picker.setInputFiles({name:'bad.wav',mimeType:'audio/wav',buffer:Buffer.from('not a WAV')});
         await status.filter({hasText:'WAV only'}).waitFor();
+        assert.doesNotMatch(await page.locator('span[role="status"]').innerText(),/Traceback|PythonError|\n/);
         assert.equal(await page.locator('.track-row').count(),0);
         await loadFile('short-stereo.wav');
         const firstUrl = await page.locator('audio').first().getAttribute('src');
@@ -211,6 +233,7 @@ const server = http.createServer((req,res) => {
         bytes.copy(longWav,0,0,44); longWav.writeUInt32LE(longWav.length-8,4); longWav.writeUInt32LE(longWav.length-44,40);
         await picker.setInputFiles({name:'long.wav',mimeType:'audio/wav',buffer:longWav});
         await status.filter({hasText:'up to 30 seconds'}).waitFor();
+        assert.doesNotMatch(await page.locator('span[role="status"]').innerText(),/Traceback|PythonError|\n/);
         assert.equal(await page.locator('.track-row').count(),1);
         await page.locator('[data-action="browser-clear"]').click();
         await page.route('**/runtime/pyodide.mjs',route=>route.abort());

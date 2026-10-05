@@ -49,6 +49,7 @@ export interface PersistedWebviewState {
 }
 
 export interface WebviewHostApi {
+    downloadFile?(content: string, name: string, mimeType: string): void;
     releaseSource?(filePath: string): void;
     onMessage?(listener: (message: unknown) => void): () => void;
     postMessage(message: unknown): void;

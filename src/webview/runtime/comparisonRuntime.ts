@@ -1311,6 +1311,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function rebuildResultsPane() {
         const stacked = document.getElementById('stacked-wrap');
         if (stacked) {
+            spectrogramRasterCache.clear();
             stacked.innerHTML = buildTrackRowsHtml();
             attachRebuiltTrackEvents();
         }
@@ -3751,6 +3752,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             rows.push(cols.join(','));
         }
         const csv = rows.join('\n');
+        if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
         const a = document.createElement('a');
         a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
         a.download = 'spectrum-export.csv';
@@ -5245,6 +5247,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             audio.remove();
         }
         releaseTrackDetail(idx);
+        channelsForResult(record.result).forEach((_, channelIndex) => spectrogramRasterCache.delete(trackId + ':' + channelIndex));
         trackRuntimeAt(idx).hidden = true;
         var pos = trackStore.displayOrder.indexOf(trackId);
         var n = pos !== -1 ? pos + 1 : idx + 1;

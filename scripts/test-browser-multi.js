@@ -114,6 +114,23 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await picker.setInputFiles(Array.from({length:6},(_,i)=>({name:`additional-${i}.wav`,mimeType:'audio/wav',buffer:bytes})));
         await status.filter({hasText:'8 WAV files'}).waitFor();assert.equal(await page.locator('.track-row').count(),8);
         assert.equal(await page.evaluate(()=>window.__workers.length),1);
+        const waitStftPainted = async () => {
+            await page.waitForFunction(() => {
+                const canvases = Array.from(document.querySelectorAll('canvas[id^="track-canvas-"]'));
+                return canvases.length === 16 && canvases.every(canvas => {
+                    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width - 20, canvas.height).data;
+                    return pixels.some((value, index) => index % 4 === 3 && value > 0);
+                });
+            }, undefined, {timeout:30000});
+        };
+        await page.locator('[data-action="content-spectrogram"]').click();
+        await waitStftPainted();
+        await page.locator('[data-action="remove-track"]').last().click();
+        await picker.setInputFiles({name:'replacement.wav',mimeType:'audio/wav',buffer:bytes});
+        await status.filter({hasText:'8 tracks'}).waitFor();
+        await waitStftPainted();
+        assert.equal(await page.locator('[data-action="content-spectrogram"]').evaluate(button=>button.classList.contains('is-active')),true);
+        console.log('Eight-track STFT remove/add: all 16 real Canvas rasters repainted without mode toggling.');
         await page.evaluate(()=>window.__workers[0].postMessage({cmd:'__test_throw',requestId:'test-fault'}));
         await status.filter({hasText:'Audio Worker failed'}).waitFor();assert.equal(await page.locator('.track-row').count(),0);
         assert.equal(await page.evaluate(async u=>{try{await fetch(u);return true;}catch{return false;}},firstUrl),false);

@@ -207,6 +207,7 @@ async function post(message: HostOutboundMessage): Promise<void> {
     }
 }
 browserWindow.__AWA_HOST__ = {
+    downloadFile: (content, name, mimeType): void => { download(new TextEncoder().encode(content), name, mimeType); },
     releaseSource: (path): void => { void releaseSource(path); },
     onMessage: (listener): (() => void) => { inboundListeners.add(listener); return () => { inboundListeners.delete(listener); }; },
     postMessage: (message: unknown): void => { void post(message as HostOutboundMessage); },
