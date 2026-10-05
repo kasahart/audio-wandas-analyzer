@@ -48,6 +48,7 @@ export interface PersistedWebviewState {
 }
 
 export interface WebviewHostApi {
+    releaseSource?(filePath: string): void;
     onMessage?(listener: (message: unknown) => void): () => void;
     postMessage(message: unknown): void;
     getState(): PersistedWebviewState | undefined;
@@ -163,6 +164,7 @@ export interface SelectionTreeNode {
 }
 
 export interface TrackRuntimeState {
+    muted?: boolean;
     offsetSeconds: number;
     hidden: boolean;
     color: string | null;

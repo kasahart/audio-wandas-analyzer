@@ -327,6 +327,11 @@ test('clicking every track control changes the per-track UI or its side effects'
     await domClick(page, '[data-action="stop-playback"]');
     await expect(page.locator('[data-action="toggle-playback"]')).not.toHaveClass(/is-playing/);
 
+    await domClick(page, '[data-action="toggle-mute"]');
+    await expect(page.locator('[data-action="toggle-mute"]')).toHaveAttribute('aria-pressed', 'true');
+    expect(await page.locator('#track-audio-0').evaluate((audio: HTMLAudioElement) => audio.muted)).toBe(true);
+    await domClick(page, '[data-action="toggle-mute"]');
+    expect(await page.locator('#track-audio-0').evaluate((audio: HTMLAudioElement) => audio.muted)).toBe(false);
     await domClick(page, '[data-action="offset-up"]');
     await expect(page.locator('#offset-val-0')).not.toHaveText(offsetBefore ?? '+0.000s');
     await domClick(page, '[data-action="offset-down"]');

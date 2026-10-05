@@ -47,3 +47,81 @@ def test_cursor_selects_nearest_actual_frame_center() -> None:
         path, cursor_norm=cursor, stft_options={"nFft": 256, "hopSize": 64, "window": "hann"}
     )
     np.testing.assert_allclose(result["channels"][0]["values"], expected[0], atol=1e-5)
+
+
+def test_multiple_sources_add_failure_remove_and_recompute() -> None:
+    service = create_service()
+    service.engine.load("first.wav", FIXTURE.read_bytes())
+    service.engine.load("second.wav", FIXTURE.with_name("changing-stereo.wav").read_bytes())
+    first = service.engine.get_file("/sources/first.wav")
+    second = service.engine.get_file("/sources/second.wav")
+    with pytest.raises(ValueError, match="WAV only"):
+        service.engine.load("bad.wav", b"not a wav")
+    with pytest.raises(ValueError, match="already loaded"):
+        service.engine.load("first.wav", FIXTURE.read_bytes())
+    assert service.engine.get_file(first.path) is first
+    service.engine.get_spectrogram(first.path, 256, 64, "hann")
+    service.engine.cache_limit_bytes = first.frame_nbytes + second.frame_nbytes
+    service.engine.get_spectrogram(second.path, 256, 64, "hann")
+    assert service.engine.get_file(first.path) is first
+    assert service.engine.get_file(second.path) is second
+    assert not first.spectrograms
+    service.engine.discard(first.path)
+    with pytest.raises(ValueError, match="no longer selected"):
+        service.engine.get_file(first.path)
+    assert service.engine.get_file(second.path) is second
+    service.engine.load("third.wav", FIXTURE.read_bytes())
+    assert service.engine.get_file("/sources/third.wav").frame.n_samples == 8000
+
+
+def test_aggregate_bounds_reject_before_decode_and_preserve_sources(monkeypatch) -> None:
+    import browser_service as browser
+
+    service = create_service()
+    payload = FIXTURE.read_bytes()
+    for index in range(8):
+        service.engine.load(f"source-{index}.wav", payload)
+    with pytest.raises(ValueError, match="8 WAV"):
+        service.engine.load("ninth.wav", payload)
+    service.engine.discard("/sources/source-0.wav")
+    monkeypatch.setattr(browser, "MAX_TOTAL_INPUT_BYTES", len(payload) * 7)
+    with pytest.raises(ValueError, match="total input"):
+        service.engine.load("over-input.wav", payload)
+    monkeypatch.setattr(browser, "MAX_TOTAL_INPUT_BYTES", len(payload) * 9)
+    monkeypatch.setattr(browser, "MAX_TOTAL_DECODED_BYTES", 7 * 8000 * 2 * 4)
+    with pytest.raises(ValueError, match="decoded audio"):
+        service.engine.load("over-decoded.wav", payload)
+    monkeypatch.setattr(browser, "MAX_TOTAL_DECODED_BYTES", 9 * 8000 * 2 * 4)
+    monkeypatch.setattr(browser, "MAX_ESTIMATED_BYTES", 1)
+    with pytest.raises(ValueError, match="memory budget"):
+        service.engine.load("over-working.wav", payload)
+    assert len(service.engine._files) == 7
+    assert service.engine.get_file("/sources/source-1.wav").frame.n_samples == 8000
+
+
+def test_export_plan_is_bounded_and_releases_only_recomputable_detail(monkeypatch) -> None:
+    import json
+
+    import browser_service as browser
+
+    service = create_service()
+    monkeypatch.setattr(browser, "service", service)
+    service.engine.load("first.wav", FIXTURE.read_bytes())
+    service.engine.load("second.wav", FIXTURE.with_name("changing-stereo.wav").read_bytes())
+    first = service.engine.get_file("/sources/first.wav")
+    service.engine.get_spectrogram(first.path, 256, 64, "hann")
+    commands = [
+        {"cmd": "export-wav-loop", "filePath": "/sources/first.wav", "startNorm": 0.5, "endNorm": 1},
+        {"cmd": "export-wav-loop", "filePath": "/sources/second.wav", "startNorm": 0.2, "endNorm": 0.6},
+    ]
+    assert browser.prepare_export_json(json.dumps(commands)) == "{}"
+    assert not first.spectrograms
+    assert service.engine.get_file(first.path) is first
+    with pytest.raises(ValueError, match="8 sources"):
+        browser.prepare_export_json("[]")
+    with pytest.raises(ValueError, match="Invalid export"):
+        browser.prepare_export_json("[null]")
+    monkeypatch.setattr(browser, "MAX_ESTIMATED_BYTES", 1)
+    with pytest.raises(ValueError, match="Export exceeds"):
+        browser.prepare_export_json(json.dumps(commands))
+    assert len(service.engine._files) == 2

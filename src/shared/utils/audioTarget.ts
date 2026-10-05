@@ -184,6 +184,7 @@ export function isConfigureCalibrationMessage(message: unknown): message is Conf
 
 export interface ExportWavLoopMessage {
     type: 'export-wav-loop';
+    fileRegions?: Array<{ filePath: string; startNorm: number; endNorm: number }>;
     filePaths: string[];
     startNorm: number;
     endNorm: number;
@@ -197,7 +198,15 @@ export function isExportWavLoopMessage(message: unknown): message is ExportWavLo
         Array.isArray(m['filePaths']) &&
         (m['filePaths'] as unknown[]).every((p) => typeof p === 'string') &&
         typeof m['startNorm'] === 'number' &&
-        typeof m['endNorm'] === 'number'
+        typeof m['endNorm'] === 'number' &&
+        (m['fileRegions'] === undefined || (Array.isArray(m['fileRegions']) && m['fileRegions'].every(region => {
+            if (!region || typeof region !== 'object') return false;
+            const r = region as Record<string, unknown>;
+            return typeof r.filePath === 'string' && (m['filePaths'] as string[]).includes(r.filePath)
+                && typeof r.startNorm === 'number' && Number.isFinite(r.startNorm) && r.startNorm >= 0
+                && typeof r.endNorm === 'number' && Number.isFinite(r.endNorm) && r.endNorm <= 1
+                && r.endNorm > r.startNorm;
+        })))
     );
 }
 

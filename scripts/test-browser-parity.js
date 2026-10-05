@@ -69,7 +69,7 @@ const server = http.createServer((req,res) => {
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     let browser;
     try {
-        browser=await chromium.launch({headless:true});
+        browser=await chromium.launch({headless:true,args:['--mute-audio']});
         const page=await browser.newPage();
         const errors=[]; page.on('pageerror',error=>errors.push(error.message));
         const origin=`http://127.0.0.1:${server.address().port}`;
@@ -90,6 +90,7 @@ const server = http.createServer((req,res) => {
                     const results=[];
                     for(const command of commands) results.push(await run(command));
                     all.push(results);
+                    await run({cmd:'unload',filePath:'/sources/selected.wav'});
                 }
                 return all;
             } finally {worker.terminate();}
@@ -170,6 +171,7 @@ const server = http.createServer((req,res) => {
         const status = page.getByRole('status');
         const fixturePath = name => path.join(root,'src/test/fixtures',name);
         async function loadFile(name) {
+            if (await page.locator('.track-row').count()) await page.getByText('Cancel / clear',{exact:true}).click();
             await picker.setInputFiles(fixturePath(name));
             await status.filter({hasText:`${name}: waveform ready`}).waitFor({timeout:120000});
             await page.waitForFunction(() => {
@@ -203,17 +205,19 @@ const server = http.createServer((req,res) => {
         assert.ok(Math.abs(peakHz-880)<80,`2.5s cursor should select the later 880Hz section, got ${peakHz}`);
         await picker.setInputFiles({name:'oversized.wav',mimeType:'audio/wav',buffer:Buffer.alloc(16*1024*1024+1)});
         await status.filter({hasText:'16 MiB or smaller'}).waitFor();
-        assert.equal(await page.locator('.track-row').count(),0);
+        assert.equal(await page.locator('.track-row').count(),1);
         const longWav=Buffer.alloc(44+31*8000*2*2);
         bytes.copy(longWav,0,0,44); longWav.writeUInt32LE(longWav.length-8,4); longWav.writeUInt32LE(longWav.length-44,40);
         await picker.setInputFiles({name:'long.wav',mimeType:'audio/wav',buffer:longWav});
         await status.filter({hasText:'up to 30 seconds'}).waitFor();
-        assert.equal(await page.locator('.track-row').count(),0);
+        assert.equal(await page.locator('.track-row').count(),1);
+        await page.getByText('Cancel / clear',{exact:true}).click();
         await page.route('**/runtime/pyodide.mjs',route=>route.abort());
         await picker.setInputFiles(fixturePath('short-stereo.wav'));
         await status.filter({hasText:/fetch|network/i}).waitFor({timeout:120000});
         await page.unroute('**/runtime/pyodide.mjs');
         await loadFile('short-stereo.wav');
+        await page.getByText('Cancel / clear',{exact:true}).click();
         await page.route('**/audio.worker.js',route=>route.fulfill({contentType:'text/javascript',body:'throw new Error("intentional-worker-failure")'}));
         await picker.setInputFiles(fixturePath('changing-stereo.wav'));
         await status.filter({hasText:'Audio Worker failed'}).waitFor();
@@ -246,6 +250,7 @@ const server = http.createServer((req,res) => {
         await mobile.screenshot({path:path.join(root,'test-results/static-mobile.png')});
         await mobile.getByText('Cancel / clear',{exact:true}).tap();
         await mobile.close();
+        await require('./test-browser-multi')({browser,origin,root,nativeResults,compare});
         assert.ok(errors.every(message=>message.includes('intentional-worker-failure')),errors.join('\n'));
         console.log('Subpath, settings, non-unit-duration cursor, invalid/oversized/long WAV, initialization/Worker failure recovery, repeated source switching/Blob cleanup, 390px touch viewport passed.');
         console.log(`Browser Worker/native WAV, waveform, STFT, real-time cursor, range/export parity: ${numbers} numeric comparisons passed. UI load/clear, no autoplay passed.`);

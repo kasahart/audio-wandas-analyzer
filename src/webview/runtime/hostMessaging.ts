@@ -151,6 +151,10 @@ export class HostMessenger {
         this.host.postMessage(message);
     }
 
+    releaseSource(filePath: string): void {
+        this.host.releaseSource?.(filePath);
+    }
+
     onMessage(listener: (message: HostInboundMessage) => void): () => void {
         const receive = (value: unknown): void => {
             if (isHostInboundMessage(value)) { listener(value); }

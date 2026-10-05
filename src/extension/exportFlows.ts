@@ -72,7 +72,8 @@ export class ExportFlows {
         const usedNames = new Set<string>();
         for (const filePath of message.filePaths) {
             try {
-                const result = await this.backend.exportWavLoop(filePath, message.startNorm, message.endNorm);
+                const region = message.fileRegions?.find(region => region.filePath === filePath) ?? message;
+                const result = await this.backend.exportWavLoop(filePath, region.startNorm, region.endNorm);
                 const stem = path.basename(filePath, path.extname(filePath));
                 let baseName = `${stem}_loop.wav`;
                 if (usedNames.has(baseName)) {

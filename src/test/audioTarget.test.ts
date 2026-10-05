@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     isAnalyzeSelectedFilesMessage,
+    isExportWavLoopMessage,
     isRequestSpectrumSliceMessage,
     isRequestTrackDetailMessage,
     isSelectPythonEnvironmentMessage,
@@ -87,4 +88,15 @@ test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () 
         filePath: '/tmp/a.wav',
         cursorNorm: undefined,
     }), false);
+});
+
+
+test('WAV export accepts bounded per-file timeline regions and preserves legacy requests', () => {
+    const message = { type: 'export-wav-loop', filePaths: ['/a.wav'], startNorm: 0.2, endNorm: 0.8 };
+    assert.equal(isExportWavLoopMessage(message), true);
+    const region = { filePath: '/a.wav', startNorm: 0.4, endNorm: 1 };
+    assert.equal(isExportWavLoopMessage({ ...message, fileRegions: [region] }), true);
+    for (const invalid of [{ ...region, filePath: '/b.wav' }, { ...region, startNorm: -1 }, { ...region, endNorm: NaN }, { ...region, endNorm: 0.3 }]) {
+        assert.equal(isExportWavLoopMessage({ ...message, fileRegions: [invalid] }), false);
+    }
 });

@@ -1393,7 +1393,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!result.audioSource) {
                 return '';
             }
-            return '<audio id="track-audio-' + record.protocolIndex + '" data-track-id="' + trackId + '" preload="metadata" src="' + escHtml(result.audioSource) + '"></audio>';
+            return '<audio id="track-audio-' + record.protocolIndex + '" data-track-id="' + trackId + '" preload="metadata"' + (record.runtime.muted ? ' muted' : '') + ' src="' + escHtml(result.audioSource) + '"></audio>';
         }).join('');
     }
     function buildToolbar() {
@@ -1501,6 +1501,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '  <div class="track-btns">'
             + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
             + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
+            + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaTrackMute) + '" title="' + escHtml(STR.ariaTrackMute) + '" aria-pressed="' + !!trackStore.require(trackId).runtime.muted + '">' + (trackStore.require(trackId).runtime.muted ? '🔇' : '🔊') + '</button>'
             + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaRemoveTrack) + '">✕</button>'
             + '  </div>'
             + '  <div class="track-offset">'
@@ -2507,6 +2508,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const idx = trackId ? trackStore.protocolIndexForId(trackId) : null;
             if (action === 'toggle-playback' && trackId) {
                 togglePlayback(trackId);
+            }
+            if (action === 'toggle-mute' && trackId && idx !== null) {
+                const runtime = trackRuntimeAt(idx);
+                runtime.muted = !runtime.muted;
+                const audio = getTrackAudio(idx);
+                if (audio) audio.muted = runtime.muted;
+                tgt.setAttribute('aria-pressed', String(runtime.muted));
+                tgt.textContent = runtime.muted ? '🔇' : '🔊';
             }
             if (action === 'stop-playback' && trackId) {
                 stopPlayback(trackId);
@@ -3757,21 +3766,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
             return;
         }
-        var visiblePaths: string[] = [];
+        const span = computeGlobalSpan();
+        const startSec = span.startSec + loopRegion.start * span.spanSec;
+        const endSec = span.startSec + loopRegion.end * span.spanSec;
+        const fileRegions: Array<{ filePath: string; startNorm: number; endNorm: number }> = [];
         trackStore.activeIds().forEach(function (trackId) {
             const record = trackStore.require(trackId);
-            const result = record.result;
-            if (record.runtime.hidden) {
-                return;
-            }
-            visiblePaths.push(result.filePath);
+            if (record.runtime.hidden) return;
+            const startNorm = Math.max(0, (startSec - record.runtime.offsetSeconds) / record.result.durationSeconds);
+            const endNorm = Math.min(1, (endSec - record.runtime.offsetSeconds) / record.result.durationSeconds);
+            if (endNorm > startNorm) fileRegions.push({ filePath: record.result.filePath, startNorm, endNorm });
         });
-        if (visiblePaths.length === 0) {
-            return;
+        if (!fileRegions.length) {
+            messaging.post({ type: 'show-info', message: 'Selected time range does not overlap a visible track.' }); return;
         }
         messaging.post({
             type: 'export-wav-loop',
-            filePaths: visiblePaths,
+            filePaths: fileRegions.map(region => region.filePath),
+            fileRegions,
             startNorm: loopRegion.start,
             endNorm: loopRegion.end,
         });
@@ -5235,6 +5247,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         var pos = trackStore.displayOrder.indexOf(trackId);
         var n = pos !== -1 ? pos + 1 : idx + 1;
         trackStore.remove(trackId);
+        messaging.releaseSource(record.result.filePath);
         announce((STR.announceTrackRemoved || 'Track {n} removed').replace('{n}', String(n)));
         if (__colorPickTarget === trackId) {
             closeColorPicker();
