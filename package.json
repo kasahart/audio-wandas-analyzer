@@ -122,7 +122,9 @@
         "test:ui:install": "PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright} PLAYWRIGHT_SKIP_BROWSER_GC=1 npx playwright install --with-deps chromium",
         "build:browser": "npm run compile && node scripts/build-browser.js",
         "prepare:browser": "python3 scripts/prepare-browser-runtime.py",
-        "test:browser": "npm run build:browser && node scripts/test-browser-parity.js"
+        "test:browser": "npm run build:browser && node scripts/test-browser-parity.js",
+        "gui-core:check": "node scripts/sync-gui-core.mjs --check src/shared/gui-core",
+        "precompile": "npm run gui-core:check"
     },
     "devDependencies": {
         "@playwright/test": "^1.60.0",
