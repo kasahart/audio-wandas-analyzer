@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { getStrings } from '../shared/i18n/strings';
 import type { ExportReportOptionsMessage, ExportWavLoopMessage } from '../shared/utils/audioTarget';
+import { wavLoopName, reportArtifact } from '../shared/utils/exportArtifact';
 import type { ExportWavLoopResult } from './backendProtocol';
 
 export interface WavExportBackend {
@@ -74,14 +75,7 @@ export class ExportFlows {
             try {
                 const region = message.fileRegions?.find(region => region.filePath === filePath) ?? message;
                 const result = await this.backend.exportWavLoop(filePath, region.startNorm, region.endNorm);
-                const stem = path.basename(filePath, path.extname(filePath));
-                let baseName = `${stem}_loop.wav`;
-                if (usedNames.has(baseName)) {
-                    let suffix = 2;
-                    while (usedNames.has(`${stem}_loop_${suffix}.wav`)) { suffix++; }
-                    baseName = `${stem}_loop_${suffix}.wav`;
-                }
-                usedNames.add(baseName);
+                const baseName = wavLoopName(filePath, usedNames);
                 await this.host.writeFile(
                     vscode.Uri.joinPath(outputFolder, baseName),
                     Buffer.from(result.wavBase64, 'base64'),
@@ -107,7 +101,7 @@ export class ExportFlows {
         if (!format) { return; }
         const destination = await this.host.pickReportDestination(message.defaultName, format);
         if (!destination) { return; }
-        const content = format === 'markdown' ? message.markdownContent : message.notebookContent;
+        const { content } = reportArtifact(message, format);
         await this.host.writeFile(destination, Buffer.from(content, 'utf-8'));
         this.host.showInformation(getStrings(this.host.language()).reportExportedPrefix + destination.fsPath);
     }

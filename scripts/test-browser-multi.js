@@ -26,7 +26,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
             window.__AWA_HOST__.postMessage = message => { window.__multiOut.push(message); original(message); };
         });
         const fixture = name => path.join(root,'src/test/fixtures',name);
-        const picker = page.getByLabel('Open short WAV');
+        const picker = page.getByLabel('Open File', { exact: true });
         const status = page.locator('span[role="status"]');
         assert.equal(await picker.evaluate(input=>input.multiple),true);
         await picker.setInputFiles([fixture('short-stereo.wav'),fixture('changing-stereo.wav')]);
@@ -62,7 +62,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         assert.equal(first.endNorm,1);assert.ok(Math.abs(first.startNorm-(selection.startNorm*2.5-.01))<1e-8);
         const checked = spawnSync(path.join(root,'.venv/bin/python'),['-c',[
             'import sys,json,zipfile,io,numpy as np,soundfile as sf',
-            'z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None and len(z.namelist())==2',
+            'z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None and z.namelist()==["short-stereo_loop.wav","changing-stereo_loop.wav"]',
             'regions=json.loads(sys.argv[2]); paths=json.loads(sys.argv[3])',
             'counts=[]',
             'for region,name in zip(regions,z.namelist(),strict=True):',
@@ -75,6 +75,23 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
             'print(json.dumps(counts))',
         ].join('\n'),await download.path(),JSON.stringify(selection.fileRegions),JSON.stringify(Object.fromEntries(initial.map((r,i)=>[r.filePath,fixture(i?'changing-stereo.wav':'short-stereo.wav')])) )],{encoding:'utf8'});
         assert.equal(checked.status,0,checked.stderr);console.log('Multi-track global-time/offset WAV ZIP exact samples:',checked.stdout.trim());
+        // Shared generators feed both save adapters; inspect real downloaded UTF-8 files.
+        async function exportReport(choice, extension) {
+            page.once('dialog', dialog => dialog.accept(choice));
+            const [report] = await Promise.all([page.waitForEvent('download'), page.locator('[data-action="export-report"]').click()]);
+            assert.equal(report.suggestedFilename(), 'short-stereo.' + extension);
+            return fs.readFileSync(await report.path(), 'utf8');
+        }
+        const markdown = await exportReport('1', 'md');
+        assert.match(markdown, /## Source paths/); assert.match(markdown, /selected-1-short-stereo.wav/);
+        const notebook = JSON.parse(await exportReport('2', 'ipynb'));
+        assert.equal(notebook.nbformat, 4);
+        const code = notebook.cells.filter(cell => cell.cell_type === 'code').map(cell => cell.source.join('')).join('\n');
+        assert.match(code, /wd.read\("selected-1-short-stereo.wav"\)/); assert.ok(!code.includes('/sources/'));
+        const syntax = spawnSync(path.join(root,'.venv/bin/python'), ['-c', 'import sys; compile(sys.stdin.read(), "export.ipynb", "exec")'], {input:code,encoding:'utf8'});
+        assert.equal(syntax.status, 0, syntax.stderr);
+        page.once('dialog', dialog => dialog.dismiss());
+        await page.locator('[data-action="export-report"]').click();
         await page.locator('summary').filter({hasText:'Export'}).click();
         await page.locator('[data-action="toggle-playback"]').last().click();
         await page.waitForFunction(()=>!document.querySelectorAll('audio')[1].paused);
@@ -101,8 +118,29 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await status.filter({hasText:'Audio Worker failed'}).waitFor();assert.equal(await page.locator('.track-row').count(),0);
         assert.equal(await page.evaluate(async u=>{try{await fetch(u);return true;}catch{return false;}},firstUrl),false);
         await picker.setInputFiles(fixture('changing-stereo.wav'));await status.filter({hasText:'1 tracks'}).waitFor({timeout:120000});
-        await page.getByText('Cancel / clear',{exact:true}).click();assert.equal(await page.locator('.track-row').count(),0);
+        await page.locator('[data-action="browser-clear"]').click();assert.equal(await page.locator('.track-row').count(),0);
         assert.ok(errors.every(error=>error.includes('intentional-multi-worker-failure')),errors.join('\n'));
-        console.log('Multi-select/add/remove/re-add, retained mute/offset, no autoplay, muted headless playback/stop, 8-track cap, partial invalid batch, shared Worker crash and recovery passed.');
+        await page.locator('[data-action="content-spectrogram"]').click();
+        await page.reload();
+        assert.equal(await page.locator('.track-row').count(),0,'audio is never persisted');
+        const preferences = await page.evaluate(() => ({ settings: window.__APP_STATE__.spectrogramSettings, view: window.__AWA_HOST__.getState() }));
+        assert.equal(preferences.settings.stft.nFft,256); assert.equal(preferences.settings.stft.hopSize,64);
+        assert.equal(preferences.settings.auto,false); assert.equal(preferences.view.contentType,'spectrogram');
+        assert.equal(await page.locator('[data-action="content-spectrogram"]').evaluate(button=>button.classList.contains('is-active')),true);
+        const context = await browser.newContext({locale:'ja-JP'});
+        try {
+            const japanese = await context.newPage(); await japanese.goto(origin+'/analyzer/');
+            assert.equal(await japanese.locator('html').getAttribute('lang'),'ja');
+            assert.equal(await japanese.getByLabel('ファイルを開く',{exact:true}).count(),1);
+            assert.equal(await japanese.evaluate(()=>window.__APP_STRINGS__.btnExportReport),'レポート');
+            await japanese.getByLabel('ファイルを開く',{exact:true}).setInputFiles({name:'測定.wav',mimeType:'audio/wav',buffer:bytes});
+            await japanese.locator('span[role="status"]').filter({hasText:'波形の準備完了'}).waitFor({timeout:120000});
+            await japanese.locator('summary').filter({hasText:await japanese.evaluate(()=>window.__APP_STRINGS__.toolbarExportLabel)}).click();
+            japanese.once('dialog',dialog=>{assert.match(dialog.message(),/レポート形式を選択/);return dialog.accept('1');});
+            const [report] = await Promise.all([japanese.waitForEvent('download'),japanese.locator('[data-action="export-report"]').click()]);
+            assert.equal(report.suggestedFilename(),'測定.md'); assert.match(fs.readFileSync(await report.path(),'utf8'),/測定.wav/);
+            await japanese.locator('[data-action="browser-clear"]').click();
+        } finally { await context.close(); }
+        console.log('Multi-track lifecycle, shared WAV names, real Markdown/notebook downloads and Python syntax, report cancel, persisted STFT/display mode and Japanese browser locale/Unicode report passed.');
     } finally { await page.close(); }
 };

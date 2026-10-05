@@ -123,7 +123,7 @@ Audio Analyzer: Select Python Environment
 
 既存Comparison UIとPython AnalysisServiceを再利用し、ブラウザではPyodide Worker＋bytes/source-id adapterでWAVを解析します。音声は送信されません。1秒・2.5秒ステレオ固定fixtureのnative/Pyodide数値比較（331,560点）は、runtime準備後に `AWA_VERIFY_BROWSER=1 npm run verify` で実行します。
 
-試作上限: RIFF WAV 16 MiB・30秒・1–2ch・1–96kHz・32サンプル以上。複数選択・追加・削除に対応し、最大8トラック、入力合計64 MiB・展開音声合計64 MiBを保持します。共通UIのカーソル・オフセット・表示・再生停止・ミュート・区間選択を使用し、複数区間WAVはZIPで出力します。書き出しは各音声の長さとオフセットを反映します。取消で共有Workerを終了・全Blobを解放します。無効な追加は既存トラックを保持し、Worker障害時は全トラックを解放して再読込できます。STFTは半窓以上の音声長が必要で、512 MiB推定上限を超える設定を拒否します。詳細キャッシュは128 MiB、区間出力合計は32 MiBに制限します（ブラウザの実メモリ上限を保証するものではありません）。区間出力は原音PCM16 WAV、再生はユーザー操作時のみです。Recipe・mosqito・WDF/h5py・全codec・directory scan・校正設定・vscode.devは未対応です。desktop VSCodeの既存機能は保持します。詳細とASD Insightとの最小UI共有案はREADME.mdの対応節を参照してください。
+試作上限: RIFF WAV 16 MiB・30秒・1–2ch・1–96kHz・32サンプル以上。複数選択・追加・削除に対応し、最大8トラック、入力合計64 MiB・展開音声合計64 MiBを保持します。共通UIのカーソル・オフセット・表示・再生停止・ミュート・区間選択を使用し、複数区間WAVはZIPで出力します。書き出しは各音声の長さとオフセットを反映します。取消で共有Workerを終了・全Blobを解放します。無効な追加は既存トラックを保持し、Worker障害時は全トラックを解放して再読込できます。STFTは半窓以上の音声長が必要で、512 MiB推定上限を超える設定を拒否します。詳細キャッシュは128 MiB、区間出力合計は32 MiBに制限します（ブラウザの実メモリ上限を保証するものではありません）。区間出力は原音PCM16 WAV、再生はユーザー操作時のみです。Recipe・mosqito・WDF/h5py・全codec・directory scan・校正設定・vscode.devは未対応です。desktop VSCodeの既存機能は保持します。WAV命名・重複連番・レポート生成・保存設定の検証は共通化し、Webもブラウザ言語に応じた英日表示、STFT／表示設定と波形／STFTモードの復元、Markdown／Notebookダウンロードに対応します。音声・元パスは永続保存しません。Notebookはレポート記載の音声ファイル別名を参照するため、音声のコピーを対応する名前で配置してください。詳細とASD Insightとの最小UI共有案はREADME.mdの対応節を参照してください。
 
 `npm run verify:e2e` は実VSCode Webviewから短いステレオWAVのSTFT・cursor・区間保存を検証します。保存先選択のみ一時folderへ注入し、実Python backendとVSCodeファイル書込みを通したPCM16出力が原音区間と完全一致することを確認します。OS picker自体の操作は対象外、出力は自動削除され、再生操作は行いません。
 

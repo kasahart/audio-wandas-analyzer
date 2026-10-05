@@ -1,7 +1,10 @@
+import { getStrings, pickLocale } from '../../shared/i18n/strings';
+import { SPECTROGRAM_SETTINGS_KEY, savedSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
+import { wavLoopName, reportArtifact } from '../../shared/utils/exportArtifact';
 import { zipStore } from './zipStore';
 import type { HostOutboundMessage, HostInboundMessage } from './hostMessaging';
 import type { ComparisonWindow } from './browserAdapter';
-import type { PersistedWebviewState } from './types';
+import type { PersistedWebviewState, ComparisonTrackState } from './types';
 import type { AnalysisResultWithError } from '../../shared/analysis/analysisTypes';
 
 interface Source {
@@ -12,7 +15,22 @@ interface Source {
     result: AnalysisResultWithError;
 }
 const browserWindow = window as unknown as ComparisonWindow;
-let persisted: PersistedWebviewState | undefined;
+const strings = getStrings(window.navigator?.language ?? 'en');
+browserWindow.__APP_STRINGS__ = strings;
+const locale = pickLocale(window.navigator?.language ?? 'en');
+(browserWindow as unknown as { __APP_LOCALE__: string }).__APP_LOCALE__ = locale;
+if (document.documentElement) document.documentElement.lang = locale;
+document.title = strings.panelTitle;
+const VIEW_STATE_KEY = 'audioWandasAnalyzer.viewState';
+function readSaved(key: string): unknown {
+    try { return JSON.parse(window.localStorage.getItem(key) ?? 'null'); } catch { return undefined; }
+}
+function save(key: string, value: unknown): void {
+    try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage may be denied or full; keep working in memory. */ }
+}
+const restoredView = readSaved(VIEW_STATE_KEY) as PersistedWebviewState | undefined;
+let persisted: PersistedWebviewState = restoredView?.contentType === 'spectrogram' ? { contentType: 'spectrogram' } : {};
+browserWindow.__APP_STATE__!.spectrogramSettings = savedSpectrogramSettings(readSaved(SPECTROGRAM_SETTINGS_KEY));
 let worker: Worker | undefined;
 let nextId = 0;
 let nextSource = 0;
@@ -26,13 +44,13 @@ const bar = document.createElement('div');
 bar.style.cssText = 'padding:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
 const pick = document.createElement('input');
 pick.setAttribute('data-action', 'browser-open-wav');
-pick.type = 'file'; pick.multiple = true; pick.accept = '.wav,audio/wav'; pick.setAttribute('aria-label', 'Open short WAV');
+pick.type = 'file'; pick.multiple = true; pick.accept = '.wav,audio/wav'; pick.setAttribute('aria-label', strings.btnOpenFile);
 const cancel = document.createElement('button');
 cancel.setAttribute('data-action', 'browser-clear');
-cancel.textContent = 'Cancel / clear';
+cancel.textContent = strings.btnClear;
 const status = document.createElement('span');
 status.setAttribute('role', 'status');
-status.textContent = 'Add WAV files to compare: up to 8 tracks / 64 MiB total input; each ≤16 MiB / 30s / 2ch. Recipes, WDF, psychoacoustics, directory scan, calibration configuration and vscode.dev are unavailable. Audio stays in this browser.';
+status.textContent = strings.browserWavHint;
 bar.append(pick, cancel, status);
 document.body.prepend(bar);
 const announce = (value: string): void => { status.textContent = value; };
@@ -65,7 +83,7 @@ function request(command: Record<string, unknown>, bytes?: ArrayBuffer): Promise
         worker.onerror = (): void => {
             if (worker !== activeWorker) return;
             dispose(); snapshot();
-            announce('Audio Worker failed; select the WAV files again.');
+            announce(strings.browserWorkerFailed);
             emit({ type: 'reanalyze-end' });
         };
     }
@@ -79,8 +97,9 @@ function stft(): Record<string, unknown> {
     const state = browserWindow.__APP_STATE__!;
     return state.spectrogramSettings.auto ? {} : { stftOptions: state.spectrogramSettings.stft };
 }
-function resultWithSource(result: Record<string, unknown>, name: string, url: string): AnalysisResultWithError {
-    return { ...result, fileName: name, audioSource: url } as unknown as AnalysisResultWithError;
+function resultWithSource(result: Record<string, unknown>, name: string, url: string): ComparisonTrackState {
+    const alias = String(result.filePath).split('/').pop()!.replace(/\.wav$/, '') + '-' + name.replace(/[\\/\u0000-\u001f]/g, '_');
+    return { ...result, fileName: name, audioSource: url, reportSourcePath: alias } as unknown as ComparisonTrackState;
 }
 function download(bytes: Uint8Array, name: string, type: string): void {
     const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type }));
@@ -93,7 +112,7 @@ async function releaseSource(path: string): Promise<void> {
     sources.delete(path); URL.revokeObjectURL(source.url);
     if (!sources.size && !loading) {
         dispose(); emit({ type: 'reanalyze-end' });
-        announce('All tracks removed; audio memory released. Add short WAV files.'); return;
+        announce(strings.browserRemoved); return;
     }
     const myGeneration = generation;
     try { await request({ cmd: 'unload', filePath: path }); }
@@ -107,8 +126,9 @@ async function post(message: HostOutboundMessage): Promise<void> {
         switch (message.type) {
             case 'comparison-panel-ready': case 'comparison-panel-test-snapshot': return;
             case 'update-spectrogram-settings':
-                browserWindow.__APP_STATE__!.spectrogramSettings = message.settings; return;
+                browserWindow.__APP_STATE__!.spectrogramSettings = message.settings; save(SPECTROGRAM_SETTINGS_KEY, message.settings); return;
             case 'request-reanalyze': {
+                save(SPECTROGRAM_SETTINGS_KEY, message.settings);
                 browserWindow.__APP_STATE__!.spectrogramSettings = message.settings;
                 if (!sources.size) return;
                 emit({ type: 'reanalyze-start', count: sources.size });
@@ -143,6 +163,7 @@ async function post(message: HostOutboundMessage): Promise<void> {
                 });
                 await request({ cmd: 'export-plan', commands });
                 const entries: Array<{ name: string; bytes: Uint8Array }> = [];
+                const usedNames = new Set<string>();
                 for (const [index, source] of selected.entries()) {
                     if (myGeneration !== generation) return;
                     if (sources.get(source.path) !== source) continue;
@@ -150,18 +171,26 @@ async function post(message: HostOutboundMessage): Promise<void> {
                     if (myGeneration !== generation) return;
                     if (sources.get(source.path) !== source) continue;
                     const bytes = Uint8Array.from(atob(String(result.wavBase64)), c => c.charCodeAt(0));
-                    entries.push({ name: `${index + 1}-${source.name.replace(/[\\/\u0000]/g, '_').replace(/\.wav$/i, '')}-region.wav`, bytes });
+                    entries.push({ name: wavLoopName(source.name, usedNames), bytes });
                 }
                 if (!entries.length) return;
-                if (entries.length === 1) download(entries[0].bytes, 'selected-region.wav', 'audio/wav');
+                if (entries.length === 1) download(entries[0].bytes, entries[0].name, 'audio/wav');
                 else download(zipStore(entries), 'selected-regions.zip', 'application/zip');
-                announce('Selected regions exported as PCM16 WAV' + (entries.length > 1 ? ' in one ZIP.' : '.')); return;
+                announce(strings.browserExported); return;
+            }
+            case 'export-report-options': {
+                const choice = window.prompt(`${strings.reportFormatPlaceholder}\n1: ${strings.reportFormatMarkdown}\n2: ${strings.reportFormatNotebook}`, '1');
+                if (choice === null) return;
+                if (choice !== '1' && choice !== '2') { announce(strings.reportFormatPlaceholder); return; }
+                const artifact = reportArtifact(message, choice === '1' ? 'markdown' : 'notebook');
+                download(new TextEncoder().encode(artifact.content), artifact.name, artifact.type);
+                announce(strings.reportExportedPrefix + artifact.name); return;
             }
             case 'select-target':
-                if (message.targetKind === 'directory') { announce('Folder scanning is unavailable; add WAV files instead.'); return; }
+                if (message.targetKind === 'directory') { announce(strings.browserDirectoryUnavailable); return; }
                 pick.click(); return;
             case 'show-info': announce(message.message); return;
-            default: announce('This action is unavailable in the static WAV comparison.');
+            default: announce(strings.browserUnavailable);
         }
     } catch (error) {
         if (generation !== myGeneration || (owner && sources.get(owner.path) !== owner)
@@ -182,14 +211,14 @@ browserWindow.__AWA_HOST__ = {
     onMessage: (listener): (() => void) => { inboundListeners.add(listener); return () => { inboundListeners.delete(listener); }; },
     postMessage: (message: unknown): void => { void post(message as HostOutboundMessage); },
     getState: () => persisted,
-    setState: (state): void => { persisted = state; },
+    setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType }); },
 };
 pick.onchange = (): void => {
     const files = Array.from(pick.files || []);
     if (!files.length || loading) return;
     const myGeneration = generation;
     loading = true; pick.disabled = true;
-    announce('Preparing local Python Worker / adding WAV files…');
+    announce(strings.browserPreparing);
     void (async () => {
         const failures: string[] = [];
         for (const file of files) {
@@ -225,10 +254,10 @@ pick.onchange = (): void => {
         if (generation !== myGeneration) return;
         loading = false; pick.disabled = false; pick.value = '';
         if (!sources.size) dispose();
-        announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.name}: waveform ready. ${sources.size} tracks; add more WAV files to compare. No automatic playback.`);
+        announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
     })();
 };
 cancel.onclick = (): void => {
-    dispose(); pick.value = ''; snapshot(); emit({ type: 'reanalyze-end' }); announce('Worker cleared; audio memory released. Add short WAV files.');
+    dispose(); pick.value = ''; snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);
 };
 window.addEventListener('pagehide', dispose);

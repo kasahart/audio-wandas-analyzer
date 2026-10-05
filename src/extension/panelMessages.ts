@@ -1,3 +1,4 @@
+import { isSpectrogramSettings } from '../shared/analysis/savedSpectrogramSettings';
 import type {
     ComparisonPanelReadyMessage,
     RequestReanalyzeMessage,
@@ -56,33 +57,6 @@ export type PanelMessage =
 
 function hasType(value: unknown, type: string): boolean {
     return !!value && typeof value === 'object' && (value as { type?: unknown }).type === type;
-}
-
-function isSpectrogramSettings(value: unknown): boolean {
-    if (!value || typeof value !== 'object') { return false; }
-    const settings = value as Record<string, unknown>;
-    const stft = settings['stft'];
-    const display = settings['display'];
-    if (typeof settings['auto'] !== 'boolean'
-        || !stft || typeof stft !== 'object'
-        || !display || typeof display !== 'object') {
-        return false;
-    }
-    const stftRecord = stft as Record<string, unknown>;
-    const displayRecord = display as Record<string, unknown>;
-    const nullableNumber = (candidate: unknown): boolean => candidate === null
-        || (typeof candidate === 'number' && Number.isFinite(candidate));
-    return typeof stftRecord['nFft'] === 'number'
-        && Number.isInteger(stftRecord['nFft'])
-        && stftRecord['nFft'] > 0
-        && typeof stftRecord['hopSize'] === 'number'
-        && Number.isInteger(stftRecord['hopSize'])
-        && stftRecord['hopSize'] > 0
-        && typeof stftRecord['window'] === 'string'
-        && ['hann', 'hamming', 'blackman', 'boxcar'].includes(stftRecord['window'])
-        && nullableNumber(displayRecord['dbMin'])
-        && nullableNumber(displayRecord['dbMax'])
-        && nullableNumber(displayRecord['maxFrequencyHz']);
 }
 
 function isRequestReanalyzeMessage(value: unknown): value is RequestReanalyzeMessage {

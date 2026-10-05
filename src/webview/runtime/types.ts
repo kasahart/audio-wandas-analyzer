@@ -11,6 +11,7 @@ declare const trackIdBrand: unique symbol;
 export type TrackId = string & { readonly [trackIdBrand]: true };
 
 export interface ComparisonTrackState extends AnalysisResultWithError {
+    reportSourcePath?: string;
     trackId?: TrackId;
     audioSource?: string;
 }

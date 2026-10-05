@@ -20,7 +20,7 @@ class MockElement {
     click(): void {}
 }
 
-function harness() {
+function harness(storage = new Map<string, string>(), language = 'en', denied = false) {
     const elements: MockElement[] = [];
     const workers: ControlledWorker[] = [];
     const received: Record<string, unknown>[] = [];
@@ -47,6 +47,12 @@ function harness() {
         }
     }
     const browser = {
+        navigator: { language },
+        localStorage: {
+            getItem: (key: string) => { if (denied) throw new Error('denied'); return storage.get(key) ?? null; },
+            setItem: (key: string, value: string) => { if (denied) throw new Error('denied'); storage.set(key, value); },
+        },
+        __APP_STRINGS__: undefined as unknown as { btnOpenFile: string },
         __APP_STATE__: { spectrogramSettings: { auto: true } },
         __AWA_HOST__: undefined as WebviewHostApi | undefined,
         addEventListener: () => undefined,
@@ -70,10 +76,26 @@ function harness() {
         picker.onchange!();
         await flush();
     }
-    return { host, workers, received, load, picker, elements, revoked, get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
+    return { host, browser, storage, workers, received, load, picker, elements, revoked, get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const identity = { filePath: '/sources/selected.wav', requestId: 'ui', analysisId: 'a', settingsSignature: 's', trackIndex: 0 };
+
+test('browser preferences restore safely across reloads and use shared Japanese strings', () => {
+    const storage = new Map<string, string>();
+    const app = harness(storage, 'ja-JP');
+    assert.equal(app.browser.__APP_STRINGS__.btnOpenFile, 'ファイルを開く');
+    const settings = { auto: false, stft: { nFft: 256, hopSize: 64, window: 'hann' }, display: { dbMin: -80, dbMax: 0, maxFrequencyHz: 4000 } };
+    app.host.postMessage({ type: 'update-spectrogram-settings', settings });
+    app.host.setState({ contentType: 'spectrogram', directoryCollapseRootPath: '/private/path' });
+    const restored = harness(storage);
+    assert.equal(JSON.stringify(restored.browser.__APP_STATE__.spectrogramSettings), JSON.stringify(settings));
+    assert.equal(restored.host.getState()?.contentType, 'spectrogram');
+    assert.ok(!storage.get('audioWandasAnalyzer.viewState')!.includes('/private/path'));
+    storage.set('audioWandasAnalyzer.spectrogramSettings', '{broken');
+    assert.equal(harness(storage).browser.__APP_STATE__.spectrogramSettings.auto, true);
+    assert.equal(harness(storage, 'en', true).browser.__APP_STATE__.spectrogramSettings.auto, true);
+});
 
 test('unrelated detail/export errors do not end a pending reanalysis', async () => {
     const app = harness();
