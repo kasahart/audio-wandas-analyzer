@@ -428,3 +428,18 @@ docs/
 - 数値処理や信号処理は Python 側へ寄せる
 - UI 用のデータ圧縮はバックエンドで済ませ、Webview には描画に必要な粒度だけ渡す
 - TypeScript と Python の境界変更時は、`AnalysisResult` と JSON 出力の整合性を最優先で確認する
+
+## Shared spectrogram GUI kernel (stage one)
+
+`src/shared/gui-core` is the canonical private `@wandas/gui-core` source package.
+It has no runtime dependencies. `spectrogramRaster.ts` keeps Analyzer's global
+track mapping, index interval arithmetic, calibrated level metadata and nonfinite
+comparison behavior, while the kernel owns pooling and palette conversion. The
+runtime passes its existing ImageData buffer, so this introduces no second raster
+or source-array copy. Canvas layout, cache, axes, cursors, IPC and DSP remain here.
+
+Insight consumes a commit/hash-pinned copy of this package and verifies its hashes
+in build. Update the canonical package here, commit it, then run Insight's
+`sync-gui-core.mjs --from <checkout>/src/shared/gui-core`. The package is not published.
+Physical STFT/group axes and boundary snapping remain in the standalone prototype;
+this extraction preserves existing rendering bytes and does not activate those corrections.

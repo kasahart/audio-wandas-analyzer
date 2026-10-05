@@ -1,3 +1,5 @@
+import { paintSpectrogramRaster } from './spectrogramRaster';
+import { normalizedColor, viridis } from '../../shared/gui-core/index';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { eventTarget } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
@@ -1892,8 +1894,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const spec = ch.spectrogram;
-        const tBins = spec.timeBins;
-        const fBins = spec.frequencyBins;
         const dur = result.durationSeconds || 1;
         const gs = computeGlobalSpan();
         const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
@@ -1909,47 +1909,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!raster || raster.source !== spec || raster.key !== rasterKey) {
             ctx.clearRect(0, 0, W, H);
             const imageData = ctx.createImageData(plotW, H);
-            const data = imageData.data;
-            const visibleFreqRatio = Math.max(0, Math.min(1, maxFreq / Math.max(spec.maxFrequencyHz, 1)));
-            const range = dbHi - dbLo;
-            for (let px = 0; px < plotW; px++) {
-                const globalStart = zoomStart + (px / plotW) * (zoomEnd - zoomStart);
-                const globalEnd = zoomStart + ((px + 1) / plotW) * (zoomEnd - zoomStart);
-                const localStart = (globalStart - trackStart) / trackDurRatio;
-                const localEnd = (globalEnd - trackStart) / trackDurRatio;
-                const t0 = Math.max(0, Math.floor(localStart * tBins));
-                const t1 = Math.min(tBins, Math.max(t0 + 1, Math.ceil(localEnd * tBins)));
-                if (localEnd <= 0 || localStart >= 1 || t0 >= tBins || t1 <= 0) {
-                    continue;
-                }
-                for (let py = 0; py < H; py++) {
-                    const highRatio = (1 - py / H) * visibleFreqRatio;
-                    const lowRatio = (1 - (py + 1) / H) * visibleFreqRatio;
-                    const f0 = Math.max(0, Math.floor(lowRatio * fBins));
-                    const f1 = Math.min(fBins, Math.max(f0 + 1, Math.ceil(highRatio * fBins)));
-                    let peakDb = -Infinity;
-                    for (let ti = t0; ti < t1; ti++) {
-                        const row = spec.values[ti];
-                        if (!row) {
-                            continue;
-                        }
-                        for (let fi = f0; fi < f1; fi++) {
-                            const value = row[fi];
-                            if (value !== undefined && value > peakDb) {
-                                peakDb = value;
-                            }
-                        }
-                    }
-                    const value = Number.isFinite(peakDb) ? peakDb : dbLo;
-                    const norm = range !== 0 ? Math.max(0, Math.min(1, (value - dbLo) / range)) : 0;
-                    const off = (py * plotW + px) * 4;
-                    const rgb = dbToRgb(norm);
-                    data[off] = rgb[0];
-                    data[off + 1] = rgb[1];
-                    data[off + 2] = rgb[2];
-                    data[off + 3] = 255;
-                }
-            }
+            paintSpectrogramRaster(spec, plotW, H, {
+                zoomStart, zoomEnd, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq,
+            }, imageData.data);
             ctx.putImageData(imageData, 0, 0);
             drawSpectrogramColorbar(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi });
             raster = { source: spec, key: rasterKey };
@@ -2083,20 +2045,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return value + ' Hz';
     }
     function dbToRgb(norm: number) {
-        if (norm < 0.25) {
-            const t = norm / 0.25;
-            return [Math.floor(68 + t * (59 - 68)), Math.floor(1 + t * (82 - 1)), Math.floor(84 + t * (139 - 84))];
-        }
-        if (norm < 0.5) {
-            const t = (norm - 0.25) / 0.25;
-            return [Math.floor(59 + t * (33 - 59)), Math.floor(82 + t * (145 - 82)), Math.floor(139 + t * (140 - 139))];
-        }
-        if (norm < 0.75) {
-            const t = (norm - 0.5) / 0.25;
-            return [Math.floor(33 + t * (94 - 33)), Math.floor(145 + t * (201 - 145)), Math.floor(140 + t * (98 - 140))];
-        }
-        const t = (norm - 0.75) / 0.25;
-        return [Math.floor(94 + t * (253 - 94)), Math.floor(201 + t * (231 - 201)), Math.floor(98 + t * (37 - 98))];
+        return normalizedColor(norm, viridis);
     }
     function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         const x = (cursorNorm - zoomStart) / (zoomEnd - zoomStart) * W;
