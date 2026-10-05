@@ -431,15 +431,21 @@ docs/
 
 ## Shared spectrogram GUI kernel (stage one)
 
-`src/shared/gui-core` is the canonical private `@wandas/gui-core` source package.
-It has no runtime dependencies. `spectrogramRaster.ts` keeps Analyzer's global
-track mapping, index interval arithmetic, calibrated level metadata and nonfinite
-comparison behavior, while the kernel owns pooling and palette conversion. The
-runtime passes its existing ImageData buffer, so this introduces no second raster
-or source-array copy. Canvas layout, cache, axes, cursors, IPC and DSP remain here.
+The canonical source and synchronization tool live in
+[kasahart/wandas-gui](https://github.com/kasahart/wandas-gui).
+`src/shared/gui-core` is a commit/hash-pinned MIT source snapshot with LICENSE and
+NOTICE. `scripts/sync-gui-core.mjs` is also pinned to that repository; compile
+checks source, attribution and tool hashes without contacting the network.
+Update the clean canonical checkout, commit it, then run:
 
-Insight consumes a commit/hash-pinned copy of this package and verifies its hashes
-in build. Update the canonical package here, commit it, then run Insight's
-`sync-gui-core.mjs --from <checkout>/src/shared/gui-core`. The package is not published.
-Physical STFT/group axes and boundary snapping remain in the standalone prototype;
-this extraction preserves existing rendering bytes and does not activate those corrections.
+```sh
+node scripts/sync-gui-core.mjs --from <wandas-gui checkout> --into src/shared/gui-core
+npm run verify
+```
+
+Insight uses the same source and tool in its own snapshot destination. The
+consumer-local package manifest is a source-entry shim, not the upstream build
+manifest. Runtime dependencies remain zero. `spectrogramRaster.ts` retains
+Analyzer's track mapping, calibrated units/references and legacy interval policy.
+The kernel reuses ImageData's buffer; axes, cursor, cache, IPC and DSP stay here.
+Physical STFT/group axes and boundary corrections remain separate product work.
