@@ -47,7 +47,7 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
             try {
                 const bytes=await (await fetch('./auto-96k-fixture.wav')).arrayBuffer();
                 await run({cmd:'load',sourceId:'calibrated.wav',bytes});
-                return await run({cmd:'track-detail',filePath:'/sources/calibrated.wav',calibrationProfile:profile});
+                return await run({cmd:'track-detail',filePath:'/sources/calibrated.wav',trackIndex:0,analysisId:'calibrated',settingsSignature:'auto',calibrationProfile:profile});
             } finally {worker.terminate();}
         },expected.profile);
         compare(expected.calibrated.channels,calibrated.channels,'auto96k.calibrated.native/Pyodide');
