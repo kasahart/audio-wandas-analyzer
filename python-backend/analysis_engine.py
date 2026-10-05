@@ -55,7 +55,15 @@ def compute_spectrogram(
         n_fft=n_fft,
         hop_length=n_fft,
         window=window,
-        channel_metadata=frame.channels.to_list(),
+        # frame.data already contains calibrated physical samples.
+        channel_metadata=[
+            {
+                "label": channel.label,
+                "calibration": wd.ChannelCalibration(factor=1.0, unit=channel.unit, ref=channel.ref),
+                "extra": channel.extra,
+            }
+            for channel in frame.channels
+        ],
         source_time_offset=frame.source_time_offset,
         frame_time_origin=float(transform.p_min * transform.delta_t),
     )

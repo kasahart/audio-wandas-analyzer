@@ -260,13 +260,16 @@ def test_analyze_audio_keeps_multichannel_peak_amplitudes_separate(tmp_path: Pat
     assert left_ch["peakAbsolute"] < right_ch["peakAbsolute"]
 
 
-def test_sparse_auto_stft_matches_wandas_and_bounds_long_file_frames() -> None:
+@pytest.mark.parametrize("factor", [1.0, 10.0])
+def test_sparse_auto_stft_matches_wandas_and_bounds_long_file_frames(factor: float) -> None:
     from analysis_engine import compute_spectrogram
     from analyzer import resolve_stft_params
 
     sr = 48000
     samples = (0.25 * np.sin(2 * np.pi * 750 * np.arange(sr * 60) / sr)).astype(np.float32)
-    frame = wd.from_numpy(samples, sampling_rate=sr)
+    frame = wd.from_numpy(samples, sampling_rate=sr).with_calibration(
+        {0: wd.ChannelCalibration(factor=factor, unit="Pa", ref=2e-5)}
+    )
     n_fft, hop, window = resolve_stft_params(frame.n_samples, None)
     assert hop > n_fft
     sparse = compute_spectrogram(frame, n_fft, hop, window)
@@ -274,6 +277,8 @@ def test_sparse_auto_stft_matches_wandas_and_bounds_long_file_frames() -> None:
     assert np.asarray(sparse.data).nbytes < 12 * 1024 * 1024
     assert sparse.frame_center_times[0][1] == pytest.approx(hop / sr)
     assert sparse.channels[0].level_reference == frame.channels[0].level_reference
+    assert sparse.channels[0].calibration.factor == 1.0
+    assert frame.channels[0].calibration.factor == factor
     cached = sparse.astype(np.complex64).cache()
     np.testing.assert_array_equal(cached.frame_center_times, sparse.frame_center_times)
     np.testing.assert_allclose(cached.get_frame_at(100).dB, sparse.get_frame_at(100).dB, atol=1e-4)
