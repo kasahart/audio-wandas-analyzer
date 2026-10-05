@@ -119,7 +119,7 @@ Audio Analyzer: Select Python Environment
 
 ### 静的Web試作（Wandas 0.8.1）
 
-`npm run prepare:browser` → `npm run build:browser` で `browser-dist/` を生成します。`python3 -m http.server 8080 --directory browser-dist` など静的HTTPで確認できます。解析サーバーは不要です。相対URLなのでGitHub Pagesのproject subpathで配布可能ですが、公開設定・main mergeは本試作に含みません。
+`npm run prepare:browser` → `npm run build:browser` で `browser-dist/` を生成します。`python3 -m http.server 8080 --directory browser-dist` など静的HTTPで確認できます。解析サーバーは不要です。相対URLなのでGitHub Pagesのproject subpathで配布可能ですが、公開手順は下記GitHub Pages workflowを参照してください。
 
 既存Comparison UIとPython AnalysisServiceを再利用し、ブラウザではPyodide Worker＋bytes/source-id adapterでWAVを解析します。音声は送信されません。1秒・2.5秒ステレオ固定fixtureのnative/Pyodide数値比較（331,560点）は、runtime準備後に `AWA_VERIFY_BROWSER=1 npm run verify` で実行します。
 
@@ -128,3 +128,5 @@ Audio Analyzer: Select Python Environment
 `npm run verify:e2e` は実VSCode Webviewから短いステレオWAVのSTFT・cursor・区間保存を検証します。保存先選択のみ一時folderへ注入し、実Python backendとVSCodeファイル書込みを通したPCM16出力が原音区間と完全一致することを確認します。OS picker自体の操作は対象外、出力は自動削除され、再生操作は行いません。
 
 追加監査ではproject subpath、FFT/hop設定変更、実時刻cursor、画面選択区間のWAV原音一致、取消・反復切替・旧Blob解放、不正/過大/過長WAV、runtime初期化失敗・Worker障害後の復旧を確認します。静的host専用subscriptionでwindow messageの混入を防ぎ、VSCodeの既存message transportは保持します。390px Chromiumタッチ相当では読込・cursor tap・STFT・取消を確認しますが、タッチdrag区間選択は未対応で軸表示も窮屈です。実機mobile/Safari・長時間メモリ負荷・OS picker・音声再生は未検証です。
+
+GitHub Pagesは `.github/workflows/pages.yml` で公開します。PRで静的artifactをbuild・hash検証し、mainのCI成功後にそのcommitを配信します。公開対象は `browser-dist/` のみ（固定公開runtime・noticesを含む）。追加secretや入力音声の公開はありません。
