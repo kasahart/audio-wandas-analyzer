@@ -132,3 +132,5 @@ Audio Analyzer: Select Python Environment
 追加監査ではproject subpath、FFT/hop設定変更、実時刻cursor、画面選択区間のWAV原音一致、取消・反復切替・旧Blob解放、不正/過大/過長WAV、runtime初期化失敗・Worker障害後の復旧を確認します。静的host専用subscriptionでwindow messageの混入を防ぎ、VSCodeの既存message transportは保持します。390px Chromiumタッチ相当では読込・cursor tap・STFT・取消を確認しますが、タッチdrag区間選択は未対応で軸表示も窮屈です。実機mobile/Safari・長時間メモリ負荷・OS picker・音声再生は未検証です。
 
 GitHub Pagesは `.github/workflows/pages.yml` で公開します。PRで静的artifactをbuild・hash検証し、mainのCI成功後にそのcommitを配信します。公開対象は `browser-dist/` のみ（固定公開runtime・noticesを含む）。追加secretや入力音声の公開はありません。
+
+静的Web回帰テストはCSVの実BlobダウンロードとUTF-8・channel・周波数の内容、8本の削除・追加後の全16 channel Canvas再描画、想定入力拒否時の短いメッセージも確認します。CSVの数値・desktop側の出力仕様・音源上限は変更していません。

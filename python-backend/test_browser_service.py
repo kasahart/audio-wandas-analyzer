@@ -149,3 +149,28 @@ def test_auto_stft_valid_high_rate_wav_matches_native(tmp_path) -> None:
     assert browser_spec["hopSize"] == native_spec["hopSize"] == 2134
     assert browser_spec["timeBins"] <= 720
     assert browser_spec == native_spec
+
+
+@pytest.mark.parametrize("payload", [b"", b"not a WAV", b"RIFF" + b"\0" * 4 + b"WAVE"])
+def test_expected_browser_input_rejection_has_no_traceback(monkeypatch, payload) -> None:
+    import json
+
+    import browser_service
+
+    monkeypatch.setattr(browser_service, "service", create_service())
+    result = json.loads(browser_service.load_source("bad.wav", payload))
+    assert isinstance(result["inputError"], str) and result["inputError"]
+    assert "Traceback" not in result["inputError"]
+    assert "\n" not in result["inputError"]
+    assert not browser_service.service.engine._files
+
+
+def test_browser_unexpected_load_failure_is_not_hidden(monkeypatch) -> None:
+    import browser_service
+
+    def fail(*args):
+        raise RuntimeError("unexpected internal failure")
+
+    monkeypatch.setattr(browser_service.service.engine, "load", fail)
+    with pytest.raises(RuntimeError, match="unexpected internal failure"):
+        browser_service.load_source("selected.wav", FIXTURE.read_bytes())

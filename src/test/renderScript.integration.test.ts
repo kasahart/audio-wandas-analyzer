@@ -3654,3 +3654,19 @@ test('tracks without an audio source disable all playback controls', () => {
     }
     dom.window.close();
 });
+
+test('recreated canvases repaint unchanged spectrogram data', async () => {
+    const env = setupSpectrumEnv();
+    env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-spectrogram"]')!.click();
+    await nextAnimationFrame(env.dom);
+    const oldCanvas = env.dom.window.document.getElementById('track-canvas-0');
+    const spy = env.domCanvasContexts.get('track-canvas-0')!;
+    const paints = spy.putImageDataCalls;
+    assert.ok(paints > 0);
+    const results = (env.dom.window as unknown as { __APP_STATE__: { results: unknown[] } }).__APP_STATE__.results;
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'analysis-update', results } }));
+    await nextAnimationFrame(env.dom);
+    assert.notEqual(env.dom.window.document.getElementById('track-canvas-0'), oldCanvas);
+    assert.ok(spy.putImageDataCalls > paints, 'the old raster cache must not suppress painting the new canvas');
+    env.dom.window.close();
+});

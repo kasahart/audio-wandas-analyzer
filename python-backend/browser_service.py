@@ -5,6 +5,7 @@ from pathlib import Path
 
 import dask
 import numpy as np
+import soundfile as sf
 import wandas as wd
 
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
@@ -137,7 +138,12 @@ service = create_service()
 
 
 def load_source(source_id: str, payload: object) -> str:
-    return json.dumps(service.engine.load(source_id, bytes(payload)))
+    try:
+        return json.dumps(service.engine.load(source_id, bytes(payload)))
+    except ValueError as error:
+        return json.dumps({"inputError": str(error)})
+    except sf.LibsndfileError:
+        return json.dumps({"inputError": "Unable to read WAV: invalid or unsupported WAV data"})
 
 
 def release_source(file_path: str) -> str:

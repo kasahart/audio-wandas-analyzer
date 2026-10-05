@@ -151,6 +151,12 @@ export class HostMessenger {
         this.host.postMessage(message);
     }
 
+    downloadFile(content: string, name: string, mimeType: string): boolean {
+        if (!this.host.downloadFile) return false;
+        this.host.downloadFile(content, name, mimeType);
+        return true;
+    }
+
     releaseSource(filePath: string): void {
         this.host.releaseSource?.(filePath);
     }
