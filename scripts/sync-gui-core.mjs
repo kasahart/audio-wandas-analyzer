@@ -8,7 +8,7 @@ const repository = 'kasahart/wandas-gui';
 const files = { 'index.ts': 'src/index.ts', 'LICENSE.md': 'LICENSE.md', 'NOTICE.md': 'NOTICE.md' };
 const toolPath = 'scripts/sync-gui-core.mjs';
 const thisTool = fileURLToPath(import.meta.url);
-const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const hash = bytes => createHash('sha256').update(bytes.toString('utf8').replaceAll('\r\n', '\n')).digest('hex');
 const argument = flag => {
   const index = process.argv.indexOf(flag);
   if (index < 0 || !process.argv[index + 1] || process.argv[index + 1].startsWith('--'))
@@ -37,10 +37,18 @@ if (process.argv.includes('--check')) {
   if (!/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)kasahart\/wandas-gui(?:\.git)?\/?$/.test(origin))
     throw new Error('Source origin must be kasahart/wandas-gui');
   const commit = git('rev-parse', 'HEAD').toString().trim();
+  const publishedRefs = git('for-each-ref', '--format=%(refname)', '--contains', commit, 'refs/remotes/origin').toString().trim().split('\n');
+  if (!publishedRefs.some(ref => ref && ref !== 'refs/remotes/origin/HEAD'))
+    throw new Error('Push the canonical commit to origin before syncing');
   if (git('status', '--porcelain', '--', ...Object.values(files), toolPath).toString().trim())
     throw new Error('Commit the canonical source and tool before syncing');
-  const blobs = Object.fromEntries(Object.entries(files).map(([file, path]) => [file, git('show', `${commit}:${path}`)]));
   const tool = git('show', `${commit}:${toolPath}`);
+  if (!readFileSync(thisTool).equals(tool)) {
+    writeFileSync(thisTool, tool);
+    execFileSync(process.execPath, [thisTool, ...process.argv.slice(2)], { stdio: 'inherit' });
+    process.exit(0);
+  }
+  const blobs = Object.fromEntries(Object.entries(files).map(([file, path]) => [file, git('show', `${commit}:${path}`)]));
   const sha256 = Object.fromEntries(Object.entries(blobs).map(([file, bytes]) => [file, hash(bytes)]));
   mkdirSync(destination, { recursive: true });
   for (const [file, bytes] of Object.entries(blobs)) writeFileSync(join(destination, file), bytes);

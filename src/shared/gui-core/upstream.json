@@ -1,11 +1,11 @@
 {
   "repository": "kasahart/wandas-gui",
-  "commit": "8f15661a0341791faf1d32a16172d1f5c73621ac",
+  "commit": "d885005508fb09b7caef74b41790cf887319bf18",
   "path": "src",
   "sha256": {
     "index.ts": "5abb826e2200f0642316cfc52a8bcf2251bbcdb8d0fd67b02a0bfe0f7ecd0eaf",
     "LICENSE.md": "f8142fbdf1eee63b74faa6c22c579b7b949e1e453de51562023e431e6b35de33",
     "NOTICE.md": "cfeaa92df947f0c8289bcc90a3b607024718c3a728ce4d0b3cbe0c7a6eeb60f0"
   },
-  "toolSha256": "13c101d3e55f05dc7717dfab6a613619fa471af477464af4d378503a40034ebb"
+  "toolSha256": "695dd52a72e96752a655f15f45c4b3f7c250aa672e396f040c36123ee4c5c1cc"
 }
