@@ -252,6 +252,7 @@ const server = http.createServer((req,res) => {
         await mobile.locator('[data-action="browser-clear"]').tap();
         await mobile.close();
         await require('./test-browser-multi')({browser,origin,root,nativeResults,compare});
+        await require('./test-browser-auto-96k')({browser,origin,root,compare});
         assert.ok(errors.every(message=>message.includes('intentional-worker-failure')),errors.join('\n'));
         console.log('Subpath, settings, non-unit-duration cursor, invalid/oversized/long WAV, initialization/Worker failure recovery, repeated source switching/Blob cleanup, 390px touch viewport passed.');
         console.log(`Browser Worker/native WAV, waveform, STFT, real-time cursor, range/export parity: ${numbers} numeric comparisons passed. UI load/clear, no autoplay passed.`);

@@ -50,3 +50,9 @@ test('getStrings: すべての値が非空文字列', () => {
         }
     }
 });
+
+
+test('non-overlapping WAV selection info uses shared en/ja wording', () => {
+    assert.equal(getStrings('ja').exportWavNoOverlap, '選択した時間区間に重なる表示トラックがありません。');
+    assert.equal(getStrings('en').exportWavNoOverlap, 'Selected time range does not overlap a visible track.');
+});

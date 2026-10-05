@@ -129,6 +129,7 @@ export interface UiStrings {
     btnExportWav: string;
     btnExportWavTitle: string;
     exportWavNoLoop: string;
+    exportWavNoOverlap: string;
     // Accessibility: toolbar aria-labels
     ariaToolbar: string;
     ariaZoomOut: string;
@@ -298,6 +299,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowZoomToSelection: 'zoom to loop selection',
         btnExportWav: 'WAV',
         btnExportWavTitle: 'Export loop region as WAV (requires loop selection)',
+        exportWavNoOverlap: 'Selected time range does not overlap a visible track.',
         exportWavNoLoop: 'No loop region selected. Drag on the waveform to create a loop first.',
         ariaToolbar: 'Main toolbar',
         ariaZoomOut: 'Zoom out',
@@ -465,6 +467,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowZoomToSelection: 'ループ選択範囲にズーム',
         btnExportWav: 'WAV',
         btnExportWavTitle: 'ループ区間を WAV として書き出す（ループ選択が必要）',
+        exportWavNoOverlap: '選択した時間区間に重なる表示トラックがありません。',
         exportWavNoLoop: 'ループ区間が選択されていません。波形上をドラッグしてループ区間を作成してください。',
         ariaToolbar: 'メインツールバー',
         ariaZoomOut: 'ズームアウト',

@@ -125,3 +125,27 @@ def test_export_plan_is_bounded_and_releases_only_recomputable_detail(monkeypatc
     with pytest.raises(ValueError, match="Export exceeds"):
         browser.prepare_export_json(json.dumps(commands))
     assert len(service.engine._files) == 2
+
+
+def test_auto_stft_valid_high_rate_wav_matches_native(tmp_path) -> None:
+    import soundfile as sf
+
+    from analysis_engine import AnalysisEngine
+    from analysis_service import AnalysisService
+    from analyzer import resolve_stft_params
+
+    rate = 96000
+    samples = np.sin(2 * np.pi * 500 * np.arange(16 * rate) / rate) * 0.4
+    file_path = tmp_path / "auto-96k.wav"
+    sf.write(file_path, samples, rate, subtype="PCM_16")
+    browser = create_service()
+    browser.engine.load("auto-96k.wav", file_path.read_bytes())
+    native = AnalysisService(AnalysisEngine())
+    assert resolve_stft_params(len(samples), None) == (2048, 2048, "hann")
+    browser_result = browser.track_detail("/sources/auto-96k.wav")
+    native_result = native.track_detail(file_path)
+    browser_spec = browser_result["channels"][0]["spectrogram"]
+    native_spec = native_result["channels"][0]["spectrogram"]
+    assert browser_spec["hopSize"] == native_spec["hopSize"] == 2048
+    assert browser_spec["timeBins"] <= 720
+    assert browser_spec == native_spec

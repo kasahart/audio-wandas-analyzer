@@ -289,9 +289,10 @@ def resolve_stft_params(
     normalized = normalize_stft_options(stft_options)
     if normalized is None:
         window_size = max(64, _pick_window_size(sample_count))
-        hop_size = max(
-            1,
-            int(np.ceil(max(1, sample_count - window_size) / max(1, SPECTROGRAM_TIME_BIN_LIMIT - 1))),
+        # Wandas requires hop <= window; display decimation stays bounded downstream.
+        hop_size = min(
+            window_size,
+            max(1, int(np.ceil(max(1, sample_count - window_size) / max(1, SPECTROGRAM_TIME_BIN_LIMIT - 1)))),
         )
         return window_size, hop_size, "hann"
 

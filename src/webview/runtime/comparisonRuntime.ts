@@ -3778,7 +3778,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (endNorm > startNorm) fileRegions.push({ filePath: record.result.filePath, startNorm, endNorm });
         });
         if (!fileRegions.length) {
-            messaging.post({ type: 'show-info', message: 'Selected time range does not overlap a visible track.' }); return;
+            messaging.post({ type: 'show-info', message: STR.exportWavNoOverlap }); return;
         }
         messaging.post({
             type: 'export-wav-loop',
