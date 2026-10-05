@@ -1,0 +1,2 @@
+src/shared/gui-core/** -text
+scripts/sync-gui-core.mjs -text
