@@ -73,6 +73,10 @@ export function rasterize(source: RasterSource, plan: RasterPlan, limits: Range,
             }
             const value = Number.isFinite(peak) ? peak : limits.min;
             const norm = span !== 0 ? Math.max(0, Math.min(1, (value - limits.min) / span)) : 0;
+            if (Number.isNaN(norm)) {
+                rgba[((height - 1 - y) * width + x) * 4 + 3] = 255;
+                continue;
+            }
             const position = norm * (stops.length - 1), lower = Math.floor(position), upper = Math.min(lower + 1, stops.length - 1), fraction = position - lower;
             const a = stops[lower], b = stops[upper], offset = ((height - 1 - y) * width + x) * 4;
             rgba[offset] = round(a[0] + (b[0] - a[0]) * fraction);
@@ -87,6 +91,7 @@ export function normalizedColor(norm: number, palette: Palette): [
     number,
     number
 ] {
+    norm = norm >= 0 ? Math.min(norm, 1) : 0;
     const position = norm * (palette.stops.length - 1), lower = Math.floor(position), upper = Math.min(lower + 1, palette.stops.length - 1), fraction = position - lower;
     const round = palette.rounding === 'floor' ? Math.floor : Math.round;
     return [0, 1, 2].map(i => round(palette.stops[lower][i] + (palette.stops[upper][i] - palette.stops[lower][i]) * fraction)) as [

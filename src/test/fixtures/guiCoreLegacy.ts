@@ -5,9 +5,11 @@ export function legacyAnalyzer(spec: SpectrogramData, plotW: number, H: number, 
     time: Range;
     frequency: Range;
     color: Range;
+    trackStart?: number;
+    trackDurRatio?: number;
 }) {
     const tBins = spec.timeBins, fBins = spec.frequencyBins, dbLo = view.color.min, dbHi = view.color.max, maxFreq = view.frequency.max;
-    const zoomStart = view.time.min, zoomEnd = view.time.max, trackStart = 0, trackDurRatio = 1;
+    const zoomStart = view.time.min, zoomEnd = view.time.max, trackStart = view.trackStart ?? 0, trackDurRatio = view.trackDurRatio ?? 1;
     const data = new Uint8ClampedArray(plotW * H * 4);
     const visibleFreqRatio = Math.max(0, Math.min(1, maxFreq / Math.max(spec.maxFrequencyHz, 1)));
     const range = dbHi - dbLo;

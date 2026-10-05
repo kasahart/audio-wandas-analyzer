@@ -41,3 +41,25 @@ test('shared palette endpoints and destination clearing are stable', () => {
     rasterize({ layout: 'flat', values: [], bins: 0 }, { columns: [null], rows: [null] }, { min: -100, max: 0 }, viridis, output);
     assert.deepEqual([...output], [0, 0, 0, 0]);
 });
+
+test('track offsets and partial durations retain legacy global-to-local mapping', () => {
+    const spec: SpectrogramData = { values: [[-100, -90], [-40, -30], [-80, -70]], timeBins: 3, frequencyBins: 2, windowSize: 512, hopSize: 64, maxFrequencyHz: 24000, minDb: -100, maxDb: 0 };
+    for (const [trackStart, trackDurRatio] of [[0.25, 0.5], [-0.1, 1.3], [0.75, 0.1]]) {
+        for (const [min, max] of [[0, 1], [0.22, 0.51], [-0.2, 1.2]]) {
+            const actual = paintSpectrogramRaster(spec, 64, 40, { zoomStart: min, zoomEnd: max, trackStart, trackDurRatio, dbLo: -100, dbHi: 0, maxFrequencyHz: 16000 });
+            const expected = legacyAnalyzer(spec, 64, 40, { time: { min, max }, frequency: { min: 0, max: 16000 }, color: { min: -100, max: 0 }, trackStart, trackDurRatio });
+            assert.deepEqual(actual.pixels, expected.pixels);
+        }
+    }
+});
+test('nonfinite Analyzer color limits retain legacy opaque-black pixels instead of throwing', () => {
+    const spec: SpectrogramData = { values: [[-50]], timeBins: 1, frequencyBins: 1, windowSize: 512, hopSize: 64, maxFrequencyHz: 24000, minDb: -100, maxDb: 0 };
+    for (const [min, max] of [[-Infinity, 0], [-Infinity, Infinity], [NaN, 0], [-100, NaN], [-100, Infinity]]) {
+        const actual = paintSpectrogramRaster(spec, 3, 2, { zoomStart: 0, zoomEnd: 1, trackStart: 0, trackDurRatio: 1, dbLo: min, dbHi: max, maxFrequencyHz: 24000 });
+        const expected = legacyAnalyzer(spec, 3, 2, { time: { min: 0, max: 1 }, frequency: { min: 0, max: 24000 }, color: { min, max } });
+        assert.deepEqual(actual.pixels, expected.pixels);
+    }
+    assert.deepEqual(normalizedColor(-1, viridis), normalizedColor(0, viridis));
+    assert.deepEqual(normalizedColor(1 + Number.EPSILON, viridis), normalizedColor(1, viridis));
+    assert.deepEqual(normalizedColor(NaN, viridis), normalizedColor(0, viridis));
+});
