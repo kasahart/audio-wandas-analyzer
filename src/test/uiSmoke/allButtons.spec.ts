@@ -104,7 +104,7 @@ async function installPlaybackElement(page: Page) {
             pausedState = true;
         };
         host.appendChild(audio);
-        document.querySelectorAll('[data-action="toggle-playback"], [data-action="stop-playback"]').forEach((button) => {
+        document.querySelectorAll('[data-action="toggle-playback"], [data-action="stop-playback"], [data-action="toggle-mute"]').forEach((button) => {
             button.removeAttribute('disabled');
         });
     });
@@ -312,6 +312,7 @@ test('clicking every selection-toolbar button produces the expected GUI-side rea
 
 test('clicking every track control changes the per-track UI or its side effects', async ({ page }) => {
     await loadResultsUi(page);
+    await expect(page.locator('[data-action="toggle-mute"]')).toBeDisabled();
     await installPlaybackElement(page);
 
     const offsetBefore = await page.locator('#offset-val-0').textContent();

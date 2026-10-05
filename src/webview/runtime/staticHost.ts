@@ -225,9 +225,9 @@ pick.onchange = (): void => {
             let loadedPath: string | undefined;
             try {
                 if (generation !== myGeneration) return;
-                if (file.size > 16 * 1024 * 1024) throw new Error('WAV must be 16 MiB or smaller.');
+                if (file.size > 16 * 1024 * 1024) throw new Error(strings.browserInputTooLarge);
                 if (sources.size >= 8 || Array.from(sources.values()).reduce((sum, source) => sum + source.inputBytes, file.size) > 64 * 1024 * 1024) {
-                    throw new Error('Browser session limit: up to 8 WAV files / 64 MiB total input. Remove a track first.');
+                    throw new Error(strings.browserAggregateLimit);
                 }
                 const bytes = await file.arrayBuffer();
                 if (generation !== myGeneration) return;

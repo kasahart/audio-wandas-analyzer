@@ -11,6 +11,7 @@ from typing import TypedDict
 import numpy as np
 import wandas as wd
 
+from analysis_engine import compute_spectrogram
 from calibration_profile import (
     ResolvedCalibrationProfile,
     ResolvedChannelCalibration,
@@ -289,11 +290,7 @@ def resolve_stft_params(
     normalized = normalize_stft_options(stft_options)
     if normalized is None:
         window_size = max(64, _pick_window_size(sample_count))
-        # Wandas requires hop <= window; display decimation stays bounded downstream.
-        hop_size = min(
-            window_size,
-            max(1, int(np.ceil(max(1, sample_count - window_size) / max(1, SPECTROGRAM_TIME_BIN_LIMIT - 1)))),
-        )
+        hop_size = max(1, int(np.ceil(max(1, sample_count - window_size) / max(1, SPECTROGRAM_TIME_BIN_LIMIT - 1))))
         return window_size, hop_size, "hann"
 
     return normalized["n_fft"], normalized["hop_size"], normalized["window"]
@@ -432,7 +429,7 @@ def analyze_audio(
     resolved = resolve_calibration_profile(calibration_profile, source_frame)
     frame = resolved.apply(source_frame)
     window_size, hop_size, window_name = resolve_stft_params(frame.n_samples, stft_options)
-    spectrogram = frame.stft(n_fft=window_size, hop_length=hop_size, window=window_name)
+    spectrogram = compute_spectrogram(frame, window_size, hop_size, window_name)
     return analyze_from_frame(
         frame,
         target,

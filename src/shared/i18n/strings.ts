@@ -16,6 +16,8 @@ export type SupportedLocale = 'en' | 'ja';
 export interface UiStrings {
     browserWavHint: string;
     browserPreparing: string;
+    browserInputTooLarge: string;
+    browserAggregateLimit: string;
     browserReady: string;
     browserWorkerFailed: string;
     browserCleared: string;
@@ -193,6 +195,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         selectionHeader: 'Select files to analyze',
         btnOpenFile: 'Open File',
         browserWavHint: 'Add WAV files to compare: up to 8 tracks / 64 MiB total input; each ≤16 MiB / 30s / 2ch. Recipes, WDF, psychoacoustics, directory scan, calibration configuration and vscode.dev are unavailable. Audio stays in this browser.',
+        browserInputTooLarge: 'WAV must be 16 MiB or smaller.',
+        browserAggregateLimit: 'Browser session limit: up to 8 WAV files / 64 MiB total input. Remove a track first.',
         browserPreparing: 'Preparing local Python Worker / adding WAV files…',
         browserReady: 'waveform ready. {count} tracks; add more WAV files to compare. No automatic playback.',
         browserWorkerFailed: 'Audio Worker failed; select the WAV files again.',
@@ -361,6 +365,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         selectionHeader: '選択して解析',
         btnOpenFile: 'ファイルを開く',
         browserWavHint: 'WAVを追加して比較できます。最大8トラック・入力合計64 MiB、各16 MiB・30秒・2ch以下。Recipe・WDF・心理音響・フォルダ探索・校正設定・vscode.devは未対応です。音声はブラウザ内で処理します。',
+        browserInputTooLarge: 'WAVは16 MiB以下を選択してください。',
+        browserAggregateLimit: 'ブラウザ上限はWAV 8件・入力合計64 MiBです。先にトラックを削除してください。',
         browserPreparing: 'ローカルPython Workerを準備・WAVを追加しています…',
         browserReady: '波形の準備完了。{count}トラック。WAVを追加して比較できます。自動再生は行いません。',
         browserWorkerFailed: '音声Workerで障害が発生しました。WAVを選択し直してください。',

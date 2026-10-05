@@ -56,3 +56,10 @@ test('non-overlapping WAV selection info uses shared en/ja wording', () => {
     assert.equal(getStrings('ja').exportWavNoOverlap, '選択した時間区間に重なる表示トラックがありません。');
     assert.equal(getStrings('en').exportWavNoOverlap, 'Selected time range does not overlap a visible track.');
 });
+
+test('browser input limits have Japanese wording in the shared dictionary', () => {
+    const ja = getStrings('ja');
+    assert.match(ja.browserInputTooLarge, /選択/);
+    assert.match(ja.browserAggregateLimit, /削除/);
+    assert.match(getStrings('en').browserAggregateLimit, /8 WAV files/);
+});

@@ -141,11 +141,11 @@ def test_auto_stft_valid_high_rate_wav_matches_native(tmp_path) -> None:
     browser = create_service()
     browser.engine.load("auto-96k.wav", file_path.read_bytes())
     native = AnalysisService(AnalysisEngine())
-    assert resolve_stft_params(len(samples), None) == (2048, 2048, "hann")
+    assert resolve_stft_params(len(samples), None) == (2048, 2134, "hann")
     browser_result = browser.track_detail("/sources/auto-96k.wav")
     native_result = native.track_detail(file_path)
     browser_spec = browser_result["channels"][0]["spectrogram"]
     native_spec = native_result["channels"][0]["spectrogram"]
-    assert browser_spec["hopSize"] == native_spec["hopSize"] == 2048
+    assert browser_spec["hopSize"] == native_spec["hopSize"] == 2134
     assert browser_spec["timeBins"] <= 720
     assert browser_spec == native_spec

@@ -27,7 +27,7 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
         await page.waitForFunction(()=>window.__auto96k.some(m=>m.type==='track-detail-result'||m.type==='track-detail-error'),undefined,{timeout:120000});
         const result=await page.evaluate(()=>window.__auto96k.find(m=>m.type==='track-detail-result'||m.type==='track-detail-error'));
         assert.equal(result.type,'track-detail-result',result.error);
-        assert.equal(result.channels[0].spectrogram.hopSize,2048);
+        assert.equal(result.channels[0].spectrogram.hopSize,2134);
         compare(JSON.parse(native.stdout).channels,result.channels,'auto96k.native/Pyodide');
         assert.equal(await page.locator('audio').evaluateAll(xs=>xs.every(x=>x.paused)),true);
         await page.locator('[data-action="browser-clear"]').click();

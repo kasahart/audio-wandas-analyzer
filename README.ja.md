@@ -119,6 +119,8 @@ Audio Analyzer: Select Python Environment
 
 ### 静的Web試作（Wandas 0.8.1）
 
+自動スペクトログラム表示は、長いdesktop音源でも約720個の解析窓に計算を限定します。窓の間隔がFFT窓幅を超える場合だけ、Wandasと同じSciPy STFT・振幅スケールを使う表示専用adapterで計算し、レベル・校正はWandasに委譲します。実時刻は実際の窓間隔を保持します。この疎な表示は逆STFTやRecipeの結果ではありません。手動STFT設定のメモリ量は設定に依存します。
+
 `npm run prepare:browser` → `npm run build:browser` で `browser-dist/` を生成します。`python3 -m http.server 8080 --directory browser-dist` など静的HTTPで確認できます。解析サーバーは不要です。相対URLなのでGitHub Pagesのproject subpathで配布可能ですが、公開手順は下記GitHub Pages workflowを参照してください。
 
 既存Comparison UIとPython AnalysisServiceを再利用し、ブラウザではPyodide Worker＋bytes/source-id adapterでWAVを解析します。音声は送信されません。1秒・2.5秒ステレオ固定fixtureのnative/Pyodide数値比較（331,560点）は、runtime準備後に `AWA_VERIFY_BROWSER=1 npm run verify` で実行します。

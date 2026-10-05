@@ -1501,7 +1501,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '  <div class="track-btns">'
             + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
             + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
-            + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaTrackMute) + '" title="' + escHtml(STR.ariaTrackMute) + '" aria-pressed="' + !!trackStore.require(trackId).runtime.muted + '">' + (trackStore.require(trackId).runtime.muted ? '🔇' : '🔊') + '</button>'
+            + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaTrackMute) + '" title="' + escHtml(STR.ariaTrackMute) + '" aria-pressed="' + !!trackStore.require(trackId).runtime.muted + '"' + (result.audioSource ? '' : ' disabled') + '>' + (trackStore.require(trackId).runtime.muted ? '🔇' : '🔊') + '</button>'
             + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaRemoveTrack) + '">✕</button>'
             + '  </div>'
             + '  <div class="track-offset">'
