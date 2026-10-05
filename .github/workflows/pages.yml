@@ -15,13 +15,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  revision:
     if: >-
       github.event_name == 'pull_request' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      current: ${{ steps.revision.outputs.current }}
+    steps:
+      - name: Reject stale main CI revisions
+        id: revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ -z "$EXPECTED_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            current_sha=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
+            echo "current=$([ "$current_sha" = "$EXPECTED_SHA" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: revision
+    if: needs.revision.outputs.current == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -45,17 +67,29 @@ jobs:
 
   deploy:
     if: github.event_name == 'workflow_run'
-    needs: build
+    needs: [revision, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Recheck main immediately before deployment
+        id: revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          current_sha=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
+          echo "current=$([ "$current_sha" = "$EXPECTED_SHA" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - uses: actions/configure-pages@v5
+        if: steps.revision.outputs.current == 'true'
       - name: Deploy static Analyzer
         id: deployment
+        if: steps.revision.outputs.current == 'true'
         uses: actions/deploy-pages@v4
