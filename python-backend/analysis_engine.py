@@ -5,8 +5,10 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import dask.array as da
 import numpy as np
 import wandas as wd
+from scipy.signal import ShortTimeFFT, get_window
 
 from calibration_profile import ResolvedCalibrationProfile, resolve_calibration_profile, source_channel_peaks
 
@@ -14,6 +16,59 @@ StftKey = tuple[str, int, int, str]
 SpectrumSliceKey = tuple[str, int, str, int, int]
 AUDIO_CACHE_DTYPE = np.dtype("float32")
 SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
+
+
+class SparseSpectrogram:
+    """Display-only sparse STFT; Wandas retains spectral levels and calibration."""
+
+    def __init__(self, spectral_frame: wd.SpectrogramFrame, centers: np.ndarray) -> None:
+        self.spectral_frame = spectral_frame
+        self.frame_center_times = centers
+
+    def __getattr__(self, name):
+        return getattr(self.spectral_frame, name)
+
+    def astype(self, dtype):
+        return SparseSpectrogram(self.spectral_frame.astype(dtype), self.frame_center_times)
+
+    def cache(self):
+        return SparseSpectrogram(self.spectral_frame.cache(), self.frame_center_times)
+
+
+def compute_spectrogram(
+    frame: wd.ChannelFrame, n_fft: int, hop_length: int, window: str
+) -> wd.SpectrogramFrame | SparseSpectrogram:
+    if hop_length <= n_fft:
+        return frame.stft(n_fft=n_fft, hop_length=hop_length, window=window)
+    # Auto display sampling can leave gaps between windows on long desktop files.
+    # Wandas rejects these hops, although its SciPy backend supports them. Keep
+    # the same window, one-sided amplitude scaling and physical frame centers,
+    # without first materializing a dense STFT merely to discard its frames.
+    transform = ShortTimeFFT(
+        get_window(window, n_fft), hop=hop_length, fs=frame.sampling_rate, mfft=n_fft, scale_to="magnitude"
+    )
+    values = transform.stft(np.asarray(frame.data).reshape(frame.n_channels, -1))
+    values[:, 1:-1, :] *= 2  # even n_fft: preserve DC and Nyquist
+    spectral_frame = wd.SpectrogramFrame(
+        da.from_array(values, chunks=values.shape),
+        sampling_rate=frame.sampling_rate,
+        n_fft=n_fft,
+        hop_length=n_fft,
+        window=window,
+        # frame.data already contains calibrated physical samples.
+        channel_metadata=[
+            {
+                "label": channel.label,
+                "calibration": wd.ChannelCalibration(factor=1.0, unit=channel.unit, ref=channel.ref),
+                "extra": channel.extra,
+            }
+            for channel in frame.channels
+        ],
+        source_time_offset=frame.source_time_offset,
+        frame_time_origin=float(transform.p_min * transform.delta_t),
+    )
+    centers = transform.t(frame.n_samples)[None, :] + np.asarray(frame.source_time_offset)[:, None]
+    return SparseSpectrogram(spectral_frame, centers)
 
 
 @dataclass(slots=True)
@@ -88,9 +143,7 @@ class AnalysisEngine:
         spectrogram = cached.spectrograms.get(key)
         if spectrogram is None:
             spectrogram = (
-                analysis_frame.stft(n_fft=n_fft, hop_length=hop_length, window=window)
-                .astype(SPECTROGRAM_CACHE_DTYPE)
-                .cache()
+                compute_spectrogram(analysis_frame, n_fft, hop_length, window).astype(SPECTROGRAM_CACHE_DTYPE).cache()
             )
             cached.spectrograms[key] = spectrogram
             cached.spectrogram_nbytes[key] = int(np.prod(spectrogram.shape)) * SPECTROGRAM_CACHE_DTYPE.itemsize

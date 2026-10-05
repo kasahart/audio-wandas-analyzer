@@ -14,6 +14,18 @@
 export type SupportedLocale = 'en' | 'ja';
 
 export interface UiStrings {
+    browserWavHint: string;
+    browserPreparing: string;
+    browserInputTooLarge: string;
+    browserAggregateLimit: string;
+    browserReady: string;
+    browserWorkerFailed: string;
+    browserCleared: string;
+    browserRemoved: string;
+    browserExported: string;
+    browserDirectoryUnavailable: string;
+    browserUnavailable: string;
+
     panelTitle: string;
     panelTitlePrefix: string;
     panelComparePrefix: string;
@@ -119,6 +131,7 @@ export interface UiStrings {
     btnExportWav: string;
     btnExportWavTitle: string;
     exportWavNoLoop: string;
+    exportWavNoOverlap: string;
     // Accessibility: toolbar aria-labels
     ariaToolbar: string;
     ariaZoomOut: string;
@@ -126,6 +139,7 @@ export interface UiStrings {
     ariaZoomReset: string;
     ariaRemoveTrack: string;
     ariaTrackPlay: string;
+    ariaTrackMute: string;
     ariaTrackStop: string;
     ariaOffsetUp: string;
     ariaOffsetDown: string;
@@ -180,6 +194,18 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         emptyNoTracks: 'Files checked in the left tree appear here as tracks',
         selectionHeader: 'Select files to analyze',
         btnOpenFile: 'Open File',
+        browserWavHint: 'Add WAV files to compare: up to 8 tracks / 64 MiB total input; each ≤16 MiB / 30s / 2ch. Recipes, WDF, psychoacoustics, directory scan, calibration configuration and vscode.dev are unavailable. Audio stays in this browser.',
+        browserInputTooLarge: 'WAV must be 16 MiB or smaller.',
+        browserAggregateLimit: 'Browser session limit: up to 8 WAV files / 64 MiB total input. Remove a track first.',
+        browserPreparing: 'Preparing local Python Worker / adding WAV files…',
+        browserReady: 'waveform ready. {count} tracks; add more WAV files to compare. No automatic playback.',
+        browserWorkerFailed: 'Audio Worker failed; select the WAV files again.',
+        browserCleared: 'Worker cleared; audio memory released. Add short WAV files.',
+        browserRemoved: 'All tracks removed; audio memory released. Add short WAV files.',
+        browserExported: 'Selected regions exported as PCM16 WAV.',
+        browserDirectoryUnavailable: 'Folder scanning is unavailable; add WAV files instead.',
+        browserUnavailable: 'This action is unavailable in the static WAV comparison.',
+
         btnOpenAnotherFolder: 'Open another folder',
         btnOpenFolder: 'Open Folder',
         btnSelectAll: 'Select all',
@@ -277,6 +303,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowZoomToSelection: 'zoom to loop selection',
         btnExportWav: 'WAV',
         btnExportWavTitle: 'Export loop region as WAV (requires loop selection)',
+        exportWavNoOverlap: 'Selected time range does not overlap a visible track.',
         exportWavNoLoop: 'No loop region selected. Drag on the waveform to create a loop first.',
         ariaToolbar: 'Main toolbar',
         ariaZoomOut: 'Zoom out',
@@ -284,6 +311,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaZoomReset: 'Reset zoom',
         ariaRemoveTrack: 'Remove track',
         ariaTrackPlay: 'Play / pause track',
+        ariaTrackMute: 'Mute / unmute track',
         ariaTrackStop: 'Stop track',
         ariaOffsetUp: 'Increase offset',
         ariaOffsetDown: 'Decrease offset',
@@ -336,6 +364,18 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         emptyNoTracks: '左のツリーでチェックしたファイルがここにトラックとして表示されます',
         selectionHeader: '選択して解析',
         btnOpenFile: 'ファイルを開く',
+        browserWavHint: 'WAVを追加して比較できます。最大8トラック・入力合計64 MiB、各16 MiB・30秒・2ch以下。Recipe・WDF・心理音響・フォルダ探索・校正設定・vscode.devは未対応です。音声はブラウザ内で処理します。',
+        browserInputTooLarge: 'WAVは16 MiB以下を選択してください。',
+        browserAggregateLimit: 'ブラウザ上限はWAV 8件・入力合計64 MiBです。先にトラックを削除してください。',
+        browserPreparing: 'ローカルPython Workerを準備・WAVを追加しています…',
+        browserReady: '波形の準備完了。{count}トラック。WAVを追加して比較できます。自動再生は行いません。',
+        browserWorkerFailed: '音声Workerで障害が発生しました。WAVを選択し直してください。',
+        browserCleared: 'Workerを終了し、音声メモリを解放しました。短いWAVを追加できます。',
+        browserRemoved: '全トラックを削除し、音声メモリを解放しました。',
+        browserExported: '選択区間をPCM16 WAVで書き出しました。',
+        browserDirectoryUnavailable: 'フォルダ探索は未対応です。WAVを追加してください。',
+        browserUnavailable: 'この操作は静的WebのWAV比較では未対応です。',
+
         btnOpenAnotherFolder: '別のフォルダを開く',
         btnOpenFolder: 'フォルダを開く',
         btnSelectAll: 'すべて選択',
@@ -433,6 +473,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowZoomToSelection: 'ループ選択範囲にズーム',
         btnExportWav: 'WAV',
         btnExportWavTitle: 'ループ区間を WAV として書き出す（ループ選択が必要）',
+        exportWavNoOverlap: '選択した時間区間に重なる表示トラックがありません。',
         exportWavNoLoop: 'ループ区間が選択されていません。波形上をドラッグしてループ区間を作成してください。',
         ariaToolbar: 'メインツールバー',
         ariaZoomOut: 'ズームアウト',
@@ -440,6 +481,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaZoomReset: 'ズームリセット',
         ariaRemoveTrack: 'トラックを削除',
         ariaTrackPlay: 'トラックを再生／一時停止',
+        ariaTrackMute: 'トラックをミュート／解除',
         ariaTrackStop: 'トラックを停止',
         ariaOffsetUp: 'オフセットを増やす',
         ariaOffsetDown: 'オフセットを減らす',

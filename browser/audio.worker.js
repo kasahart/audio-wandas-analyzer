@@ -27,7 +27,7 @@ async function initialize() {
         if (!response.ok) throw new Error(`Missing Python module: ${name}`);
         pyodide.FS.writeFile(`/home/pyodide/${name}`, await response.text());
     }
-    pyodide.runPython('from browser_service import load_source, dispatch_json');
+    pyodide.runPython('from browser_service import load_source, release_source, prepare_export_json, dispatch_json');
 }
 self.onmessage = ({ data }) => {
     queue = queue.then(async () => {
@@ -39,6 +39,14 @@ self.onmessage = ({ data }) => {
                 pyodide.globals.set('_source_bytes', new Uint8Array(data.bytes));
                 try { output = pyodide.runPython('load_source(_source_id, _source_bytes.to_py())'); }
                 finally { pyodide.globals.delete('_source_bytes'); pyodide.globals.delete('_source_id'); }
+            } else if (data.cmd === 'export-plan') {
+                pyodide.globals.set('_export_plan', JSON.stringify(data.commands));
+                try { output = pyodide.runPython('prepare_export_json(_export_plan)'); }
+                finally { pyodide.globals.delete('_export_plan'); }
+            } else if (data.cmd === 'unload') {
+                pyodide.globals.set('_source_path', data.filePath);
+                try { output = pyodide.runPython('release_source(_source_path)'); }
+                finally { pyodide.globals.delete('_source_path'); }
             } else {
                 const { bytes, ...command } = data;
                 pyodide.globals.set('_command', JSON.stringify(command));

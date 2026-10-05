@@ -258,3 +258,42 @@ def test_analyze_audio_keeps_multichannel_peak_amplitudes_separate(tmp_path: Pat
     assert left_ch["label"] in {"Channel 1", "Left", "L", "ch0"}
     assert right_ch["label"] in {"Channel 2", "Right", "R", "ch1"}
     assert left_ch["peakAbsolute"] < right_ch["peakAbsolute"]
+
+
+@pytest.mark.parametrize("factor", [1.0, 10.0])
+def test_sparse_auto_stft_matches_wandas_and_bounds_long_file_frames(factor: float) -> None:
+    from analysis_engine import compute_spectrogram
+    from analyzer import resolve_stft_params
+
+    sr = 48000
+    samples = (0.25 * np.sin(2 * np.pi * 750 * np.arange(sr * 60) / sr)).astype(np.float32)
+    frame = wd.from_numpy(samples, sampling_rate=sr).with_calibration(
+        {0: wd.ChannelCalibration(factor=factor, unit="Pa", ref=2e-5)}
+    )
+    n_fft, hop, window = resolve_stft_params(frame.n_samples, None)
+    assert hop > n_fft
+    sparse = compute_spectrogram(frame, n_fft, hop, window)
+    assert sparse.n_frames <= 722
+    assert np.asarray(sparse.data).nbytes < 12 * 1024 * 1024
+    assert sparse.frame_center_times[0][1] == pytest.approx(hop / sr)
+    assert sparse.channels[0].level_reference == frame.channels[0].level_reference
+    assert sparse.channels[0].calibration.factor == 1.0
+    assert frame.channels[0].calibration.factor == factor
+    cached = sparse.astype(np.complex64).cache()
+    np.testing.assert_array_equal(cached.frame_center_times, sparse.frame_center_times)
+    np.testing.assert_allclose(cached.get_frame_at(100).dB, sparse.get_frame_at(100).dB, atol=1e-4)
+    # Compare against Wandas at exactly aligned centers, including boundary padding.
+    short = frame[:, :sr]
+    dense = short.stft(n_fft=2048, hop_length=2048, window="hann")
+    spaced = compute_spectrogram(short, 2048, 8192, "hann")
+    count = min(spaced.n_frames, (dense.n_frames + 3) // 4)
+    np.testing.assert_allclose(
+        np.asarray(spaced.data).reshape(1, 1025, -1)[:, :, :count],
+        np.asarray(dense.data).reshape(1, 1025, -1)[:, :, ::4][:, :, :count],
+        rtol=1e-6,
+        atol=1e-8,
+    )
+    # One-hour planning remains bounded without allocating a one-hour test fixture.
+    fft, hour_hop, _ = resolve_stft_params(sr * 3600, None)
+    assert (sr * 3600) // hour_hop < 722
+    assert fft == 2048
