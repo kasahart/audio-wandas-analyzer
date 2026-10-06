@@ -377,3 +377,57 @@ test('native injected calibration retry preserves cancellation token and request
     await assert.rejects(server.analyze('source', {}, token), CancellationError);
     assert.equal(tokens.length, 3);
 });
+
+test('native calibration shown hook replaces listeners and follows live results and recreated panels', async () => {
+    const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
+    const originalLoad = NodeModule._load;
+    const configured: Array<{ path: string; labels: string[] }> = [];
+    const result = (filePath: string, label: string) => ({ filePath, fileName: filePath, channels: [{ label }] });
+    const results = new Map<object, ReturnType<typeof result>[]>();
+    const panel = () => {
+        const messages = new Set<(message: unknown) => unknown>();
+        const disposals: Array<() => void> = [];
+        const views: Array<(event: { webviewPanel: object }) => void> = [];
+        return { active: true, messages, disposals, views,
+            webview: { onDidReceiveMessage: (listener: (message: unknown) => unknown) => {
+                messages.add(listener); return { dispose: () => messages.delete(listener) };
+            } },
+            onDidDispose: (listener: () => void) => { disposals.push(listener); },
+            onDidChangeViewState: (listener: (event: { webviewPanel: object }) => void) => { views.push(listener); },
+        };
+    };
+    let shown!: (value: ReturnType<typeof panel>) => void;
+    let configureActive!: () => Promise<void>;
+    NodeModule._load = function(request, parent, isMain): unknown {
+        if (request === 'vscode') return {
+            commands: { registerCommand: (_name: string, action: () => Promise<void>) => { configureActive = action; return { dispose() {} }; } },
+            window: { showInformationMessage() {}, showQuickPick: async (items: unknown[]) => items[0] },
+        };
+        if (request === '../webview/panels/ComparisonPanel') return { ComparisonPanel: {
+            setShownListener: (listener: typeof shown) => { shown = listener; },
+            getResults: (value: object) => results.get(value) ?? [],
+        } };
+        if (request === './calibrationStore') return {
+            configureCalibrationProfile: async (_context: unknown, filePath: string, channels: Array<{ label: string }>) => {
+                configured.push({ path: filePath, labels: channels.map(channel => channel.label) });
+            },
+        };
+        return originalLoad.call(this, request, parent, isMain);
+    };
+    let runtime: typeof import('../extension/calibrationPanelRuntime');
+    try { runtime = require('../extension/calibrationPanelRuntime'); }
+    finally { NodeModule._load = originalLoad; }
+    runtime.installCalibrationPanelRuntime({ subscriptions: [] } as unknown as import('vscode').ExtensionContext);
+    const first = panel(); results.set(first, [result('/a.wav', 'old')]);
+    shown(first); shown(first);
+    assert.equal(first.messages.size, 1);
+    assert.equal(first.views.length, 1);
+    assert.equal(first.disposals.length, 1);
+    results.set(first, [result('/a.wav', 'updated')]);
+    await [...first.messages][0]({ type: 'configure-calibration', trackIndex: 0, filePath: '/a.wav', channels: [{ channelIndex: 0, label: 'ignored message metadata' }] });
+    first.disposals.forEach(dispose => dispose());
+    assert.equal(first.messages.size, 0);
+    const recreated = panel(); results.set(recreated, [result('/b.wav', 'new')]);
+    shown(recreated); await configureActive();
+    assert.deepEqual(configured, [{ path: '/a.wav', labels: ['updated'] }, { path: '/b.wav', labels: ['new'] }]);
+});
