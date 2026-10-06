@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from browser_service import BrowserService, create_service
+from command_dispatch import dispatch, validate_request
 
 FIXTURE = Path(__file__).resolve().parents[1] / "src/test/fixtures/short-stereo.wav"
 
@@ -174,3 +175,23 @@ def test_browser_unexpected_load_failure_is_not_hidden(monkeypatch) -> None:
     monkeypatch.setattr(browser_service.service.engine, "load", fail)
     with pytest.raises(RuntimeError, match="unexpected internal failure"):
         browser_service.load_source("selected.wav", FIXTURE.read_bytes())
+
+
+def test_run_recipe_uses_loaded_sources_and_rejects_paths() -> None:
+    service = create_service()
+    service.engine.load("selected.wav", FIXTURE.read_bytes())
+    path = "/sources/selected.wav"
+    service.track_detail(path, stft_options={"nFft": 256, "hopSize": 64, "window": "hann"})
+    recipe = {
+        "inputs": [{"name": "sig", "file": path}],
+        "steps": [{"as": "w", "expr": "sig.welch(n_fft=256)"}],
+        "display": [{"name": "w", "title": "PSD"}],
+    }
+    result = dispatch(validate_request({"cmd": "run-recipe", "requestId": "r", "recipe": recipe}), service)
+    assert [chart["kind"] for chart in result["charts"]] == ["line"]
+    assert result["charts"][0]["title"] == "PSD"
+    assert not service.engine.get_file(path).spectrograms, "recipe execution releases recomputable detail"
+    with pytest.raises(ValueError, match="not a loaded source"):
+        service.run_recipe({**recipe, "inputs": [{"name": "sig", "file": str(FIXTURE)}]})
+    with pytest.raises(ValueError, match="recipe error"):
+        service.run_recipe({**recipe, "steps": [{"as": "w", "expr": "sig[0]"}]})

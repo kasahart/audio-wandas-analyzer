@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import dask
@@ -128,6 +129,16 @@ class BrowserService(AnalysisService):
         self.engine.discard_spectrograms(file_path)
         return {}
 
+    def run_recipe(self, recipe: Mapping[str, object]) -> dict[str, object]:
+        # Recipes allocate freely; drop recomputable detail so selected sources keep their budget.
+        for cached in list(self.engine._files.values()):
+            self.engine.discard_spectrograms(cached.path)
+        for item in recipe.get("inputs") or []:
+            file = item.get("file") if isinstance(item, dict) else item
+            if Path(str(file)) not in self.engine._files:
+                raise ValueError(f"Recipe input {file!r} is not a loaded source")
+        return super().run_recipe(recipe)
+
 
 def create_service() -> AnalysisService:
     dask.config.set(scheduler="synchronous")
@@ -185,5 +196,6 @@ def prepare_export_json(raw: str) -> str:
 def dispatch_json(raw: str) -> str:
     command = validate_request(json.loads(raw))
     # Resolve settings at the boundary before expensive allocation.
-    resolve_stft_params(service.engine.get_file(command["filePath"]).frame.n_samples, command.get("stftOptions"))
+    if "filePath" in command:
+        resolve_stft_params(service.engine.get_file(command["filePath"]).frame.n_samples, command.get("stftOptions"))
     return json.dumps(dispatch(command, service), allow_nan=False)

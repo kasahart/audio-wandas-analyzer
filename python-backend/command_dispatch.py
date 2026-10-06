@@ -26,6 +26,10 @@ def _is_finite_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
+def _is_object(value: object) -> bool:
+    return isinstance(value, dict)
+
+
 _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
     "analyze": {"filePath": _is_string},
     "range": {
@@ -53,6 +57,7 @@ _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
         "startNorm": _is_finite_number,
         "endNorm": _is_finite_number,
     },
+    "run-recipe": {"recipe": _is_object},
 }
 
 
@@ -163,6 +168,10 @@ def handle_release_track_detail(service: AnalysisService, command: Command) -> d
     return service.release_track_detail(str(command["filePath"]))
 
 
+def handle_run_recipe(service: AnalysisService, command: Command) -> dict[str, object]:
+    return service.run_recipe(command["recipe"])
+
+
 COMMANDS: dict[str, CommandHandler] = {
     "analyze": handle_analyze,
     "range": handle_range,
@@ -170,6 +179,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "release-track-detail": handle_release_track_detail,
     "spectrum-slice": handle_spectrum_slice,
     "export-wav-loop": handle_export_wav_loop,
+    "run-recipe": handle_run_recipe,
 }
 
 

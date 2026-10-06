@@ -286,6 +286,19 @@ class AnalysisService:
             "sampleRate": sample_rate,
         }
 
+    def run_recipe(self, recipe: Mapping[str, object]) -> dict[str, object]:
+        """Evaluate a recipe whose inputs name sources this engine can load."""
+        from recipe_runner import RecipeError, run_recipe
+
+        def load(file: str) -> object:
+            return self.engine.get_file(file).frame
+
+        try:
+            charts = run_recipe(dict(recipe), base_dir=Path.cwd(), load=load)
+        except RecipeError as error:
+            raise ValueError(f"recipe error: {error}") from error
+        return {"charts": charts}
+
     def release_track_detail(self, file_path: str | Path) -> dict[str, object]:
         return {}
 

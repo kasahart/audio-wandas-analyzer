@@ -57,6 +57,7 @@ import argparse
 import ast
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -138,25 +139,29 @@ def _load_recipe(path: str | None) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def _load_inputs(inputs: list[dict[str, Any]], base_dir: Path) -> dict[str, Any]:
-    bindings: dict[str, Any] = {}
-    for item in inputs:
-        name = str(item["name"])
-        file = str(item["file"])
+InputLoader = Callable[[str], Any]
+
+
+def file_input_loader(base_dir: Path) -> InputLoader:
+    """Default loader: read a WAV from disk, resolving relative paths against ``base_dir``."""
+
+    def load(file: str) -> Any:
         resolved = Path(file)
         if not resolved.is_absolute():
             resolved = (base_dir / resolved).resolve()
-        bindings[name] = wd.read(resolved)
-    return bindings
+        return wd.read(resolved)
+
+    return load
 
 
-def run_recipe(recipe: dict[str, Any], base_dir: Path) -> list[dict[str, Any]]:
-    inputs = recipe.get("inputs") or []
+def _load_inputs(inputs: list[dict[str, Any]], load: InputLoader) -> dict[str, Any]:
+    return {str(item["name"]): load(str(item["file"])) for item in inputs}
+
+
+def evaluate_recipe(recipe: dict[str, Any], bindings: dict[str, Any]) -> list[dict[str, Any]]:
+    """Run ``steps`` over already-loaded ``bindings`` and adapt ``display`` entries to ChartSpec."""
     steps = recipe.get("steps") or []
     display = recipe.get("display") or []
-
-    bindings = _load_inputs(inputs, base_dir)
-
     for step in steps:
         name = str(step["as"])
         expr = str(step["expr"])
@@ -174,6 +179,21 @@ def run_recipe(recipe: dict[str, Any], base_dir: Path) -> list[dict[str, Any]]:
             raise RecipeError(f"display target '{name}' was not produced by any step")
         charts.append(adapt(bindings[name], title=title, **kwargs))
     return charts
+
+
+def run_recipe(
+    recipe: dict[str, Any],
+    base_dir: Path,
+    load: InputLoader | None = None,
+) -> list[dict[str, Any]]:
+    """Load ``inputs`` through ``load`` (filesystem by default) and evaluate the recipe.
+
+    Hosts that keep audio in memory (the browser Worker) pass their own loader so
+    ``file`` names resolve to already-decoded frames instead of paths.
+    """
+    inputs = recipe.get("inputs") or []
+    bindings = _load_inputs(inputs, load or file_input_loader(base_dir))
+    return evaluate_recipe(recipe, bindings)
 
 
 def main(argv: list[str] | None = None) -> int:

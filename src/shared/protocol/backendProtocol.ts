@@ -1,3 +1,5 @@
+import type { ChartSpec } from '../chartSpec';
+import type { RecipeDocument } from '../recipe/recipeSelection';
 import { isCalibrationStatus, isCalibrationSource, isCalibrationProfile } from '../analysis/calibrationModel';
 import { isSafeCalibrationValue } from '../analysis/analysisTypes';
 import type {
@@ -98,6 +100,14 @@ export interface ExportWavLoopResult {
 
 export type ReleaseTrackDetailResult = Record<never, never>;
 
+export interface RunRecipePayload {
+    recipe: RecipeDocument;
+}
+
+export interface RunRecipeResult {
+    charts: ChartSpec[];
+}
+
 export interface BackendCommandMap {
     analyze: { payload: AnalyzePayload; result: AnalysisResult };
     range: { payload: RangePayload; result: RangeResult };
@@ -105,6 +115,7 @@ export interface BackendCommandMap {
     'release-track-detail': { payload: ReleaseTrackDetailPayload; result: ReleaseTrackDetailResult };
     'spectrum-slice': { payload: SpectrumSlicePayload; result: SpectrumSliceResult };
     'export-wav-loop': { payload: ExportWavLoopPayload; result: ExportWavLoopResult };
+    'run-recipe': { payload: RunRecipePayload; result: RunRecipeResult };
 }
 
 export const BACKEND_COMMANDS = [
@@ -114,6 +125,7 @@ export const BACKEND_COMMANDS = [
     'release-track-detail',
     'spectrum-slice',
     'export-wav-loop',
+    'run-recipe',
 ] as const satisfies ReadonlyArray<keyof BackendCommandMap>;
 
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
@@ -346,6 +358,14 @@ function isExportWavLoopResult(value: unknown): value is ExportWavLoopResult {
         && isInteger(value['sampleRate']);
 }
 
+function isRunRecipeResult(value: unknown): value is RunRecipeResult {
+    return isJsonObject(value)
+        && Array.isArray(value['charts'])
+        && value['charts'].every((chart) => isJsonObject(chart)
+            && ['line', 'heatmap', 'bar', 'scalar'].includes(String(chart['kind']))
+            && typeof chart['title'] === 'string');
+}
+
 type ResultValidator<K extends BackendCommand> = (value: unknown) => value is BackendResult<K>;
 
 const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
@@ -355,6 +375,7 @@ const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
     'release-track-detail': isJsonObject,
     'spectrum-slice': isSpectrumSliceResult,
     'export-wav-loop': isExportWavLoopResult,
+    'run-recipe': isRunRecipeResult,
 };
 
 export function parseBackendResult<K extends BackendCommand>(command: K, value: unknown): BackendResult<K> {

@@ -510,10 +510,10 @@ export async function run(): Promise<void> {
             requires: 'single-track',
             run: async () => {
                 const outputFolder = mkdtempSync(path.join(os.tmpdir(), 'awa-vscode-export-'));
-                const originalExport = ExportFlows.prototype.exportWavLoop;
+                const originalExport = ExportFlows.prototype.wavExport;
                 let finished = false;
                 const errors: string[] = [];
-                ExportFlows.prototype.exportWavLoop = async function (message) {
+                ExportFlows.prototype.wavExport = async function (message) {
                     const instance = this as unknown as { host: ExportHost };
                     const originalHost = instance.host;
                     instance.host = {
@@ -522,14 +522,17 @@ export async function run(): Promise<void> {
                         showInformation: () => undefined,
                         showError: (message) => { errors.push(message); },
                     };
+                    const finish = (): void => { instance.host = originalHost; finished = true; };
+                    let plan;
                     try {
-                        await originalExport.call(this, message);
+                        plan = await originalExport.call(this, message);
                     } catch (error) {
                         errors.push(String(error));
-                    } finally {
-                        instance.host = originalHost;
-                        finished = true;
+                        finish();
+                        throw error;
                     }
+                    if (!plan) { finish(); return plan; }
+                    return { ...plan, complete: async () => { try { await plan.complete?.(); } finally { finish(); } } };
                 };
                 try {
                     invalidateFixtureCache();
@@ -560,7 +563,7 @@ export async function run(): Promise<void> {
                         'assert np.array_equal(output, source[2000:6000])',
                     ].join('\n'), path.join(workspaceFolder.uri.fsPath, 'src/test/fixtures/short-stereo.wav'), outputFile]);
                 } finally {
-                    ExportFlows.prototype.exportWavLoop = originalExport;
+                    ExportFlows.prototype.wavExport = originalExport;
                     invalidateFixtureCache();
                     rmSync(outputFolder, { recursive: true, force: true });
                 }

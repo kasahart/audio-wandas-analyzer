@@ -217,3 +217,22 @@ def test_run_recipe_emits_json_on_main(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stderr
     payload = json.loads(proc.stdout)
     assert payload["charts"][0]["kind"] == "line"
+
+
+def test_run_recipe_accepts_injected_input_loader(tmp_path: Path) -> None:
+    import wandas as wd
+
+    wav = tmp_path / "a.wav"
+    _write_sine_wav(wav)
+    frames = {"/sources/selected.wav": wd.read(wav)}
+    recipe = {
+        "inputs": [{"name": "sig", "file": "/sources/selected.wav"}],
+        "steps": [{"as": "w", "expr": "sig.welch()"}],
+        "display": ["w"],
+        "requires": [],
+    }
+    charts = run_recipe(recipe, base_dir=tmp_path, load=lambda file: frames[file])
+    assert charts[0]["kind"] == "line"
+    missing = {**recipe, "inputs": [{"name": "sig", "file": "missing"}]}
+    with pytest.raises(KeyError):
+        run_recipe(missing, base_dir=tmp_path, load=lambda file: frames[file])

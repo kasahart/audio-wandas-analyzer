@@ -1,13 +1,17 @@
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
-import { AnalysisClient, executeLazyAnalysis, lazyAnalysisError } from '../../shared/analysis/analysisClient';
+import { AnalysisClient } from '../../shared/analysis/analysisClient';
 import { parseBackendResult, rejectPendingRequests, settleBackendRequest, type PendingBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
-import { parsePanelMessage } from '../../shared/protocol/panelMessages';
+import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
-import { reportArtifact, exportWavRegions } from '../../shared/utils/exportArtifact';
+import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../../shared/session/comparisonSessionController';
+import { RecipeFlow, type RecipeCatalogEntry } from '../../shared/recipe/recipeFlow';
+import { isRecipeDocument } from '../../shared/recipe/recipeSelection';
+import type { ChartSpec } from '../../shared/chartSpec';
+import { chartSpecGlobals, renderChartSpecStyles } from '../panels/chartSpecDocument';
 import { zipStore } from './zipStore';
-import type { HostOutboundMessage, HostInboundMessage } from './hostMessaging';
+import type { HostInboundMessage } from './hostMessaging';
 import type { ComparisonWindow } from './browserAdapter';
 import type { PersistedWebviewState, ComparisonTrackState } from './types';
 import type { AnalysisResult, AnalysisResultWithError } from '../../shared/analysis/analysisTypes';
@@ -127,95 +131,159 @@ async function releaseSource(path: string): Promise<void> {
     try { await request({ cmd: 'unload', filePath: path }); }
     catch (error) { if (sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(String(error)); } }
 }
-async function post(message: HostOutboundMessage): Promise<void> {
-    const myGeneration = sourceGeneration.current;
-    const myReanalysis = message.type === 'request-reanalyze' ? reanalysisGeneration.advance() : undefined;
-    const owner = 'filePath' in message ? sources.get(message.filePath) : undefined;
-    try {
-        switch (message.type) {
-            case 'comparison-panel-ready': case 'comparison-panel-test-snapshot': return;
-            case 'update-spectrogram-settings':
-                browserWindow.__APP_STATE__!.spectrogramSettings = message.settings; void saveSpectrogramSettings(settingsContext, message.settings); return;
-            case 'request-reanalyze': {
-                void saveSpectrogramSettings(settingsContext, message.settings);
-                browserWindow.__APP_STATE__!.spectrogramSettings = message.settings;
-                if (!sources.size) return;
-                emit({ type: 'reanalyze-start', count: sources.size });
-                await runAnalysisBatch(Array.from(sources.values()), {
-                    isCurrent: () => sourceGeneration.isCurrent(myGeneration) && reanalysisGeneration.isCurrent(myReanalysis!),
-                    isSelected: source => sources.owns(source.path, source),
-                    analyze: source => analysisClient.analyze(source.path, stft()),
-                    commit: (source, result) => { source.result = resultWithSource(result, source.name, source.url); },
-                });
-                if (sourceGeneration.isCurrent(myGeneration) && reanalysisGeneration.isCurrent(myReanalysis!)) snapshot();
-                return;
-            }
-            case 'request-track-detail': case 'request-spectrum-slice': case 'request-waveform-range': {
-                if (!worker || !owner) throw new Error('Source is no longer selected; choose the WAV again.');
-                const { analysisRevision: _revision, ...result } = await executeLazyAnalysis(analysisClient, message, stft());
-                if (sourceGeneration.isCurrent(myGeneration) && sources.owns(owner.path, owner)) {
-                    emit(result);
-                }
-                return;
-            }
-            case 'release-track-detail':
-                if (owner && worker) await analysisClient.releaseTrackDetail(owner.path); return;
-            case 'export-wav-loop': {
-                const selected = message.filePaths.map(path => sources.get(path)).filter((source): source is Source => !!source);
-                if (!selected.length) return;
-                const entries: Array<{ name: string; bytes: Uint8Array }> = [];
-                await exportWavRegions(message, selected.map(source => ({ filePath: source.path, fileName: source.name })), {
-                    isCurrent: () => sourceGeneration.isCurrent(myGeneration),
-                    isSelected: item => sources.get(item.filePath) === selected.find(source => source.path === item.filePath),
-                    prepare: async commands => { await request({ cmd: 'export-plan', commands }); },
-                    exportWavLoop: (filePath, start, end) => analysisClient.exportWavLoop(filePath, start, end),
-                    write: async (_source, name, result) => {
-                        const bytes = Uint8Array.from(atob(result.wavBase64), c => c.charCodeAt(0));
-                        entries.push({ name, bytes });
-                    },
-                });
-                if (!sourceGeneration.isCurrent(myGeneration)) return;
+async function fetchJson(url: string): Promise<unknown> {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    return response.json();
+}
+function promptIndex(title: string, labels: string[]): number | undefined {
+    const choice = window.prompt(`${title}\n${labels.map((label, index) => `${index + 1}: ${label}`).join('\n')}`, '1');
+    if (choice === null) return undefined;
+    const index = Number(choice) - 1;
+    if (!Number.isInteger(index) || index < 0 || index >= labels.length) { announce(title); return undefined; }
+    return index;
+}
+// Recipe charts render in a same-origin frame: the ChartSpec script arrives as ./chartSpec.js under the page CSP,
+// and a fresh document per run keeps the renderer's one-shot range popup and listeners isolated.
+function showRecipeCharts(title: string, charts: ChartSpec[]): void {
+    document.querySelector('[data-recipe-result]')?.remove();
+    const panel = document.createElement('section');
+    panel.setAttribute('data-recipe-result', title);
+    panel.style.cssText = 'margin:8px;border:1px solid #444;border-radius:4px;background:#1e1e1e;color:#ddd';
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid #444';
+    const heading = document.createElement('strong'); heading.textContent = title;
+    const close = document.createElement('button');
+    close.setAttribute('data-action', 'browser-recipe-close');
+    close.textContent = strings.btnCloseRecipeResult;
+    close.onclick = (): void => { panel.remove(); };
+    header.append(heading, close);
+    const frame = document.createElement('iframe');
+    frame.setAttribute('title', title);
+    frame.style.cssText = 'display:block;width:100%;height:60vh;border:0;background:#1e1e1e';
+    panel.append(header, frame);
+    bar.insertAdjacentElement('afterend', panel);
+    const target = frame.contentDocument!;
+    const style = target.createElement('style'); style.textContent = renderChartSpecStyles();
+    const chartsHost = target.createElement('div'); chartsHost.id = 'charts';
+    target.head.append(style); target.body.append(chartsHost);
+    Object.assign(frame.contentWindow as unknown as Record<string, unknown>, chartSpecGlobals(charts, strings));
+    const script = target.createElement('script'); script.src = './chartSpec.js';
+    target.body.append(script);
+}
+const recipeFlow = new RecipeFlow({
+    listRecipes: async (): Promise<RecipeCatalogEntry[]> => {
+        const manifest = await fetchJson('./recipes/manifest.json');
+        if (!Array.isArray(manifest)) throw new Error('Invalid recipe manifest');
+        return manifest as RecipeCatalogEntry[];
+    },
+    pickRecipe: async (items, entries) => {
+        const index = promptIndex(strings.browserRecipePick, items.map(item => item.label));
+        return index === undefined ? undefined : entries[index].location;
+    },
+    readRecipe: async location => {
+        const recipe = await fetchJson(location);
+        if (!isRecipeDocument(recipe)) throw new Error(`${location} is not a recipe document`);
+        return recipe;
+    },
+    pickInputFiles: async () => { announce(strings.browserRecipeNoSources); return undefined; },
+    resolveRelative: (file) => { throw new Error(`Recipe input ${file} must be a loaded track in the browser`); },
+    runWithProgress: async (title, task) => { announce(title); return task(); },
+    execute: async recipe => {
+        if (!worker) throw new Error(strings.browserRecipeNoSources);
+        return analysisClient.runRecipe(recipe);
+    },
+    showCharts: (title, charts) => { showRecipeCharts(title, charts); announce(strings.browserRecipeDone + title); },
+    showError: announce,
+});
+// Browser host: owned sources, Worker transport, localStorage and downloads behind the shared session contract.
+const ports: ComparisonSessionPorts = {
+    scope(message: PanelMessage): SessionScope {
+        const myGeneration = sourceGeneration.current;
+        const myReanalysis = message.type === 'request-reanalyze' ? reanalysisGeneration.advance() : undefined;
+        const owner = 'filePath' in message ? sources.get(message.filePath) : undefined;
+        const isCurrent = (): boolean => sourceGeneration.isCurrent(myGeneration)
+            && (owner === undefined || sources.owns(owner.path, owner))
+            && (myReanalysis === undefined || reanalysisGeneration.isCurrent(myReanalysis));
+        return { isCurrent, canPublish: isCurrent };
+    },
+    publish: emit,
+    saveSettings(settings): void {
+        browserWindow.__APP_STATE__!.spectrogramSettings = settings;
+        void saveSpectrogramSettings(settingsContext, settings);
+    },
+    stftOptions: () => stft().stftOptions,
+    client: analysisClient,
+    lazyContext(filePath) {
+        if (!worker || !sources.get(filePath)) throw new Error('Source is no longer selected; choose the WAV again.');
+        return {};
+    },
+    lazyFailed: (_request, reason) => announce(reason),
+    releaseTrackDetail(filePath): PromiseLike<unknown> | void {
+        if (worker && sources.get(filePath)) return analysisClient.releaseTrackDetail(filePath);
+    },
+    activeFilePaths: () => sources.snapshot(source => source.path),
+    async reanalyze(stftOptions, scope) {
+        await runAnalysisBatch(Array.from(sources.values()), {
+            isCurrent: () => scope.isCurrent(),
+            isSelected: source => sources.owns(source.path, source),
+            analyze: source => analysisClient.analyze(source.path, stftOptions ? { stftOptions } : {}),
+            commit: (source, result) => { source.result = resultWithSource(result, source.name, source.url); },
+        });
+        return sources.snapshot(source => source.result);
+    },
+    async wavExport(message, scope) {
+        const selected = message.filePaths.map(path => sources.get(path)).filter((source): source is Source => !!source);
+        if (!selected.length) return undefined;
+        const entries: Array<{ name: string; bytes: Uint8Array }> = [];
+        return {
+            sources: selected.map(source => ({ filePath: source.path, fileName: source.name })),
+            sink: {
+                isCurrent: () => scope.isCurrent(),
+                isSelected: item => sources.get(item.filePath) === selected.find(source => source.path === item.filePath),
+                prepare: async commands => { await request({ cmd: 'export-plan', commands }); },
+                exportWavLoop: (filePath, start, end) => analysisClient.exportWavLoop(filePath, start, end),
+                write: async (_source, name, result) => {
+                    const bytes = Uint8Array.from(atob(result.wavBase64), c => c.charCodeAt(0));
+                    entries.push({ name, bytes });
+                },
+            },
+            complete(): void {
                 if (!entries.length) return;
                 if (entries.length === 1) download(entries[0].bytes, entries[0].name, 'audio/wav');
                 else download(zipStore(entries), 'selected-regions.zip', 'application/zip');
-                announce(strings.browserExported); return;
-            }
-            case 'export-report-options': {
-                const choice = window.prompt(`${strings.reportFormatPlaceholder}\n1: ${strings.reportFormatMarkdown}\n2: ${strings.reportFormatNotebook}`, '1');
-                if (choice === null) return;
-                if (choice !== '1' && choice !== '2') { announce(strings.reportFormatPlaceholder); return; }
-                const artifact = reportArtifact(message, choice === '1' ? 'markdown' : 'notebook');
-                download(new TextEncoder().encode(artifact.content), artifact.name, artifact.type);
-                announce(strings.reportExportedPrefix + artifact.name); return;
-            }
-            case 'select-target':
-                if (message.targetKind === 'directory') { announce(strings.browserDirectoryUnavailable); return; }
-                pick.click(); return;
-            case 'show-info': announce(message.message); return;
-            default: announce(strings.browserUnavailable);
-        }
-    } catch (error) {
-        if (!sourceGeneration.isCurrent(myGeneration) || (owner && !sources.owns(owner.path, owner))
-            || (message.type === 'request-reanalyze' && !reanalysisGeneration.isCurrent(myReanalysis!))) return;
-        const reason = error instanceof Error ? error.message : String(error);
-        announce(reason);
-        if (message.type === 'request-track-detail' || message.type === 'request-spectrum-slice') {
-            emit(lazyAnalysisError(message, error));
-        }
-    } finally {
-        if (message.type === 'request-reanalyze' && sourceGeneration.isCurrent(myGeneration) && reanalysisGeneration.isCurrent(myReanalysis!)) {
-            emit({ type: 'reanalyze-end' });
-        }
-    }
-}
+                announce(strings.browserExported);
+            },
+        };
+    },
+    async pickReportFormat() {
+        const choice = window.prompt(`${strings.reportFormatPlaceholder}\n1: ${strings.reportFormatMarkdown}\n2: ${strings.reportFormatNotebook}`, '1');
+        if (choice === null) return undefined;
+        if (choice !== '1' && choice !== '2') { announce(strings.reportFormatPlaceholder); return undefined; }
+        return choice === '1' ? 'markdown' : 'notebook';
+    },
+    async saveReport(artifact) {
+        download(new TextEncoder().encode(artifact.content), artifact.name, artifact.type);
+        announce(strings.reportExportedPrefix + artifact.name);
+    },
+    selectTarget(targetKind): void {
+        if (targetKind === 'directory') { announce(strings.browserDirectoryUnavailable); return; }
+        pick.click();
+    },
+    showInformation: announce,
+    showError: announce,
+    unsupported: () => announce(strings.browserUnavailable),
+    runRecipe: async (): Promise<void> => {
+        if (!sources.size) { announce(strings.browserRecipeNoSources); return; }
+        await recipeFlow.run(sources.snapshot(source => source.path));
+    },
+};
+const controller = new ComparisonSessionController(ports);
 browserWindow.__AWA_HOST__ = {
     downloadFile: (content, name, mimeType): void => { download(new TextEncoder().encode(content), name, mimeType); },
     releaseSource: (path): void => { void releaseSource(path); },
     onMessage: (listener): (() => void) => { inboundListeners.add(listener); return () => { inboundListeners.delete(listener); }; },
-    postMessage: (message: unknown): void => {
-        const parsed = parsePanelMessage(message);
-        if (parsed) void post(parsed);
-    },
+    postMessage: (message: unknown): void => { void controller.dispatch(message); },
     getState: () => persisted,
     setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType }); },
 };

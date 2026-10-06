@@ -2,7 +2,7 @@ import type { StftOptions } from './analysisTypes';
 import type {
     AnalyzePayload, BackendCommand, BackendPayload, BackendResult,
     CalibrationRequestContext, RangeResult, SpectrumSlicePayload, SpectrumSliceResult,
-    TrackDetailPayload, TrackDetailResult, ExportWavLoopResult,
+    TrackDetailPayload, TrackDetailResult, ExportWavLoopResult, RunRecipePayload, RunRecipeResult,
 } from '../protocol/backendProtocol';
 import type { SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../utils/audioTarget';
 
@@ -112,6 +112,10 @@ export abstract class AnalysisClient {
             'export-wav-loop',
             { filePath, startNorm, endNorm },
         );
+    }
+
+    runRecipe(recipe: RunRecipePayload['recipe']): Promise<RunRecipeResult> {
+        return this.request('run-recipe', { recipe });
     }
 
     protected calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {
