@@ -9,7 +9,7 @@ import pytest
 import soundfile as sf
 import wandas as wd
 
-from analyzer import _build_spectrogram, analyze_audio, analyze_from_frame, analyze_range
+from analyzer import _build_spectrogram, analyze_audio, analyze_from_frame, analyze_range, resample_frequency_bins
 
 
 def _mean_power_db(values_db: list[float]) -> float:
@@ -200,6 +200,27 @@ def test_spectrogram_frequency_reduction_averages_linear_power() -> None:
             _mean_power_db([-20.0, -40.0]),
         ]
     )
+
+
+def test_frequency_reduction_uses_bands_centered_on_display_coordinates() -> None:
+    values = np.array([[-60.0, 0.0, -20.0, -40.0, -30.0, -10.0, -50.0]])
+    reduced = resample_frequency_bins(values, 3)
+    np.testing.assert_allclose(
+        reduced[0],
+        [_mean_power_db(values[0, :2]), _mean_power_db(values[0, 2:5]), _mean_power_db(values[0, 5:])],
+    )
+
+
+@pytest.mark.parametrize("source_bins", [257, 513, 1025, 2049])
+def test_every_reduced_peak_stays_within_half_a_display_bin(source_bins: int) -> None:
+    values = np.full((source_bins, source_bins), -120.0)
+    np.fill_diagonal(values, 0.0)
+    reduced = resample_frequency_bins(values, 192)
+    peak_positions = np.argmax(reduced, axis=1) / 191
+    source_positions = np.arange(source_bins) / (source_bins - 1)
+    assert np.max(np.abs(peak_positions - source_positions)) <= 0.5 / 191 + 1e-12
+    assert peak_positions[0] == 0.0
+    assert peak_positions[-1] == 1.0
 
 
 def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:

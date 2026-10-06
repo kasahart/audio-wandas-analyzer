@@ -7,6 +7,7 @@ export function legacyAnalyzer(spec: SpectrogramData, plotW: number, H: number, 
     color: Range;
     trackStart?: number;
     trackDurRatio?: number;
+    endpointFrequencyCoordinates?: boolean;
 }) {
     const tBins = spec.timeBins, fBins = spec.frequencyBins, dbLo = view.color.min, dbHi = view.color.max, maxFreq = view.frequency.max;
     const zoomStart = view.time.min, zoomEnd = view.time.max, trackStart = view.trackStart ?? 0, trackDurRatio = view.trackDurRatio ?? 1;
@@ -26,8 +27,10 @@ export function legacyAnalyzer(spec: SpectrogramData, plotW: number, H: number, 
         for (let py = 0; py < H; py++) {
             const highRatio = (1 - py / H) * visibleFreqRatio;
             const lowRatio = (1 - (py + 1) / H) * visibleFreqRatio;
-            const f0 = Math.max(0, Math.floor(lowRatio * fBins));
-            const f1 = Math.min(fBins, Math.max(f0 + 1, Math.ceil(highRatio * fBins)));
+            const frequencyScale = view.endpointFrequencyCoordinates ? Math.max(fBins - 1, 0) : fBins;
+            const frequencyOffset = view.endpointFrequencyCoordinates ? 0.5 : 0;
+            const f0 = Math.max(0, Math.floor(lowRatio * frequencyScale + frequencyOffset));
+            const f1 = Math.min(fBins, Math.max(f0 + 1, Math.ceil(highRatio * frequencyScale + frequencyOffset)));
             let peakDb = -Infinity;
             for (let ti = t0; ti < t1; ti++) {
                 const row = spec.values[ti];

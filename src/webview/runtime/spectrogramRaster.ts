@@ -9,7 +9,6 @@ export interface SpectrogramRasterView {
     dbHi: number;
     maxFrequencyHz: number;
 }
-// Preserve the existing index arithmetic here; calibrated levels and physical-axis changes belong to the product.
 export function paintSpectrogramRaster(spec: SpectrogramData, width: number, height: number, view: SpectrogramRasterView, destination?: Uint8ClampedArray) {
     const columns: RasterPlan['columns'] = Array.from({ length: width }, (_, px) => {
         const globalStart = view.zoomStart + (px / width) * (view.zoomEnd - view.zoomStart);
@@ -25,8 +24,9 @@ export function paintSpectrogramRaster(spec: SpectrogramData, width: number, hei
         const py = height - row - 1;
         const high = (1 - py / height) * ratio;
         const low = (1 - (py + 1) / height) * ratio;
-        const first = Math.max(0, Math.floor(low * spec.frequencyBins));
-        return [first, Math.min(spec.frequencyBins, Math.max(first + 1, Math.ceil(high * spec.frequencyBins)))];
+        const intervals = Math.max(spec.frequencyBins - 1, 0);
+        const first = Math.max(0, Math.floor(low * intervals + 0.5));
+        return [first, Math.min(spec.frequencyBins, Math.max(first + 1, Math.ceil(high * intervals + 0.5)))];
     });
     return rasterize({ layout: 'rows', values: spec.values, bins: spec.frequencyBins, level: { quantity: 'STFT amplitude', unit: spec.unit ?? 'dB', axisLabel: spec.axisLabel ?? 'STFT amplitude level', referenceValue: spec.referenceValue, referenceUnit: spec.referenceUnit, levelReferenceLabel: spec.levelReferenceLabel } }, { columns, rows, peakMode: 'comparison' }, { min: view.dbLo, max: view.dbHi }, viridis, destination);
 }
