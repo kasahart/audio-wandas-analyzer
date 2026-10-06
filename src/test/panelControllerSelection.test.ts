@@ -32,7 +32,7 @@ test('directory selection uses live result updates with resource URIs, cache reu
     let receive: ((message: unknown) => unknown) | undefined;
     let htmlWrites = 0;
     const webview = {
-        options: {} as vscode.WebviewOptions,
+        options: { localResourceRoots: [uri('/retention') as vscode.Uri] } as vscode.WebviewOptions,
         set html(_value: string) { htmlWrites++; },
         asWebviewUri: (source: { fsPath: string }) => ({ toString: () => `vscode-resource:${source.fsPath}` }),
         onDidReceiveMessage: (listener: (message: unknown) => unknown) => { receive = listener; return { dispose() {} }; },
@@ -45,8 +45,8 @@ test('directory selection uses live result updates with resource URIs, cache reu
     const factory: PanelFactory = {
         showResults: () => panel,
         showDirectory: () => { webview.html = 'initial shell'; return panel; },
-        updateDirectoryResults: (extensionUri, results, target) => ComparisonPanel.updateDirectoryResults(
-            extensionUri, results, target as vscode.WebviewPanel,
+        updateDirectoryResults: (results, target) => ComparisonPanel.updateDirectoryResults(
+            results, target as vscode.WebviewPanel,
         ),
     };
     const writes: string[] = [], errors: string[] = [], analyzed: string[][] = [];
@@ -92,7 +92,8 @@ test('directory selection uses live result updates with resource URIs, cache reu
         assert.deepEqual(messages.at(-1)!.results.map(r => r.filePath), controller.getActiveFilePaths(panel));
         assert.equal((messages.at(-1)!.results[1] as AnalysisResultWithError & { audioSource: string }).audioSource,
             'vscode-resource:/retention/sub/b.wav');
-        assert.ok(webview.options.localResourceRoots!.some(root => root.fsPath === '/retention/sub'));
+        assert.deepEqual(webview.options.localResourceRoots!.map(root => root.fsPath), ['/retention'],
+            'selection updates must leave Webview options unchanged');
         await select([]);
         assert.deepEqual(messages.at(-1)!.results, []);
         assert.deepEqual(ComparisonPanel.getResults(panel), []);

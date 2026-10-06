@@ -104,14 +104,9 @@ export class ComparisonPanel {
     }
 
     public static updateDirectoryResults(
-        extensionUri: vscode.Uri,
         results: AnalysisResultWithError[],
         panel: vscode.WebviewPanel,
     ): Thenable<boolean> {
-        panel.webview.options = {
-            ...panel.webview.options,
-            localResourceRoots: ComparisonPanel.buildLocalResourceRoots(extensionUri, results),
-        };
         ComparisonPanel.updateResults(panel, results);
         if (ComparisonPanel.activePanel === panel && ComparisonPanel.testSnapshot) {
             ComparisonPanel.testSnapshot = {
@@ -221,14 +216,14 @@ export class ComparisonPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                localResourceRoots: ComparisonPanel.buildLocalResourceRoots(extensionUri, results),
+                localResourceRoots: [...ComparisonPanel.buildLocalResourceRoots(extensionUri, results), vscode.Uri.file(rootPath)],
             },
         );
 
         panel.title = title;
         panel.webview.options = {
             enableScripts: true,
-            localResourceRoots: ComparisonPanel.buildLocalResourceRoots(extensionUri, results),
+            localResourceRoots: [...ComparisonPanel.buildLocalResourceRoots(extensionUri, results), vscode.Uri.file(rootPath)],
         };
         panel.reveal(vscode.ViewColumn.One, true);
         ComparisonPanel.activePanel = panel;

@@ -71,7 +71,7 @@ export interface PanelHandle extends PanelPort {
 }
 
 export interface PanelFactory {
-    updateDirectoryResults(extensionUri: vscode.Uri, results: AnalysisResultWithError[], panel: PanelHandle): Thenable<boolean>;
+    updateDirectoryResults(results: AnalysisResultWithError[], panel: PanelHandle): Thenable<boolean>;
     showResults(
         extensionUri: vscode.Uri,
         results: AnalysisResultWithError[],
@@ -101,8 +101,8 @@ export interface PanelControllerHost {
 }
 
 const defaultPanelFactory: PanelFactory = {
-    updateDirectoryResults: (extensionUri, results, panel) => ComparisonPanel.updateDirectoryResults(
-        extensionUri, results, panel as vscode.WebviewPanel,
+    updateDirectoryResults: (results, panel) => ComparisonPanel.updateDirectoryResults(
+        results, panel as vscode.WebviewPanel,
     ),
     showResults: (extensionUri, results, existingPanel, settings) => ComparisonPanel.show(
         extensionUri,
@@ -608,7 +608,6 @@ export class PanelController implements vscode.Disposable {
     ): Promise<void> {
         session.setActiveResults(results.map((result) => result.filePath));
         await this.panelFactory.updateDirectoryResults(
-            this.context.extensionUri,
             results,
             session.panel,
         );
