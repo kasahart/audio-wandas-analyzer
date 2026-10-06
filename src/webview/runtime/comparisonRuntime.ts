@@ -5589,6 +5589,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
             }
             updateCursorDisplay(hoverNorm ?? cursorNorm);
+            updateLoopTimeDisplay();
             overlaySpectrumPainted = false;
             announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
             scheduleRender();

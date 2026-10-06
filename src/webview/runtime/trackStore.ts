@@ -31,7 +31,7 @@ export interface ReconcileResult {
 
 export class TrackStore {
     private readonly records = new Map<TrackId, TrackRecord>();
-    private readonly locallyRemovedIds = new Set<TrackId>();
+    private readonly locallyRemovedIds = new Map<TrackId, string>();
     private protocolOrder: TrackId[] = [];
     private nextTrackId = 1;
     displayOrder: TrackId[] = [];
@@ -83,15 +83,16 @@ export class TrackStore {
             return false;
         }
         record.active = false;
-        this.locallyRemovedIds.add(id);
+        this.locallyRemovedIds.set(id, record.result.filePath);
         this.clearAsyncState(record);
+        this.records.delete(id);
         this.displayOrder = this.displayOrder.filter((candidate) => candidate !== id);
         return true;
     }
 
     allowExplicitSelection(filePath: string): void {
-        this.locallyRemovedIds.forEach(id => {
-            if (this.records.get(id)?.result.filePath === filePath) {
+        this.locallyRemovedIds.forEach((removedPath, id) => {
+            if (removedPath === filePath) {
                 this.locallyRemovedIds.delete(id);
             }
         });
@@ -125,12 +126,8 @@ export class TrackStore {
             candidatesByPath.set(record.result.filePath, candidates);
         });
         const locallyRemovedByPath = new Map<string, number>();
-        this.locallyRemovedIds.forEach((id) => {
-            const record = this.records.get(id);
-            if (!record) {
-                return;
-            }
-            locallyRemovedByPath.set(record.result.filePath, (locallyRemovedByPath.get(record.result.filePath) ?? 0) + 1);
+        this.locallyRemovedIds.forEach((filePath) => {
+            locallyRemovedByPath.set(filePath, (locallyRemovedByPath.get(filePath) ?? 0) + 1);
         });
 
         const previousDisplayOrder = this.displayOrder.slice();
@@ -169,6 +166,7 @@ export class TrackStore {
                 record.active = false;
                 this.clearAsyncState(record);
                 removed.push(record.id);
+                this.records.delete(record.id);
             }
         });
         nextProtocolOrder.forEach((id, protocolIndex) => {

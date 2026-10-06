@@ -126,16 +126,19 @@ test('span-changing selection refreshes cursor labels while retaining normalized
             type: 'comparison-panel-test-action', actions: [
                 'content-' + mode,
                 { action: 'set-cursor', payload: { cursorNorm: .23 } },
+                { action: 'set-loop-region', payload: { start: .25, end: .75 } },
             ],
         } })), mode);
         await page.locator('#toolbar [data-action="zoom-in"]').click();
         const before = await snapshot();
+        await expect(page.locator('#loop-time-display')).toHaveText('0:00.50 – 0:01.50');
         const longLabel = '0:00.46';
         await expect(page.locator('#cursor-display')).toHaveText(longLabel);
         await expect(page.locator('#spectrum-cursor-time')).toHaveText('@ ' + longLabel);
         await checkbox.setChecked(false);
         await page.evaluate(dispatchAnalysisUpdate, { paths: [paths[0]], durations: [1] });
         await expect(page.locator('.track-row')).toHaveCount(1);
+        await expect(page.locator('#loop-time-display')).toHaveText('0:00.25 – 0:00.75');
         const shortLabel = '0:00.23';
         await expect(page.locator('#spectrum-cursor-time')).toHaveText('@ ' + shortLabel);
         await expect(page.locator('#cursor-display')).toHaveText(shortLabel);
@@ -143,9 +146,14 @@ test('span-changing selection refreshes cursor labels while retaining normalized
         expect(await snapshot()).toMatchObject({ cursorNorm: before.cursorNorm, zoomStart: before.zoomStart, zoomEnd: before.zoomEnd });
         await checkbox.setChecked(true);
         await page.evaluate(dispatchAnalysisUpdate, { paths, durations: [1, 2] });
+        await expect(page.locator('#loop-time-display')).toHaveText('0:00.50 – 0:01.50');
         await expect(page.locator('#cursor-display')).toHaveText(longLabel);
         await expect(page.locator('#spectrum-cursor-time')).toHaveText('@ ' + longLabel);
         expect(await snapshot()).toMatchObject({ cursorNorm: before.cursorNorm, zoomStart: before.zoomStart, zoomEnd: before.zoomEnd });
+        await page.evaluate(dispatchAnalysisUpdate, { paths, durations: [1, 1] });
+        await expect(page.locator('#loop-time-display')).toHaveText('0:00.25 – 0:00.75');
+        await page.evaluate(dispatchAnalysisUpdate, { paths, durations: [1, 2] });
+        await expect(page.locator('#loop-time-display')).toHaveText('0:00.50 – 0:01.50');
     }
 });
 
