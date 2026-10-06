@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import type { WebviewHostApi } from '../webview/runtime/types';
+import type { UiStrings } from '../shared/i18n/strings';
 
 class MockElement {
     style = {};
@@ -12,17 +13,43 @@ class MockElement {
     disabled = false;
     multiple = false;
     textContent = '';
+    id = '';
+    src = '';
+    attributes: Record<string, string> = {};
+    children: MockElement[] = [];
+    removed = false;
     files?: Array<{ size: number; name: string; arrayBuffer(): Promise<ArrayBuffer> }>;
     onchange?: () => void;
     onclick?: () => void;
-    constructor(readonly tag: string) {}
-    setAttribute(): void {}
-    append(): void {}
+    contentDocument?: MockDocument;
+    contentWindow?: Record<string, unknown>;
+    constructor(readonly tag: string) {
+        if (tag === 'iframe') { this.contentDocument = new MockDocument(); this.contentWindow = {}; }
+    }
+    setAttribute(name: string, value: string): void { this.attributes[name] = value; }
+    append(...nodes: MockElement[]): void { this.children.push(...nodes); }
+    insertAdjacentElement(_where: string, node: MockElement): void { this.children.push(node); }
+    remove(): void { this.removed = true; }
     click(): void {}
+}
+class MockDocument {
+    head = new MockElement('head');
+    body = new MockElement('body');
+    createElement(tag: string): MockElement { return new MockElement(tag); }
 }
 
 function harness(storage = new Map<string, string>(), language = 'en', denied = false) {
     const elements: MockElement[] = [];
+    const fetched: string[] = [];
+    const prompts: string[] = [];
+    let promptAnswer: string | null = '1';
+    const served: Record<string, unknown> = {
+        './recipes/manifest.json': [
+            { name: 'octave.json', location: './recipes/octave.json' },
+            { name: 'loudness.json', location: './recipes/loudness.json', missing: ['mosqito'] },
+        ],
+        './recipes/octave.json': { inputs: [{ name: 'sig', file: '{{selection}}' }], steps: [{ as: 'o', expr: 'sig.noct_spectrum()' }], display: ['o'] },
+    };
     const workers: ControlledWorker[] = [];
     const received: Record<string, unknown>[] = [];
     const firstAnalysis = new Set<string>();
@@ -55,9 +82,10 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
             getItem: (key: string) => { if (denied) throw new Error('denied'); return storage.get(key) ?? null; },
             setItem: (key: string, value: string) => { if (denied) throw new Error('denied'); storage.set(key, value); },
         },
-        __APP_STRINGS__: undefined as unknown as { btnOpenFile: string },
+        __APP_STRINGS__: undefined as unknown as UiStrings,
         __APP_STATE__: { spectrogramSettings: { auto: true } },
         __AWA_HOST__: undefined as WebviewHostApi | undefined,
+        prompt: (text: string) => { prompts.push(text); return promptAnswer; },
         addEventListener: () => undefined,
         dispatchEvent: () => { throw new Error('Static host must not use the window message channel'); },
     };
@@ -66,7 +94,10 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         document: {
             createElement: (tag: string) => { const element = new MockElement(tag); elements.push(element); return element; },
             body: { prepend: () => undefined },
+            querySelector: () => elements.find(element => element.tag === 'section' && !element.removed) ?? null,
         },
+        fetch: async (url: string) => { fetched.push(url); const body = served[url]; return { ok: body !== undefined, status: body === undefined ? 404 : 200, json: async () => body }; },
+        Object,
         Worker: ControlledWorker,
         URL: { createObjectURL: () => `blob:fixture-${++blobId}`, revokeObjectURL: (url: string) => { revoked.push(url); } },
         setTimeout, Uint8Array,
@@ -79,7 +110,10 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         picker.onchange!();
         await flush();
     }
-    return { host, browser, storage, workers, received, load, picker, elements, revoked, get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
+    return { host, browser, storage, workers, received, load, picker, elements, revoked, fetched, prompts, served,
+        setPromptAnswer(value: string | null) { promptAnswer = value; },
+        get status() { return elements.find(element => element.tag === 'span')!.textContent; },
+        get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const identity = { filePath: '/sources/selected.wav', requestId: 'ui', analysisId: 'a', settingsSignature: 's', trackIndex: 0 };
@@ -244,4 +278,42 @@ test('Worker error envelopes use the native correlation contract and empty error
     await flush();
     assert.equal(app.received.at(-1)?.type, 'track-detail-error');
     assert.equal(app.received.at(-1)?.error, '');
+});
+
+test('browser recipes run on loaded tracks through the Worker and render charts in a fresh frame', async () => {
+    const app = harness();
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush();
+    assert.equal(app.fetched.length, 0, 'recipes need a loaded track first');
+    assert.equal(app.status, app.browser.__APP_STRINGS__.browserRecipeNoSources);
+    await app.load();
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush();
+    assert.deepEqual(app.fetched, ['./recipes/manifest.json', './recipes/octave.json']);
+    assert.match(app.prompts[0], /1: octave.json\n2: loudness.json/);
+    const worker = app.workers[0];
+    const command = worker.commands.at(-1)!;
+    assert.equal(command.cmd, 'run-recipe');
+    assert.equal(JSON.stringify((command.recipe as { inputs: unknown }).inputs), JSON.stringify([{ name: 'sig', file: app.sourcePath }]));
+    worker.reply(command, { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] });
+    await flush();
+    const frame = app.elements.find(element => element.tag === 'iframe')!;
+    assert.equal(JSON.stringify((frame.contentWindow as { __CHART_SPECS__: unknown }).__CHART_SPECS__), JSON.stringify([{ kind: 'scalar', title: 'Peak', rows: [] }]));
+    assert.equal(frame.contentDocument!.body.children.at(-1)!.src, './chartSpec.js');
+    assert.equal(frame.contentDocument!.body.children[0].id, 'charts');
+    assert.equal(app.status, app.browser.__APP_STRINGS__.browserRecipeDone + 'octave.json');
+    const close = app.elements.find(element => element.attributes['data-action'] === 'browser-recipe-close')!;
+    close.onclick!();
+    assert.equal(app.elements.find(element => element.tag === 'section')!.removed, true);
+    app.setPromptAnswer('2');
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush();
+    assert.match(app.status, /loudness.json needs mosqito/);
+    assert.equal(worker.commands.filter(entry => entry.cmd === 'run-recipe').length, 1);
+    app.setPromptAnswer('1');
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush();
+    worker.reply(worker.commands.at(-1)!, {}, 'recipe error: Unknown name');
+    await flush();
+    assert.equal(app.status, 'Recipe execution failed: recipe error: Unknown name');
 });

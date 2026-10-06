@@ -52,7 +52,15 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   `backend_server.py` は native 起動・heartbeat・NDJSON、`browser_service.py` は
   virtual source と Web 上限を担当する。Web 配布物には native transport を含めない。
 
-Recipe、校正設定 UI、フォルダ選択、codec の Web 対応範囲は増やしていない。
+- Recipe は `src/shared/recipe/` の `RecipeFlow` が一覧・選択・`{{selection}}` 置換・実行・表示の手順を持つ。
+  native は recipes ディレクトリ、QuickPick、子プロセス `recipe_runner.py`、ChartSpec Panel を port で渡す。
+  Web は build 時の `recipes/manifest.json`、prompt、Worker の `run-recipe` command、同一 origin の
+  `chartSpec.js` を読み込む frame を渡す。Python 側は `recipe_runner.run_recipe(recipe, base_dir, load)` の
+  loader 注入で、ファイルパスではなく engine が保持する frame を入力にできる。`requires` を宣言した recipe は
+  runtime lock に無い配布物（mosqito）を欠くと Web 一覧で実行不可と表示する。
+  ChartSpec 文書の CSS と globals は `chartSpecDocument.ts` に置き、render script は両 host が同じ文字列を使う。
+
+校正設定 UI、フォルダ選択、codec の Web 対応範囲は増やしていない。
 新しい共通処理は両 host が実際に参照する。host 名による分岐で共通ファイルを膨らませない。
 
 ### 共有率の測り方と目標
@@ -65,7 +73,8 @@ HTML/CSS は所在する TS に含め、tests、vendor、生成物、docs、buil
 
 基準は共有 31 / 全体 61 ファイル (50.82%)、非空行 10,394 / 15,960 (65.13%)。
 80% は目標であり達成済みではない。native 専用の Python 環境管理、コマンド登録、Panel、
-ファイル権限や、未移植 Recipe を維持したまま、同じ分母の 80% を保証できない。
+ファイル権限は adapter として残るため、ファイル数での 80% は同じ分母では保証できない。
+行数ベースは Recipe の Web 対応と共通 session controller で 80% 近傍に達する。
 独立した adapter を合併して数を減らす、共通 file を細分化する、未使用 import を追加する方法は採らない。
 率と併せて、同じコマンド変換・区間計画・選択規則を一度の変更で両版へ反映できるかを評価する。
 

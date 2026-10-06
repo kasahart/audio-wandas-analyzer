@@ -25,6 +25,10 @@ export interface UiStrings {
     browserExported: string;
     browserDirectoryUnavailable: string;
     browserUnavailable: string;
+    browserRecipePick: string;
+    browserRecipeNoSources: string;
+    browserRecipeDone: string;
+    btnCloseRecipeResult: string;
 
     panelTitle: string;
     panelTitlePrefix: string;
@@ -194,7 +198,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         emptyNoTracks: 'Files checked in the left tree appear here as tracks',
         selectionHeader: 'Select files to analyze',
         btnOpenFile: 'Open File',
-        browserWavHint: 'Add WAV files to compare: up to 8 tracks / 64 MiB total input; each ≤16 MiB / 30s / 2ch. Recipes, WDF, psychoacoustics, directory scan, calibration configuration and vscode.dev are unavailable. Audio stays in this browser.',
+        browserWavHint: 'Add WAV files to compare: up to 8 tracks / 64 MiB total input; each ≤16 MiB / 30s / 2ch. Bundled recipes run on the loaded tracks; WDF, psychoacoustics, directory scan, calibration configuration and vscode.dev are unavailable. Audio stays in this browser.',
         browserInputTooLarge: 'WAV must be 16 MiB or smaller.',
         browserAggregateLimit: 'Browser session limit: up to 8 WAV files / 64 MiB total input. Remove a track first.',
         browserPreparing: 'Preparing local Python Worker / adding WAV files…',
@@ -205,6 +209,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserExported: 'Selected regions exported as PCM16 WAV.',
         browserDirectoryUnavailable: 'Folder scanning is unavailable; add WAV files instead.',
         browserUnavailable: 'This action is unavailable in the static WAV comparison.',
+        browserRecipePick: 'Select a recipe (enter its number):',
+        browserRecipeNoSources: 'Add WAV files first; recipes run on the loaded tracks.',
+        browserRecipeDone: 'Recipe finished: ',
+        btnCloseRecipeResult: 'Close recipe result',
 
         btnOpenAnotherFolder: 'Open another folder',
         btnOpenFolder: 'Open Folder',
@@ -364,7 +372,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         emptyNoTracks: '左のツリーでチェックしたファイルがここにトラックとして表示されます',
         selectionHeader: '選択して解析',
         btnOpenFile: 'ファイルを開く',
-        browserWavHint: 'WAVを追加して比較できます。最大8トラック・入力合計64 MiB、各16 MiB・30秒・2ch以下。Recipe・WDF・心理音響・フォルダ探索・校正設定・vscode.devは未対応です。音声はブラウザ内で処理します。',
+        browserWavHint: 'WAVを追加して比較できます。最大8トラック・入力合計64 MiB、各16 MiB・30秒・2ch以下。同梱レシピは読み込んだトラックに対して実行できます。WDF・心理音響・フォルダ探索・校正設定・vscode.devは未対応です。音声はブラウザ内で処理します。',
         browserInputTooLarge: 'WAVは16 MiB以下を選択してください。',
         browserAggregateLimit: 'ブラウザ上限はWAV 8件・入力合計64 MiBです。先にトラックを削除してください。',
         browserPreparing: 'ローカルPython Workerを準備・WAVを追加しています…',
@@ -375,6 +383,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserExported: '選択区間をPCM16 WAVで書き出しました。',
         browserDirectoryUnavailable: 'フォルダ探索は未対応です。WAVを追加してください。',
         browserUnavailable: 'この操作は静的WebのWAV比較では未対応です。',
+        browserRecipePick: 'レシピを番号で選択してください:',
+        browserRecipeNoSources: '先にWAVを追加してください。レシピは読み込んだトラックに対して実行します。',
+        browserRecipeDone: 'レシピ実行完了: ',
+        btnCloseRecipeResult: 'レシピ結果を閉じる',
 
         btnOpenAnotherFolder: '別のフォルダを開く',
         btnOpenFolder: 'フォルダを開く',

@@ -6,6 +6,10 @@ import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../../shared/session/comparisonSessionController';
+import { RecipeFlow, type RecipeCatalogEntry } from '../../shared/recipe/recipeFlow';
+import { isRecipeDocument } from '../../shared/recipe/recipeSelection';
+import type { ChartSpec } from '../../shared/chartSpec';
+import { chartSpecGlobals, renderChartSpecStyles } from '../panels/chartSpecDocument';
 import { zipStore } from './zipStore';
 import type { HostInboundMessage } from './hostMessaging';
 import type { ComparisonWindow } from './browserAdapter';
@@ -127,6 +131,71 @@ async function releaseSource(path: string): Promise<void> {
     try { await request({ cmd: 'unload', filePath: path }); }
     catch (error) { if (sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(String(error)); } }
 }
+async function fetchJson(url: string): Promise<unknown> {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    return response.json();
+}
+function promptIndex(title: string, labels: string[]): number | undefined {
+    const choice = window.prompt(`${title}\n${labels.map((label, index) => `${index + 1}: ${label}`).join('\n')}`, '1');
+    if (choice === null) return undefined;
+    const index = Number(choice) - 1;
+    if (!Number.isInteger(index) || index < 0 || index >= labels.length) { announce(title); return undefined; }
+    return index;
+}
+// Recipe charts render in a same-origin frame: the ChartSpec script arrives as ./chartSpec.js under the page CSP,
+// and a fresh document per run keeps the renderer's one-shot range popup and listeners isolated.
+function showRecipeCharts(title: string, charts: ChartSpec[]): void {
+    document.querySelector('[data-recipe-result]')?.remove();
+    const panel = document.createElement('section');
+    panel.setAttribute('data-recipe-result', title);
+    panel.style.cssText = 'margin:8px;border:1px solid #444;border-radius:4px;background:#1e1e1e;color:#ddd';
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid #444';
+    const heading = document.createElement('strong'); heading.textContent = title;
+    const close = document.createElement('button');
+    close.setAttribute('data-action', 'browser-recipe-close');
+    close.textContent = strings.btnCloseRecipeResult;
+    close.onclick = (): void => { panel.remove(); };
+    header.append(heading, close);
+    const frame = document.createElement('iframe');
+    frame.setAttribute('title', title);
+    frame.style.cssText = 'display:block;width:100%;height:60vh;border:0;background:#1e1e1e';
+    panel.append(header, frame);
+    bar.insertAdjacentElement('afterend', panel);
+    const target = frame.contentDocument!;
+    const style = target.createElement('style'); style.textContent = renderChartSpecStyles();
+    const chartsHost = target.createElement('div'); chartsHost.id = 'charts';
+    target.head.append(style); target.body.append(chartsHost);
+    Object.assign(frame.contentWindow as unknown as Record<string, unknown>, chartSpecGlobals(charts, strings));
+    const script = target.createElement('script'); script.src = './chartSpec.js';
+    target.body.append(script);
+}
+const recipeFlow = new RecipeFlow({
+    listRecipes: async (): Promise<RecipeCatalogEntry[]> => {
+        const manifest = await fetchJson('./recipes/manifest.json');
+        if (!Array.isArray(manifest)) throw new Error('Invalid recipe manifest');
+        return manifest as RecipeCatalogEntry[];
+    },
+    pickRecipe: async (items, entries) => {
+        const index = promptIndex(strings.browserRecipePick, items.map(item => item.label));
+        return index === undefined ? undefined : entries[index].location;
+    },
+    readRecipe: async location => {
+        const recipe = await fetchJson(location);
+        if (!isRecipeDocument(recipe)) throw new Error(`${location} is not a recipe document`);
+        return recipe;
+    },
+    pickInputFiles: async () => { announce(strings.browserRecipeNoSources); return undefined; },
+    resolveRelative: (file) => { throw new Error(`Recipe input ${file} must be a loaded track in the browser`); },
+    runWithProgress: async (title, task) => { announce(title); return task(); },
+    execute: async recipe => {
+        if (!worker) throw new Error(strings.browserRecipeNoSources);
+        return analysisClient.runRecipe(recipe);
+    },
+    showCharts: (title, charts) => { showRecipeCharts(title, charts); announce(strings.browserRecipeDone + title); },
+    showError: announce,
+});
 // Browser host: owned sources, Worker transport, localStorage and downloads behind the shared session contract.
 const ports: ComparisonSessionPorts = {
     scope(message: PanelMessage): SessionScope {
@@ -204,6 +273,10 @@ const ports: ComparisonSessionPorts = {
     showInformation: announce,
     showError: announce,
     unsupported: () => announce(strings.browserUnavailable),
+    runRecipe: async (): Promise<void> => {
+        if (!sources.size) { announce(strings.browserRecipeNoSources); return; }
+        await recipeFlow.run(sources.snapshot(source => source.path));
+    },
 };
 const controller = new ComparisonSessionController(ports);
 browserWindow.__AWA_HOST__ = {
