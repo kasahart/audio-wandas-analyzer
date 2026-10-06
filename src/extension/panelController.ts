@@ -484,14 +484,15 @@ export class PanelController implements vscode.Disposable {
         session: PanelSession<PanelHandle>,
         message: ComparisonPanelReadyMessage,
     ): Promise<void> {
-        await this.refreshStalePanelResults(session);
-        const current = ComparisonPanel.getResults(session.panel);
         if (session.directorySelection) {
             await this.panelFactory.updateDirectoryResults(
-                current, session.panel, session.directorySelection.selectedFilePaths,
+                ComparisonPanel.getResults(session.panel), session.panel, session.directorySelection.selectedFilePaths,
             );
+            await this.refreshStalePanelResults(session);
             return;
         }
+        await this.refreshStalePanelResults(session);
+        const current = ComparisonPanel.getResults(session.panel);
         const reported = new Map(
             message.calibrationRevisions.map((entry) => [entry.filePath, entry.analysisRevision]),
         );

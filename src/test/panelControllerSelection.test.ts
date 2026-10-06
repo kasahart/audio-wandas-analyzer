@@ -98,6 +98,18 @@ test('directory selection uses live result updates with resource URIs, cache reu
         await tick();
         assert.deepEqual(messages.at(-1)!.selectedFilePaths, controller.getActiveFilePaths(panel));
         assert.ok(messages.at(-1)!.results.every(result => (result as { audioSource?: string }).audioSource?.startsWith('vscode-resource:')));
+        let finishRefresh!: () => void;
+        analysisGate = new Promise<void>(resolve => { finishRefresh = resolve; });
+        const stale = ComparisonPanel.getResults(panel).map((result, index) => index === 0
+            ? { ...result, analysisRevision: -1 } : result);
+        ComparisonPanel.updateResults(panel, stale);
+        const beforeReady = messages.length;
+        receive!({ type: 'comparison-panel-ready', calibrationRevisions: [] });
+        await tick();
+        assert.equal(messages.length, beforeReady + 1, 'ready must synchronize selection before slow calibration refresh');
+        assert.deepEqual(messages.at(-1)!.selectedFilePaths, controller.getActiveFilePaths(panel));
+        finishRefresh(); await tick();
+        analysisGate = undefined;
         await select([]);
         assert.deepEqual(messages.at(-1)!.results, []);
         assert.deepEqual(ComparisonPanel.getResults(panel), []);
