@@ -3,15 +3,16 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
 
-function dispatchAnalysisUpdate(paths: string[]): void {
+function dispatchAnalysisUpdate(input: string[] | { paths: string[]; durations: number[] }): void {
+    const paths = Array.isArray(input) ? input : input.paths;
     const results = paths.map((filePath, index) => ({
         filePath,
         fileName: filePath.split('/').at(-1) ?? filePath,
         audioSource: (window as unknown as { __retentionAudioSource?: string }).__retentionAudioSource ?? '',
         sampleRateHz: 8000,
-        durationSeconds: 2,
+        durationSeconds: Array.isArray(input) ? 2 : input.durations[index],
         channelCount: 1,
-        sampleCount: 16000,
+        sampleCount: (Array.isArray(input) ? 2 : input.durations[index]) * 8000,
         channels: [{
             label: 'L',
             peakAbsolute: 0.8 + index * 0.01,
@@ -101,5 +102,49 @@ test('directory checkbox remove/re-add keeps surviving offset, cursor, mute and 
         expect(await page.locator('#track-audio-0').evaluate(node => (node as HTMLAudioElement).muted)).toBe(true);
         expect(await page.locator('audio').evaluateAll(nodes => nodes.every(node => (node as HTMLAudioElement).paused))).toBe(true);
         await expect(checkbox).toBeChecked({ checked: selected });
+    }
+});
+
+
+test('span-changing selection refreshes cursor labels while retaining normalized cursor and zoom', async ({ page }) => {
+    await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
+    const paths = ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'];
+    await page.locator('[data-action="selection-select-all"]').click();
+    await page.evaluate(dispatchAnalysisUpdate, { paths, durations: [1, 2] });
+    const directory = page.locator('.selection-tree-directory').first();
+    if (await directory.getAttribute('aria-expanded') === 'false') await directory.click();
+    const checkbox = page.locator('.selection-file-checkbox[data-file-path="/tmp/session/sub/b.flac"]');
+    const snapshot = () => page.evaluate(() => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'comparison-panel-test-action', actions: [], actionId: 'span-cursor-snapshot',
+        } }));
+        const messages = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; renderedUi: { cursorNorm: number; zoomStart: number; zoomEnd: number } }> }).__uiSmokePostedMessages;
+        return messages.filter(message => message.type === 'comparison-panel-test-snapshot').at(-1)!.renderedUi;
+    });
+    for (const mode of ['waveform', 'spectrogram']) {
+        await page.evaluate(mode => window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'comparison-panel-test-action', actions: [
+                'content-' + mode,
+                { action: 'set-cursor', payload: { cursorNorm: .23 } },
+            ],
+        } })), mode);
+        await page.locator('#toolbar [data-action="zoom-in"]').click();
+        const before = await snapshot();
+        const longLabel = '0:00.46';
+        await expect(page.locator('#cursor-display')).toHaveText(longLabel);
+        await expect(page.locator('#spectrum-cursor-time')).toHaveText('@ ' + longLabel);
+        await checkbox.setChecked(false);
+        await page.evaluate(dispatchAnalysisUpdate, { paths: [paths[0]], durations: [1] });
+        await expect(page.locator('.track-row')).toHaveCount(1);
+        const shortLabel = '0:00.23';
+        await expect(page.locator('#spectrum-cursor-time')).toHaveText('@ ' + shortLabel);
+        await expect(page.locator('#cursor-display')).toHaveText(shortLabel);
+        await expect(page.locator('#spectrum-cursor-time')).toHaveText('@ ' + shortLabel);
+        expect(await snapshot()).toMatchObject({ cursorNorm: before.cursorNorm, zoomStart: before.zoomStart, zoomEnd: before.zoomEnd });
+        await checkbox.setChecked(true);
+        await page.evaluate(dispatchAnalysisUpdate, { paths, durations: [1, 2] });
+        await expect(page.locator('#cursor-display')).toHaveText(longLabel);
+        await expect(page.locator('#spectrum-cursor-time')).toHaveText('@ ' + longLabel);
+        expect(await snapshot()).toMatchObject({ cursorNorm: before.cursorNorm, zoomStart: before.zoomStart, zoomEnd: before.zoomEnd });
     }
 });

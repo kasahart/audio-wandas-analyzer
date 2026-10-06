@@ -5580,6 +5580,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     attachAudioEvents();
                 }
             }
+            updateCursorDisplay(hoverNorm ?? cursorNorm);
             overlaySpectrumPainted = false;
             announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
             scheduleRender();
