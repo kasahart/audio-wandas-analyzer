@@ -148,3 +148,56 @@ test('span-changing selection refreshes cursor labels while retaining normalized
         expect(await snapshot()).toMatchObject({ cursorNorm: before.cursorNorm, zoomStart: before.zoomStart, zoomEnd: before.zoomEnd });
     }
 });
+
+
+test('directory re-selection restores a removed track while ordinary refresh keeps it removed', async ({ page }) => {
+    await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
+    const paths = ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'];
+    await page.locator('[data-action="selection-select-all"]').click();
+    await page.evaluate(dispatchAnalysisUpdate, paths);
+    await page.locator('[data-action="offset-up"][data-track-id="track-2"]').click();
+    await page.locator('[data-action="remove-track"][data-track-id="track-1"]').click();
+    await page.evaluate(dispatchAnalysisUpdate, paths);
+    await expect(page.locator('.track-row')).toHaveCount(1);
+    const checkbox = page.locator('.selection-file-checkbox[data-file-path="/tmp/session/a.wav"]');
+    await checkbox.setChecked(false);
+    await page.evaluate(dispatchAnalysisUpdate, [paths[1]]);
+    await checkbox.setChecked(true);
+    await page.evaluate(dispatchAnalysisUpdate, paths);
+    await expect(page.locator('.track-row')).toHaveCount(2);
+    await expect(page.locator('.track-row[data-track-id="track-2"] .track-offset-val')).toContainText('0.010');
+    await expect(page.locator('.track-row[data-track-id="track-3"] .track-name')).toHaveText('a.wav');
+});
+
+test('recreated directory document restores host selection and audio before the next checkbox action', async ({ page }) => {
+    await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
+    const paths = ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'];
+    await page.locator('[data-action="selection-select-all"]').click();
+    await page.evaluate(dispatchAnalysisUpdate, paths);
+    await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
+    const audioSource = 'data:audio/wav;base64,' + readFileSync(path.join(__dirname, '../fixtures/short-stereo.wav')).toString('base64');
+    await page.evaluate(({ paths, audioSource }) => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'analysis-update', selectedFilePaths: paths,
+            results: paths.map(filePath => ({ filePath, fileName: filePath.split('/').at(-1), audioSource,
+                durationSeconds: 1, sampleRateHz: 8000, sampleCount: 8000, channelCount: 0, channels: [] })),
+        } }));
+    }, { paths, audioSource });
+    await expect(page.locator('.track-row')).toHaveCount(2);
+    const directory = page.locator('.selection-tree-directory').first();
+    if (await directory.getAttribute('aria-expanded') === 'false') await directory.click();
+    await expect(page.locator('.selection-file-checkbox')).toHaveCount(2);
+    for (const filePath of paths) {
+        await expect(page.locator(`.selection-file-checkbox[data-file-path="${filePath}"]`)).toBeChecked();
+    }
+    expect(await page.locator('audio').evaluateAll(nodes => nodes.every(node => {
+        const audio = node as HTMLAudioElement;
+        return audio.src.startsWith('data:audio/wav;base64,') && audio.paused;
+    }))).toBe(true);
+    await page.locator('.selection-file-checkbox[data-file-path="/tmp/session/a.wav"]').setChecked(false);
+    const latestSelection = await page.evaluate(() => {
+        const messages = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; filePaths: string[] }> }).__uiSmokePostedMessages;
+        return messages.filter(message => message.type === 'analyze-selected-files').at(-1)!.filePaths;
+    });
+    expect(latestSelection).toEqual([paths[1]]);
+});

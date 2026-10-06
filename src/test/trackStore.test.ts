@@ -118,3 +118,17 @@ test('TrackStore reports protocol mapping changes when results reorder', () => {
 
     assert.equal(reconciliation.protocolOrderChanged, true);
 });
+
+
+test('TrackStore restores a locally removed path only after explicit selection', () => {
+    const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
+    const [aId, bId] = store.activeIds();
+    store.remove(aId);
+    store.reconcile([result('/a.wav'), result('/b.wav')], next => next);
+    assert.deepEqual(store.activeIds(), [bId]);
+    store.allowExplicitSelection('/a.wav');
+    store.reconcile([result('/a.wav'), result('/b.wav')], next => next);
+    assert.equal(store.activeIds().length, 2);
+    assert.notEqual(store.activeIds()[0], aId);
+    assert.equal(store.activeIds()[1], bId);
+});

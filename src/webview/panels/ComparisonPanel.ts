@@ -106,6 +106,7 @@ export class ComparisonPanel {
     public static updateDirectoryResults(
         results: AnalysisResultWithError[],
         panel: vscode.WebviewPanel,
+        selectedFilePaths?: string[],
     ): Thenable<boolean> {
         ComparisonPanel.updateResults(panel, results);
         if (ComparisonPanel.activePanel === panel && ComparisonPanel.testSnapshot) {
@@ -117,6 +118,7 @@ export class ComparisonPanel {
         }
         return panel.webview.postMessage({
             type: 'analysis-update',
+            selectedFilePaths,
             results: results.map((result) => ({
                 ...result,
                 audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),

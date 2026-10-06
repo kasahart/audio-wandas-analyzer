@@ -1,5 +1,6 @@
 import type {
     AnalysisResultWithError,
+    AnalysisUpdateMessage,
     ChannelSummary,
     SpectrogramSettings,
 } from '../../shared/analysis/analysisTypes';
@@ -78,7 +79,7 @@ export type HostInboundMessage =
     | { type: 'reanalyze-start'; count: number }
     | { type: 'reanalyze-end' }
     | { type: 'analysis-file-progress'; current: number; total: number; fileName: string }
-    | { type: 'analysis-update'; results: AnalysisResultWithError[] };
+    | AnalysisUpdateMessage;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object';
@@ -135,7 +136,8 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
         case 'analysis-file-progress':
             return hasNumber(value, 'current') && hasNumber(value, 'total') && hasString(value, 'fileName');
         case 'analysis-update':
-            return Array.isArray(value.results);
+            return Array.isArray(value.results) && (value.selectedFilePaths === undefined
+                || Array.isArray(value.selectedFilePaths) && value.selectedFilePaths.every(path => typeof path === 'string'));
         default:
             return false;
     }

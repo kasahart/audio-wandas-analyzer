@@ -45,8 +45,8 @@ test('directory selection uses live result updates with resource URIs, cache reu
     const factory: PanelFactory = {
         showResults: () => panel,
         showDirectory: () => { webview.html = 'initial shell'; return panel; },
-        updateDirectoryResults: (results, target) => ComparisonPanel.updateDirectoryResults(
-            results, target as vscode.WebviewPanel,
+        updateDirectoryResults: (results, target, selectedFilePaths) => ComparisonPanel.updateDirectoryResults(
+            results, target as vscode.WebviewPanel, selectedFilePaths,
         ),
     };
     const writes: string[] = [], errors: string[] = [], analyzed: string[][] = [];
@@ -94,6 +94,10 @@ test('directory selection uses live result updates with resource URIs, cache reu
             'vscode-resource:/retention/sub/b.wav');
         assert.deepEqual(webview.options.localResourceRoots!.map(root => root.fsPath), ['/retention'],
             'selection updates must leave Webview options unchanged');
+        receive!({ type: 'comparison-panel-ready', calibrationRevisions: [] });
+        await tick();
+        assert.deepEqual(messages.at(-1)!.selectedFilePaths, controller.getActiveFilePaths(panel));
+        assert.ok(messages.at(-1)!.results.every(result => (result as { audioSource?: string }).audioSource?.startsWith('vscode-resource:')));
         await select([]);
         assert.deepEqual(messages.at(-1)!.results, []);
         assert.deepEqual(ComparisonPanel.getResults(panel), []);

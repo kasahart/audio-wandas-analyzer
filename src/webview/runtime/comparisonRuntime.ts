@@ -3166,6 +3166,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             if (target.checked) {
+                trackStore.allowExplicitSelection(filePath);
                 addSelectedFilePath(filePath);
             }
             else {
@@ -3359,6 +3360,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (isVisibleInTree(input)) {
                     const filePath = input.getAttribute('data-file-path');
                     if (filePath) {
+                        trackStore.allowExplicitSelection(filePath);
                         addSelectedFilePath(filePath);
                     }
                 }
@@ -5559,6 +5561,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
+            if (isSelectionMode && msg.selectedFilePaths) {
+                clearSelectedFilePaths();
+                msg.selectedFilePaths.forEach(addSelectedFilePath);
+                syncSelectionCheckboxes();
+                syncSelectionSummary();
+            }
             __setReanalyzeBusy(false);
             invalidateDesiredSpectrumSliceRequests();
             const reconciliation = trackStore.reconcile(msg.results, function (nextResult, previousResult) {

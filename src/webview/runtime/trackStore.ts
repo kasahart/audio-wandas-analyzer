@@ -89,6 +89,14 @@ export class TrackStore {
         return true;
     }
 
+    allowExplicitSelection(filePath: string): void {
+        this.locallyRemovedIds.forEach(id => {
+            if (this.records.get(id)?.result.filePath === filePath) {
+                this.locallyRemovedIds.delete(id);
+            }
+        });
+    }
+
     reorder(fromId: TrackId, toId: TrackId): boolean {
         const fromPosition = this.displayOrder.indexOf(fromId);
         const toPosition = this.displayOrder.indexOf(toId);
