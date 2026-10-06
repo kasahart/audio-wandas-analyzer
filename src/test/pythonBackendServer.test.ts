@@ -417,3 +417,20 @@ test('rejectPendingRequests rejects and clears every request on backend exit or 
     assert.deepEqual(rejected, [error, error]);
     assert.equal(pending.size, 0);
 });
+
+test('shared reply correlation consumes a request once and isolates completion failures', async () => {
+    const { settleBackendRequest, rejectPendingRequests } = await import('../shared/protocol/backendProtocol');
+    const completed: unknown[] = [], rejected: Error[] = [];
+    const pending = new Map<string, import('../shared/protocol/backendProtocol').PendingBackendRequest<Record<string, unknown>>>();
+    pending.set('r', { command: 'analyze', complete: value => { completed.push(value); }, reject: error => { rejected.push(error); } });
+    assert.equal(settleBackendRequest(pending, 'r', { ok: true }), undefined);
+    assert.equal(settleBackendRequest(pending, 'r', { late: true })?.kind, 'orphan-response');
+    assert.deepEqual(completed, [{ ok: true }]);
+    pending.set('bad', { command: 'range', complete: () => { throw new Error('bad shape'); }, reject: error => { rejected.push(error); } });
+    assert.equal(settleBackendRequest(pending, 'bad', {})?.kind, 'protocol-validation-error');
+    assert.equal(pending.size, 0);
+    pending.set('cancelled', { command: 'range', complete: () => assert.fail('cancelled request must not complete'), reject: error => { rejected.push(error); } });
+    rejectPendingRequests(pending, new Error('cancelled'));
+    assert.equal(pending.size, 0);
+    assert.equal(rejected.length, 2);
+});

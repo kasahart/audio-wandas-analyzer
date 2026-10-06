@@ -373,3 +373,48 @@ export function parseBackendNotification(value: unknown): BackendNotification | 
     }
     return null;
 }
+
+export interface PendingBackendRequest<T> {
+    command: string;
+    complete(response: T): void;
+    reject(error: Error): void;
+}
+
+export interface BackendReplyDiagnostic {
+    kind: 'orphan-response' | 'protocol-validation-error';
+    message: string;
+    requestId: string;
+}
+
+export function rejectPendingRequests<T extends { reject(error: Error): void }>(pending: Map<string, T>, error: Error): void {
+    for (const request of pending.values()) request.reject(error);
+    pending.clear();
+}
+
+export function settleBackendRequest<T>(
+    pending: Map<string, PendingBackendRequest<T>>,
+    requestId: string,
+    response: T,
+    failure?: unknown,
+): BackendReplyDiagnostic | undefined {
+    const request = pending.get(requestId);
+    if (!request) {
+        return { kind: 'orphan-response', message: `Backend response has no pending request: ${requestId}`, requestId };
+    }
+    pending.delete(requestId);
+    if (failure !== undefined) {
+        const error = typeof failure === 'string' ? new Error(failure)
+            : new BackendProtocolError(`Invalid error response for ${request.command}`);
+        request.reject(error);
+        if (typeof failure !== 'string') return { kind: 'protocol-validation-error', message: error.message, requestId };
+        return;
+    }
+    try {
+        request.complete(response);
+    } catch (cause) {
+        const error = cause instanceof BackendProtocolError ? cause
+            : new BackendProtocolError(`Invalid ${request.command} response: ${String(cause)}`);
+        request.reject(error);
+        return { kind: 'protocol-validation-error', message: error.message, requestId };
+    }
+}

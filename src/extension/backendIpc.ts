@@ -1,16 +1,16 @@
 import {
-    BackendProtocolError,
+    settleBackendRequest,
+    type PendingBackendRequest,
     isJsonObject,
     parseBackendNotification,
     type BackendCommand,
     type BackendNotification,
 } from '../shared/protocol/backendProtocol';
 
-export interface PendingRequest {
+export interface PendingRequest extends PendingBackendRequest<{ [key: string]: unknown }> {
     command: BackendCommand;
-    complete: (response: { [key: string]: unknown }) => void;
-    reject: (error: Error) => void;
 }
+export { rejectPendingRequests } from '../shared/protocol/backendProtocol';
 
 export type BackendDiagnosticKind =
     | 'malformed-json'
@@ -30,12 +30,6 @@ export interface BackendStdoutHandlers {
     onDiagnostic?: (diagnostic: BackendDiagnostic) => void;
 }
 
-export function rejectPendingRequests(pending: Map<string, PendingRequest>, error: Error): void {
-    for (const request of pending.values()) {
-        request.reject(error);
-    }
-    pending.clear();
-}
 
 export interface CancellationSignal {
     readonly isCancellationRequested: boolean;
@@ -109,9 +103,6 @@ export function formatPythonImportTiming(line: string, minimumCumulativeMs = 100
     return `[import] module=${match[3].trim()} self_ms=${selfMs.toFixed(2)} cumulative_ms=${cumulativeMs.toFixed(2)}`;
 }
 
-function protocolError(message: string): BackendProtocolError {
-    return new BackendProtocolError(message);
-}
 
 export function processStdoutChunk(
     buffer: { value: string },
@@ -169,47 +160,7 @@ export function processStdoutChunk(
             continue;
         }
 
-        const request = pending.get(requestId);
-        if (!request) {
-            handlers.onDiagnostic?.({
-                kind: 'orphan-response',
-                message: `Backend response has no pending request: ${requestId}`,
-                requestId,
-                rawLine: line,
-            });
-            continue;
-        }
-        pending.delete(requestId);
-
-        if (parsed['error'] !== undefined) {
-            if (typeof parsed['error'] === 'string') {
-                request.reject(new Error(parsed['error']));
-            } else {
-                const error = protocolError(`Invalid error response for ${request.command}`);
-                request.reject(error);
-                handlers.onDiagnostic?.({
-                    kind: 'protocol-validation-error',
-                    message: error.message,
-                    requestId,
-                    rawLine: line,
-                });
-            }
-            continue;
-        }
-
-        try {
-            request.complete(parsed);
-        } catch (cause) {
-            const error = cause instanceof BackendProtocolError
-                ? cause
-                : protocolError(`Invalid ${request.command} response: ${String(cause)}`);
-            request.reject(error);
-            handlers.onDiagnostic?.({
-                kind: 'protocol-validation-error',
-                message: error.message,
-                requestId,
-                rawLine: line,
-            });
-        }
+        const diagnostic = settleBackendRequest(pending, requestId, parsed, parsed['error']);
+        if (diagnostic) handlers.onDiagnostic?.({ ...diagnostic, rawLine: line });
     }
 }

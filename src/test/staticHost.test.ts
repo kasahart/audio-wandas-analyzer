@@ -225,3 +225,23 @@ test('Web uses the common backend validator and rejects malformed detail replies
     assert.equal(response.type, 'track-detail-error');
     assert.match(String(response.error), /Invalid track-detail success response/);
 });
+
+test('Worker error envelopes use the native correlation contract and empty errors reject', async () => {
+    const app = harness(); await app.load();
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    const worker = app.workers[0];
+    const malformed = worker.commands.at(-1)!;
+    worker.onmessage({ data: { requestId: malformed.requestId, error: 0 } });
+    await flush();
+    assert.equal(app.received.at(-1)?.type, 'track-detail-error');
+    assert.equal(app.received.at(-1)?.error, 'Invalid error response for track-detail');
+    const count = app.received.length;
+    worker.reply(malformed, {});
+    await flush();
+    assert.equal(app.received.length, count);
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    worker.reply(worker.commands.at(-1)!, {}, '');
+    await flush();
+    assert.equal(app.received.at(-1)?.type, 'track-detail-error');
+    assert.equal(app.received.at(-1)?.error, '');
+});

@@ -1,6 +1,6 @@
 import { RequestGeneration, runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, executeLazyAnalysis, lazyAnalysisError } from '../../shared/analysis/analysisClient';
-import { parseBackendResult, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
+import { parseBackendResult, rejectPendingRequests, settleBackendRequest, type PendingBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import { parsePanelMessage } from '../../shared/protocol/panelMessages';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
@@ -47,7 +47,7 @@ const reanalysisGeneration = new RequestGeneration();
 const sources = new Map<string, Source>();
 const inboundListeners = new Set<(message: unknown) => void>();
 let loading = false;
-const pending = new Map<string, { resolve(value: Record<string, unknown>): void; reject(error: Error): void }>();
+const pending = new Map<string, PendingBackendRequest<Record<string, unknown>>>();
 const bar = document.createElement('div');
 bar.style.cssText = 'padding:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
 const pick = document.createElement('input');
@@ -69,8 +69,7 @@ function dispose(): void {
     sourceGeneration.advance();
     reanalysisGeneration.advance();
     worker?.terminate(); worker = undefined;
-    for (const request of pending.values()) request.reject(new Error('Analysis cancelled'));
-    pending.clear();
+    rejectPendingRequests(pending, new Error('Analysis cancelled'));
     for (const source of sources.values()) URL.revokeObjectURL(source.url);
     sources.clear();
     loading = false; pick.disabled = false; pick.value = "";
@@ -82,11 +81,7 @@ function request(command: Record<string, unknown>, bytes?: ArrayBuffer): Promise
         worker = activeWorker;
         worker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: string }>): void => {
             if (worker !== activeWorker) return;
-            const item = pending.get(event.data.requestId);
-            if (!item) return;
-            pending.delete(event.data.requestId);
-            if (event.data.error) item.reject(new Error(event.data.error));
-            else item.resolve(event.data.result!);
+            settleBackendRequest(pending, event.data.requestId, event.data.result!, event.data.error);
         };
         worker.onerror = (): void => {
             if (worker !== activeWorker) return;
@@ -97,7 +92,7 @@ function request(command: Record<string, unknown>, bytes?: ArrayBuffer): Promise
     }
     const requestId = `browser-${++nextId}`;
     return new Promise((resolve, reject) => {
-        pending.set(requestId, { resolve, reject });
+        pending.set(requestId, { command: String(command.cmd), complete: resolve, reject });
         worker!.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
     });
 }
