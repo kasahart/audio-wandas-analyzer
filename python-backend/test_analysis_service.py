@@ -25,6 +25,43 @@ def _write_sine_wav(path: Path, seconds: float = 0.5, sample_rate: int = 16000) 
         output.writeframes(samples.tobytes())
 
 
+@pytest.mark.parametrize("n_fft", [512, 1024, 2048, 4096])
+def test_known_tones_keep_physical_frequency_in_live_fft_and_cached_stft(tmp_path: Path, n_fft: int) -> None:
+    from browser_service import create_service
+
+    rate = 16000
+    tones = np.array([440, 880, 3000])
+    samples = 0.5 * np.sin(2 * np.pi * np.arange(rate)[:, None] / rate * tones)
+    audio = tmp_path / "tones.wav"
+    # The Web prototype supports two channels; verify the third tone with the desktop engine below.
+    sf.write(audio, samples[:, :2], rate, subtype="PCM_16")
+    browser = create_service()
+    browser.engine.load(audio.name, audio.read_bytes())
+    native = AnalysisService(AnalysisEngine())
+    options = {"nFft": n_fft, "hopSize": n_fft // 4, "window": "hann"}
+    for service, path in [(native, audio), (browser, Path("/sources/tones.wav"))]:
+        for cached in [False, True]:
+            if cached:
+                detail = service.track_detail(path, stft_options=options)
+                for tone, channel in zip(tones, detail["channels"], strict=False):
+                    spec = channel["spectrogram"]
+                    peak = np.argmax(spec["values"][len(spec["values"]) // 2])
+                    assert abs(peak * spec["maxFrequencyHz"] / (spec["frequencyBins"] - 1) - tone) <= (
+                        rate / 2 / 191 / 2 + rate / n_fft
+                    )
+            result = service.spectrum_slice(path, cursor_norm=0.5, stft_options=options)
+            assert result["frequencyBins"] == 192
+            for tone, channel in zip(tones, result["channels"], strict=False):
+                peak = np.argmax(channel["values"])
+                assert abs(peak * result["maxFrequencyHz"] / 191 - tone) <= rate / 2 / 191 / 2 + rate / n_fft
+
+    sf.write(audio, samples[:, 2], rate, subtype="PCM_16")
+    third = AnalysisService(AnalysisEngine()).spectrum_slice(audio, cursor_norm=0.5, stft_options=options)
+    assert abs(np.argmax(third["channels"][0]["values"]) * third["maxFrequencyHz"] / 191 - tones[2]) <= (
+        rate / 2 / 191 / 2 + rate / n_fft
+    )
+
+
 def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> None:
     audio = tmp_path / "tone.wav"
     _write_sine_wav(audio)

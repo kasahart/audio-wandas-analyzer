@@ -7,6 +7,18 @@ const { chromium } = require('@playwright/test');
 const root = path.resolve(__dirname, '..');
 const fixtureNames = ['short-stereo.wav', 'changing-stereo.wav'];
 const fixtures = fixtureNames.map(name => ({ name, bytes: fs.readFileSync(path.join(root, 'src/test/fixtures', name)) }));
+const toneRate = 16000, toneBytes = Buffer.alloc(44 + toneRate * 4);
+toneBytes.write('RIFF'); toneBytes.writeUInt32LE(toneBytes.length - 8, 4); toneBytes.write('WAVEfmt ', 8);
+toneBytes.writeUInt32LE(16, 16); toneBytes.writeUInt16LE(1, 20); toneBytes.writeUInt16LE(2, 22);
+toneBytes.writeUInt32LE(toneRate, 24); toneBytes.writeUInt32LE(toneRate * 4, 28);
+toneBytes.writeUInt16LE(4, 32); toneBytes.writeUInt16LE(16, 34);
+toneBytes.write('data', 36); toneBytes.writeUInt32LE(toneBytes.length - 44, 40);
+for (let frame = 0; frame < toneRate; frame++) {
+    [440, 880].forEach((hz, channel) => toneBytes.writeInt16LE(Math.round(16000 * Math.sin(2 * Math.PI * hz * frame / toneRate)), 44 + frame * 4 + channel * 2));
+}
+fs.mkdirSync(path.join(root, 'test-results'), { recursive: true });
+const tonePath = path.join(root, 'test-results/generated-frequency-tones.wav');
+fs.writeFileSync(tonePath, toneBytes);
 const bytes = fixtures[0].bytes;
 const commands = [
     { cmd: 'analyze' },
@@ -15,6 +27,9 @@ const commands = [
     { cmd: 'range', startNorm: 0.21, endNorm: 0.63, points: 128 },
     { cmd: 'export-wav-loop', startNorm: 0.21, endNorm: 0.63 },
 ].map((command, index) => ({ ...command, requestId: String(index), filePath: '/sources/selected.wav', stftOptions: { nFft: 256, hopSize: 64, window: 'hann' } }));
+fixtures.push({ name: 'generated-frequency-tones.wav', path: tonePath, bytes: toneBytes, commands: [
+    { ...commands[2], cursorNorm: 0.5 }, ...commands,
+].map(command => ({ ...command, stftOptions: { nFft: 2048, hopSize: 512, window: 'hann' } })) });
 function nativeResultsFor(fixture) {
 const native = spawnSync(path.join(root, '.venv/bin/python'), ['-c', `
 import sys,json
@@ -32,7 +47,7 @@ native_service=AnalysisService(AnalysisEngine())
 for c in commands:c['filePath']=packet['fixture']
 native_results=[dispatch(c,native_service) for c in commands]
 print(json.dumps([byte_results,native_results],allow_nan=False))
-`], { maxBuffer: 32 * 1024 * 1024, cwd: root, input: JSON.stringify({commands,fixture:`src/test/fixtures/${fixture.name}`}), encoding: 'utf8', env: { ...process.env, MPLBACKEND: 'Agg' } });
+`], { maxBuffer: 32 * 1024 * 1024, cwd: root, input: JSON.stringify({commands:fixture.commands || commands,fixture:fixture.path || `src/test/fixtures/${fixture.name}`}), encoding: 'utf8', env: { ...process.env, MPLBACKEND: 'Agg' } });
 assert.equal(native.status, 0, native.stderr);
 return JSON.parse(native.stdout);
 }
@@ -88,14 +103,24 @@ const server = http.createServer((req,res) => {
                 for (const fixture of fixtures) {
                     await run({cmd:'load',sourceId:'selected.wav',bytes:new Uint8Array(fixture.bytes).buffer});
                     const results=[];
-                    for(const command of commands) results.push(await run(command));
+                    for(const command of fixture.commands || commands) results.push(await run(command));
                     all.push(results);
                     await run({cmd:'unload',filePath:'/sources/selected.wav'});
                 }
                 return all;
             } finally {worker.terminate();}
-        },{fixtures:fixtures.map(fixture=>({bytes:Array.from(fixture.bytes)})),commands});
+        },{fixtures:fixtures.map(fixture=>({bytes:Array.from(fixture.bytes),commands:fixture.commands})),commands});
         compare(byteResults,results,'native/Pyodide');
+        for (const runtime of [byteResults, nativeResults, results]) {
+            for (const slice of [runtime[2][0], runtime[2][3]]) {
+                assert.equal(slice.frequencyBins, 192);
+                slice.channels.forEach((channel, i) => {
+                    const peak = channel.values.indexOf(Math.max(...channel.values));
+                    const hz = peak * slice.maxFrequencyHz / 191;
+                    assert.ok(Math.abs(hz - [440, 880][i]) <= 8000 / 191 / 2 + 16000 / 2048, `known tone mapped to ${hz} Hz`);
+                });
+            }
+        }
         await page.getByLabel('Open File', { exact: true }).setInputFiles(path.join(root,'src/test/fixtures/short-stereo.wav'));
         await page.getByRole('status').filter({hasText:'waveform ready'}).waitFor({timeout:120000});
         assert.ok(await page.locator('canvas').count()>0);
@@ -249,6 +274,57 @@ const server = http.createServer((req,res) => {
         await page.unroute('**/audio.worker.js');
         await loadFile('changing-stereo.wav');
         await page.locator('[data-action="browser-clear"]').click();
+        await picker.setInputFiles(tonePath);
+        await status.filter({hasText:'waveform ready'}).waitFor({timeout:120000});
+        await page.locator('[data-action="content-spectrogram"]').click();
+        await page.locator('[data-action="spectrogram-settings"]').click();
+        await page.locator('#spec-auto').uncheck();
+        await page.locator('#spec-nfft').selectOption('2048');
+        await page.locator('#spec-hop').fill('512');
+        await page.locator('#spec-maxfreq').fill('2000');
+        await page.evaluate(() => {window.__testInbound = [];});
+        await page.locator('#spec-apply').click();
+        await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'track-detail-result'
+            && m.channels.every(c => c.spectrogram?.windowSize === 2048)),undefined,{timeout:120000});
+        const toneCanvas = await page.locator('#track-canvas-0').boundingBox();
+        await page.evaluate(() => {window.__testInbound = [];});
+        await page.mouse.click(toneCanvas.x + (toneCanvas.width - 50) * .5, toneCanvas.y + toneCanvas.height * .5);
+        await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'spectrum-slice-result' && Math.abs(m.cursorNorm - .5) < .01));
+        const toneCsvMenu = page.locator('details').filter({has:page.locator('[data-action="export-csv"]')});
+        if (!await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
+        const [toneCsvDownload] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-csv"]').click()]);
+        const toneCsvRows = fs.readFileSync(await toneCsvDownload.path(),'utf8').trim().split('\n').slice(1).map(row=>row.split(',').map(Number));
+        assert.equal(toneCsvRows.length,192);
+        await toneCsvMenu.locator('summary').click();
+        for (const [channel, hz] of [[0,440],[1,880]]) {
+            const peakRow = toneCsvRows.reduce((best,row)=>row[channel*2+1]>best[channel*2+1]?row:best);
+            const peakHz = peakRow[channel*2], peakDb = peakRow[channel*2+1];
+            assert.ok(Math.abs(peakHz-hz)<=8000/191/2+16000/2048, `CSV ${hz} Hz tone exported as ${peakHz}`);
+            const canvasId = '#track-spectrum-0' + (channel ? '-1' : '');
+            await page.locator(canvasId).scrollIntoViewIfNeeded();
+            const spectrumBox = await page.locator(canvasId).boundingBox();
+            assert.ok(spectrumBox);
+            await page.mouse.move(spectrumBox.x+32+(spectrumBox.width-38)*peakHz/2000,spectrumBox.y+spectrumBox.height*.5);
+            await page.waitForFunction(expected=>{
+                const text=document.getElementById('spectrum-freq-readout')?.textContent || '';
+                const match=text.match(/(\d+(?:\.\d+)?) Hz\s+(-?\d+(?:\.\d+)?)/);
+                return match && Math.abs(Number(match[1])-expected.hz)<.11 && Math.abs(Number(match[2])-expected.db)<.11;
+            },{hz:peakHz,db:peakDb});
+            const stftId = '#track-canvas-0' + (channel ? '-1' : '');
+            const band = await page.locator(stftId).evaluate(canvas=>{
+                const x=Math.floor((canvas.width-50)*.5), h=canvas.height;
+                const data=canvas.getContext('2d').getImageData(x,0,1,h).data;
+                const green=Array.from({length:h},(_,y)=>data[y*4+1]);
+                const top=Math.max(...green), rows=green.map((v,y)=>v===top?y:-1).filter(y=>y>=0);
+                return {hz:(1-(rows[0]+rows.at(-1)+1)/2/h)*2000,pixelHz:2000/h,top};
+            });
+            assert.ok(band.top>100,'actual STFT raster must be painted');
+            assert.ok(Math.abs(band.hz-peakHz)<=band.pixelHz+1,`STFT band ${band.hz} Hz vs CSV/hover ${peakHz} Hz`);
+            console.log(`Known ${hz} Hz: CSV/hover ${peakHz} Hz, actual STFT band ${band.hz.toFixed(2)} Hz (192-bin resolution).`);
+        }
+        await page.screenshot({path:path.join(root,'test-results/frequency-tones.png')});
+        assert.equal(await page.locator('audio').evaluateAll(xs=>xs.every(x=>x.paused)),true);
+        await page.locator('[data-action="browser-clear"]').click();
         const mobile=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
         await mobile.goto(origin+'/analyzer/');
         await mobile.getByLabel('Open File', { exact: true }).setInputFiles(fixturePath('short-stereo.wav'));
@@ -279,5 +355,5 @@ const server = http.createServer((req,res) => {
         assert.ok(errors.every(message=>message.includes('intentional-worker-failure')),errors.join('\n'));
         console.log('Subpath, settings, non-unit-duration cursor, invalid/oversized/long WAV, initialization/Worker failure recovery, repeated source switching/Blob cleanup, 390px touch viewport passed.');
         console.log(`Browser Worker/native WAV, waveform, STFT, real-time cursor, range/export parity: ${numbers} numeric comparisons passed. UI load/clear, no autoplay passed.`);
-    } finally { await browser?.close(); await new Promise(resolve=>server.close(resolve)); }
+    } finally { await browser?.close(); await new Promise(resolve=>server.close(resolve)); fs.rmSync(tonePath,{force:true}); }
 })().catch(error=>{console.error(error);process.exitCode=1;});

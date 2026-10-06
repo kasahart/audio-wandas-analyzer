@@ -143,8 +143,14 @@ def resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> n
     if spectrogram.shape[1] <= target_bin_count:
         return spectrogram
 
+    if target_bin_count == 1:
+        return _mean_power_db(spectrogram, axis=1)[:, None]
+
+    # UI/CSV coordinates include DC and Nyquist; assign each FFT bin to its nearest display coordinate.
+    centers = np.linspace(0, spectrogram.shape[1] - 1, target_bin_count)
+    boundaries = np.ceil((centers[:-1] + centers[1:]) / 2).astype(int)
     reduced = np.empty((spectrogram.shape[0], target_bin_count), dtype=np.float64)
-    for index, band in enumerate(np.array_split(spectrogram, target_bin_count, axis=1)):
+    for index, band in enumerate(np.split(spectrogram, boundaries, axis=1)):
         reduced[:, index] = _mean_power_db(band, axis=1)
 
     return reduced

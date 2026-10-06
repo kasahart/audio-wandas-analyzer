@@ -4,7 +4,10 @@ import { paintSpectrogramRaster } from '../webview/runtime/spectrogramRaster';
 import { normalizedColor, viridis, rasterize } from '../shared/gui-core/index';
 import { legacyAnalyzer } from './fixtures/guiCoreLegacy';
 import type { SpectrogramData } from '../shared/analysis/analysisTypes';
-test('shared kernel preserves Analyzer pixels, including legacy boundary arithmetic and calibrated metadata', () => {
+function frequencyAlignedReference(...args: Parameters<typeof legacyAnalyzer>) {
+    return legacyAnalyzer(args[0], args[1], args[2], { ...args[3], endpointFrequencyCoordinates: true });
+}
+test('shared kernel preserves legacy time/color behavior and calibrated metadata with endpoint frequency coordinates', () => {
     for (const [columns, bins] of [[1, 1], [7, 13], [32, 17]]) {
         const spec: SpectrogramData = {
             values: Array.from({ length: columns }, (_, c) => Array.from({ length: bins }, (_, b) => -100 + (c * 71 + b * 31) % 101)),
@@ -16,7 +19,7 @@ test('shared kernel preserves Analyzer pixels, including legacy boundary arithme
         for (const [width, height] of [[1, 1], [3, 5], [64, 40]]) {
             for (const [start, end, maxHz] of [[0, 1, 24000], [-0.2, 1.2, 16000], [0.22, 0.51, 12000]]) {
                 const view = { zoomStart: start, zoomEnd: end, trackStart: 0, trackDurRatio: 1, dbLo: -100, dbHi: 0, maxFrequencyHz: maxHz };
-                const expected = legacyAnalyzer(spec, width, height, { time: { min: start, max: end }, frequency: { min: 0, max: maxHz }, color: { min: -100, max: 0 } });
+                const expected = frequencyAlignedReference(spec, width, height, { time: { min: start, max: end }, frequency: { min: 0, max: maxHz }, color: { min: -100, max: 0 } });
                 const buffer = new Uint8ClampedArray(width * height * 4);
                 const result = paintSpectrogramRaster(spec, width, height, view, buffer);
                 assert.equal(result.pixels, buffer);
@@ -30,7 +33,7 @@ test('comparison peak mode preserves nonfinite and constant-range Analyzer behav
     for (const values of [[[NaN, -80], [Infinity, -70]], [[-50, -50], [-50, -50]]]) {
         const spec: SpectrogramData = { values, timeBins: 2, frequencyBins: 2, windowSize: 1024, hopSize: 256, maxFrequencyHz: 24000, minDb: -50, maxDb: -50 };
         const result = paintSpectrogramRaster(spec, 3, 3, { zoomStart: -1, zoomEnd: 2, trackStart: 0, trackDurRatio: 1, dbLo: -50, dbHi: -50, maxFrequencyHz: 12000 });
-        const expected = legacyAnalyzer(spec, 3, 3, { time: { min: -1, max: 2 }, frequency: { min: 0, max: 12000 }, color: { min: -50, max: -50 } });
+        const expected = frequencyAlignedReference(spec, 3, 3, { time: { min: -1, max: 2 }, frequency: { min: 0, max: 12000 }, color: { min: -50, max: -50 } });
         assert.deepEqual(result.pixels, expected.pixels);
     }
 });
@@ -47,7 +50,7 @@ test('track offsets and partial durations retain legacy global-to-local mapping'
     for (const [trackStart, trackDurRatio] of [[0.25, 0.5], [-0.1, 1.3], [0.75, 0.1]]) {
         for (const [min, max] of [[0, 1], [0.22, 0.51], [-0.2, 1.2]]) {
             const actual = paintSpectrogramRaster(spec, 64, 40, { zoomStart: min, zoomEnd: max, trackStart, trackDurRatio, dbLo: -100, dbHi: 0, maxFrequencyHz: 16000 });
-            const expected = legacyAnalyzer(spec, 64, 40, { time: { min, max }, frequency: { min: 0, max: 16000 }, color: { min: -100, max: 0 }, trackStart, trackDurRatio });
+            const expected = frequencyAlignedReference(spec, 64, 40, { time: { min, max }, frequency: { min: 0, max: 16000 }, color: { min: -100, max: 0 }, trackStart, trackDurRatio });
             assert.deepEqual(actual.pixels, expected.pixels);
         }
     }
@@ -56,10 +59,29 @@ test('nonfinite Analyzer color limits retain legacy opaque-black pixels instead 
     const spec: SpectrogramData = { values: [[-50]], timeBins: 1, frequencyBins: 1, windowSize: 512, hopSize: 64, maxFrequencyHz: 24000, minDb: -100, maxDb: 0 };
     for (const [min, max] of [[-Infinity, 0], [-Infinity, Infinity], [NaN, 0], [-100, NaN], [-100, Infinity]]) {
         const actual = paintSpectrogramRaster(spec, 3, 2, { zoomStart: 0, zoomEnd: 1, trackStart: 0, trackDurRatio: 1, dbLo: min, dbHi: max, maxFrequencyHz: 24000 });
-        const expected = legacyAnalyzer(spec, 3, 2, { time: { min: 0, max: 1 }, frequency: { min: 0, max: 24000 }, color: { min, max } });
+        const expected = frequencyAlignedReference(spec, 3, 2, { time: { min: 0, max: 1 }, frequency: { min: 0, max: 24000 }, color: { min, max } });
         assert.deepEqual(actual.pixels, expected.pixels);
     }
     assert.deepEqual(normalizedColor(-1, viridis), normalizedColor(0, viridis));
     assert.deepEqual(normalizedColor(1 + Number.EPSILON, viridis), normalizedColor(1, viridis));
     assert.deepEqual(normalizedColor(NaN, viridis), normalizedColor(0, viridis));
+});
+
+test('STFT bright-band centers agree with CSV/hover coordinates across full and cropped frequency views', () => {
+    for (const peakBin of [0, 9, 21, 88, 191]) {
+        const values = Array(192).fill(-100) as number[];
+        values[peakBin] = 0;
+        const spec: SpectrogramData = { values: [values], timeBins: 1, frequencyBins: 192, windowSize: 2048, hopSize: 512, maxFrequencyHz: 8000, minDb: -100, maxDb: 0 };
+        const expectedHz = peakBin * 8000 / 191;
+        for (const maxHz of [8000, 4000, 2000]) {
+            if (expectedHz > maxHz) continue;
+            const height = 8000;
+            const { pixels } = paintSpectrogramRaster(spec, 1, height, { zoomStart: 0, zoomEnd: 1, trackStart: 0, trackDurRatio: 1, dbLo: -100, dbHi: 0, maxFrequencyHz: maxHz });
+            const brightRows = Array.from({ length: height }, (_, y) => y).filter(y => pixels[y * 4] === 253);
+            assert.ok(brightRows.length > 0);
+            const centerHz = (1 - ((brightRows[0] + brightRows.at(-1)! + 1) / 2) / height) * maxHz;
+            const edgeTolerance = expectedHz === 0 || expectedHz === 8000 ? 8000 / 191 / 4 : 0;
+            assert.ok(Math.abs(centerHz - expectedHz) <= edgeTolerance + maxHz / height, `${expectedHz} Hz displayed at ${centerHz} Hz`);
+        }
+    }
 });
