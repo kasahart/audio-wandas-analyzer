@@ -1,24 +1,17 @@
 import * as vscode from 'vscode';
 import type {
     AnalysisResultWithError,
-    CalibrationProfile,
-    SpectrogramSettings,
 } from '../shared/analysis/analysisTypes';
 import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
-import { PythonBackendServer } from './pythonBackendServer';
 import {
     configureCalibrationProfile,
-    discardStaleCalibrationProfile,
-    getAnalysisRevision,
-    getCalibrationProfile,
     type CalibrationChannelDescriptor,
 } from './calibrationStore';
 
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 const panelLifecycleInstalled = new WeakSet<vscode.WebviewPanel>();
 let installed = false;
-let backendPatched = false;
 let activePanel: vscode.WebviewPanel | undefined;
 
 function channelDescriptors(result: AnalysisResultWithError): CalibrationChannelDescriptor[] {
@@ -74,8 +67,6 @@ async function configureActivePanel(extensionContext: vscode.ExtensionContext): 
     await configureResult(extensionContext, selected);
 }
 
-const originalShow = ComparisonPanel.show.bind(ComparisonPanel);
-const originalShowDirectorySelection = ComparisonPanel.showDirectorySelection.bind(ComparisonPanel);
 let contextExtension: vscode.ExtensionContext;
 
 function installPanelLifecycle(panel: vscode.WebviewPanel): void {
@@ -120,142 +111,14 @@ function installOnPanel(panel: vscode.WebviewPanel): void {
     panelMessageDisposables.set(panel, disposable);
 }
 
-function patchBackendCalibration(extensionContext: vscode.ExtensionContext): void {
-    if (backendPatched) {
-        return;
-    }
-    backendPatched = true;
-    const prototype = PythonBackendServer.prototype;
-    const analyze = prototype.analyze;
-    const requestRange = prototype.requestRange;
-    const requestTrackDetail = prototype.requestTrackDetail;
-    const requestSpectrumSlice = prototype.requestSpectrumSlice;
-
-    function requestCalibration(
-        filePath: string,
-        request: { analysisRevision?: number; calibrationProfile?: CalibrationProfile },
-    ) {
-        if (request.analysisRevision !== undefined) {
-            return {
-                calibrationProfile: request.calibrationProfile,
-                analysisRevision: request.analysisRevision,
-            };
-        }
-        return {
-            calibrationProfile: getCalibrationProfile(extensionContext, filePath),
-            analysisRevision: getAnalysisRevision(filePath),
-        };
-    }
-
-    prototype.analysisRevisionFor = function(filePath) {
-        return getAnalysisRevision(filePath);
-    };
-    prototype.analyze = async function(filePath, options, cancellation) {
-        const calibrationProfile = getCalibrationProfile(extensionContext, filePath);
-        try {
-            return await analyze.call(this, filePath, {
-                ...options,
-                calibrationProfile,
-                analysisRevision: getAnalysisRevision(filePath),
-            }, cancellation);
-        } catch (error) {
-            const discarded = calibrationProfile
-                ? await discardStaleCalibrationProfile(extensionContext, filePath, error, calibrationProfile)
-                : false;
-            if (!discarded) {
-                throw error;
-            }
-            return analyze.call(this, filePath, {
-                ...options,
-                calibrationProfile: undefined,
-                analysisRevision: getAnalysisRevision(filePath),
-            }, cancellation);
-        }
-    };
-    prototype.requestRange = function(filePath, startNorm, endNorm, points, requestId, calibration = {}) {
-        return requestRange.call(
-            this,
-            filePath,
-            startNorm,
-            endNorm,
-            points,
-            requestId,
-            {
-                ...calibration,
-                ...requestCalibration(filePath, calibration),
-            },
-        );
-    };
-    prototype.requestTrackDetail = function(filePath, payload, requestId) {
-        return requestTrackDetail.call(this, filePath, {
-            ...payload,
-            ...requestCalibration(filePath, payload),
-        }, requestId);
-    };
-    prototype.requestSpectrumSlice = function(filePath, payload, requestId) {
-        return requestSpectrumSlice.call(this, filePath, {
-            ...payload,
-            ...requestCalibration(filePath, payload),
-        }, requestId);
-    };
-}
-
 export function installCalibrationPanelRuntime(extensionContext: vscode.ExtensionContext): void {
     contextExtension = extensionContext;
-    patchBackendCalibration(extensionContext);
     if (installed) {
         return;
     }
     installed = true;
 
-    ComparisonPanel.show = function(
-        extensionUri: vscode.Uri,
-        results: AnalysisResultWithError[],
-        existingPanel?: vscode.WebviewPanel,
-        spectrogramSettings?: SpectrogramSettings,
-    ): vscode.WebviewPanel {
-        const resolvedSettings = spectrogramSettings ?? {
-            auto: true,
-            stft: { nFft: 1024, hopSize: 256, window: 'hann' },
-            display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
-        };
-        const panel = originalShow(extensionUri, results, existingPanel, resolvedSettings);
-        installOnPanel(panel);
-        return panel;
-    };
-
-    ComparisonPanel.showDirectorySelection = function(
-        extensionUri: vscode.Uri,
-        rootPath: string,
-        allFilePaths: string[],
-        selectedFilePaths: string[],
-        results: AnalysisResultWithError[],
-        pythonEnvironmentState: {
-            pythonCommand: string;
-            status: 'normal' | 'warning';
-            tooltip: string;
-        },
-        existingPanel?: vscode.WebviewPanel,
-        spectrogramSettings?: SpectrogramSettings,
-    ): vscode.WebviewPanel {
-        const resolvedSettings = spectrogramSettings ?? {
-            auto: true,
-            stft: { nFft: 1024, hopSize: 256, window: 'hann' },
-            display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
-        };
-        const panel = originalShowDirectorySelection(
-            extensionUri,
-            rootPath,
-            allFilePaths,
-            selectedFilePaths,
-            results,
-            pythonEnvironmentState,
-            existingPanel,
-            resolvedSettings,
-        );
-        installOnPanel(panel);
-        return panel;
-    };
+    ComparisonPanel.setShownListener(installOnPanel);
 
     extensionContext.subscriptions.push(
         vscode.commands.registerCommand('audioWandasAnalyzer.configureCalibration', async () => {

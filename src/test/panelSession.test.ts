@@ -147,3 +147,26 @@ test('PanelSession replaces listeners and disposes every owned resource idempote
     assert.equal(await session.postMessage({ type: 'after-dispose' }), false);
     assert.deepEqual(messages, [{ type: 'before-dispose' }]);
 });
+
+test('native unselection, directory detach and panel disposal retain borrowed cache while invalidating publication', () => {
+    const result = { filePath: '/a.wav', fileName: 'a.wav', sampleRateHz: 8000, durationSeconds: 1,
+        channelCount: 0, sampleCount: 8000, channels: [], analysisRevision: 2 };
+    const cache = new Map([[result.filePath, result]]);
+    const selection = { rootPath: '/', tree: [], allFilePaths: [result.filePath], selectedFilePaths: [result.filePath], cachedResultsByFilePath: cache };
+    const session = new PanelSession(createPanel([]));
+    session.setDirectorySelection(selection);
+    selection.selectedFilePaths = [];
+    assert.equal(session.hasCachedResult(result.filePath, 2), true);
+    const beforeDetach = session.beginStateRequest('before-detach');
+    session.clearDirectorySelection();
+    assert.equal(session.isCurrent(beforeDetach), false);
+    assert.equal(cache.get(result.filePath), result);
+    session.setDirectorySelection(selection);
+    const beforeDispose = session.beginStateRequest('before-dispose');
+    session.dispose();
+    assert.equal(session.isCurrent(beforeDispose), false);
+    assert.equal(cache.get(result.filePath), result);
+    const recreated = new PanelSession(createPanel([]));
+    recreated.setDirectorySelection(selection);
+    assert.equal(recreated.hasCachedResult(result.filePath, 2), true);
+});

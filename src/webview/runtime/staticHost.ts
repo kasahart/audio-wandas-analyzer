@@ -1,4 +1,5 @@
-import { RequestGeneration, runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
+import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
+import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, executeLazyAnalysis, lazyAnalysisError } from '../../shared/analysis/analysisClient';
 import { parseBackendResult, rejectPendingRequests, settleBackendRequest, type PendingBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import { parsePanelMessage } from '../../shared/protocol/panelMessages';
@@ -42,9 +43,9 @@ browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(setti
 let worker: Worker | undefined;
 let nextId = 0;
 let nextSource = 0;
-const sourceGeneration = new RequestGeneration();
-const reanalysisGeneration = new RequestGeneration();
-const sources = new Map<string, Source>();
+const sourceGeneration = new SessionRequests();
+const reanalysisGeneration = new SessionRequests();
+const sources = new SourceResults<Source>(new Map(), source => URL.revokeObjectURL(source.url));
 const inboundListeners = new Set<(message: unknown) => void>();
 let loading = false;
 const pending = new Map<string, PendingBackendRequest<Record<string, unknown>>>();
@@ -63,14 +64,13 @@ bar.append(pick, cancel, status);
 document.body.prepend(bar);
 const announce = (value: string): void => { status.textContent = value; };
 const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
-const snapshot = (): void => { emit({ type: 'analysis-update', results: Array.from(sources.values(), source => source.result) }); };
+const snapshot = (): void => { emit({ type: 'analysis-update', results: sources.snapshot(source => source.result) }); };
 
 function dispose(): void {
     sourceGeneration.advance();
     reanalysisGeneration.advance();
     worker?.terminate(); worker = undefined;
     rejectPendingRequests(pending, new Error('Analysis cancelled'));
-    for (const source of sources.values()) URL.revokeObjectURL(source.url);
     sources.clear();
     loading = false; pick.disabled = false; pick.value = "";
 }
@@ -118,7 +118,7 @@ function download(bytes: Uint8Array, name: string, type: string): void {
 async function releaseSource(path: string): Promise<void> {
     const source = sources.get(path);
     if (!source) return;
-    sources.delete(path); URL.revokeObjectURL(source.url);
+    sources.delete(path);
     if (!sources.size && !loading) {
         dispose(); emit({ type: 'reanalyze-end' });
         announce(strings.browserRemoved); return;
@@ -143,7 +143,7 @@ async function post(message: HostOutboundMessage): Promise<void> {
                 emit({ type: 'reanalyze-start', count: sources.size });
                 await runAnalysisBatch(Array.from(sources.values()), {
                     isCurrent: () => sourceGeneration.isCurrent(myGeneration) && reanalysisGeneration.isCurrent(myReanalysis!),
-                    isSelected: source => sources.get(source.path) === source,
+                    isSelected: source => sources.owns(source.path, source),
                     analyze: source => analysisClient.analyze(source.path, stft()),
                     commit: (source, result) => { source.result = resultWithSource(result, source.name, source.url); },
                 });
@@ -153,7 +153,7 @@ async function post(message: HostOutboundMessage): Promise<void> {
             case 'request-track-detail': case 'request-spectrum-slice': case 'request-waveform-range': {
                 if (!worker || !owner) throw new Error('Source is no longer selected; choose the WAV again.');
                 const { analysisRevision: _revision, ...result } = await executeLazyAnalysis(analysisClient, message, stft());
-                if (sourceGeneration.isCurrent(myGeneration) && sources.get(owner.path) === owner) {
+                if (sourceGeneration.isCurrent(myGeneration) && sources.owns(owner.path, owner)) {
                     emit(result);
                 }
                 return;
@@ -195,7 +195,7 @@ async function post(message: HostOutboundMessage): Promise<void> {
             default: announce(strings.browserUnavailable);
         }
     } catch (error) {
-        if (!sourceGeneration.isCurrent(myGeneration) || (owner && sources.get(owner.path) !== owner)
+        if (!sourceGeneration.isCurrent(myGeneration) || (owner && !sources.owns(owner.path, owner))
             || (message.type === 'request-reanalyze' && !reanalysisGeneration.isCurrent(myReanalysis!))) return;
         const reason = error instanceof Error ? error.message : String(error);
         announce(reason);

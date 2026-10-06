@@ -72,15 +72,10 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     assert.doesNotMatch(script, /request-calibration-refresh/);
 });
 
-test('production calibration wrapper forwards analysis cancellation and exposes per-file revisions', () => {
-    const source = readFileSync(
-        path.resolve(process.cwd(), 'src/extension/calibrationPanelRuntime.ts'),
-        'utf8',
-    );
-
-    assert.match(source, /prototype\.analysisRevisionFor = function\(filePath\)/u);
-    assert.match(source, /prototype\.analyze = async function\(filePath, options, cancellation\)/u);
-    assert.equal(source.match(/\}, cancellation\);/gu)?.length, 2);
+test('calibration uses composition rather than global prototype or panel-method patches', () => {
+    const source = readFileSync(path.resolve(process.cwd(), 'src/extension/calibrationPanelRuntime.ts'), 'utf8');
+    assert.doesNotMatch(source, /prototype|ComparisonPanel\.show\s*=/u);
+    assert.match(source, /ComparisonPanel\.setShownListener\(installOnPanel\)/u);
 });
 
 test('ComparisonPanel result ownership follows accepted in-place reanalysis', () => {
@@ -335,4 +330,50 @@ test('calibration profile lookup uses the same real filesystem path as the backe
     } as unknown as import('vscode').ExtensionContext;
 
     assert.deepEqual(calibrationStore.getCalibrationProfile(extensionContext, symlinkPath), profile);
+});
+
+test('native injected calibration retry preserves cancellation token and request error revision', async () => {
+    const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
+    const originalLoad = NodeModule._load;
+    class CancellationError extends Error {}
+    NodeModule._load = function(request, parent, isMain): unknown {
+        if (request === 'vscode') return { CancellationError };
+        if (request === './pythonEnvironment') return {};
+        return originalLoad.call(this, request, parent, isMain);
+    };
+    let backendModule: typeof import('../extension/pythonBackendServer');
+    try { backendModule = require('../extension/pythonBackendServer'); }
+    finally { NodeModule._load = originalLoad; }
+    const { BackendStartupCancelledError } = await import('../extension/backendIpc');
+    const profile = { schemaVersion: 1 as const, channels: [] };
+    let revision = 2;
+    const tokens: unknown[] = [];
+    const token = { isCancellationRequested: false } as import('vscode').CancellationToken;
+    const server = new class extends backendModule.PythonBackendServer {
+        failCancellation = false;
+        constructor() {
+            super('unused', () => {}, () => {}, {
+                current: () => ({ calibrationProfile: profile, analysisRevision: revision }),
+                discardStale: async (_path, error) => {
+                    if (!(error instanceof backendModule.AnalysisRequestError)) return false;
+                    assert.equal(error.analysisRevision, 2);
+                    revision = 3; return true;
+                },
+            });
+        }
+        protected override async request<K extends import('../shared/protocol/backendProtocol').BackendCommand>(
+            _command: K, _payload: import('../shared/protocol/backendProtocol').BackendPayload<K>, _id?: string,
+            cancellation?: import('vscode').CancellationToken,
+        ): Promise<import('../shared/protocol/backendProtocol').BackendResult<K>> {
+            tokens.push(cancellation);
+            if (this.failCancellation) throw new BackendStartupCancelledError();
+            if (tokens.length === 1) throw new Error('Calibration channel label mismatch');
+            return {} as import('../shared/protocol/backendProtocol').BackendResult<K>;
+        }
+    }();
+    await server.analyze('source', {}, token);
+    assert.deepEqual(tokens, [token, token]);
+    server.failCancellation = true;
+    await assert.rejects(server.analyze('source', {}, token), CancellationError);
+    assert.equal(tokens.length, 3);
 });

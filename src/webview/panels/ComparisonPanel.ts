@@ -93,6 +93,12 @@ export class ComparisonPanel {
     private static testSnapshotsByActionId = new Map<string, ComparisonPanelTestSnapshot>();
     private static activePanel: vscode.WebviewPanel | undefined;
     private static testMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
+    private static shownListener: ((panel: vscode.WebviewPanel) => void) | undefined;
+
+    public static setShownListener(listener: (panel: vscode.WebviewPanel) => void): void {
+        ComparisonPanel.shownListener = listener;
+    }
+
     private static resultsByPanel = new WeakMap<object, AnalysisResultWithError[]>();
 
     public static updateResults(panel: object, results: AnalysisResultWithError[]): void {
@@ -198,6 +204,7 @@ export class ComparisonPanel {
             fileNames: state.results.map((result) => result.fileName),
             resultCount: state.results.length,
         };
+        ComparisonPanel.shownListener?.(panel);
         return panel;
     }
 
@@ -262,6 +269,7 @@ export class ComparisonPanel {
             fileNames: state.results.map((result) => result.fileName),
             resultCount: state.results.length,
         };
+        ComparisonPanel.shownListener?.(panel);
         return panel;
     }
 

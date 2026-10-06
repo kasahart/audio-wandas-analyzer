@@ -73,3 +73,75 @@ test('export has one offset-region plan and preserves continue-versus-abort sink
     }), /abort/);
     assert.equal(exports, 1);
 });
+
+test('injected context resolves defaults but preserves explicit displayed revision, including zero', async () => {
+    const profile = identityCalibrationProfile([{ channelIndex: 0, label: 'left' }]);
+    const client = new class extends RecordingClient {
+        constructor() { super({ current: () => ({ calibrationProfile: profile, analysisRevision: 9 }) }); }
+    }();
+    assert.equal(client.analysisRevisionFor('source'), 9);
+    await client.requestRange('source', 0, 1, 10);
+    await client.requestRange('source', 0, 1, 10, 'displayed', { analysisRevision: 0 });
+    await client.requestTrackDetail('source', { trackIndex: 0, analysisId: 'a', settingsSignature: 's' }, 'detail');
+    await client.requestSpectrumSlice('source', { trackIndex: 0, analysisId: 'a', settingsSignature: 's', cursorNorm: 0.5, analysisRevision: 3 }, 'slice');
+    const payloads = client.calls.map(call => call.payload as { calibrationProfile?: unknown; analysisRevision: number });
+    assert.deepEqual(payloads.map(payload => payload.analysisRevision), [9, 0, 9, 3]);
+    assert.deepEqual(payloads.map(payload => payload.calibrationProfile), [profile, undefined, profile, undefined]);
+});
+
+test('stale context retries once after matching discard and reads the new revision', async () => {
+    const profile = identityCalibrationProfile([{ channelIndex: 0, label: 'left' }]);
+    const calls: Array<{ profile?: unknown; revision?: number }> = [];
+    let revision = 2, discarded = 0;
+    const client = new class extends AnalysisClient {
+        constructor() {
+            super({
+                current: () => ({ calibrationProfile: profile, analysisRevision: revision }),
+                discardStale: async (_path, error, attempted) => {
+                    assert.equal((error as Error).message, 'stale');
+                    assert.equal(attempted.calibrationProfile, profile);
+                    discarded++; revision = 3; return true;
+                },
+            });
+        }
+        protected async request<K extends BackendCommand>(_command: K, payload: BackendPayload<K>): Promise<BackendResult<K>> {
+            const context = payload as { calibrationProfile?: unknown; analysisRevision?: number };
+            calls.push({ profile: context.calibrationProfile, revision: context.analysisRevision });
+            if (calls.length === 1) throw new Error('stale');
+            return {} as BackendResult<K>;
+        }
+    }();
+    await client.analyze('source', { analysisRevision: 0 });
+    assert.deepEqual(calls, [{ profile, revision: 2 }, { profile: undefined, revision: 3 }]);
+    assert.equal(discarded, 1);
+});
+
+test('changed profiles and cancelled analyses do not retry when the host declines discard', async () => {
+    for (const reason of ['cancelled', 'profile replaced']) {
+        let attempts = 0;
+        const failure = new Error(reason);
+        const client = new class extends AnalysisClient {
+            constructor() { super({ current: () => ({ calibrationProfile: identityCalibrationProfile([]), analysisRevision: 4 }), discardStale: async () => false }); }
+            protected async request<K extends BackendCommand>(_command: K, _payload: BackendPayload<K>): Promise<BackendResult<K>> {
+                attempts++; throw failure;
+            }
+        }();
+        await assert.rejects(client.analyze('source', {}), error => error === failure);
+        assert.equal(attempts, 1);
+    }
+});
+
+test('unconfigured browser client preserves input context without invoking host calibration storage', async () => {
+    const client = new RecordingClient();
+    const context = { calibrationProfile: identityCalibrationProfile([]), analysisRevision: 6 };
+    await client.analyze('source', context);
+    assert.deepEqual(client.calls[0].payload, { filePath: 'source', ...context });
+});
+
+test('host current context replaces analyze options; absence of a stored profile clears an older explicit profile', async () => {
+    const client = new class extends RecordingClient {
+        constructor() { super({ current: () => ({ analysisRevision: 8 }) }); }
+    }();
+    await client.analyze('source', { calibrationProfile: identityCalibrationProfile([]), analysisRevision: 1 });
+    assert.deepEqual(client.calls[0].payload, { filePath: 'source', analysisRevision: 8 });
+});

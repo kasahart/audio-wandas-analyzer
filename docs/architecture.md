@@ -25,8 +25,16 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
 - `AnalysisClient` は analyze/detail/slice/range/export の要求を組み立てる。
   `executeLazyAnalysis` は detail/slice/range の UI 結果へ変換する。host は
   型付き request transport と表示中の calibration/STFT context を提供する。
-- `runAnalysisBatch` と `RequestGeneration` は逐次処理と古い応答の排除を担当する。
-  source の同一性、許可されたファイル集合、native cancellation、Worker 終了は host が判断する。
+- `runAnalysisBatch` は逐次処理、`SessionRequests` は世代・request ID・dispose 後の応答排除を担当する。
+  Web の clear は世代を進めて再利用し、native Panel dispose は閉鎖する。再生成 Panel は別 session。
+- `SourceResults` は結果 collection と owner の参照同一性を管理する。native は借用した directory cache を
+  選択解除・detach 時にも保持し、revision 不一致だけを除去する。Web は所有 source の drop/clear 時に
+  lease を無効化して Blob を解放する。Worker unload/terminate、許可パス、native 取消は adapter の責務。
+- `AnalysisContextPolicy.current/discardStale` は native の校正 store を注入する。
+  lazy request の明示 revision（0 を含む）は表示済み context として優先する。analyze は現 store の
+  context を使い、一致した stale profile の破棄後だけ1回再試行する。取消 token は初回と再試行で共通。
+  Web は policy なしで入力 context を使う。校正 UI/persistence を Web に追加したことにはならない。
+  Panel は表示 hook で校正 listener を登録し、prototype や show メソッドを書き換えない。
 - `OrderedSelection` は順序・重複排除・再追加の規則を担当する。native の tree による
   パス許可検証を UI 側の選択状態で代替しない。
 - `exportWavRegions` は区間計画・順序・衝突しない名前を共有する。sink は書込み先と

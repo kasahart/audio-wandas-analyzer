@@ -12,6 +12,7 @@ import {
 } from './pythonEnvironment';
 import { PythonBackendServer } from './pythonBackendServer';
 import { RecipeFlow } from './recipeFlow';
+import { getCalibrationProfile, getAnalysisRevision, discardStaleCalibrationProfile } from './calibrationStore';
 
 export function activate(context: vscode.ExtensionContext): void {
     let deactivated = false;
@@ -31,6 +32,9 @@ export function activate(context: vscode.ExtensionContext): void {
             .getConfiguration('audioWandasAnalyzer')
             .get<string>('pythonCommand', 'python3');
         setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+    }, {
+        current: filePath => ({ calibrationProfile: getCalibrationProfile(context, filePath), analysisRevision: getAnalysisRevision(filePath) }),
+        discardStale: (filePath, error, attempted) => discardStaleCalibrationProfile(context, filePath, error, attempted.calibrationProfile!),
     });
     const analysis = new AnalysisOrchestrator(backend, logPerf);
     const exports = new ExportFlows(backend);
