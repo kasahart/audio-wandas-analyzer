@@ -35,6 +35,13 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   context を使い、一致した stale profile の破棄後だけ1回再試行する。取消 token は初回と再試行で共通。
   Web は policy なしで入力 context を使う。校正 UI/persistence を Web に追加したことにはならない。
   Panel は表示 hook で校正 listener を登録し、prototype や show メソッドを書き換えない。
+- `ComparisonSessionController`（`src/shared/session/`）は panel message の解釈を一度だけ持つ。
+  設定保存、再解析の start/update/end 包絡と世代ゲート、lazy 結果への変換と公開判定、
+  WAV 区間・レポートの書き出し手順、未対応操作の通知経路はここにある。host は
+  `ComparisonSessionPorts` で scope（公開可否）、transport、設定ストア、ダイアログ、
+  ソース所有を注入する。native `PanelController` と Web `staticHost` は port 実装だけを持ち、
+  同期的な port は同一 tick で backend command に到達する。active source が 0 件の再解析は
+  設定保存のみで包絡を送らない。
 - `OrderedSelection` は順序・重複排除・再追加の規則を担当する。native の tree による
   パス許可検証を UI 側の選択状態で代替しない。
 - `exportWavRegions` は区間計画・順序・衝突しない名前を共有する。sink は書込み先と

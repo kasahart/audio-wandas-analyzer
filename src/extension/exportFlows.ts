@@ -2,8 +2,9 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { getStrings } from '../shared/i18n/strings';
 import type { ExportReportOptionsMessage, ExportWavLoopMessage } from '../shared/utils/audioTarget';
-import { reportArtifact, exportWavRegions } from '../shared/utils/exportArtifact';
+import type { ReportFormat } from '../shared/utils/exportArtifact';
 import type { ExportWavLoopResult } from '../shared/protocol/backendProtocol';
+import type { ReportArtifactFile, WavExportPlan } from '../shared/session/comparisonSessionController';
 
 export interface WavExportBackend {
     exportWavLoop(filePath: string, startNorm: number, endNorm: number): Promise<ExportWavLoopResult>;
@@ -58,48 +59,55 @@ const defaultHost: ExportHost = {
     language: () => vscode.env.language,
 };
 
+/** Native export ports: folder and save dialogs, URI writes and VS Code notifications. */
 export class ExportFlows {
     constructor(
         private readonly backend: WavExportBackend,
         private readonly host: ExportHost = defaultHost,
     ) {}
 
-    async exportWavLoop(message: ExportWavLoopMessage): Promise<void> {
+    async wavExport(message: ExportWavLoopMessage): Promise<WavExportPlan | undefined> {
         const outputFolder = await this.host.pickOutputFolder();
-        if (!outputFolder) { return; }
+        if (!outputFolder) { return undefined; }
 
         let successCount = 0;
         const errors: string[] = [];
-        await exportWavRegions(message, message.filePaths.map(filePath => ({ filePath, fileName: path.basename(filePath) })), {
-            isCurrent: () => true,
-            exportWavLoop: (filePath, start, end) => this.backend.exportWavLoop(filePath, start, end),
-            write: async (_source, name, result) => {
-                await this.host.writeFile(vscode.Uri.joinPath(outputFolder, name), Buffer.from(result.wavBase64, 'base64'));
-                successCount++;
+        return {
+            sources: message.filePaths.map(filePath => ({ filePath, fileName: path.basename(filePath) })),
+            sink: {
+                isCurrent: () => true,
+                exportWavLoop: (filePath, start, end) => this.backend.exportWavLoop(filePath, start, end),
+                write: async (_source, name, result) => {
+                    await this.host.writeFile(vscode.Uri.joinPath(outputFolder, name), Buffer.from(result.wavBase64, 'base64'));
+                    successCount++;
+                },
+                failed: (source, error) => {
+                    errors.push(`${source.fileName}: ${error instanceof Error ? error.message : String(error)}`);
+                    return true;
+                },
             },
-            failed: (source, error) => {
-                errors.push(`${source.fileName}: ${error instanceof Error ? error.message : String(error)}`);
-                return true;
+            complete: () => {
+                if (errors.length > 0) {
+                    this.host.showError(
+                        `WAV export: ${successCount} succeeded, ${errors.length} failed — ${errors.join('; ')}`,
+                    );
+                } else {
+                    this.host.showInformation(
+                        `WAV export complete (${successCount} file${successCount !== 1 ? 's' : ''}) → ${outputFolder.fsPath}`,
+                    );
+                }
             },
-        });
-        if (errors.length > 0) {
-            this.host.showError(
-                `WAV export: ${successCount} succeeded, ${errors.length} failed — ${errors.join('; ')}`,
-            );
-        } else {
-            this.host.showInformation(
-                `WAV export complete (${successCount} file${successCount !== 1 ? 's' : ''}) → ${outputFolder.fsPath}`,
-            );
-        }
+        };
     }
 
-    async exportReport(message: ExportReportOptionsMessage): Promise<void> {
-        const format = await this.host.pickReportFormat();
-        if (!format) { return; }
+    pickReportFormat(): Promise<ReportFormat | undefined> {
+        return this.host.pickReportFormat();
+    }
+
+    async saveReport(artifact: ReportArtifactFile, format: ReportFormat, message: ExportReportOptionsMessage): Promise<void> {
         const destination = await this.host.pickReportDestination(message.defaultName, format);
         if (!destination) { return; }
-        const { content } = reportArtifact(message, format);
-        await this.host.writeFile(destination, Buffer.from(content, 'utf-8'));
+        await this.host.writeFile(destination, Buffer.from(artifact.content, 'utf-8'));
         this.host.showInformation(getStrings(this.host.language()).reportExportedPrefix + destination.fsPath);
     }
 }
