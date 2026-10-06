@@ -602,7 +602,8 @@ async function analyzeDebugPath(
     await vscode.commands.executeCommand('audioWandasAnalyzer.analyzeDebugFile');
 
     if (options?.selectAllDirectoryFiles) {
-        await waitForSnapshot();
+        await waitForSnapshotWhere(snapshot => snapshot.resultCount === 0
+            && snapshot.renderedUi?.trackRowCount === 0);
         const actionId = `selection-select-all-${Date.now()}`;
         return postActionsAndWait(actionId, ['selection-select-all'], (snapshot) => {
             return snapshot.resultCount > 0
