@@ -1,3 +1,4 @@
+import { DEFAULT_SPECTROGRAM_SETTINGS } from '../shared/analysis/analysisTypes';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -43,7 +44,9 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
             }
         }
         reply(command: Record<string, unknown>, result: Record<string, unknown> = {}, error?: string): void {
-            this.onmessage({ data: { requestId: command.requestId, result, error } });
+            const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')).validResponses as Array<{ command: string; response: Record<string, unknown> }>;
+            const base = fixtures.find(fixture => fixture.command === command.cmd)?.response ?? {};
+            this.onmessage({ data: { requestId: command.requestId, result: { ...base, filePath: command.filePath, ...result }, error } });
         }
     }
     const browser = {
@@ -100,7 +103,7 @@ test('browser preferences restore safely across reloads and use shared Japanese 
 test('unrelated detail/export errors do not end a pending reanalysis', async () => {
     const app = harness();
     await app.load();
-    app.host.postMessage({ type: 'request-reanalyze', settings: { auto: true } });
+    app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
     app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
     app.host.postMessage({ type: 'export-wav-loop', filePaths: [app.sourcePath], startNorm: 0.2, endNorm: 0.5 });
     await flush();
@@ -118,8 +121,8 @@ test('unrelated detail/export errors do not end a pending reanalysis', async () 
 test('only the newest reanalysis can update results and end busy state', async () => {
     const app = harness();
     await app.load();
-    app.host.postMessage({ type: 'request-reanalyze', settings: { auto: true } });
-    app.host.postMessage({ type: 'request-reanalyze', settings: { auto: true } });
+    app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
+    app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
     const requests = app.workers[0].commands.filter(command => command.cmd === 'analyze').slice(1);
     const before = app.received.filter(message => message.type === 'analysis-update').length;
     app.workers[0].reply(requests[0], {});
@@ -169,7 +172,7 @@ test('file picker appends multiple sources and per-track release preserves the o
     await flush();
     assert.deepEqual(app.revoked, ['blob:fixture-1']);
     assert.equal(app.workers[0].terminated, false);
-    app.host.postMessage({ type: 'request-reanalyze', settings: { auto: true } });
+    app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
     const last = app.workers[0].commands.at(-1)!;
     assert.equal(last.filePath, secondPath);
     app.workers[0].reply(last, {});
@@ -209,4 +212,16 @@ test('cancel during a file read clears all sources and ignores late completion',
     assert.equal(app.workers[0].terminated, true);
     assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 0);
     assert.equal(app.picker.disabled, false);
+});
+
+test('Web uses the common backend validator and rejects malformed detail replies', async () => {
+    const app = harness(); await app.load();
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    const worker = app.workers[0];
+    const command = worker.commands.find(command => command.cmd === 'track-detail')!;
+    worker.reply(command, { channels: [{ label: 'invalid-channel' }] });
+    await flush();
+    const response = app.received.at(-1)!;
+    assert.equal(response.type, 'track-detail-error');
+    assert.match(String(response.error), /Invalid track-detail success response/);
 });

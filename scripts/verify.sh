@@ -51,4 +51,7 @@ if [ "${AWA_VERIFY_BROWSER:-0}" = "1" ]; then
     npm run test:browser
 fi
 
+echo "==> authored runtime source sharing audit"
+python3 scripts/audit-runtime-sharing.py --output test-results/runtime-sharing.json
+
 echo "verify: OK"

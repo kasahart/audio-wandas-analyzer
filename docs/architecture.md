@@ -15,6 +15,45 @@
 
 設計上の主眼は、VS Code 固有処理と信号処理ロジックを切り離し、UI と解析処理を疎結合に保つことです。
 
+## Desktop / static Web の共通境界
+
+Comparison UI と DSP は同じソースを使う。解析コマンドの型・応答検証は
+`src/shared/protocol/backendProtocol.ts`、UI から host への型・入力検証は
+`src/shared/protocol/panelMessages.ts` に置く。Worker の正常応答も native IPC と同じ
+validator を通す。Web の load/unload/export-plan は Worker 専用であり共通六コマンドと混同しない。
+
+- `AnalysisClient` は analyze/detail/slice/range/export の要求を組み立てる。
+  `executeLazyAnalysis` は detail/slice/range の UI 結果へ変換する。host は
+  型付き request transport と表示中の calibration/STFT context を提供する。
+- `runAnalysisBatch` と `RequestGeneration` は逐次処理と古い応答の排除を担当する。
+  source の同一性、許可されたファイル集合、native cancellation、Worker 終了は host が判断する。
+- `OrderedSelection` は順序・重複排除・再追加の規則を担当する。native の tree による
+  パス許可検証を UI 側の選択状態で代替しない。
+- `exportWavRegions` は区間計画・順序・衝突しない名前を共有する。sink は書込み先と
+  失敗方針を提供する。native は個別失敗後も継続し、Web は予算検証後に失敗で中断する。
+- spectrogram 設定は `SpectrogramSettingsStore.get/update` を通す。
+  workspaceState と localStorage、校正の realpath と永続化、保存ダイアログと Blob/ZIP は adapter に残す。
+- Python の `command_dispatch.py` は検証と service 呼出しだけを持つ。
+  `backend_server.py` は native 起動・heartbeat・NDJSON、`browser_service.py` は
+  virtual source と Web 上限を担当する。Web 配布物には native transport を含めない。
+
+Recipe、校正設定 UI、フォルダ選択、codec の Web 対応範囲は増やしていない。
+新しい共通処理は両 host が実際に参照する。host 名による分岐で共通ファイルを膨らませない。
+
+### 共有率の測り方と目標
+
+`python3 scripts/audit-runtime-sharing.py --baseline 277bdd7a9a92b63a6e8820368ca29ea3bb44b745 --output test-results/runtime-sharing.json`
+で、基準と作業中の全 production source の到達元・ファイル数・非空行数を比較できる。
+型 import と build の明示 root を含む source closure であり、全行実行や機能同等性の割合ではない。
+HTML/CSS は所在する TS に含め、tests、vendor、生成物、docs、build/dev tools、設定とデータ asset は除外する。
+`verify` は shallow checkout でも動く現状監査を実行する。
+
+基準は共有 31 / 全体 61 ファイル (50.82%)、非空行 10,394 / 15,960 (65.13%)。
+80% は目標であり達成済みではない。native 専用の Python 環境管理、コマンド登録、Panel、
+ファイル権限や、未移植 Recipe を維持したまま、同じ分母の 80% を保証できない。
+独立した adapter を合併して数を減らす、共通 file を細分化する、未使用 import を追加する方法は採らない。
+率と併せて、同じコマンド変換・区間計画・選択規則を一度の変更で両版へ反映できるかを評価する。
+
 ## 全体構成
 
 ```mermaid

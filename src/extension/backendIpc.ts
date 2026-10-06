@@ -4,7 +4,7 @@ import {
     parseBackendNotification,
     type BackendCommand,
     type BackendNotification,
-} from './backendProtocol';
+} from '../shared/protocol/backendProtocol';
 
 export interface PendingRequest {
     command: BackendCommand;

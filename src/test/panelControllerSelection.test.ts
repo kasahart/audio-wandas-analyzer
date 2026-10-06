@@ -5,7 +5,7 @@ import type * as vscode from 'vscode';
 import type { AnalysisResultWithError, AnalysisUpdateMessage } from '../shared/analysis/analysisTypes';
 import type { PanelBackend, PanelControllerHost, PanelFactory, PanelHandle } from '../extension/panelController';
 import type { ExportFlows } from '../extension/exportFlows';
-import type { SpectrogramSettingsContext } from '../extension/spectrogramSettings';
+import type { SpectrogramSettingsContext } from '../shared/analysis/savedSpectrogramSettings';
 
 test('directory selection uses live result updates with resource URIs, cache reuse and stale-request protection', async () => {
     const uri = (fsPath: string) => ({ fsPath, toString: () => `file:${fsPath}` });

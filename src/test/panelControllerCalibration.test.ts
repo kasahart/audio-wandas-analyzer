@@ -10,7 +10,7 @@ import type {
     PanelHandle,
 } from '../extension/panelController';
 import type { ExportFlows } from '../extension/exportFlows';
-import type { SpectrogramSettingsContext } from '../extension/spectrogramSettings';
+import type { SpectrogramSettingsContext } from '../shared/analysis/savedSpectrogramSettings';
 
 function result(filePath: string, revision: number, peakAbsolute: number): AnalysisResultWithError {
     return {
@@ -199,7 +199,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
         onPythonEnvironmentChange: () => ({ dispose: () => undefined }),
     };
-    let lazyCalibration: import('../extension/backendProtocol').CalibrationRequestContext | undefined;
+    let lazyCalibration: import('../shared/protocol/backendProtocol').CalibrationRequestContext | undefined;
     const backend = {
         requestRange: async (
             _filePath: string,
@@ -207,7 +207,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
             endNorm: number,
             _points: number,
             _requestId?: string,
-            calibration?: import('../extension/backendProtocol').CalibrationRequestContext,
+            calibration?: import('../shared/protocol/backendProtocol').CalibrationRequestContext,
         ) => {
             lazyCalibration = calibration;
             return {

@@ -11,8 +11,8 @@ import wandas as wd
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
 from analysis_service import AnalysisService
 from analyzer import resolve_stft_params
-from backend_server import dispatch, validate_request
 from calibration_profile import source_channel_peaks
+from command_dispatch import dispatch, validate_request
 
 MAX_INPUT_BYTES = 16 * 1024 * 1024
 MAX_ESTIMATED_BYTES = 512 * 1024 * 1024

@@ -11,7 +11,10 @@ for (const name of ['comparisonWaveform.js', 'comparisonRuntime.js', 'staticHost
 }
 fs.copyFileSync(path.join(root, 'browser/audio.worker.js'), path.join(out, 'audio.worker.js'));
 fs.copyFileSync(path.join(root, 'runtime/lock.json'), path.join(out, 'runtime/lock.json'));
-const pythonModules = ['analysis_engine.py', 'analysis_service.py', 'analyzer.py', 'backend_server.py', 'browser_service.py', 'calibration_profile.py', 'decimator.py'];
+const pythonModules = ['analysis_engine.py', 'analysis_service.py', 'analyzer.py', 'command_dispatch.py', 'browser_service.py', 'calibration_profile.py', 'decimator.py'];
+for (const name of fs.readdirSync(path.join(out, 'python'))) {
+    if (name.endsWith('.py') && !pythonModules.includes(name)) fs.unlinkSync(path.join(out, 'python', name));
+}
 for (const name of pythonModules) fs.copyFileSync(path.join(root, 'python-backend', name), path.join(out, 'python', name));
 fs.writeFileSync(path.join(out, 'python/manifest.json'), JSON.stringify(pythonModules));
 fs.writeFileSync(path.join(out, 'index.html'), renderComparisonDocument({ mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS }, {

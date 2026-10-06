@@ -1,11 +1,15 @@
+import { RequestGeneration, runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
+import { AnalysisClient, executeLazyAnalysis, lazyAnalysisError } from '../../shared/analysis/analysisClient';
+import { parseBackendResult, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
+import { parsePanelMessage } from '../../shared/protocol/panelMessages';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
-import { SPECTROGRAM_SETTINGS_KEY, savedSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
-import { wavLoopName, reportArtifact } from '../../shared/utils/exportArtifact';
+import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
+import { reportArtifact, exportWavRegions } from '../../shared/utils/exportArtifact';
 import { zipStore } from './zipStore';
 import type { HostOutboundMessage, HostInboundMessage } from './hostMessaging';
 import type { ComparisonWindow } from './browserAdapter';
 import type { PersistedWebviewState, ComparisonTrackState } from './types';
-import type { AnalysisResultWithError } from '../../shared/analysis/analysisTypes';
+import type { AnalysisResult, AnalysisResultWithError } from '../../shared/analysis/analysisTypes';
 
 interface Source {
     path: string;
@@ -28,14 +32,18 @@ function readSaved(key: string): unknown {
 function save(key: string, value: unknown): void {
     try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage may be denied or full; keep working in memory. */ }
 }
+const settingsContext = { workspaceState: {
+    get: readSaved,
+    update: async (key: string, value: unknown): Promise<void> => { save(key, value); },
+} };
 const restoredView = readSaved(VIEW_STATE_KEY) as PersistedWebviewState | undefined;
 let persisted: PersistedWebviewState = restoredView?.contentType === 'spectrogram' ? { contentType: 'spectrogram' } : {};
-browserWindow.__APP_STATE__!.spectrogramSettings = savedSpectrogramSettings(readSaved(SPECTROGRAM_SETTINGS_KEY));
+browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
 let worker: Worker | undefined;
 let nextId = 0;
 let nextSource = 0;
-let generation = 0;
-let reanalysisRevision = 0;
+const sourceGeneration = new RequestGeneration();
+const reanalysisGeneration = new RequestGeneration();
 const sources = new Map<string, Source>();
 const inboundListeners = new Set<(message: unknown) => void>();
 let loading = false;
@@ -58,8 +66,8 @@ const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(l
 const snapshot = (): void => { emit({ type: 'analysis-update', results: Array.from(sources.values(), source => source.result) }); };
 
 function dispose(): void {
-    generation++;
-    reanalysisRevision++;
+    sourceGeneration.advance();
+    reanalysisGeneration.advance();
     worker?.terminate(); worker = undefined;
     for (const request of pending.values()) request.reject(new Error('Analysis cancelled'));
     pending.clear();
@@ -93,11 +101,17 @@ function request(command: Record<string, unknown>, bytes?: ArrayBuffer): Promise
         worker!.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
     });
 }
-function stft(): Record<string, unknown> {
+function stft() {
     const state = browserWindow.__APP_STATE__!;
     return state.spectrogramSettings.auto ? {} : { stftOptions: state.spectrogramSettings.stft };
 }
-function resultWithSource(result: Record<string, unknown>, name: string, url: string): ComparisonTrackState {
+const analysisClient = new class extends AnalysisClient {
+    protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>): Promise<BackendResult<K>> {
+        const result = await request({ ...payload, cmd: command });
+        return parseBackendResult(command, result);
+    }
+}();
+function resultWithSource(result: AnalysisResult, name: string, url: string): ComparisonTrackState {
     const alias = String(result.filePath).split('/').pop()!.replace(/\.wav$/, '') + '-' + name.replace(/[\\/\u0000-\u001f]/g, '_');
     return { ...result, fileName: name, audioSource: url, reportSourcePath: alias } as unknown as ComparisonTrackState;
 }
@@ -114,65 +128,58 @@ async function releaseSource(path: string): Promise<void> {
         dispose(); emit({ type: 'reanalyze-end' });
         announce(strings.browserRemoved); return;
     }
-    const myGeneration = generation;
+    const myGeneration = sourceGeneration.current;
     try { await request({ cmd: 'unload', filePath: path }); }
-    catch (error) { if (generation === myGeneration) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(String(error)); } }
+    catch (error) { if (sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(String(error)); } }
 }
 async function post(message: HostOutboundMessage): Promise<void> {
-    const myGeneration = generation;
-    const myReanalysis = message.type === 'request-reanalyze' ? ++reanalysisRevision : reanalysisRevision;
+    const myGeneration = sourceGeneration.current;
+    const myReanalysis = message.type === 'request-reanalyze' ? reanalysisGeneration.advance() : undefined;
     const owner = 'filePath' in message ? sources.get(message.filePath) : undefined;
     try {
         switch (message.type) {
             case 'comparison-panel-ready': case 'comparison-panel-test-snapshot': return;
             case 'update-spectrogram-settings':
-                browserWindow.__APP_STATE__!.spectrogramSettings = message.settings; save(SPECTROGRAM_SETTINGS_KEY, message.settings); return;
+                browserWindow.__APP_STATE__!.spectrogramSettings = message.settings; void saveSpectrogramSettings(settingsContext, message.settings); return;
             case 'request-reanalyze': {
-                save(SPECTROGRAM_SETTINGS_KEY, message.settings);
+                void saveSpectrogramSettings(settingsContext, message.settings);
                 browserWindow.__APP_STATE__!.spectrogramSettings = message.settings;
                 if (!sources.size) return;
                 emit({ type: 'reanalyze-start', count: sources.size });
-                for (const source of Array.from(sources.values())) {
-                    if (generation !== myGeneration || reanalysisRevision !== myReanalysis) return;
-                    if (sources.get(source.path) !== source) continue;
-                    const result = await request({ cmd: 'analyze', filePath: source.path, ...stft() });
-                    if (generation === myGeneration && reanalysisRevision === myReanalysis && sources.get(source.path) === source) {
-                        source.result = resultWithSource(result, source.name, source.url);
-                    }
-                }
-                if (generation === myGeneration && reanalysisRevision === myReanalysis) snapshot();
+                await runAnalysisBatch(Array.from(sources.values()), {
+                    isCurrent: () => sourceGeneration.isCurrent(myGeneration) && reanalysisGeneration.isCurrent(myReanalysis!),
+                    isSelected: source => sources.get(source.path) === source,
+                    analyze: source => analysisClient.analyze(source.path, stft()),
+                    commit: (source, result) => { source.result = resultWithSource(result, source.name, source.url); },
+                });
+                if (sourceGeneration.isCurrent(myGeneration) && reanalysisGeneration.isCurrent(myReanalysis!)) snapshot();
                 return;
             }
             case 'request-track-detail': case 'request-spectrum-slice': case 'request-waveform-range': {
                 if (!worker || !owner) throw new Error('Source is no longer selected; choose the WAV again.');
-                const cmd = message.type === 'request-track-detail' ? 'track-detail' : message.type === 'request-spectrum-slice' ? 'spectrum-slice' : 'range';
-                const result = await request({ ...message, cmd, ...stft() });
-                if (generation === myGeneration && sources.get(owner.path) === owner) {
-                    emit({ ...message, ...result, type: message.type.replace('request-', '') + '-result' } as HostInboundMessage);
+                const { analysisRevision: _revision, ...result } = await executeLazyAnalysis(analysisClient, message, stft());
+                if (sourceGeneration.isCurrent(myGeneration) && sources.get(owner.path) === owner) {
+                    emit(result);
                 }
                 return;
             }
             case 'release-track-detail':
-                if (owner && worker) await request({ cmd: 'release-track-detail', filePath: owner.path }); return;
+                if (owner && worker) await analysisClient.releaseTrackDetail(owner.path); return;
             case 'export-wav-loop': {
                 const selected = message.filePaths.map(path => sources.get(path)).filter((source): source is Source => !!source);
                 if (!selected.length) return;
-                const commands = selected.map(source => {
-                    const region = message.fileRegions?.find(region => region.filePath === source.path) ?? message;
-                    return { cmd: 'export-wav-loop', filePath: source.path, startNorm: region.startNorm, endNorm: region.endNorm };
-                });
-                await request({ cmd: 'export-plan', commands });
                 const entries: Array<{ name: string; bytes: Uint8Array }> = [];
-                const usedNames = new Set<string>();
-                for (const [index, source] of selected.entries()) {
-                    if (myGeneration !== generation) return;
-                    if (sources.get(source.path) !== source) continue;
-                    const result = await request(commands[index]);
-                    if (myGeneration !== generation) return;
-                    if (sources.get(source.path) !== source) continue;
-                    const bytes = Uint8Array.from(atob(String(result.wavBase64)), c => c.charCodeAt(0));
-                    entries.push({ name: wavLoopName(source.name, usedNames), bytes });
-                }
+                await exportWavRegions(message, selected.map(source => ({ filePath: source.path, fileName: source.name })), {
+                    isCurrent: () => sourceGeneration.isCurrent(myGeneration),
+                    isSelected: item => sources.get(item.filePath) === selected.find(source => source.path === item.filePath),
+                    prepare: async commands => { await request({ cmd: 'export-plan', commands }); },
+                    exportWavLoop: (filePath, start, end) => analysisClient.exportWavLoop(filePath, start, end),
+                    write: async (_source, name, result) => {
+                        const bytes = Uint8Array.from(atob(result.wavBase64), c => c.charCodeAt(0));
+                        entries.push({ name, bytes });
+                    },
+                });
+                if (!sourceGeneration.isCurrent(myGeneration)) return;
                 if (!entries.length) return;
                 if (entries.length === 1) download(entries[0].bytes, entries[0].name, 'audio/wav');
                 else download(zipStore(entries), 'selected-regions.zip', 'application/zip');
@@ -193,15 +200,15 @@ async function post(message: HostOutboundMessage): Promise<void> {
             default: announce(strings.browserUnavailable);
         }
     } catch (error) {
-        if (generation !== myGeneration || (owner && sources.get(owner.path) !== owner)
-            || (message.type === 'request-reanalyze' && reanalysisRevision !== myReanalysis)) return;
+        if (!sourceGeneration.isCurrent(myGeneration) || (owner && sources.get(owner.path) !== owner)
+            || (message.type === 'request-reanalyze' && !reanalysisGeneration.isCurrent(myReanalysis!))) return;
         const reason = error instanceof Error ? error.message : String(error);
         announce(reason);
         if (message.type === 'request-track-detail' || message.type === 'request-spectrum-slice') {
-            emit({ ...message, type: message.type.replace('request-', '') + '-error', error: reason } as HostInboundMessage);
+            emit(lazyAnalysisError(message, error));
         }
     } finally {
-        if (message.type === 'request-reanalyze' && generation === myGeneration && reanalysisRevision === myReanalysis) {
+        if (message.type === 'request-reanalyze' && sourceGeneration.isCurrent(myGeneration) && reanalysisGeneration.isCurrent(myReanalysis!)) {
             emit({ type: 'reanalyze-end' });
         }
     }
@@ -210,49 +217,60 @@ browserWindow.__AWA_HOST__ = {
     downloadFile: (content, name, mimeType): void => { download(new TextEncoder().encode(content), name, mimeType); },
     releaseSource: (path): void => { void releaseSource(path); },
     onMessage: (listener): (() => void) => { inboundListeners.add(listener); return () => { inboundListeners.delete(listener); }; },
-    postMessage: (message: unknown): void => { void post(message as HostOutboundMessage); },
+    postMessage: (message: unknown): void => {
+        const parsed = parsePanelMessage(message);
+        if (parsed) void post(parsed);
+    },
     getState: () => persisted,
     setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType }); },
 };
 pick.onchange = (): void => {
     const files = Array.from(pick.files || []);
     if (!files.length || loading) return;
-    const myGeneration = generation;
+    const myGeneration = sourceGeneration.current;
     loading = true; pick.disabled = true;
     announce(strings.browserPreparing);
     void (async () => {
         const failures: string[] = [];
-        for (const file of files) {
-            let loadedPath: string | undefined;
-            try {
-                if (generation !== myGeneration) return;
-                if (file.size > 16 * 1024 * 1024) throw new Error(strings.browserInputTooLarge);
-                if (sources.size >= 8 || Array.from(sources.values()).reduce((sum, source) => sum + source.inputBytes, file.size) > 64 * 1024 * 1024) {
-                    throw new Error(strings.browserAggregateLimit);
-                }
-                const bytes = await file.arrayBuffer();
-                if (generation !== myGeneration) return;
-                const loaded = await request({ cmd: 'load', sourceId: `selected-${++nextSource}.wav` }, bytes);
-                if (generation !== myGeneration) return;
-                loadedPath = String(loaded.filePath);
-                const result = await request({ cmd: 'analyze', filePath: loadedPath, ...stft() });
-                if (generation !== myGeneration) return;
-                const url = URL.createObjectURL(file);
-                sources.set(loadedPath, { path: loadedPath, name: file.name, url, inputBytes: file.size, result: resultWithSource(result, file.name, url) });
-                snapshot();
-            } catch (error) {
-                if (generation !== myGeneration) return;
-                if (loadedPath) {
-                    try { await request({ cmd: 'unload', filePath: loadedPath }); }
-                    catch (releaseError) {
-                        if (generation === myGeneration) { dispose(); snapshot(); announce(String(releaseError)); }
-                        return;
+        await runAnalysisBatch(files, {
+            isCurrent: () => sourceGeneration.isCurrent(myGeneration),
+            analyze: async file => {
+                let loadedPath: string | undefined;
+                try {
+                    if (file.size > 16 * 1024 * 1024) throw new Error(strings.browserInputTooLarge);
+                    if (sources.size >= 8 || Array.from(sources.values()).reduce((sum, source) => sum + source.inputBytes, file.size) > 64 * 1024 * 1024) {
+                        throw new Error(strings.browserAggregateLimit);
                     }
+                    const bytes = await file.arrayBuffer();
+                    if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
+                    const loaded = await request({ cmd: 'load', sourceId: `selected-${++nextSource}.wav` }, bytes);
+                    if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
+                    loadedPath = String(loaded.filePath);
+                    const result = await analysisClient.analyze(loadedPath, stft());
+                    return { path: loadedPath, result };
+                } catch (error) {
+                    if (sourceGeneration.isCurrent(myGeneration) && loadedPath) {
+                        try { await request({ cmd: 'unload', filePath: loadedPath }); }
+                        catch (releaseError) {
+                            if (sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(String(releaseError)); }
+                            throw releaseError;
+                        }
+                    }
+                    throw error;
                 }
+            },
+            commit: (file, loaded) => {
+                const url = URL.createObjectURL(file);
+                sources.set(loaded.path, { path: loaded.path, name: file.name, url, inputBytes: file.size,
+                    result: resultWithSource(loaded.result, file.name, url) });
+                snapshot();
+            },
+            failed: (file, error) => {
                 failures.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
-            }
-        }
-        if (generation !== myGeneration) return;
+                return true;
+            },
+        });
+        if (!sourceGeneration.isCurrent(myGeneration)) return;
         loading = false; pick.disabled = false; pick.value = '';
         if (!sources.size) dispose();
         announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);

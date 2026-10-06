@@ -1,3 +1,4 @@
+import { AnalysisClient, analysisPayload } from '../shared/analysis/analysisClient';
 import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -19,14 +20,7 @@ import {
     type BackendCommand,
     type BackendPayload,
     type BackendResult,
-    type CalibrationRequestContext,
-    type ExportWavLoopResult,
-    type RangeResult,
-    type SpectrumSlicePayload,
-    type SpectrumSliceResult,
-    type TrackDetailPayload,
-    type TrackDetailResult,
-} from './backendProtocol';
+} from '../shared/protocol/backendProtocol';
 import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
@@ -42,7 +36,7 @@ export class AnalysisRequestError extends Error {
     }
 }
 
-export class PythonBackendServer {
+export class PythonBackendServer extends AnalysisClient {
     private proc: ChildProcess | null = null;
     private pending = new Map<string, PendingRequest>();
     private stdoutBuf = { value: '' };
@@ -59,7 +53,7 @@ export class PythonBackendServer {
         private readonly extensionPath: string,
         private readonly onPerfLine: (line: string) => void = () => { /* no-op */ },
         private readonly onReady: () => void = () => { /* no-op */ },
-    ) {}
+    ) { super(); }
 
     analysisRevisionFor(_filePath: string): number {
         return 0;
@@ -76,11 +70,7 @@ export class PythonBackendServer {
     ): Promise<BackendResult<'analyze'>> {
         const analysisRevision = options.analysisRevision ?? 0;
         try {
-            return await this.request('analyze', {
-                filePath,
-                ...(options.stftOptions ? { stftOptions: options.stftOptions } : {}),
-                ...this.calibrationPayload(options),
-            }, undefined, cancellation);
+            return await this.request('analyze', analysisPayload(filePath, options), undefined, cancellation);
         } catch (error) {
             if (error instanceof BackendStartupCancelledError) {
                 throw new vscode.CancellationError();
@@ -93,75 +83,6 @@ export class PythonBackendServer {
         }
     }
 
-    async requestRange(
-        filePath: string,
-        startNorm: number,
-        endNorm: number,
-        points: number,
-        requestId?: string,
-        calibration: CalibrationRequestContext = {},
-    ): Promise<RangeResult> {
-        return this.request(
-            'range',
-            { filePath, startNorm, endNorm, points, ...this.calibrationPayload(calibration) },
-            requestId,
-        );
-    }
-
-    async requestTrackDetail(
-        filePath: string,
-        payload: Omit<TrackDetailPayload, 'filePath'>,
-        requestId: string,
-    ): Promise<TrackDetailResult> {
-        return this.request(
-            'track-detail',
-            {
-                filePath,
-                trackIndex: payload.trackIndex,
-                analysisId: payload.analysisId,
-                settingsSignature: payload.settingsSignature,
-                ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
-                ...this.calibrationPayload(payload),
-            },
-            requestId,
-        );
-    }
-
-    async releaseTrackDetail(filePath: string): Promise<void> {
-        await this.request('release-track-detail', { filePath });
-    }
-
-    async requestSpectrumSlice(
-        filePath: string,
-        payload: Omit<SpectrumSlicePayload, 'filePath'>,
-        requestId: string,
-    ): Promise<SpectrumSliceResult> {
-        return this.request(
-            'spectrum-slice',
-            {
-                filePath,
-                trackIndex: payload.trackIndex,
-                analysisId: payload.analysisId,
-                settingsSignature: payload.settingsSignature,
-                cursorNorm: payload.cursorNorm,
-                ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
-                ...this.calibrationPayload(payload),
-            },
-            requestId,
-        );
-    }
-
-    async exportWavLoop(
-        filePath: string,
-        startNorm: number,
-        endNorm: number,
-    ): Promise<ExportWavLoopResult> {
-        return this.request(
-            'export-wav-loop',
-            { filePath, startNorm, endNorm },
-        );
-    }
-
     dispose(): void {
         this.stopWatchdog();
         this.proc?.kill();
@@ -170,14 +91,7 @@ export class PythonBackendServer {
         this.rejectAll(new Error('PythonBackendServer disposed'));
     }
 
-    private calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {
-        return {
-            ...(context.calibrationProfile ? { calibrationProfile: context.calibrationProfile } : {}),
-            analysisRevision: context.analysisRevision ?? 0,
-        };
-    }
-
-    private async request<K extends BackendCommand>(
+    protected async request<K extends BackendCommand>(
         command: K,
         payload: BackendPayload<K>,
         requestId?: string,

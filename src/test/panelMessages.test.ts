@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_SPECTROGRAM_SETTINGS } from '../shared/analysis/analysisTypes';
-import { parsePanelMessage } from '../extension/panelMessages';
+import { parsePanelMessage } from '../shared/protocol/panelMessages';
 
 test('parsePanelMessage returns discriminated messages for controller dispatch', () => {
     const messages: unknown[] = [

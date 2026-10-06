@@ -1,9 +1,9 @@
-import { isSpectrogramSettings } from '../shared/analysis/savedSpectrogramSettings';
+import { isSpectrogramSettings } from '../analysis/savedSpectrogramSettings';
 import type {
     ComparisonPanelReadyMessage,
     RequestReanalyzeMessage,
     UpdateSpectrogramSettingsMessage,
-} from '../shared/analysis/analysisTypes';
+} from '../analysis/analysisTypes';
 import {
     isAnalyzeSelectedFilesMessage,
     isExportReportOptionsMessage,
@@ -23,7 +23,7 @@ import {
     type TrackDetailReleaseMessage,
     type TrackDetailRequest,
     type WaveformRangeRequest,
-} from '../shared/utils/audioTarget';
+} from '../utils/audioTarget';
 
 export interface SelectTargetMessage {
     type: 'select-target';

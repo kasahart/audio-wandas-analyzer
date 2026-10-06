@@ -1,3 +1,4 @@
+import { RequestGeneration } from '../shared/analysis/analysisCoordinator';
 import type { AnalysisResultWithError, DirectoryTreeNode } from '../shared/analysis/analysisTypes';
 
 export interface DisposableLike {
@@ -26,7 +27,7 @@ export class PanelSession<P extends PanelPort = PanelPort> {
     directorySelection: DirectorySelectionState | null = null;
     activeResultPaths: string[] = [];
     latestRequestId: string | undefined;
-    private revision = 0;
+    private readonly generation = new RequestGeneration();
     private messageDisposable: DisposableLike | null = null;
     private pythonEnvironmentSubscription: DisposableLike | null = null;
     private disposed = false;
@@ -83,7 +84,7 @@ export class PanelSession<P extends PanelPort = PanelPort> {
 
     isCurrent(revision: number, requestId?: string): boolean {
         return !this.disposed
-            && revision === this.revision
+            && this.generation.isCurrent(revision)
             && (requestId === undefined || requestId === this.latestRequestId);
     }
 
@@ -105,7 +106,7 @@ export class PanelSession<P extends PanelPort = PanelPort> {
     dispose(): void {
         if (this.disposed) { return; }
         this.disposed = true;
-        this.revision++;
+        this.generation.advance();
         this.messageDisposable?.dispose();
         this.messageDisposable = null;
         this.pythonEnvironmentSubscription?.dispose();
@@ -115,7 +116,6 @@ export class PanelSession<P extends PanelPort = PanelPort> {
     }
 
     private invalidateState(): number {
-        this.revision++;
-        return this.revision;
+        return this.generation.advance();
     }
 }

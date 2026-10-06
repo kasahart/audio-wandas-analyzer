@@ -1,14 +1,16 @@
+import {
+    cloneProfile, identityChannel, identityCalibrationProfile, profilesEqual,
+    validateCalibrationValueInput, validateCalibrationFactorInput, profileForChannels,
+    type CalibrationChannelDescriptor,
+} from '../shared/analysis/calibrationModel';
+export { identityCalibrationProfile, validateCalibrationValueInput, validateCalibrationFactorInput,
+    type CalibrationChannelDescriptor } from '../shared/analysis/calibrationModel';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import {
-    isSafeCalibrationValue,
-    MAX_SAFE_CALIBRATED_SAMPLE,
-} from '../shared/analysis/analysisTypes';
 import type {
     CalibrationProfile,
     ChannelCalibrationDefinition,
-    ChannelMeasurementContext,
 } from '../shared/analysis/analysisTypes';
 
 const CALIBRATION_PROFILES_KEY = 'audioWandasAnalyzer.calibrationProfiles.v1';
@@ -22,12 +24,6 @@ export interface CalibrationChangeEvent {
     analysisRevision: number;
 }
 
-export interface CalibrationChannelDescriptor {
-    channelIndex: number;
-    label: string;
-    measurement?: ChannelMeasurementContext;
-    rawPeakFullScale?: number;
-}
 
 function fileKey(filePath: string): string {
     const resolved = path.resolve(filePath);
@@ -45,35 +41,12 @@ export function onDidChangeCalibration(
     return { dispose: () => { calibrationChangeListeners.delete(listener); } };
 }
 
-function cloneProfile(profile: CalibrationProfile): CalibrationProfile {
-    return {
-        schemaVersion: 1,
-        channels: profile.channels.map((channel) => ({ ...channel })),
-    };
-}
 
 function profiles(context: vscode.ExtensionContext): Record<string, CalibrationProfile> {
     return context.workspaceState.get<Record<string, CalibrationProfile>>(CALIBRATION_PROFILES_KEY, {});
 }
 
-function identityChannel(channel: CalibrationChannelDescriptor): ChannelCalibrationDefinition {
-    return {
-        channelIndex: channel.channelIndex,
-        expectedLabel: channel.label,
-        status: 'uncalibrated',
-        source: 'default',
-        factor: 1,
-        unit: '',
-        referenceValue: 1,
-    };
-}
 
-export function identityCalibrationProfile(channels: CalibrationChannelDescriptor[]): CalibrationProfile {
-    return {
-        schemaVersion: 1,
-        channels: channels.map(identityChannel),
-    };
-}
 
 export function getCalibrationProfile(
     context: vscode.ExtensionContext,
@@ -114,21 +87,6 @@ export async function discardStaleCalibrationProfile(
     return discarded;
 }
 
-function profilesEqual(left: CalibrationProfile, right: CalibrationProfile): boolean {
-    return left.schemaVersion === right.schemaVersion
-        && left.channels.length === right.channels.length
-        && left.channels.every((channel, index) => {
-            const other = right.channels[index];
-            return other !== undefined
-                && channel.channelIndex === other.channelIndex
-                && channel.expectedLabel === other.expectedLabel
-                && channel.status === other.status
-                && channel.source === other.source
-                && channel.factor === other.factor
-                && channel.unit === other.unit
-                && channel.referenceValue === other.referenceValue;
-        });
-}
 
 function bumpAnalysisRevision(canonicalPath: string): number {
     const next = (analysisRevisions.get(canonicalPath) ?? 0) + 1;
@@ -171,29 +129,7 @@ async function persistProfile(
     }
 }
 
-export function validateCalibrationValueInput(value: string): string | undefined {
-    const numberValue = Number(value);
-    return isSafeCalibrationValue(numberValue)
-        ? undefined
-        : 'Enter a finite number from 1e-150 through 1e150.';
-}
 
-export function validateCalibrationFactorInput(
-    value: string,
-    rawPeakFullScale: number | undefined,
-): string | undefined {
-    const scalarError = validateCalibrationValueInput(value);
-    if (scalarError) {
-        return scalarError;
-    }
-    if (rawPeakFullScale === undefined || !Number.isFinite(rawPeakFullScale) || rawPeakFullScale <= 0) {
-        return undefined;
-    }
-    const maximum = MAX_SAFE_CALIBRATED_SAMPLE / rawPeakFullScale;
-    return Number(value) <= maximum
-        ? undefined
-        : `For this channel's source peak, enter ${maximum.toExponential(6)} or less.`;
-}
 
 async function persistChannel(
     context: vscode.ExtensionContext,
@@ -209,20 +145,6 @@ async function persistChannel(
     });
 }
 
-function profileForChannels(
-    stored: CalibrationProfile | undefined,
-    channels: CalibrationChannelDescriptor[],
-): CalibrationProfile {
-    if (!stored || stored.channels.length !== channels.length) {
-        return identityCalibrationProfile(channels);
-    }
-    const matches = channels.every((channel, index) => {
-        const entry = stored.channels[index];
-        return entry?.channelIndex === channel.channelIndex
-            && entry.expectedLabel === channel.label;
-    });
-    return matches ? cloneProfile(stored) : identityCalibrationProfile(channels);
-}
 
 function describeCalibration(channel: ChannelCalibrationDefinition): string {
     if (channel.status === 'uncalibrated') {

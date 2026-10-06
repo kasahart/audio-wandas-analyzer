@@ -1,39 +1,13 @@
+import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import type {
     AnalysisResultWithError,
     AnalysisUpdateMessage,
     ChannelSummary,
-    SpectrogramSettings,
 } from '../../shared/analysis/analysisTypes';
-import type {
-    AnalyzeSelectedFilesMessage,
-    ExportReportOptionsMessage,
-    ExportWavLoopMessage,
-    SpectrumSliceRequest,
-    TrackDetailReleaseMessage,
-    TrackDetailRequest,
-    WaveformRangeRequest,
-} from '../../shared/utils/audioTarget';
 import type { RangeWaveform, RuntimeWindow, WebviewHostApi } from './types';
 
-export type HostOutboundMessage =
-    | AnalyzeSelectedFilesMessage
-    | ExportReportOptionsMessage
-    | ExportWavLoopMessage
-    | SpectrumSliceRequest
-    | TrackDetailReleaseMessage
-    | TrackDetailRequest
-    | WaveformRangeRequest
-    | { type: 'comparison-panel-test-snapshot'; actionId?: string; renderedUi: Record<string, unknown> }
-    | { type: 'comparison-panel-ready'; calibrationRevisions: Array<{
-        filePath: string;
-        analysisRevision: number;
-    }> }
-    | { type: 'request-reanalyze'; settings: SpectrogramSettings }
-    | { type: 'run-recipe' }
-    | { type: 'select-python-environment' }
-    | { type: 'select-target'; targetKind: 'file' | 'directory' }
-    | { type: 'show-info'; message: string }
-    | { type: 'update-spectrogram-settings'; settings: SpectrogramSettings };
+export type HostOutboundMessage = PanelMessage
+    | { type: 'comparison-panel-test-snapshot'; actionId?: string; renderedUi: Record<string, unknown> };
 
 interface LazyResponseIdentity {
     requestId: string;
