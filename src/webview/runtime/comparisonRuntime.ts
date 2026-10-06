@@ -863,6 +863,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleRender();
             scheduleSpectrumRefresh('immediate');
         }
+        if (entry.action === 'set-file-selected' && entry.payload) {
+            const checkbox = Array.from(document.querySelectorAll('.selection-file-checkbox'))
+                .find((input) => input.getAttribute('data-file-path') === entry.payload?.filePath);
+            if (!checkbox) { throw new Error('Selection checkbox not found'); }
+            checkbox.checked = !!entry.payload.selected;
+            const event = document.createEvent('Event');
+            event.initEvent('change', true, false);
+            checkbox.dispatchEvent(event);
+        }
         if (entry.action === 'set-track-offset' && idx >= 0 && entry.payload) {
             const offsetSeconds = Number(entry.payload.offsetSeconds ?? 0);
             if (!Number.isFinite(offsetSeconds)) {

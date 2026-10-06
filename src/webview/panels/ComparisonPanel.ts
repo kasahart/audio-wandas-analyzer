@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import {
     DEFAULT_SPECTROGRAM_SETTINGS,
     type AnalysisResultWithError,
+    type AnalysisUpdateMessage,
     type SpectrogramSettings,
 } from '../../shared/analysis/analysisTypes';
 import type {
@@ -100,6 +101,32 @@ export class ComparisonPanel {
 
     public static getResults(panel: object): AnalysisResultWithError[] {
         return ComparisonPanel.resultsByPanel.get(panel) ?? [];
+    }
+
+    public static updateDirectoryResults(
+        extensionUri: vscode.Uri,
+        results: AnalysisResultWithError[],
+        panel: vscode.WebviewPanel,
+    ): Thenable<boolean> {
+        panel.webview.options = {
+            ...panel.webview.options,
+            localResourceRoots: ComparisonPanel.buildLocalResourceRoots(extensionUri, results),
+        };
+        ComparisonPanel.updateResults(panel, results);
+        if (ComparisonPanel.activePanel === panel && ComparisonPanel.testSnapshot) {
+            ComparisonPanel.testSnapshot = {
+                ...ComparisonPanel.testSnapshot,
+                fileNames: results.map((result) => result.fileName),
+                resultCount: results.length,
+            };
+        }
+        return panel.webview.postMessage({
+            type: 'analysis-update',
+            results: results.map((result) => ({
+                ...result,
+                audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
+            })),
+        } satisfies AnalysisUpdateMessage);
     }
 
     public static replaceResult(

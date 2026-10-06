@@ -153,6 +153,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         onDidDispose: () => ({ dispose: () => undefined }),
     };
     const panelFactory: PanelFactory = {
+        updateDirectoryResults: async () => true,
         showResults: (_extensionUri, results) => {
             ComparisonPanel.updateResults(panel, results);
             return panel;
