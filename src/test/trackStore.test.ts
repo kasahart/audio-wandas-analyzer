@@ -69,10 +69,12 @@ test('TrackStore keeps duplicate-path occurrence identities stable during update
 test('TrackStore tombstones removals and does not reuse identity at the same protocol index', () => {
     const store = new TrackStore([result('/old.wav')], runtime);
     const oldId = store.activeIds()[0];
-    store.require(oldId).pendingRangeRequest = 'old-request';
+    const oldRecord = store.require(oldId);
+    oldRecord.pendingRangeRequest = 'old-request';
     assert.equal(store.remove(oldId), true);
     assert.equal(store.idAtProtocolIndex(0), null);
-    assert.equal(store.require(oldId).pendingRangeRequest, null);
+    assert.equal(oldRecord.pendingRangeRequest, null);
+    assert.equal(store.get(oldId), undefined);
 
     store.reconcile([result('/replacement.wav')], (next) => next);
     const replacementId = store.idAtProtocolIndex(0);
@@ -117,4 +119,36 @@ test('TrackStore reports protocol mapping changes when results reorder', () => {
     const reconciliation = store.reconcile([result('/b.wav'), result('/a.wav')], (next) => next);
 
     assert.equal(reconciliation.protocolOrderChanged, true);
+});
+
+
+test('TrackStore restores a locally removed path only after explicit selection', () => {
+    const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
+    const [aId, bId] = store.activeIds();
+    store.remove(aId);
+    store.reconcile([result('/a.wav'), result('/b.wav')], next => next);
+    assert.deepEqual(store.activeIds(), [bId]);
+    store.allowExplicitSelection('/a.wav');
+    store.reconcile([result('/a.wav'), result('/b.wav')], next => next);
+    assert.equal(store.activeIds().length, 2);
+    assert.notEqual(store.activeIds()[0], aId);
+    assert.equal(store.activeIds()[1], bId);
+});
+
+
+test('TrackStore releases inactive payloads across repeated deselection and explicit restoration', () => {
+    const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
+    const bId = store.activeIds()[1];
+    for (let cycle = 0; cycle < 50; cycle++) {
+        const aId = store.activeIds()[0];
+        store.reconcile([result('/b.wav')], next => next);
+        assert.equal(store.get(aId), undefined, 'deselection must release the old analysis payload');
+        store.reconcile([result('/a.wav'), result('/b.wav')], next => next);
+        const restoredId = store.activeIds()[0];
+        store.remove(restoredId);
+        store.allowExplicitSelection('/a.wav');
+        assert.equal(store.get(restoredId), undefined, 'restoration must not retain the removed payload');
+        store.reconcile([result('/a.wav'), result('/b.wav')], next => next);
+        assert.equal(store.activeIds()[1], bId);
+    }
 });

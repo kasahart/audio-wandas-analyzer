@@ -167,4 +167,5 @@ export interface UpdateSpectrogramSettingsMessage {
 export interface AnalysisUpdateMessage {
     type: 'analysis-update';
     results: AnalysisResultWithError[];
+    selectedFilePaths?: string[];
 }

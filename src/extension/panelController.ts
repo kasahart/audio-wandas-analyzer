@@ -32,7 +32,6 @@ import type { ExportFlows } from './exportFlows';
 import { parsePanelMessage, type SelectTargetMessage } from './panelMessages';
 import {
     PanelSession,
-    type DirectorySelectionState,
     type DisposableLike,
     type PanelPort,
 } from './panelSession';
@@ -72,6 +71,7 @@ export interface PanelHandle extends PanelPort {
 }
 
 export interface PanelFactory {
+    updateDirectoryResults(results: AnalysisResultWithError[], panel: PanelHandle, selectedFilePaths?: string[]): Thenable<boolean>;
     showResults(
         extensionUri: vscode.Uri,
         results: AnalysisResultWithError[],
@@ -101,6 +101,9 @@ export interface PanelControllerHost {
 }
 
 const defaultPanelFactory: PanelFactory = {
+    updateDirectoryResults: (results, panel, selectedFilePaths) => ComparisonPanel.updateDirectoryResults(
+        results, panel as vscode.WebviewPanel, selectedFilePaths,
+    ),
     showResults: (extensionUri, results, existingPanel, settings) => ComparisonPanel.show(
         extensionUri,
         results,
@@ -345,7 +348,7 @@ export class PanelController implements vscode.Disposable {
         selection.selectedFilePaths = selectedFilePaths;
 
         if (selectedFilePaths.length === 0) {
-            if (session.isCurrent(revision, message.requestId)) { this.renderDirectorySession(session, selection, []); }
+            if (session.isCurrent(revision, message.requestId)) { await this.updateDirectorySession(session, []); }
             return;
         }
 
@@ -372,9 +375,8 @@ export class PanelController implements vscode.Disposable {
         }
         if (!session.isCurrent(revision, message.requestId)) { return; }
         this.analysis.warmup();
-        this.renderDirectorySession(
+        await this.updateDirectorySession(
             session,
-            selection,
             collectSelectedResults(selection.selectedFilePaths, selection.cachedResultsByFilePath),
         );
         await this.refreshStalePanelResults(session);
@@ -482,6 +484,13 @@ export class PanelController implements vscode.Disposable {
         session: PanelSession<PanelHandle>,
         message: ComparisonPanelReadyMessage,
     ): Promise<void> {
+        if (session.directorySelection) {
+            await this.panelFactory.updateDirectoryResults(
+                ComparisonPanel.getResults(session.panel), session.panel, session.directorySelection.selectedFilePaths,
+            );
+            await this.refreshStalePanelResults(session);
+            return;
+        }
         await this.refreshStalePanelResults(session);
         const current = ComparisonPanel.getResults(session.panel);
         const reported = new Map(
@@ -600,22 +609,15 @@ export class PanelController implements vscode.Disposable {
         });
     }
 
-    private renderDirectorySession(
+    private async updateDirectorySession(
         session: PanelSession<PanelHandle>,
-        selection: DirectorySelectionState,
         results: AnalysisResultWithError[],
-    ): void {
-        this.panelFactory.showDirectory(
-            this.context.extensionUri,
-            selection.rootPath,
-            selection.allFilePaths,
-            selection.selectedFilePaths,
-            results,
-            this.host.getPythonEnvironment(),
-            session.panel,
-            loadSpectrogramSettings(this.context),
-        );
+    ): Promise<void> {
         session.setActiveResults(results.map((result) => result.filePath));
+        await this.panelFactory.updateDirectoryResults(
+            results,
+            session.panel,
+        );
         this.postPythonEnvironmentState(session, this.host.getPythonEnvironment());
     }
 

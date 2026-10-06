@@ -863,6 +863,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleRender();
             scheduleSpectrumRefresh('immediate');
         }
+        if (entry.action === 'set-file-selected' && entry.payload) {
+            const checkbox = Array.from(document.querySelectorAll('.selection-file-checkbox'))
+                .find((input) => input.getAttribute('data-file-path') === entry.payload?.filePath);
+            if (!checkbox) { throw new Error('Selection checkbox not found'); }
+            checkbox.checked = !!entry.payload.selected;
+            const event = document.createEvent('Event');
+            event.initEvent('change', true, false);
+            checkbox.dispatchEvent(event);
+        }
         if (entry.action === 'set-track-offset' && idx >= 0 && entry.payload) {
             const offsetSeconds = Number(entry.payload.offsetSeconds ?? 0);
             if (!Number.isFinite(offsetSeconds)) {
@@ -3157,6 +3166,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             if (target.checked) {
+                trackStore.allowExplicitSelection(filePath);
                 addSelectedFilePath(filePath);
             }
             else {
@@ -3350,6 +3360,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (isVisibleInTree(input)) {
                     const filePath = input.getAttribute('data-file-path');
                     if (filePath) {
+                        trackStore.allowExplicitSelection(filePath);
                         addSelectedFilePath(filePath);
                     }
                 }
@@ -5550,6 +5561,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
+            if (isSelectionMode && msg.selectedFilePaths) {
+                clearSelectedFilePaths();
+                msg.selectedFilePaths.forEach(addSelectedFilePath);
+                syncSelectionCheckboxes();
+                syncSelectionSummary();
+            }
             __setReanalyzeBusy(false);
             invalidateDesiredSpectrumSliceRequests();
             const reconciliation = trackStore.reconcile(msg.results, function (nextResult, previousResult) {
@@ -5571,6 +5588,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     attachAudioEvents();
                 }
             }
+            updateCursorDisplay(hoverNorm ?? cursorNorm);
+            updateLoopTimeDisplay();
             overlaySpectrumPainted = false;
             announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
             scheduleRender();

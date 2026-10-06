@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import {
     DEFAULT_SPECTROGRAM_SETTINGS,
     type AnalysisResultWithError,
+    type AnalysisUpdateMessage,
     type SpectrogramSettings,
 } from '../../shared/analysis/analysisTypes';
 import type {
@@ -102,6 +103,29 @@ export class ComparisonPanel {
         return ComparisonPanel.resultsByPanel.get(panel) ?? [];
     }
 
+    public static updateDirectoryResults(
+        results: AnalysisResultWithError[],
+        panel: vscode.WebviewPanel,
+        selectedFilePaths?: string[],
+    ): Thenable<boolean> {
+        ComparisonPanel.updateResults(panel, results);
+        if (ComparisonPanel.activePanel === panel && ComparisonPanel.testSnapshot) {
+            ComparisonPanel.testSnapshot = {
+                ...ComparisonPanel.testSnapshot,
+                fileNames: results.map((result) => result.fileName),
+                resultCount: results.length,
+            };
+        }
+        return panel.webview.postMessage({
+            type: 'analysis-update',
+            selectedFilePaths,
+            results: results.map((result) => ({
+                ...result,
+                audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
+            })),
+        } satisfies AnalysisUpdateMessage);
+    }
+
     public static replaceResult(
         panel: object,
         replacement: AnalysisResultWithError,
@@ -194,14 +218,14 @@ export class ComparisonPanel {
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
-                localResourceRoots: ComparisonPanel.buildLocalResourceRoots(extensionUri, results),
+                localResourceRoots: [...ComparisonPanel.buildLocalResourceRoots(extensionUri, results), vscode.Uri.file(rootPath)],
             },
         );
 
         panel.title = title;
         panel.webview.options = {
             enableScripts: true,
-            localResourceRoots: ComparisonPanel.buildLocalResourceRoots(extensionUri, results),
+            localResourceRoots: [...ComparisonPanel.buildLocalResourceRoots(extensionUri, results), vscode.Uri.file(rootPath)],
         };
         panel.reveal(vscode.ViewColumn.One, true);
         ComparisonPanel.activePanel = panel;

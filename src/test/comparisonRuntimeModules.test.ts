@@ -72,6 +72,9 @@ test('host message validation rejects unknown and incomplete payloads', () => {
     assert.equal(isHostInboundMessage({ type: 'unknown-message' }), false);
     assert.equal(isHostInboundMessage({ type: 'waveform-range-result', requestId: '1' }), false);
     assert.equal(isHostInboundMessage({ type: 'reanalyze-end' }), true);
+    assert.equal(isHostInboundMessage({ type: 'analysis-update', results: [], selectedFilePaths: ['/a.wav'] }), true);
+    assert.equal(isHostInboundMessage({ type: 'analysis-update', results: [], selectedFilePaths: [3] }), false);
+    assert.equal(isHostInboundMessage({ type: 'analysis-update', results: [], selectedFilePaths: '/a.wav' }), false);
 });
 
 

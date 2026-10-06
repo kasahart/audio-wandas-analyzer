@@ -354,6 +354,30 @@ export async function run(): Promise<void> {
             },
         },
         {
+            name: 'directory checkbox removal and re-add retain other track offset and cursor',
+            run: async () => {
+                const initial = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
+                assert.equal(initial.resultCount, 3);
+                const retainedPath = initial.renderedUi!.tracks[0].filePath;
+                const otherPath = initial.renderedUi!.tracks[1].filePath;
+                const configured = await postActionsAndWait(`selection-state-${Date.now()}`, [
+                    { action: 'set-track-offset', trackIndex: 0, payload: { offsetSeconds: 0.01 } },
+                    { action: 'set-cursor', payload: { cursorNorm: 0.437 } },
+                ]);
+                for (const selected of [false, true]) {
+                    const updated = await postActionsAndWait(`selection-retain-${selected}-${Date.now()}`, [
+                        { action: 'set-file-selected', payload: { filePath: otherPath, selected } },
+                    ], (snapshot) => snapshot.renderedUi?.trackRowCount === (selected ? 3 : 2));
+                    const retained = updated.renderedUi!.tracks.find(track => track.filePath === retainedPath)!;
+                    assert.equal(retained.offsetSeconds, 0.01);
+                    assert.equal(retained.trackId, configured.renderedUi!.tracks[0].trackId);
+                    assert.equal(updated.renderedUi!.cursorNorm, 0.437);
+                    assert.equal(updated.renderedUi!.zoomStart, configured.renderedUi!.zoomStart);
+                    assert.equal(updated.renderedUi!.zoomEnd, configured.renderedUi!.zoomEnd);
+                }
+            },
+        },
+        {
             name: 'directory selection toolbar can select all and clear all tracks',
             run: async () => {
                 const initial = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
@@ -578,7 +602,8 @@ async function analyzeDebugPath(
     await vscode.commands.executeCommand('audioWandasAnalyzer.analyzeDebugFile');
 
     if (options?.selectAllDirectoryFiles) {
-        await waitForSnapshot();
+        await waitForSnapshotWhere(snapshot => snapshot.resultCount === 0
+            && snapshot.renderedUi?.trackRowCount === 0);
         const actionId = `selection-select-all-${Date.now()}`;
         return postActionsAndWait(actionId, ['selection-select-all'], (snapshot) => {
             return snapshot.resultCount > 0
