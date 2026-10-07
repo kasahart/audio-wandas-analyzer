@@ -64,6 +64,31 @@ test('recipe flow stops on cancel, catalog failure and recipes the runtime canno
     assert.equal(noInputs.executed.length, 0);
 });
 
+test('recipe flow suppresses results and errors after its session becomes stale', async () => {
+    for (const fail of [false, true]) {
+        let current = true;
+        const app = ports({ execute: async () => {
+            current = false;
+            if (fail) throw new Error('Analysis cancelled');
+            return { charts: [] };
+        } });
+        await app.flow.run(['/a.wav'], () => current);
+        assert.equal(app.log.some(entry => entry.startsWith('charts:') || entry.startsWith('error:')), false);
+    }
+});
+
+test('recipe flow stops before prompting or executing when an awaited input becomes stale', async () => {
+    let current = true;
+    const catalog = ports({ listRecipes: async () => { current = false; return []; } });
+    await catalog.flow.run(['/a.wav'], () => current);
+    assert.deepEqual(catalog.log, []);
+    current = true;
+    const document = ports({ readRecipe: async () => { current = false; return { inputs: [] }; } });
+    await document.flow.run(['/a.wav'], () => current);
+    assert.deepEqual(document.executed, []);
+    assert.equal(document.log.some(entry => entry.startsWith('error:')), false);
+});
+
 test('recipe documents keep unknown keys, reject malformed inputs and leave absolute files alone', () => {
     assert.equal(isRecipeDocument({ inputs: [{ name: 'a', file: 'x' }], requires: ['mosqito'], steps: [] }), true);
     assert.equal(isRecipeDocument({ inputs: [{ name: 1, file: 'x' }] }), false);

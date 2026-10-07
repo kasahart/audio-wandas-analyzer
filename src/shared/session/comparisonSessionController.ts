@@ -71,7 +71,7 @@ export interface ComparisonSessionPorts {
     selection?(message: AnalyzeSelectedFilesMessage): Promise<void>;
     panelReady?(message: ComparisonPanelReadyMessage): Promise<void>;
     selectPythonEnvironment?(): Promise<void>;
-    runRecipe?(): Promise<void>;
+    runRecipe?(scope: SessionScope): Promise<void>;
 }
 
 export function reasonOf(error: unknown): string {
@@ -122,7 +122,7 @@ export class ComparisonSessionController {
                     if (this.ports.selectPythonEnvironment) await this.ports.selectPythonEnvironment(); else this.ports.unsupported(message.type);
                     return;
                 case 'run-recipe':
-                    if (this.ports.runRecipe) await this.ports.runRecipe(); else this.ports.unsupported(message.type);
+                    if (this.ports.runRecipe) await this.ports.runRecipe(scope); else this.ports.unsupported(message.type);
                     return;
             }
         } catch (error) {

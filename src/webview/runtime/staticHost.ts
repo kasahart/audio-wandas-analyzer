@@ -273,9 +273,9 @@ const ports: ComparisonSessionPorts = {
     showInformation: announce,
     showError: announce,
     unsupported: () => announce(strings.browserUnavailable),
-    runRecipe: async (): Promise<void> => {
+    runRecipe: async (scope): Promise<void> => {
         if (!sources.size) { announce(strings.browserRecipeNoSources); return; }
-        await recipeFlow.run(sources.snapshot(source => source.path));
+        await recipeFlow.run(sources.snapshot(source => source.path), () => scope.isCurrent());
     },
 };
 const controller = new ComparisonSessionController(ports);

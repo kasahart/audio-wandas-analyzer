@@ -47,20 +47,22 @@ export function recipeBaseName(location: string): string {
 export class RecipeFlow {
     constructor(private readonly ports: RecipeFlowPorts) {}
 
-    async run(selectionFilePaths?: string[]): Promise<void> {
+    async run(selectionFilePaths?: string[], isCurrent: () => boolean = () => true): Promise<void> {
+        if (!isCurrent()) return;
         let entries: RecipeCatalogEntry[];
         try {
             entries = await this.ports.listRecipes();
         } catch (error) {
-            this.ports.showError(`Could not read recipes: ${error instanceof Error ? error.message : String(error)}`);
+            if (isCurrent()) this.ports.showError(`Could not read recipes: ${error instanceof Error ? error.message : String(error)}`);
             return;
         }
+        if (!isCurrent()) return;
         const items = entries.map(entry => ({
             label: entry.name,
             description: entry.missing?.length ? `${entry.location} (needs ${entry.missing.join(', ')})` : entry.location,
         }));
         const location = await this.ports.pickRecipe(items, entries);
-        if (!location) return;
+        if (!isCurrent() || !location) return;
         const chosen = entries.find(entry => entry.location === location);
         if (chosen?.missing?.length) {
             this.ports.showError(`Recipe ${chosen.name} needs ${chosen.missing.join(', ')}, which this runtime does not bundle.`);
@@ -69,18 +71,21 @@ export class RecipeFlow {
         const selected = selectionFilePaths && selectionFilePaths.length > 0
             ? selectionFilePaths
             : await this.ports.pickInputFiles();
-        if (!selected || selected.length === 0) return;
+        if (!isCurrent() || !selected || selected.length === 0) return;
 
         const title = recipeBaseName(location);
         await this.ports.runWithProgress(`Running recipe ${title}…`, async () => {
+            if (!isCurrent()) return;
             try {
+                const document = await this.ports.readRecipe(location);
+                if (!isCurrent()) return;
                 const recipe = substituteSelection(
-                    await this.ports.readRecipe(location), selected, file => this.ports.resolveRelative(file, location),
+                    document, selected, file => this.ports.resolveRelative(file, location),
                 );
                 const result = await this.ports.execute(recipe, location);
-                this.ports.showCharts(title, result.charts);
+                if (isCurrent()) this.ports.showCharts(title, result.charts);
             } catch (error) {
-                this.ports.showError(`Recipe execution failed: ${error instanceof Error ? error.message : String(error)}`);
+                if (isCurrent()) this.ports.showError(`Recipe execution failed: ${error instanceof Error ? error.message : String(error)}`);
             }
         });
     }

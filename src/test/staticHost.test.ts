@@ -317,3 +317,20 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     await flush();
     assert.equal(app.status, 'Recipe execution failed: recipe error: Unknown name');
 });
+
+test('clearing sources during a recipe preserves the new status and ignores late charts', async () => {
+    const app = harness();
+    await app.load();
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush();
+    const worker = app.workers[0];
+    const command = worker.commands.at(-1)!;
+    assert.equal(command.cmd, 'run-recipe');
+    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    await flush();
+    assert.equal(app.status, app.browser.__APP_STRINGS__.browserCleared);
+    worker.reply(command, { charts: [{ kind: 'scalar', title: 'Late', rows: [] }] });
+    await flush();
+    assert.equal(app.status, app.browser.__APP_STRINGS__.browserCleared);
+    assert.equal(app.elements.some(element => element.tag === 'iframe'), false);
+});
