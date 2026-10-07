@@ -203,8 +203,10 @@ const ports: ComparisonSessionPorts = {
         const myGeneration = sourceGeneration.current;
         const myReanalysis = message.type === 'request-reanalyze' ? reanalysisGeneration.advance() : undefined;
         const owner = 'filePath' in message ? sources.get(message.filePath) : undefined;
+        const recipeOwners = message.type === 'run-recipe' ? Array.from(sources.values()) : [];
         const isCurrent = (): boolean => sourceGeneration.isCurrent(myGeneration)
             && (owner === undefined || sources.owns(owner.path, owner))
+            && recipeOwners.every(source => sources.owns(source.path, source))
             && (myReanalysis === undefined || reanalysisGeneration.isCurrent(myReanalysis));
         return { isCurrent, canPublish: isCurrent };
     },

@@ -10,7 +10,8 @@ async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 }
 
-test('clearing a pending browser recipe keeps the cleared status', async ({ page }) => {
+for (const clearSources of [true, false]) {
+test(clearSources ? 'clearing a pending browser recipe keeps the cleared status' : 'removing one browser recipe input ignores late charts', async ({ page }) => {
     const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8'));
     await page.setContent('<html><body></body></html>');
     await page.addScriptTag({ content: `
@@ -23,9 +24,14 @@ test('clearing a pending browser recipe keeps the cleared status', async ({ page
         window.Worker = class {
             terminate() {}
             postMessage(command) {
-                if (command.cmd === 'run-recipe') { window.__pendingRecipe = command; return; }
+                if (command.cmd === 'run-recipe') {
+                    window.__pendingRecipe = command;
+                    window.__completeRecipe = () => this.onmessage({ data: { requestId: command.requestId,
+                        result: { charts: [{ kind: 'scalar', title: 'Late', rows: [] }] } } });
+                    return;
+                }
                 const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
-                    : { ...fixtures.find(entry => entry.command === command.cmd).response, filePath: command.filePath };
+                    : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath };
                 queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
             }
         };
@@ -33,15 +39,26 @@ test('clearing a pending browser recipe keeps the cleared status', async ({ page
     await page.addScriptTag({ content: readFileSync(join(process.cwd(), 'dist/webview/staticHost.js'), 'utf8') });
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
     await expect(page.locator('[role="status"]')).toContainText('selected.wav:');
+    if (!clearSources) {
+        await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'second.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
+        await expect(page.locator('[role="status"]')).toContainText('second.wav:');
+    }
     await page.evaluate(() => {
         (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
     });
     await expect.poll(() => page.evaluate(() => Boolean((window as typeof window & { __pendingRecipe?: unknown }).__pendingRecipe))).toBe(true);
-    await page.locator('[data-action="browser-clear"]').click();
-    const cleared = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared);
-    await expect(page.locator('[role="status"]')).toHaveText(cleared);
+    const expected = clearSources
+        ? await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared)
+        : await page.locator('[role="status"]').textContent();
+    if (clearSources) await page.locator('[data-action="browser-clear"]').click();
+    else await page.evaluate(() => {
+        (window as typeof window & { __AWA_HOST__: { releaseSource(path: string): void } }).__AWA_HOST__.releaseSource('/sources/selected-1.wav');
+    });
+    await page.evaluate(() => (window as typeof window & { __completeRecipe(): void }).__completeRecipe());
+    await expect(page.locator('[role="status"]')).toHaveText(expected!);
     await expect(page.locator('[data-recipe-result]')).toHaveCount(0);
 });
+}
 
 test('static page CSP allows recipe charts and calibration clicks report unsupported functionality', async ({ page }) => {
     const cspErrors: string[] = [];

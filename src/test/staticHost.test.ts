@@ -346,3 +346,25 @@ test('static calibration requests explain the unavailable operation and reject m
     app.host.postMessage(message);
     assert.equal(app.status, app.browser.__APP_STRINGS__.browserUnavailable);
 });
+
+test('removing one recipe input suppresses stale charts and errors while other sources remain', async () => {
+    for (const fail of [false, true]) {
+        const app = harness();
+        await app.load();
+        const removedPath = app.sourcePath;
+        await app.load();
+        const worker = app.workers[0];
+        app.host.postMessage({ type: 'run-recipe' });
+        await flush();
+        const command = worker.commands.at(-1)!;
+        assert.equal(command.cmd, 'run-recipe');
+        app.host.releaseSource!(removedPath);
+        await flush();
+        assert.equal(worker.terminated, false);
+        const currentStatus = app.status;
+        worker.reply(command, { charts: [{ kind: 'scalar', title: 'Removed input', rows: [] }] }, fail ? 'Input removed' : undefined);
+        await flush();
+        assert.equal(app.status, currentStatus);
+        assert.equal(app.elements.some(element => element.tag === 'iframe'), false);
+    }
+});
