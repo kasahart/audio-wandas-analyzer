@@ -1,4 +1,4 @@
-import { RequestGeneration } from '../shared/analysis/analysisCoordinator';
+import { SessionRequests, SourceResults } from '../shared/analysis/analysisSession';
 import type { AnalysisResultWithError, DirectoryTreeNode } from '../shared/analysis/analysisTypes';
 
 export interface DisposableLike {
@@ -26,8 +26,10 @@ export class PanelSession<P extends PanelPort = PanelPort> {
     readonly panel: P;
     directorySelection: DirectorySelectionState | null = null;
     activeResultPaths: string[] = [];
-    latestRequestId: string | undefined;
-    private readonly generation = new RequestGeneration();
+    private readonly generation = new SessionRequests();
+    private cachedResults = new SourceResults<AnalysisResultWithError>();
+
+    get latestRequestId(): string | undefined { return this.generation.latestRequestId; }
     private messageDisposable: DisposableLike | null = null;
     private pythonEnvironmentSubscription: DisposableLike | null = null;
     private disposed = false;
@@ -43,6 +45,7 @@ export class PanelSession<P extends PanelPort = PanelPort> {
     setDirectorySelection(selection: DirectorySelectionState): void {
         this.invalidateState();
         this.directorySelection = selection;
+        this.cachedResults = new SourceResults(selection.cachedResultsByFilePath);
         this.activeResultPaths = [];
     }
 
@@ -53,22 +56,20 @@ export class PanelSession<P extends PanelPort = PanelPort> {
     cacheResults(results: AnalysisResultWithError[]): void {
         if (!this.directorySelection) { return; }
         for (const result of results) {
-            this.directorySelection.cachedResultsByFilePath.set(result.filePath, result);
+            this.cachedResults.set(result.filePath, result);
         }
     }
 
     hasCachedResult(filePath: string, expectedAnalysisRevision: number): boolean {
-        const cache = this.directorySelection?.cachedResultsByFilePath;
-        const result = cache?.get(filePath);
-        if (!result) { return false; }
-        if ((result.analysisRevision ?? 0) === expectedAnalysisRevision) { return true; }
-        cache?.delete(filePath);
-        return false;
+        return this.directorySelection !== null && this.cachedResults.hasRevision(
+            filePath, expectedAnalysisRevision, result => result.analysisRevision ?? 0,
+        );
     }
 
     clearDirectorySelection(): void {
         this.invalidateState();
         this.directorySelection = null;
+        this.cachedResults = new SourceResults();
     }
 
     getActiveFilePaths(): string[] {
@@ -78,14 +79,12 @@ export class PanelSession<P extends PanelPort = PanelPort> {
     }
 
     beginStateRequest(requestId?: string): number {
-        this.latestRequestId = requestId;
-        return this.invalidateState();
+        return this.generation.begin(requestId);
     }
 
     isCurrent(revision: number, requestId?: string): boolean {
         return !this.disposed
-            && this.generation.isCurrent(revision)
-            && (requestId === undefined || requestId === this.latestRequestId);
+            && this.generation.isCurrent(revision, requestId);
     }
 
     bindMessageListener(disposable: DisposableLike): void {
@@ -106,12 +105,13 @@ export class PanelSession<P extends PanelPort = PanelPort> {
     dispose(): void {
         if (this.disposed) { return; }
         this.disposed = true;
-        this.generation.advance();
+        this.generation.dispose();
         this.messageDisposable?.dispose();
         this.messageDisposable = null;
         this.pythonEnvironmentSubscription?.dispose();
         this.pythonEnvironmentSubscription = null;
         this.directorySelection = null;
+        this.cachedResults = new SourceResults();
         this.activeResultPaths = [];
     }
 

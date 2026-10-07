@@ -25,8 +25,23 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
 - `AnalysisClient` は analyze/detail/slice/range/export の要求を組み立てる。
   `executeLazyAnalysis` は detail/slice/range の UI 結果へ変換する。host は
   型付き request transport と表示中の calibration/STFT context を提供する。
-- `runAnalysisBatch` と `RequestGeneration` は逐次処理と古い応答の排除を担当する。
-  source の同一性、許可されたファイル集合、native cancellation、Worker 終了は host が判断する。
+- `runAnalysisBatch` は逐次処理、`SessionRequests` は世代・request ID・dispose 後の応答排除を担当する。
+  Web の clear は世代を進めて再利用し、native Panel dispose は閉鎖する。再生成 Panel は別 session。
+- `SourceResults` は結果 collection と owner の参照同一性を管理する。native は借用した directory cache を
+  選択解除・detach 時にも保持し、revision 不一致だけを除去する。Web は所有 source の drop/clear 時に
+  lease を無効化して Blob を解放する。Worker unload/terminate、許可パス、native 取消は adapter の責務。
+- `AnalysisContextPolicy.current/discardStale` は native の校正 store を注入する。
+  lazy request の明示 revision（0 を含む）は表示済み context として優先する。analyze は現 store の
+  context を使い、一致した stale profile の破棄後だけ1回再試行する。取消 token は初回と再試行で共通。
+  Web は policy なしで入力 context を使う。校正 UI/persistence を Web に追加したことにはならない。
+  Panel は表示 hook で校正 listener を登録し、prototype や show メソッドを書き換えない。
+- `ComparisonSessionController`（`src/shared/session/`）は panel message の解釈を一度だけ持つ。
+  設定保存、再解析の start/update/end 包絡と世代ゲート、lazy 結果への変換と公開判定、
+  WAV 区間・レポートの書き出し手順、未対応操作の通知経路はここにある。host は
+  `ComparisonSessionPorts` で scope（公開可否）、transport、設定ストア、ダイアログ、
+  ソース所有を注入する。native `PanelController` と Web `staticHost` は port 実装だけを持ち、
+  同期的な port は同一 tick で backend command に到達する。active source が 0 件の再解析は
+  設定保存のみで包絡を送らない。
 - `OrderedSelection` は順序・重複排除・再追加の規則を担当する。native の tree による
   パス許可検証を UI 側の選択状態で代替しない。
 - `exportWavRegions` は区間計画・順序・衝突しない名前を共有する。sink は書込み先と
@@ -37,7 +52,15 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   `backend_server.py` は native 起動・heartbeat・NDJSON、`browser_service.py` は
   virtual source と Web 上限を担当する。Web 配布物には native transport を含めない。
 
-Recipe、校正設定 UI、フォルダ選択、codec の Web 対応範囲は増やしていない。
+- Recipe は `src/shared/recipe/` の `RecipeFlow` が一覧・選択・`{{selection}}` 置換・実行・表示の手順を持つ。
+  native は recipes ディレクトリ、QuickPick、子プロセス `recipe_runner.py`、ChartSpec Panel を port で渡す。
+  Web は build 時の `recipes/manifest.json`、prompt、Worker の `run-recipe` command、同一 origin の
+  `chartSpec.js` を読み込む frame を渡す。Python 側は `recipe_runner.run_recipe(recipe, base_dir, load)` の
+  loader 注入で、ファイルパスではなく engine が保持する frame を入力にできる。`requires` を宣言した recipe は
+  runtime lock に無い配布物（mosqito）を欠くと Web 一覧で実行不可と表示する。
+  ChartSpec 文書の CSS と globals は `chartSpecDocument.ts` に置き、render script は両 host が同じ文字列を使う。
+
+校正設定 UI、フォルダ選択、codec の Web 対応範囲は増やしていない。
 新しい共通処理は両 host が実際に参照する。host 名による分岐で共通ファイルを膨らませない。
 
 ### 共有率の測り方と目標
@@ -50,7 +73,8 @@ HTML/CSS は所在する TS に含め、tests、vendor、生成物、docs、buil
 
 基準は共有 31 / 全体 61 ファイル (50.82%)、非空行 10,394 / 15,960 (65.13%)。
 80% は目標であり達成済みではない。native 専用の Python 環境管理、コマンド登録、Panel、
-ファイル権限や、未移植 Recipe を維持したまま、同じ分母の 80% を保証できない。
+ファイル権限は adapter として残るため、ファイル数での 80% は同じ分母では保証できない。
+行数ベースは Recipe の Web 対応と共通 session controller で 80% 近傍に達する。
 独立した adapter を合併して数を減らす、共通 file を細分化する、未使用 import を追加する方法は採らない。
 率と併せて、同じコマンド変換・区間計画・選択規則を一度の変更で両版へ反映できるかを評価する。
 

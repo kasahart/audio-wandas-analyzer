@@ -72,15 +72,10 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     assert.doesNotMatch(script, /request-calibration-refresh/);
 });
 
-test('production calibration wrapper forwards analysis cancellation and exposes per-file revisions', () => {
-    const source = readFileSync(
-        path.resolve(process.cwd(), 'src/extension/calibrationPanelRuntime.ts'),
-        'utf8',
-    );
-
-    assert.match(source, /prototype\.analysisRevisionFor = function\(filePath\)/u);
-    assert.match(source, /prototype\.analyze = async function\(filePath, options, cancellation\)/u);
-    assert.equal(source.match(/\}, cancellation\);/gu)?.length, 2);
+test('calibration uses composition rather than global prototype or panel-method patches', () => {
+    const source = readFileSync(path.resolve(process.cwd(), 'src/extension/calibrationPanelRuntime.ts'), 'utf8');
+    assert.doesNotMatch(source, /prototype|ComparisonPanel\.show\s*=/u);
+    assert.match(source, /ComparisonPanel\.setShownListener\(installOnPanel\)/u);
 });
 
 test('ComparisonPanel result ownership follows accepted in-place reanalysis', () => {
@@ -335,4 +330,104 @@ test('calibration profile lookup uses the same real filesystem path as the backe
     } as unknown as import('vscode').ExtensionContext;
 
     assert.deepEqual(calibrationStore.getCalibrationProfile(extensionContext, symlinkPath), profile);
+});
+
+test('native injected calibration retry preserves cancellation token and request error revision', async () => {
+    const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
+    const originalLoad = NodeModule._load;
+    class CancellationError extends Error {}
+    NodeModule._load = function(request, parent, isMain): unknown {
+        if (request === 'vscode') return { CancellationError };
+        if (request === './pythonEnvironment') return {};
+        return originalLoad.call(this, request, parent, isMain);
+    };
+    let backendModule: typeof import('../extension/pythonBackendServer');
+    try { backendModule = require('../extension/pythonBackendServer'); }
+    finally { NodeModule._load = originalLoad; }
+    const { BackendStartupCancelledError } = await import('../extension/backendIpc');
+    const profile = { schemaVersion: 1 as const, channels: [] };
+    let revision = 2;
+    const tokens: unknown[] = [];
+    const token = { isCancellationRequested: false } as import('vscode').CancellationToken;
+    const server = new class extends backendModule.PythonBackendServer {
+        failCancellation = false;
+        constructor() {
+            super('unused', () => {}, () => {}, {
+                current: () => ({ calibrationProfile: profile, analysisRevision: revision }),
+                discardStale: async (_path, error) => {
+                    if (!(error instanceof backendModule.AnalysisRequestError)) return false;
+                    assert.equal(error.analysisRevision, 2);
+                    revision = 3; return true;
+                },
+            });
+        }
+        protected override async request<K extends import('../shared/protocol/backendProtocol').BackendCommand>(
+            _command: K, _payload: import('../shared/protocol/backendProtocol').BackendPayload<K>, _id?: string,
+            cancellation?: import('vscode').CancellationToken,
+        ): Promise<import('../shared/protocol/backendProtocol').BackendResult<K>> {
+            tokens.push(cancellation);
+            if (this.failCancellation) throw new BackendStartupCancelledError();
+            if (tokens.length === 1) throw new Error('Calibration channel label mismatch');
+            return {} as import('../shared/protocol/backendProtocol').BackendResult<K>;
+        }
+    }();
+    await server.analyze('source', {}, token);
+    assert.deepEqual(tokens, [token, token]);
+    server.failCancellation = true;
+    await assert.rejects(server.analyze('source', {}, token), CancellationError);
+    assert.equal(tokens.length, 3);
+});
+
+test('native calibration shown hook replaces listeners and follows live results and recreated panels', async () => {
+    const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
+    const originalLoad = NodeModule._load;
+    const configured: Array<{ path: string; labels: string[] }> = [];
+    const result = (filePath: string, label: string) => ({ filePath, fileName: filePath, channels: [{ label }] });
+    const results = new Map<object, ReturnType<typeof result>[]>();
+    const panel = () => {
+        const messages = new Set<(message: unknown) => unknown>();
+        const disposals: Array<() => void> = [];
+        const views: Array<(event: { webviewPanel: object }) => void> = [];
+        return { active: true, messages, disposals, views,
+            webview: { onDidReceiveMessage: (listener: (message: unknown) => unknown) => {
+                messages.add(listener); return { dispose: () => messages.delete(listener) };
+            } },
+            onDidDispose: (listener: () => void) => { disposals.push(listener); },
+            onDidChangeViewState: (listener: (event: { webviewPanel: object }) => void) => { views.push(listener); },
+        };
+    };
+    let shown!: (value: ReturnType<typeof panel>) => void;
+    let configureActive!: () => Promise<void>;
+    NodeModule._load = function(request, parent, isMain): unknown {
+        if (request === 'vscode') return {
+            commands: { registerCommand: (_name: string, action: () => Promise<void>) => { configureActive = action; return { dispose() {} }; } },
+            window: { showInformationMessage() {}, showQuickPick: async (items: unknown[]) => items[0] },
+        };
+        if (request === '../webview/panels/ComparisonPanel') return { ComparisonPanel: {
+            setShownListener: (listener: typeof shown) => { shown = listener; },
+            getResults: (value: object) => results.get(value) ?? [],
+        } };
+        if (request === './calibrationStore') return {
+            configureCalibrationProfile: async (_context: unknown, filePath: string, channels: Array<{ label: string }>) => {
+                configured.push({ path: filePath, labels: channels.map(channel => channel.label) });
+            },
+        };
+        return originalLoad.call(this, request, parent, isMain);
+    };
+    let runtime: typeof import('../extension/calibrationPanelRuntime');
+    try { runtime = require('../extension/calibrationPanelRuntime'); }
+    finally { NodeModule._load = originalLoad; }
+    runtime.installCalibrationPanelRuntime({ subscriptions: [] } as unknown as import('vscode').ExtensionContext);
+    const first = panel(); results.set(first, [result('/a.wav', 'old')]);
+    shown(first); shown(first);
+    assert.equal(first.messages.size, 1);
+    assert.equal(first.views.length, 1);
+    assert.equal(first.disposals.length, 1);
+    results.set(first, [result('/a.wav', 'updated')]);
+    await [...first.messages][0]({ type: 'configure-calibration', trackIndex: 0, filePath: '/a.wav', channels: [{ channelIndex: 0, label: 'ignored message metadata' }] });
+    first.disposals.forEach(dispose => dispose());
+    assert.equal(first.messages.size, 0);
+    const recreated = panel(); results.set(recreated, [result('/b.wav', 'new')]);
+    shown(recreated); await configureActive();
+    assert.deepEqual(configured, [{ path: '/a.wav', labels: ['updated'] }, { path: '/b.wav', labels: ['new'] }]);
 });

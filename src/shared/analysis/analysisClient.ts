@@ -2,19 +2,47 @@ import type { StftOptions } from './analysisTypes';
 import type {
     AnalyzePayload, BackendCommand, BackendPayload, BackendResult,
     CalibrationRequestContext, RangeResult, SpectrumSlicePayload, SpectrumSliceResult,
-    TrackDetailPayload, TrackDetailResult, ExportWavLoopResult,
+    TrackDetailPayload, TrackDetailResult, ExportWavLoopResult, RunRecipePayload, RunRecipeResult,
 } from '../protocol/backendProtocol';
 import type { SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../utils/audioTarget';
 
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
 
+export interface AnalysisContextPolicy {
+    current(filePath: string): CalibrationRequestContext;
+    discardStale?(filePath: string, error: unknown, attempted: CalibrationRequestContext): Promise<boolean>;
+}
+
 export abstract class AnalysisClient {
+    constructor(private readonly contextPolicy?: AnalysisContextPolicy) {}
+
+    analysisRevisionFor(filePath: string): number {
+        return this.contextPolicy?.current(filePath).analysisRevision ?? 0;
+    }
+
+    protected requestContext(filePath: string, request: CalibrationRequestContext): CalibrationRequestContext {
+        return request.analysisRevision !== undefined ? request : this.contextPolicy?.current(filePath) ?? request;
+    }
+
+    protected async analyzeWithContext<R>(
+        filePath: string, options: AnalyzeOptions, send: (options: AnalyzeOptions) => Promise<R>,
+    ): Promise<R> {
+        const context = this.contextPolicy?.current(filePath) ?? options;
+        const resolved = { ...options, calibrationProfile: context.calibrationProfile, analysisRevision: context.analysisRevision };
+        try {
+            return await send(resolved);
+        } catch (error) {
+            if (!context.calibrationProfile || !await this.contextPolicy?.discardStale?.(filePath, error, context)) throw error;
+            return send({ ...options, calibrationProfile: undefined, analysisRevision: this.analysisRevisionFor(filePath) });
+        }
+    }
+
     protected abstract request<K extends BackendCommand>(
         command: K, payload: BackendPayload<K>, requestId?: string,
     ): Promise<BackendResult<K>>;
 
     analyze(filePath: string, options: AnalyzeOptions): Promise<BackendResult<'analyze'>> {
-        return this.request('analyze', analysisPayload(filePath, options));
+        return this.analyzeWithContext(filePath, options, resolved => this.request('analyze', analysisPayload(filePath, resolved)));
     }
 
     async requestRange(
@@ -27,7 +55,7 @@ export abstract class AnalysisClient {
     ): Promise<RangeResult> {
         return this.request(
             'range',
-            { filePath, startNorm, endNorm, points, ...this.calibrationPayload(calibration) },
+            { filePath, startNorm, endNorm, points, ...this.calibrationPayload(this.requestContext(filePath, calibration)) },
             requestId,
         );
     }
@@ -45,7 +73,7 @@ export abstract class AnalysisClient {
                 analysisId: payload.analysisId,
                 settingsSignature: payload.settingsSignature,
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
-                ...this.calibrationPayload(payload),
+                ...this.calibrationPayload(this.requestContext(filePath, payload)),
             },
             requestId,
         );
@@ -69,7 +97,7 @@ export abstract class AnalysisClient {
                 settingsSignature: payload.settingsSignature,
                 cursorNorm: payload.cursorNorm,
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
-                ...this.calibrationPayload(payload),
+                ...this.calibrationPayload(this.requestContext(filePath, payload)),
             },
             requestId,
         );
@@ -84,6 +112,10 @@ export abstract class AnalysisClient {
             'export-wav-loop',
             { filePath, startNorm, endNorm },
         );
+    }
+
+    runRecipe(recipe: RunRecipePayload['recipe']): Promise<RunRecipeResult> {
+        return this.request('run-recipe', { recipe });
     }
 
     protected calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {

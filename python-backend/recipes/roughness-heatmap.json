@@ -1,13 +1,31 @@
 {
+  "requires": [
+    "mosqito"
+  ],
   "inputs": [
-    { "name": "sig", "file": "{{selection}}" }
+    {
+      "name": "sig",
+      "file": "{{selection}}"
+    }
   ],
   "steps": [
-    { "as": "rough_spec", "expr": "sig.roughness_dw_spec()" },
-    { "as": "rough_tv", "expr": "sig.roughness_dw()" }
+    {
+      "as": "rough_spec",
+      "expr": "sig.roughness_dw_spec()"
+    },
+    {
+      "as": "rough_tv",
+      "expr": "sig.roughness_dw()"
+    }
   ],
   "display": [
-    { "name": "rough_spec", "title": "Daniel-Weber roughness spectrum (mod. freq x time)" },
-    { "name": "rough_tv", "title": "Daniel-Weber roughness vs. time" }
+    {
+      "name": "rough_spec",
+      "title": "Daniel-Weber roughness spectrum (mod. freq x time)"
+    },
+    {
+      "name": "rough_tv",
+      "title": "Daniel-Weber roughness vs. time"
+    }
   ]
 }

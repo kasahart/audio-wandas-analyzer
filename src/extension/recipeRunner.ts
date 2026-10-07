@@ -2,38 +2,30 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { RecipeRunnerResult } from '../shared/chartSpec';
+import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 
 const RECIPE_RUNNER_SCRIPT = 'recipe_runner.py';
 const RUN_TIMEOUT_MS = 120_000;
 
 export interface RunRecipeOptions {
-    recipePath: string;
-    selectionFilePaths: string[];
+    /** Recipe with `{{selection}}` and relative inputs already resolved. */
+    recipe: RecipeDocument;
     extensionPath: string;
     pythonCommand?: string;
 }
 
 /**
- * Read a recipe JSON file, substitute {{selection}} placeholders with the
- * provided file paths in order, then spawn python recipe_runner.py with the
- * resolved JSON on stdin. Returns the parsed ChartSpec payload.
+ * Spawn python recipe_runner.py with the resolved recipe JSON on stdin and
+ * return the parsed ChartSpec payload. Input substitution is shared with the
+ * Web host in src/shared/recipe; only the child process is native.
  */
 export async function runRecipe(opts: RunRecipeOptions): Promise<RecipeRunnerResult> {
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
     const pythonCommand = resolveConfiguredPythonCommand(opts.pythonCommand ?? config.get<string>('pythonCommand', 'python3'));
     const scriptDir = path.join(opts.extensionPath, 'python-backend');
     const scriptPath = path.join(scriptDir, RECIPE_RUNNER_SCRIPT);
-
-    const recipeText = await vscode.workspace.fs.readFile(vscode.Uri.file(opts.recipePath));
-    const recipe = JSON.parse(Buffer.from(recipeText).toString('utf-8')) as {
-        inputs?: Array<{ name: string; file: string }>;
-        steps?: unknown;
-        display?: unknown;
-    };
-
-    const resolved = substituteSelection(recipe, opts.selectionFilePaths, path.dirname(opts.recipePath));
-    const payload = JSON.stringify(resolved);
+    const payload = JSON.stringify(opts.recipe);
 
     return await new Promise<RecipeRunnerResult>((resolve, reject) => {
         const proc = spawn(pythonCommand, [scriptPath, '--recipe', '-'], {
@@ -72,31 +64,4 @@ export async function runRecipe(opts: RunRecipeOptions): Promise<RecipeRunnerRes
 
         proc.stdin.end(payload, 'utf-8');
     });
-}
-
-function substituteSelection(
-    recipe: { inputs?: Array<{ name: string; file: string }> } & Record<string, unknown>,
-    selectionFilePaths: string[],
-    recipeDir: string,
-): unknown {
-    const inputs = Array.isArray(recipe.inputs) ? recipe.inputs : [];
-    let selectionCursor = 0;
-    const resolvedInputs = inputs.map((input) => {
-        if (input.file === '{{selection}}') {
-            const fp = selectionFilePaths[selectionCursor];
-            selectionCursor += 1;
-            if (!fp) {
-                throw new Error(
-                    `Recipe expects ${inputs.filter((i) => i.file === '{{selection}}').length} file(s) ` +
-                    `from the panel selection but ${selectionFilePaths.length} are checked.`,
-                );
-            }
-            return { ...input, file: fp };
-        }
-        if (!path.isAbsolute(input.file)) {
-            return { ...input, file: path.resolve(recipeDir, input.file) };
-        }
-        return input;
-    });
-    return { ...recipe, inputs: resolvedInputs };
 }

@@ -43,6 +43,7 @@ export const GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS = [
 export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'browser-open-wav',
     'browser-clear',
+    'browser-recipe-close',
     'open-file',
     'open-folder',
     'select-python-environment',
@@ -167,8 +168,8 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         id: 'recipe-runner',
         label: 'Run a wandas recipe from the comparison panel',
         entryPoints: ['results-toolbar', 'command', 'dialog'],
-        triggers: ['audioWandasAnalyzer.runRecipe', 'run-recipe'],
-        regressionLayers: ['ui-smoke'],
+        triggers: ['audioWandasAnalyzer.runRecipe', 'run-recipe', 'browser-recipe-close'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'calibration',

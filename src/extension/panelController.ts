@@ -1,20 +1,12 @@
-import { executeLazyAnalysis, lazyAnalysisError, type LazyAnalysisRequest } from '../shared/analysis/analysisClient';
 import * as vscode from 'vscode';
 import {
     type AnalysisResultWithError,
     type AnalysisUpdateMessage,
     type ComparisonPanelReadyMessage,
-    type RequestReanalyzeMessage,
     type SpectrogramSettings,
     type StftOptions,
-    type UpdateSpectrogramSettingsMessage,
 } from '../shared/analysis/analysisTypes';
-import {
-    type AnalyzeSelectedFilesMessage,
-    type SpectrumSliceRequest,
-    type TrackDetailRequest,
-    type WaveformRangeRequest,
-} from '../shared/utils/audioTarget';
+import { type AnalyzeSelectedFilesMessage, type SelectionTargetKind } from '../shared/utils/audioTarget';
 import {
     collectAudioFilePaths,
     collectSelectedResults,
@@ -30,7 +22,8 @@ import {
     type CalibrationChangeEvent,
 } from './calibrationStore';
 import type { ExportFlows } from './exportFlows';
-import { parsePanelMessage, type SelectTargetMessage } from '../shared/protocol/panelMessages';
+import type { PanelMessage } from '../shared/protocol/panelMessages';
+import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../shared/session/comparisonSessionController';
 import {
     PanelSession,
     type DisposableLike,
@@ -298,10 +291,9 @@ export class PanelController implements vscode.Disposable {
         if (current) { return current; }
         const session = new PanelSession(panel);
         this.sessions.set(panel, session);
+        const controller = new ComparisonSessionController(this.sessionPorts(session));
         session.bindMessageListener(panel.webview.onDidReceiveMessage((message) => {
-            void this.dispatchMessage(session, message).catch((error) => {
-                this.host.showError(error instanceof Error ? error.message : String(error));
-            });
+            void controller.dispatch(message);
         }));
         session.bindPythonEnvironment(this.host.onPythonEnvironmentChange((state) => {
             this.postPythonEnvironmentState(session, state);
@@ -313,31 +305,37 @@ export class PanelController implements vscode.Disposable {
         return session;
     }
 
-    private async dispatchMessage(session: PanelSession<PanelHandle>, rawMessage: unknown): Promise<void> {
-        const message = parsePanelMessage(rawMessage);
-        if (!message || session.isDisposed) { return; }
-        switch (message.type) {
-            case 'analyze-selected-files': await this.handleSelection(session, message); break;
-            case 'select-python-environment':
-                await this.host.executeCommand('audioWandasAnalyzer.selectPythonEnvironment');
-                break;
-            case 'run-recipe':
-                await this.host.executeCommand('audioWandasAnalyzer.runRecipe', session.getActiveFilePaths());
-                break;
-            case 'select-target': await this.handleSelectTarget(session, message); break;
-            case 'update-spectrogram-settings':
-                await saveSpectrogramSettings(this.context, message.settings);
-                break;
-            case 'comparison-panel-ready': await this.handlePanelReady(session, message); break;
-            case 'request-reanalyze': await this.handleReanalyze(session, message); break;
-            case 'request-waveform-range': this.handleWaveformRange(session, message); break;
-            case 'request-track-detail': this.handleTrackDetail(session, message); break;
-            case 'release-track-detail': void this.backend.releaseTrackDetail(message.filePath); break;
-            case 'request-spectrum-slice': this.handleSpectrumSlice(session, message); break;
-            case 'export-wav-loop': await this.exports.exportWavLoop(message); break;
-            case 'export-report-options': await this.exports.exportReport(message); break;
-            case 'show-info': this.host.showInformation(message.message); break;
-        }
+    // VS Code host: dialogs, workspace state, calibration revisions and the Python child process
+    // behind the shared session contract.
+    private sessionPorts(session: PanelSession<PanelHandle>): ComparisonSessionPorts {
+        return {
+            scope: (message: PanelMessage): SessionScope => {
+                const revision = message.type === 'request-reanalyze' ? session.beginStateRequest() : undefined;
+                return {
+                    isCurrent: () => revision === undefined ? !session.isDisposed : session.isCurrent(revision),
+                    canPublish: (filePath, analysisRevision) => this.canPostLazyResult(session, filePath, analysisRevision),
+                };
+            },
+            publish: (message) => session.postMessage(message),
+            saveSettings: (settings) => saveSpectrogramSettings(this.context, settings),
+            stftOptions: () => loadPersistedStftOptions(this.context),
+            client: this.backend,
+            lazyContext: (filePath) => this.displayedCalibration(session, filePath),
+            releaseTrackDetail: (filePath) => { void this.backend.releaseTrackDetail(filePath); },
+            activeFilePaths: () => session.getActiveFilePaths(),
+            reanalyze: (stftOptions, scope) => this.reanalyze(session, stftOptions, scope),
+            wavExport: (message) => this.exports.wavExport(message),
+            pickReportFormat: () => this.exports.pickReportFormat(),
+            saveReport: (artifact, format, message) => this.exports.saveReport(artifact, format, message),
+            selectTarget: (targetKind) => this.handleSelectTarget(session, targetKind),
+            showInformation: (message) => this.host.showInformation(message),
+            showError: (message) => this.host.showError(message),
+            unsupported: () => undefined,
+            selection: (message) => this.handleSelection(session, message),
+            panelReady: (message) => this.handlePanelReady(session, message),
+            selectPythonEnvironment: async () => { await this.host.executeCommand('audioWandasAnalyzer.selectPythonEnvironment'); },
+            runRecipe: async () => { await this.host.executeCommand('audioWandasAnalyzer.runRecipe', session.getActiveFilePaths()); },
+        };
     }
 
     private async handleSelection(session: PanelSession<PanelHandle>, message: AnalyzeSelectedFilesMessage): Promise<void> {
@@ -383,46 +381,39 @@ export class PanelController implements vscode.Disposable {
         await this.refreshStalePanelResults(session);
     }
 
-    private async handleSelectTarget(session: PanelSession<PanelHandle>, message: SelectTargetMessage): Promise<void> {
-        const selected = await pickAudioTarget(message.targetKind, this.host.showOpenDialog);
+    private async handleSelectTarget(session: PanelSession<PanelHandle>, targetKind: SelectionTargetKind): Promise<void> {
+        const selected = await pickAudioTarget(targetKind, this.host.showOpenDialog);
         if (selected && !session.isDisposed) {
             await this.analyzeTarget(selected, session.panel);
         }
     }
 
-    private async handleReanalyze(session: PanelSession<PanelHandle>, message: RequestReanalyzeMessage): Promise<void> {
-        await saveSpectrogramSettings(this.context, message.settings);
+    private async reanalyze(
+        session: PanelSession<PanelHandle>,
+        stftOptions: StftOptions | undefined,
+        scope: SessionScope,
+    ): Promise<AnalysisResultWithError[] | undefined> {
         const filePaths = session.getActiveFilePaths();
-        const revision = session.beginStateRequest();
-        await session.postMessage({ type: 'reanalyze-start', count: filePaths.length });
-        try {
-            const results = await this.analysis.analyzeFiles(
-                filePaths,
-                message.settings.auto ? undefined : message.settings.stft,
-                `Recomputing spectrogram (${filePaths.length} file${filePaths.length === 1 ? '' : 's'})`,
-                session,
-            );
-            if (session.isCurrent(revision)) {
-                const displayedByPath = new Map(
-                    ComparisonPanel.getResults(session.panel).map((result) => [result.filePath, result]),
-                );
-                const acceptedResults = results.map((result) => {
-                    if (this.isLiveResult(result)) {
-                        return result;
-                    }
-                    return displayedByPath.get(result.filePath) ?? result;
-                });
-                session.cacheResults(acceptedResults);
-                session.setActiveResults(acceptedResults.map((result) => result.filePath));
-                ComparisonPanel.updateResults(session.panel, acceptedResults);
-                await session.postMessage({
-                    type: 'analysis-update',
-                    results: acceptedResults,
-                } satisfies AnalysisUpdateMessage);
+        const results = await this.analysis.analyzeFiles(
+            filePaths,
+            stftOptions,
+            `Recomputing spectrogram (${filePaths.length} file${filePaths.length === 1 ? '' : 's'})`,
+            session,
+        );
+        if (!scope.isCurrent()) { return undefined; }
+        const displayedByPath = new Map(
+            ComparisonPanel.getResults(session.panel).map((result) => [result.filePath, result]),
+        );
+        const acceptedResults = results.map((result) => {
+            if (this.isLiveResult(result)) {
+                return result;
             }
-        } finally {
-            if (session.isCurrent(revision)) { await session.postMessage({ type: 'reanalyze-end' }); }
-        }
+            return displayedByPath.get(result.filePath) ?? result;
+        });
+        session.cacheResults(acceptedResults);
+        session.setActiveResults(acceptedResults.map((result) => result.filePath));
+        ComparisonPanel.updateResults(session.panel, acceptedResults);
+        return acceptedResults;
     }
 
     private enqueueCalibrationRefresh(
@@ -505,33 +496,6 @@ export class PanelController implements vscode.Disposable {
         if (!isCurrent) {
             await session.postMessage({ type: 'analysis-update', results: current } satisfies AnalysisUpdateMessage);
         }
-    }
-
-    private handleWaveformRange(session: PanelSession<PanelHandle>, request: WaveformRangeRequest): void {
-        this.handleLazyAnalysis(session, request);
-    }
-
-    private handleTrackDetail(session: PanelSession<PanelHandle>, request: TrackDetailRequest): void {
-        this.handleLazyAnalysis(session, request);
-    }
-
-    private handleSpectrumSlice(session: PanelSession<PanelHandle>, request: SpectrumSliceRequest): void {
-        this.handleLazyAnalysis(session, request);
-    }
-
-    private handleLazyAnalysis(session: PanelSession<PanelHandle>, request: LazyAnalysisRequest): void {
-        const calibration = this.displayedCalibration(session, request.filePath);
-        if (!calibration) { return; }
-        void executeLazyAnalysis(this.backend, request, {
-            ...calibration, stftOptions: loadPersistedStftOptions(this.context),
-        }).then(({ analysisRevision, ...message }) => {
-            if (!this.canPostLazyResult(session, request.filePath, analysisRevision)) { return; }
-            void session.postMessage(message);
-        }).catch((error) => {
-            if (request.type === 'request-waveform-range'
-                || !this.canPostLazyResult(session, request.filePath, calibration.analysisRevision)) { return; }
-            void session.postMessage(lazyAnalysisError(request, error));
-        });
     }
 
     private async updateDirectorySession(

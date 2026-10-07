@@ -1,4 +1,4 @@
-import { AnalysisClient, analysisPayload } from '../shared/analysis/analysisClient';
+import { AnalysisClient, analysisPayload, type AnalysisContextPolicy } from '../shared/analysis/analysisClient';
 import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -53,11 +53,8 @@ export class PythonBackendServer extends AnalysisClient {
         private readonly extensionPath: string,
         private readonly onPerfLine: (line: string) => void = () => { /* no-op */ },
         private readonly onReady: () => void = () => { /* no-op */ },
-    ) { super(); }
-
-    analysisRevisionFor(_filePath: string): number {
-        return 0;
-    }
+        contextPolicy?: AnalysisContextPolicy,
+    ) { super(contextPolicy); }
 
     warmup(): Promise<void> {
         return this.ensureRunning();
@@ -68,19 +65,20 @@ export class PythonBackendServer extends AnalysisClient {
         options: AnalyzeOptions,
         cancellation?: vscode.CancellationToken,
     ): Promise<BackendResult<'analyze'>> {
-        const analysisRevision = options.analysisRevision ?? 0;
-        try {
-            return await this.request('analyze', analysisPayload(filePath, options), undefined, cancellation);
-        } catch (error) {
-            if (error instanceof BackendStartupCancelledError) {
-                throw new vscode.CancellationError();
+        return this.analyzeWithContext(filePath, options, async resolved => {
+            try {
+                return await this.request('analyze', analysisPayload(filePath, resolved), undefined, cancellation);
+            } catch (error) {
+                if (error instanceof BackendStartupCancelledError) {
+                    throw new vscode.CancellationError();
+                }
+                throw new AnalysisRequestError(
+                    error instanceof Error ? error.message : String(error),
+                    resolved.analysisRevision ?? 0,
+                    error instanceof BackendStartupError,
+                );
             }
-            throw new AnalysisRequestError(
-                error instanceof Error ? error.message : String(error),
-                analysisRevision,
-                error instanceof BackendStartupError,
-            );
-        }
+        });
     }
 
     dispose(): void {
