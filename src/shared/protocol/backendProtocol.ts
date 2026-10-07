@@ -1,14 +1,15 @@
-import { isSafeCalibrationValue } from '../shared/analysis/analysisTypes';
+import { isCalibrationStatus, isCalibrationSource, isCalibrationProfile } from '../analysis/calibrationModel';
+import { isSafeCalibrationValue } from '../analysis/analysisTypes';
 import type {
     AnalysisResult,
-    AnalysisUnits,
     CalibrationProfile,
+    AnalysisUnits,
     ChannelSummary,
     DbScaleMetadata,
     SpectrogramData,
     StftOptions,
     WaveformEnvelope,
-} from '../shared/analysis/analysisTypes';
+} from '../analysis/analysisTypes';
 
 export interface CalibrationRequestContext {
     calibrationProfile?: CalibrationProfile;
@@ -178,13 +179,7 @@ function isNonNegativeInteger(value: unknown): value is number {
     return isInteger(value) && value >= 0;
 }
 
-function isCalibrationStatus(value: unknown): boolean {
-    return value === 'uncalibrated' || value === 'calibrated';
-}
 
-function isCalibrationSource(value: unknown): boolean {
-    return value === 'default' || value === 'manual' || value === 'derived' || value === 'embedded';
-}
 
 function isFiniteNumberArray(value: unknown): value is number[] {
     return Array.isArray(value) && value.every(isFiniteNumber);
@@ -199,19 +194,6 @@ function isDbScaleMetadata(value: unknown): value is DbScaleMetadata {
         && isOptionalString(value['levelReferenceLabel']);
 }
 
-function isCalibrationProfile(value: unknown): value is CalibrationProfile {
-    return isJsonObject(value)
-        && value['schemaVersion'] === 1
-        && Array.isArray(value['channels'])
-        && value['channels'].every((channel) => isJsonObject(channel)
-            && isNonNegativeInteger(channel['channelIndex'])
-            && typeof channel['expectedLabel'] === 'string'
-            && isCalibrationStatus(channel['status'])
-            && isCalibrationSource(channel['source'])
-            && isSafeCalibrationValue(channel['factor'])
-            && typeof channel['unit'] === 'string'
-            && isSafeCalibrationValue(channel['referenceValue']));
-}
 
 function isChannelMeasurementContext(value: unknown): boolean {
     return isJsonObject(value)

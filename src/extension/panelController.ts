@@ -1,3 +1,4 @@
+import { executeLazyAnalysis, lazyAnalysisError, type LazyAnalysisRequest } from '../shared/analysis/analysisClient';
 import * as vscode from 'vscode';
 import {
     type AnalysisResultWithError,
@@ -22,14 +23,14 @@ import {
 } from '../shared/utils/directorySelection';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import type { AnalysisOrchestrator } from './analysisOrchestrator';
-import type { CalibrationRequestContext } from './backendProtocol';
+import type { CalibrationRequestContext } from '../shared/protocol/backendProtocol';
 import {
     getAnalysisRevision,
     onDidChangeCalibration,
     type CalibrationChangeEvent,
 } from './calibrationStore';
 import type { ExportFlows } from './exportFlows';
-import { parsePanelMessage, type SelectTargetMessage } from './panelMessages';
+import { parsePanelMessage, type SelectTargetMessage } from '../shared/protocol/panelMessages';
 import {
     PanelSession,
     type DisposableLike,
@@ -46,7 +47,7 @@ import {
     loadSpectrogramSettings,
     saveSpectrogramSettings,
     type SpectrogramSettingsContext,
-} from './spectrogramSettings';
+} from '../shared/analysis/savedSpectrogramSettings';
 import {
     buildDirectoryTree,
     pickAudioTarget,
@@ -507,105 +508,29 @@ export class PanelController implements vscode.Disposable {
     }
 
     private handleWaveformRange(session: PanelSession<PanelHandle>, request: WaveformRangeRequest): void {
-        const calibration = this.displayedCalibration(session, request.filePath);
-        if (!calibration) { return; }
-        void this.backend.requestRange(
-            request.filePath,
-            request.startNorm,
-            request.endNorm,
-            request.points,
-            request.requestId,
-            calibration,
-        ).then((result) => {
-            if (!this.canPostLazyResult(session, request.filePath, result.analysisRevision)) { return; }
-            void session.postMessage({
-                type: 'waveform-range-result',
-                requestId: request.requestId,
-                trackIndex: request.trackIndex,
-                startNorm: request.startNorm,
-                endNorm: request.endNorm,
-                channels: result.channels,
-            });
-        }).catch(() => { /* overview data remains available */ });
+        this.handleLazyAnalysis(session, request);
     }
 
     private handleTrackDetail(session: PanelSession<PanelHandle>, request: TrackDetailRequest): void {
-        const calibration = this.displayedCalibration(session, request.filePath);
-        if (!calibration) { return; }
-        void this.backend.requestTrackDetail(
-            request.filePath,
-            {
-                trackIndex: request.trackIndex,
-                analysisId: request.analysisId,
-                settingsSignature: request.settingsSignature,
-                stftOptions: loadPersistedStftOptions(this.context),
-                ...calibration,
-            },
-            request.requestId,
-        ).then((result) => {
-            if (!this.canPostLazyResult(session, request.filePath, result.analysisRevision)) { return; }
-            void session.postMessage({
-                type: 'track-detail-result',
-                requestId: request.requestId,
-                analysisId: request.analysisId,
-                settingsSignature: request.settingsSignature,
-                trackIndex: request.trackIndex,
-                filePath: request.filePath,
-                channels: result.channels,
-            });
-        }).catch((error) => {
-            if (!this.canPostLazyResult(session, request.filePath, calibration.analysisRevision)) { return; }
-            void session.postMessage({
-                type: 'track-detail-error',
-                requestId: request.requestId,
-                analysisId: request.analysisId,
-                settingsSignature: request.settingsSignature,
-                trackIndex: request.trackIndex,
-                filePath: request.filePath,
-                error: error instanceof Error ? error.message : String(error),
-            });
-        });
+        this.handleLazyAnalysis(session, request);
     }
 
     private handleSpectrumSlice(session: PanelSession<PanelHandle>, request: SpectrumSliceRequest): void {
+        this.handleLazyAnalysis(session, request);
+    }
+
+    private handleLazyAnalysis(session: PanelSession<PanelHandle>, request: LazyAnalysisRequest): void {
         const calibration = this.displayedCalibration(session, request.filePath);
         if (!calibration) { return; }
-        void this.backend.requestSpectrumSlice(
-            request.filePath,
-            {
-                trackIndex: request.trackIndex,
-                analysisId: request.analysisId,
-                settingsSignature: request.settingsSignature,
-                cursorNorm: request.cursorNorm,
-                stftOptions: loadPersistedStftOptions(this.context),
-                ...calibration,
-            },
-            request.requestId,
-        ).then((result) => {
-            if (!this.canPostLazyResult(session, request.filePath, result.analysisRevision)) { return; }
-            void session.postMessage({
-                type: 'spectrum-slice-result',
-                requestId: request.requestId,
-                analysisId: request.analysisId,
-                settingsSignature: request.settingsSignature,
-                trackIndex: request.trackIndex,
-                filePath: request.filePath,
-                channels: result.channels,
-                frequencyBins: result.frequencyBins,
-                maxFrequencyHz: result.maxFrequencyHz,
-                computeMs: result.computeMs,
-            });
+        void executeLazyAnalysis(this.backend, request, {
+            ...calibration, stftOptions: loadPersistedStftOptions(this.context),
+        }).then(({ analysisRevision, ...message }) => {
+            if (!this.canPostLazyResult(session, request.filePath, analysisRevision)) { return; }
+            void session.postMessage(message);
         }).catch((error) => {
-            if (!this.canPostLazyResult(session, request.filePath, calibration.analysisRevision)) { return; }
-            void session.postMessage({
-                type: 'spectrum-slice-error',
-                requestId: request.requestId,
-                analysisId: request.analysisId,
-                settingsSignature: request.settingsSignature,
-                trackIndex: request.trackIndex,
-                filePath: request.filePath,
-                error: error instanceof Error ? error.message : String(error),
-            });
+            if (request.type === 'request-waveform-range'
+                || !this.canPostLazyResult(session, request.filePath, calibration.analysisRevision)) { return; }
+            void session.postMessage(lazyAnalysisError(request, error));
         });
     }
 

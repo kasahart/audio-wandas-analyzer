@@ -1,4 +1,4 @@
-import { DEFAULT_SPECTROGRAM_SETTINGS, type SpectrogramSettings } from './analysisTypes';
+import { DEFAULT_SPECTROGRAM_SETTINGS, type StftOptions, type SpectrogramSettings } from './analysisTypes';
 
 export const SPECTROGRAM_SETTINGS_KEY = 'audioWandasAnalyzer.spectrogramSettings';
 
@@ -34,4 +34,24 @@ export function savedSpectrogramSettings(value: unknown): SpectrogramSettings {
         return { ...DEFAULT_SPECTROGRAM_SETTINGS, stft: { ...DEFAULT_SPECTROGRAM_SETTINGS.stft }, display: { ...DEFAULT_SPECTROGRAM_SETTINGS.display } };
     }
     return { auto: value.auto, stft: { ...value.stft }, display: { ...value.display } };
+}
+
+export interface SpectrogramSettingsStore {
+    get(key: string): unknown;
+    update(key: string, value: unknown): PromiseLike<void>;
+}
+
+export interface SpectrogramSettingsContext { workspaceState: SpectrogramSettingsStore }
+
+export function loadSpectrogramSettings(context: SpectrogramSettingsContext): SpectrogramSettings {
+    return savedSpectrogramSettings(context.workspaceState.get(SPECTROGRAM_SETTINGS_KEY));
+}
+
+export function loadPersistedStftOptions(context: SpectrogramSettingsContext): StftOptions | undefined {
+    const settings = loadSpectrogramSettings(context);
+    return settings.auto ? undefined : settings.stft;
+}
+
+export function saveSpectrogramSettings(context: SpectrogramSettingsContext, settings: SpectrogramSettings): PromiseLike<void> {
+    return context.workspaceState.update(SPECTROGRAM_SETTINGS_KEY, settings);
 }

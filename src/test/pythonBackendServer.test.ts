@@ -20,7 +20,7 @@ import {
     parseBackendResult,
     type BackendCommand,
     type BackendNotification,
-} from '../extension/backendProtocol';
+} from '../shared/protocol/backendProtocol';
 
 function loadValidResponseFixtures(): Array<{
     command: BackendCommand;

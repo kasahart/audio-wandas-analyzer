@@ -9,7 +9,7 @@ import pytest
 import soundfile as sf
 import wandas as wd
 
-import backend_server
+import command_dispatch
 from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from analyzer import analyze_from_frame
@@ -305,7 +305,7 @@ def test_backend_range_is_calibrated_but_wav_export_stays_raw(tmp_path) -> None:
     labels = list(cached.frame.labels)
     profile = _profile(labels, [2.0], ["Pa"], [2e-5])
 
-    range_result = backend_server.handle_range(
+    range_result = command_dispatch.handle_range(
         service,
         {
             "filePath": str(file_path),
@@ -319,7 +319,7 @@ def test_backend_range_is_calibrated_but_wav_export_stays_raw(tmp_path) -> None:
     assert range_result["analysisRevision"] == 4
     assert math.isclose(range_result["channels"][0]["absolutePeak"], 1.0)
 
-    wav_result = backend_server.handle_export_wav_loop(
+    wav_result = command_dispatch.handle_export_wav_loop(
         service,
         {"filePath": str(file_path), "startNorm": 0.0, "endNorm": 1.0},
     )

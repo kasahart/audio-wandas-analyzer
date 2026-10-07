@@ -47,6 +47,12 @@ jobs:
       - name: Run verify
         run: npm run verify
 
+      - name: Upload runtime source audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-sharing-audit
+          path: test-results/runtime-sharing.json
+
   test-ui:
     name: test:ui (Playwright Chromium smoke)
     runs-on: ubuntu-latest

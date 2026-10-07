@@ -109,3 +109,16 @@ test('collectSelectedResults keeps selected file order and skips uncached entrie
         ['/tmp/set-a/kick.wav', '/tmp/ambient.ogg'],
     );
 });
+
+test('ordered selection keeps insertion order and one membership rule across removal and re-addition', async () => {
+    const { OrderedSelection } = await import('../shared/utils/directorySelection');
+    const selected = new OrderedSelection();
+    const livePaths = selected.paths;
+    selected.add('a'); selected.add('b'); selected.add('a');
+    selected.remove('a'); selected.add('a');
+    assert.deepEqual(livePaths, ['b', 'a']);
+    assert.equal(selected.has('a'), true);
+    selected.clear();
+    assert.equal(selected.has('a'), false);
+    assert.deepEqual(livePaths, []);
+});

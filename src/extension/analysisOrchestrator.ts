@@ -1,3 +1,4 @@
+import { runAnalysisBatch } from '../shared/analysis/analysisCoordinator';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AnalysisResult, AnalysisResultWithError, StftOptions } from '../shared/analysis/analysisTypes';
@@ -66,35 +67,29 @@ export class AnalysisOrchestrator {
             },
             async (progress, token) => {
                 const results: AnalysisResultWithError[] = [];
-                for (let index = 0; index < filePaths.length; index++) {
-                    if (token.isCancellationRequested) { throw new vscode.CancellationError(); }
-                    const filePath = filePaths[index];
-                    const fileName = path.basename(filePath);
-                    progress.report({
-                        increment: Math.floor(100 / filePaths.length),
-                        message: `(${index + 1}/${filePaths.length}) ${fileName}`,
-                    });
-                    void progressSink?.postMessage({
-                        type: 'analysis-file-progress',
-                        current: index + 1,
-                        total: filePaths.length,
-                        fileName,
-                    });
-                    try {
-                        results.push(await this.analyzeFile(filePath, stftOptions, cancellable ? token : undefined));
-                    } catch (error) {
-                        if (error instanceof vscode.CancellationError) { throw error; }
+                await runAnalysisBatch(filePaths, {
+                    isCurrent: () => {
+                        if (token.isCancellationRequested) throw new vscode.CancellationError();
+                        return true;
+                    },
+                    progress: (filePath, index, total) => {
+                        const fileName = path.basename(filePath);
+                        progress.report({ increment: Math.floor(100 / total), message: `(${index + 1}/${total}) ${fileName}` });
+                        void progressSink?.postMessage({ type: 'analysis-file-progress', current: index + 1, total, fileName });
+                    },
+                    analyze: filePath => this.analyzeFile(filePath, stftOptions, cancellable ? token : undefined),
+                    commit: (_filePath, result) => { results.push(result); },
+                    failed: (filePath, error, remaining) => {
+                        if (error instanceof vscode.CancellationError) throw error;
                         const message = error instanceof Error ? error.message : String(error);
                         results.push(this.errorResult(filePath, message, errorAnalysisRevision(error)));
-                        if (this.isBackendStartupFailure(error)) {
-                            for (const skippedPath of filePaths.slice(index + 1)) {
-                                const revision = this.backend.analysisRevisionFor?.(skippedPath) ?? 0;
-                                results.push(this.errorResult(skippedPath, message, revision));
-                            }
-                            break;
+                        if (!this.isBackendStartupFailure(error)) return true;
+                        for (const skippedPath of remaining) {
+                            results.push(this.errorResult(skippedPath, message, this.backend.analysisRevisionFor?.(skippedPath) ?? 0));
                         }
-                    }
-                }
+                        return false;
+                    },
+                });
                 return results;
             },
         );

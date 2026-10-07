@@ -1,3 +1,4 @@
+import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { paintSpectrogramRaster } from './spectrogramRaster';
 import { normalizedColor, viridis } from '../../shared/gui-core/index';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
@@ -39,8 +40,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const ResizeObserver = window.ResizeObserver;
     const getComputedStyle = window.getComputedStyle.bind(window);
     const isSelectionMode = state.mode === 'directory-selection';
-    const selectedFilePaths: string[] = [];
-    const selectedFilePathSet = new Set<string>();
+    const selection = new OrderedSelection();
+    const selectedFilePaths = selection.paths;
     if (Array.isArray(state.selectedFilePaths)) {
         state.selectedFilePaths.forEach(function (filePath: string) {
             if (typeof filePath === 'string') {
@@ -3389,27 +3390,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             input.checked = !!filePath && hasSelectedFilePath(filePath);
         });
     }
-    function hasSelectedFilePath(filePath: string) {
-        return selectedFilePathSet.has(filePath);
-    }
-    function addSelectedFilePath(filePath: string) {
-        if (hasSelectedFilePath(filePath)) {
-            return;
-        }
-        selectedFilePaths.push(filePath);
-        selectedFilePathSet.add(filePath);
-    }
-    function removeSelectedFilePath(filePath: string) {
-        const idx = selectedFilePaths.indexOf(filePath);
-        if (idx !== -1) {
-            selectedFilePaths.splice(idx, 1);
-        }
-        selectedFilePathSet.delete(filePath);
-    }
-    function clearSelectedFilePaths() {
-        selectedFilePaths.length = 0;
-        selectedFilePathSet.clear();
-    }
+    function hasSelectedFilePath(filePath: string) { return selection.has(filePath); }
+    function addSelectedFilePath(filePath: string) { selection.add(filePath); }
+    function removeSelectedFilePath(filePath: string) { selection.remove(filePath); }
+    function clearSelectedFilePaths() { selection.clear(); }
     function isVisibleInTree(el: RuntimeElement) {
         // el から #selection-tree までの祖先を辿り、display:none が設定された要素があれば非表示と判定する
         var node: RuntimeElement | null = el;

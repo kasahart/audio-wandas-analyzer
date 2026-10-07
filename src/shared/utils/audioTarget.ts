@@ -1,11 +1,11 @@
-import * as path from 'path';
-
 export const SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.aiff', '.aif', '.snd']);
 
 export type SelectionTargetKind = 'file' | 'directory';
 
 export function isSupportedAudioFile(fileName: string): boolean {
-    return SUPPORTED_AUDIO_FILE_EXTENSIONS.has(path.extname(fileName).toLowerCase());
+    const leaf = fileName.split(/[\\/]/).pop() ?? '';
+    const dot = leaf.lastIndexOf('.');
+    return dot > 0 && SUPPORTED_AUDIO_FILE_EXTENSIONS.has(leaf.slice(dot).toLowerCase());
 }
 
 export function isSelectTargetMessage(message: unknown): message is { type: 'select-target'; targetKind: SelectionTargetKind } {

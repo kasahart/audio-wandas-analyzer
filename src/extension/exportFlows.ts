@@ -2,8 +2,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { getStrings } from '../shared/i18n/strings';
 import type { ExportReportOptionsMessage, ExportWavLoopMessage } from '../shared/utils/audioTarget';
-import { wavLoopName, reportArtifact } from '../shared/utils/exportArtifact';
-import type { ExportWavLoopResult } from './backendProtocol';
+import { reportArtifact, exportWavRegions } from '../shared/utils/exportArtifact';
+import type { ExportWavLoopResult } from '../shared/protocol/backendProtocol';
 
 export interface WavExportBackend {
     exportWavLoop(filePath: string, startNorm: number, endNorm: number): Promise<ExportWavLoopResult>;
@@ -70,21 +70,18 @@ export class ExportFlows {
 
         let successCount = 0;
         const errors: string[] = [];
-        const usedNames = new Set<string>();
-        for (const filePath of message.filePaths) {
-            try {
-                const region = message.fileRegions?.find(region => region.filePath === filePath) ?? message;
-                const result = await this.backend.exportWavLoop(filePath, region.startNorm, region.endNorm);
-                const baseName = wavLoopName(filePath, usedNames);
-                await this.host.writeFile(
-                    vscode.Uri.joinPath(outputFolder, baseName),
-                    Buffer.from(result.wavBase64, 'base64'),
-                );
+        await exportWavRegions(message, message.filePaths.map(filePath => ({ filePath, fileName: path.basename(filePath) })), {
+            isCurrent: () => true,
+            exportWavLoop: (filePath, start, end) => this.backend.exportWavLoop(filePath, start, end),
+            write: async (_source, name, result) => {
+                await this.host.writeFile(vscode.Uri.joinPath(outputFolder, name), Buffer.from(result.wavBase64, 'base64'));
                 successCount++;
-            } catch (error) {
-                errors.push(`${path.basename(filePath)}: ${error instanceof Error ? error.message : String(error)}`);
-            }
-        }
+            },
+            failed: (source, error) => {
+                errors.push(`${source.fileName}: ${error instanceof Error ? error.message : String(error)}`);
+                return true;
+            },
+        });
         if (errors.length > 0) {
             this.host.showError(
                 `WAV export: ${successCount} succeeded, ${errors.length} failed — ${errors.join('; ')}`,
