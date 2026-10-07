@@ -24,7 +24,7 @@ def sources(ref: str | None) -> dict[str, str]:
         paths = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', ref], cwd=ROOT, text=True).splitlines()
         return {p: subprocess.check_output(['git', 'show', f'{ref}:{p}'], cwd=ROOT, text=True) for p in paths
                 if p.endswith(('.ts', '.py')) and p.startswith(('src/', 'python-backend/')) or p == 'browser/audio.worker.js'}
-    return {str(p.relative_to(ROOT)): p.read_text() for folder in ['src', 'python-backend', 'browser']
+    return {p.relative_to(ROOT).as_posix(): p.read_text() for folder in ['src', 'python-backend', 'browser']
             for p in (ROOT / folder).rglob('*') if p.is_file() and p.suffix in {'.ts', '.py', '.js'} and '__pycache__' not in p.parts}
 
 
@@ -41,7 +41,7 @@ def audit(ref: str | None) -> dict:
                 if not request.startswith('.'): continue
                 stem = (ROOT / Path(p).parent / request).resolve()
                 for candidate in [stem.with_suffix('.ts'), stem / 'index.ts']:
-                    name = str(candidate.relative_to(ROOT))
+                    name = candidate.relative_to(ROOT).as_posix()
                     if name in ts: found.append(name); break
             return found
         names = []

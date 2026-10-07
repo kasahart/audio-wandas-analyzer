@@ -334,3 +334,15 @@ test('clearing sources during a recipe preserves the new status and ignores late
     assert.equal(app.status, app.browser.__APP_STRINGS__.browserCleared);
     assert.equal(app.elements.some(element => element.tag === 'iframe'), false);
 });
+
+test('static calibration requests explain the unavailable operation and reject malformed messages', async () => {
+    const app = harness();
+    await app.load();
+    const message = { type: 'configure-calibration', trackIndex: 0, filePath: app.sourcePath,
+        channels: [{ channelIndex: 0, label: 'Channel 1' }] };
+    const ready = app.status;
+    app.host.postMessage({ ...message, channels: [] });
+    assert.equal(app.status, ready);
+    app.host.postMessage(message);
+    assert.equal(app.status, app.browser.__APP_STRINGS__.browserUnavailable);
+});

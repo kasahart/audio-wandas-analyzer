@@ -3,6 +3,7 @@ import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient } from '../../shared/analysis/analysisClient';
 import { parseBackendResult, rejectPendingRequests, settleBackendRequest, type PendingBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
+import { isConfigureCalibrationMessage } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../../shared/session/comparisonSessionController';
@@ -283,7 +284,10 @@ browserWindow.__AWA_HOST__ = {
     downloadFile: (content, name, mimeType): void => { download(new TextEncoder().encode(content), name, mimeType); },
     releaseSource: (path): void => { void releaseSource(path); },
     onMessage: (listener): (() => void) => { inboundListeners.add(listener); return () => { inboundListeners.delete(listener); }; },
-    postMessage: (message: unknown): void => { void controller.dispatch(message); },
+    postMessage: (message: unknown): void => {
+        if (isConfigureCalibrationMessage(message)) { announce(strings.browserUnavailable); return; }
+        void controller.dispatch(message);
+    },
     getState: () => persisted,
     setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType }); },
 };

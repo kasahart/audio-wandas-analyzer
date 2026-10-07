@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { renderComparisonDocument } from '../../webview/panels/comparisonDocument';
+import { getChartSpecRenderScript } from '../../webview/chartSpecRenderScript';
+import { DEFAULT_SPECTROGRAM_SETTINGS } from '../../shared/analysis/analysisTypes';
 import { buildUiSmokeHtml } from './buildHtml';
 
 async function loadUi(page: Page) {
@@ -38,6 +41,55 @@ test('clearing a pending browser recipe keeps the cleared status', async ({ page
     const cleared = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared);
     await expect(page.locator('[role="status"]')).toHaveText(cleared);
     await expect(page.locator('[data-recipe-result]')).toHaveCount(0);
+});
+
+test('static page CSP allows recipe charts and calibration clicks report unsupported functionality', async ({ page }) => {
+    const cspErrors: string[] = [];
+    page.on('console', message => {
+        if (/Content Security Policy|violates.*directive/i.test(message.text())) cspErrors.push(message.text());
+    });
+    const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')).validResponses;
+    const init = `window.prompt = () => '1';
+        const fixtures = ${JSON.stringify(fixtures)};
+        window.Worker = class {
+            terminate() {}
+            postMessage(command) {
+                const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
+                    : command.cmd === 'run-recipe' ? { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] }
+                    : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath,
+                        ...(command.cmd === 'analyze' ? { channelCount: 1, channels: [{ label: 'Channel 1', peakAbsolute: 1,
+                            waveform: { min: [-1], max: [1], samples: [0], absolutePeak: 1 }, spectrogram: null }] } : {}) };
+                queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
+            }
+        };`;
+    const html = renderComparisonDocument({ mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS }, {
+        waveformScriptUri: './comparisonWaveform.js', runtimeScriptUri: './comparisonRuntime.js', hostScriptUri: './staticHost.js', cspSource: "'self'", language: 'en',
+    });
+    await page.route('http://awa.test/**', async route => {
+        const name = new URL(route.request().url()).pathname.slice(1);
+        if (!name) { await route.fulfill({ contentType: 'text/html', body: html }); return; }
+        if (name.startsWith('recipes/')) {
+            await route.fulfill({ json: name.endsWith('manifest.json')
+                ? [{ name: 'octave.json', location: './recipes/octave.json' }]
+                : { inputs: [{ name: 'sig', file: '{{selection}}' }], steps: [], display: [] } });
+            return;
+        }
+        const body = name === 'chartSpec.js' ? getChartSpecRenderScript()
+            : (name === 'staticHost.js' ? init : '') + readFileSync(join(process.cwd(), 'dist/webview', name), 'utf8');
+        await route.fulfill({ contentType: 'text/javascript', body });
+    });
+    await page.goto('http://awa.test/');
+    await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
+    await expect(page.locator('[data-action="configure-calibration"]')).toHaveCount(1);
+    await page.locator('[data-action="configure-calibration"]').click();
+    const unsupported = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserUnavailable: string } }).__APP_STRINGS__.browserUnavailable);
+    await expect(page.locator('span[role="status"]')).toHaveText(unsupported);
+    await page.evaluate(() => {
+        (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
+    });
+    await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
+    await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toBeVisible();
+    expect(cspErrors).toEqual([]);
 });
 
 async function getPostedActionTypes(page: Page): Promise<string[]> {
