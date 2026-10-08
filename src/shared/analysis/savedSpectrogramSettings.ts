@@ -19,6 +19,7 @@ export function isSpectrogramSettings(value: unknown): value is SpectrogramSetti
     return typeof stftRecord['nFft'] === 'number'
         && Number.isInteger(stftRecord['nFft'])
         && stftRecord['nFft'] > 0
+        && stftRecord['nFft'] % 2 === 0
         && typeof stftRecord['hopSize'] === 'number'
         && Number.isInteger(stftRecord['hopSize'])
         && stftRecord['hopSize'] > 0

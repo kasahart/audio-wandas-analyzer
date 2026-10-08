@@ -6,11 +6,14 @@ import math
 import wave
 from pathlib import Path
 
+import dask.array as da
 import numpy as np
 import pytest
 import soundfile as sf
+import wandas as wd
+from scipy.signal import ShortTimeFFT, get_window
 
-from analysis_engine import AnalysisEngine
+from analysis_engine import AnalysisEngine, compute_spectrogram
 from analysis_service import AnalysisService
 from analyzer import normalize_stft_options
 
@@ -126,3 +129,45 @@ def test_stft_options_share_one_normalization_and_validation_api() -> None:
     }
     with pytest.raises(ValueError, match="hop_size"):
         normalize_stft_options({"nFft": 128, "hopSize": 256, "window": "hann"})
+
+
+@pytest.mark.parametrize("n_fft", [65, 255, 16383])
+@pytest.mark.parametrize("keys", [("nFft", "hopSize"), ("n_fft", "hop_size")])
+def test_odd_stft_sizes_are_rejected_at_normalization(n_fft: int, keys: tuple[str, str]) -> None:
+    with pytest.raises(ValueError, match="n_fft must be even"):
+        normalize_stft_options({keys[0]: n_fft, keys[1]: 32, "window": "hann"})
+    assert normalize_stft_options({"nFft": 254, "hopSize": 32, "window": "hann"}) == {
+        "n_fft": 254,
+        "hop_size": 32,
+        "window": "hann",
+    }
+
+
+@pytest.mark.parametrize("n_fft", [64, 256])
+@pytest.mark.parametrize("window", ["hann", "boxcar"])
+def test_sparse_stft_time_axes_and_amplitudes_match_scipy(n_fft: int, window: str) -> None:
+    rate = 8000
+    hop = n_fft * 3 + 1
+    t = np.arange(n_fft * 15)
+    samples = 0.2 + 0.3 * np.sin(2 * np.pi * 7 * t / n_fft) + 0.1 * (-1.0) ** t
+    frame = wd.ChannelFrame(
+        da.from_array(np.stack([samples, samples * 0.5])), sampling_rate=rate, source_time_offset=[1.25, -0.5]
+    )
+    frame = frame.with_calibration({0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5)})
+    transform = ShortTimeFFT(get_window(window, n_fft), hop=hop, fs=rate, mfft=n_fft, scale_to="magnitude")
+    expected = transform.stft(np.asarray(frame.data))
+    expected[:, 1:-1, :] *= 2
+    local_times = np.arange(expected.shape[-1]) * hop / rate
+    source_times = frame.source_time_offset[:, None] + local_times[None, :]
+    centers = frame.source_time_offset[:, None] + transform.t(frame.n_samples)[None, :]
+
+    sparse = compute_spectrogram(frame, n_fft, hop, window)
+    for result in [sparse, sparse.astype(np.complex64), sparse.cache(), sparse.astype(np.complex64).cache()]:
+        assert result.hop_length == hop
+        np.testing.assert_allclose(result.times, local_times)
+        np.testing.assert_allclose(result.source_times, source_times)
+        np.testing.assert_allclose(result.frame_center_times, centers)
+        np.testing.assert_allclose(np.asarray(result.data), expected, rtol=1e-6, atol=1e-7)
+        assert result.channels[0].unit == "Pa"
+        assert result.channels[0].calibration.factor == 1.0
+    assert frame.channels[0].calibration.factor == 2.0
