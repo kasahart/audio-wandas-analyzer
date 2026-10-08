@@ -31,13 +31,13 @@ def test_eval_simple_literal() -> None:
 
 def test_eval_method_chain() -> None:
     class Stub:
-        def add(self, n: int) -> Stub:
+        def normalize(self, n: int) -> Stub:
             return Stub()
 
-        def total(self) -> int:
+        def fft(self) -> int:
             return 42
 
-    assert _eval_expr("x.add(1).add(2).total()", {"x": Stub()}) == 42
+    assert _eval_expr("x.normalize(1).normalize(2).fft()", {"x": Stub()}) == 42
 
 
 def test_eval_rejects_unknown_name() -> None:
@@ -67,10 +67,10 @@ def test_eval_rejects_double_star_kwargs() -> None:
 
 def test_eval_allows_list_arg() -> None:
     class F:
-        def take(self, xs: list[int]) -> int:
+        def get_channel(self, xs: list[int]) -> int:
             return sum(xs)
 
-    assert _eval_expr("x.take([1, 2, 3])", {"x": F()}) == 6
+    assert _eval_expr("x.get_channel([1, 2, 3])", {"x": F()}) == 6
 
 
 # ---- end-to-end recipe execution -----------------------------------------
@@ -236,3 +236,41 @@ def test_run_recipe_accepts_injected_input_loader(tmp_path: Path) -> None:
     missing = {**recipe, "inputs": [{"name": "sig", "file": "missing"}]}
     with pytest.raises(KeyError):
         run_recipe(missing, base_dir=tmp_path, load=lambda file: frames[file])
+
+
+@pytest.mark.parametrize("method", ["to_wav", "save", "__class__", "unexpected_method"])
+def test_eval_rejects_methods_before_any_execution(method: str, tmp_path: Path) -> None:
+    destination = tmp_path / "forbidden.wav"
+
+    class Stub:
+        def normalize(self) -> Stub:
+            raise AssertionError("no method should run before the full AST is validated")
+
+        def to_wav(self, _path: str) -> None:
+            raise AssertionError("recipe must not write files")
+
+        def save(self, _path: str) -> None:
+            raise AssertionError("recipe must not write files")
+
+    with pytest.raises(RecipeError, match=f"Method '{method}' is not allowed"):
+        _eval_expr(f"sig.normalize().{method}({str(destination)!r})", {"sig": Stub()})
+    assert not destination.exists()
+
+
+@pytest.mark.parametrize(
+    "recipe_path", sorted((Path(__file__).parent / "recipes").glob("*.json")), ids=lambda p: p.stem
+)
+def test_all_bundled_recipes_execute_with_analysis_allowlist(recipe_path: Path, tmp_path: Path) -> None:
+    import wandas as wd
+
+    wav = tmp_path / "selected.wav"
+    _write_sine_wav(wav, seconds=1.0, sr=48000)
+    frame = wd.read(wav).with_calibration({0: wd.ChannelCalibration(factor=1.0, unit="Pa", ref=2e-5)})
+    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+
+    charts = run_recipe(recipe, base_dir=tmp_path, load=lambda _file: frame)
+
+    assert len(charts) == len(recipe["display"])
+    for chart, display in zip(charts, recipe["display"], strict=True):
+        assert chart["title"] == display["title"]
+        assert chart["kind"] in {"line", "heatmap", "bar", "scalar"}

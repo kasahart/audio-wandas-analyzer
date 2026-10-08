@@ -27,9 +27,8 @@ AST whitelist (all other nodes raise ``RecipeError``):
 * ``Expression``       — the top-level wrapper for ``eval``-style code.
 * ``Call``             — method/function invocation, keyword args allowed.
 * ``Attribute``        — ``foo.bar`` access on bound names (used for fluent
-  method chains like ``sig.filter().welch()``). The attribute string itself
-  is allowed because resolution happens at runtime against trusted wandas
-  objects — there is no global ``__builtins__`` exposed to ``eval``.
+  method chains like ``sig.band_pass_filter(...).welch()``). Attribute names
+  must belong to the explicit analysis-method allowlist.
 * ``Name``             — must resolve to a binding declared in ``inputs`` or
   an earlier ``steps[].as``. Unknown names raise.
 * ``Constant``         — ``int``, ``float``, ``str``, ``bool``, ``None``.
@@ -44,7 +43,7 @@ AST whitelist (all other nodes raise ``RecipeError``):
 Specifically *not* allowed: ``Import``, ``Subscript``, ``Lambda``, ``If``,
 ``Assign``, ``Comprehension``, ``Starred``, ``Yield``, ``Await``,
 ``GeneratorExp``, ``Dict`` (use kwargs instead), ``FormattedValue`` /
-f-strings, ``Compare`` and ``BoolOp``, plus any double-underscore attribute.
+f-strings, ``Compare`` and ``BoolOp``, plus any attribute outside the analysis-method allowlist.
 
 This is not a security boundary against a hostile recipe author — anyone
 who can write recipe files can also write ``settings.json``. It just keeps
@@ -75,6 +74,33 @@ class RecipeError(RuntimeError):
 _ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow)
 _ALLOWED_UNARY = (ast.USub, ast.UAdd)
 
+_ALLOWED_METHODS = frozenset(
+    {
+        "fft",
+        "welch",
+        "stft",
+        "noct_spectrum",
+        "coherence",
+        "concat_frame",
+        "get_channel",
+        "a_weighting",
+        "high_pass_filter",
+        "low_pass_filter",
+        "band_pass_filter",
+        "normalize",
+        "rms_trend",
+        "sound_level",
+        "loudness_zwst",
+        "loudness_zwtv",
+        "roughness_dw",
+        "roughness_dw_spec",
+        "sharpness_din",
+        "sharpness_din_st",
+        "resampling",
+        "trim",
+    }
+)
+
 
 def _validate_node(node: ast.AST, bindings: set[str]) -> None:
     """Walk the AST and raise ``RecipeError`` on any disallowed construct."""
@@ -91,8 +117,8 @@ def _validate_node(node: ast.AST, bindings: set[str]) -> None:
             _validate_node(k.value, bindings)
         return
     if isinstance(node, ast.Attribute):
-        if node.attr.startswith("_"):
-            raise RecipeError(f"Access to dunder/private attribute '{node.attr}' is not allowed")
+        if node.attr not in _ALLOWED_METHODS:
+            raise RecipeError(f"Method '{node.attr}' is not allowed in recipe expressions")
         _validate_node(node.value, bindings)
         return
     if isinstance(node, ast.Name):
