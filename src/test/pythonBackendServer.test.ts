@@ -8,7 +8,6 @@ import {
     BackendStartupCancelledError,
     formatPythonImportTiming,
     processStdoutChunk,
-    rejectPendingRequests,
     waitForBackendStartup,
     type BackendDiagnostic,
     type PendingRequest,
@@ -18,6 +17,7 @@ import {
     isBackendCommand,
     isJsonObject,
     parseBackendResult,
+    rejectPendingRequests,
     type BackendCommand,
     type BackendNotification,
 } from '../shared/protocol/backendProtocol';

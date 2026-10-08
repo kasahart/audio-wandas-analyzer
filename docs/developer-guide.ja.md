@@ -65,7 +65,7 @@ npm run verify:e2e
 | 共有データ契約 | `src/shared/analysis/analysisTypes.ts` |
 | 全体解析バックエンド | `python-backend/analyzer.py` |
 | 波形デシメーション | `python-backend/decimator.py` |
-| 高解像度の範囲解析 | `python-backend/range_analyzer.py` |
+| 高解像度の範囲解析 | `python-backend/analysis_service.py` (`waveform_range`) |
 | TypeScript ユニットテスト | `src/test/` |
 | Webview ブラウザスモークテスト | `src/test/uiSmoke/` |
 | VS Code E2E | `src/e2e/` |
@@ -107,7 +107,7 @@ VS Code タスク:
 
 ## 8. Python / バックエンドのメモ
 
-- DSP ロジックを作り直す前に、`python-backend/analyzer.py`, `decimator.py`, `range_analyzer.py` の既存の `wandas` ベース実装を優先してください。
+- DSP ロジックを作り直す前に、`python-backend/analyzer.py`, `decimator.py`, `analysis_service.py` / `analysis_engine.py` の既存の `wandas` ベース実装を優先してください。
 - Python テストは `python-backend/test_*.py` としてモジュールの近くにあります。
 - extension host とバックエンドの境界は、子プロセスの標準入出力を使う JSON 通信です。境界は小さく、明示的に保ちます。
 

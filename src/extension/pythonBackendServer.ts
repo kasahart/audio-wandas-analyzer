@@ -8,7 +8,6 @@ import {
     BackendStartupCancelledError,
     formatPythonImportTiming,
     processStdoutChunk,
-    rejectPendingRequests,
     waitForBackendStartup,
     type BackendDiagnostic,
     type PendingRequest,
@@ -16,6 +15,7 @@ import {
 import {
     parseBackendNotification,
     parseBackendResult,
+    rejectPendingRequests,
     type AnalyzePayload,
     type BackendCommand,
     type BackendPayload,

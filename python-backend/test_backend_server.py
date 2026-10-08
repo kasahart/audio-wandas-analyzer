@@ -36,11 +36,15 @@ def handle_analyze(command: dict, service: AnalysisService | None = None) -> dic
 
 
 def handle_track_detail(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
-    return _dispatch({"cmd": "track-detail", **command}, service)
+    return _dispatch(
+        {"cmd": "track-detail", "trackIndex": -1, "analysisId": "a1", "settingsSignature": "sig1", **command}, service
+    )
 
 
 def handle_spectrum_slice(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
-    return _dispatch({"cmd": "spectrum-slice", **command}, service)
+    return _dispatch(
+        {"cmd": "spectrum-slice", "trackIndex": -1, "analysisId": "a1", "settingsSignature": "sig1", **command}, service
+    )
 
 
 def handle_range(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
@@ -156,16 +160,17 @@ def test_analyze_round_trip_accepts_flac_from_supported_ui_formats(server: _Serv
 
 
 def test_analyze_uses_engine_frame_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
-    import analysis_service
-
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    monkeypatch.setattr(
-        analysis_service,
-        "analyze_from_frame",
-        lambda _frame, path, **_kwargs: {"filePath": str(path), "channels": []},
-    )
+    reads = []
+    original_read = wd.read
+
+    def counted_read(path: Path) -> wd.ChannelFrame:
+        reads.append(path)
+        return original_read(path)
+
+    monkeypatch.setattr(wd, "read", counted_read)
 
     resp = handle_analyze(
         {"filePath": str(wav.parent / "." / wav.name)},
@@ -174,6 +179,8 @@ def test_analyze_uses_engine_frame_under_resolved_path(monkeypatch, tmp_path: Pa
 
     assert resp["filePath"] == str(wav.resolve())
     assert list(engine._files) == [wav.resolve()]
+    assert reads == [wav.resolve()]
+    assert resp["channels"][0]["peakAbsolute"] == pytest.approx(0.5, abs=0.01)
 
 
 def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> None:
@@ -215,24 +222,28 @@ def test_handle_range_uses_same_pcm_scale_as_analysis(tmp_path: Path) -> None:
 
 
 def test_handle_range_does_not_reread_cached_audio(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    import analysis_service
-
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav, seconds=2.0)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    engine.get_file(wav)
+    reads = 0
+    original_read = wd.read
+
+    def counted_read(path: Path) -> wd.ChannelFrame:
+        nonlocal reads
+        reads += 1
+        return original_read(path)
+
+    monkeypatch.setattr(wd, "read", counted_read)
     service = AnalysisService(engine)
-
-    def fail_sound_file(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("range must use the cached Wandas Frame")
-
-    monkeypatch.setattr(analysis_service.sf, "SoundFile", fail_sound_file)
+    service.analyze(wav)
+    assert reads == 1
     result = handle_range(
         {"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.3, "points": 128},
         service,
     )
 
     assert result["channels"]
+    assert reads == 1
 
 
 def test_handle_range_matches_non_wav_overview_scale(tmp_path: Path) -> None:

@@ -20,9 +20,9 @@
 Comparison UI と DSP は同じソースを使う。解析コマンドの型・応答検証は
 `src/shared/protocol/backendProtocol.ts`、UI から host への型・入力検証は
 `src/shared/protocol/panelMessages.ts` に置く。Worker の正常応答も native IPC と同じ
-validator を通す。Web の load/unload/export-plan は Worker 専用であり共通六コマンドと混同しない。
+validator を通す。Web の load/unload/export-plan は Worker 専用であり共通7コマンド（`command_dispatch.COMMANDS`）と混同しない。
 
-- `AnalysisClient` は analyze/detail/slice/range/export の要求を組み立てる。
+- `AnalysisClient` は analyze/detail/slice/range/export/recipe の要求を組み立てる。
   `executeLazyAnalysis` は detail/slice/range の UI 結果へ変換する。host は
   型付き request transport と表示中の calibration/STFT context を提供する。
 - `runAnalysisBatch` は逐次処理、`SessionRequests` は世代・request ID・dispose 後の応答排除を担当する。
@@ -88,17 +88,20 @@ flowchart LR
   Extension -->|1 file| Single[単一ファイル解析導線]
   Extension -->|directory or 2+ files| Compare[比較ビュー導線]
 
-  Single -->|spawn python| BackendCLI[Python CLI\npython-backend/main.py]
-  Compare -->|spawn python per file| BackendCLI
-  BackendCLI --> Analyzer[Audio Analyzer\npython-backend/analyzer.py]
-  Analyzer -->|JSON stdout| Extension
+  Single --> Client[AnalysisClient]
+  Compare --> Client
+  Client --> Server[PythonBackendServer\nsrc/extension/pythonBackendServer.ts]
+  Server -->|stdin NDJSON| Backend[backend_server.py]
+  Backend --> Dispatch[command_dispatch.py]
+  Dispatch --> Service[AnalysisService\nanalysis_service.py]
+  Service --> Engine[AnalysisEngine\nanalysis_engine.py]
+  Service --> Analyzer[analyzer.py / decimator.py]
+  Backend -->|stdout NDJSON| Server
+  Server --> Client
   Extension --> Panel[ComparisonPanel\nsrc/webview/panels/ComparisonPanel.ts]
   Panel --> User
-
   Panel -->|request-waveform-range| Extension
-  Extension --> WS[WaveformServer\nsrc/waveformServer.ts]
-  WS -->|stdin/stdout JSON| WSPy[waveform_server.py]
-  WSPy -->|waveform-range-result| Panel
+  Extension --> Client
 ```
 
 ## ユーザーフロー
@@ -141,36 +144,30 @@ flowchart LR
 - 解析ロジックを TypeScript 側に持たないため、UI 修正と数値処理修正を独立して進めやすい
 - 単一ファイルと複数ファイルの差は主に入力本数だけで、描画面は共通化されている
 
-### 2. WaveformServer
+### 2. PythonBackendServer
 
-対象: [src/waveformServer.ts](/workspaces/audio-wandas-analyzer/src/waveformServer.ts)
-
-責務:
-
-- `python-backend/waveform_server.py` を常駐子プロセスとして起動・管理する
-- 改行区切り JSON の IPC (stdin/stdout) でズーム範囲の高解像度波形をオンデマンドに取得する
-- ファイルキャッシュを持つサーバープロセスへのリクエストを多重化する
-
-設計上のポイント:
-
-- 初回解析時の全データ取得と分離することで、ズーム時の高解像度取得を低レイテンシで実現している
-- サーバープロセスはファイルを `_file_cache` に保持するため、同一ファイルへの連続リクエストで再読み込みが発生しない
-
-### 3. Python CLI Entry Point
-
-対象: [python-backend/main.py](../python-backend/main.py)
+対象: [src/extension/pythonBackendServer.ts](../src/extension/pythonBackendServer.ts)
 
 責務:
 
-- コマンドライン引数 `--file` を受け取る
-- `analyze_audio` を呼び出す
-- 解析結果を JSON として標準出力に書き出す
-- 例外発生時は標準エラー出力にメッセージを出し、非ゼロ終了コードで終了する
+- `python-backend/backend_server.py` を常駐子プロセスとして起動・管理する
+- `AnalysisClient` の要求を request ID 付きの改行区切り JSON で送信し、応答を対応する Promise に返す
+- ready、heartbeat、タイムアウト、取消、終了時の pending request を管理する
 
-特徴:
+同じプロセスで初期解析と遅延解析を扱い、`AnalysisEngine` のファイル・STFT キャッシュを再利用する。
 
-- CLI を薄く保つことで、解析本体のテストや再利用をしやすくしている
-- VS Code 拡張以外の呼び出し元を将来的に追加する場合も、この境界を流用しやすい
+### 3. Python Backend Entry Point
+
+対象: [python-backend/backend_server.py](../python-backend/backend_server.py) / [python-backend/command_dispatch.py](../python-backend/command_dispatch.py)
+
+責務:
+
+- stdin の NDJSON リクエストを検証し、`AnalysisService` に渡す
+- 共通7コマンド（analyze、range、track-detail、release-track-detail、spectrum-slice、export-wav-loop、run-recipe）を dispatch する
+- request ID 付きの結果または error を stdout に返す
+- 起動通知・heartbeat と stderr の診断を提供する
+
+検証と dispatch は Web の `browser_service.py` からも使う。
 
 ### 4. Audio Analyzer
 
@@ -178,7 +175,7 @@ flowchart LR
 
 責務:
 
-- `wandas.read()` による音声データ読み込み
+- `AnalysisEngine` で読み込み・校正された frame から表示用の結果を生成する
 - チャンネル向きの正規化
 - ピーク値の算出
 - 波形エンベロープ生成（`decimator.py` 経由）
@@ -204,14 +201,15 @@ flowchart LR
 
 - 正規化済みタイムスタンプは Webview 側の `[0, 1]` ファイル座標系に直接マッピングされる
 
-### 6. Range Analyzer / Waveform Server (Python)
+### 6. AnalysisService / AnalysisEngine
 
-対象: [python-backend/range_analyzer.py](/workspaces/audio-wandas-analyzer/python-backend/range_analyzer.py) / [python-backend/waveform_server.py](/workspaces/audio-wandas-analyzer/python-backend/waveform_server.py)
+対象: [python-backend/analysis_service.py](../python-backend/analysis_service.py) / [python-backend/analysis_engine.py](../python-backend/analysis_engine.py)
 
 責務:
 
-- `range_analyzer.py`: 指定範囲のみ `soundfile` で読み込み、高解像度波形を返す
-- `waveform_server.py`: 常駐ループで stdin の JSON リクエストを受け、`analyze_range()` を呼んで結果を stdout に返す。読み込み済みファイルを `_file_cache` に保持する
+- `AnalysisEngine`: `wandas.read()` で読み込んだ frame と設定別 STFT をメモリ上限付き LRU キャッシュに保持する。ファイル更新時はキャッシュを無効化する
+- `AnalysisService`: 初期要約、トラック詳細、カーソルスペクトル、波形範囲、WAV 区間書き出し、Recipe を処理する
+- `waveform_range()`: 校正済みのキャッシュ frame を指定範囲で切り出し、`decimator.py` に渡す。同一ファイルを再読み込みしない
 
 ### 7. ComparisonPanel
 
@@ -223,18 +221,18 @@ flowchart LR
 - 1 件のときは単一トラック解析ビュー、2 件以上のときは比較ビューとして描画する
 - 表示モードは縦積み（stacked）のみ
 - 共通タイムルーラー、ズーム、パン、カーソル同期、トラックごとの再生操作を処理する
-- ズーム時に `request-waveform-range` を WaveformServer 経由で送り、高解像度波形をオンデマンドに取得する
+- ズーム時に `request-waveform-range` を AnalysisClient / PythonBackendServer 経由で送り、高解像度波形をオンデマンドに取得する
 - 解析失敗トラックをエラー表示のまま比較対象に残す
 
 設計上のポイント:
 
 - 単一ファイル、ディレクトリ選択、複数ファイル比較のすべてで `ComparisonPanel` に統一されている
 - 比較件数に応じてタイトルとレイアウト密度だけが変わり、基本的な描画パイプラインは共通である
-- 波形描画は `media/comparisonWaveform.js`（Webview 内）と `src/webview/waveform/waveformRenderer.ts`（TypeScript 単体テスト用）が同一アルゴリズムを実装しており、常に同期を保つ
+- 波形描画の定義元は `src/webview/waveform/waveformRenderer.ts`。ビルドで生成した `dist/webview/comparisonWaveform.js` を Webview が読み込む
 
 ### 8. Waveform Renderer
 
-対象: [src/panels/waveformRenderer.ts](/workspaces/audio-wandas-analyzer/src/panels/waveformRenderer.ts) / [media/comparisonWaveform.js](/workspaces/audio-wandas-analyzer/media/comparisonWaveform.js)
+対象: [src/webview/waveform/waveformRenderer.ts](../src/webview/waveform/waveformRenderer.ts) / [scripts/build-webview.js](../scripts/build-webview.js)
 
 責務:
 
@@ -247,11 +245,11 @@ flowchart LR
 設計上のポイント:
 
 - Canvas 依存を Painting 層のみに閉じることで、TypeScript 単体テストが Canvas なしで実行できる
-- `waveformRenderer.ts` と `media/comparisonWaveform.js` は同じアルゴリズムを持つ。描画ロジック変更時は両方を更新し `npm test` で乖離を検出する
+- TypeScript ソースを編集し、`npm run compile` で `dist/webview/comparisonWaveform.js` を生成する。生成物は手編集しない
 
 ### 9. Range Request Policy
 
-対象: [src/panels/rangeRequestPolicy.ts](/workspaces/audio-wandas-analyzer/src/panels/rangeRequestPolicy.ts)
+対象: [src/webview/waveform/rangeRequestPolicy.ts](../src/webview/waveform/rangeRequestPolicy.ts)
 
 責務:
 
@@ -284,13 +282,13 @@ flowchart LR
 sequenceDiagram
     participant W as Webview JS
     participant E as Extension Host
-    participant WS as WaveformServer
-    participant P as waveform_server.py
+    participant WS as AnalysisClient / PythonBackendServer
+    participant P as backend_server.py / AnalysisService
 
     W->>E: postMessage("request-waveform-range", {file, zoomStart, zoomEnd})
-    E->>WS: requestRange(file, start, end)
+    E->>WS: requestRange(file, start, end, points)
     WS->>P: JSON request via stdin
-    P->>P: analyze_range() / _file_cache 参照
+    P->>P: waveform_range() / AnalysisEngine の frame 参照
     P-->>WS: JSON response via stdout
     WS-->>E: resolve promise
     E->>W: postMessage("waveform-range-result", waveformData)
@@ -303,16 +301,16 @@ sequenceDiagram
 sequenceDiagram
     participant U as User
     participant E as Extension Host
-    participant P as Python CLI
-    participant A as Analyzer
+    participant P as PythonBackendServer / backend_server.py
+    participant A as AnalysisService / AnalysisEngine
     participant C as ComparisonPanel
 
     U->>E: Analyze File / Analyze Debug Path
     E->>E: 設定読込と対象パス解決
-    E->>P: 子プロセス起動
-    P->>A: analyze_audio(file)
+    E->>P: 常駐 backend に analyze リクエスト
+    P->>A: analyze(file)
     A-->>P: 解析結果 dict
-    P-->>E: stdout に JSON 出力
+    P-->>E: request ID 付き NDJSON 応答
     E->>E: JSON.parse / AnalysisResultWithError[] を構築
     E->>C: ComparisonPanel.show([result])
     C-->>U: 1 トラック状態の解析ビューを表示
@@ -325,17 +323,17 @@ sequenceDiagram
     participant U as User
     participant E as Extension Host
     participant C as ComparisonPanel
-    participant P as Python CLI
-    participant A as Analyzer
+    participant P as PythonBackendServer / backend_server.py
+    participant A as AnalysisService / AnalysisEngine
 
     U->>E: フォルダを開く、または既存パネルで再度開く
     E->>C: ディレクトリツリーを選択モードで表示
     C->>E: analyze-selected-files
     loop selected filePaths
-        E->>P: 子プロセス起動
-        P->>A: analyze_audio(file)
+        E->>P: 常駐 backend に analyze リクエスト
+        P->>A: analyze(file)
         A-->>P: 解析結果 dict
-        P-->>E: stdout に JSON 出力
+        P-->>E: request ID 付き NDJSON 応答
         E->>E: JSON.parse / AnalysisResultWithError[] へ追加
     end
     E->>C: ComparisonPanel.showDirectorySelection(..., selectedFilePaths, results)
@@ -398,7 +396,7 @@ interface AnalysisResultWithError extends AnalysisResult {
 src/
   extension/
     index.ts                VS Code 拡張のエントリポイント
-    waveformServer.ts       波形レンジ要求用の永続 Python 子プロセス
+    pythonBackendServer.ts  解析要求用の永続 Python 子プロセス
   shared/
     analysis/
       analysisTypes.ts      共有型定義
@@ -420,13 +418,16 @@ src/
   e2e/
     suite/index.ts          VS Code E2E スモークテスト
 python-backend/
-  main.py                   Python CLI エントリポイント
-  analyzer.py               全ファイル解析ロジック
+  backend_server.py         常駐 NDJSON サーバー
+  command_dispatch.py       共通7コマンドの入力検証と dispatch
+  analysis_service.py       解析コマンドの実装
+  analysis_engine.py        音声 frame と STFT のキャッシュ
+  analyzer.py               frame から表示用結果を生成
   decimator.py              バケット argmin/argmax 波形エンベロープ生成
-  range_analyzer.py         範囲指定高解像度波形取得
-  waveform_server.py        常駐サーバーループ（_file_cache 付き）
+dist/webview/               compile による生成物
+  comparisonWaveform.js     waveformRenderer.ts の Webview バンドル
+  comparisonRuntime.js      比較ビューの runtime バンドル
 media/
-  comparisonWaveform.js     waveformRenderer.ts の Webview 用 JS 実装
   debug/
     sine-440.wav            デバッグ用の単一音声ファイル
     (複数 wav)              マルチトラックテスト用
@@ -462,8 +463,8 @@ docs/
 
 ## 例外処理方針
 
-- Python 側で例外が起きた場合は CLI が標準エラー出力へメッセージを書き、終了コード 1 を返す
-- TypeScript 側は終了コードと標準エラー出力を見て失敗扱いにする
+- リクエスト処理中の Python 例外は request ID 付きの error 応答として返す
+- TypeScript 側は error 応答、起動失敗、タイムアウト、プロセス終了を対応する要求の失敗として扱う
 - JSON 解析失敗も Extension Host で検出し、ユーザーへ通知する
 
 この方針により、UI 層に Python 例外の詳細を持ち込まず、障害点を Extension Host で集約できる設計になっています。
@@ -482,7 +483,7 @@ docs/
 ## 現状の制約
 
 - Webview は解析結果を一括注入する方式なので、超大規模データを段階読み込みする構成ではない
-- バックエンド呼び出しは同期的な単発プロセス実行であり、継続的なストリーミング解析には未対応
+- 常駐 backend は要求ごとに処理し、継続的なストリーミング解析には未対応
 - 入力フォーマットの取り扱いは現状 `wandas.read()` に依存しているため、README 上の拡張子一覧と実際のデコード対応範囲は Python ライブラリ側の能力に左右される
 
 ## 開発時の判断基準

@@ -1,10 +1,8 @@
 import {
-    cloneProfile, identityChannel, identityCalibrationProfile, profilesEqual,
+    cloneProfile, identityChannel, profilesEqual,
     validateCalibrationValueInput, validateCalibrationFactorInput, profileForChannels,
     type CalibrationChannelDescriptor,
 } from '../shared/analysis/calibrationModel';
-export { identityCalibrationProfile, validateCalibrationValueInput, validateCalibrationFactorInput,
-    type CalibrationChannelDescriptor } from '../shared/analysis/calibrationModel';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';

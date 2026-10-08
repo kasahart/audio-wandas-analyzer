@@ -100,7 +100,7 @@ def test_unitless_numpy_profile_keeps_wandas_input_unit_reference() -> None:
     assert result["units"]["spectrumLevel"]["axisLabel"] == "Spectrum amplitude level [dB re 1 input unit]"
 
 
-def test_full_scale_frame_fallback_is_uncalibrated_not_embedded_calibration() -> None:
+def test_full_scale_profile_is_uncalibrated_not_embedded_calibration() -> None:
     source = wd.from_numpy(
         np.array([[0.25, -0.25]], dtype=np.float64),
         sampling_rate=8_000,
@@ -108,7 +108,8 @@ def test_full_scale_frame_fallback_is_uncalibrated_not_embedded_calibration() ->
         ch_units=["FS"],
     )
 
-    result = analyze_from_frame(source, "fixture.wav")
+    resolved = resolve_calibration_profile(None, source)
+    result = analyze_from_frame(source, "fixture.wav", raw_frame=source, calibration_profile=resolved)
     measurement = result["channels"][0]["measurement"]
 
     assert measurement["calibrationStatus"] == "uncalibrated"

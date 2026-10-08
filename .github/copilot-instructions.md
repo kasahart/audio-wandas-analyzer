@@ -48,7 +48,7 @@ User-facing GUI changes are complete only when the command/action/shortcut is re
 ## Python style
 
 - Use `ruff` (configured in `pyproject.toml`). Run `ruff format python-backend` before suggesting a commit.
-- Prefer existing wandas APIs in `python-backend/analyzer.py`, `decimator.py`, `range_analyzer.py` over reimplementing DSP.
+- Prefer existing wandas APIs in `python-backend/analyzer.py`, `decimator.py`, `analysis_service.py` / `analysis_engine.py` over reimplementing DSP.
 
 ## TypeScript style
 

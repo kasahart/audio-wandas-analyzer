@@ -65,7 +65,7 @@ npm run verify:e2e
 | Shared data contracts | `src/shared/analysis/analysisTypes.ts` |
 | Full-file backend analysis | `python-backend/analyzer.py` |
 | Waveform decimation | `python-backend/decimator.py` |
-| High-resolution range analysis | `python-backend/range_analyzer.py` |
+| High-resolution range analysis | `python-backend/analysis_service.py` (`waveform_range`) |
 | TS unit tests | `src/test/` |
 | Webview browser smoke tests | `src/test/uiSmoke/` |
 | VS Code E2E | `src/e2e/` |
@@ -107,7 +107,7 @@ Use the **results** preview for waveform / graph motion. The **selection** previ
 
 ## 8. Python/backend notes
 
-- Prefer existing `wandas`-based paths in `python-backend/analyzer.py`, `decimator.py`, and `range_analyzer.py` over reimplementing DSP logic.
+- Prefer existing `wandas`-based paths in `python-backend/analyzer.py`, `decimator.py`, and `analysis_service.py` / `analysis_engine.py` over reimplementing DSP logic.
 - Python tests live next to the backend modules as `python-backend/test_*.py`.
 - The extension host and backend communicate through JSON over child-process stdio; keep that boundary explicit and small.
 

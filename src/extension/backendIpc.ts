@@ -10,7 +10,6 @@ import {
 export interface PendingRequest extends PendingBackendRequest<{ [key: string]: unknown }> {
     command: BackendCommand;
 }
-export { rejectPendingRequests } from '../shared/protocol/backendProtocol';
 
 export type BackendDiagnosticKind =
     | 'malformed-json'
