@@ -41,7 +41,6 @@ test('extractSpectrumAtCursor: cursor in middle picks middle bin', () => {
 });
 
 test('extractSpectrumAtCursor: cursor at end returns the production silence floor', () => {
-    // dur=1, cursorNorm=1.0 → trackLocalSec=1.0 → tIdx=floor(1.0*4)=4, clamped to 3
     const slice = extractSpectrumAtCursor(makeSource(), 0, 1.0, { startSec: 0, spanSec: 1 });
     assert.deepEqual(slice!.values, [-90, -90, -90, -90]);
 });
