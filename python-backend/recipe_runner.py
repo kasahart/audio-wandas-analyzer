@@ -81,6 +81,8 @@ _ALLOWED_METHODS = frozenset(
         "stft",
         "noct_spectrum",
         "coherence",
+        "csd",
+        "transfer_function",
         "concat_frame",
         "get_channel",
         "a_weighting",

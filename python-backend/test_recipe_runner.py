@@ -274,3 +274,26 @@ def test_all_bundled_recipes_execute_with_analysis_allowlist(recipe_path: Path, 
     for chart, display in zip(charts, recipe["display"], strict=True):
         assert chart["title"] == display["title"]
         assert chart["kind"] in {"line", "heatmap", "bar", "scalar"}
+
+
+@pytest.mark.parametrize("method", ["csd", "transfer_function"])
+def test_cross_spectral_recipe_methods_adapt_to_chart(tmp_path: Path, method: str) -> None:
+    first = tmp_path / "a.wav"
+    second = tmp_path / "b.wav"
+    _write_sine_wav(first, seconds=1.0)
+    _write_sine_wav(second, seconds=1.0)
+    charts = run_recipe(
+        {
+            "inputs": [
+                {"name": "first", "file": str(first)},
+                {"name": "second", "file": str(second)},
+            ],
+            "steps": [
+                {"as": "result", "expr": f"first.concat_frame(second, label_prefix='second').{method}()"},
+            ],
+            "display": ["result"],
+        },
+        base_dir=tmp_path,
+    )
+    assert charts[0]["kind"] == "line"
+    assert charts[0]["series"]
