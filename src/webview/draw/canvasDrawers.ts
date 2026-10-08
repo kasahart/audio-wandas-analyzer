@@ -1,14 +1,4 @@
-/**
- * 比較パネル webview 用の純粋描画関数群。
- *
- * - すべての関数は CanvasRenderingContext2D 互換オブジェクトと入力データのみで動作する。
- * - DOM へのアクセスは行わない (テーマ色は呼び出し側が渡す)。
- * - これにより jsdom を介さない決定論的な単体テストが可能になる。
- *
- * webview からは scripts/build-webview.js が生成する
- * dist/webview/comparisonWaveform.js 経由で `window.drawXxx` として呼ばれる
- * (再生時の renderScript IIFE が利用)。
- */
+import { normalizedColor, viridis } from '../../shared/gui-core/index';
 
 export interface DrawTheme {
     /** 軸ラベル文字色 (--muted) */
@@ -41,6 +31,8 @@ export interface CanvasDrawCtx {
     moveTo(x: number, y: number): void;
     lineTo(x: number, y: number): void;
     stroke(): void;
+    rect(x: number, y: number, w: number, h: number): void;
+    clip(): void;
     fillRect(x: number, y: number, w: number, h: number): void;
     fillText(text: string, x: number, y: number): void;
     createImageData(w: number, h: number): { data: Uint8ClampedArray; width: number; height: number };
@@ -53,6 +45,7 @@ export interface SpectrumSliceLike {
     maxFrequencyHz: number;
     minDb: number;
     maxDb: number;
+    originalMaxFrequencyHz?: number;
     unit?: string;
     axisLabel?: string;
 }
@@ -71,119 +64,87 @@ export interface SpectrogramAxesOpts {
     maxFreq?: number;
 }
 
-export interface WaveformAmplitudeAxisOpts {
-    absolutePeak?: number | null;
-    unit?: string | null;
-}
-
-function formatAmplitudeAxisValue(value: number): string {
+export function formatAmplitudeValue(value: number): string {
     const absValue = Math.abs(value);
-    if (absValue >= 100) { return absValue.toFixed(0); }
-    if (absValue >= 1) { return absValue.toFixed(1); }
-    if (absValue >= 0.01) { return absValue.toFixed(2); }
+    if (absValue >= 100) {
+        return absValue.toFixed(0);
+    }
+    if (absValue >= 1) {
+        return absValue.toFixed(1);
+    }
+    if (absValue >= 0.01) {
+        return absValue.toFixed(2);
+    }
     return absValue.toPrecision(2);
 }
 
-export function formatAmplitudeAxisLabels(opts: WaveformAmplitudeAxisOpts = {}): string[] {
-    const rawPeak = typeof opts.absolutePeak === 'number' ? opts.absolutePeak : Number.NaN;
+export function formatWaveformAxisLabels(absolutePeak: number | null | undefined, unit: string | null | undefined) {
+    const rawPeak = typeof absolutePeak === 'number' ? absolutePeak : NaN;
     const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
-    const value = formatAmplitudeAxisValue(peak);
-    const unit = typeof opts.unit === 'string' && opts.unit.trim() ? opts.unit.trim() : null;
-    return ['+' + value, '0', '-' + value, unit ? 'Amp (' + unit + ')' : 'Amp'];
+    const value = formatAmplitudeValue(peak);
+    const unitText = typeof unit === 'string' && unit.trim() ? unit.trim() : null;
+    return ['+' + value, '0', '-' + value, unitText ? 'Amp (' + unitText + ')' : 'Amp'];
 }
 
-export function formatHz(hz: number): string {
+export function formatHz(hz: number) {
     if (hz >= 1000) {
         return (hz / 1000).toFixed(hz >= 10000 ? 0 : 1) + ' kHz';
     }
     return Math.round(hz) + ' Hz';
 }
 
-/** dB を 0..1 に正規化したスペクトル値を Viridis 風の RGB に変換する。 */
-export function dbToRgb(norm: number): [number, number, number] {
-    if (norm < 0.25) {
-        const t = norm / 0.25;
-        return [
-            Math.floor(68 + t * (59 - 68)),
-            Math.floor(1 + t * (82 - 1)),
-            Math.floor(84 + t * (139 - 84)),
-        ];
-    }
-    if (norm < 0.5) {
-        const t = (norm - 0.25) / 0.25;
-        return [
-            Math.floor(59 + t * (33 - 59)),
-            Math.floor(82 + t * (145 - 82)),
-            Math.floor(139 + t * (140 - 139)),
-        ];
-    }
-    if (norm < 0.75) {
-        const t = (norm - 0.5) / 0.25;
-        return [
-            Math.floor(33 + t * (94 - 33)),
-            Math.floor(145 + t * (201 - 145)),
-            Math.floor(140 + t * (98 - 140)),
-        ];
-    }
-    const t = (norm - 0.75) / 0.25;
-    return [
-        Math.floor(94 + t * (253 - 94)),
-        Math.floor(201 + t * (231 - 201)),
-        Math.floor(98 + t * (37 - 98)),
-    ];
+export function dbToRgb(norm: number) {
+    return normalizedColor(norm, viridis);
 }
 
-/** 波形キャンバスの左端に振幅軸を描画する。 */
-export function drawWaveformAmplitudeAxis(
-    ctx: CanvasDrawCtx,
-    W: number,
-    H: number,
-    theme: DrawTheme = DEFAULT_THEME,
-    opts: WaveformAmplitudeAxisOpts = {},
-): void {
-    void W;
-    const [topLabel, zeroLabel, bottomLabel, titleLabel] = formatAmplitudeAxisLabels(opts);
+export function dbLevelUnitFor(value: { unit?: string } | null): string {
+    return value && value.unit ? value.unit : 'dB';
+}
+
+export function formatDbLevel(value: number, source: { unit?: string } | null): string {
+    return value.toFixed(0) + ' ' + dbLevelUnitFor(source);
+}
+
+export function drawWaveformAmplitudeAxis(ctx: CanvasDrawCtx, W: number, H: number, labels: string[] = formatWaveformAxisLabels(null, null), theme: DrawTheme = DEFAULT_THEME): void {
+    const mutedColor = theme.mutedColor;
+    const bgColor = theme.bgColor;
+    const axisLabels = labels || formatWaveformAxisLabels(null, null);
     const labelW = Math.max(30, Math.min(W, 64));
     ctx.save();
-    ctx.fillStyle = theme.bgColor;
+    ctx.fillStyle = bgColor;
     ctx.globalAlpha = 0.7;
     ctx.fillRect(0, 0, labelW, H);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = theme.mutedColor;
+    ctx.fillStyle = mutedColor;
     ctx.font = '9px monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText(topLabel, labelW - 2, 1);
+    ctx.fillText(axisLabels[0], labelW - 2, 1);
     ctx.textBaseline = 'middle';
-    ctx.fillText(zeroLabel, labelW - 2, H / 2);
+    ctx.fillText(axisLabels[1], labelW - 2, H / 2);
     ctx.textBaseline = 'bottom';
-    ctx.fillText(bottomLabel, labelW - 2, H - 1);
+    ctx.fillText(axisLabels[2], labelW - 2, H - 1);
     ctx.save();
     ctx.translate(8, H / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(titleLabel, 0, 0);
+    ctx.fillText(axisLabels[3], 0, 0);
     ctx.restore();
     ctx.restore();
 }
 
-export function drawSpectrogramFrequencyAxis(
-    ctx: CanvasDrawCtx,
-    W: number,
-    H: number,
-    spec: SpectrogramSpecLike,
-    opts: SpectrogramAxesOpts = {},
-    theme: DrawTheme = DEFAULT_THEME,
-): void {
-    const maxHz = opts.maxFreq ?? spec.maxFrequencyHz;
-
+export function drawSpectrogramFrequencyAxis(ctx: CanvasDrawCtx, W: number, H: number, spec: SpectrogramSpecLike, opts: { maxFreq?: number } = {}, theme: DrawTheme = DEFAULT_THEME): void {
+    const mutedColor = theme.mutedColor;
+    const bgColor = theme.bgColor;
+    const o = opts || {};
+    const maxHz = (o.maxFreq != null) ? o.maxFreq : spec.maxFrequencyHz;
     ctx.save();
-    ctx.fillStyle = theme.bgColor;
+    ctx.fillStyle = bgColor;
     ctx.globalAlpha = 0.7;
     ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = theme.mutedColor;
+    ctx.fillStyle = mutedColor;
     ctx.font = '9px monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
@@ -202,20 +163,15 @@ export function drawSpectrogramFrequencyAxis(
     ctx.restore();
 }
 
-export function drawSpectrogramColorbar(
-    ctx: CanvasDrawCtx,
-    W: number,
-    H: number,
-    spec: SpectrogramSpecLike,
-    opts: SpectrogramAxesOpts = {},
-    theme: DrawTheme = DEFAULT_THEME,
-): void {
+export function drawSpectrogramColorbar(ctx: CanvasDrawCtx, W: number, H: number, spec: SpectrogramSpecLike, opts: { dbLo?: number; dbHi?: number } = {}, theme: DrawTheme = DEFAULT_THEME): void {
+    const mutedColor = theme.mutedColor;
+    const bgColor = theme.bgColor;
     const cbStripW = 50;
-    const dbLo = opts.dbLo ?? spec.minDb;
-    const dbHi = opts.dbHi ?? spec.maxDb;
-
+    const o = opts || {};
+    const dbLo = (o.dbLo != null) ? o.dbLo : spec.minDb;
+    const dbHi = (o.dbHi != null) ? o.dbHi : spec.maxDb;
     ctx.save();
-    ctx.fillStyle = theme.bgColor;
+    ctx.fillStyle = bgColor;
     ctx.globalAlpha = 0.7;
     ctx.fillRect(W - cbStripW, 0, cbStripW, H);
     ctx.globalAlpha = 1;
@@ -229,103 +185,102 @@ export function drawSpectrogramColorbar(
         const rgb = dbToRgb(norm);
         for (let x = 0; x < cbW; x++) {
             const off = (y * cbW + x) * 4;
-            grad.data[off] = rgb[0]; grad.data[off + 1] = rgb[1]; grad.data[off + 2] = rgb[2]; grad.data[off + 3] = 255;
+            grad.data[off] = rgb[0];
+            grad.data[off + 1] = rgb[1];
+            grad.data[off + 2] = rgb[2];
+            grad.data[off + 3] = 255;
         }
     }
     ctx.putImageData(grad, cbX, cbY);
-    ctx.fillStyle = theme.mutedColor;
+    ctx.fillStyle = mutedColor;
     ctx.font = '9px monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    const unit = spec.unit || 'dB';
+    const unit = dbLevelUnitFor(spec);
     ctx.fillText(dbHi.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY);
     ctx.textBaseline = 'bottom';
     ctx.fillText(dbLo.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY + cbH);
     ctx.restore();
 }
 
-/** スペクトログラム軸を、左周波数軸と右カラーバーに分けて描画する。 */
-export function drawSpectrogramAxes(
-    ctx: CanvasDrawCtx,
-    W: number,
-    H: number,
-    spec: SpectrogramSpecLike,
-    theme: DrawTheme = DEFAULT_THEME,
-): void {
-    drawSpectrogramFrequencyAxis(ctx, 36, H, spec, {}, theme);
-    drawSpectrogramColorbar(ctx, W, H, spec, {}, theme);
-}
-
-export interface SpectrumLineOpts {
-    padL?: number;
-    padR?: number;
-    padT?: number;
-    padB?: number;
-    lineWidth?: number;
-}
-
-export function drawSpectrumLine(
-    ctx: CanvasDrawCtx,
-    W: number,
-    H: number,
-    slice: SpectrumSliceLike,
-    color: string,
-    opts?: SpectrumLineOpts,
-): void {
+export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, color: string, opts: { padL?: number; padR?: number; padT?: number; padB?: number; lineWidth?: number } = {}, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null): void {
     const fBins = slice.frequencyBins;
-    const range = slice.maxDb - slice.minDb;
-    if (range <= 0) { return; }
-    const padL = opts?.padL ?? 0;
-    const padR = opts?.padR ?? 0;
-    const padT = opts?.padT ?? 0;
-    const padB = opts?.padB ?? 0;
+    const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
+    const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
+    const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
+    const _visDbMax = (visDbMax != null) ? visDbMax : slice.maxDb;
+    const range = _visDbMax - _visDbMin;
+    if (range <= 0) {
+        return;
+    }
+    const padL = (opts && opts.padL) || 0;
+    const padR = (opts && opts.padR) || 0;
+    const padT = (opts && opts.padT) || 0;
+    const padB = (opts && opts.padB) || 0;
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = opts?.lineWidth ?? 1.2;
+    ctx.save();
     ctx.beginPath();
+    ctx.rect(padL, padT, plotW, plotH);
+    ctx.clip();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
+    ctx.beginPath();
+    const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
+    const visFreqRange = _visFreqMax - _visFreqMin;
+    if (visFreqRange <= 0) {
+        ctx.restore();
+        return;
+    }
     for (let i = 0; i < fBins; i++) {
-        const x = padL + (i / Math.max(fBins - 1, 1)) * plotW;
+        const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
+        if (fHz > slice.maxFrequencyHz) {
+            break;
+        }
+        const x = padL + ((fHz - _visFreqMin) / visFreqRange) * plotW;
         const v = slice.values[i];
-        const norm = Math.max(0, Math.min(1, (v - slice.minDb) / range));
+        const norm = (v - _visDbMin) / range;
         const y = padT + (1 - norm) * plotH;
-        if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        }
+        else {
+            ctx.lineTo(x, y);
+        }
     }
     ctx.stroke();
+    ctx.restore();
 }
 
-export function drawSpectrumAxes(
-    ctx: CanvasDrawCtx,
-    W: number,
-    H: number,
-    slice: SpectrumSliceLike,
-    padL: number,
-    padR: number,
-    padT: number,
-    padB: number,
-    theme: DrawTheme = DEFAULT_THEME,
-): void {
+export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, padL: number, padR: number, padT: number, padB: number, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, theme: DrawTheme = DEFAULT_THEME) {
+    const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
+    const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
+    const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
+    const _visDbMax = (visDbMax != null) ? visDbMax : slice.maxDb;
+    const mutedColor = theme.mutedColor;
+    const lineColor = theme.lineColor;
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
-    ctx.strokeStyle = theme.lineColor;
+    ctx.strokeStyle = lineColor;
     ctx.lineWidth = 0.5;
     ctx.beginPath();
-    ctx.moveTo(padL, padT); ctx.lineTo(padL, H - padB);
-    ctx.moveTo(padL, H - padB); ctx.lineTo(W - padR, H - padB);
+    ctx.moveTo(padL, padT);
+    ctx.lineTo(padL, H - padB);
+    ctx.moveTo(padL, H - padB);
+    ctx.lineTo(W - padR, H - padB);
     ctx.stroke();
-    ctx.fillStyle = theme.mutedColor;
+    ctx.fillStyle = mutedColor;
     ctx.font = '9px monospace';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    const unit = slice.unit || 'dB';
-    ctx.fillText(slice.maxDb.toFixed(0) + ' ' + unit, padL - 2, padT);
+    ctx.fillText(formatDbLevel(_visDbMax, slice), padL - 2, padT);
     ctx.textBaseline = 'middle';
-    ctx.fillText(((slice.maxDb + slice.minDb) / 2).toFixed(0) + ' ' + unit, padL - 2, padT + plotH / 2);
+    ctx.fillText(formatDbLevel((_visDbMax + _visDbMin) / 2, slice), padL - 2, padT + plotH / 2);
     ctx.textBaseline = 'bottom';
-    ctx.fillText(slice.minDb.toFixed(0) + ' ' + unit, padL - 2, H - padB);
+    ctx.fillText(formatDbLevel(_visDbMin, slice), padL - 2, H - padB);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('0 Hz', padL, H - 1);
-    ctx.fillText(formatHz(slice.maxFrequencyHz / 2), padL + plotW / 2, H - 1);
-    ctx.fillText(formatHz(slice.maxFrequencyHz), W - padR, H - 1);
+    ctx.fillText(formatHz(_visFreqMin), padL, H - 1);
+    ctx.fillText(formatHz((_visFreqMin + _visFreqMax) / 2), padL + plotW / 2, H - 1);
+    ctx.fillText(formatHz(_visFreqMax), W - padR, H - 1);
 }

@@ -7,7 +7,7 @@
 export function computeReqBounds(
     zoomStart: number,
     zoomEnd: number,
-    offset: number,
+    offset = 0,
 ): { reqStart: number; reqEnd: number } {
     const padding = 0.05 * (zoomEnd - zoomStart);
     return {
@@ -22,30 +22,31 @@ export interface RangeCacheEntry {
     channels: Array<{ min?: number[]; max?: number[]; samples?: number[] }>;
 }
 
-/**
- * 既存キャッシュが現在のズームに対して十分な密度を持つか判定する。
- * true  = スキップ可（新規リクエスト不要）
- * false = 新規リクエストが必要
- *
- * 密度基準: 現在のズームウィンドウ内で visible なキャッシュポイントが
- * W * 0.5 pt/px 以上あること。
- */
+export function waveformPointCount(waveform: RangeCacheEntry['channels'][number] | null | undefined): number {
+    if (!waveform) {
+        return 0;
+    }
+    return (waveform.min && waveform.min.length) || (waveform.samples && waveform.samples.length) || 0;
+}
+
 export function isCacheSufficient(
     cache: RangeCacheEntry | null,
     reqStart: number,
     reqEnd: number,
-    minPts: number,
-    W: number,
-    zoomStart: number,
-    zoomEnd: number,
+    points: number,
+    width: number,
+    fileAtZoomStart: number,
+    fileAtZoomEnd: number,
+    channelCount: number,
 ): boolean {
-    if (!cache) { return false; }
-    if (cache.startNorm > reqStart || cache.endNorm < reqEnd) { return false; }
-    const ch0 = cache.channels[0];
-    if (!ch0) { return false; }
-    const nPts = (ch0.min && ch0.min.length) || (ch0.samples && ch0.samples.length) || 0;
-    if (nPts < minPts) { return false; }
+    if (!cache || cache.startNorm > reqStart || cache.endNorm < reqEnd || !cache.channels) {
+        return false;
+    }
     const cacheDataRange = Math.max(cache.endNorm - cache.startNorm, 1e-9);
-    const ptsVisible = nPts * ((zoomEnd - zoomStart) / cacheDataRange);
-    return ptsVisible >= W * 0.5;
+    return Array.from({ length: channelCount }).every((_, channelIndex) => {
+        const channel = cache.channels[channelIndex];
+        const nPts = waveformPointCount(channel);
+        const ptsVisible = nPts * ((fileAtZoomEnd - fileAtZoomStart) / cacheDataRange);
+        return nPts >= points * 0.8 && ptsVisible >= width * 0.5;
+    });
 }

@@ -1,6 +1,8 @@
 import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { paintSpectrogramRaster } from './spectrogramRaster';
-import { normalizedColor, viridis } from '../../shared/gui-core/index';
+import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, type DrawTheme } from '../draw/canvasDrawers';
+import { isCacheSufficient, computeReqBounds, waveformPointCount } from '../waveform/rangeRequestPolicy';
+import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { eventTarget } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
@@ -77,6 +79,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         status: 'normal',
         tooltip: 'Click to select Python environment',
     };
+    function drawTheme(): DrawTheme {
+        const style = getComputedStyle(document.body);
+        return {
+            mutedColor: style.getPropertyValue('--muted').trim() || '#888',
+            bgColor: style.getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)',
+            lineColor: style.getPropertyValue('--line').trim() || '#444',
+        };
+    }
     const AXIS_W = 64;
     const SPECTROGRAM_COLORBAR_WIDTH = 50;
     const TRACK_HEIGHT_DEFAULT = 80;
@@ -920,12 +930,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         rangeRequestTimer = setTimeout(function () { checkAndRequestRanges(); }, 80);
     }
-    function waveformPointCount(waveform: WaveformEnvelope | null | undefined): number {
-        if (!waveform) {
-            return 0;
-        }
-        return (waveform.min && waveform.min.length) || (waveform.samples && waveform.samples.length) || 0;
-    }
     function computeTrackFileView(result: ComparisonTrackState, trackIndex: number, offsetSeconds?: number): TrackFileView {
         const dur = result.durationSeconds || 1;
         const gs = computeGlobalSpan();
@@ -973,23 +977,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (overviewIsSufficient(result, W, fileView)) {
                 return;
             }
-            const fileSpan = fileView.fileAtZoomEnd - fileView.fileAtZoomStart;
-            const reqStart = Math.max(0, fileView.fileAtZoomStart - 0.05 * fileSpan);
-            const reqEnd = Math.min(1, fileView.fileAtZoomEnd + 0.05 * fileSpan);
+            const { reqStart, reqEnd } = computeReqBounds(fileView.fileAtZoomStart, fileView.fileAtZoomEnd);
             const pts = Math.min(W * 2, 8000);
-            // Skip if cached range covers current view with sufficient density
-            const c = record.rangeCache;
-            if (c && c.startNorm <= reqStart && c.endNorm >= reqEnd && c.channels) {
-                const cacheDataRange = Math.max(c.endNorm - c.startNorm, 1e-9);
-                const cacheSufficient = channelsForResult(result).every(function (_, channelIndex: number) {
-                    const ch = c.channels[channelIndex];
-                    const nPts = waveformPointCount(ch);
-                    const ptsVisible = nPts * ((fileView.fileAtZoomEnd - fileView.fileAtZoomStart) / cacheDataRange);
-                    return nPts >= pts * 0.8 && ptsVisible >= W * 0.5;
-                });
-                if (cacheSufficient) {
-                    return;
-                }
+            if (isCacheSufficient(record.rangeCache, reqStart, reqEnd, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd, channelsForResult(result).length)) {
+                return;
             }
             const requestId = record.id + '-' + Date.now();
             record.pendingRangeRequest = requestId;
@@ -1030,26 +1021,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const overlay = document.getElementById('reanalyze-overlay');
         return !!overlay && overlay.style.display !== 'none';
     }
-    function formatAmplitudeValue(value: number): string {
-        const absValue = Math.abs(value);
-        if (absValue >= 100) {
-            return absValue.toFixed(0);
-        }
-        if (absValue >= 1) {
-            return absValue.toFixed(1);
-        }
-        if (absValue >= 0.01) {
-            return absValue.toFixed(2);
-        }
-        return absValue.toPrecision(2);
-    }
-    function formatWaveformAxisLabels(absolutePeak: number | null | undefined, unit: string | null | undefined) {
-        const rawPeak = typeof absolutePeak === 'number' ? absolutePeak : NaN;
-        const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
-        const value = formatAmplitudeValue(peak);
-        const unitText = typeof unit === 'string' && unit.trim() ? unit.trim() : null;
-        return ['+' + value, '0', '-' + value, unitText ? 'Amp (' + unitText + ')' : 'Amp'];
-    }
+
     function waveformAxisLabelsForChannel(result: ComparisonTrackState, channelIndex: number) {
         const ch = channelsForResult(result)[channelIndex];
         const waveform = ch && ch.waveform;
@@ -1846,37 +1818,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (axisCanvas) {
             const axisCtx = axisCanvas.getContext('2d');
             if (axisCtx) {
-                drawWaveformAmplitudeAxis(axisCtx, AXIS_W, H, waveformAxisLabelsForChannel(result, channelIndex));
+                drawWaveformAmplitudeAxis(axisCtx, AXIS_W, H, waveformAxisLabelsForChannel(result, channelIndex), drawTheme());
             }
         }
-    }
-    function drawWaveformAmplitudeAxis(ctx: CanvasRenderingContext2D, W: number, H: number, labels: string[]): void {
-        const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-        const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
-        const axisLabels = labels || formatWaveformAxisLabels(null, null);
-        const labelW = Math.max(30, Math.min(W, 64));
-        ctx.save();
-        ctx.fillStyle = bgColor;
-        ctx.globalAlpha = 0.7;
-        ctx.fillRect(0, 0, labelW, H);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = mutedColor;
-        ctx.font = '9px monospace';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'top';
-        ctx.fillText(axisLabels[0], labelW - 2, 1);
-        ctx.textBaseline = 'middle';
-        ctx.fillText(axisLabels[1], labelW - 2, H / 2);
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(axisLabels[2], labelW - 2, H - 1);
-        ctx.save();
-        ctx.translate(8, H / 2);
-        ctx.rotate(-Math.PI / 2);
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(axisLabels[3], 0, 0);
-        ctx.restore();
-        ctx.restore();
     }
     function drawSpectrogram(canvas: RuntimeElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number) {
         const ctx = canvas.getContext('2d');
@@ -1925,12 +1869,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 zoomStart, zoomEnd, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq,
             }, imageData.data);
             ctx.putImageData(imageData, 0, 0);
-            drawSpectrogramColorbar(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi });
+            drawSpectrogramColorbar(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi }, drawTheme());
             raster = { source: spec, key: rasterKey };
             spectrogramRasterCache.set(cacheId, raster);
         }
         if (axisCtx) {
-            drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq });
+            drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq }, drawTheme());
         }
         if (overlayCtx) {
             drawLoopRegionOnCanvas(overlayCtx, plotW, H);
@@ -1938,73 +1882,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             drawHoverLineOnCanvas(overlayCtx, plotW, H);
         }
     }
-    function drawSpectrogramFrequencyAxis(ctx: CanvasRenderingContext2D, W: number, H: number, spec: SpectrogramData, opts: { maxFreq?: number } = {}): void {
-        const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-        const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
-        const o = opts || {};
-        const maxHz = (o.maxFreq != null) ? o.maxFreq : spec.maxFrequencyHz;
-        ctx.save();
-        ctx.fillStyle = bgColor;
-        ctx.globalAlpha = 0.7;
-        ctx.fillRect(0, 0, W, H);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = mutedColor;
-        ctx.font = '9px monospace';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'top';
-        ctx.fillText(formatHz(maxHz), W - 2, 1);
-        ctx.textBaseline = 'middle';
-        ctx.fillText(formatHz(maxHz / 2), W - 2, H / 2);
-        ctx.textBaseline = 'bottom';
-        ctx.fillText('0 Hz', W - 2, H - 1);
-        ctx.save();
-        ctx.translate(9, H / 2);
-        ctx.rotate(-Math.PI / 2);
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('Freq', 0, 0);
-        ctx.restore();
-        ctx.restore();
-    }
-    function drawSpectrogramColorbar(ctx: CanvasRenderingContext2D, W: number, H: number, spec: SpectrogramData, opts: { dbLo?: number; dbHi?: number } = {}): void {
-        const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-        const bgColor = getComputedStyle(document.body).getPropertyValue('--track-bg').trim() || 'rgba(0,0,0,0.55)';
-        const cbStripW = SPECTROGRAM_COLORBAR_WIDTH;
-        const o = opts || {};
-        const dbLo = (o.dbLo != null) ? o.dbLo : spec.minDb;
-        const dbHi = (o.dbHi != null) ? o.dbHi : spec.maxDb;
-        ctx.save();
-        ctx.fillStyle = bgColor;
-        ctx.globalAlpha = 0.7;
-        ctx.fillRect(W - cbStripW, 0, cbStripW, H);
-        ctx.globalAlpha = 1;
-        const cbW = 10;
-        const cbX = W - cbStripW + 6;
-        const cbY = 2;
-        const cbH = Math.max(1, H - 4);
-        const grad = ctx.createImageData(cbW, cbH);
-        for (let y = 0; y < cbH; y++) {
-            const norm = 1 - y / Math.max(cbH - 1, 1);
-            const rgb = dbToRgb(norm);
-            for (let x = 0; x < cbW; x++) {
-                const off = (y * cbW + x) * 4;
-                grad.data[off] = rgb[0];
-                grad.data[off + 1] = rgb[1];
-                grad.data[off + 2] = rgb[2];
-                grad.data[off + 3] = 255;
-            }
-        }
-        ctx.putImageData(grad, cbX, cbY);
-        ctx.fillStyle = mutedColor;
-        ctx.font = '9px monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        const unit = dbLevelUnitFor(spec);
-        ctx.fillText(dbHi.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY);
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(dbLo.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY + cbH);
-        ctx.restore();
-    }
+
     function spectrogramPlotWidth(canvasWidth: number) {
         return Math.max(1, canvasWidth - SPECTROGRAM_COLORBAR_WIDTH);
     }
@@ -2028,14 +1906,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const x = Math.max(0, Math.min(timeWidth, clientX - rect.left));
         return Math.max(0, Math.min(1, zoomStart + (x / timeWidth) * (zoomEnd - zoomStart)));
     }
-    function dbLevelUnitFor(value: { unit?: string } | null): string {
-        return value && value.unit ? value.unit : 'dB';
-    }
     function dbLevelAxisLabelFor(value: { axisLabel?: string }): string {
         return value && value.axisLabel ? value.axisLabel : 'Spectrum level [dB]';
-    }
-    function formatDbLevel(value: number, source: { unit?: string } | null): string {
-        return value.toFixed(0) + ' ' + dbLevelUnitFor(source);
     }
     function spectrumLevelAxisLabel(result: ComparisonTrackState, channel?: ChannelSummary) {
         if (channel?.measurement) {
@@ -2045,19 +1917,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             ? result.units.spectrumLevel.axisLabel
             : 'Spectrum level [dB]';
     }
-    function formatHz(hz: number) {
-        if (hz >= 1000) {
-            return (hz / 1000).toFixed(hz >= 10000 ? 0 : 1) + ' kHz';
-        }
-        return Math.round(hz) + ' Hz';
-    }
     function formatReadoutHz(hz: number) {
         const rounded = Math.round(hz);
         const value = Math.abs(hz - rounded) < 0.05 ? String(rounded) : hz.toFixed(1);
         return value + ' Hz';
-    }
-    function dbToRgb(norm: number) {
-        return normalizedColor(norm, viridis);
     }
     function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         const x = (cursorNorm - zoomStart) / (zoomEnd - zoomStart) * W;
@@ -4612,78 +4475,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
     }
-    function makeSilentSpectrumSlice(
-        result: ComparisonTrackState,
-        spec: SpectrogramData | null,
-        cached: SpectrumSlice | null,
-    ): SpectrumSlice {
-        const fallbackBins = spec && spec.frequencyBins ? spec.frequencyBins : (cached && cached.frequencyBins ? cached.frequencyBins : 192);
-        const fallbackMaxF = spec && spec.maxFrequencyHz ? spec.maxFrequencyHz : (cached && (cached.originalMaxFrequencyHz || cached.maxFrequencyHz) ? (cached.originalMaxFrequencyHz || cached.maxFrequencyHz) : ((result.sampleRateHz || 0) / 2));
-        const floorDb = spec && Number.isFinite(spec.minDb) ? spec.minDb : (cached && Number.isFinite(cached.minDb) ? cached.minDb : -120);
-        const topDb = spec && Number.isFinite(spec.maxDb) ? spec.maxDb : (cached && Number.isFinite(cached.maxDb) ? cached.maxDb : 0);
-        return applySpectrumDisplaySettings({
-            values: Array(Math.max(1, fallbackBins)).fill(floorDb),
-            frequencyBins: Math.max(1, fallbackBins),
-            originalMaxFrequencyHz: fallbackMaxF,
-            maxFrequencyHz: fallbackMaxF,
-            minDb: floorDb,
-            maxDb: Math.max(topDb, floorDb + 1),
-            unit: (spec && spec.unit) || (cached && cached.unit) || undefined,
-            axisLabel: (spec && spec.axisLabel) || (cached && cached.axisLabel) || undefined,
-        });
-    }
-    function extractSpectrumAtCursor(
-        result: ComparisonTrackState,
-        trackIndex: number,
-        offsetSeconds: number,
-        cursorNormValue: number,
-        channelIndex = 0,
-    ): SpectrumSlice | null {
-        if (!result || result.error) {
-            return null;
-        }
-        const dur = result.durationSeconds || 0;
-        if (dur <= 0) {
-            return null;
-        }
-        const idx = trackIndex;
+    function extractSpectrumAtCursor(result: ComparisonTrackState, trackIndex: number, offsetSeconds: number, cursorNormValue: number, channelIndex = 0): SpectrumSlice | null {
         const chIdx = Number.isInteger(channelIndex) ? channelIndex : 0;
-        const gs = computeGlobalSpan();
-        const cursorSec = gs.startSec + cursorNormValue * gs.spanSec;
-        const trackLocalSec = cursorSec - offsetSeconds;
-        if (trackLocalSec < 0) {
-            return null;
-        }
-        const ch = channelsForResult(result)[chIdx];
-        const spec = ch && ch.spectrogram;
-        const cached = idx >= 0 ? trackRecordAtIndex(idx)?.spectrumSliceCache.get(chIdx) ?? null : null;
-        if (trackLocalSec >= dur) {
-            return makeSilentSpectrumSlice(result, spec, cached);
-        }
-        if (idx >= 0) {
-            requestSpectrumSlice(idx, cursorNormValue);
-            if (cached && cached.settingsSignature === currentSpectrumDataSignature()) {
-                return applySpectrumDisplaySettings(cached);
-            }
-        }
-        if (!spec || !spec.values || spec.timeBins <= 0 || spec.frequencyBins <= 0) {
-            return null;
-        }
-        let timeIndex = Math.floor((trackLocalSec / dur) * spec.timeBins);
-        timeIndex = Math.max(0, Math.min(spec.timeBins - 1, timeIndex));
-        const values = spec.values[timeIndex];
-        if (!values || values.length === 0) {
-            return null;
-        }
-        return applySpectrumDisplaySettings({
-            values: values,
-            frequencyBins: spec.frequencyBins,
-            originalMaxFrequencyHz: spec.maxFrequencyHz,
-            maxFrequencyHz: spec.maxFrequencyHz,
-            minDb: spec.minDb,
-            maxDb: spec.maxDb,
-            unit: spec.unit,
-            axisLabel: spec.axisLabel,
+        return extractCursorSpectrum(result, offsetSeconds, cursorNormValue, computeGlobalSpan(), {
+            trackIndex,
+            channelIndex: chIdx,
+            cached: trackIndex >= 0 ? trackRecordAtIndex(trackIndex)?.spectrumSliceCache.get(chIdx) ?? null : null,
+            settingsSignature: currentSpectrumDataSignature(),
+            requestSlice: requestSpectrumSlice,
+            applyDisplaySettings: applySpectrumDisplaySettings,
         });
     }
     function spectrumBinAtFrequency(slice: SpectrumSlice, targetFreqHz: number, padL: number, plotW: number, padT: number, plotH: number, visFreqMin: number, visFreqMax: number, visDbMin: number, visDbMax: number) {
@@ -4818,86 +4618,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumHoverTrackId = 'overlay';
         spectrumHoverChannelIndex = null;
     }
-    function drawSpectrumLine(ctx: CanvasRenderingContext2D, W: number, H: number, slice: SpectrumSlice, color: string, opts: { padL?: number; padR?: number; padT?: number; padB?: number; lineWidth?: number } = {}, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null): void {
-        const fBins = slice.frequencyBins;
-        const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
-        const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
-        const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
-        const _visDbMax = (visDbMax != null) ? visDbMax : slice.maxDb;
-        const range = _visDbMax - _visDbMin;
-        if (range <= 0) {
-            return;
-        }
-        const padL = (opts && opts.padL) || 0;
-        const padR = (opts && opts.padR) || 0;
-        const padT = (opts && opts.padT) || 0;
-        const padB = (opts && opts.padB) || 0;
-        const plotW = W - padL - padR;
-        const plotH = H - padT - padB;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(padL, padT, plotW, plotH);
-        ctx.clip();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
-        ctx.beginPath();
-        const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
-        const visFreqRange = _visFreqMax - _visFreqMin;
-        if (visFreqRange <= 0) {
-            ctx.restore();
-            return;
-        }
-        for (let i = 0; i < fBins; i++) {
-            const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
-            if (fHz > slice.maxFrequencyHz) {
-                break;
-            }
-            const x = padL + ((fHz - _visFreqMin) / visFreqRange) * plotW;
-            const v = slice.values[i];
-            const norm = (v - _visDbMin) / range;
-            const y = padT + (1 - norm) * plotH;
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            }
-            else {
-                ctx.lineTo(x, y);
-            }
-        }
-        ctx.stroke();
-        ctx.restore();
-    }
-    function drawSpectrumAxes(ctx: CanvasRenderingContext2D, W: number, H: number, slice: SpectrumSlice, padL: number, padR: number, padT: number, padB: number, visFreqMin: number, visFreqMax: number, visDbMin: number, visDbMax: number) {
-        const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
-        const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
-        const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
-        const _visDbMax = (visDbMax != null) ? visDbMax : slice.maxDb;
-        const mutedColor = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-        const lineColor = getComputedStyle(document.body).getPropertyValue('--line').trim() || '#444';
-        const plotW = W - padL - padR;
-        const plotH = H - padT - padB;
-        ctx.strokeStyle = lineColor;
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(padL, padT);
-        ctx.lineTo(padL, H - padB);
-        ctx.moveTo(padL, H - padB);
-        ctx.lineTo(W - padR, H - padB);
-        ctx.stroke();
-        ctx.fillStyle = mutedColor;
-        ctx.font = '9px monospace';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'top';
-        ctx.fillText(formatDbLevel(_visDbMax, slice), padL - 2, padT);
-        ctx.textBaseline = 'middle';
-        ctx.fillText(formatDbLevel((_visDbMax + _visDbMin) / 2, slice), padL - 2, padT + plotH / 2);
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(formatDbLevel(_visDbMin, slice), padL - 2, H - padB);
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(formatHz(_visFreqMin), padL, H - 1);
-        ctx.fillText(formatHz((_visFreqMin + _visFreqMax) / 2), padL + plotW / 2, H - 1);
-        ctx.fillText(formatHz(_visFreqMax), W - padR, H - 1);
-    }
+
     function renderTrackSpectra() {
         trackStore.activeIds().forEach(function (trackId) {
             const record = trackStore.require(trackId);
@@ -4952,7 +4673,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const visFreqMaxT = specFreqEnd * slice.maxFrequencyHz;
                 const visDbMinT = (specDbMin != null) ? specDbMin : slice.minDb;
                 const visDbMaxT = (specDbMax != null) ? specDbMax : slice.maxDb;
-                drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
+                drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT, drawTheme());
                 drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 }, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
                 paintedByChannel.set(channelIndex, true);
                 if (spectrumHoverNorm !== null && spectrumHoverTrackId === trackId && spectrumHoverChannelIndex === channelIndex) {
@@ -5072,7 +4793,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             unit: commonSlice.unit,
             axisLabel: commonSlice.axisLabel,
         };
-        drawSpectrumAxes(ctx, W, H, sharedAxis, padL, padR, padT, padB, visFreqMinO, visFreqMaxO, visDbMinO, visDbMaxO);
+        drawSpectrumAxes(ctx, W, H, sharedAxis, padL, padR, padT, padB, visFreqMinO, visFreqMaxO, visDbMinO, visDbMaxO, drawTheme());
         const plotW = W - padL - padR;
         const plotH = H - padT - padB;
         const range = visDbMaxO - visDbMinO;

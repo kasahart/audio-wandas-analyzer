@@ -139,16 +139,6 @@ export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'remove
         zoomStart: number,
         zoomEnd: number,
     ) => void;
-    drawWaveformAmplitudeAxis?: (
-        context: CanvasRenderingContext2D,
-        width: number,
-        height: number,
-        labels: Record<string, unknown>,
-        theme?: Record<string, string>,
-    ) => void;
-    drawSpectrogramAxes?: (...args: unknown[]) => void;
-    drawSpectrumLine?: (...args: unknown[]) => void;
-    drawSpectrumAxes?: (...args: unknown[]) => void;
     addEventListener<K extends keyof WindowEventMap>(
         type: K,
         listener: (event: WindowEventMap[K]) => void,
