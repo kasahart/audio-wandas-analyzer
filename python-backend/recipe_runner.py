@@ -99,6 +99,7 @@ _ALLOWED_METHODS = frozenset(
         "sharpness_din",
         "sharpness_din_st",
         "resampling",
+        "fix_length",
         "trim",
     }
 )

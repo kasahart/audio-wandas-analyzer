@@ -129,6 +129,7 @@ def test_bundled_coherence_recipe_runs(tmp_path: Path) -> None:
         ("sig.fft()", "line"),
         ("sig.stft(n_fft=1024, hop_length=256)", "heatmap"),
         ("sig.welch(n_fft=1024)", "line"),
+        ("sig.resampling(48000).fix_length(duration=0.5).roughness_dw_spec()", "heatmap"),
         ("sig.low_pass_filter(cutoff=2000)", "line"),
         ("sig.loudness_zwtv()", "line"),
         ("sig.roughness_dw()", "line"),
