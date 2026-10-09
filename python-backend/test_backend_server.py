@@ -914,3 +914,20 @@ def test_backend_has_no_scipy_stft_implementation() -> None:
     source = (Path(__file__).parent / "backend_server.py").read_text(encoding="utf-8")
     assert "ShortTimeFFT" not in source
     assert "get_window" not in source
+
+
+@pytest.mark.parametrize("points", [8192, 8193])
+def test_waveform_point_limit_is_validated_before_dispatch(points: int) -> None:
+    payload = {
+        "cmd": "range",
+        "requestId": "bounded",
+        "filePath": "missing.wav",
+        "startNorm": 0,
+        "endNorm": 1,
+        "points": points,
+    }
+    if points == 8192:
+        assert validate_request(payload) is payload
+    else:
+        with pytest.raises(ValueError, match="points"):
+            validate_request(payload)

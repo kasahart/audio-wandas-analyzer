@@ -2,12 +2,16 @@ import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { test } from 'node:test';
+import { createInterface } from 'node:readline';
+import { PassThrough } from 'node:stream';
+import { once } from 'node:events';
 import {
     backendStartupError,
     BackendStartupError,
     BackendStartupCancelledError,
     formatPythonImportTiming,
-    processStdoutChunk,
+    processStdoutLine,
+    type BackendStdoutHandlers,
     waitForBackendStartup,
     type BackendDiagnostic,
     type PendingRequest,
@@ -244,14 +248,29 @@ test('parseBackendResult validates calibration identity on lazy results', () => 
     }), BackendProtocolError);
 });
 
-test('processStdoutChunk validates and resolves every command response', () => {
+function feedStdoutChunk(
+    buffer: { input?: PassThrough },
+    chunk: string,
+    pending: Map<string, PendingRequest>,
+    handlers: BackendStdoutHandlers = {},
+): void {
+    if (!buffer.input) {
+        buffer.input = new PassThrough();
+        const reader = createInterface({ input: buffer.input, crlfDelay: Infinity });
+        reader.on('line', line => { processStdoutLine(line, pending, handlers); });
+    }
+    buffer.input.write(chunk);
+    if (chunk.endsWith('\n')) { buffer.input.end(); }
+}
+
+test('feedStdoutChunk validates and resolves every command response', () => {
     for (const { command, response } of loadValidResponseFixtures()) {
         const pending = new Map<string, PendingRequest>();
         const resolved: unknown[] = [];
         const rejected: Error[] = [];
         pending.set(command, makePending(command, resolved, rejected));
 
-        processStdoutChunk({ value: '' }, `${JSON.stringify(response)}\n`, pending);
+        feedStdoutChunk({}, `${JSON.stringify(response)}\n`, pending);
 
         assert.equal(resolved.length, 1, command);
         assert.equal(rejected.length, 0, command);
@@ -259,17 +278,17 @@ test('processStdoutChunk validates and resolves every command response', () => {
     }
 });
 
-test('processStdoutChunk buffers partial lines and handles multiple responses', () => {
+test('feedStdoutChunk buffers partial lines and handles multiple responses', () => {
     const pending = new Map<string, PendingRequest>();
     const resolved: unknown[] = [];
     const rejected: Error[] = [];
     pending.set('r1', makePending('range', resolved, rejected));
     pending.set('r2', makePending('export-wav-loop', resolved, rejected));
-    const buffer = { value: '' };
+    const buffer: { input?: PassThrough } = {};
 
-    processStdoutChunk(buffer, '{"requestId":"r1","startNorm":0,', pending);
+    feedStdoutChunk(buffer, '{"requestId":"r1","startNorm":0,', pending);
     assert.equal(resolved.length, 0);
-    processStdoutChunk(
+    feedStdoutChunk(
         buffer,
         '"endNorm":1,"channels":[]}\n{"requestId":"r2","wavBase64":"UklGRg==","sampleRate":16000}\n',
         pending,
@@ -278,27 +297,26 @@ test('processStdoutChunk buffers partial lines and handles multiple responses', 
     assert.equal(resolved.length, 2);
     assert.equal(rejected.length, 0);
     assert.equal(pending.size, 0);
-    assert.equal(buffer.value, '');
 });
 
-test('processStdoutChunk rejects an error response and removes the pending request', () => {
+test('feedStdoutChunk rejects an error response and removes the pending request', () => {
     const pending = new Map<string, PendingRequest>();
     const resolved: unknown[] = [];
     const rejected: Error[] = [];
     pending.set('r1', makePending('analyze', resolved, rejected));
 
-    processStdoutChunk({ value: '' }, '{"requestId":"r1","error":"boom"}\n', pending);
+    feedStdoutChunk({}, '{"requestId":"r1","error":"boom"}\n', pending);
 
     assert.equal(resolved.length, 0);
     assert.equal(rejected[0]?.message, 'boom');
     assert.equal(pending.size, 0);
 });
 
-test('processStdoutChunk diagnoses malformed JSON', () => {
+test('feedStdoutChunk diagnoses malformed JSON', () => {
     const diagnostics: BackendDiagnostic[] = [];
 
-    processStdoutChunk(
-        { value: '' },
+    feedStdoutChunk(
+        {},
         'not json\n',
         new Map(),
         { onDiagnostic: (diagnostic) => { diagnostics.push(diagnostic); } },
@@ -307,11 +325,11 @@ test('processStdoutChunk diagnoses malformed JSON', () => {
     assert.equal(diagnostics[0]?.kind, 'malformed-json');
 });
 
-test('processStdoutChunk handles ready and heartbeat as typed notifications', () => {
+test('feedStdoutChunk handles ready and heartbeat as typed notifications', () => {
     const notifications: BackendNotification[] = [];
 
-    processStdoutChunk(
-        { value: '' },
+    feedStdoutChunk(
+        {},
         '{"type":"ready"}\n{"type":"heartbeat","ts":1234567890}\n',
         new Map(),
         { onNotification: (notification) => { notifications.push(notification); } },
@@ -323,11 +341,11 @@ test('processStdoutChunk handles ready and heartbeat as typed notifications', ()
     ]);
 });
 
-test('processStdoutChunk diagnoses unknown notifications', () => {
+test('feedStdoutChunk diagnoses unknown notifications', () => {
     const diagnostics: BackendDiagnostic[] = [];
 
-    processStdoutChunk(
-        { value: '' },
+    feedStdoutChunk(
+        {},
         '{"type":"mystery","value":1}\n',
         new Map(),
         { onDiagnostic: (diagnostic) => { diagnostics.push(diagnostic); } },
@@ -336,11 +354,11 @@ test('processStdoutChunk diagnoses unknown notifications', () => {
     assert.equal(diagnostics[0]?.kind, 'unknown-notification');
 });
 
-test('processStdoutChunk diagnoses orphan responses', () => {
+test('feedStdoutChunk diagnoses orphan responses', () => {
     const diagnostics: BackendDiagnostic[] = [];
 
-    processStdoutChunk(
-        { value: '' },
+    feedStdoutChunk(
+        {},
         '{"requestId":"missing","startNorm":0,"endNorm":1,"channels":[]}\n',
         new Map(),
         { onDiagnostic: (diagnostic) => { diagnostics.push(diagnostic); } },
@@ -350,15 +368,15 @@ test('processStdoutChunk diagnoses orphan responses', () => {
     assert.equal(diagnostics[0]?.requestId, 'missing');
 });
 
-test('processStdoutChunk rejects a wrong-command result without leaking pending state', () => {
+test('feedStdoutChunk rejects a wrong-command result without leaking pending state', () => {
     const pending = new Map<string, PendingRequest>();
     const resolved: unknown[] = [];
     const rejected: Error[] = [];
     const diagnostics: BackendDiagnostic[] = [];
     pending.set('r1', makePending('range', resolved, rejected));
 
-    processStdoutChunk(
-        { value: '' },
+    feedStdoutChunk(
+        {},
         '{"requestId":"r1","wavBase64":"UklGRg==","sampleRate":16000}\n',
         pending,
         { onDiagnostic: (diagnostic) => { diagnostics.push(diagnostic); } },
@@ -370,14 +388,14 @@ test('processStdoutChunk rejects a wrong-command result without leaking pending 
     assert.equal(pending.size, 0);
 });
 
-test('processStdoutChunk rejects non-finite numeric fields', () => {
+test('feedStdoutChunk rejects non-finite numeric fields', () => {
     const pending = new Map<string, PendingRequest>();
     const resolved: unknown[] = [];
     const rejected: Error[] = [];
     pending.set('r1', makePending('range', resolved, rejected));
 
-    processStdoutChunk(
-        { value: '' },
+    feedStdoutChunk(
+        {},
         '{"requestId":"r1","startNorm":1e999,"endNorm":1,"channels":[]}\n',
         pending,
     );
@@ -387,14 +405,14 @@ test('processStdoutChunk rejects non-finite numeric fields', () => {
     assert.equal(pending.size, 0);
 });
 
-test('processStdoutChunk rejects malformed error envelopes', () => {
+test('feedStdoutChunk rejects malformed error envelopes', () => {
     const pending = new Map<string, PendingRequest>();
     const resolved: unknown[] = [];
     const rejected: Error[] = [];
     pending.set('r1', makePending('analyze', resolved, rejected));
 
-    processStdoutChunk(
-        { value: '' },
+    feedStdoutChunk(
+        {},
         '{"requestId":"r1","error":{"message":"boom"}}\n',
         pending,
     );
@@ -434,3 +452,36 @@ test('shared reply correlation consumes a request once and isolates completion f
     assert.equal(pending.size, 0);
     assert.equal(rejected.length, 2);
 });
+
+
+test('readline preserves split UTF-8, CRLF and a final response without newline', async () => {
+    const input = new PassThrough();
+    const reader = createInterface({ input, crlfDelay: Infinity });
+    const closed = once(reader, 'close');
+    const rejected: Error[] = [];
+    const pending = new Map<string, PendingRequest>([
+        ['r1', makePending('analyze', [], rejected)],
+        ['r2', makePending('analyze', [], rejected)],
+    ]);
+    reader.on('line', line => { processStdoutLine(line, pending); });
+    const bytes = Buffer.from('{"requestId":"r1","error":"校正"}\r\n{"requestId":"r2","error":"終了"}');
+    for (const byte of bytes) { input.write(Buffer.from([byte])); }
+    input.end();
+    await closed;
+    assert.deepEqual(rejected.map(error => error.message), ['校正', '終了']);
+    assert.equal(pending.size, 0);
+});
+
+for (const fails of [false, true]) {
+    test(`startup ${fails ? 'failure' : 'success'} disposes its cancellation listener`, async () => {
+        let disposals = 0;
+        const startup = fails ? Promise.reject(new Error('startup failed')) : Promise.resolve();
+        const waiting = waitForBackendStartup(startup, {
+            isCancellationRequested: false,
+            onCancellationRequested: () => ({ dispose: () => { disposals++; } }),
+        });
+        if (fails) { await assert.rejects(waiting, /startup failed/); }
+        else { await waiting; }
+        assert.equal(disposals, 1);
+    });
+}

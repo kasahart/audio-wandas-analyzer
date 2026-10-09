@@ -61,3 +61,39 @@ def test_minT_within_0_1_with_offset():
     result = decimated_waveform(samples, 50, start_sample=500, total_samples=1000)
     assert all(0.0 <= t <= 1.0 for t in result["minT"])
     assert all(0.0 <= t <= 1.0 for t in result["maxT"])
+
+
+@pytest.mark.parametrize("length,points", [(1, 1), (7, 3), (10, 6), (31, 8), (53, 100)])
+def test_vectorized_buckets_preserve_extrema_positions_and_midpoints(length, points):
+    samples = np.random.default_rng(7).integers(-2, 3, length).astype(float)
+    result = decimated_waveform(samples, points, 23, 150)
+    buckets = np.array_split(np.arange(length), min(length, points))
+    np.testing.assert_equal(result["min"], [samples[b].min() for b in buckets])
+    np.testing.assert_equal(result["max"], [samples[b].max() for b in buckets])
+    np.testing.assert_equal(result["minT"], [(23 + b[samples[b].argmin()]) / 149 for b in buckets])
+    np.testing.assert_equal(result["maxT"], [(23 + b[samples[b].argmax()]) / 149 for b in buckets])
+    np.testing.assert_equal(result["samples"], [samples[b[len(b) // 2]] for b in buckets])
+
+
+def test_decimation_point_limit_bounds_work_and_accepts_the_boundary():
+    samples = np.ones(9000)
+    assert len(decimated_waveform(samples, 8192, 0, len(samples))["min"]) == 8192
+    with pytest.raises(ValueError, match="8192"):
+        decimated_waveform(samples, 8193, 0, len(samples))
+
+
+def test_vectorized_extrema_keep_first_nan_positions():
+    samples = np.array([1.0, np.nan, np.nan, -1.0])
+    result = decimated_waveform(samples, 1, 0, 4)
+    assert np.isnan(result["min"][0])
+    assert np.isnan(result["max"][0])
+    assert result["minT"] == result["maxT"] == [1 / 3]
+
+
+@pytest.mark.parametrize("first", [0.0, -0.0])
+def test_equal_extrema_preserve_the_first_signed_zero(first):
+    samples = np.array([first, -first])
+    result = decimated_waveform(samples, 1, 0, 2)
+    assert np.signbit(result["min"][0]) == np.signbit(first)
+    assert np.signbit(result["max"][0]) == np.signbit(first)
+    assert result["minT"] == result["maxT"] == [0.0]

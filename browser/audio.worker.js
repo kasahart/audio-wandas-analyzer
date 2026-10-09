@@ -35,23 +35,23 @@ self.onmessage = ({ data }) => {
             await (initialization ??= initialize());
             let output;
             if (data.cmd === 'load') {
-                pyodide.globals.set('_source_id', data.sourceId);
-                pyodide.globals.set('_source_bytes', new Uint8Array(data.bytes));
-                try { output = pyodide.runPython('load_source(_source_id, _source_bytes.to_py())'); }
-                finally { pyodide.globals.delete('_source_bytes'); pyodide.globals.delete('_source_id'); }
+                const sourceBytes = pyodide.toPy(new Uint8Array(data.bytes));
+                const load = pyodide.globals.get('load_source');
+                try { output = load(data.sourceId, sourceBytes); }
+                finally { load.destroy(); sourceBytes.destroy(); }
             } else if (data.cmd === 'export-plan') {
-                pyodide.globals.set('_export_plan', JSON.stringify(data.commands));
-                try { output = pyodide.runPython('prepare_export_json(_export_plan)'); }
-                finally { pyodide.globals.delete('_export_plan'); }
+                const prepare = pyodide.globals.get('prepare_export_json');
+                try { output = prepare(JSON.stringify(data.commands)); }
+                finally { prepare.destroy(); }
             } else if (data.cmd === 'unload') {
-                pyodide.globals.set('_source_path', data.filePath);
-                try { output = pyodide.runPython('release_source(_source_path)'); }
-                finally { pyodide.globals.delete('_source_path'); }
+                const release = pyodide.globals.get('release_source');
+                try { output = release(data.filePath); }
+                finally { release.destroy(); }
             } else {
                 const { bytes, ...command } = data;
-                pyodide.globals.set('_command', JSON.stringify(command));
-                try { output = pyodide.runPython('dispatch_json(_command)'); }
-                finally { pyodide.globals.delete('_command'); }
+                const dispatch = pyodide.globals.get('dispatch_json');
+                try { output = dispatch(JSON.stringify(command)); }
+                finally { dispatch.destroy(); }
             }
             const result = JSON.parse(output);
             if (data.cmd === 'load' && result.inputError) {
