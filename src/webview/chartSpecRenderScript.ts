@@ -399,7 +399,7 @@ export function getChartSpecRenderScript(): string {
     function drawHeatmap(spec, chartIdx) {
         const cv = setupCanvas(720, 240);
         const ctx = cv.ctx;
-        const plot = { x: 50, y: 16, w: cv.width - 90, h: cv.height - 50 };
+        const plot = { x: 50, y: 16, w: cv.width - (spec.unit ? 120 : 90), h: cv.height - 50 };
         const matrix = spec.matrix || [];
         const rows = matrix.length;
         const cols = rows > 0 ? matrix[0].length : 0;
@@ -505,6 +505,15 @@ export function getChartSpecRenderScript(): string {
             ctx.fillText(vMax.toFixed(0), cbX + cbW + 2, plot.y);
             ctx.textBaseline = 'bottom';
             ctx.fillText(vMin.toFixed(0), cbX + cbW + 2, plot.y + plot.h);
+            if (spec.unit) {
+                ctx.save();
+                ctx.translate(cv.width - 4, plot.y + plot.h / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(spec.unit, 0, 0);
+                ctx.restore();
+            }
         }
 
         if (rows === 0 || cols === 0) {

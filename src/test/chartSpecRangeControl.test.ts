@@ -714,3 +714,15 @@ test('bar legends visibly distinguish calibrated octave references', () => {
     assert.ok(labels.includes('digital [dBFS]'));
     dom.window.close();
 });
+
+
+test('heatmap color scales visibly display their calibrated reference', () => {
+    for (const unit of ['dB SPL re 20 µPa', 'dBFS']) {
+        const labels: string[] = [];
+        const dom = setupChartEnv([{
+            kind: 'heatmap', title: 'STFT', unit, xs: [0, 1], ys: [100, 200], matrix: [[60, 61], [50, 51]],
+        }], text => labels.push(text));
+        assert.ok(labels.includes(unit));
+        dom.window.close();
+    }
+});

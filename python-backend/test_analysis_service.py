@@ -201,8 +201,9 @@ def test_recipe_uses_calibrated_frames_and_recipe_relative_paths_in_both_hosts(t
         "steps": [
             {"as": "spectrum", "expr": "sig.fft()"},
             {"as": "octave", "expr": "sig.noct_spectrum(fmin=125, fmax=4000, n=3)"},
+            {"as": "stft", "expr": "sig.stft()"},
         ],
-        "display": ["sig", "spectrum", "octave"],
+        "display": ["sig", "spectrum", "octave", "stft"],
     }
     contexts = {"sig": {"calibrationProfile": profile, "analysisRevision": 3}}
     native = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
@@ -211,8 +212,10 @@ def test_recipe_uses_calibrated_frames_and_recipe_relative_paths_in_both_hosts(t
     assert native["charts"][0]["series"][0]["unit"] == "Pa"
     assert "Pa" in native["charts"][1]["series"][0]["unit"]
     assert "Pa" in native["charts"][2]["series"][0]["unit"]
+    assert "Pa" in native["charts"][3]["unit"]
     raw = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"))
     assert raw["charts"][2]["series"][0]["unit"] == "dBFS"
+    assert raw["charts"][3]["unit"] == "dBFS"
     np.testing.assert_allclose(
         native["charts"][0]["series"][0]["ys"], np.array(raw["charts"][0]["series"][0]["ys"]) * 10
     )

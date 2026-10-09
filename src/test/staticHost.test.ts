@@ -431,3 +431,27 @@ test('adding a WAV after Recipe timeout restores retained sources before the new
     assert.equal(restored.commands.at(-1)!.cmd, 'track-detail');
     assert.equal(restored.commands.at(-1)!.filePath, results[0].filePath);
 });
+
+
+test('Recipe can run again immediately after timeout by restoring retained tracks', async () => {
+    const app = harness(new Map(), 'en', false, 20);
+    await app.load(); await app.load();
+    const originalWorker = app.workers[0];
+    const retainedIds = originalWorker.commands.filter(command => command.cmd === 'load').map(command => command.sourceId);
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush(); await flush();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(originalWorker.terminated, true);
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush(); await flush();
+    const restored = app.workers[1];
+    assert.ok(restored);
+    assert.deepEqual(restored.commands.filter(command => command.cmd === 'load').map(command => command.sourceId), retainedIds);
+    const recipe = restored.commands.find(command => command.cmd === 'run-recipe')!;
+    assert.ok(recipe);
+    restored.reply(recipe, { charts: [] });
+    await flush();
+    assert.equal(app.elements.filter(element => element.tag === 'iframe').length, 1);
+    assert.deepEqual(app.revoked, []);
+    assert.match(app.status, /octave/);
+});

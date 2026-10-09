@@ -228,7 +228,7 @@ const recipeFlow = new RecipeFlow({
     resolveRelative: (file) => { throw new Error(`Recipe input ${file} must be a loaded track in the browser`); },
     runWithProgress: async (title, task) => { announce(title); return task(); },
     execute: async (recipe, location) => {
-        if (!worker) throw new Error(strings.browserRecipeNoSources);
+        if (!sources.size) throw new Error(strings.browserRecipeNoSources);
         return analysisClient.runRecipe(recipe, { recipePath: location });
     },
     showCharts: (title, charts) => { showRecipeCharts(title, charts); announce(strings.browserRecipeDone + title); },

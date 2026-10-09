@@ -43,7 +43,7 @@ def test_spectrogram_frame_from_stft(mono_sin: wd.ChannelFrame) -> None:
     assert spec["kind"] == "heatmap"
     assert len(spec["ys"]) == len(spec["matrix"])
     assert len(spec["xs"]) == len(spec["matrix"][0])
-    assert spec["unit"] == "dB"
+    assert spec["unit"] == mono_sin.channels[0].level_reference.label
 
 
 def test_stereo_roughness_uses_requested_channel_and_bark_axis(two_channel: wd.ChannelFrame) -> None:
@@ -136,3 +136,13 @@ def test_noct_frame_preserves_each_channel_level_reference(two_channel: wd.Chann
     assert "Pa" in spec["series"][0]["unit"]
     assert spec["series"][1]["unit"] == "dB re 1 input unit"
     np.testing.assert_allclose(spec["series"][0]["values"], octave.dB[0])
+
+
+@pytest.mark.parametrize("channel, selected", [(0, 0), (1, 1), (-1, 0), (99, 1)])
+def test_spectrogram_preserves_selected_channel_reference(
+    two_channel: wd.ChannelFrame, channel: int, selected: int
+) -> None:
+    frame = two_channel.with_calibration({0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5)}).stft()
+    spec = adapt(frame, channel=channel)
+    assert spec["unit"] == frame.channels[selected].level_reference.label
+    np.testing.assert_allclose(spec["matrix"], frame.dB[selected])

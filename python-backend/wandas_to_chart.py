@@ -120,12 +120,15 @@ def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> dic
     freqs = np.asarray(frame.freqs, dtype=np.float64)
     db = np.asarray(frame.dB, dtype=np.float64)
     # dB shape is (channels, freqs, time).
+    ch = 0
     if db.ndim == 2:
         plane = db
     else:
         ch = max(0, min(channel, db.shape[0] - 1))
         plane = db[ch]
     n_freq, n_time = plane.shape
+    channels = getattr(frame, "channels", [])
+    unit = channels[ch].level_reference.label if channels else "dB"
     times = np.asarray(frame.times, dtype=np.float64)
     return {
         "kind": "heatmap",
@@ -135,7 +138,7 @@ def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> dic
         "xs": _as_list(times[:n_time]),
         "ys": _as_list(freqs[:n_freq]),
         "matrix": [_as_list(plane[i]) for i in range(n_freq)],
-        "unit": "dB",
+        "unit": unit,
         "colormap": "viridis",
     }
 
