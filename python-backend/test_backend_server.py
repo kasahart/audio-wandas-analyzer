@@ -647,7 +647,6 @@ def test_analyze_then_range_share_cache(server: _ServerHandle, tmp_path: Path) -
 
 def test_heartbeat_loop_produces_heartbeat_json(monkeypatch: pytest.MonkeyPatch) -> None:
     """_heartbeat_loop sends valid heartbeat JSON."""
-    import builtins
     import json as _json
     import time
 
@@ -664,8 +663,8 @@ def test_heartbeat_loop_produces_heartbeat_json(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(backend_server, "_HEARTBEAT_INTERVAL", 0.001)
 
-    printed: list[object] = []
-    monkeypatch.setattr(builtins, "print", lambda *args, **kwargs: printed.extend(args))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
     monkeypatch.setattr(time, "sleep", fast_sleep)
 
     import contextlib
@@ -673,6 +672,7 @@ def test_heartbeat_loop_produces_heartbeat_json(monkeypatch: pytest.MonkeyPatch)
     with contextlib.suppress(SystemExit):
         backend_server._heartbeat_loop()
 
+    printed = output.getvalue().splitlines()
     assert len(printed) >= 1
     msg = _json.loads(str(printed[0]))
     assert msg["type"] == "heartbeat"
@@ -681,15 +681,14 @@ def test_heartbeat_loop_produces_heartbeat_json(monkeypatch: pytest.MonkeyPatch)
 
 def test_heartbeat_loop_emits_valid_json(monkeypatch):
     """_heartbeat_loop emits valid heartbeat JSON."""
-    import builtins
     import contextlib
     import json as _json
     import time as _time
 
     import backend_server
 
-    printed = []
-    monkeypatch.setattr(builtins, "print", lambda *args, **kwargs: printed.extend(args))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
     monkeypatch.setattr(backend_server, "_HEARTBEAT_INTERVAL", 0.001)
 
     call_count = [0]
@@ -706,6 +705,7 @@ def test_heartbeat_loop_emits_valid_json(monkeypatch):
     with contextlib.suppress(SystemExit):
         backend_server._heartbeat_loop()
 
+    printed = output.getvalue().splitlines()
     assert len(printed) >= 2
     for line in printed:
         msg = _json.loads(line)
@@ -931,3 +931,92 @@ def test_waveform_point_limit_is_validated_before_dispatch(points: int) -> None:
     else:
         with pytest.raises(ValueError, match="points"):
             validate_request(payload)
+
+
+@pytest.mark.parametrize("setting", [None, "0", "1", "custom"])
+def test_shared_perf_preserves_backend_default_and_disable_setting(setting):
+    environment = dict(os.environ)
+    environment.pop("AWA_PERF_LOG", None)
+    if setting is not None:
+        environment["AWA_PERF_LOG"] = setting
+    result = subprocess.run(
+        [sys.executable, "-c", "import time; from perf import _perf; _perf('probe', time.perf_counter(), channels=2)"],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout == ""
+    if setting == "0":
+        assert result.stderr == ""
+    else:
+        assert result.stderr.startswith("[perf] phase=probe ms=")
+        assert result.stderr.endswith(" channels=2\n")
+
+
+def test_heartbeat_and_large_responses_are_serialized(monkeypatch):
+    import threading
+
+    import backend_server
+
+    sleep = time.sleep
+    output = io.StringIO()
+    barrier = threading.Barrier(2)
+    writes = []
+    flushes = []
+
+    class FragmentingOutput:
+        def write(self, value):
+            writes.append(value)
+            for start in range(0, len(value), 127):
+                output.write(value[start : start + 127])
+                sleep(0.00001)
+
+        def flush(self):
+            flushes.append(True)
+
+    heartbeats = 0
+
+    def heartbeat_sleep(_interval):
+        nonlocal heartbeats
+        if heartbeats == 12:
+            raise SystemExit
+        heartbeats += 1
+        sleep(0.00001)
+
+    monkeypatch.setattr(sys, "stdout", FragmentingOutput())
+    monkeypatch.setattr(backend_server.time, "sleep", heartbeat_sleep)
+    errors = []
+
+    def heartbeat():
+        barrier.wait()
+        try:
+            backend_server._heartbeat_loop()
+        except SystemExit:
+            pass
+        except Exception as error:
+            errors.append(error)
+
+    def responses():
+        barrier.wait()
+        try:
+            for index in range(8):
+                backend_server._emit({"requestId": str(index), "samples": [index] * 4000, "label": "音声"})
+        except Exception as error:
+            errors.append(error)
+
+    threads = [threading.Thread(target=heartbeat), threading.Thread(target=responses)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+    assert errors == []
+    messages = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert sum(message.get("type") == "heartbeat" for message in messages) == 12
+    responses = [message for message in messages if "requestId" in message]
+    assert [message["requestId"] for message in responses] == [str(index) for index in range(8)]
+    assert all(message["label"] == "音声" and len(message["samples"]) == 4000 for message in responses)
+    assert len(writes) == len(flushes) == len(messages) == 20
+    assert all(value.endswith("\n") and value.count("\n") == 1 for value in writes)

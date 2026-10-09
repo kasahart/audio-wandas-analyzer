@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-import sys
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -15,18 +13,7 @@ from calibration_profile import (
     ResolvedChannelCalibration,
 )
 from decimator import decimated_waveform
-
-_PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "0") == "1"
-
-
-def _perf(phase: str, started: float, **extra: object) -> None:
-    if not _PERF_ENABLED:
-        return
-    ms = (time.perf_counter() - started) * 1000.0
-    parts = [f"phase={phase}", f"ms={ms:.2f}"]
-    parts.extend(f"{k}={v}" for k, v in extra.items())
-    print("[perf] " + " ".join(parts), file=sys.stderr, flush=True)
-
+from perf import _perf
 
 WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
