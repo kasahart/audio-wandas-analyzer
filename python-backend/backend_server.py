@@ -22,8 +22,8 @@ _STDOUT_LOCK = threading.Lock()
 _HEARTBEAT_INTERVAL: float = 5.0
 
 
-def _emit(message: dict[str, object]) -> None:
-    line = json.dumps(message, ensure_ascii=False, allow_nan=False)
+def _emit(message: dict[str, object], *, ensure_ascii: bool = False) -> None:
+    line = json.dumps(message, ensure_ascii=ensure_ascii, allow_nan=False)
     with _STDOUT_LOCK:
         sys.stdout.write(line + "\n")
         sys.stdout.flush()
@@ -72,7 +72,7 @@ def main(service: AnalysisService | None = None) -> None:
             _perf(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
             _emit({**result, "requestId": request_id})
         except Exception as error:
-            _emit({"requestId": request_id, "error": str(error)})
+            _emit({"requestId": request_id, "error": str(error)}, ensure_ascii=True)
 
 
 if __name__ == "__main__":

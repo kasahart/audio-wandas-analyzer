@@ -1020,3 +1020,29 @@ def test_heartbeat_and_large_responses_are_serialized(monkeypatch):
     assert all(message["label"] == "音声" and len(message["samples"]) == 4000 for message in responses)
     assert len(writes) == len(flushes) == len(messages) == 20
     assert all(value.endswith("\n") and value.count("\n") == 1 for value in writes)
+
+
+@pytest.mark.parametrize("field", ["requestId", "cmd"])
+def test_surrogate_error_response_keeps_utf8_backend_alive(monkeypatch, field):
+    import backend_server
+
+    requests = [
+        {"cmd": "unknown", "requestId": "invalid", field: "\ud800"},
+        {"cmd": "analyze", "requestId": "next", "filePath": "tone.wav"},
+    ]
+    output = io.BytesIO()
+    stream = io.TextIOWrapper(output, encoding="utf-8", errors="strict")
+    monkeypatch.setattr(backend_server.sys, "stdin", io.StringIO("".join(json.dumps(r) + "\n" for r in requests)))
+    monkeypatch.setattr(backend_server.sys, "stdout", stream)
+    monkeypatch.setattr(backend_server.threading.Thread, "start", lambda self: None)
+
+    class FakeService:
+        def analyze(self, file_path, **options):
+            return {"filePath": file_path}
+
+    main(FakeService())
+    stream.flush()
+    messages = [json.loads(line) for line in output.getvalue().decode("utf-8").splitlines()]
+    assert messages[1]["requestId"] == requests[0]["requestId"]
+    assert "error" in messages[1]
+    assert messages[2] == {"requestId": "next", "filePath": "tone.wav"}
