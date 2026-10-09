@@ -12,22 +12,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from command_dispatch import dispatch, validate_request
+from perf import _perf
 
 if TYPE_CHECKING:
     from analysis_service import AnalysisService
 
 _PROCESS_STARTED = time.perf_counter()
-_PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
+_STDOUT_LOCK = threading.Lock()
 _HEARTBEAT_INTERVAL: float = 5.0
 
 
-def _perf(phase: str, started: float, **extra: object) -> None:
-    if not _PERF_ENABLED:
-        return
-    ms = (time.perf_counter() - started) * 1000.0
-    parts = [f"phase={phase}", f"ms={ms:.2f}"]
-    parts.extend(f"{key}={value}" for key, value in extra.items())
-    print("[perf] " + " ".join(parts), file=sys.stderr, flush=True)
+def _emit(message: dict[str, object], *, ensure_ascii: bool = False) -> None:
+    line = json.dumps(message, ensure_ascii=ensure_ascii, allow_nan=False)
+    with _STDOUT_LOCK:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
 
 
 def _load_default_service() -> AnalysisService:
@@ -48,7 +47,7 @@ def _load_default_service() -> AnalysisService:
 def _heartbeat_loop() -> None:
     while True:
         time.sleep(_HEARTBEAT_INTERVAL)
-        print(json.dumps({"type": "heartbeat", "ts": time.time()}), flush=True)
+        _emit({"type": "heartbeat", "ts": time.time()})
 
 
 def main(service: AnalysisService | None = None) -> None:
@@ -56,7 +55,7 @@ def main(service: AnalysisService | None = None) -> None:
     active_service = service or _load_default_service()
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     _perf("startup_ready", _PROCESS_STARTED)
-    print(json.dumps({"type": "ready"}), flush=True)
+    _emit({"type": "ready"})
     for raw_line in sys.stdin:
         line = raw_line.strip()
         if not line:
@@ -71,9 +70,9 @@ def main(service: AnalysisService | None = None) -> None:
             result = dispatch(command, active_service)
             name = command.get("cmd")
             _perf(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
-            print(json.dumps({**result, "requestId": request_id}, ensure_ascii=False, allow_nan=False), flush=True)
+            _emit({**result, "requestId": request_id})
         except Exception as error:
-            print(json.dumps({"requestId": request_id, "error": str(error)}), flush=True)
+            _emit({"requestId": request_id, "error": str(error)}, ensure_ascii=True)
 
 
 if __name__ == "__main__":
