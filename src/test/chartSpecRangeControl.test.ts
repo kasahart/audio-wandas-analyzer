@@ -32,7 +32,7 @@ function applyCanvasStub(
     };
 }
 
-function setupChartEnv(specs: unknown[]) {
+function setupChartEnv(specs: unknown[], fillTextSpy?: (text: string) => void) {
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="charts"></div>
     </body></html>`, { runScripts: 'dangerously' });
@@ -41,7 +41,7 @@ function setupChartEnv(specs: unknown[]) {
     win.__CHART_NO_RESULTS_LABEL__ = 'No results';
     win.__CHART_SCALAR_HEADERS__ = ['Label', 'Value', 'Unit'];
 
-    applyCanvasStub(dom.window.document);
+    applyCanvasStub(dom.window.document, fillTextSpy);
 
     const script = dom.window.document.createElement('script');
     script.textContent = getChartSpecRenderScript();
@@ -680,5 +680,22 @@ test('Heatmap の Y レンジを Apply すると描画セルも表示範囲に�
     const heatmapRects = rects.filter((r) => r.x >= 50 && r.x <= 680 && r.y >= 16 && r.y <= 206 && r.width > 1 && r.height > 1);
     assert.equal(heatmapRects.length, 8, 'Y レンジ適用後は表示範囲内の 2 行だけを描画すること');
     assert.ok(heatmapRects.every((r) => r.height > 80), `表示範囲に合わせてセル高が拡大されること: ${JSON.stringify(heatmapRects.slice(0, 4))}`);
+    dom.window.close();
+});
+
+
+test('line legends visibly distinguish calibrated references and preserve unqualified names', () => {
+    const labels: string[] = [];
+    const dom = setupChartEnv([{
+        kind: 'line', title: 'Levels', xLabel: 'Frequency [Hz]', yLabel: 'Level [dB]',
+        xs: [100, 200], series: [
+            { name: 'pressure', unit: 'dB SPL', ys: [60, 61] },
+            { name: 'digital', unit: 'dBFS', ys: [-20, -19] },
+            { name: 'unqualified', ys: [1, 2] },
+        ],
+    }], text => labels.push(text));
+    assert.ok(labels.includes('pressure [dB SPL]'));
+    assert.ok(labels.includes('digital [dBFS]'));
+    assert.ok(labels.includes('unqualified'));
     dom.window.close();
 });

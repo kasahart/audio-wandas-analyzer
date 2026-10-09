@@ -38,7 +38,7 @@ class MockDocument {
     createElement(tag: string): MockElement { return new MockElement(tag); }
 }
 
-function harness(storage = new Map<string, string>(), language = 'en', denied = false) {
+function harness(storage = new Map<string, string>(), language = 'en', denied = false, recipeTimeout = 120_000) {
     const elements: MockElement[] = [];
     const fetched: string[] = [];
     const prompts: string[] = [];
@@ -100,7 +100,8 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         Object,
         Worker: ControlledWorker,
         URL: { createObjectURL: () => `blob:fixture-${++blobId}`, revokeObjectURL: (url: string) => { revoked.push(url); } },
-        setTimeout, clearTimeout, Uint8Array,
+        setTimeout: (callback: () => void, delay: number) => setTimeout(callback, delay === 120_000 ? recipeTimeout : delay),
+        clearTimeout, Uint8Array,
     });
     const host = browser.__AWA_HOST__!;
     host.onMessage!(message => received.push(message as Record<string, unknown>));
@@ -370,4 +371,38 @@ test('removing one recipe input suppresses stale charts and errors while other s
         assert.equal(app.status, currentStatus);
         assert.equal(app.elements.some(element => element.tag === 'iframe'), false);
     }
+});
+
+
+test('Recipe timeout preserves tracks and URLs and reloads the Worker for the next request', async () => {
+    const app = harness(new Map(), 'en', false, 20);
+    await app.load(); await app.load();
+    const before = app.received.filter(message => message.type === 'analysis-update').at(-1)!;
+    const originalWorker = app.workers[0];
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush(); await flush();
+    const recipe = originalWorker.commands.at(-1)!;
+    assert.equal(recipe.cmd, 'run-recipe');
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(originalWorker.terminated, true);
+    assert.deepEqual(app.revoked, []);
+    assert.equal(app.received.filter(message => message.type === 'analysis-update').at(-1), before);
+    assert.match(app.status, /timed out/);
+    originalWorker.reply(recipe, { charts: [] });
+    await flush();
+    assert.equal(app.elements.filter(element => element.tag === 'iframe').length, 0);
+    app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
+    await flush(); await flush();
+    assert.equal(app.workers.length, 2);
+    const restored = app.workers[1];
+    assert.deepEqual(restored.commands.filter(command => command.cmd === 'load').map(command => command.sourceId),
+        originalWorker.commands.filter(command => command.cmd === 'load').map(command => command.sourceId));
+    assert.equal(restored.commands.filter(command => command.cmd === 'analyze').length, 2);
+    assert.deepEqual(app.revoked, []);
+    const results = app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as Array<{ audioSource: string }>;
+    const originalResults = before.results as Array<{ audioSource: string }>;
+    assert.equal(results.length, 2);
+    assert.deepEqual(results.map(result => result.audioSource), originalResults.map(result => result.audioSource));
+    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    assert.equal(app.revoked.length, 2);
 });

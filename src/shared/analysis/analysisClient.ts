@@ -131,9 +131,6 @@ export abstract class AnalysisClient {
     async runRecipe(recipe: RunRecipePayload['recipe'], options: RecipeExecutionOptions = {}): Promise<RunRecipeResult> {
         const cancellation = options.cancellation;
         if (cancellation?.isCancellationRequested) throw new Error('Recipe execution cancelled');
-        const inputContexts = Object.fromEntries((recipe.inputs ?? []).map(input => [
-            input.name, this.calibrationPayload(this.requestContext(input.file, {})),
-        ]));
         const requestId = `recipe-${++this.nextRecipeId}`;
         let timer: ReturnType<typeof setTimeout> | undefined;
         let disposable: { dispose(): void } | undefined;
@@ -164,9 +161,24 @@ export abstract class AnalysisClient {
             if (cancelled) return await interrupted;
             return await Promise.race([
                 interrupted,
-                this.request('run-recipe', {
-                    recipe, inputContexts, ...(options.recipePath ? { recipePath: options.recipePath } : {}),
-                }, requestId, requestCancellation),
+                (async () => {
+                    if (this.contextPolicy?.discardStale) {
+                        for (const input of recipe.inputs ?? []) {
+                            if (this.contextPolicy.current(input.file).calibrationProfile) {
+                                await this.analyzeWithContext(input.file, {}, resolved => this.request(
+                                    'analyze', analysisPayload(input.file, resolved), requestId, requestCancellation,
+                                ));
+                            }
+                            if (cancelled) throw new Error('Recipe execution cancelled');
+                        }
+                    }
+                    const inputContexts = Object.fromEntries((recipe.inputs ?? []).map(input => [
+                        input.name, this.calibrationPayload(this.requestContext(input.file, {})),
+                    ]));
+                    return this.request('run-recipe', {
+                        recipe, inputContexts, ...(options.recipePath ? { recipePath: options.recipePath } : {}),
+                    }, requestId, requestCancellation);
+                })(),
             ]);
         } finally {
             clearTimeout(timer);

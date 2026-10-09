@@ -1,6 +1,6 @@
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
-import { AnalysisClient } from '../../shared/analysis/analysisClient';
+import { AnalysisClient, type AnalysisCancellationSignal } from '../../shared/analysis/analysisClient';
 import { parseBackendResult, rejectPendingRequests, settleBackendRequest, type PendingBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { isConfigureCalibrationMessage } from '../../shared/utils/audioTarget';
@@ -22,6 +22,7 @@ interface Source {
     name: string;
     url: string;
     inputBytes: number;
+    file: File;
     result: AnalysisResultWithError;
 }
 const browserWindow = window as unknown as ComparisonWindow;
@@ -46,6 +47,7 @@ const restoredView = readSaved(VIEW_STATE_KEY) as PersistedWebviewState | undefi
 let persisted: PersistedWebviewState = restoredView?.contentType === 'spectrogram' ? { contentType: 'spectrogram' } : {};
 browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
 let worker: Worker | undefined;
+let recovery: Promise<void> | undefined;
 let nextId = 0;
 let nextSource = 0;
 const sourceGeneration = new SessionRequests();
@@ -71,15 +73,42 @@ const announce = (value: string): void => { status.textContent = value; };
 const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
 const snapshot = (): void => { emit({ type: 'analysis-update', results: sources.snapshot(source => source.result) }); };
 
-function dispose(): void {
+function resetWorker(reason: Error): void {
     sourceGeneration.advance();
     reanalysisGeneration.advance();
     worker?.terminate(); worker = undefined;
-    rejectPendingRequests(pending, new Error('Analysis cancelled'));
-    sources.clear();
+    recovery = undefined;
+    rejectPendingRequests(pending, reason);
     loading = false; pick.disabled = false; pick.value = "";
 }
-function request(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
+function dispose(): void {
+    resetWorker(new Error('Analysis cancelled'));
+    sources.clear();
+}
+async function request(
+    command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string, cancellation?: AnalysisCancellationSignal,
+): Promise<Record<string, unknown>> {
+    if (command.cmd !== 'load') {
+        if (!worker && !recovery && sources.size) {
+            const generation = sourceGeneration.current;
+            const restoring = (async () => {
+                for (const source of sources.values()) {
+                    const bytes = await source.file.arrayBuffer();
+                    if (!sourceGeneration.isCurrent(generation) || !sources.owns(source.path, source)) {
+                        throw new Error('Analysis cancelled');
+                    }
+                    await sendRequest({ cmd: 'load', sourceId: source.path.split('/').pop()! }, bytes);
+                }
+            })();
+            recovery = restoring;
+            void restoring.finally(() => { if (recovery === restoring) recovery = undefined; }).catch(() => {});
+        }
+        if (recovery) await recovery;
+    }
+    if (cancellation?.isCancellationRequested) throw new Error('Recipe execution cancelled');
+    return sendRequest(command, bytes, forcedRequestId);
+}
+function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
     if (!worker) {
         if (command.cmd !== 'load') throw new Error('No selected source; choose the WAV again.');
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
@@ -108,12 +137,12 @@ function stft() {
 const analysisClient = new class extends AnalysisClient {
     protected override cancelRequest(requestId: string, reason: Error): void {
         if (!pending.has(requestId)) return;
-        dispose();
-        snapshot();
+        resetWorker(reason);
+        emit({ type: 'reanalyze-end' });
         announce(reason.message);
     }
-    protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>, requestId?: string): Promise<BackendResult<K>> {
-        const result = await request({ ...payload, cmd: command }, undefined, requestId);
+    protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>, requestId?: string, cancellation?: AnalysisCancellationSignal): Promise<BackendResult<K>> {
+        const result = await request({ ...payload, cmd: command }, undefined, requestId, cancellation);
         return parseBackendResult(command, result);
     }
 }({ current: filePath => {
@@ -228,7 +257,7 @@ const ports: ComparisonSessionPorts = {
     stftOptions: () => stft().stftOptions,
     client: analysisClient,
     lazyContext(filePath) {
-        if (!worker || !sources.get(filePath)) throw new Error('Source is no longer selected; choose the WAV again.');
+        if (!sources.get(filePath)) throw new Error('Source is no longer selected; choose the WAV again.');
         return {};
     },
     lazyFailed: (_request, reason) => announce(reason),
@@ -340,7 +369,7 @@ pick.onchange = (): void => {
             },
             commit: (file, loaded) => {
                 const url = URL.createObjectURL(file);
-                sources.set(loaded.path, { path: loaded.path, name: file.name, url, inputBytes: file.size,
+                sources.set(loaded.path, { path: loaded.path, name: file.name, url, inputBytes: file.size, file,
                     result: resultWithSource(loaded.result, file.name, url) });
                 snapshot();
             },

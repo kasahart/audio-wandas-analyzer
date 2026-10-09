@@ -354,7 +354,8 @@ export function getChartSpecRenderScript(): string {
                 ctx.fillStyle = colorAt(idx);
                 ctx.fillRect(lx, ly - 4, 10, 8);
                 ctx.fillStyle = cssVar('--text', '#ddd');
-                const name = (s && s.name) ? s.name : ('series ' + (idx + 1));
+                const label = (s && s.name) ? s.name : ('series ' + (idx + 1));
+                const name = s && s.unit ? label + ' [' + s.unit + ']' : label;
                 ctx.fillText(name, lx + 14, ly);
                 lx += 14 + Math.max(40, ctx.measureText(name).width + 18);
             });
