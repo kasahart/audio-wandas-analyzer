@@ -31,3 +31,16 @@ test('settings load/save use the same narrow store contract without VSCode or br
     const restored = loadSpectrogramSettings(context); restored.stft.nFft = 512;
     assert.equal(loadSpectrogramSettings(context).stft.nFft, 256);
 });
+
+
+test('odd FFT sizes are rejected for incoming and persisted settings', async () => {
+    const { isSpectrogramSettings, savedSpectrogramSettings } = await import('../shared/analysis/savedSpectrogramSettings');
+    for (const nFft of [65, 255, 16383]) {
+        const settings = { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: false, stft: { nFft, hopSize: 32, window: 'hann' as const } };
+        assert.equal(isSpectrogramSettings(settings), false);
+        assert.deepEqual(savedSpectrogramSettings(settings), DEFAULT_SPECTROGRAM_SETTINGS);
+    }
+    const evenSettings = { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: false, stft: { nFft: 254, hopSize: 32, window: 'hann' as const } };
+    assert.equal(isSpectrogramSettings(evenSettings), true);
+    assert.deepEqual(savedSpectrogramSettings(evenSettings), evenSettings);
+});

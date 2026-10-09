@@ -21,18 +21,27 @@ SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
 class SparseSpectrogram:
     """Display-only sparse STFT; Wandas retains spectral levels and calibration."""
 
-    def __init__(self, spectral_frame: wd.SpectrogramFrame, centers: np.ndarray) -> None:
+    def __init__(self, spectral_frame: wd.SpectrogramFrame, centers: np.ndarray, hop_length: int) -> None:
         self.spectral_frame = spectral_frame
         self.frame_center_times = centers
+        self.hop_length = hop_length
+
+    @property
+    def times(self) -> np.ndarray:
+        return np.arange(self.n_frames) * self.hop_length / self.sampling_rate
+
+    @property
+    def source_times(self) -> np.ndarray:
+        return self.source_time_offset[:, None] + self.times[None, :]
 
     def __getattr__(self, name):
         return getattr(self.spectral_frame, name)
 
     def astype(self, dtype):
-        return SparseSpectrogram(self.spectral_frame.astype(dtype), self.frame_center_times)
+        return SparseSpectrogram(self.spectral_frame.astype(dtype), self.frame_center_times, self.hop_length)
 
     def cache(self):
-        return SparseSpectrogram(self.spectral_frame.cache(), self.frame_center_times)
+        return SparseSpectrogram(self.spectral_frame.cache(), self.frame_center_times, self.hop_length)
 
 
 def compute_spectrogram(
@@ -68,7 +77,7 @@ def compute_spectrogram(
         frame_time_origin=float(transform.p_min * transform.delta_t),
     )
     centers = transform.t(frame.n_samples)[None, :] + np.asarray(frame.source_time_offset)[:, None]
-    return SparseSpectrogram(spectral_frame, centers)
+    return SparseSpectrogram(spectral_frame, centers, hop_length)
 
 
 @dataclass(slots=True)
