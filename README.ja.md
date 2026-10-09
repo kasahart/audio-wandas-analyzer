@@ -109,28 +109,27 @@ Audio Analyzer: Select Python Environment
 - **ファイルが読み込めない:** 拡張子が WAV、FLAC、OGG、AIFF、AIF、SND のいずれかか確認してください。MP3 / M4A はまだ非対応です。
 - **大きなファイルが重い:** 波形は表示中のズーム範囲だけを取得します。スペクトログラムが重い場合は FFT 長やホップ長を小さくしてください。
 
+## ブラウザー版
+
+[ブラウザー版を開く](https://kasahart.github.io/audio-wandas-analyzer/)と、VS Code や Python をインストールせずに短い WAV ファイルを比較できます。音声は端末内で解析され、アップロードされません。
+
+WAV ファイルを選択すると、波形、スペクトログラム、カーソル、再生、ミュート、時間オフセット、ループの各操作を利用できます。比較中にトラックを追加・削除でき、画像、CSV スペクトル、選択範囲の音声、Markdown / Notebook レポートを出力できます。複数の音声範囲は ZIP でダウンロードされます。同梱レシピも利用できますが、mosqito による心理音響解析が必要なレシピは実行できません。
+
+| 制限 | ブラウザー版 |
+| --- | --- |
+| 音声形式 | RIFF WAV |
+| 1 ファイル | 16 MiB・30 秒まで、モノラルまたはステレオ |
+| サンプリング周波数 | 1–96 kHz |
+| 比較 | 最大 8 トラック、入力ファイルの合計 64 MiB まで |
+| WAV 出力 | 校正を適用しない PCM16 音声、合計 32 MiB まで |
+
+フォルダ内の音声検索と校正設定は VS Code 拡張機能で利用できます。マウス操作を含むすべての操作を使う場合は、デスクトップのブラウザーをご利用ください。タッチ画面でのドラッグによるループ範囲選択には対応していません。
+
+表示・スペクトログラム設定は次回アクセス時にも復元されます。音声ファイル、カーソル位置、時間オフセットは保存されないため、再読み込み後はファイルを選び直してください。**クリア**で読み込んだ音声をすべて削除できます。出力した Notebook はレポートに記載された音声ファイル名を参照するため、その名前で音声のコピーを Notebook と同じ場所に配置してください。
+
 ## リンク
 
 - リポジトリ: https://github.com/kasahart/audio-wandas-analyzer
 - バックエンドライブラリ: [wandas](https://github.com/kasahart/wandas)
 - 開発者ガイド: [docs/developer-guide.ja.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.ja.md)
 - バグ報告 / 機能要望: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues)
-
-
-### 静的Web試作（Wandas 0.8.1）
-
-自動スペクトログラム表示は、長いdesktop音源でも約720個の解析窓に計算を限定します。窓の間隔がFFT窓幅を超える場合だけ、Wandasと同じSciPy STFT・振幅スケールを使う表示専用adapterで計算し、レベル・校正はWandasに委譲します。実時刻は実際の窓間隔を保持します。この疎な表示は逆STFTやRecipeの結果ではありません。手動STFT設定のメモリ量は設定に依存します。
-
-`npm run prepare:browser` → `npm run build:browser` で `browser-dist/` を生成します。`python3 -m http.server 8080 --directory browser-dist` など静的HTTPで確認できます。解析サーバーは不要です。相対URLなのでGitHub Pagesのproject subpathで配布可能ですが、公開手順は下記GitHub Pages workflowを参照してください。
-
-既存Comparison UIとPython AnalysisServiceを再利用し、ブラウザではPyodide Worker＋bytes/source-id adapterでWAVを解析します。音声は送信されません。1秒・2.5秒ステレオ固定fixtureのnative/Pyodide数値比較（331,560点）は、runtime準備後に `AWA_VERIFY_BROWSER=1 npm run verify` で実行します。
-
-試作上限: RIFF WAV 16 MiB・30秒・1–2ch・1–96kHz・32サンプル以上。複数選択・追加・削除に対応し、最大8トラック、入力合計64 MiB・展開音声合計64 MiBを保持します。共通UIのカーソル・オフセット・表示・再生停止・ミュート・区間選択を使用し、複数区間WAVはZIPで出力します。書き出しは各音声の長さとオフセットを反映します。取消で共有Workerを終了・全Blobを解放します。無効な追加は既存トラックを保持し、Worker障害時は全トラックを解放して再読込できます。STFTは半窓以上の音声長が必要で、512 MiB推定上限を超える設定を拒否します。詳細キャッシュは128 MiB、区間出力合計は32 MiBに制限します（ブラウザの実メモリ上限を保証するものではありません）。区間出力は原音PCM16 WAV、再生はユーザー操作時のみです。Recipe・mosqito・WDF/h5py・全codec・directory scan・校正設定・vscode.devは未対応です。desktop VSCodeの既存機能は保持します。WAV命名・重複連番・レポート生成・保存設定の検証は共通化し、Webもブラウザ言語に応じた英日表示、STFT／表示設定と波形／STFTモードの復元、Markdown／Notebookダウンロードに対応します。音声・元パスは永続保存しません。Notebookはレポート記載の音声ファイル別名を参照するため、音声のコピーを対応する名前で配置してください。詳細とASD Insightとの最小UI共有案はREADME.mdの対応節を参照してください。
-
-`npm run verify:e2e` は実VSCode Webviewから短いステレオWAVのSTFT・cursor・区間保存を検証します。保存先選択のみ一時folderへ注入し、実Python backendとVSCodeファイル書込みを通したPCM16出力が原音区間と完全一致することを確認します。OS picker自体の操作は対象外、出力は自動削除され、再生操作は行いません。
-
-追加監査ではproject subpath、FFT/hop設定変更、実時刻cursor、画面選択区間のWAV原音一致、取消・反復切替・旧Blob解放、不正/過大/過長WAV、runtime初期化失敗・Worker障害後の復旧を確認します。静的host専用subscriptionでwindow messageの混入を防ぎ、VSCodeの既存message transportは保持します。390px Chromiumタッチ相当では読込・cursor tap・STFT・取消を確認しますが、タッチdrag区間選択は未対応で軸表示も窮屈です。実機mobile/Safari・長時間メモリ負荷・OS picker・音声再生は未検証です。
-
-GitHub Pagesは `.github/workflows/pages.yml` で公開します。PRで静的artifactをbuild・hash検証し、mainのCI成功後にそのcommitを配信します。公開対象は `browser-dist/` のみ（固定公開runtime・noticesを含む）。追加secretや入力音声の公開はありません。
-
-静的Web回帰テストはCSVの実BlobダウンロードとUTF-8・channel・周波数の内容、8本の削除・追加後の全16 channel Canvas再描画、想定入力拒否時の短いメッセージも確認します。CSVの数値・desktop側の出力仕様・音源上限は変更していません。

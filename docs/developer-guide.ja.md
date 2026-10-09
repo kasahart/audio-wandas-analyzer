@@ -89,6 +89,22 @@ VS Code タスク:
 
 波形やグラフの動きを見るなら **results** プレビュー、ファイル選択状態を見るなら **selection** プレビューを使ってください。
 
+### 静的ブラウザー版のビルド
+
+開発用依存関係をインストールした後、ブラウザー用ランタイムを準備してアプリをビルドします。
+
+```bash
+npm run prepare:browser
+npm run build:browser
+python3 -m http.server 8080 --directory browser-dist
+```
+
+`http://localhost:8080` を HTTP 経由で開いてください。ランタイムの準備ではハッシュ固定のアセットとライセンス表記を取得し、ビルドでは相対 URL を使った `browser-dist/` を生成します。
+
+準備後に `AWA_VERIFY_BROWSER=1 npm run verify` を実行すると、ブラウザー用アセットの整合性と native / Worker 間の数値一致も検証します。Chromium の UI テストは `npm run test:ui`、VS Code extension host のテストは `npm run verify:e2e` を使用します。
+
+[Pages workflow](../.github/workflows/pages.yml) は PR をビルドし、main の CI が成功したコミットを公開します。公開対象は、公開ランタイムとライセンス表記を含む `browser-dist/` のみです。共通ホスト契約とランタイムの管理は [architecture.md](./architecture.md) を参照してください。
+
 ## 6. リポジトリ上の重要ルール
 
 - `dist/` の生成物は **編集しない**

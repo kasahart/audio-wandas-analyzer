@@ -89,6 +89,22 @@ Use them when:
 
 Use the **results** preview for waveform / graph motion. The **selection** preview is for the file-selection state.
 
+### Static browser build
+
+After installing the development dependencies, prepare the browser runtime and build the standalone app:
+
+```bash
+npm run prepare:browser
+npm run build:browser
+python3 -m http.server 8080 --directory browser-dist
+```
+
+Open `http://localhost:8080` over HTTP. Runtime preparation downloads hash-locked assets and upstream notices; the build writes relative URLs into `browser-dist/`.
+
+Run `AWA_VERIFY_BROWSER=1 npm run verify` after preparation to include browser asset integrity and native/Worker numerical parity checks. Use `npm run test:ui` for Chromium UI tests and `npm run verify:e2e` for VS Code extension-host tests.
+
+The [Pages workflow](../.github/workflows/pages.yml) builds pull requests and deploys the exact main commit after its CI succeeds. Only `browser-dist/`, including public runtime assets and notices, is published. See [architecture.md](./architecture.md) for shared host contracts and runtime ownership.
+
 ## 6. Important repository rules
 
 - Do **not** edit generated output in `dist/`.
