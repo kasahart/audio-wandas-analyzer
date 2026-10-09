@@ -16,7 +16,8 @@ VS Code extension that analyzes audio files. The extension host is TypeScript; t
 ```
 User picks audio file
   → src/extension/index.ts (command handler)
-  → spawns python-backend/main.py as child process (stdout JSON)
+  → AnalysisClient → PythonBackendServer (persistent child process, NDJSON IPC)
+  → python-backend/backend_server.py → command_dispatch.py → AnalysisService
   → src/webview/panels/ComparisonPanel.ts renders Webview
 ```
 
@@ -24,8 +25,8 @@ On-demand high-resolution waveform data during zoom:
 
 ```
 Webview postMessage("request-waveform-range")
-  → src/extension/index.ts → WaveformServer (TS)
-  → python-backend/waveform_server.py (persistent, newline-JSON IPC)
+  → ComparisonSessionController → AnalysisClient → PythonBackendServer (TS)
+  → backend_server.py → AnalysisService.waveform_range() (cached AnalysisEngine frame)
   → postMessage("waveform-range-result") back to Webview
 ```
 
@@ -94,16 +95,17 @@ TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.
 | File | Role |
 |------|------|
 | `src/extension/index.ts` | Command registration, file picking, Python spawn, message routing |
-| `src/extension/waveformServer.ts` | Persistent Python child process for range requests; newline-JSON IPC |
+| `src/extension/pythonBackendServer.ts` | Persistent Python child process for analysis requests; NDJSON IPC |
 | `src/webview/panels/ComparisonPanel.ts` | Multi-track comparison Webview shell and CSP-safe bootstrap data |
 | `src/webview/runtime/comparisonEntry.ts` | Strict TypeScript entry for the modular Comparison Webview runtime |
 | `src/shared/analysis/analysisTypes.ts` | Shared `AnalysisResult` / `DirectoryTreeNode` contracts |
 | `src/webview/waveform/waveformRenderer.ts` | Pure TS waveform rendering pipeline (3 layers, no Canvas dependency). `scripts/build-webview.js` packages it as `dist/webview/comparisonWaveform.js` for the Webview. |
 | `src/webview/waveform/rangeRequestPolicy.ts` | `isCacheSufficient` / `computeReqBounds` |
-| `python-backend/analyzer.py` | `analyze_audio()` — full-file analysis via wandas |
+| `python-backend/analyzer.py` | `analyze_from_frame()` — display payload from calibrated wandas frames |
 | `python-backend/decimator.py` | `decimated_waveform()` — bucket-level argmin/argmax |
-| `python-backend/range_analyzer.py` | `analyze_range()` — range-only high-res waveform via soundfile |
-| `python-backend/waveform_server.py` | Persistent server loop; caches loaded files |
+| `python-backend/analysis_service.py` | Initial summary, detail, spectrum slice, waveform range, WAV export and Recipe |
+| `python-backend/analysis_engine.py` | Cached audio frames and STFT by calibration/settings |
+| `python-backend/backend_server.py` | Persistent NDJSON server; dispatches the seven validated analysis commands |
 
 ### Waveform rendering pipeline
 

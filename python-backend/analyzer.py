@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 import sys
 import time
@@ -11,11 +10,9 @@ from typing import TypedDict
 import numpy as np
 import wandas as wd
 
-from analysis_engine import compute_spectrogram
 from calibration_profile import (
     ResolvedCalibrationProfile,
     ResolvedChannelCalibration,
-    resolve_calibration_profile,
 )
 from decimator import decimated_waveform
 
@@ -34,17 +31,8 @@ def _perf(phase: str, started: float, **extra: object) -> None:
 WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
 SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
-SPECTROGRAM_DB_RANGE = 90.0
 DB_UNIT = "dB"
 SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum amplitude level [dB]"
-AMPLITUDE_LEVEL_AXIS_LABEL = "Amplitude level [dB]"
-
-
-def _db_scale_metadata(axis_label: str) -> dict[str, str]:
-    return {
-        "unit": DB_UNIT,
-        "axisLabel": axis_label,
-    }
 
 
 def measurement_metadata(
@@ -219,51 +207,6 @@ def _build_spectrogram(
     }
 
 
-def analyze_range(
-    file_path: str | Path,
-    start_norm: float,
-    end_norm: float,
-    point_count: int = 2000,
-    *,
-    calibration_profile: object = None,
-) -> dict[str, object]:
-    source_frame, _target = load_audio_frame(file_path)
-    resolved = resolve_calibration_profile(calibration_profile, source_frame)
-    frame = resolved.apply(source_frame)
-    channel_count = int(frame.n_channels)
-    sample_count = int(frame.n_samples)
-    start_idx = max(0, int(start_norm * sample_count))
-    end_idx = min(sample_count, int(end_norm * sample_count))
-
-    if end_idx <= start_idx:
-        return {
-            "startNorm": start_norm,
-            "endNorm": end_norm,
-            "calibrationSignature": resolved.signature,
-            "channels": [],
-        }
-
-    data = channels_first(frame[:, start_idx:end_idx].data, channel_count, end_idx - start_idx)
-    channels: list[dict[str, object]] = []
-    for ch_idx in range(channel_count):
-        ch_slice = data[ch_idx]
-        channels.append(
-            build_waveform_envelope(
-                ch_slice,
-                point_count,
-                start_sample=start_idx,
-                total_samples=sample_count,
-            )
-        )
-
-    return {
-        "startNorm": start_norm,
-        "endNorm": end_norm,
-        "calibrationSignature": resolved.signature,
-        "channels": channels,
-    }
-
-
 _ALLOWED_WINDOWS = {"hann", "hamming", "blackman", "boxcar"}
 
 
@@ -302,40 +245,12 @@ def resolve_stft_params(
     return normalized["n_fft"], normalized["hop_size"], normalized["window"]
 
 
-def _resolved_profile_from_frame(frame: wd.ChannelFrame) -> ResolvedCalibrationProfile:
-    channels = []
-    for index, label in enumerate(frame.labels):
-        calibration = frame.channels[index].calibration
-        factor = float(calibration.factor)
-        unit = str(calibration.unit)
-        reference_value = float(calibration.ref)
-        identity_values = math.isclose(factor, 1.0, rel_tol=0.0, abs_tol=1e-15) and math.isclose(
-            reference_value,
-            1.0,
-            rel_tol=0.0,
-            abs_tol=1e-15,
-        )
-        calibrated = not (identity_values and unit in {"", "FS"})
-        channels.append(
-            {
-                "channelIndex": index,
-                "expectedLabel": str(label),
-                "status": "calibrated" if calibrated else "uncalibrated",
-                "source": "embedded" if calibrated else "default",
-                "factor": factor,
-                "unit": unit or "1",
-                "referenceValue": reference_value,
-            }
-        )
-    return resolve_calibration_profile({"schemaVersion": 1, "channels": channels}, frame)
-
-
 def analyze_from_frame(
     frame: wd.ChannelFrame,
     file_path: str | Path,
     *,
     raw_frame: wd.ChannelFrame | None = None,
-    calibration_profile: ResolvedCalibrationProfile | None = None,
+    calibration_profile: ResolvedCalibrationProfile,
     stft_options: Mapping[str, object] | None = None,
     spectrogram_frame: wd.SpectrogramFrame | None = None,
     include_spectrogram: bool = False,
@@ -347,7 +262,7 @@ def analyze_from_frame(
     sample_count = int(frame.n_samples)
     sample_rate_hz = int(frame.sampling_rate)
     labels = list(frame.labels)
-    resolved = calibration_profile or _resolved_profile_from_frame(frame)
+    resolved = calibration_profile
     references = [frame.channels[index].level_reference for index in range(channel_count)]
     measurements = [measurement_metadata(channel, references[index]) for index, channel in enumerate(resolved.channels)]
     data = channels_first(np.asarray(frame.data), channel_count, sample_count)
@@ -423,35 +338,3 @@ def analyze_from_frame(
     if units is not None:
         result["units"] = units
     return result
-
-
-def analyze_audio(
-    file_path: str | Path,
-    *,
-    stft_options: Mapping[str, object] | None = None,
-    calibration_profile: object = None,
-) -> dict[str, object]:
-    source_frame, target = load_audio_frame(file_path)
-    resolved = resolve_calibration_profile(calibration_profile, source_frame)
-    frame = resolved.apply(source_frame)
-    window_size, hop_size, window_name = resolve_stft_params(frame.n_samples, stft_options)
-    spectrogram = compute_spectrogram(frame, window_size, hop_size, window_name)
-    return analyze_from_frame(
-        frame,
-        target,
-        raw_frame=source_frame,
-        calibration_profile=resolved,
-        stft_options=stft_options,
-        spectrogram_frame=spectrogram,
-        include_spectrogram=True,
-    )
-
-
-def load_audio_frame(file_path: str | Path) -> tuple[wd.ChannelFrame, Path]:
-    target = Path(file_path).expanduser().resolve()
-    if not target.exists():
-        raise FileNotFoundError(f"Audio file not found: {target}")
-    t0 = time.perf_counter()
-    frame = wd.read(target)
-    _perf("read_audio", t0)
-    return frame, target

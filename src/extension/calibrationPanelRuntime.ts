@@ -6,8 +6,8 @@ import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import {
     configureCalibrationProfile,
-    type CalibrationChannelDescriptor,
 } from './calibrationStore';
+import type { CalibrationChannelDescriptor } from '../shared/analysis/calibrationModel';
 
 const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
 const panelLifecycleInstalled = new WeakSet<vscode.WebviewPanel>();

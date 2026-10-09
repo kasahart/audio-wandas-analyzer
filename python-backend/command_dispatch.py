@@ -123,9 +123,9 @@ def handle_analyze(service: AnalysisService, command: Command) -> dict[str, obje
 def handle_track_detail(service: AnalysisService, command: Command) -> dict[str, object]:
     return service.track_detail(
         str(command["filePath"]),
-        track_index=int(command.get("trackIndex", -1)),
-        analysis_id=command.get("analysisId"),
-        settings_signature=command.get("settingsSignature"),
+        track_index=int(command["trackIndex"]),
+        analysis_id=command["analysisId"],
+        settings_signature=command["settingsSignature"],
         stft_options=_stft_options(command),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
@@ -135,10 +135,10 @@ def handle_track_detail(service: AnalysisService, command: Command) -> dict[str,
 def handle_spectrum_slice(service: AnalysisService, command: Command) -> dict[str, object]:
     return service.spectrum_slice(
         str(command["filePath"]),
-        cursor_norm=float(command.get("cursorNorm", command.get("trackLocalNorm", 0.0))),
-        track_index=int(command.get("trackIndex", -1)),
-        analysis_id=command.get("analysisId"),
-        settings_signature=command.get("settingsSignature"),
+        cursor_norm=float(command["cursorNorm"]),
+        track_index=int(command["trackIndex"]),
+        analysis_id=command["analysisId"],
+        settings_signature=command["settingsSignature"],
         stft_options=_stft_options(command),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
@@ -150,7 +150,7 @@ def handle_range(service: AnalysisService, command: Command) -> dict[str, object
         str(command["filePath"]),
         start_norm=float(command["startNorm"]),
         end_norm=float(command["endNorm"]),
-        point_count=int(command.get("points", 2000)),
+        point_count=int(command["points"]),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
     )

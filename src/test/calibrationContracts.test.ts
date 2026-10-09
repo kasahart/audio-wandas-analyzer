@@ -122,26 +122,8 @@ test('ComparisonPanel result ownership follows accepted in-place reanalysis', ()
     assert.deepEqual(ComparisonPanel.getResults(panel), [replacement, retained]);
 });
 
-test('calibration inputs reject values that can overflow or underflow analysis', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const NodeModule = require('node:module') as {
-        _load: (request: string, parent: unknown, isMain: boolean) => unknown;
-    };
-    const originalLoad = NodeModule._load;
-    NodeModule._load = function patchedLoad(request: string, parent: unknown, isMain: boolean): unknown {
-        if (request === 'vscode') { return {}; }
-        return originalLoad.call(this, request, parent, isMain);
-    };
-
-    let calibrationStore: typeof import('../extension/calibrationStore');
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        calibrationStore = require('../extension/calibrationStore');
-    } finally {
-        NodeModule._load = originalLoad;
-    }
-
-    const { validateCalibrationFactorInput, validateCalibrationValueInput } = calibrationStore;
+test('calibration inputs reject values that can overflow or underflow analysis', async () => {
+    const { validateCalibrationFactorInput, validateCalibrationValueInput } = await import('../shared/analysis/calibrationModel');
     assert.equal(validateCalibrationValueInput('1e-150'), undefined);
     assert.equal(validateCalibrationValueInput('1e150'), undefined);
     assert.match(validateCalibrationValueInput('1e-151') ?? '', /1e-150/);
@@ -152,7 +134,21 @@ test('calibration inputs reject values that can overflow or underflow analysis',
 
 test('calibration profile writes serialize read-modify-write updates', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const calibrationStore = require('../extension/calibrationStore') as typeof import('../extension/calibrationStore');
+    const NodeModule = require('node:module') as {
+        _load: (request: string, parent: unknown, isMain: boolean) => unknown;
+    };
+    const originalLoad = NodeModule._load;
+    NodeModule._load = function patchedLoad(request: string, parent: unknown, isMain: boolean): unknown {
+        if (request === 'vscode') { return {}; }
+        return originalLoad.call(this, request, parent, isMain);
+    };
+    let calibrationStore: typeof import('../extension/calibrationStore');
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        calibrationStore = require('../extension/calibrationStore');
+    } finally {
+        NodeModule._load = originalLoad;
+    }
     const storageKey = 'audioWandasAnalyzer.calibrationProfiles.v1';
     const firstPath = path.resolve('/tmp/concurrent-a.wav');
     const secondPath = path.resolve('/tmp/concurrent-b.wav');
