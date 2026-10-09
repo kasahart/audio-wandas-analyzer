@@ -88,23 +88,21 @@ function dispose(): void {
 async function request(
     command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string, cancellation?: AnalysisCancellationSignal,
 ): Promise<Record<string, unknown>> {
-    if (command.cmd !== 'load') {
-        if (!worker && !recovery && sources.size) {
-            const generation = sourceGeneration.current;
-            const restoring = (async () => {
-                for (const source of sources.values()) {
-                    const bytes = await source.file.arrayBuffer();
-                    if (!sourceGeneration.isCurrent(generation) || !sources.owns(source.path, source)) {
-                        throw new Error('Analysis cancelled');
-                    }
-                    await sendRequest({ cmd: 'load', sourceId: source.path.split('/').pop()! }, bytes);
+    if (!worker && !recovery && sources.size) {
+        const generation = sourceGeneration.current;
+        const restoring = (async () => {
+            for (const source of sources.values()) {
+                const bytes = await source.file.arrayBuffer();
+                if (!sourceGeneration.isCurrent(generation) || !sources.owns(source.path, source)) {
+                    throw new Error('Analysis cancelled');
                 }
-            })();
-            recovery = restoring;
-            void restoring.finally(() => { if (recovery === restoring) recovery = undefined; }).catch(() => {});
-        }
-        if (recovery) await recovery;
+                await sendRequest({ cmd: 'load', sourceId: source.path.split('/').pop()! }, bytes);
+            }
+        })();
+        recovery = restoring;
+        void restoring.finally(() => { if (recovery === restoring) recovery = undefined; }).catch(() => {});
     }
+    if (recovery) await recovery;
     if (cancellation?.isCancellationRequested) throw new Error('Recipe execution cancelled');
     return sendRequest(command, bytes, forcedRequestId);
 }

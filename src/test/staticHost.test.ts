@@ -406,3 +406,28 @@ test('Recipe timeout preserves tracks and URLs and reloads the Worker for the ne
     app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
     assert.equal(app.revoked.length, 2);
 });
+
+
+test('adding a WAV after Recipe timeout restores retained sources before the new load', async () => {
+    const app = harness(new Map(), 'en', false, 20);
+    await app.load(); await app.load();
+    const originalWorker = app.workers[0];
+    const retainedIds = originalWorker.commands.filter(command => command.cmd === 'load').map(command => command.sourceId);
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush(); await flush();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(originalWorker.terminated, true);
+    await app.load(); await flush();
+    const restored = app.workers[1];
+    const loadedIds = restored.commands.filter(command => command.cmd === 'load').map(command => command.sourceId);
+    assert.deepEqual(loadedIds.slice(0, 2), retainedIds);
+    assert.equal(loadedIds.length, 3);
+    assert.ok(!retainedIds.includes(loadedIds[2]));
+    assert.deepEqual(app.revoked, []);
+    const results = app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as Array<{ filePath: string }>;
+    assert.equal(results.length, 3);
+    app.host.postMessage({ ...identity, filePath: results[0].filePath, type: 'request-track-detail' });
+    await flush();
+    assert.equal(restored.commands.at(-1)!.cmd, 'track-detail');
+    assert.equal(restored.commands.at(-1)!.filePath, results[0].filePath);
+});

@@ -124,3 +124,15 @@ def test_scalar_numeric() -> None:
     spec = adapt(3.14, title="pi")
     assert spec["kind"] == "scalar"
     assert spec["rows"][0]["value"] == pytest.approx(3.14)
+
+
+def test_noct_frame_preserves_each_channel_level_reference(two_channel: wd.ChannelFrame) -> None:
+    frame = two_channel.with_calibration({0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5)})
+    octave = frame.noct_spectrum(fmin=125, fmax=4000, n=3)
+    spec = adapt(octave)
+    assert [series["unit"] for series in spec["series"]] == [
+        channel.level_reference.label for channel in octave.channels
+    ]
+    assert "Pa" in spec["series"][0]["unit"]
+    assert spec["series"][1]["unit"] == "dB re 1 input unit"
+    np.testing.assert_allclose(spec["series"][0]["values"], octave.dB[0])

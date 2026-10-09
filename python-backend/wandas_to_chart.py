@@ -151,6 +151,8 @@ def _adapt_noct_frame(frame: Any, *, title: str) -> dict[str, Any]:
         if i >= db.shape[0]:
             break
         series.append({"name": name, "values": _as_list(db[i]), "unit": "dB"})
+    for item, channel in zip(series, getattr(frame, "channels", []), strict=False):
+        item["unit"] = channel.level_reference.label
     return {
         "kind": "bar",
         "title": title,

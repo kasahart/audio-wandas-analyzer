@@ -699,3 +699,18 @@ test('line legends visibly distinguish calibrated references and preserve unqual
     assert.ok(labels.includes('unqualified'));
     dom.window.close();
 });
+
+
+test('bar legends visibly distinguish calibrated octave references', () => {
+    const labels: string[] = [];
+    const dom = setupChartEnv([{
+        kind: 'bar', title: 'Octave levels', categories: ['125', '250'], yLabel: 'Level [dB]',
+        series: [
+            { name: 'pressure', unit: 'dB SPL', values: [60, 61] },
+            { name: 'digital', unit: 'dBFS', values: [-20, -19] },
+        ],
+    }], text => labels.push(text));
+    assert.ok(labels.includes('pressure [dB SPL]'));
+    assert.ok(labels.includes('digital [dBFS]'));
+    dom.window.close();
+});

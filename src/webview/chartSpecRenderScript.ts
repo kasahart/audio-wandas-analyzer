@@ -621,6 +621,21 @@ export function getChartSpecRenderScript(): string {
             ctx.rotate(-Math.PI / 2);
             ctx.fillText(spec.yLabel || '', 0, 0);
             ctx.restore();
+
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            let lx = plot.x + 8;
+            const ly = plot.y + 8;
+            series.forEach(function(s, idx) {
+                ctx.fillStyle = colorAt(idx);
+                ctx.fillRect(lx, ly - 4, 10, 8);
+                ctx.fillStyle = cssVar('--text', '#ddd');
+                const label = (s && s.name) ? s.name : ('series ' + (idx + 1));
+                const name = s && s.unit ? label + ' [' + s.unit + ']' : label;
+                ctx.fillText(name, lx + 14, ly);
+                lx += 14 + Math.max(40, ctx.measureText(name).width + 18);
+            });
         }
 
         if (cats.length === 0 || series.length === 0) {
