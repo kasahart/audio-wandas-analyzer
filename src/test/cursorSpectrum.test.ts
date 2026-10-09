@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractSpectrumAtCursor, type SpectrumSource } from '../webview/spectrum/cursorSpectrum';
+import { extractSpectrumAtCursor, type SpectrumSource, type CursorSpectrumContext } from '../webview/spectrum/cursorSpectrum';
 
 function makeSource(overrides: Partial<SpectrumSource> = {}): SpectrumSource {
     return {
@@ -40,10 +40,9 @@ test('extractSpectrumAtCursor: cursor in middle picks middle bin', () => {
     assert.deepEqual(slice!.values, [-60, -40, -20, 0]);
 });
 
-test('extractSpectrumAtCursor: cursor at end clamps to last bin (tIdx=timeBins-1)', () => {
-    // dur=1, cursorNorm=1.0 → trackLocalSec=1.0 → tIdx=floor(1.0*4)=4, clamped to 3
+test('extractSpectrumAtCursor: cursor at end returns the production silence floor', () => {
     const slice = extractSpectrumAtCursor(makeSource(), 0, 1.0, { startSec: 0, spanSec: 1 });
-    assert.deepEqual(slice!.values, [-50, -30, -10, -5]);
+    assert.deepEqual(slice!.values, [-90, -90, -90, -90]);
 });
 
 test('extractSpectrumAtCursor: returns null when cursor is before track start', () => {
@@ -52,10 +51,10 @@ test('extractSpectrumAtCursor: returns null when cursor is before track start', 
     assert.equal(slice, null);
 });
 
-test('extractSpectrumAtCursor: returns null when cursor is past track end', () => {
+test('extractSpectrumAtCursor: returns silence when cursor is past track end', () => {
     // offset=0: track plays from 0 to 1. cursor at 1.5s is past end.
     const slice = extractSpectrumAtCursor(makeSource(), 0, 1.5, { startSec: 0, spanSec: 1 });
-    assert.equal(slice, null);
+    assert.deepEqual(slice!.values, [-90, -90, -90, -90]);
 });
 
 test('extractSpectrumAtCursor: offset shifts the time bin selection', () => {
@@ -105,4 +104,47 @@ test('extractSpectrumAtCursor: sweeping cursor during playback yields distinct s
     const uniqueValues = new Set(valuesSeen);
     assert.equal(uniqueValues.size, cursors.length,
         '再生位置ごとに異なる時間ビンが選ばれること');
+});
+
+
+function spectrumContext(patch: Partial<CursorSpectrumContext> = {}): CursorSpectrumContext {
+    return { trackIndex: 2, channelIndex: 0, cached: null, settingsSignature: 'current',
+        requestSlice: () => undefined, applyDisplaySettings: (slice) => slice, ...patch };
+}
+
+test('cursor spectrum requests data and prioritizes a cache with matching settings', () => {
+    const calls: Array<[number, number]> = [];
+    const cached = { values: [-10, -20], frequencyBins: 2, maxFrequencyHz: 1000, minDb: -90, maxDb: 0,
+        settingsSignature: 'current' };
+    const context = spectrumContext({ cached, requestSlice: (index, norm) => calls.push([index, norm]),
+        applyDisplaySettings: (slice) => ({ ...slice, maxFrequencyHz: 500 }) });
+    const slice = extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 }, context);
+    assert.deepEqual(calls, [[2, 0.5]]);
+    assert.equal(slice!.values, cached.values);
+    assert.equal(slice!.maxFrequencyHz, 500);
+    const stale = extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 },
+        { ...context, cached: { ...cached, settingsSignature: 'old' } });
+    assert.deepEqual(stale!.values, [-60, -40, -20, 0]);
+});
+
+test('cursor spectrum uses the requested channel and does not request outside the track', () => {
+    const source = makeSource();
+    source.channels.push({ spectrogram: { ...source.channels[0].spectrogram!,
+        values: [[-10, -20], [-11, -21]], timeBins: 2, frequencyBins: 2, minDb: -100 } });
+    const calls: number[] = [];
+    const context = spectrumContext({ channelIndex: 1, requestSlice: (_, norm) => calls.push(norm) });
+    assert.deepEqual(extractSpectrumAtCursor(source, 0, 0.5, { startSec: 0, spanSec: 1 }, context)!.values, [-11, -21]);
+    assert.deepEqual(extractSpectrumAtCursor(source, 0, 1, { startSec: 0, spanSec: 1 }, context)!.values, [-100, -100]);
+    assert.equal(extractSpectrumAtCursor(source, 0.5, 0.2, { startSec: 0, spanSec: 1 }, context), null);
+    assert.deepEqual(calls, [0.5]);
+});
+
+test('silent cursor spectrum preserves cached bins and units without a spectrogram', () => {
+    const cached = { values: [-30, -40], frequencyBins: 2, maxFrequencyHz: 1000, originalMaxFrequencyHz: 2000,
+        minDb: -80, maxDb: -10, unit: 'dB SPL' };
+    const slice = extractSpectrumAtCursor({ durationSeconds: 1, channels: [] }, 0, 2,
+        { startSec: 0, spanSec: 1 }, spectrumContext({ cached }));
+    assert.deepEqual(slice!.values, [-80, -80]);
+    assert.equal(slice!.maxFrequencyHz, 2000);
+    assert.equal(slice!.unit, 'dB SPL');
 });
