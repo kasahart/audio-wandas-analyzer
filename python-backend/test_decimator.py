@@ -97,3 +97,38 @@ def test_equal_extrema_preserve_the_first_signed_zero(first):
     assert np.signbit(result["min"][0]) == np.signbit(first)
     assert np.signbit(result["max"][0]) == np.signbit(first)
     assert result["minT"] == result["maxT"] == [0.0]
+
+
+@pytest.mark.parametrize("points", [1, 3, 8192])
+def test_long_waveforms_keep_bounded_scratch_and_cross_block_extrema(monkeypatch, points):
+    samples = np.random.default_rng(3).integers(-3, 4, 200003).astype(float)
+    samples[65535:65538] = [10, -10, np.nan]
+    samples[131072] = np.nan
+    original_arange = np.arange
+    original_repeat = np.repeat
+
+    def bounded_arange(start, stop=None, *args, **kwargs):
+        length = start if stop is None else stop - start
+        assert length <= 65536
+        return (
+            original_arange(start, stop, *args, **kwargs)
+            if stop is not None
+            else original_arange(start, *args, **kwargs)
+        )
+
+    def bounded_repeat(values, repeats, *args, **kwargs):
+        assert np.sum(repeats) <= 65536
+        return original_repeat(values, repeats, *args, **kwargs)
+
+    monkeypatch.setattr(np, "arange", bounded_arange)
+    monkeypatch.setattr(np, "repeat", bounded_repeat)
+    result = decimated_waveform(samples, points, 17, 300000)
+    buckets = np.array_split(original_arange(len(samples)), points)
+    minimum_indices = [b[np.argmin(samples[b])] for b in buckets]
+    maximum_indices = [b[np.argmax(samples[b])] for b in buckets]
+    np.testing.assert_equal(result["min"], samples[minimum_indices])
+    np.testing.assert_equal(result["max"], samples[maximum_indices])
+    np.testing.assert_equal(result["minT"], (17 + np.array(minimum_indices)) / 299999)
+    np.testing.assert_equal(result["maxT"], (17 + np.array(maximum_indices)) / 299999)
+    np.testing.assert_equal(result["samples"], [samples[b[len(b) // 2]] for b in buckets])
+    assert np.isnan(result["absolutePeak"])
