@@ -61,3 +61,74 @@ def test_minT_within_0_1_with_offset():
     result = decimated_waveform(samples, 50, start_sample=500, total_samples=1000)
     assert all(0.0 <= t <= 1.0 for t in result["minT"])
     assert all(0.0 <= t <= 1.0 for t in result["maxT"])
+
+
+@pytest.mark.parametrize("length,points", [(1, 1), (7, 3), (10, 6), (31, 8), (53, 100)])
+def test_vectorized_buckets_preserve_extrema_positions_and_midpoints(length, points):
+    samples = np.random.default_rng(7).integers(-2, 3, length).astype(float)
+    result = decimated_waveform(samples, points, 23, 150)
+    buckets = np.array_split(np.arange(length), min(length, points))
+    np.testing.assert_equal(result["min"], [samples[b].min() for b in buckets])
+    np.testing.assert_equal(result["max"], [samples[b].max() for b in buckets])
+    np.testing.assert_equal(result["minT"], [(23 + b[samples[b].argmin()]) / 149 for b in buckets])
+    np.testing.assert_equal(result["maxT"], [(23 + b[samples[b].argmax()]) / 149 for b in buckets])
+    np.testing.assert_equal(result["samples"], [samples[b[len(b) // 2]] for b in buckets])
+
+
+def test_decimation_point_limit_bounds_work_and_accepts_the_boundary():
+    samples = np.ones(9000)
+    assert len(decimated_waveform(samples, 8192, 0, len(samples))["min"]) == 8192
+    with pytest.raises(ValueError, match="8192"):
+        decimated_waveform(samples, 8193, 0, len(samples))
+
+
+def test_vectorized_extrema_keep_first_nan_positions():
+    samples = np.array([1.0, np.nan, np.nan, -1.0])
+    result = decimated_waveform(samples, 1, 0, 4)
+    assert np.isnan(result["min"][0])
+    assert np.isnan(result["max"][0])
+    assert result["minT"] == result["maxT"] == [1 / 3]
+
+
+@pytest.mark.parametrize("first", [0.0, -0.0])
+def test_equal_extrema_preserve_the_first_signed_zero(first):
+    samples = np.array([first, -first])
+    result = decimated_waveform(samples, 1, 0, 2)
+    assert np.signbit(result["min"][0]) == np.signbit(first)
+    assert np.signbit(result["max"][0]) == np.signbit(first)
+    assert result["minT"] == result["maxT"] == [0.0]
+
+
+@pytest.mark.parametrize("points", [1, 3, 8192])
+def test_long_waveforms_keep_bounded_scratch_and_cross_block_extrema(monkeypatch, points):
+    samples = np.random.default_rng(3).integers(-3, 4, 200003).astype(float)
+    samples[65535:65538] = [10, -10, np.nan]
+    samples[131072] = np.nan
+    original_arange = np.arange
+    original_repeat = np.repeat
+
+    def bounded_arange(start, stop=None, *args, **kwargs):
+        length = start if stop is None else stop - start
+        assert length <= 65536
+        return (
+            original_arange(start, stop, *args, **kwargs)
+            if stop is not None
+            else original_arange(start, *args, **kwargs)
+        )
+
+    def bounded_repeat(values, repeats, *args, **kwargs):
+        assert np.sum(repeats) <= 65536
+        return original_repeat(values, repeats, *args, **kwargs)
+
+    monkeypatch.setattr(np, "arange", bounded_arange)
+    monkeypatch.setattr(np, "repeat", bounded_repeat)
+    result = decimated_waveform(samples, points, 17, 300000)
+    buckets = np.array_split(original_arange(len(samples)), points)
+    minimum_indices = [b[np.argmin(samples[b])] for b in buckets]
+    maximum_indices = [b[np.argmax(samples[b])] for b in buckets]
+    np.testing.assert_equal(result["min"], samples[minimum_indices])
+    np.testing.assert_equal(result["max"], samples[maximum_indices])
+    np.testing.assert_equal(result["minT"], (17 + np.array(minimum_indices)) / 299999)
+    np.testing.assert_equal(result["maxT"], (17 + np.array(maximum_indices)) / 299999)
+    np.testing.assert_equal(result["samples"], [samples[b[len(b) // 2]] for b in buckets])
+    assert np.isnan(result["absolutePeak"])

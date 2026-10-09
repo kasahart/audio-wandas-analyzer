@@ -1,13 +1,14 @@
 import { AnalysisClient, analysisPayload, type AnalysisContextPolicy } from '../shared/analysis/analysisClient';
 import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
+import { createInterface } from 'node:readline';
 import * as vscode from 'vscode';
 import {
     backendStartupError,
     BackendStartupError,
     BackendStartupCancelledError,
     formatPythonImportTiming,
-    processStdoutChunk,
+    processStdoutLine,
     waitForBackendStartup,
     type BackendDiagnostic,
     type PendingRequest,
@@ -39,8 +40,6 @@ export class AnalysisRequestError extends Error {
 export class PythonBackendServer extends AnalysisClient {
     private proc: ChildProcess | null = null;
     private pending = new Map<string, PendingRequest>();
-    private stdoutBuf = { value: '' };
-    private stderrBuf = '';
     private startPromise: Promise<void> | null = null;
     private nextId = 1;
     private lastHeartbeatAt = 0;
@@ -137,8 +136,6 @@ export class PythonBackendServer extends AnalysisClient {
             const pythonArgs = importTimingEnabled ? ['-X', 'importtime', scriptPath] : [scriptPath];
             const startupStartedAt = Date.now();
 
-            this.stdoutBuf.value = '';
-            this.stderrBuf = '';
             this.onPerfLine(`[ts] backend spawn python=${pythonCommand} import_time=${importTimingEnabled ? 'on' : 'off'}`);
             const child = spawn(pythonCommand, pythonArgs, {
                 cwd: this.extensionPath,
@@ -174,67 +171,57 @@ export class PythonBackendServer extends AnalysisClient {
                 PythonBackendServer.STARTUP_TIMEOUT_MS,
             );
 
-            const handleReadyOrLine = (chunk: Buffer | string): void => {
-                this.stdoutBuf.value += chunk.toString();
-                const lines = this.stdoutBuf.value.split('\n');
-                this.stdoutBuf.value = lines.pop() ?? '';
-                for (const line of lines) {
-                    if (!line.trim()) { continue; }
-                    let parsed: unknown;
-                    try {
-                        parsed = JSON.parse(line);
-                    } catch {
-                        this.reportDiagnostic({
-                            kind: 'malformed-json',
-                            message: 'Backend emitted malformed JSON during startup',
-                            rawLine: line,
-                        });
-                        continue;
-                    }
-                    const notification = parseBackendNotification(parsed);
-                    if (notification?.type !== 'ready') {
-                        this.reportDiagnostic({
-                            kind: 'unknown-notification',
-                            message: 'Backend emitted an unexpected startup message',
-                            rawLine: line,
-                        });
-                        continue;
-                    }
-                    if (startupFinished || this.proc !== child) { return; }
-                    startupFinished = true;
-                    clearTimeout(timeout);
-                    this.startPromise = null;
-                    child.stdout!.off('data', handleReadyOrLine);
-                    child.stdout!.on('data', (data: Buffer | string) => {
-                        processStdoutChunk(this.stdoutBuf, data.toString(), this.pending, {
+            const stdout = createInterface({ input: child.stdout!, crlfDelay: Infinity });
+            stdout.on('line', (line: string) => {
+                if (startupFinished) {
+                    if (this.proc === child) {
+                        processStdoutLine(line, this.pending, {
                             onNotification: (message) => {
                                 if (message.type === 'heartbeat') { this.onHeartbeat(); }
                             },
                             onDiagnostic: (diagnostic) => { this.reportDiagnostic(diagnostic); },
                         });
-                    });
-                    this.startWatchdog();
-                    this.onPerfLine(`[ts] backend ready total_ms=${Date.now() - startupStartedAt}`);
-                    this.onReady();
-                    resolve();
+                    }
                     return;
                 }
-            };
-            child.stdout!.on('data', handleReadyOrLine);
-
-            child.stderr!.on('data', (chunk: Buffer | string) => {
-                const text = chunk.toString();
-                if (!startupFinished) { startupStderr += text; }
-                this.stderrBuf += text;
-                const lines = this.stderrBuf.split('\n');
-                this.stderrBuf = lines.pop() ?? '';
-                for (const line of lines) {
-                    if (line.startsWith('[perf]')) {
-                        this.onPerfLine(line);
-                    } else if (importTimingEnabled) {
-                        const importTiming = formatPythonImportTiming(line);
-                        if (importTiming) { this.onPerfLine(importTiming); }
-                    }
+                if (!line.trim()) { return; }
+                let parsed: unknown;
+                try {
+                    parsed = JSON.parse(line);
+                } catch {
+                    this.reportDiagnostic({
+                        kind: 'malformed-json',
+                        message: 'Backend emitted malformed JSON during startup',
+                        rawLine: line,
+                    });
+                    return;
+                }
+                const notification = parseBackendNotification(parsed);
+                if (notification?.type !== 'ready') {
+                    this.reportDiagnostic({
+                        kind: 'unknown-notification',
+                        message: 'Backend emitted an unexpected startup message',
+                        rawLine: line,
+                    });
+                    return;
+                }
+                if (startupFinished || this.proc !== child) { return; }
+                startupFinished = true;
+                clearTimeout(timeout);
+                this.startPromise = null;
+                this.startWatchdog();
+                this.onPerfLine(`[ts] backend ready total_ms=${Date.now() - startupStartedAt}`);
+                this.onReady();
+                resolve();
+            });
+            const stderr = createInterface({ input: child.stderr!, crlfDelay: Infinity });
+            stderr.on('line', (line: string) => {
+                if (!startupFinished) { startupStderr += line + '\n'; }
+                if (line.startsWith('[perf]')) {
+                    this.onPerfLine(line);
+                } else if (importTimingEnabled) {
+                    const importTiming = formatPythonImportTiming(line);
+                    if (importTiming) { this.onPerfLine(importTiming); }
                 }
             });
 
@@ -251,6 +238,8 @@ export class PythonBackendServer extends AnalysisClient {
             });
 
             child.on('exit', (code, signal) => {
+                stdout.close();
+                stderr.close();
                 const wasCurrent = this.proc === child;
                 const suffix = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
                 const error = startupFinished

@@ -6,6 +6,8 @@ import math
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
+from decimator import MAX_WAVEFORM_POINTS
+
 if TYPE_CHECKING:
     from analysis_service import AnalysisService
 
@@ -36,7 +38,7 @@ _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
         "filePath": _is_string,
         "startNorm": _is_finite_number,
         "endNorm": _is_finite_number,
-        "points": _is_integer,
+        "points": lambda value: _is_integer(value) and value <= MAX_WAVEFORM_POINTS,
     },
     "track-detail": {
         "filePath": _is_string,

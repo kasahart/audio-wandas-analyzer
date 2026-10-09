@@ -133,6 +133,7 @@
         "@types/vscode": "^1.96.0",
         "@vscode/test-electron": "^2.5.2",
         "@vscode/vsce": "^3.6.2",
+        "esbuild": "^0.28.2",
         "jsdom": "^29.1.1",
         "typescript": "^5.7.2"
     }

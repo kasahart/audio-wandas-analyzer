@@ -53,32 +53,17 @@ export async function waitForBackendStartup(
     if (cancellation.isCancellationRequested) {
         throw new BackendStartupCancelledError();
     }
-    await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        let disposable: { dispose(): void } | undefined;
-        const cancel = (): void => {
-            if (settled) { return; }
-            settled = true;
-            disposable?.dispose();
-            reject(new BackendStartupCancelledError());
-        };
+    let disposable: { dispose(): void } | undefined;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+        const cancel = (): void => { reject(new BackendStartupCancelledError()); };
         disposable = cancellation.onCancellationRequested(cancel);
         if (cancellation.isCancellationRequested) { cancel(); }
-        void startup.then(
-            () => {
-                if (settled) { return; }
-                settled = true;
-                disposable.dispose();
-                resolve();
-            },
-            (error: unknown) => {
-                if (settled) { return; }
-                settled = true;
-                disposable.dispose();
-                reject(error);
-            },
-        );
     });
+    try {
+        await Promise.race([startup, cancelled]);
+    } finally {
+        disposable?.dispose();
+    }
 }
 
 export class BackendStartupError extends Error {
@@ -103,63 +88,57 @@ export function formatPythonImportTiming(line: string, minimumCumulativeMs = 100
 }
 
 
-export function processStdoutChunk(
-    buffer: { value: string },
-    chunk: string,
+export function processStdoutLine(
+    line: string,
     pending: Map<string, PendingRequest>,
     handlers: BackendStdoutHandlers = {},
 ): void {
-    buffer.value += chunk;
-    const lines = buffer.value.split('\n');
-    buffer.value = lines.pop() ?? '';
-    for (const line of lines) {
-        if (!line.trim()) { continue; }
+    if (!line.trim()) { return; }
 
-        let parsed: unknown;
-        try {
-            parsed = JSON.parse(line);
-        } catch {
-            handlers.onDiagnostic?.({
-                kind: 'malformed-json',
-                message: 'Backend emitted malformed JSON',
-                rawLine: line,
-            });
-            continue;
-        }
-
-        const notification = parseBackendNotification(parsed);
-        if (notification) {
-            handlers.onNotification?.(notification);
-            continue;
-        }
-        if (!isJsonObject(parsed)) {
-            handlers.onDiagnostic?.({
-                kind: 'unknown-notification',
-                message: 'Backend emitted a non-object message',
-                rawLine: line,
-            });
-            continue;
-        }
-        if (parsed['type'] !== undefined) {
-            handlers.onDiagnostic?.({
-                kind: 'unknown-notification',
-                message: `Backend emitted unknown notification: ${String(parsed['type'])}`,
-                rawLine: line,
-            });
-            continue;
-        }
-
-        const requestId = parsed['requestId'];
-        if (typeof requestId !== 'string') {
-            handlers.onDiagnostic?.({
-                kind: 'unknown-notification',
-                message: 'Backend message has neither a notification type nor requestId',
-                rawLine: line,
-            });
-            continue;
-        }
-
-        const diagnostic = settleBackendRequest(pending, requestId, parsed, parsed['error']);
-        if (diagnostic) handlers.onDiagnostic?.({ ...diagnostic, rawLine: line });
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(line);
+    } catch {
+        handlers.onDiagnostic?.({
+            kind: 'malformed-json',
+            message: 'Backend emitted malformed JSON',
+            rawLine: line,
+        });
+        return;
     }
+
+    const notification = parseBackendNotification(parsed);
+    if (notification) {
+        handlers.onNotification?.(notification);
+        return;
+    }
+    if (!isJsonObject(parsed)) {
+        handlers.onDiagnostic?.({
+            kind: 'unknown-notification',
+            message: 'Backend emitted a non-object message',
+            rawLine: line,
+        });
+        return;
+    }
+    if (parsed['type'] !== undefined) {
+        handlers.onDiagnostic?.({
+            kind: 'unknown-notification',
+            message: `Backend emitted unknown notification: ${String(parsed['type'])}`,
+            rawLine: line,
+        });
+        return;
+    }
+
+    const requestId = parsed['requestId'];
+    if (typeof requestId !== 'string') {
+        handlers.onDiagnostic?.({
+            kind: 'unknown-notification',
+            message: 'Backend message has neither a notification type nor requestId',
+            rawLine: line,
+        });
+        return;
+    }
+
+    const diagnostic = settleBackendRequest(pending, requestId, parsed, parsed['error']);
+    if (diagnostic) handlers.onDiagnostic?.({ ...diagnostic, rawLine: line });
 }
