@@ -146,3 +146,46 @@ def test_spectrogram_preserves_selected_channel_reference(
     spec = adapt(frame, channel=channel)
     assert spec["unit"] == frame.channels[selected].level_reference.label
     np.testing.assert_allclose(spec["matrix"], frame.dB[selected])
+
+
+@pytest.mark.parametrize("method", ["csd", "transfer_function"])
+def test_calibrated_pairwise_charts_preserve_values_and_references(two_channel: wd.ChannelFrame, method: str) -> None:
+    frame = two_channel.with_calibration(
+        {
+            0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5),
+            1: wd.ChannelCalibration(factor=3.0, unit="V", ref=1e-6),
+        }
+    )
+    pairwise = getattr(frame, method)()
+    spec = adapt(pairwise)
+    levels = pairwise.level_db if method == "csd" else pairwise.transfer_level_db
+    assert spec["yLabel"] == ("Cross-spectral level [dB]" if method == "csd" else "Transfer level [dB]")
+    assert [series["unit"] for series in spec["series"]] == [
+        channel.level_reference.label for channel in pairwise.channels
+    ]
+    actual = np.array([series["ys"] for series in spec["series"]])
+    finite = np.isfinite(levels)
+    np.testing.assert_allclose(actual[finite], levels[finite])
+    assert any("Pa" in series["unit"] and "V" in series["unit"] for series in spec["series"])
+    if method == "transfer_function":
+        assert adapt(pairwise, value="transfer_level_db") == spec
+        with pytest.raises(ValueError, match="dimensionless transfer pairs"):
+            adapt(pairwise, value="gain_db")
+
+
+def test_same_unit_transfer_default_keeps_gain_even_with_different_references(two_channel: wd.ChannelFrame) -> None:
+    frame = two_channel.with_calibration(
+        {
+            0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5),
+            1: wd.ChannelCalibration(factor=3.0, unit="Pa", ref=1e-3),
+        }
+    ).transfer_function()
+    spec = adapt(frame)
+    assert spec["yLabel"] == "Gain [dB]"
+    actual = np.array([series["ys"] for series in spec["series"]])
+    finite = np.isfinite(frame.gain_db)
+    np.testing.assert_allclose(actual[finite], frame.gain_db[finite])
+    referenced = adapt(frame, value="transfer_level_db")
+    assert [series["unit"] for series in referenced["series"]] == [
+        channel.level_reference.label for channel in frame.channels
+    ]

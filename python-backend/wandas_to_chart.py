@@ -100,7 +100,7 @@ def _adapt_spectral_frame(
     y_scale = y_scale or ("db" if value == "dB" else "linear")
     series = _series_2d(arr, _labels(frame))
     for item, channel in zip(series, getattr(frame, "channels", []), strict=False):
-        if value == "dB":
+        if value in {"dB", "level_db", "transfer_level_db"}:
             item["unit"] = channel.level_reference.label
         elif value == "magnitude" and channel.unit:
             item["unit"] = channel.unit
@@ -235,7 +235,8 @@ def adapt(obj: Any, *, title: str | None = None, **kwargs: Any) -> dict[str, Any
             y_scale="db" if value == "level_db" else "linear",
         )
     if cls == "TransferFunctionFrame":
-        value = kwargs.get("value", "gain_db")
+        default_value = "transfer_level_db" if any(domain.unit != "1" for domain in obj.pair_domains) else "gain_db"
+        value = kwargs.get("value", default_value)
         labels = {
             "gain_db": "Gain [dB]",
             "transfer_level_db": "Transfer level [dB]",

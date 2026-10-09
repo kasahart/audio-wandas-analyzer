@@ -223,3 +223,46 @@ def test_recipe_uses_calibrated_frames_and_recipe_relative_paths_in_both_hosts(t
     desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
     assert desktop.engine.get_file(wav) is cached
     assert cached.frame.channels[0].unit != "Pa"
+
+
+def test_calibrated_pairwise_recipe_matches_desktop_and_browser(tmp_path):
+    from browser_service import create_service
+
+    rate = 16000
+    samples = 0.01 * np.sin(2 * np.pi * np.arange(rate // 4)[:, None] / rate * np.array([440, 880]))
+    wav = tmp_path / "pairs.wav"
+    sf.write(wav, samples, rate, subtype="PCM_16")
+    desktop = AnalysisService(AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024))
+    browser = create_service()
+    browser.engine.load(wav.name, wav.read_bytes())
+    labels = desktop.engine.get_file(wav).frame.labels
+    profile = {
+        "schemaVersion": 1,
+        "channels": [
+            {
+                "channelIndex": index,
+                "expectedLabel": labels[index],
+                "status": "calibrated",
+                "source": "manual",
+                "factor": factor,
+                "unit": unit,
+                "referenceValue": ref,
+            }
+            for index, (factor, unit, ref) in enumerate([(2.0, "Pa", 2e-5), (3.0, "V", 1e-6)])
+        ],
+    }
+    recipe = {
+        "inputs": [{"name": "sig", "file": wav.name}],
+        "steps": [
+            {"as": "cross", "expr": "sig.csd()"},
+            {"as": "transfer", "expr": "sig.transfer_function()"},
+        ],
+        "display": ["cross", "transfer"],
+    }
+    contexts = {"sig": {"calibrationProfile": profile}}
+    native = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
+    web = browser.run_recipe(recipe, recipe_path="/sources/custom.json", input_contexts=contexts)
+    assert native == web
+    assert [chart["yLabel"] for chart in native["charts"]] == ["Cross-spectral level [dB]", "Transfer level [dB]"]
+    for chart in native["charts"]:
+        assert any("Pa" in series["unit"] and "V" in series["unit"] for series in chart["series"])
