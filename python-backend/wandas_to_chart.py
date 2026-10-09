@@ -63,13 +63,17 @@ def _adapt_channel_frame(frame: Any, *, title: str) -> dict[str, Any]:
     if data.ndim == 1:
         data = data[np.newaxis, :]
     time = np.asarray(getattr(frame, "time", np.arange(data.shape[-1])), dtype=np.float64)
+    series = _series_2d(data, _labels(frame))
+    for item, channel in zip(series, getattr(frame, "channels", []), strict=False):
+        if channel.unit:
+            item["unit"] = channel.unit
     return {
         "kind": "line",
         "title": title,
         "xLabel": "Time [s]",
         "yLabel": "Amplitude",
         "xs": _as_list(time),
-        "series": _series_2d(data, _labels(frame)),
+        "series": series,
     }
 
 
@@ -94,13 +98,19 @@ def _adapt_spectral_frame(
         arr = arr[np.newaxis, :]
     y_label = y_label or {"dB": "Level [dB]", "magnitude": "Magnitude", "phase": "Phase [rad]"}.get(value, value)
     y_scale = y_scale or ("db" if value == "dB" else "linear")
+    series = _series_2d(arr, _labels(frame))
+    for item, channel in zip(series, getattr(frame, "channels", []), strict=False):
+        if value == "dB":
+            item["unit"] = channel.level_reference.label
+        elif value == "magnitude" and channel.unit:
+            item["unit"] = channel.unit
     return {
         "kind": "line",
         "title": title,
         "xLabel": "Frequency [Hz]",
         "yLabel": y_label,
         "xs": _as_list(freqs),
-        "series": _series_2d(arr, _labels(frame)),
+        "series": series,
         "xScale": "linear",
         "yScale": y_scale,
     }

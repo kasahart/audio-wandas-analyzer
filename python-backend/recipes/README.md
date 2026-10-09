@@ -1,10 +1,10 @@
 # Recipes
 
 Each `*.json` file in this directory is a self-contained wandas analysis recipe
-consumed by `python-backend/recipe_runner.py`. The runner is invoked by the
-VS Code command **Audio Wandas Analyzer: Run wandas recipe**, and by the static
-Web host through the backend `run-recipe` command, where inputs are the loaded
-tracks instead of files.
+evaluated by `python-backend/recipe_runner.py` inside the persistent backend.
+The VS Code command **Audio Wandas Analyzer: Run wandas recipe** and the static
+Web host both use `run-recipe` with the same calibrated input frames. The browser
+uses already-loaded tracks instead of opening filesystem paths.
 
 A recipe has three top-level keys:
 

@@ -286,15 +286,26 @@ class AnalysisService:
             "sampleRate": sample_rate,
         }
 
-    def run_recipe(self, recipe: Mapping[str, object]) -> dict[str, object]:
-        """Evaluate a recipe whose inputs name sources this engine can load."""
-        from recipe_runner import RecipeError, run_recipe
+    def run_recipe(
+        self,
+        recipe: Mapping[str, object],
+        *,
+        recipe_path: str | None = None,
+        input_contexts: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        from recipe_runner import RecipeError, evaluate_recipe
 
-        def load(file: str) -> object:
-            return self.engine.get_file(file).frame
-
+        base_dir = Path(recipe_path).parent if recipe_path else Path.cwd()
+        bindings = {}
+        for item in recipe.get("inputs") or []:
+            file = Path(item["file"])
+            if not file.is_absolute():
+                file = base_dir / file
+            context = (input_contexts or {}).get(item["name"], {})
+            _, frame, _ = self.engine.get_analysis(str(file), context.get("calibrationProfile"))
+            bindings[item["name"]] = frame
         try:
-            charts = run_recipe(dict(recipe), base_dir=Path.cwd(), load=load)
+            charts = evaluate_recipe(dict(recipe), bindings)
         except RecipeError as error:
             raise ValueError(f"recipe error: {error}") from error
         return {"charts": charts}

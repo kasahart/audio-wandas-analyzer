@@ -13,8 +13,22 @@ export interface AnalysisContextPolicy {
     discardStale?(filePath: string, error: unknown, attempted: CalibrationRequestContext): Promise<boolean>;
 }
 
+export interface AnalysisCancellationSignal {
+    readonly isCancellationRequested: boolean;
+    onCancellationRequested(listener: () => void): { dispose(): void };
+}
+
+export interface RecipeExecutionOptions {
+    recipePath?: string;
+    cancellation?: AnalysisCancellationSignal;
+}
+
 export abstract class AnalysisClient {
     constructor(private readonly contextPolicy?: AnalysisContextPolicy) {}
+
+    private nextRecipeId = 0;
+    protected recipeTimeoutMs = 120_000;
+    protected cancelRequest(_requestId: string, _reason: Error): void {}
 
     analysisRevisionFor(filePath: string): number {
         return this.contextPolicy?.current(filePath).analysisRevision ?? 0;
@@ -38,7 +52,7 @@ export abstract class AnalysisClient {
     }
 
     protected abstract request<K extends BackendCommand>(
-        command: K, payload: BackendPayload<K>, requestId?: string,
+        command: K, payload: BackendPayload<K>, requestId?: string, cancellation?: AnalysisCancellationSignal,
     ): Promise<BackendResult<K>>;
 
     analyze(filePath: string, options: AnalyzeOptions): Promise<BackendResult<'analyze'>> {
@@ -114,8 +128,50 @@ export abstract class AnalysisClient {
         );
     }
 
-    runRecipe(recipe: RunRecipePayload['recipe']): Promise<RunRecipeResult> {
-        return this.request('run-recipe', { recipe });
+    async runRecipe(recipe: RunRecipePayload['recipe'], options: RecipeExecutionOptions = {}): Promise<RunRecipeResult> {
+        const cancellation = options.cancellation;
+        if (cancellation?.isCancellationRequested) throw new Error('Recipe execution cancelled');
+        const inputContexts = Object.fromEntries((recipe.inputs ?? []).map(input => [
+            input.name, this.calibrationPayload(this.requestContext(input.file, {})),
+        ]));
+        const requestId = `recipe-${++this.nextRecipeId}`;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let disposable: { dispose(): void } | undefined;
+        let cancelled = false;
+        const cancellationListeners = new Set<() => void>();
+        const requestCancellation: AnalysisCancellationSignal = {
+            get isCancellationRequested() { return cancelled; },
+            onCancellationRequested: listener => {
+                cancellationListeners.add(listener);
+                return { dispose: () => { cancellationListeners.delete(listener); } };
+            },
+        };
+        const interrupted = new Promise<never>((_resolve, reject) => {
+            const interrupt = (error: Error): void => {
+                cancelled = true;
+                reject(error);
+                cancellationListeners.forEach(listener => listener());
+                this.cancelRequest(requestId, error);
+            };
+            timer = setTimeout(() => interrupt(new Error(`Recipe execution timed out after ${this.recipeTimeoutMs} ms`)), this.recipeTimeoutMs);
+            if (cancellation) {
+                const cancel = (): void => { interrupt(new Error('Recipe execution cancelled')); };
+                disposable = cancellation.onCancellationRequested(cancel);
+                if (cancellation.isCancellationRequested) cancel();
+            }
+        });
+        try {
+            if (cancelled) return await interrupted;
+            return await Promise.race([
+                interrupted,
+                this.request('run-recipe', {
+                    recipe, inputContexts, ...(options.recipePath ? { recipePath: options.recipePath } : {}),
+                }, requestId, requestCancellation),
+            ]);
+        } finally {
+            clearTimeout(timer);
+            disposable?.dispose();
+        }
     }
 
     protected calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {

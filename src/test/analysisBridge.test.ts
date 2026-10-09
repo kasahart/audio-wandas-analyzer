@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AnalysisClient, executeLazyAnalysis, lazyAnalysisError } from '../shared/analysis/analysisClient';
+import { AnalysisClient, executeLazyAnalysis, lazyAnalysisError, type AnalysisCancellationSignal } from '../shared/analysis/analysisClient';
 import { RequestGeneration, runAnalysisBatch } from '../shared/analysis/analysisCoordinator';
 import type { BackendCommand, BackendPayload, BackendResult } from '../shared/protocol/backendProtocol';
 import { exportWavRegions } from '../shared/utils/exportArtifact';
@@ -144,4 +144,83 @@ test('host current context replaces analyze options; absence of a stored profile
     }();
     await client.analyze('source', { calibrationProfile: identityCalibrationProfile([]), analysisRevision: 1 });
     assert.deepEqual(client.calls[0].payload, { filePath: 'source', analysisRevision: 8 });
+});
+
+
+test('recipes send each input calibration context and their source location', async () => {
+    const profile = identityCalibrationProfile([{ channelIndex: 0, label: 'left' }]);
+    const client = new RecordingClient({ current: file => ({
+        calibrationProfile: profile, analysisRevision: file === '/first.wav' ? 2 : 5,
+    }) });
+    const recipe = { inputs: [{ name: 'left', file: '/first.wav' }, { name: 'right', file: '/second.wav' }] };
+    await client.runRecipe(recipe, { recipePath: '/recipes/custom.json' });
+    assert.deepEqual(client.calls[0], { command: 'run-recipe', requestId: 'recipe-1', payload: {
+        recipe, recipePath: '/recipes/custom.json', inputContexts: {
+            left: { calibrationProfile: profile, analysisRevision: 2 },
+            right: { calibrationProfile: profile, analysisRevision: 5 },
+        },
+    } });
+});
+
+
+for (const kind of ['cancel', 'timeout'] as const) {
+    test(`Recipe ${kind} rejects and aborts its transport request`, async () => {
+        let cancel: (() => void) | undefined;
+        let disposed = 0;
+        class WaitingClient extends AnalysisClient {
+            protected override recipeTimeoutMs = 10;
+            aborted: string[] = [];
+            protected async request<K extends BackendCommand>(): Promise<BackendResult<K>> {
+                return new Promise(() => {});
+            }
+            protected override cancelRequest(requestId: string): void { this.aborted.push(requestId); }
+        }
+        const client = new WaitingClient();
+        const waiting = client.runRecipe({ inputs: [] }, { cancellation: {
+            isCancellationRequested: false,
+            onCancellationRequested: listener => { cancel = listener; return { dispose: () => { disposed++; } }; },
+        } });
+        if (kind === 'cancel') cancel?.();
+        await assert.rejects(waiting, kind === 'cancel' ? /cancelled/ : /timed out/);
+        assert.deepEqual(client.aborted, ['recipe-1']);
+        assert.equal(disposed, 1);
+    });
+}
+
+test('already cancelled Recipe does not dispatch a backend request', async () => {
+    const client = new RecordingClient();
+    await assert.rejects(client.runRecipe({ inputs: [] }, { cancellation: {
+        isCancellationRequested: true,
+        onCancellationRequested: () => { throw new Error('must not subscribe'); },
+    } }), /cancelled/);
+    assert.equal(client.calls.length, 0);
+});
+
+test('cancelling Recipe while its transport starts prevents a late dispatch', async () => {
+    let finishStartup!: () => void;
+    const startup = new Promise<void>(resolve => { finishStartup = resolve; });
+    let cancel!: () => void;
+    let transportFinished!: () => void;
+    const finished = new Promise<void>(resolve => { transportFinished = resolve; });
+    const client = new class extends AnalysisClient {
+        sent = false;
+        protected async request<K extends BackendCommand>(
+            _command: K, _payload: BackendPayload<K>, _requestId?: string, cancellation?: AnalysisCancellationSignal,
+        ): Promise<BackendResult<K>> {
+            await startup;
+            transportFinished();
+            if (cancellation?.isCancellationRequested) throw new Error('Startup cancelled');
+            this.sent = true;
+            return { charts: [] } as unknown as BackendResult<K>;
+        }
+    }();
+    const waiting = client.runRecipe({ inputs: [] }, { cancellation: {
+        isCancellationRequested: false,
+        onCancellationRequested: listener => { cancel = listener; return { dispose() {} }; },
+    } });
+    cancel();
+    await assert.rejects(waiting, /Recipe execution cancelled/);
+    finishStartup();
+    await finished;
+    assert.equal(client.sent, false);
 });

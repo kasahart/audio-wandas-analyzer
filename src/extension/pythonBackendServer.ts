@@ -88,6 +88,16 @@ export class PythonBackendServer extends AnalysisClient {
         this.rejectAll(new Error('PythonBackendServer disposed'));
     }
 
+    protected override cancelRequest(requestId: string, reason: Error): void {
+        if (!this.pending.has(requestId)) return;
+        const child = this.proc;
+        this.stopWatchdog();
+        this.proc = null;
+        this.startPromise = null;
+        this.rejectAll(reason);
+        child?.kill();
+    }
+
     protected async request<K extends BackendCommand>(
         command: K,
         payload: BackendPayload<K>,

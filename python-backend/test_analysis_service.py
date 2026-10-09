@@ -171,3 +171,47 @@ def test_sparse_stft_time_axes_and_amplitudes_match_scipy(n_fft: int, window: st
         assert result.channels[0].unit == "Pa"
         assert result.channels[0].calibration.factor == 1.0
     assert frame.channels[0].calibration.factor == 2.0
+
+
+def test_recipe_uses_calibrated_frames_and_recipe_relative_paths_in_both_hosts(tmp_path):
+    from browser_service import create_service
+
+    wav = tmp_path / "selected.wav"
+    _write_sine_wav(wav)
+    desktop = AnalysisService(AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024))
+    browser = create_service()
+    browser.engine.load(wav.name, wav.read_bytes())
+    labels = list(desktop.engine.get_file(wav).frame.labels)
+    profile = {
+        "schemaVersion": 1,
+        "channels": [
+            {
+                "channelIndex": 0,
+                "expectedLabel": labels[0],
+                "status": "calibrated",
+                "source": "manual",
+                "factor": 10.0,
+                "unit": "Pa",
+                "referenceValue": 2e-5,
+            }
+        ],
+    }
+    recipe = {
+        "inputs": [{"name": "sig", "file": "selected.wav"}],
+        "steps": [{"as": "spectrum", "expr": "sig.fft()"}],
+        "display": ["sig", "spectrum"],
+    }
+    contexts = {"sig": {"calibrationProfile": profile, "analysisRevision": 3}}
+    native = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
+    web = browser.run_recipe(recipe, recipe_path="/sources/custom.json", input_contexts=contexts)
+    assert native == web
+    assert native["charts"][0]["series"][0]["unit"] == "Pa"
+    assert "Pa" in native["charts"][1]["series"][0]["unit"]
+    raw = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"))
+    np.testing.assert_allclose(
+        native["charts"][0]["series"][0]["ys"], np.array(raw["charts"][0]["series"][0]["ys"]) * 10
+    )
+    cached = desktop.engine.get_file(wav)
+    desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
+    assert desktop.engine.get_file(wav) is cached
+    assert cached.frame.channels[0].unit != "Pa"

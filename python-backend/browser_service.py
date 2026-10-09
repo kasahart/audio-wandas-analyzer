@@ -129,15 +129,24 @@ class BrowserService(AnalysisService):
         self.engine.discard_spectrograms(file_path)
         return {}
 
-    def run_recipe(self, recipe: Mapping[str, object]) -> dict[str, object]:
+    def run_recipe(
+        self,
+        recipe: Mapping[str, object],
+        *,
+        recipe_path: str | None = None,
+        input_contexts: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
         # Recipes allocate freely; drop recomputable detail so selected sources keep their budget.
         for cached in list(self.engine._files.values()):
             self.engine.discard_spectrograms(cached.path)
         for item in recipe.get("inputs") or []:
             file = item.get("file") if isinstance(item, dict) else item
-            if Path(str(file)) not in self.engine._files:
+            resolved = Path(str(file))
+            if not resolved.is_absolute():
+                resolved = (Path(recipe_path).parent if recipe_path else Path.cwd()) / resolved
+            if resolved not in self.engine._files:
                 raise ValueError(f"Recipe input {file!r} is not a loaded source")
-        return super().run_recipe(recipe)
+        return super().run_recipe(recipe, recipe_path=recipe_path, input_contexts=input_contexts)
 
 
 def create_service() -> AnalysisService:

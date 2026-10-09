@@ -91,6 +91,14 @@ def validate_request(value: object) -> Command:
     for key, validator in fields.items():
         if key not in value or not validator(value[key]):
             raise ValueError(f"invalid request field {key!r} for command {name!r}")
+    if name == "run-recipe":
+        if "recipePath" in value and not _is_string(value["recipePath"]):
+            raise ValueError("invalid request field 'recipePath'")
+        if "inputContexts" in value and (
+            not isinstance(value["inputContexts"], dict)
+            or any(not isinstance(context, dict) for context in value["inputContexts"].values())
+        ):
+            raise ValueError("invalid request field 'inputContexts'")
     if "stftOptions" in value:
         _validate_stft_options(value["stftOptions"])
     return value
@@ -171,7 +179,9 @@ def handle_release_track_detail(service: AnalysisService, command: Command) -> d
 
 
 def handle_run_recipe(service: AnalysisService, command: Command) -> dict[str, object]:
-    return service.run_recipe(command["recipe"])
+    return service.run_recipe(
+        command["recipe"], recipe_path=command.get("recipePath"), input_contexts=command.get("inputContexts")
+    )
 
 
 COMMANDS: dict[str, CommandHandler] = {

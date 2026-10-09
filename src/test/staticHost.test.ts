@@ -100,7 +100,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         Object,
         Worker: ControlledWorker,
         URL: { createObjectURL: () => `blob:fixture-${++blobId}`, revokeObjectURL: (url: string) => { revoked.push(url); } },
-        setTimeout, Uint8Array,
+        setTimeout, clearTimeout, Uint8Array,
     });
     const host = browser.__AWA_HOST__!;
     host.onMessage!(message => received.push(message as Record<string, unknown>));
@@ -294,6 +294,9 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     const worker = app.workers[0];
     const command = worker.commands.at(-1)!;
     assert.equal(command.cmd, 'run-recipe');
+    assert.equal(command.requestId, 'recipe-1');
+    assert.equal(command.recipePath, './recipes/octave.json');
+    assert.equal(JSON.stringify(command.inputContexts), JSON.stringify({ sig: { analysisRevision: 0 } }));
     assert.equal(JSON.stringify((command.recipe as { inputs: unknown }).inputs), JSON.stringify([{ name: 'sig', file: app.sourcePath }]));
     worker.reply(command, { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] });
     await flush();

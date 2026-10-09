@@ -192,34 +192,6 @@ def test_chart_spec_schema_validates_against_kind() -> None:
     assert kinds == {"line", "heatmap", "bar", "scalar"}
 
 
-def test_run_recipe_emits_json_on_main(tmp_path: Path) -> None:
-    import subprocess
-    import sys
-
-    wav = tmp_path / "a.wav"
-    _write_sine_wav(wav)
-    recipe_path = tmp_path / "r.json"
-    recipe_path.write_text(
-        json.dumps(
-            {
-                "inputs": [{"name": "sig", "file": str(wav)}],
-                "steps": [{"as": "w", "expr": "sig.welch()"}],
-                "display": ["w"],
-            }
-        )
-    )
-    proc = subprocess.run(
-        [sys.executable, "recipe_runner.py", "--recipe", str(recipe_path)],
-        cwd=Path(__file__).parent,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["charts"][0]["kind"] == "line"
-
-
 def test_run_recipe_accepts_injected_input_loader(tmp_path: Path) -> None:
     import wandas as wd
 
