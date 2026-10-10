@@ -74,7 +74,6 @@ const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(l
 const snapshot = (): void => { emit({ type: 'analysis-update', results: sources.snapshot(source => source.result) }); };
 
 function resetWorker(reason: Error): void {
-    sourceGeneration.advance();
     reanalysisGeneration.advance();
     worker?.terminate(); worker = undefined;
     recovery = undefined;
@@ -82,6 +81,7 @@ function resetWorker(reason: Error): void {
     loading = false; pick.disabled = false; pick.value = "";
 }
 function dispose(): void {
+    sourceGeneration.advance();
     resetWorker(new Error('Analysis cancelled'));
     sources.clear();
 }

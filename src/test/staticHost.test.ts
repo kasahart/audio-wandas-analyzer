@@ -455,3 +455,36 @@ test('Recipe can run again immediately after timeout by restoring retained track
     assert.deepEqual(app.revoked, []);
     assert.match(app.status, /octave/);
 });
+
+
+test('Recipe timeout delivers terminal lazy errors so detail and spectrum can retry after recovery', async () => {
+    const app = harness(new Map(), 'en', false, 20);
+    await app.load();
+    const filePath = app.sourcePath;
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush(); await flush();
+    app.host.postMessage({ ...identity, filePath, requestId: 'waiting-detail', type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath, requestId: 'waiting-slice', cursorNorm: 0.5, type: 'request-spectrum-slice' });
+    await flush();
+    const old = app.workers[0];
+    assert.ok(old.commands.some(command => command.cmd === 'track-detail'));
+    assert.ok(old.commands.some(command => command.cmd === 'spectrum-slice'));
+    await new Promise(resolve => setTimeout(resolve, 40));
+    const errors = app.received.filter(message => ['track-detail-error', 'spectrum-slice-error'].includes(String(message.type)));
+    assert.deepEqual(errors.map(message => [message.type, message.requestId]), [
+        ['track-detail-error', 'waiting-detail'], ['spectrum-slice-error', 'waiting-slice'],
+    ]);
+    for (const error of errors) { assert.equal(error.filePath, filePath); assert.match(String(error.error), /timed out/); }
+    app.host.postMessage({ ...identity, filePath, requestId: 'retry-detail', type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath, requestId: 'retry-slice', cursorNorm: 0.6, type: 'request-spectrum-slice' });
+    await flush(); await flush();
+    const restored = app.workers[1];
+    assert.ok(restored);
+    for (const command of restored.commands.filter(command => ['track-detail', 'spectrum-slice'].includes(String(command.cmd)))) {
+        restored.reply(command, {});
+    }
+    await flush();
+    assert.ok(app.received.some(message => message.type === 'track-detail-result' && message.requestId === 'retry-detail'));
+    assert.ok(app.received.some(message => message.type === 'spectrum-slice-result' && message.requestId === 'retry-slice'));
+    assert.deepEqual(app.revoked, []);
+});
