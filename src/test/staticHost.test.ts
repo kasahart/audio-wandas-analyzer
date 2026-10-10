@@ -52,6 +52,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     };
     const workers: ControlledWorker[] = [];
     const blockedWorkerCommands = new Set<string>();
+    let limitsReply: Record<string, unknown> = { maxInputBytes: 16 * 1024 * 1024, maxSources: 8, maxTotalInputBytes: 64 * 1024 * 1024, maxExportBytes: 32 * 1024 * 1024 };
     const received: Record<string, unknown>[] = [];
     const firstAnalysis = new Set<string>();
     const revoked: string[] = [];
@@ -70,6 +71,10 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
             if (command.cmd === 'load') {
                 firstAnalysis.add(`/sources/${command.sourceId}`);
                 this.loadedSources.add(`/sources/${command.sourceId}`);
+            }
+            if (command.cmd === 'limits') {
+                queueMicrotask(() => this.reply(command, limitsReply));
+                return;
             }
             if (this.blockedCommands.has(String(command.cmd)) || blockedWorkerCommands.has(String(command.cmd))) return;
             if (command.cmd === 'unload' && !this.loadedSources.delete(String(command.filePath))) {
@@ -122,7 +127,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         picker.onchange!();
         await flush();
     }
-    return { host, browser, storage, workers, blockedWorkerCommands, received, load, picker, elements, revoked, fetched, prompts, served,
+    return { host, browser, storage, workers, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served,
         setPromptAnswer(value: string | null) { promptAnswer = value; },
         get status() { return elements.find(element => element.tag === 'span')!.textContent; },
         get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
@@ -243,8 +248,29 @@ test('invalid additions preserve existing tracks, batch continues and count cap 
     app.picker.files = [{ name: 'ninth.wav', size: 100, arrayBuffer: async () => { reads++; return new ArrayBuffer(100); } }];
     app.picker.onchange!(); await flush();
     assert.equal(reads, 0);
+    assert.match(app.status, /up to 8 WAV files \/ 64 MiB total input/);
     assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 8);
     assert.equal(app.revoked.length, 0);
+});
+
+test('file pre-checks use the session limits published by the Worker once', async () => {
+    const app = harness();
+    app.picker.files = [{ name: 'huge.wav', size: 16 * 1024 * 1024 + 1, arrayBuffer: async () => { throw new Error('must not read'); } }];
+    app.picker.onchange!(); await flush();
+    assert.match(app.status, /huge\.wav: WAV must be 16 MiB or smaller\./);
+    await app.load(); await app.load();
+    assert.deepEqual(app.workers.flatMap(worker => worker.commands).filter(command => command.cmd === 'limits').length, 1);
+});
+
+test('malformed Worker limits are rejected and not cached', async () => {
+    const app = harness();
+    app.setLimitsReply({ maxInputBytes: 16 * 1024 * 1024, maxSources: '8', maxTotalInputBytes: 64 * 1024 * 1024 });
+    app.picker.files = [{ name: 'skewed.wav', size: 100, arrayBuffer: async () => { throw new Error('must not read'); } }];
+    app.picker.onchange!(); await flush();
+    assert.match(app.status, /Invalid limits response/);
+    app.setLimitsReply({ maxInputBytes: 16 * 1024 * 1024, maxSources: 8, maxTotalInputBytes: 64 * 1024 * 1024, maxExportBytes: 32 * 1024 * 1024 });
+    await app.load();
+    assert.equal(app.workers.flatMap(worker => worker.commands).filter(command => command.cmd === 'limits').length, 2);
 });
 
 test('cancel during a file read clears all sources and ignores late completion', async () => {

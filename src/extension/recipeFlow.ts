@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import type { RecipeRunnerResult } from '../shared/chartSpec';
 import { RecipeFlow as SharedRecipeFlow, type RecipeCatalogEntry, type RecipeFlowPorts, type RecipePickItem } from '../shared/recipe/recipeFlow';
 import { isRecipeDocument, type RecipeDocument } from '../shared/recipe/recipeSelection';
+import { SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../shared/utils/audioTarget';
 import { ChartSpecPanel } from '../webview/panels/ChartSpecPanel';
 import type { AnalysisClient, AnalysisCancellationSignal } from '../shared/analysis/analysisClient';
 
@@ -35,7 +36,7 @@ const defaultHost: RecipeFlowHost = {
     async pickInputFiles() {
         const uris = await vscode.window.showOpenDialog({
             canSelectMany: true,
-            filters: { Audio: ['wav', 'flac', 'ogg', 'aiff', 'aif', 'snd'] },
+            filters: { Audio: SUPPORTED_AUDIO_DIALOG_EXTENSIONS },
             openLabel: 'Use as recipe input',
         });
         return uris?.map((uri) => uri.fsPath);

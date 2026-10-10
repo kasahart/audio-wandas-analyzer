@@ -1,4 +1,4 @@
-import { AnalysisClient, analysisPayload, type AnalysisContextPolicy } from '../shared/analysis/analysisClient';
+import { AnalysisClient, analysisPayload, type AnalysisContextPolicy, type AnalyzeOptions } from '../shared/analysis/analysisClient';
 import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
 import { createInterface } from 'node:readline';
@@ -11,20 +11,17 @@ import {
     processStdoutLine,
     waitForBackendStartup,
     type BackendDiagnostic,
-    type PendingRequest,
 } from './backendIpc';
 import {
     parseBackendNotification,
     parseBackendResult,
+    PendingBackendRequests,
     rejectPendingRequests,
-    type AnalyzePayload,
     type BackendCommand,
     type BackendPayload,
     type BackendResult,
 } from '../shared/protocol/backendProtocol';
-import { resolveConfiguredPythonCommand } from './pythonEnvironment';
-
-export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
+import { getPythonCommand, resolveConfiguredPythonCommand } from './pythonEnvironment';
 
 export class AnalysisRequestError extends Error {
     constructor(
@@ -41,9 +38,8 @@ class RecipeBackendRestartError extends Error {}
 
 export class PythonBackendServer extends AnalysisClient {
     private proc: ChildProcess | null = null;
-    private pending = new Map<string, PendingRequest>();
+    private pending = new PendingBackendRequests<Record<string, unknown>, BackendCommand>('r');
     private startPromise: Promise<void> | null = null;
-    private nextId = 1;
     private disposalGeneration = 0;
     private lastHeartbeatAt = 0;
     private watchdogTimer: ReturnType<typeof setInterval> | null = null;
@@ -116,20 +112,9 @@ export class PythonBackendServer extends AnalysisClient {
         if (cancellation?.isCancellationRequested) {
             throw new BackendStartupCancelledError();
         }
-        const id = requestId ?? `r${this.nextId++}`;
-        return new Promise<BackendResult<K>>((resolve, reject) => {
-            this.pending.set(id, {
-                command,
-                complete: (response) => { resolve(parseBackendResult(command, response)); },
-                reject,
-            });
-            try {
-                const line = JSON.stringify({ cmd: command, requestId: id, ...payload });
-                this.proc!.stdin!.write(line + '\n');
-            } catch (error) {
-                this.pending.delete(id);
-                reject(error instanceof Error ? error : new Error(String(error)));
-            }
+        const id = requestId ?? this.pending.nextId();
+        return this.pending.dispatch(command, id, response => parseBackendResult(command, response), () => {
+            this.proc!.stdin!.write(JSON.stringify({ cmd: command, requestId: id, ...payload }) + '\n');
         }).catch(error => {
             if (error instanceof RecipeBackendRestartError && generation === this.disposalGeneration) {
                 return this.request(command, payload, requestId, cancellation);
@@ -152,7 +137,7 @@ export class PythonBackendServer extends AnalysisClient {
     private startServer(): Promise<void> {
         return new Promise<void>((resolve, reject) => {
             const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-            const pythonCommand = resolveConfiguredPythonCommand(config.get<string>('pythonCommand', 'python3'));
+            const pythonCommand = resolveConfiguredPythonCommand(getPythonCommand());
             const cacheMb = Math.max(64, config.get<number>('cacheMemoryMb', 1024));
             const scriptPath = path.join(this.extensionPath, 'python-backend', 'backend_server.py');
             const importTimingEnabled = globalThis.process.env['AWA_IMPORT_TIME'] === '1';

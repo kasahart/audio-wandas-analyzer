@@ -17,6 +17,12 @@ const REQUIRED_PACKAGES = [
         minimum: [1, 13, 0],
     },
     {
+        modules: ['soundfile'],
+        distribution: 'soundfile',
+        requirement: 'soundfile>=0.12',
+        minimum: [0, 12, 0],
+    },
+    {
         modules: ['wandas', 'mosqito'],
         distribution: 'wandas',
         requirement: 'wandas[psychoacoustic]>=0.8.1,<0.9.0',
@@ -24,6 +30,11 @@ const REQUIRED_PACKAGES = [
         maximum: [0, 9, 0],
     },
 ] as const;
+/** The user's configured interpreter (`audioWandasAnalyzer.pythonCommand`), before relative-path resolution. */
+export function getPythonCommand(): string {
+    return vscode.workspace.getConfiguration('audioWandasAnalyzer').get<string>('pythonCommand', 'python3');
+}
+
 const DEPENDENCY_CHECK_SCRIPT = `
 import importlib.util
 import importlib.metadata
@@ -234,7 +245,7 @@ export async function selectPythonEnvironment(_statusBarItem: vscode.StatusBarIt
     }
 
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-    const currentPythonCommand = config.get<string>('pythonCommand', 'python3');
+    const currentPythonCommand = getPythonCommand();
     if (chosen === currentPythonCommand) {
         return chosen;
     }

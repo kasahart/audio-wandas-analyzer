@@ -139,6 +139,7 @@ test('activate keeps analyze commands available and warms Python when workspace 
             return {
                 selectPythonEnvironment: async () => currentPythonCommand,
                 checkAndPromptInstallDependencies: async () => true,
+                getPythonCommand: () => currentPythonCommand,
                 getCurrentPythonEnvironmentState: () => ({
                     pythonCommand: 'python3',
                     status: 'normal',

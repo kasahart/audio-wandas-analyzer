@@ -4,10 +4,12 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, value) => {
 });
 
 // Stored ZIP keeps WAV output lossless and avoids multiple-download browser permissions.
-export function zipStore(entries: Array<{ name: string; bytes: Uint8Array }>): Uint8Array<ArrayBuffer> {
+export function zipStore(
+    entries: Array<{ name: string; bytes: Uint8Array }>, limits: { maxEntries: number; maxBytes: number },
+): Uint8Array<ArrayBuffer> {
     const names = entries.map(entry => new TextEncoder().encode(entry.name));
-    if (!entries.length || entries.length > 8 || entries.some((entry, i) => /[\\/\u0000]/.test(entry.name) || names[i].length > 65535)
-        || entries.reduce((size, entry) => size + entry.bytes.length, 0) > 32 * 1024 * 1024) {
+    if (!entries.length || entries.length > limits.maxEntries || entries.some((entry, i) => /[\\/\u0000]/.test(entry.name) || names[i].length > 65535)
+        || entries.reduce((size, entry) => size + entry.bytes.length, 0) > limits.maxBytes) {
         throw new Error('ZIP exceeds browser export limits');
     }
     const length = entries.reduce((size, entry, i) => size + 30 + names[i].length + entry.bytes.length + 46 + names[i].length, 22);

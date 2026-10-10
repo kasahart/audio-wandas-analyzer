@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { DirectoryTreeNode } from '../shared/analysis/analysisTypes';
-import { isSupportedAudioFile, type SelectionTargetKind } from '../shared/utils/audioTarget';
+import { isSupportedAudioFile, SUPPORTED_AUDIO_DIALOG_EXTENSIONS, type SelectionTargetKind } from '../shared/utils/audioTarget';
 
 const DIRECTORY_READ_CONCURRENCY = 8;
 
@@ -77,7 +77,7 @@ export async function pickAudioTarget(
                 ? 'Select audio file'
                 : 'Analyze audio file or folder',
         filters: targetKind !== 'directory'
-            ? { 'Audio Files': ['wav', 'flac', 'ogg', 'aiff', 'aif', 'snd'] }
+            ? { 'Audio Files': SUPPORTED_AUDIO_DIALOG_EXTENSIONS }
             : undefined,
     });
     return selected?.[0];

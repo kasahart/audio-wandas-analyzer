@@ -1,3 +1,8 @@
+import { magma, normalizedColor, rasterize, viridis } from '../shared/gui-core/index';
+import { getStrings, rangePopoverStrings } from '../shared/i18n/strings';
+import { installRangePopover } from './rangePopover';
+import { positionPopover } from './runtime/settingsPopover';
+
 /**
  * Renderer for ChartSpec dicts inside the ChartSpecPanel webview.
  *
@@ -18,179 +23,47 @@ export function getChartSpecRenderScript(): string {
 
     const rangeOverrides = {};   // chartIndex → { y?: {min,max}, x?: {min,max}, color?: {min,max} }
     const chartRedraws   = [];   // chartIndex → function(override)
-    let   activeChartIdx = -1;   // 現在ポップアップが開いているチャート index
-    let   activeAxis     = 'y';  // 'y' | 'x' | 'color'
+
+    // ── レンジポップアップ（比較画面のスペクトルと共通の実装） ──
+    const RANGE_STRINGS = window.__CHART_RANGE_STRINGS__ || ${JSON.stringify(rangePopoverStrings(getStrings('en')))};
+    ${positionPopover.toString()}
+    ${installRangePopover.toString()}
+    const rangePopover = installRangePopover(document, {
+        rootId: 'range-popup', badgeId: 'popup-axis-badge', idPrefix: 'range',
+        strings: RANGE_STRINGS, position: positionPopover,
+    });
+    const AXIS_BADGES = {
+        x: [RANGE_STRINGS.axisX, '#6b3fa0'],
+        y: [RANGE_STRINGS.axisY, '#0e639c'],
+        color: [RANGE_STRINGS.axisColor, '#5a8a30'],
+    };
 
     function openRangePopup(chartIdx, clientX, clientY, axis) {
-        activeChartIdx = chartIdx;
-        activeAxis = axis || 'y';
-        const pop = document.getElementById('range-popup');
-        if (!pop) { return; }
-
-        // バッジ更新
-        const badge = document.getElementById('popup-axis-badge');
-        if (badge) {
-            badge.textContent = activeAxis === 'x' ? 'X 軸' : activeAxis === 'color' ? 'カラー' : 'Y 軸';
-            badge.style.background = activeAxis === 'x' ? '#6b3fa0' : activeAxis === 'color' ? '#5a8a30' : '#0e639c';
+        axis = axis || 'y';
+        const current = rangeOverrides[chartIdx] && rangeOverrides[chartIdx][axis];
+        function redraw() {
+            if (typeof chartRedraws[chartIdx] === 'function') { chartRedraws[chartIdx](rangeOverrides[chartIdx]); }
         }
-
-        // 入力セクション切り替え
-        const vert  = document.getElementById('popup-inputs-vertical');
-        const horiz = document.getElementById('popup-inputs-horizontal');
-        const isX   = activeAxis === 'x';
-        if (vert)  { vert.style.display  = isX ? 'none' : ''; }
-        if (horiz) { horiz.style.display = isX ? 'flex' : 'none'; }
-
-        // 現在のオーバーライドで入力を初期化
-        const ov   = rangeOverrides[chartIdx];
-        const axOv = ov && ov[activeAxis];
-        if (isX) {
-            const minX = document.getElementById('range-min-x');
-            const maxX = document.getElementById('range-max-x');
-            if (minX) { minX.value = (axOv && axOv.min != null) ? String(axOv.min) : ''; }
-            if (maxX) { maxX.value = (axOv && axOv.max != null) ? String(axOv.max) : ''; }
-        } else {
-            const minInput = document.getElementById('range-min');
-            const maxInput = document.getElementById('range-max');
-            if (maxInput) { maxInput.value = (axOv && axOv.max != null) ? String(axOv.max) : ''; }
-            if (minInput) { minInput.value = (axOv && axOv.min != null) ? String(axOv.min) : ''; }
-        }
-
-        const err = document.getElementById('range-error');
-        if (err) { err.textContent = ''; }
-        pop.style.left = (clientX + 8) + 'px';
-        pop.style.top  = (clientY + 8) + 'px';
-        pop.style.display = 'block';
-
-        // フォーカス自動移動: Y・カラー軸 → Max 入力、X 軸 → Min 入力（左）
-        const focusEl = document.getElementById(isX ? 'range-min-x' : 'range-max');
-        if (focusEl) { focusEl.focus(); }
+        rangePopover.open({
+            axisLabel: AXIS_BADGES[axis][0],
+            badgeColor: AXIS_BADGES[axis][1],
+            horizontal: axis === 'x',
+            min: current && current.min != null ? String(current.min) : '',
+            max: current && current.max != null ? String(current.max) : '',
+            clientX: clientX,
+            clientY: clientY,
+            apply: function(min, max) {
+                if (!rangeOverrides[chartIdx]) { rangeOverrides[chartIdx] = {}; }
+                if (min === null && max === null) { delete rangeOverrides[chartIdx][axis]; }
+                else { rangeOverrides[chartIdx][axis] = { min: min, max: max }; }
+                redraw();
+            },
+            auto: function() {
+                if (rangeOverrides[chartIdx]) { delete rangeOverrides[chartIdx][axis]; }
+                redraw();
+            },
+        });
     }
-
-    // ── レンジポップアップ ────────────────────────────────────────
-    (function buildRangePopup() {
-        if (document.getElementById('range-popup')) { return; }
-        const pop = document.createElement('div');
-        pop.id = 'range-popup';
-        pop.style.cssText = 'display:none;position:fixed;z-index:9999;background:var(--vscode-editorWidget-background,#2d2d2d);border:1px solid var(--vscode-editorWidget-border,#555);border-radius:4px;padding:10px 12px;font-size:12px;color:var(--vscode-editor-foreground,#ddd);box-shadow:0 4px 12px rgba(0,0,0,.4);min-width:180px;';
-        const inputStyle = 'width:80px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;';
-        const labelSpanStyle = 'width:30px;font-size:11px;color:var(--vscode-descriptionForeground,#aaa);';
-        pop.innerHTML =
-            '<div style="margin-bottom:8px;font-weight:600;font-size:11px;color:var(--vscode-descriptionForeground,#aaa);display:flex;align-items:center;gap:6px;">'
-            + 'レンジ設定'
-            + '<span id="popup-axis-badge" style="padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;color:#fff;background:#0e639c;">Y 軸</span>'
-            + '</div>'
-            + '<div id="popup-inputs-vertical" style="display:flex;flex-direction:column;gap:4px;">'
-            + '<label style="display:flex;align-items:center;gap:6px;"><span style="' + labelSpanStyle + '">Max</span><input id="range-max" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
-            + '<label style="display:flex;align-items:center;gap:6px;"><span style="' + labelSpanStyle + '">Min</span><input id="range-min" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
-            + '</div>'
-            + '<div id="popup-inputs-horizontal" style="display:none;flex-direction:row;align-items:flex-end;gap:6px;">'
-            + '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">'
-            + '<span style="font-size:10px;color:var(--vscode-descriptionForeground,#aaa);">Min（左）</span>'
-            + '<input id="range-min-x" type="number" step="any" placeholder="auto" aria-label="X 軸 Min（左）" style="width:72px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;">'
-            + '</div>'
-            + '<span style="font-size:16px;color:#666;padding-bottom:2px;">→</span>'
-            + '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">'
-            + '<span style="font-size:10px;color:var(--vscode-descriptionForeground,#aaa);">Max（右）</span>'
-            + '<input id="range-max-x" type="number" step="any" placeholder="auto" aria-label="X 軸 Max（右）" style="width:72px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;">'
-            + '</div>'
-            + '</div>'
-            + '<div style="display:flex;gap:6px;margin-top:8px;">'
-            + '<button id="range-apply" style="flex:1;padding:3px 0;background:var(--vscode-button-background,#0e639c);color:var(--vscode-button-foreground,#fff);border:none;border-radius:2px;cursor:pointer;font-size:11px;">Apply</button>'
-            + '<button id="range-auto"  style="flex:1;padding:3px 0;background:var(--vscode-button-secondaryBackground,#3a3d41);color:var(--vscode-button-secondaryForeground,#ddd);border:none;border-radius:2px;cursor:pointer;font-size:11px;">Auto</button>'
-            + '<button id="range-close" style="padding:3px 6px;background:transparent;color:var(--vscode-descriptionForeground,#aaa);border:none;cursor:pointer;font-size:13px;" aria-label="Close">×</button>'
-            + '</div>'
-            + '<div id="range-error" style="color:#f48771;font-size:11px;margin-top:4px;min-height:14px;"></div>';
-        document.body.appendChild(pop);
-    })();
-
-    // ── ポップアップハンドラ ─────────────────────────────────────
-    (function attachRangePopupHandlers() {
-        function closePopup() {
-            const pop = document.getElementById('range-popup');
-            if (pop) { pop.style.display = 'none'; }
-            const err = document.getElementById('range-error');
-            if (err) { err.textContent = ''; }
-            activeChartIdx = -1;
-        }
-
-        function applyRange() {
-            const isX      = activeAxis === 'x';
-            const minInput = isX ? document.getElementById('range-min-x') : document.getElementById('range-min');
-            const maxInput = isX ? document.getElementById('range-max-x') : document.getElementById('range-max');
-            const errDiv   = document.getElementById('range-error');
-            if (!minInput || !maxInput) { return; }
-
-            const minVal = minInput.value.trim();
-            const maxVal = maxInput.value.trim();
-            const min = minVal === '' ? null : Number(minVal);
-            const max = maxVal === '' ? null : Number(maxVal);
-
-            if (errDiv) { errDiv.textContent = ''; }
-
-            if (min !== null && !Number.isFinite(min)) {
-                if (errDiv) { errDiv.textContent = 'Min は数値を入力してください'; }
-                return;
-            }
-            if (max !== null && !Number.isFinite(max)) {
-                if (errDiv) { errDiv.textContent = 'Max は数値を入力してください'; }
-                return;
-            }
-            if (min !== null && max !== null && min >= max) {
-                if (errDiv) { errDiv.textContent = 'Min は Max より小さい値を入力してください'; }
-                return;
-            }
-
-            if (activeChartIdx >= 0) {
-                if (!rangeOverrides[activeChartIdx]) { rangeOverrides[activeChartIdx] = {}; }
-                if (min === null && max === null) {
-                    delete rangeOverrides[activeChartIdx][activeAxis];
-                } else {
-                    rangeOverrides[activeChartIdx][activeAxis] = { min: min, max: max };
-                }
-                if (typeof chartRedraws[activeChartIdx] === 'function') {
-                    chartRedraws[activeChartIdx](rangeOverrides[activeChartIdx]);
-                }
-            }
-            closePopup();
-        }
-
-        function autoRange() {
-            if (activeChartIdx >= 0) {
-                if (rangeOverrides[activeChartIdx]) {
-                    delete rangeOverrides[activeChartIdx][activeAxis];
-                }
-                if (typeof chartRedraws[activeChartIdx] === 'function') {
-                    chartRedraws[activeChartIdx](rangeOverrides[activeChartIdx]);
-                }
-            }
-            closePopup();
-        }
-
-        // ポップアップ要素は buildRangePopup() が既に DOM に追加済みのため
-        // 即時にハンドラを登録する。DOMContentLoaded 待ちは不要。
-        (function wireHandlers() {
-            const applyBtn  = document.getElementById('range-apply');
-            const autoBtn   = document.getElementById('range-auto');
-            const closeBtn  = document.getElementById('range-close');
-            if (applyBtn)  { applyBtn.addEventListener('click', applyRange); }
-            if (autoBtn)   { autoBtn.addEventListener('click', autoRange); }
-            if (closeBtn)  { closeBtn.addEventListener('click', closePopup); }
-        })();
-
-        // Escape キーで閉じる
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') { closePopup(); }
-        });
-
-        // ポップアップ外クリックで閉じる
-        document.addEventListener('mousedown', function(e) {
-            const pop = document.getElementById('range-popup');
-            if (pop && pop.style.display !== 'none' && !pop.contains(e.target)) {
-                closePopup();
-            }
-        });
-    })();
 
     const specs = Array.isArray(window.__CHART_SPECS__) ? window.__CHART_SPECS__ : [];
     const host = document.getElementById('charts');
@@ -427,6 +300,14 @@ export function getChartSpecRenderScript(): string {
         const xMaxAxis = xs.length > 0 ? xs[xs.length - 1] : cols;
         const yMinAxis = ys.length > 0 ? ys[0] : 0;
         const yMaxAxis = ys.length > 0 ? ys[ys.length - 1] : rows;
+        const palette = PALETTES[spec.colormap] || PALETTES.viridis;
+        const columnMajor = new Float64Array(cols * rows);
+        for (let c = 0; c < cols; c++) {
+            for (let r = 0; r < rows; r++) {
+                const v = matrix[r][c];
+                columnMajor[c * rows + r] = typeof v === 'number' ? v : NaN;
+            }
+        }
 
         function redraw(override) {
             ctx.clearRect(0, 0, cv.width, cv.height);
@@ -446,33 +327,21 @@ export function getChartSpecRenderScript(): string {
             let _xMax   = (xOv && xOv.max != null) ? xOv.max : xMaxAxis;
             if (_xMax <= _xMin) { _xMax = _xMin + 1; }
 
-            const xAxisRange = xMaxAxis - xMinAxis || 1;
-            const yAxisRange = yMaxAxis - yMinAxis || 1;
-            const visibleXRange = _xMax - _xMin || 1;
-            const visibleYRange = _yMax - _yMin || 1;
-            for (let r = 0; r < rows; r++) {
-                const rowY0 = yMinAxis + (r / Math.max(rows, 1)) * yAxisRange;
-                const rowY1 = yMinAxis + ((r + 1) / Math.max(rows, 1)) * yAxisRange;
-                const visY0 = Math.max(rowY0, _yMin);
-                const visY1 = Math.min(rowY1, _yMax);
-                if (visY1 <= visY0) { continue; }
-                const yPx = plot.y + plot.h - ((visY1 - _yMin) / visibleYRange) * plot.h;
-                const cellH = ((visY1 - visY0) / visibleYRange) * plot.h;
-                const row = matrix[r];
-                for (let c = 0; c < cols; c++) {
-                    const colX0 = xMinAxis + (c / Math.max(cols, 1)) * xAxisRange;
-                    const colX1 = xMinAxis + ((c + 1) / Math.max(cols, 1)) * xAxisRange;
-                    const visX0 = Math.max(colX0, _xMin);
-                    const visX1 = Math.min(colX1, _xMax);
-                    if (visX1 <= visX0) { continue; }
-                    const v = row[c];
-                    const t = Number.isFinite(v) ? Math.max(0, Math.min(1, (v - vMin) / vRange)) : 0;
-                    ctx.fillStyle = sampleColormap(spec.colormap, t);
-                    const xPx = plot.x + ((visX0 - _xMin) / visibleXRange) * plot.w;
-                    const cellW = ((visX1 - visX0) / visibleXRange) * plot.w;
-                    ctx.fillRect(xPx, yPx, cellW + 0.5, cellH + 0.5);
-                }
-            }
+            // Shared raster kernel: each pixel takes the peak of the source cells it covers.
+            const pxW = Math.max(1, Math.round(plot.w));
+            const pxH = Math.max(1, Math.round(plot.h));
+            const raster = rasterize({ layout: 'flat', values: columnMajor, bins: rows }, {
+                columns: sourceIntervals(pxW, _xMin, _xMax, xMinAxis, xMaxAxis, cols),
+                rows: sourceIntervals(pxH, _yMin, _yMax, yMinAxis, yMaxAxis, rows),
+                peakMode: 'finite',
+            }, { min: vMin, max: vMin + vRange }, palette);
+            const off = document.createElement('canvas');
+            off.width = raster.width; off.height = raster.height;
+            const offCtx = off.getContext('2d');
+            const image = offCtx.createImageData(raster.width, raster.height);
+            image.data.set(raster.pixels);
+            offCtx.putImageData(image, 0, 0);
+            ctx.drawImage(off, plot.x, plot.y, plot.w, plot.h);
 
             // Y 軸クリックヒント
             ctx.fillStyle = 'rgba(255,255,255,0.04)';
@@ -707,30 +576,27 @@ export function getChartSpecRenderScript(): string {
         attachCard(spec.title, table);
     }
 
-    const COLORMAPS = {
-        viridis: [
-            [0.0, [68, 1, 84]], [0.25, [59, 82, 139]], [0.5, [33, 144, 141]],
-            [0.75, [94, 201, 98]], [1.0, [253, 231, 37]],
-        ],
-        magma: [
-            [0.0, [0, 0, 4]], [0.25, [80, 18, 123]], [0.5, [183, 55, 121]],
-            [0.75, [251, 136, 97]], [1.0, [252, 253, 191]],
-        ],
-    };
+    const PALETTES = ${JSON.stringify({ viridis, magma })};
+    ${normalizedColor.toString()}
+    ${rasterize.toString()}
     function sampleColormap(name, t) {
-        const stops = COLORMAPS[name] || COLORMAPS.viridis;
-        const last = stops[stops.length - 1];
-        for (let i = 0; i < stops.length - 1; i++) {
-            const a = stops[i], b = stops[i + 1];
-            if (t >= a[0] && t <= b[0]) {
-                const u = (t - a[0]) / (b[0] - a[0]);
-                const r = Math.round(a[1][0] + u * (b[1][0] - a[1][0]));
-                const g = Math.round(a[1][1] + u * (b[1][1] - a[1][1]));
-                const bb = Math.round(a[1][2] + u * (b[1][2] - a[1][2]));
-                return 'rgb(' + r + ',' + g + ',' + bb + ')';
-            }
+        const rgb = normalizedColor(t, PALETTES[name] || PALETTES.viridis);
+        return 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
+    }
+    // Pixel i of n covers [lo, hi) of the visible axis; map it to the source cells it overlaps.
+    function sourceIntervals(n, visibleMin, visibleMax, axisMin, axisMax, count) {
+        const intervals = [];
+        const axisRange = axisMax - axisMin || 1;
+        for (let i = 0; i < n; i++) {
+            const lo = visibleMin + (i / n) * (visibleMax - visibleMin);
+            const hi = visibleMin + ((i + 1) / n) * (visibleMax - visibleMin);
+            const first = ((lo - axisMin) / axisRange) * count;
+            const last = ((hi - axisMin) / axisRange) * count;
+            if (last <= 0 || first >= count) { intervals.push(null); continue; }
+            const start = Math.max(0, Math.floor(first));
+            intervals.push([start, Math.min(count, Math.max(start + 1, Math.ceil(last)))]);
         }
-        return 'rgb(' + last[1][0] + ',' + last[1][1] + ',' + last[1][2] + ')';
+        return intervals;
     }
 
     specs.forEach(function(spec, idx) {

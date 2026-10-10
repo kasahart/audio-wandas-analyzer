@@ -413,6 +413,7 @@ test('checkMissingDependencies uses import and version checks instead of pip', a
         assert.deepEqual(result, { missingPackages: [] });
         assert.equal(spawnedArgs[0], '-c');
         assert.match(String(spawnedArgs[1]), /numpy>=2\.0\.2/u);
+        assert.match(String(spawnedArgs[1]), /soundfile>=0\.12/u);
         assert.match(String(spawnedArgs[1]), /scipy>=1\.13/u);
         assert.match(String(spawnedArgs[1]), /wandas\[psychoacoustic\]>=0\.8\.1,<0\.9\.0/u);
         assert.match(String(spawnedArgs[1]), /"minimum":\[0,8,1\]/u);

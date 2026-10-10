@@ -184,6 +184,10 @@ export interface UiStrings {
     specRangeApply: string;
     specRangeAuto: string;
     specRangeErrorMinMax: string;
+    specRangeClose: string;
+    rangeAxisX: string;
+    rangeAxisY: string;
+    rangeAxisColor: string;
     helpRowSpectrumDrag: string;
     helpRowWaveRectZoom: string;
     waveModeLabelRectZoom: string;
@@ -199,8 +203,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         selectionHeader: 'Select files to analyze',
         btnOpenFile: 'Open File',
         browserWavHint: 'Add WAV files to compare: up to 8 tracks / 64 MiB total input; each ≤16 MiB / 30s / 2ch. Bundled recipes run on the loaded tracks; WDF, psychoacoustics, directory scan, calibration configuration and vscode.dev are unavailable. Audio stays in this browser.',
-        browserInputTooLarge: 'WAV must be 16 MiB or smaller.',
-        browserAggregateLimit: 'Browser session limit: up to 8 WAV files / 64 MiB total input. Remove a track first.',
+        browserInputTooLarge: 'WAV must be {mib} MiB or smaller.',
+        browserAggregateLimit: 'Browser session limit: up to {count} WAV files / {mib} MiB total input. Remove a track first.',
         browserPreparing: 'Preparing local Python Worker / adding WAV files…',
         browserReady: 'waveform ready. {count} tracks; add more WAV files to compare. No automatic playback.',
         browserWorkerFailed: 'Audio Worker failed; select the WAV files again.',
@@ -360,6 +364,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specRangeApply: 'Apply',
         specRangeAuto: 'Auto',
         specRangeErrorMinMax: 'Min must be smaller than Max',
+        specRangeClose: 'Close',
+        rangeAxisX: 'X axis',
+        rangeAxisY: 'Y axis',
+        rangeAxisColor: 'Color',
         helpRowSpectrumDrag: 'drag zoom (spectrum)',
         helpRowWaveRectZoom: 'drag zoom (waveform zoom mode)',
         waveModeLabelRectZoom: 'Rect Zoom',
@@ -373,8 +381,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         selectionHeader: '選択して解析',
         btnOpenFile: 'ファイルを開く',
         browserWavHint: 'WAVを追加して比較できます。最大8トラック・入力合計64 MiB、各16 MiB・30秒・2ch以下。同梱レシピは読み込んだトラックに対して実行できます。WDF・心理音響・フォルダ探索・校正設定・vscode.devは未対応です。音声はブラウザ内で処理します。',
-        browserInputTooLarge: 'WAVは16 MiB以下を選択してください。',
-        browserAggregateLimit: 'ブラウザ上限はWAV 8件・入力合計64 MiBです。先にトラックを削除してください。',
+        browserInputTooLarge: 'WAVは{mib} MiB以下を選択してください。',
+        browserAggregateLimit: 'ブラウザ上限はWAV {count}件・入力合計{mib} MiBです。先にトラックを削除してください。',
         browserPreparing: 'ローカルPython Workerを準備・WAVを追加しています…',
         browserReady: '波形の準備完了。{count}トラック。WAVを追加して比較できます。自動再生は行いません。',
         browserWorkerFailed: '音声Workerで障害が発生しました。WAVを選択し直してください。',
@@ -534,6 +542,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specRangeApply: '適用',
         specRangeAuto: '自動',
         specRangeErrorMinMax: 'Min は Max より小さい値を入力してください',
+        specRangeClose: '閉じる',
+        rangeAxisX: 'X 軸',
+        rangeAxisY: 'Y 軸',
+        rangeAxisColor: 'カラー',
         helpRowSpectrumDrag: '矩形ズーム (スペクトル)',
         helpRowWaveRectZoom: '矩形ズーム (波形ズームモード時)',
         waveModeLabelRectZoom: '矩形ズーム',
@@ -547,6 +559,22 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
 export function pickLocale(language: string | undefined): SupportedLocale {
     if (typeof language !== 'string') { return 'en'; }
     return language.toLowerCase().startsWith('ja') ? 'ja' : 'en';
+}
+
+/** Labels for the shared axis range popover (comparison spectrum and recipe charts). */
+export function rangePopoverStrings(strings: UiStrings) {
+    return {
+        title: strings.specRangeTitle,
+        min: strings.specRangeMin,
+        max: strings.specRangeMax,
+        apply: strings.specRangeApply,
+        auto: strings.specRangeAuto,
+        close: strings.specRangeClose,
+        invalid: strings.specRangeErrorMinMax,
+        axisX: strings.rangeAxisX,
+        axisY: strings.rangeAxisY,
+        axisColor: strings.rangeAxisColor,
+    };
 }
 
 export function getStrings(language: string | undefined): UiStrings {

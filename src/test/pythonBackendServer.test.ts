@@ -525,7 +525,7 @@ function recipeRestartHarness(preflight: boolean, failRestart = false) {
                 return child;
             } };
             if (name === 'vscode') return { workspace: { getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }) } };
-            if (name === './pythonEnvironment') return { resolveConfiguredPythonCommand: (command: string) => command };
+            if (name === './pythonEnvironment') return { getPythonCommand: () => 'python3', resolveConfiguredPythonCommand: (command: string) => command };
             return localRequire(name);
         },
         process, setTimeout, clearTimeout, setInterval, clearInterval,

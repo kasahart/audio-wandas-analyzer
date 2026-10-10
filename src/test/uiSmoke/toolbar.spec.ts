@@ -31,6 +31,7 @@ test(clearSources ? 'clearing a pending browser recipe keeps the cleared status'
                     return;
                 }
                 const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
+                    : command.cmd === 'limits' ? { maxInputBytes: 16777216, maxSources: 8, maxTotalInputBytes: 67108864, maxExportBytes: 33554432 }
                     : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath };
                 queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
             }
@@ -72,6 +73,7 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
             terminate() {}
             postMessage(command) {
                 const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
+                    : command.cmd === 'limits' ? { maxInputBytes: 16777216, maxSources: 8, maxTotalInputBytes: 67108864, maxExportBytes: 33554432 }
                     : command.cmd === 'run-recipe' ? { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] }
                     : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath,
                         ...(command.cmd === 'analyze' ? { channelCount: 1, channels: [{ label: 'Channel 1', peakAbsolute: 1,

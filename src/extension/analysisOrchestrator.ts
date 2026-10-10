@@ -2,7 +2,7 @@ import { runAnalysisBatch } from '../shared/analysis/analysisCoordinator';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AnalysisResult, AnalysisResultWithError, StftOptions } from '../shared/analysis/analysisTypes';
-import type { AnalyzeOptions } from './pythonBackendServer';
+import type { AnalyzeOptions } from '../shared/analysis/analysisClient';
 
 export interface AnalysisBackend {
     analyze(
