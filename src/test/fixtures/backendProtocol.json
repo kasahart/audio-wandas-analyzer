@@ -147,6 +147,54 @@
         "recipe": "not an object"
       },
       "errorField": "recipe"
+    },
+    {
+      "command": "range",
+      "request": {
+        "cmd": "range",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "startNorm": 0,
+        "endNorm": 1,
+        "points": 8193
+      },
+      "errorField": "points"
+    },
+    {
+      "command": "range",
+      "request": {
+        "cmd": "range",
+        "requestId": "r1",
+        "startNorm": 0,
+        "endNorm": 1,
+        "points": 2000
+      },
+      "errorField": "filePath"
+    },
+    {
+      "command": "range",
+      "request": {
+        "cmd": "range",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "startNorm": "0",
+        "endNorm": 1,
+        "points": 2000
+      },
+      "errorField": "startNorm"
+    },
+    {
+      "command": "range",
+      "request": {
+        "cmd": "range",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "startNorm": 0,
+        "endNorm": 1,
+        "points": 2000,
+        "analysisRevision": -1
+      },
+      "errorField": "analysisRevision"
     }
   ],
   "validResponses": [

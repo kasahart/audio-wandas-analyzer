@@ -2,6 +2,8 @@ import type { ChartSpec } from '../chartSpec';
 import type { RecipeDocument } from '../recipe/recipeSelection';
 import { isCalibrationStatus, isCalibrationSource, isCalibrationProfile } from '../analysis/calibrationModel';
 import { isSafeCalibrationValue } from '../analysis/analysisTypes';
+import type { RangePayload, RangeResult } from './generated/backendProtocolSchema';
+import { schemaViolation } from './schemaValidation';
 import type {
     AnalysisResult,
     CalibrationProfile,
@@ -13,6 +15,8 @@ import type {
     WaveformEnvelope,
 } from '../analysis/analysisTypes';
 
+export type { RangePayload, RangeResult };
+
 export interface CalibrationRequestContext {
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
@@ -21,13 +25,6 @@ export interface CalibrationRequestContext {
 export interface AnalyzePayload extends CalibrationRequestContext {
     filePath: string;
     stftOptions?: StftOptions;
-}
-
-export interface RangePayload extends CalibrationRequestContext {
-    filePath: string;
-    startNorm: number;
-    endNorm: number;
-    points: number;
 }
 
 export interface TrackDetailPayload extends CalibrationRequestContext {
@@ -50,14 +47,6 @@ export interface ExportWavLoopPayload {
     filePath: string;
     startNorm: number;
     endNorm: number;
-}
-
-export interface RangeResult {
-    startNorm: number;
-    endNorm: number;
-    channels: WaveformEnvelope[];
-    calibrationSignature?: string;
-    analysisRevision?: number;
 }
 
 export interface TrackDetailResult {
@@ -266,21 +255,15 @@ function isAnalysisUnits(value: unknown): value is AnalysisUnits {
         && isDbScaleMetadata(value['spectrogramLevel']);
 }
 
+/** Cross-field invariant the schema cannot express: every per-point array has the same length. */
+function hasAlignedEnvelopeArrays(envelope: WaveformEnvelope): boolean {
+    const pointCount = envelope.min.length;
+    return [envelope.max, envelope.samples, envelope.minT, envelope.maxT]
+        .every(points => points === undefined || points.length === pointCount);
+}
+
 function isWaveformEnvelope(value: unknown): value is WaveformEnvelope {
-    if (!isJsonObject(value)) { return false; }
-    if (!isFiniteNumberArray(value['min'])
-        || !isFiniteNumberArray(value['max'])
-        || !isFiniteNumberArray(value['samples'])
-        || !isFiniteNumber(value['absolutePeak'])) {
-        return false;
-    }
-    const pointCount = value['min'].length;
-    return value['max'].length === pointCount
-        && value['samples'].length === pointCount
-        && (value['minT'] === undefined
-            || (isFiniteNumberArray(value['minT']) && value['minT'].length === pointCount))
-        && (value['maxT'] === undefined
-            || (isFiniteNumberArray(value['maxT']) && value['maxT'].length === pointCount));
+    return schemaViolation('WaveformEnvelope', value) === null && hasAlignedEnvelopeArrays(value as WaveformEnvelope);
 }
 
 function isSpectrogramData(value: unknown): value is SpectrogramData {
@@ -342,12 +325,8 @@ function isAnalysisResult(value: unknown): value is AnalysisResult {
 }
 
 function isRangeResult(value: unknown): value is RangeResult {
-    return isJsonObject(value)
-        && isFiniteNumber(value['startNorm'])
-        && isFiniteNumber(value['endNorm'])
-        && Array.isArray(value['channels'])
-        && value['channels'].every(isWaveformEnvelope)
-        && hasCalibrationResultMetadata(value);
+    return schemaViolation('RangeResult', value) === null
+        && (value as RangeResult).channels.every(hasAlignedEnvelopeArrays);
 }
 
 function isTrackDetailResult(value: unknown): value is TrackDetailResult {
