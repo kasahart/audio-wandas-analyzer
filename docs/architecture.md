@@ -59,7 +59,8 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   Recipe の場所を送信し、共通の120秒 timeout・cancel を管理する。native は古い校正を通常解析と同じ規則で
   破棄・再試行する。Python 側の `AnalysisService.run_recipe` は Recipe ファイルの親を相対パスの基準とし、
   `engine.get_analysis(file, profile)` の校正済み frame を `recipe_runner.evaluate_recipe` に渡す。
-  cancel・timeout は実行中の backend/Worker を終了する。Web は読み込んだ File と表示を保持し、
+  cancel・timeout は実行中の backend/Worker を終了する。native の他の pending request は
+  再起動後に自動で再送し、Recipe の失敗をパネルの解析エラーにしない。Web は読み込んだ File と表示を保持し、
   次の要求で新しい Worker に再ロードする。`requires` を宣言した recipe は
   runtime lock に無い配布物（mosqito）を欠くと Web 一覧で実行不可と表示する。
   ChartSpec 文書の CSS と globals は `chartSpecDocument.ts` に置き、render script は両 host が同じ文字列を使う。

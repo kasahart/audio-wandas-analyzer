@@ -37,11 +37,14 @@ export class AnalysisRequestError extends Error {
     }
 }
 
+class RecipeBackendRestartError extends Error {}
+
 export class PythonBackendServer extends AnalysisClient {
     private proc: ChildProcess | null = null;
     private pending = new Map<string, PendingRequest>();
     private startPromise: Promise<void> | null = null;
     private nextId = 1;
+    private disposalGeneration = 0;
     private lastHeartbeatAt = 0;
     private watchdogTimer: ReturnType<typeof setInterval> | null = null;
     private static readonly HEARTBEAT_TIMEOUT_MS = 15_000;
@@ -81,6 +84,7 @@ export class PythonBackendServer extends AnalysisClient {
     }
 
     dispose(): void {
+        this.disposalGeneration++;
         this.stopWatchdog();
         this.proc?.kill();
         this.proc = null;
@@ -89,12 +93,15 @@ export class PythonBackendServer extends AnalysisClient {
     }
 
     protected override cancelRequest(requestId: string, reason: Error): void {
-        if (!this.pending.has(requestId)) return;
+        const cancelled = this.pending.get(requestId);
+        if (!cancelled) return;
+        this.pending.delete(requestId);
         const child = this.proc;
         this.stopWatchdog();
         this.proc = null;
         this.startPromise = null;
-        this.rejectAll(reason);
+        cancelled.reject(reason);
+        this.rejectAll(new RecipeBackendRestartError('Python backend restarting after Recipe interruption'));
         child?.kill();
     }
 
@@ -104,6 +111,7 @@ export class PythonBackendServer extends AnalysisClient {
         requestId?: string,
         cancellation?: vscode.CancellationToken,
     ): Promise<BackendResult<K>> {
+        const generation = this.disposalGeneration;
         await waitForBackendStartup(this.ensureRunning(), cancellation);
         if (cancellation?.isCancellationRequested) {
             throw new BackendStartupCancelledError();
@@ -122,6 +130,11 @@ export class PythonBackendServer extends AnalysisClient {
                 this.pending.delete(id);
                 reject(error instanceof Error ? error : new Error(String(error)));
             }
+        }).catch(error => {
+            if (error instanceof RecipeBackendRestartError && generation === this.disposalGeneration) {
+                return this.request(command, payload, requestId, cancellation);
+            }
+            throw error;
         });
     }
 
