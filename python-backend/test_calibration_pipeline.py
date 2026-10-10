@@ -13,6 +13,7 @@ import command_dispatch
 from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from analyzer import analyze_from_frame
+from backend_errors import StaleCalibrationError, error_payload
 from calibration_profile import resolve_calibration_profile
 
 
@@ -152,7 +153,7 @@ def test_calibration_factor_is_bounded_by_source_peak() -> None:
     )
 
     resolve_calibration_profile(_profile(["input"], [1e24], ["Pa"], [1.0]), source)
-    with pytest.raises(ValueError, match="safe limit.*source peak"):
+    with pytest.raises(StaleCalibrationError, match="safe limit.*source peak"):
         resolve_calibration_profile(_profile(["input"], [1.1e24], ["Pa"], [1.0]), source)
 
 
@@ -271,12 +272,17 @@ def test_profile_validation_is_strict_about_channel_labels() -> None:
     )
     payload = _profile(["other"], [1.0], ["Pa"], [2e-5])
 
-    try:
+    with pytest.raises(StaleCalibrationError, match="label mismatch") as raised:
         resolve_calibration_profile(payload, source)
-    except ValueError as error:
-        assert "label mismatch" in str(error)
-    else:
-        raise AssertionError("Expected mismatched calibration labels to fail")
+    assert error_payload(raised.value)["code"] == "stale-calibration"
+    with pytest.raises(StaleCalibrationError, match="channel count mismatch"):
+        resolve_calibration_profile(_profile(["microphone", "extra"], [1.0, 1.0], ["Pa", "Pa"], [2e-5, 2e-5]), source)
+
+
+def test_error_payload_codes_and_messages() -> None:
+    assert error_payload(ValueError("bad points")) == {"code": "input-error", "message": "bad points"}
+    assert error_payload(KeyError("file")) == {"code": "input-error", "message": "Missing field: file"}
+    assert error_payload(RuntimeError()) == {"code": "internal-error", "message": "RuntimeError"}
 
 
 def test_spectrogram_cache_is_partitioned_by_calibration_signature(tmp_path) -> None:

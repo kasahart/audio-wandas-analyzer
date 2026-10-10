@@ -31,7 +31,7 @@ const recipeManifest = recipeNames.map(name => {
     return { name, location: `./recipes/${name}`, ...(missing.length ? { missing } : {}) };
 });
 fs.writeFileSync(path.join(out, 'recipes/manifest.json'), JSON.stringify(recipeManifest));
-const pythonModules = ['analysis_engine.py', 'analysis_service.py', 'analyzer.py', 'command_dispatch.py', 'browser_service.py', 'calibration_profile.py', 'decimator.py', 'perf.py', 'recipe_runner.py', 'wandas_to_chart.py'];
+const pythonModules = ['analysis_engine.py', 'analysis_service.py', 'analyzer.py', 'backend_errors.py', 'command_dispatch.py', 'browser_service.py', 'calibration_profile.py', 'decimator.py', 'perf.py', 'recipe_runner.py', 'wandas_to_chart.py'];
 for (const name of fs.readdirSync(path.join(out, 'python'))) {
     if (name.endsWith('.py') && !pythonModules.includes(name)) fs.unlinkSync(path.join(out, 'python', name));
 }

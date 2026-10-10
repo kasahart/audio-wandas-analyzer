@@ -126,7 +126,7 @@ function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forc
         if (command.cmd !== 'load' && command.cmd !== 'limits') throw new Error('No selected source; choose the WAV again.');
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
         worker = activeWorker;
-        worker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: string }>): void => {
+        worker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown }>): void => {
             if (worker !== activeWorker) return;
             settleBackendRequest(pending, event.data.requestId, event.data.result!, event.data.error);
         };

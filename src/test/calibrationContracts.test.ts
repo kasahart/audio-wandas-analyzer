@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
 import { getCalibrationRenderScript } from '../webview/calibrationRenderScript';
+import { BackendRequestError } from '../shared/protocol/backendProtocol';
 
 test('configure-calibration message guard accepts exact channel metadata', () => {
     assert.equal(isConfigureCalibrationMessage({
@@ -191,13 +192,13 @@ test('calibration profile writes serialize read-modify-write updates', async () 
     const first = calibrationStore.discardStaleCalibrationProfile(
         context,
         firstPath,
-        new Error('Calibration channel label mismatch'),
+        new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
         firstProfile,
     );
     const second = calibrationStore.discardStaleCalibrationProfile(
         context,
         secondPath,
-        new Error('Calibration channel label mismatch'),
+        new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
         secondProfile,
     );
     await new Promise<void>((resolve) => { setImmediate(resolve); });
@@ -257,7 +258,7 @@ test('stale persisted calibration is discarded and advances the analysis revisio
     assert.equal(await calibrationStore.discardStaleCalibrationProfile(
         context,
         filePath,
-        new Error('Calibration channel label mismatch'),
+        new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
         profile,
     ), true);
     assert.equal(calibrationStore.getCalibrationProfile(context, filePath), undefined);
@@ -266,7 +267,7 @@ test('stale persisted calibration is discarded and advances the analysis revisio
     assert.equal(await calibrationStore.discardStaleCalibrationProfile(
         context,
         filePath,
-        new Error('Calibration factor for channel 0 exceeds the safe limit 1e+24 for source peak 1e+10'),
+        new BackendRequestError('stale-calibration', 'Calibration factor for channel 0 exceeds the safe limit 1e+24 for source peak 1e+10'),
         profile,
     ), true);
     const replacementProfile = {
@@ -277,7 +278,7 @@ test('stale persisted calibration is discarded and advances the analysis revisio
     assert.equal(await calibrationStore.discardStaleCalibrationProfile(
         context,
         filePath,
-        new Error('Calibration factor for channel 0 exceeds the safe limit 1e+24 for source peak 1e+10'),
+        new BackendRequestError('stale-calibration', 'Calibration factor for channel 0 exceeds the safe limit 1e+24 for source peak 1e+10'),
         profile,
     ), false);
     assert.deepEqual(calibrationStore.getCalibrationProfile(context, filePath), replacementProfile);
@@ -287,6 +288,12 @@ test('stale persisted calibration is discarded and advances the analysis revisio
         new Error('unrelated backend failure'),
         replacementProfile,
     ), false);
+    assert.equal(await calibrationStore.discardStaleCalibrationProfile(
+        context,
+        filePath,
+        new BackendRequestError('input-error', 'Calibration channel label mismatch'),
+        replacementProfile,
+    ), false, 'only the stale-calibration code discards, whatever the message says');
     assert.deepEqual(calibrationStore.getCalibrationProfile(context, filePath), replacementProfile);
 });
 
@@ -363,7 +370,7 @@ test('native injected calibration retry preserves cancellation token and request
         ): Promise<import('../shared/protocol/backendProtocol').BackendResult<K>> {
             tokens.push(cancellation);
             if (this.failCancellation) throw new BackendStartupCancelledError();
-            if (tokens.length === 1) throw new Error('Calibration channel label mismatch');
+            if (tokens.length === 1) throw new BackendRequestError('stale-calibration', 'Calibration channel label mismatch');
             return {} as import('../shared/protocol/backendProtocol').BackendResult<K>;
         }
     }();

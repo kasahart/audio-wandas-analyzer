@@ -89,7 +89,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         reply(command: Record<string, unknown>, result: Record<string, unknown> = {}, error?: string): void {
             const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')).validResponses as Array<{ command: string; response: Record<string, unknown> }>;
             const base = fixtures.find(fixture => fixture.command === command.cmd)?.response ?? {};
-            this.onmessage({ data: { requestId: command.requestId, result: { ...base, filePath: command.filePath, ...result }, error } });
+            this.onmessage({ data: { requestId: command.requestId, result: { ...base, filePath: command.filePath, ...result }, error: error === undefined ? undefined : { code: 'input-error', message: error } } });
         }
     }
     const browser = {

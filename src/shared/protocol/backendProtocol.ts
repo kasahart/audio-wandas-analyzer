@@ -136,9 +136,18 @@ export type BackendResult<K extends BackendCommand> = BackendCommandMap[K]['resu
 export type BackendRequest<K extends BackendCommand> = { cmd: K; requestId: string } & BackendPayload<K>;
 export type BackendSuccessEnvelope<K extends BackendCommand> = { requestId: string } & BackendResult<K>;
 
+/** Error codes from `python-backend/backend_errors.py`; hosts branch on these, never on the message text. */
+export const BACKEND_ERROR_CODES = ['input-error', 'stale-calibration', 'internal-error'] as const;
+export type BackendErrorCode = typeof BACKEND_ERROR_CODES[number];
+
+export interface BackendErrorPayload {
+    code: BackendErrorCode;
+    message: string;
+}
+
 export interface BackendErrorEnvelope {
     requestId: string;
-    error: string;
+    error: BackendErrorPayload;
 }
 
 export interface BackendReadyNotification {
@@ -159,6 +168,22 @@ export class BackendProtocolError extends Error {
         super(message);
         this.name = 'BackendProtocolError';
     }
+}
+
+/** A request the backend answered with an error envelope. */
+export class BackendRequestError extends Error {
+    constructor(readonly code: BackendErrorCode, message: string) {
+        super(message);
+        this.name = 'BackendRequestError';
+    }
+}
+
+export function parseBackendErrorPayload(value: unknown): BackendErrorPayload | null {
+    if (!isJsonObject(value) || typeof value['message'] !== 'string') return null;
+    const code = value['code'];
+    return (BACKEND_ERROR_CODES as ReadonlyArray<unknown>).includes(code)
+        ? { code: code as BackendErrorCode, message: value['message'] }
+        : null;
 }
 
 export function isBackendCommand(value: unknown): value is BackendCommand {
@@ -452,11 +477,14 @@ export function settleBackendRequest<T>(
     }
     pending.delete(requestId);
     if (failure !== undefined) {
-        const error = typeof failure === 'string' ? new Error(failure)
-            : new BackendProtocolError(`Invalid error response for ${request.command}`);
+        const payload = parseBackendErrorPayload(failure);
+        if (payload) {
+            request.reject(new BackendRequestError(payload.code, payload.message));
+            return;
+        }
+        const error = new BackendProtocolError(`Invalid error response for ${request.command}`);
         request.reject(error);
-        if (typeof failure !== 'string') return { kind: 'protocol-validation-error', message: error.message, requestId };
-        return;
+        return { kind: 'protocol-validation-error', message: error.message, requestId };
     }
     try {
         request.complete(response);

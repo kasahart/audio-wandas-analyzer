@@ -11,6 +11,7 @@ import type {
 } from '../extension/panelController';
 import type { ExportFlows } from '../extension/exportFlows';
 import type { SpectrogramSettingsContext } from '../shared/analysis/savedSpectrogramSettings';
+import { BackendRequestError } from '../shared/protocol/backendProtocol';
 
 function result(filePath: string, revision: number, peakAbsolute: number): AnalysisResultWithError {
     return {
@@ -239,7 +240,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     await calibrationStore.discardStaleCalibrationProfile(
         context as unknown as vscode.ExtensionContext,
         calibratedPath,
-        new Error('Calibration channel label mismatch'),
+        new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
         failedCalibratedProfile,
     );
     const waveformResult = new Promise<unknown>((resolve) => { resolveWaveformResult = resolve; });
@@ -299,7 +300,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     await calibrationStore.discardStaleCalibrationProfile(
         context as unknown as vscode.ExtensionContext,
         racingPath,
-        new Error('Calibration channel label mismatch'),
+        new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
         failedRacingProfile,
     );
     resolveRacingAnalysis?.();
