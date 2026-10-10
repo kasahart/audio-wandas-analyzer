@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getChartSpecRenderScript } from '../webview/chartSpecRenderScript';
+import { normalizedColor, viridis } from '../shared/gui-core/index';
+import { getStrings, rangePopoverStrings } from '../shared/i18n/strings';
 
 // Shared canvas stub helper to avoid duplication across tests
 function applyCanvasStub(
     doc: Document,
     fillTextSpy?: (text: string) => void,
     fillRectSpy?: (x: number, y: number, width: number, height: number) => void,
+    imageSpy?: (image: { width: number; height: number; data: Uint8ClampedArray }) => void,
 ) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const origCreate = (doc as any).createElement.bind(doc);
@@ -22,6 +25,8 @@ function applyCanvasStub(
                     if (p === 'measureText') { return () => ({ width: 0 }); }
                     if (p === 'fillText') { return (text: string) => { if (fillTextSpy) { fillTextSpy(String(text)); } }; }
                     if (p === 'fillRect') { return (x: number, y: number, width: number, height: number) => { if (fillRectSpy) { fillRectSpy(x, y, width, height); } }; }
+                    if (p === 'createImageData') { return (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }); }
+                    if (p === 'putImageData') { return (image: { width: number; height: number; data: Uint8ClampedArray }) => { if (imageSpy) { imageSpy(image); } }; }
                     return () => undefined;
                 },
                 set() { return true; },
@@ -98,11 +103,8 @@ test('range-popup が HTML になくても buildRangePopup() が注入する', (
     assert.ok(dom.window.document.getElementById('range-auto'),  '#range-auto が存在すること');
     assert.ok(dom.window.document.getElementById('range-close'), '#range-close が存在すること');
     assert.ok(dom.window.document.getElementById('range-error'), '#range-error が存在すること');
-    assert.ok(dom.window.document.getElementById('range-min-x'),             '#range-min-x が存在すること');
-    assert.ok(dom.window.document.getElementById('range-max-x'),             '#range-max-x が存在すること');
     assert.ok(dom.window.document.getElementById('popup-axis-badge'),        '#popup-axis-badge が存在すること');
-    assert.ok(dom.window.document.getElementById('popup-inputs-vertical'),   '#popup-inputs-vertical が存在すること');
-    assert.ok(dom.window.document.getElementById('popup-inputs-horizontal'), '#popup-inputs-horizontal が存在すること');
+    assert.ok(dom.window.document.getElementById('range-inputs'),            '#range-inputs が存在すること');
     dom.window.close();
 });
 
@@ -460,10 +462,10 @@ test('Line チャートの X 軸 Apply→override→プロット内部リセッ�
     canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 300, clientY: 220,
     }));
-    const minX = doc.getElementById('range-min-x') as HTMLInputElement;
-    const maxX = doc.getElementById('range-max-x') as HTMLInputElement;
-    assert.ok(minX, '#range-min-x が存在すること');
-    assert.ok(maxX, '#range-max-x が存在すること');
+    const minX = doc.getElementById('range-min') as HTMLInputElement;
+    const maxX = doc.getElementById('range-max') as HTMLInputElement;
+    assert.ok(minX, '#range-min が存在すること');
+    assert.ok(maxX, '#range-max が存在すること');
 
     // X レンジを 0 〜 5 に設定して Apply
     minX.value = '0';
@@ -474,8 +476,8 @@ test('Line チャートの X 軸 Apply→override→プロット内部リセッ�
     canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 300, clientY: 220,
     }));
-    assert.equal((doc.getElementById('range-min-x') as HTMLInputElement).value, '0', 'range-min-x が 0 であること');
-    assert.equal((doc.getElementById('range-max-x') as HTMLInputElement).value, '5', 'range-max-x が 5 であること');
+    assert.equal((doc.getElementById('range-min') as HTMLInputElement).value, '0', 'X 軸の Min が 0 であること');
+    assert.equal((doc.getElementById('range-max') as HTMLInputElement).value, '5', 'X 軸の Max が 5 であること');
 
     // プロット内部 dblclick でリセット: cx=300 ∈ [50,710], cy=100 ∈ [16,206]
     canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
@@ -486,8 +488,8 @@ test('Line チャートの X 軸 Apply→override→プロット内部リセッ�
     canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true, cancelable: true, clientX: 300, clientY: 220,
     }));
-    assert.equal((doc.getElementById('range-max-x') as HTMLInputElement).value, '', 'リセット後 range-max-x が空であること');
-    assert.equal((doc.getElementById('range-min-x') as HTMLInputElement).value, '', 'リセット後 range-min-x が空であること');
+    assert.equal((doc.getElementById('range-max') as HTMLInputElement).value, '', 'リセット後 X 軸の Max が空であること');
+    assert.equal((doc.getElementById('range-min') as HTMLInputElement).value, '', 'リセット後 X 軸の Min が空であること');
     dom.window.close();
 });
 
@@ -590,8 +592,8 @@ test('Heatmap の X レンジを Apply すると軸ラベルが変化する', ()
     }));
 
     filledTexts.length = 0;
-    (dom.window.document.getElementById('range-min-x') as HTMLInputElement).value = '20';
-    (dom.window.document.getElementById('range-max-x') as HTMLInputElement).value = '60';
+    (dom.window.document.getElementById('range-min') as HTMLInputElement).value = '20';
+    (dom.window.document.getElementById('range-max') as HTMLInputElement).value = '60';
     (dom.window.document.getElementById('range-apply') as HTMLElement).click();
 
     const has20 = filledTexts.some(t => t.includes('20'));
@@ -601,8 +603,8 @@ test('Heatmap の X レンジを Apply すると軸ラベルが変化する', ()
 });
 
 
-test('Heatmap の X レンジを Apply すると描画セルも表示範囲に合わせて拡大される', () => {
-    const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+function heatmapZoomRaster(axis: 'x' | 'y'): { width: number; height: number; data: Uint8ClampedArray } {
+    const images: Array<{ width: number; height: number; data: Uint8ClampedArray }> = [];
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="charts"></div>
     </body></html>`, { runScripts: 'dangerously' });
@@ -619,68 +621,44 @@ test('Heatmap の X レンジを Apply すると描画セルも表示範囲に�
     }];
     win.__CHART_NO_RESULTS_LABEL__ = 'No results';
     win.__CHART_SCALAR_HEADERS__ = ['Label', 'Value', 'Unit'];
-
-    applyCanvasStub(dom.window.document, undefined, (x, y, width, height) => { rects.push({ x, y, width, height }); });
-
+    applyCanvasStub(dom.window.document, undefined, undefined, image => { images.push(image); });
     const script = dom.window.document.createElement('script');
     script.textContent = getChartSpecRenderScript();
     dom.window.document.body.appendChild(script);
 
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
     canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
-        bubbles: true, cancelable: true, clientX: 300, clientY: 220,
+        bubbles: true, cancelable: true, clientX: axis === 'x' ? 300 : 20, clientY: axis === 'x' ? 220 : 100,
     }));
-
-    rects.length = 0;
-    (dom.window.document.getElementById('range-min-x') as HTMLInputElement).value = '25';
-    (dom.window.document.getElementById('range-max-x') as HTMLInputElement).value = '75';
-    (dom.window.document.getElementById('range-apply') as HTMLElement).click();
-
-    const heatmapRects = rects.filter((r) => r.x >= 50 && r.x <= 680 && r.y >= 16 && r.y <= 206 && r.width > 1 && r.height > 1);
-    assert.equal(heatmapRects.length, 8, 'X レンジ適用後は表示範囲内の 2 列だけを描画すること');
-    assert.ok(heatmapRects.every((r) => r.width > 300), `表示範囲に合わせてセル幅が拡大されること: ${JSON.stringify(heatmapRects.slice(0, 4))}`);
-    dom.window.close();
-});
-
-test('Heatmap の Y レンジを Apply すると描画セルも表示範囲に合わせて拡大される', () => {
-    const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
-    const dom = new JSDOM(`<!DOCTYPE html><html><body>
-        <div id="charts"></div>
-    </body></html>`, { runScripts: 'dangerously' });
-    const win = dom.window as unknown as Record<string, unknown>;
-    win.__CHART_SPECS__ = [{
-        kind: 'heatmap', title: 'H', xLabel: 'X', yLabel: 'Y',
-        xs: [0, 100], ys: [0, 100],
-        matrix: [
-            [0, 1, 2, 3],
-            [4, 5, 6, 7],
-            [8, 9, 10, 11],
-            [12, 13, 14, 15],
-        ],
-    }];
-    win.__CHART_NO_RESULTS_LABEL__ = 'No results';
-    win.__CHART_SCALAR_HEADERS__ = ['Label', 'Value', 'Unit'];
-
-    applyCanvasStub(dom.window.document, undefined, (x, y, width, height) => { rects.push({ x, y, width, height }); });
-
-    const script = dom.window.document.createElement('script');
-    script.textContent = getChartSpecRenderScript();
-    dom.window.document.body.appendChild(script);
-
-    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
-    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
-        bubbles: true, cancelable: true, clientX: 20, clientY: 100,
-    }));
-
-    rects.length = 0;
     (dom.window.document.getElementById('range-min') as HTMLInputElement).value = '25';
     (dom.window.document.getElementById('range-max') as HTMLInputElement).value = '75';
     (dom.window.document.getElementById('range-apply') as HTMLElement).click();
-
-    const heatmapRects = rects.filter((r) => r.x >= 50 && r.x <= 680 && r.y >= 16 && r.y <= 206 && r.width > 1 && r.height > 1);
-    assert.equal(heatmapRects.length, 8, 'Y レンジ適用後は表示範囲内の 2 行だけを描画すること');
-    assert.ok(heatmapRects.every((r) => r.height > 80), `表示範囲に合わせてセル高が拡大されること: ${JSON.stringify(heatmapRects.slice(0, 4))}`);
     dom.window.close();
+    return images.at(-1)!;
+}
+
+function pixel(image: { width: number; data: Uint8ClampedArray }, x: number, y: number): number[] {
+    const offset = (y * image.width + x) * 4;
+    return Array.from(image.data.slice(offset, offset + 3));
+}
+
+const valueColor = (value: number): number[] => normalizedColor(value / 15, viridis);
+
+test('Heatmap の X レンジを Apply すると表示範囲内の列だけが共有ラスタで拡大描画される', () => {
+    const image = heatmapZoomRaster('x');
+    const bottom = image.height - 1;
+    // Visible 25–75 covers columns 1 and 2: each fills half the plot width; the bottom row is matrix row 0.
+    assert.deepEqual(pixel(image, 0, bottom), valueColor(1));
+    assert.deepEqual(pixel(image, image.width - 1, bottom), valueColor(2));
+    assert.deepEqual(pixel(image, 0, 0), valueColor(13));
+});
+
+test('Heatmap の Y レンジを Apply すると表示範囲内の行だけが共有ラスタで拡大描画される', () => {
+    const image = heatmapZoomRaster('y');
+    // Visible 25–75 covers rows 1 (bottom half) and 2 (top half).
+    assert.deepEqual(pixel(image, 0, image.height - 1), valueColor(4));
+    assert.deepEqual(pixel(image, 0, 0), valueColor(8));
+    assert.deepEqual(pixel(image, image.width - 1, 0), valueColor(11));
 });
 
 
@@ -725,4 +703,26 @@ test('heatmap color scales visibly display their calibrated reference', () => {
         assert.ok(labels.includes(unit));
         dom.window.close();
     }
+});
+
+test('recipe range popover is localized through the shared dictionary', () => {
+    const dom = new JSDOM(`<!DOCTYPE html><html><body><div id="charts"></div></body></html>`, { runScripts: 'dangerously' });
+    const win = dom.window as unknown as Record<string, unknown>;
+    win.__CHART_SPECS__ = [{ kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y', xs: [0, 1], series: [{ name: 's', ys: [0, 1] }] }];
+    win.__CHART_RANGE_STRINGS__ = rangePopoverStrings(getStrings('ja'));
+    applyCanvasStub(dom.window.document);
+    const script = dom.window.document.createElement('script');
+    script.textContent = getChartSpecRenderScript();
+    dom.window.document.body.appendChild(script);
+    const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
+    canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 300, clientY: 220 }));
+    const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
+    assert.match(popup.textContent ?? '', /^レンジ/);
+    assert.equal(dom.window.document.getElementById('popup-axis-badge')!.textContent, 'X 軸');
+    assert.equal(dom.window.document.getElementById('range-apply')!.textContent, '適用');
+    (dom.window.document.getElementById('range-min') as HTMLInputElement).value = '5';
+    (dom.window.document.getElementById('range-max') as HTMLInputElement).value = '1';
+    (dom.window.document.getElementById('range-apply') as HTMLElement).click();
+    assert.equal(dom.window.document.getElementById('range-error')!.textContent, 'Min は Max より小さい値を入力してください');
+    dom.window.close();
 });

@@ -184,6 +184,10 @@ export interface UiStrings {
     specRangeApply: string;
     specRangeAuto: string;
     specRangeErrorMinMax: string;
+    specRangeClose: string;
+    rangeAxisX: string;
+    rangeAxisY: string;
+    rangeAxisColor: string;
     helpRowSpectrumDrag: string;
     helpRowWaveRectZoom: string;
     waveModeLabelRectZoom: string;
@@ -360,6 +364,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specRangeApply: 'Apply',
         specRangeAuto: 'Auto',
         specRangeErrorMinMax: 'Min must be smaller than Max',
+        specRangeClose: 'Close',
+        rangeAxisX: 'X axis',
+        rangeAxisY: 'Y axis',
+        rangeAxisColor: 'Color',
         helpRowSpectrumDrag: 'drag zoom (spectrum)',
         helpRowWaveRectZoom: 'drag zoom (waveform zoom mode)',
         waveModeLabelRectZoom: 'Rect Zoom',
@@ -534,6 +542,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specRangeApply: '適用',
         specRangeAuto: '自動',
         specRangeErrorMinMax: 'Min は Max より小さい値を入力してください',
+        specRangeClose: '閉じる',
+        rangeAxisX: 'X 軸',
+        rangeAxisY: 'Y 軸',
+        rangeAxisColor: 'カラー',
         helpRowSpectrumDrag: '矩形ズーム (スペクトル)',
         helpRowWaveRectZoom: '矩形ズーム (波形ズームモード時)',
         waveModeLabelRectZoom: '矩形ズーム',
@@ -547,6 +559,22 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
 export function pickLocale(language: string | undefined): SupportedLocale {
     if (typeof language !== 'string') { return 'en'; }
     return language.toLowerCase().startsWith('ja') ? 'ja' : 'en';
+}
+
+/** Labels for the shared axis range popover (comparison spectrum and recipe charts). */
+export function rangePopoverStrings(strings: UiStrings) {
+    return {
+        title: strings.specRangeTitle,
+        min: strings.specRangeMin,
+        max: strings.specRangeMax,
+        apply: strings.specRangeApply,
+        auto: strings.specRangeAuto,
+        close: strings.specRangeClose,
+        invalid: strings.specRangeErrorMinMax,
+        axisX: strings.rangeAxisX,
+        axisY: strings.rangeAxisY,
+        axisColor: strings.rangeAxisColor,
+    };
 }
 
 export function getStrings(language: string | undefined): UiStrings {

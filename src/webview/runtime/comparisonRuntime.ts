@@ -14,6 +14,8 @@ import {
     trackTimeFromGlobalNorm as mapTrackTimeFromGlobalNorm,
 } from './playback';
 import { parseBoundedInteger, positionPopover } from './settingsPopover';
+import { installRangePopover } from '../rangePopover';
+import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { SHORTCUT_ROWS } from './shortcuts';
 import {
     hoverNormForFrequency as mapHoverNormForFrequency,
@@ -3899,191 +3901,58 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
     }
     // ── スペクトル overlay レンジ popover ──
-    let _specRangeAxis = 'freq'; // 'freq' | 'db'
-    (function buildSpectrumRangePopover() {
-        if (document.getElementById('spectrum-range-popover')) {
-            return;
-        }
-        const pop = document.createElement('div');
-        pop.id = 'spectrum-range-popover';
-        pop.style.cssText = 'display:none;position:fixed;z-index:9999;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-size:12px;color:var(--text);box-shadow:0 4px 12px rgba(0,0,0,.4);min-width:180px;';
-        const inputStyle = 'width:90px;background:var(--vscode-input-background,#3c3c3c);color:inherit;border:1px solid var(--vscode-input-border,#555);border-radius:2px;padding:2px 4px;font-size:12px;';
-        const labelStyle = 'width:42px;font-size:11px;color:var(--muted);';
-        pop.innerHTML =
-            '<div style="margin-bottom:8px;font-weight:600;font-size:11px;color:var(--muted);">'
-                + escapeHtml(STR.specRangeTitle)
-                + ' <span id="spec-range-axis-badge" style="padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;color:#fff;background:#0e639c;"></span>'
-                + '</div>'
-                + '<div id="spec-range-inputs" style="display:flex;flex-direction:column;gap:4px;align-items:center;">'
-                + '<label id="spec-range-min-label" style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escapeHtml(STR.specRangeMin) + '</span><input id="spec-range-min" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
-                + '<label id="spec-range-max-label" style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escapeHtml(STR.specRangeMax) + '</span><input id="spec-range-max" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
-                + '</div>'
-                + '<div style="display:flex;gap:6px;margin-top:8px;">'
-                + '<button class="tb-btn" id="spec-range-apply" style="flex:1;">' + escapeHtml(STR.specRangeApply) + '</button>'
-                + '<button class="tb-btn" id="spec-range-auto" style="flex:1;">' + escapeHtml(STR.specRangeAuto) + '</button>'
-                + '<button class="tb-btn" id="spec-range-close" aria-label="Close">×</button>'
-                + '</div>'
-                + '<div id="spec-range-error" style="color:#f48771;font-size:11px;margin-top:4px;min-height:14px;"></div>';
-        document.body.appendChild(pop);
-    })();
-    function closeSpectrumRangePopover() {
-        const pop = document.getElementById('spectrum-range-popover');
-        if (pop) {
-            pop.style.display = 'none';
-        }
-        const err = document.getElementById('spec-range-error');
-        if (err) {
-            err.textContent = '';
-        }
-    }
+    const spectrumRangePopover = installRangePopover(document, {
+        rootId: 'spectrum-range-popover',
+        badgeId: 'spec-range-axis-badge',
+        idPrefix: 'spec-range',
+        strings: rangePopoverStrings(STR),
+        position: positionPopover,
+    });
     function openSpectrumRangePopup(axis: string, clientX: number, clientY: number) {
-        _specRangeAxis = axis;
-        const pop = document.getElementById('spectrum-range-popover');
-        if (!pop) {
-            return;
-        }
-        const badge = document.getElementById('spec-range-axis-badge');
-        const minInput = document.getElementById('spec-range-min');
-        const maxInput = document.getElementById('spec-range-max');
-        const err = document.getElementById('spec-range-error');
-        if (err) {
-            err.textContent = '';
-        }
         if (axis === 'db') {
-            if (badge) {
-                badge.textContent = STR.specRangeAxisDb;
-            }
-            minInput.value = (specDbMin != null) ? String(specDbMin)
-                : (_lastVisDbMin != null ? String(Math.round(_lastVisDbMin)) : '');
-            maxInput.value = (specDbMax != null) ? String(specDbMax)
-                : (_lastVisDbMax != null ? String(Math.round(_lastVisDbMax)) : '');
-        }
-        else {
-            if (badge) {
-                badge.textContent = STR.specRangeAxisFreq;
-            }
-            minInput.value = String(Math.round(specFreqStart * _lastSpectrumMaxF));
-            maxInput.value = String(Math.round(specFreqEnd * _lastSpectrumMaxF));
-        }
-        // レイアウト: Y(dB) 軸は縦並びで Max 上 / Min 下、
-        // X(周波数) 軸は横並びで Min 左 / Max 右。
-        var inputsBox = document.getElementById('spec-range-inputs');
-        var minLabel = document.getElementById('spec-range-min-label');
-        var maxLabel = document.getElementById('spec-range-max-label');
-        if (inputsBox && minLabel && maxLabel) {
-            if (axis === 'db') {
-                inputsBox.style.flexDirection = 'column';
-                maxLabel.style.order = '0'; // Max 上
-                minLabel.style.order = '1'; // Min 下
-            }
-            else {
-                inputsBox.style.flexDirection = 'row';
-                minLabel.style.order = '0'; // Min 左
-                maxLabel.style.order = '1'; // Max 右
-            }
-        }
-        pop.style.display = 'block';
-        // ビューポート外（特に X 軸 dblclick はパネル下端なので下に隠れる）に
-        // はみ出す場合はカーソルの反対側へ寄せて収める。
-        var _vw = window.innerWidth || 0;
-        var _vh = window.innerHeight || 0;
-        var _r = pop.getBoundingClientRect();
-        const position = positionPopover(clientX, clientY, _r.width, _r.height, _vw, _vh);
-        pop.style.left = position.left + 'px';
-        pop.style.top = position.top + 'px';
-        if (maxInput) {
-            maxInput.focus();
-        }
-    }
-    function applySpectrumRange() {
-        const minInput = document.getElementById('spec-range-min');
-        const maxInput = document.getElementById('spec-range-max');
-        const err = document.getElementById('spec-range-error');
-        if (!minInput || !maxInput) {
+            spectrumRangePopover.open({
+                axisLabel: STR.specRangeAxisDb,
+                horizontal: false,
+                min: specDbMin != null ? String(specDbMin) : (_lastVisDbMin != null ? String(Math.round(_lastVisDbMin)) : ''),
+                max: specDbMax != null ? String(specDbMax) : (_lastVisDbMax != null ? String(Math.round(_lastVisDbMax)) : ''),
+                clientX, clientY,
+                apply(min, max) {
+                    specDbMin = min;
+                    specDbMax = max;
+                    scheduleSpectrumRefresh('immediate');
+                },
+                auto() {
+                    specDbMin = null;
+                    specDbMax = null;
+                    scheduleSpectrumRefresh('immediate');
+                },
+            });
             return;
         }
-        const minVal = minInput.value.trim();
-        const maxVal = maxInput.value.trim();
-        const min = minVal === '' ? null : Number(minVal);
-        const max = maxVal === '' ? null : Number(maxVal);
-        if (err) {
-            err.textContent = '';
-        }
-        if (min !== null && !isFinite(min)) {
-            if (err) {
-                err.textContent = STR.specRangeErrorMinMax;
-            }
-            return;
-        }
-        if (max !== null && !isFinite(max)) {
-            if (err) {
-                err.textContent = STR.specRangeErrorMinMax;
-            }
-            return;
-        }
-        if (min !== null && max !== null && min >= max) {
-            if (err) {
-                err.textContent = STR.specRangeErrorMinMax;
-            }
-            return;
-        }
-        if (_specRangeAxis === 'db') {
-            specDbMin = min;
-            specDbMax = max;
-        }
-        else {
-            const mf = _lastSpectrumMaxF || 1;
-            const nextFreqStart = (min === null) ? 0 : Math.max(0, Math.min(1, min / mf));
-            const nextFreqEnd = (max === null) ? 1 : Math.max(0, Math.min(1, max / mf));
-            if (nextFreqStart >= nextFreqEnd) {
-                if (err) {
-                    err.textContent = STR.specRangeErrorMinMax;
+        spectrumRangePopover.open({
+            axisLabel: STR.specRangeAxisFreq,
+            horizontal: true,
+            min: String(Math.round(specFreqStart * _lastSpectrumMaxF)),
+            max: String(Math.round(specFreqEnd * _lastSpectrumMaxF)),
+            clientX, clientY,
+            apply(min, max) {
+                const mf = _lastSpectrumMaxF || 1;
+                const nextFreqStart = (min === null) ? 0 : Math.max(0, Math.min(1, min / mf));
+                const nextFreqEnd = (max === null) ? 1 : Math.max(0, Math.min(1, max / mf));
+                if (nextFreqStart >= nextFreqEnd) {
+                    return STR.specRangeErrorMinMax;
                 }
-                return;
-            }
-            specFreqStart = nextFreqStart;
-            specFreqEnd = nextFreqEnd;
-        }
-        scheduleSpectrumRefresh('immediate');
-        closeSpectrumRangePopover();
-    }
-    function autoSpectrumRange() {
-        if (_specRangeAxis === 'db') {
-            specDbMin = null;
-            specDbMax = null;
-        }
-        else {
-            specFreqStart = 0;
-            specFreqEnd = 1;
-        }
-        scheduleSpectrumRefresh('immediate');
-        closeSpectrumRangePopover();
-    }
-    (function wireSpectrumRangeHandlers() {
-        const applyBtn = document.getElementById('spec-range-apply');
-        const autoBtn = document.getElementById('spec-range-auto');
-        const closeBtn = document.getElementById('spec-range-close');
-        if (applyBtn) {
-            applyBtn.addEventListener('click', applySpectrumRange);
-        }
-        if (autoBtn) {
-            autoBtn.addEventListener('click', autoSpectrumRange);
-        }
-        if (closeBtn) {
-            closeBtn.addEventListener('click', closeSpectrumRangePopover);
-        }
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') {
-                closeSpectrumRangePopover();
-            }
+                specFreqStart = nextFreqStart;
+                specFreqEnd = nextFreqEnd;
+                scheduleSpectrumRefresh('immediate');
+            },
+            auto() {
+                specFreqStart = 0;
+                specFreqEnd = 1;
+                scheduleSpectrumRefresh('immediate');
+            },
         });
-        document.addEventListener('mousedown', function (e) {
-            const pop = document.getElementById('spectrum-range-popover');
-            if (pop && pop.style.display !== 'none' && !pop.contains(eventTarget(e))) {
-                closeSpectrumRangePopover();
-            }
-        });
-    })();
+    }
     function copySpecToClipboard() {
         if (!navigator.clipboard || !navigator.clipboard.writeText) {
             messaging.post({ type: 'show-info', message: STR.announceSpecCopyFailed || 'Copy failed: clipboard not available' });

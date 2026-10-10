@@ -1,6 +1,6 @@
 import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscaping';
 import type { ChartSpec } from '../../shared/chartSpec';
-import { getStrings, pickLocale, type UiStrings } from '../../shared/i18n/strings';
+import { getStrings, pickLocale, rangePopoverStrings, type UiStrings } from '../../shared/i18n/strings';
 import { getChartSpecRenderScript } from '../chartSpecRenderScript';
 
 /** Globals the ChartSpec render script reads once when it loads. */
@@ -8,6 +8,7 @@ export interface ChartSpecGlobals {
     __CHART_SPECS__: ChartSpec[];
     __CHART_NO_RESULTS_LABEL__: string;
     __CHART_SCALAR_HEADERS__: [string, string, string];
+    __CHART_RANGE_STRINGS__: ReturnType<typeof rangePopoverStrings>;
 }
 
 export function chartSpecGlobals(charts: ChartSpec[], strings: UiStrings): ChartSpecGlobals {
@@ -19,6 +20,7 @@ export function chartSpecGlobals(charts: ChartSpec[], strings: UiStrings): Chart
             strings.chartSpecScalarValueHeader,
             strings.chartSpecScalarUnitHeader,
         ],
+        __CHART_RANGE_STRINGS__: rangePopoverStrings(strings),
     };
 }
 
@@ -38,7 +40,8 @@ h2 { font-size: 14px; margin: 0 0 12px; color: var(--accent); }
 .scalar-table { border-collapse: collapse; font-size: 12px; }
 .scalar-table th, .scalar-table td { border-bottom: 1px solid var(--line); padding: 4px 12px 4px 0; text-align: left; }
 .scalar-table th { color: var(--muted); font-weight: 600; }
-canvas { display: block; max-width: 100%; }`;
+canvas { display: block; max-width: 100%; }
+.tb-btn { padding: 3px 8px; background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, #ddd); border: none; border-radius: 2px; cursor: pointer; font-size: 11px; }`;
 }
 
 export interface ChartSpecDocumentOptions {
@@ -68,6 +71,7 @@ ${renderChartSpecStyles()}
 window.__CHART_SPECS__ = ${serializeForScript(globals.__CHART_SPECS__)};
 window.__CHART_NO_RESULTS_LABEL__ = ${serializeForScript(globals.__CHART_NO_RESULTS_LABEL__)};
 window.__CHART_SCALAR_HEADERS__ = ${serializeForScript(globals.__CHART_SCALAR_HEADERS__)};
+window.__CHART_RANGE_STRINGS__ = ${serializeForScript(globals.__CHART_RANGE_STRINGS__)};
 </script>
 <script nonce="${options.nonce}">${getChartSpecRenderScript()}</script>
 </body>

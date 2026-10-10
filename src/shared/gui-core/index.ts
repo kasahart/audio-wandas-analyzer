@@ -20,6 +20,7 @@ export type Palette = Readonly<{
 }>;
 export const blue: Palette = { stops: [[11, 20, 40], [18, 54, 95], [36, 111, 159], [110, 180, 212], [238, 248, 255]], rounding: 'round' };
 export const viridis: Palette = { stops: [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]], rounding: 'floor' };
+export const magma: Palette = { stops: [[0, 0, 4], [81, 18, 124], [183, 55, 121], [252, 137, 97], [252, 253, 191]], rounding: 'floor' };
 export type RasterSource = {
     layout: 'flat';
     values: ArrayLike<number>;
