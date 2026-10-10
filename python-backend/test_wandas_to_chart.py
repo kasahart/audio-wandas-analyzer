@@ -189,3 +189,26 @@ def test_same_unit_transfer_default_keeps_gain_even_with_different_references(tw
     assert [series["unit"] for series in referenced["series"]] == [
         channel.level_reference.label for channel in frame.channels
     ]
+
+
+@pytest.mark.parametrize("second_unit", ["V", "Pa"])
+def test_linear_transfer_gain_preserves_channel_units_and_values(
+    two_channel: wd.ChannelFrame, second_unit: str
+) -> None:
+    frame = two_channel.with_calibration(
+        {
+            0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5),
+            1: wd.ChannelCalibration(factor=3.0, unit=second_unit, ref=1e-6),
+        }
+    ).transfer_function()
+    spec = adapt(frame, value="gain")
+    assert spec["yLabel"] == "Gain"
+    assert spec["yScale"] == "linear"
+    assert [series["unit"] for series in spec["series"]] == [channel.unit for channel in frame.channels]
+    if second_unit == "V":
+        assert {series["unit"] for series in spec["series"]} == {"1", "Pa/V", "V/Pa"}
+    else:
+        assert {series["unit"] for series in spec["series"]} == {"1"}
+    actual = np.array([series["ys"] for series in spec["series"]])
+    finite = np.isfinite(frame.gain)
+    np.testing.assert_allclose(actual[finite], frame.gain[finite])

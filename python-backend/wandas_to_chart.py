@@ -102,7 +102,7 @@ def _adapt_spectral_frame(
     for item, channel in zip(series, getattr(frame, "channels", []), strict=False):
         if value in {"dB", "level_db", "transfer_level_db"}:
             item["unit"] = channel.level_reference.label
-        elif value == "magnitude" and channel.unit:
+        elif value in {"magnitude", "gain"} and channel.unit:
             item["unit"] = channel.unit
     return {
         "kind": "line",

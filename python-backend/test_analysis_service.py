@@ -225,7 +225,8 @@ def test_recipe_uses_calibrated_frames_and_recipe_relative_paths_in_both_hosts(t
     assert cached.frame.channels[0].unit != "Pa"
 
 
-def test_calibrated_pairwise_recipe_matches_desktop_and_browser(tmp_path):
+@pytest.mark.parametrize("transfer_value", [None, "gain"])
+def test_calibrated_pairwise_recipe_matches_desktop_and_browser(tmp_path, transfer_value):
     from browser_service import create_service
 
     rate = 16000
@@ -257,12 +258,17 @@ def test_calibrated_pairwise_recipe_matches_desktop_and_browser(tmp_path):
             {"as": "cross", "expr": "sig.csd()"},
             {"as": "transfer", "expr": "sig.transfer_function()"},
         ],
-        "display": ["cross", "transfer"],
+        "display": ["cross", {"name": "transfer", "value": transfer_value}]
+        if transfer_value
+        else ["cross", "transfer"],
     }
     contexts = {"sig": {"calibrationProfile": profile}}
     native = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
     web = browser.run_recipe(recipe, recipe_path="/sources/custom.json", input_contexts=contexts)
     assert native == web
-    assert [chart["yLabel"] for chart in native["charts"]] == ["Cross-spectral level [dB]", "Transfer level [dB]"]
+    assert [chart["yLabel"] for chart in native["charts"]] == [
+        "Cross-spectral level [dB]",
+        "Gain" if transfer_value else "Transfer level [dB]",
+    ]
     for chart in native["charts"]:
         assert any("Pa" in series["unit"] and "V" in series["unit"] for series in chart["series"])
