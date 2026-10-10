@@ -1,7 +1,7 @@
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal } from '../../shared/analysis/analysisClient';
-import { parseBackendResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
+import { BackendProtocolError, parseBackendResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { isConfigureCalibrationMessage } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
@@ -56,10 +56,17 @@ const inboundListeners = new Set<(message: unknown) => void>();
 let loading = false;
 const pending = new PendingBackendRequests<Record<string, unknown>>('browser-');
 // Session limits come from browser_service.py through the Worker so pre-checks, the backend and the README agree.
-interface BrowserLimits { maxInputBytes: number; maxSources: number; maxTotalInputBytes: number; maxExportBytes: number }
+const BROWSER_LIMIT_KEYS = ['maxInputBytes', 'maxSources', 'maxTotalInputBytes', 'maxExportBytes'] as const;
+type BrowserLimits = Record<typeof BROWSER_LIMIT_KEYS[number], number>;
 let browserLimits: BrowserLimits | undefined;
+/** Caches the Worker's limits only when every field is a positive integer, so a skewed Worker cannot disable the pre-checks. */
 async function limits(): Promise<BrowserLimits> {
-    return browserLimits ??= await request({ cmd: 'limits' }) as unknown as BrowserLimits;
+    if (browserLimits) return browserLimits;
+    const reply = await request({ cmd: 'limits' });
+    if (!BROWSER_LIMIT_KEYS.every(key => Number.isSafeInteger(reply[key]) && Number(reply[key]) > 0)) {
+        throw new BackendProtocolError('Invalid limits response from the audio Worker');
+    }
+    return browserLimits = Object.fromEntries(BROWSER_LIMIT_KEYS.map(key => [key, Number(reply[key])])) as BrowserLimits;
 }
 const mib = (bytes: number): string => String(bytes / (1024 * 1024));
 const bar = document.createElement('div');

@@ -17,6 +17,12 @@ const REQUIRED_PACKAGES = [
         minimum: [1, 13, 0],
     },
     {
+        modules: ['soundfile'],
+        distribution: 'soundfile',
+        requirement: 'soundfile>=0.12',
+        minimum: [0, 12, 0],
+    },
+    {
         modules: ['wandas', 'mosqito'],
         distribution: 'wandas',
         requirement: 'wandas[psychoacoustic]>=0.8.1,<0.9.0',
