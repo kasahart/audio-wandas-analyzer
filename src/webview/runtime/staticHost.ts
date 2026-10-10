@@ -136,7 +136,7 @@ function stft() {
 }
 const analysisClient = new class extends AnalysisClient {
     protected override cancelRequest(requestId: string, reason: Error): void {
-        if (!pending.has(requestId)) return;
+        if (!pending.has(requestId) && !recovery) return;
         resetWorker(new RecipeWorkerResetError(reason.message));
         emit({ type: 'reanalyze-end' });
         announce(reason.message);

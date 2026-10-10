@@ -51,6 +51,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         './recipes/octave.json': { inputs: [{ name: 'sig', file: '{{selection}}' }], steps: [{ as: 'o', expr: 'sig.noct_spectrum()' }], display: ['o'] },
     };
     const workers: ControlledWorker[] = [];
+    const blockedWorkerCommands = new Set<string>();
     const received: Record<string, unknown>[] = [];
     const firstAnalysis = new Set<string>();
     const revoked: string[] = [];
@@ -70,7 +71,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
                 firstAnalysis.add(`/sources/${command.sourceId}`);
                 this.loadedSources.add(`/sources/${command.sourceId}`);
             }
-            if (this.blockedCommands.has(String(command.cmd))) return;
+            if (this.blockedCommands.has(String(command.cmd)) || blockedWorkerCommands.has(String(command.cmd))) return;
             if (command.cmd === 'unload' && !this.loadedSources.delete(String(command.filePath))) {
                 queueMicrotask(() => this.reply(command, {}, 'Source is not loaded'));
                 return;
@@ -121,7 +122,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         picker.onchange!();
         await flush();
     }
-    return { host, browser, storage, workers, received, load, picker, elements, revoked, fetched, prompts, served,
+    return { host, browser, storage, workers, blockedWorkerCommands, received, load, picker, elements, revoked, fetched, prompts, served,
         setPromptAnswer(value: string | null) { promptAnswer = value; },
         get status() { return elements.find(element => element.tag === 'span')!.textContent; },
         get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
@@ -538,3 +539,31 @@ for (const operation of ['remove', 'add'] as const) {
         assert.deepEqual(app.revoked, operation === 'remove' ? [before[0].audioSource] : []);
     });
 }
+
+
+test('Recipe timeout stops a hanging recovery load and later requests can recover again', async () => {
+    const app = harness(new Map(), 'en', false, 20);
+    await app.load();
+    const filePath = app.sourcePath;
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush(); await flush();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(app.workers[0].terminated, true);
+    app.blockedWorkerCommands.add('load');
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush(); await flush();
+    const recovering = app.workers[1];
+    assert.equal(recovering.commands.at(-1)!.cmd, 'load');
+    assert.equal(recovering.commands.some(command => command.cmd === 'run-recipe'), false);
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(recovering.terminated, true);
+    assert.match(app.status, /timed out/);
+    assert.deepEqual(app.revoked, []);
+    app.blockedWorkerCommands.delete('load');
+    app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
+    await flush(); await flush();
+    assert.equal(app.workers.length, 3);
+    assert.ok(app.workers[2].commands.some(command => command.cmd === 'analyze' && command.filePath === filePath));
+    assert.deepEqual(app.revoked, []);
+    assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 1);
+});
