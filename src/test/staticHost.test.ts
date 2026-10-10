@@ -57,6 +57,8 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     let blobId = 0;
     class ControlledWorker {
         commands: Record<string, unknown>[] = [];
+        blockedCommands = new Set<string>();
+        loadedSources = new Set<string>();
         terminated = false;
         onmessage!: (event: { data: Record<string, unknown> }) => void;
         onerror!: () => void;
@@ -64,7 +66,15 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         terminate(): void { this.terminated = true; }
         postMessage(command: Record<string, unknown>): void {
             this.commands.push(command);
-            if (command.cmd === 'load') firstAnalysis.add(`/sources/${command.sourceId}`);
+            if (command.cmd === 'load') {
+                firstAnalysis.add(`/sources/${command.sourceId}`);
+                this.loadedSources.add(`/sources/${command.sourceId}`);
+            }
+            if (this.blockedCommands.has(String(command.cmd))) return;
+            if (command.cmd === 'unload' && !this.loadedSources.delete(String(command.filePath))) {
+                queueMicrotask(() => this.reply(command, {}, 'Source is not loaded'));
+                return;
+            }
             if (['load','unload','export-plan'].includes(String(command.cmd)) || (command.cmd === 'analyze' && firstAnalysis.has(String(command.filePath)))) {
                 if (command.cmd === 'analyze') firstAnalysis.delete(String(command.filePath));
                 queueMicrotask(() => this.reply(command, command.cmd === 'load' ? { filePath: `/sources/${command.sourceId}` } : {}));
@@ -488,3 +498,43 @@ test('Recipe timeout delivers terminal lazy errors so detail and spectrum can re
     assert.ok(app.received.some(message => message.type === 'spectrum-slice-result' && message.requestId === 'retry-slice'));
     assert.deepEqual(app.revoked, []);
 });
+
+
+for (const operation of ['remove', 'add'] as const) {
+    test(`Recipe timeout during ${operation} preserves remaining tracks and audio URLs`, async () => {
+        const app = harness(new Map(), 'en', false, 20);
+        await app.load();
+        const firstPath = app.sourcePath;
+        await app.load();
+        const remainingPath = app.sourcePath;
+        const before = Array.from(app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as Array<{ filePath: string; audioSource: string }>);
+        const original = app.workers[0];
+        app.host.postMessage({ type: 'run-recipe' });
+        await flush(); await flush();
+        assert.equal(original.commands.at(-1)!.cmd, 'run-recipe');
+        if (operation === 'remove') {
+            original.blockedCommands.add('unload');
+            app.host.releaseSource!(firstPath);
+            await flush();
+            assert.equal(original.commands.at(-1)!.cmd, 'unload');
+        } else {
+            original.blockedCommands.add('analyze');
+            await app.load();
+            assert.equal(original.commands.at(-1)!.cmd, 'analyze');
+        }
+        await new Promise(resolve => setTimeout(resolve, 40));
+        assert.equal(original.terminated, true);
+        assert.deepEqual(app.revoked, operation === 'remove' ? [before[0].audioSource] : []);
+        assert.equal(app.workers.length, 1);
+        assert.equal(app.picker.disabled, false);
+        app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
+        await flush(); await flush();
+        const restored = app.workers[1];
+        const expected = operation === 'remove' ? before.filter(source => source.filePath === remainingPath) : before;
+        assert.deepEqual(restored.commands.filter(command => command.cmd === 'load').map(command => `/sources/${command.sourceId}`), expected.map(source => source.filePath));
+        assert.equal(restored.commands.some(command => command.cmd === 'unload'), false);
+        const after = app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as Array<{ filePath: string; audioSource: string }>;
+        assert.deepEqual(Array.from(after, source => [source.filePath, source.audioSource]), expected.map(source => [source.filePath, source.audioSource]));
+        assert.deepEqual(app.revoked, operation === 'remove' ? [before[0].audioSource] : []);
+    });
+}

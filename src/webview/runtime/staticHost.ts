@@ -73,6 +73,8 @@ const announce = (value: string): void => { status.textContent = value; };
 const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
 const snapshot = (): void => { emit({ type: 'analysis-update', results: sources.snapshot(source => source.result) }); };
 
+class RecipeWorkerResetError extends Error {}
+
 function resetWorker(reason: Error): void {
     reanalysisGeneration.advance();
     worker?.terminate(); worker = undefined;
@@ -135,7 +137,7 @@ function stft() {
 const analysisClient = new class extends AnalysisClient {
     protected override cancelRequest(requestId: string, reason: Error): void {
         if (!pending.has(requestId)) return;
-        resetWorker(reason);
+        resetWorker(new RecipeWorkerResetError(reason.message));
         emit({ type: 'reanalyze-end' });
         announce(reason.message);
     }
@@ -167,7 +169,7 @@ async function releaseSource(path: string): Promise<void> {
     }
     const myGeneration = sourceGeneration.current;
     try { await request({ cmd: 'unload', filePath: path }); }
-    catch (error) { if (sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(String(error)); } }
+    catch (error) { if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(String(error)); } }
 }
 async function fetchJson(url: string): Promise<unknown> {
     const response = await fetch(url);
@@ -355,10 +357,10 @@ pick.onchange = (): void => {
                     const result = await analysisClient.analyze(loadedPath, stft());
                     return { path: loadedPath, result };
                 } catch (error) {
-                    if (sourceGeneration.isCurrent(myGeneration) && loadedPath) {
+                    if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration) && loadedPath) {
                         try { await request({ cmd: 'unload', filePath: loadedPath }); }
                         catch (releaseError) {
-                            if (sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(String(releaseError)); }
+                            if (!(releaseError instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(String(releaseError)); }
                             throw releaseError;
                         }
                     }
