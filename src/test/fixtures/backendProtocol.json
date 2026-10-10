@@ -237,5 +237,10 @@
         ]
       }
     }
+  ],
+  "errorCodes": [
+    "input-error",
+    "stale-calibration",
+    "internal-error"
   ]
 }

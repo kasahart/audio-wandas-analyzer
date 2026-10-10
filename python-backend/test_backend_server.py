@@ -17,6 +17,7 @@ import pytest
 import soundfile as sf
 import wandas as wd
 
+import backend_errors
 from analysis_engine import AnalysisEngine, CachedAnalysis
 from analysis_service import AnalysisService
 from backend_server import dispatch, main, validate_request
@@ -510,9 +511,15 @@ def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
     assert len(resp["channels"]) == 1
 
 
+def test_error_codes_match_the_shared_protocol_fixture() -> None:
+    codes = {backend_errors.INPUT_ERROR, backend_errors.STALE_CALIBRATION, backend_errors.INTERNAL_ERROR}
+    assert codes == set(PROTOCOL_FIXTURES["errorCodes"])
+
+
 def test_unknown_cmd_returns_error(server: _ServerHandle) -> None:
     resp = server.request({"cmd": "nope"})
-    assert "error" in resp and "nope" in resp["error"]
+    assert resp["error"]["code"] == "input-error"
+    assert "nope" in resp["error"]["message"]
 
 
 @pytest.mark.parametrize(
@@ -558,7 +565,8 @@ def test_invalid_payload_returns_deterministic_error_response(server: _ServerHan
     )
 
     assert response["requestId"] == "r1"
-    assert "points" in response["error"]
+    assert response["error"]["code"] == "input-error"
+    assert "points" in response["error"]["message"]
 
 
 def test_dispatch_uses_injected_service_without_creating_an_engine() -> None:
@@ -623,7 +631,7 @@ def test_non_finite_response_becomes_request_error(
     lines = capsys.readouterr().out.splitlines()
     response = json.loads(lines[-1])
     assert response["requestId"] == "r1"
-    assert "Out of range float values" in response["error"]
+    assert "Out of range float values" in response["error"]["message"]
     assert "Infinity" not in lines[-1]
 
 

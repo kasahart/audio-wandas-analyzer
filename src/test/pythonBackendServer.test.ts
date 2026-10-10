@@ -21,6 +21,8 @@ import {
 } from '../extension/backendIpc';
 import {
     BackendProtocolError,
+    BackendRequestError,
+    BACKEND_ERROR_CODES,
     isBackendCommand,
     isJsonObject,
     parseBackendResult,
@@ -45,6 +47,11 @@ function loadValidResponseFixtures(): Array<{
         return { command: entry['command'], response: entry['response'] };
     });
 }
+
+test('error codes match the shared protocol fixture', () => {
+    const fixture = JSON.parse(readFileSync(path.resolve(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')) as { errorCodes: string[] };
+    assert.deepEqual([...BACKEND_ERROR_CODES], fixture.errorCodes);
+});
 
 function makePending(
     command: BackendCommand,
@@ -308,9 +315,11 @@ test('feedStdoutChunk rejects an error response and removes the pending request'
     const rejected: Error[] = [];
     pending.set('r1', makePending('analyze', resolved, rejected));
 
-    feedStdoutChunk({}, '{"requestId":"r1","error":"boom"}\n', pending);
+    feedStdoutChunk({}, '{"requestId":"r1","error":{"code":"stale-calibration","message":"boom"}}\n', pending);
 
     assert.equal(resolved.length, 0);
+    assert.ok(rejected[0] instanceof BackendRequestError);
+    assert.equal(rejected[0].code, 'stale-calibration');
     assert.equal(rejected[0]?.message, 'boom');
     assert.equal(pending.size, 0);
 });
@@ -414,14 +423,19 @@ test('feedStdoutChunk rejects malformed error envelopes', () => {
     const rejected: Error[] = [];
     pending.set('r1', makePending('analyze', resolved, rejected));
 
+    pending.set('r2', makePending('analyze', resolved, rejected));
+    pending.set('r3', makePending('analyze', resolved, rejected));
+
     feedStdoutChunk(
         {},
-        '{"requestId":"r1","error":{"message":"boom"}}\n',
+        '{"requestId":"r1","error":{"message":"boom"}}\n{"requestId":"r2","error":"boom"}\n'
+            + '{"requestId":"r3","error":{"code":"unknown-code","message":"boom"}}\n',
         pending,
     );
 
     assert.equal(resolved.length, 0);
-    assert.ok(rejected[0] instanceof BackendProtocolError);
+    assert.equal(rejected.length, 3);
+    assert.ok(rejected.every(error => error instanceof BackendProtocolError));
     assert.equal(pending.size, 0);
 });
 
@@ -467,7 +481,7 @@ test('readline preserves split UTF-8, CRLF and a final response without newline'
         ['r2', makePending('analyze', [], rejected)],
     ]);
     reader.on('line', line => { processStdoutLine(line, pending); });
-    const bytes = Buffer.from('{"requestId":"r1","error":"校正"}\r\n{"requestId":"r2","error":"終了"}');
+    const bytes = Buffer.from('{"requestId":"r1","error":{"code":"input-error","message":"校正"}}\r\n{"requestId":"r2","error":{"code":"input-error","message":"終了"}}');
     for (const byte of bytes) { input.write(Buffer.from([byte])); }
     input.end();
     await closed;

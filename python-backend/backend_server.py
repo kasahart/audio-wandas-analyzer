@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from backend_errors import error_payload
 from command_dispatch import dispatch, validate_request
 from perf import _perf
 
@@ -72,7 +73,7 @@ def main(service: AnalysisService | None = None) -> None:
             _perf(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
             _emit({**result, "requestId": request_id})
         except Exception as error:
-            _emit({"requestId": request_id, "error": str(error)}, ensure_ascii=True)
+            _emit({"requestId": request_id, "error": error_payload(error)}, ensure_ascii=True)
 
 
 if __name__ == "__main__":

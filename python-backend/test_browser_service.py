@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,12 @@ from browser_service import BrowserService, create_service
 from command_dispatch import dispatch, validate_request
 
 FIXTURE = Path(__file__).resolve().parents[1] / "src/test/fixtures/short-stereo.wav"
+
+
+def _input_error(reply: str) -> str:
+    error = json.loads(reply)["error"]
+    assert error["code"] == "input-error", error
+    return error["message"]
 
 
 def test_browser_source_bounds_release_and_stale_identity() -> None:
@@ -118,13 +125,10 @@ def test_export_plan_is_bounded_and_releases_only_recomputable_detail(monkeypatc
     assert browser.prepare_export_json(json.dumps(commands)) == "{}"
     assert not first.spectrograms
     assert service.engine.get_file(first.path) is first
-    with pytest.raises(ValueError, match="8 sources"):
-        browser.prepare_export_json("[]")
-    with pytest.raises(ValueError, match="Invalid export"):
-        browser.prepare_export_json("[null]")
+    assert "8 sources" in _input_error(browser.prepare_export_json("[]"))
+    assert "Invalid export" in _input_error(browser.prepare_export_json("[null]"))
     monkeypatch.setattr(browser, "MAX_ESTIMATED_BYTES", 1)
-    with pytest.raises(ValueError, match="Export exceeds"):
-        browser.prepare_export_json(json.dumps(commands))
+    assert "Export exceeds" in _input_error(browser.prepare_export_json(json.dumps(commands)))
     assert len(service.engine._files) == 2
 
 
@@ -154,15 +158,14 @@ def test_auto_stft_valid_high_rate_wav_matches_native(tmp_path) -> None:
 
 @pytest.mark.parametrize("payload", [b"", b"not a WAV", b"RIFF" + b"\0" * 4 + b"WAVE"])
 def test_expected_browser_input_rejection_has_no_traceback(monkeypatch, payload) -> None:
-    import json
 
     import browser_service
 
     monkeypatch.setattr(browser_service, "service", create_service())
-    result = json.loads(browser_service.load_source("bad.wav", payload))
-    assert isinstance(result["inputError"], str) and result["inputError"]
-    assert "Traceback" not in result["inputError"]
-    assert "\n" not in result["inputError"]
+    message = _input_error(browser_service.load_source("bad.wav", payload))
+    assert message
+    assert "Traceback" not in message
+    assert "\n" not in message
     assert not browser_service.service.engine._files
 
 
@@ -173,8 +176,18 @@ def test_browser_unexpected_load_failure_is_not_hidden(monkeypatch) -> None:
         raise RuntimeError("unexpected internal failure")
 
     monkeypatch.setattr(browser_service.service.engine, "load", fail)
-    with pytest.raises(RuntimeError, match="unexpected internal failure"):
-        browser_service.load_source("selected.wav", FIXTURE.read_bytes())
+    reply = json.loads(browser_service.load_source("selected.wav", FIXTURE.read_bytes()))
+    assert reply == {"error": {"code": "internal-error", "message": "unexpected internal failure"}}
+
+
+def test_browser_dispatch_errors_carry_codes(monkeypatch) -> None:
+    import browser_service
+
+    monkeypatch.setattr(browser_service, "service", create_service())
+    assert "filePath" in _input_error(browser_service.dispatch_json('{"cmd": "analyze", "requestId": "r"}'))
+    assert "no longer selected" in _input_error(
+        browser_service.dispatch_json('{"cmd": "analyze", "requestId": "r", "filePath": "/sources/gone.wav"}')
+    )
 
 
 def test_run_recipe_uses_loaded_sources_and_rejects_paths() -> None:

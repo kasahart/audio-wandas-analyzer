@@ -3,6 +3,7 @@ import {
     validateCalibrationValueInput, validateCalibrationFactorInput, profileForChannels,
     type CalibrationChannelDescriptor,
 } from '../shared/analysis/calibrationModel';
+import { BackendRequestError } from '../shared/protocol/backendProtocol';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -58,20 +59,13 @@ export function getAnalysisRevision(filePath: string): number {
     return analysisRevisions.get(fileKey(filePath)) ?? 0;
 }
 
-function isStaleCalibrationProfileError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    return message.includes('Calibration channel count mismatch')
-        || message.includes('Calibration channel label mismatch')
-        || /^Calibration factor for channel \d+ exceeds the safe limit/u.test(message);
-}
-
 export async function discardStaleCalibrationProfile(
     context: vscode.ExtensionContext,
     filePath: string,
     error: unknown,
     failedProfile: CalibrationProfile,
 ): Promise<boolean> {
-    if (!isStaleCalibrationProfileError(error)) {
+    if (!(error instanceof BackendRequestError && error.code === 'stale-calibration')) {
         return false;
     }
     let discarded = false;

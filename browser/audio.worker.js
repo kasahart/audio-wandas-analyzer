@@ -58,13 +58,13 @@ self.onmessage = ({ data }) => {
                 finally { dispatch.destroy(); }
             }
             const result = JSON.parse(output);
-            if (data.cmd === 'load' && result.inputError) {
-                self.postMessage({ requestId: data.requestId, error: result.inputError });
+            if (result.error) {
+                self.postMessage({ requestId: data.requestId, error: result.error });
             } else {
                 self.postMessage({ requestId: data.requestId, result });
             }
         } catch (error) {
-            self.postMessage({ requestId: data.requestId, error: String(error).slice(-1200) });
+            self.postMessage({ requestId: data.requestId, error: { code: 'internal-error', message: String(error).slice(-1200) } });
         }
     });
 };

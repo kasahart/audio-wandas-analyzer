@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import functools
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import dask
@@ -12,6 +13,7 @@ import wandas as wd
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
 from analysis_service import AnalysisService
 from analyzer import resolve_stft_params, sample_range
+from backend_errors import error_payload
 from calibration_profile import source_channel_peaks
 from command_dispatch import dispatch, validate_request
 
@@ -195,24 +197,39 @@ def create_service() -> AnalysisService:
 service = create_service()
 
 
+def _json_reply(function: Callable[..., str]) -> Callable[..., str]:
+    """Worker entry points answer failures with the same ``{"error": {code, message}}`` as the desktop backend."""
+
+    @functools.wraps(function)
+    def reply(*args: object) -> str:
+        try:
+            return function(*args)
+        except Exception as error:
+            return json.dumps({"error": error_payload(error)})
+
+    return reply
+
+
+@_json_reply
 def load_source(source_id: str, payload: object) -> str:
     try:
         return json.dumps(service.engine.load(source_id, bytes(payload)))
-    except ValueError as error:
-        return json.dumps({"inputError": str(error)})
-    except sf.LibsndfileError:
-        return json.dumps({"inputError": "Unable to read WAV: invalid or unsupported WAV data"})
+    except sf.LibsndfileError as error:
+        raise ValueError("Unable to read WAV: invalid or unsupported WAV data") from error
 
 
+@_json_reply
 def browser_limits_json() -> str:
     return json.dumps(browser_limits())
 
 
+@_json_reply
 def release_source(file_path: str) -> str:
     service.engine.discard(file_path)
     return "{}"
 
 
+@_json_reply
 def prepare_export_json(raw: str) -> str:
     commands = json.loads(raw)
     if not isinstance(commands, list) or not 1 <= len(commands) <= MAX_SOURCES:
@@ -235,6 +252,7 @@ def prepare_export_json(raw: str) -> str:
     return "{}"
 
 
+@_json_reply
 def dispatch_json(raw: str) -> str:
     command = validate_request(json.loads(raw))
     # Resolve settings at the boundary before expensive allocation.

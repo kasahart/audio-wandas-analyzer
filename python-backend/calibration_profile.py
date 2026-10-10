@@ -10,6 +10,8 @@ from typing import Literal
 import numpy as np
 import wandas as wd
 
+from backend_errors import StaleCalibrationError
+
 CalibrationStatus = Literal["uncalibrated", "calibrated"]
 CalibrationSource = Literal["default", "manual", "derived", "embedded"]
 
@@ -115,7 +117,7 @@ def _validate_factor_for_source(
         return
     maximum = min(_MAX_SAFE_CALIBRATION_VALUE, _MAX_SAFE_CALIBRATED_SAMPLE / source_peak)
     if factor > maximum:
-        raise ValueError(
+        raise StaleCalibrationError(
             f"Calibration factor for channel {channel_index} exceeds the safe limit "
             f"{maximum:.6g} for source peak {source_peak:.6g}"
         )
@@ -153,7 +155,7 @@ def resolve_calibration_profile(
     if not isinstance(raw_channels, list):
         raise TypeError("calibrationProfile.channels must be an array")
     if len(raw_channels) != len(labels):
-        raise ValueError(
+        raise StaleCalibrationError(
             "Calibration channel count mismatch\n"
             f"  Got: {len(raw_channels)} channels\n"
             f"  Expected: {len(labels)} channels"
@@ -178,7 +180,7 @@ def resolve_calibration_profile(
         if not isinstance(expected_label, str):
             raise TypeError("Calibration expectedLabel must be a string")
         if expected_label != labels[index]:
-            raise ValueError(
+            raise StaleCalibrationError(
                 "Calibration channel label mismatch\n"
                 f"  Channel: {index}\n"
                 f"  Profile: {expected_label!r}\n"
