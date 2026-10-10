@@ -21,6 +21,8 @@ MIB = 1024 * 1024
 MAX_INPUT_BYTES = 16 * MIB
 MAX_DURATION_SECONDS = 30
 MAX_CHANNELS = 2
+MIN_SAMPLE_RATE_HZ = 1000
+MAX_SAMPLE_RATE_HZ = 96000
 MAX_TOTAL_INPUT_BYTES = 64 * MIB
 MAX_SOURCES = 8
 MAX_EXPORT_BYTES = 32 * MIB
@@ -39,6 +41,8 @@ def browser_limits() -> dict[str, int]:
         "maxInputBytes": MAX_INPUT_BYTES,
         "maxDurationSeconds": MAX_DURATION_SECONDS,
         "maxChannels": MAX_CHANNELS,
+        "minSampleRateHz": MIN_SAMPLE_RATE_HZ,
+        "maxSampleRateHz": MAX_SAMPLE_RATE_HZ,
         "maxSources": MAX_SOURCES,
         "maxTotalInputBytes": MAX_TOTAL_INPUT_BYTES,
         "maxExportBytes": MAX_EXPORT_BYTES,
@@ -59,11 +63,12 @@ class BrowserEngine(AnalysisEngine):
         if (
             not length >= 32
             or not 1 <= channels <= MAX_CHANNELS
-            or not 1000 <= rate <= 96000
+            or not MIN_SAMPLE_RATE_HZ <= rate <= MAX_SAMPLE_RATE_HZ
             or length / rate > MAX_DURATION_SECONDS
         ):
             raise ValueError(
-                f"Prototype limits: 32+ samples, 1–{MAX_CHANNELS} channels, 1–96 kHz, "
+                f"Prototype limits: 32+ samples, 1–{MAX_CHANNELS} channels, "
+                f"{MIN_SAMPLE_RATE_HZ // 1000}–{MAX_SAMPLE_RATE_HZ // 1000} kHz, "
                 f"up to {MAX_DURATION_SECONDS} seconds"
             )
         path = Path("/sources") / source_id

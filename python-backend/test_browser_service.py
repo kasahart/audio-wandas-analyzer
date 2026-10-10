@@ -207,6 +207,8 @@ def test_browser_limits_are_published_from_the_python_constants() -> None:
         "maxInputBytes": 16 * 1024 * 1024,
         "maxDurationSeconds": 30,
         "maxChannels": 2,
+        "minSampleRateHz": 1000,
+        "maxSampleRateHz": 96000,
         "maxSources": 8,
         "maxTotalInputBytes": 64 * 1024 * 1024,
         "maxExportBytes": 32 * 1024 * 1024,
