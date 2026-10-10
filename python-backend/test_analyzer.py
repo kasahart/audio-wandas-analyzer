@@ -340,3 +340,13 @@ def test_sparse_auto_stft_matches_wandas_and_bounds_long_file_frames(factor: flo
     fft, hour_hop, _ = resolve_stft_params(sr * 3600, None)
     assert (sr * 3600) // hour_hop < 722
     assert fft == 2048
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [(0.0, 1.0, (0, 100)), (0.25, 0.505, (25, 50)), (-0.5, 1.5, (0, 100)), (0.9, 0.1, (90, 10))],
+)
+def test_sample_range_clamps_normalized_selection(start: float, end: float, expected: tuple[int, int]) -> None:
+    from analyzer import sample_range
+
+    assert sample_range(start, end, 100) == expected
