@@ -195,3 +195,34 @@ def test_run_recipe_uses_loaded_sources_and_rejects_paths() -> None:
         service.run_recipe({**recipe, "inputs": [{"name": "sig", "file": str(FIXTURE)}]})
     with pytest.raises(ValueError, match="recipe error"):
         service.run_recipe({**recipe, "steps": [{"as": "w", "expr": "sig[0]"}]})
+
+
+def test_browser_limits_are_published_from_the_python_constants() -> None:
+    import json
+
+    import browser_service as browser
+
+    limits = json.loads(browser.browser_limits_json())
+    assert limits == {
+        "maxInputBytes": 16 * 1024 * 1024,
+        "maxDurationSeconds": 30,
+        "maxChannels": 2,
+        "maxSources": 8,
+        "maxTotalInputBytes": 64 * 1024 * 1024,
+        "maxExportBytes": 32 * 1024 * 1024,
+    }
+    with pytest.raises(ValueError, match="up to 16 MiB"):
+        browser.create_service().engine.load("selected.wav", b"")
+
+
+def test_estimated_bytes_counts_session_inputs_and_retained_detail() -> None:
+    import browser_service as browser
+
+    engine = create_service().engine
+    baseline = browser.PYODIDE_BASELINE_BYTES + browser.DISPLAY_EXPORT_RESERVE
+    assert engine.estimated_bytes(0) == baseline
+    payload = FIXTURE.read_bytes()
+    engine.load("selected.wav", payload)
+    assert engine.is_loaded("/sources/selected.wav")
+    assert not engine.is_loaded("/sources/other.wav")
+    assert engine.estimated_bytes(10) == baseline + len(payload) + engine.retained_bytes * 2 + 10

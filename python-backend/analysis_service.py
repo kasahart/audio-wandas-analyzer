@@ -20,6 +20,7 @@ from analyzer import (
     level_scale_metadata,
     resample_frequency_bins,
     resolve_stft_params,
+    sample_range,
 )
 
 
@@ -233,8 +234,7 @@ class AnalysisService:
     ) -> WaveformRangeResult:
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         sample_count = analysis_frame.n_samples
-        start_idx = max(0, int(start_norm * sample_count))
-        end_idx = min(sample_count, int(end_norm * sample_count))
+        start_idx, end_idx = sample_range(start_norm, end_norm, sample_count)
 
         channels: list[dict[str, object]] = []
         if end_idx > start_idx:
@@ -267,8 +267,7 @@ class AnalysisService:
     ) -> WavLoopExportResult:
         cached = self.engine.get_file(file_path)
         sample_rate = int(cached.frame.sampling_rate)
-        start_sample = max(0, int(start_norm * cached.frame.n_samples))
-        end_sample = min(cached.frame.n_samples, int(end_norm * cached.frame.n_samples))
+        start_sample, end_sample = sample_range(start_norm, end_norm, cached.frame.n_samples)
         frame_count = end_sample - start_sample
 
         if frame_count <= 0:

@@ -22,6 +22,11 @@ DB_UNIT = "dB"
 SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum amplitude level [dB]"
 
 
+def sample_range(start_norm: float, end_norm: float, sample_count: int) -> tuple[int, int]:
+    """Map a normalized [start, end) selection onto clamped sample indices."""
+    return max(0, int(start_norm * sample_count)), min(sample_count, int(end_norm * sample_count))
+
+
 def measurement_metadata(
     channel: ResolvedChannelCalibration,
     reference: wd.LevelReference,
