@@ -4,6 +4,7 @@
 #
 # Runs:
 #   - tsc compile
+#   - dependency pin / browser limit single-source check
 #   - node:test against compiled output
 #   - ruff lint + format check on python-backend
 #   - pytest on python-backend
@@ -25,6 +26,9 @@ npm run compile
 
 echo "==> webview pattern lint"
 node scripts/lint-webview-patterns.js
+
+echo "==> single-source consistency (dependency pins, browser limits)"
+node scripts/check-single-sources.mjs
 
 echo "==> gui triggerability audit"
 npm run lint:gui-triggerability

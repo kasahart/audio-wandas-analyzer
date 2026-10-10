@@ -1,4 +1,6 @@
 export const SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.aiff', '.aif', '.snd']);
+/** The same extensions without the leading dot, as VS Code open-dialog filters expect. */
+export const SUPPORTED_AUDIO_DIALOG_EXTENSIONS = Array.from(SUPPORTED_AUDIO_FILE_EXTENSIONS, extension => extension.slice(1));
 
 export type SelectionTargetKind = 'file' | 'directory';
 

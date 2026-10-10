@@ -27,7 +27,7 @@ async function initialize() {
         if (!response.ok) throw new Error(`Missing Python module: ${name}`);
         pyodide.FS.writeFile(`/home/pyodide/${name}`, await response.text());
     }
-    pyodide.runPython('from browser_service import load_source, release_source, prepare_export_json, dispatch_json');
+    pyodide.runPython('from browser_service import browser_limits_json, load_source, release_source, prepare_export_json, dispatch_json');
 }
 self.onmessage = ({ data }) => {
     queue = queue.then(async () => {
@@ -43,6 +43,10 @@ self.onmessage = ({ data }) => {
                 const prepare = pyodide.globals.get('prepare_export_json');
                 try { output = prepare(JSON.stringify(data.commands)); }
                 finally { prepare.destroy(); }
+            } else if (data.cmd === 'limits') {
+                const limits = pyodide.globals.get('browser_limits_json');
+                try { output = limits(); }
+                finally { limits.destroy(); }
             } else if (data.cmd === 'unload') {
                 const release = pyodide.globals.get('release_source');
                 try { output = release(data.filePath); }

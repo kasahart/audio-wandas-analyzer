@@ -24,6 +24,11 @@ const REQUIRED_PACKAGES = [
         maximum: [0, 9, 0],
     },
 ] as const;
+/** The user's configured interpreter (`audioWandasAnalyzer.pythonCommand`), before relative-path resolution. */
+export function getPythonCommand(): string {
+    return vscode.workspace.getConfiguration('audioWandasAnalyzer').get<string>('pythonCommand', 'python3');
+}
+
 const DEPENDENCY_CHECK_SCRIPT = `
 import importlib.util
 import importlib.metadata
@@ -234,7 +239,7 @@ export async function selectPythonEnvironment(_statusBarItem: vscode.StatusBarIt
     }
 
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-    const currentPythonCommand = config.get<string>('pythonCommand', 'python3');
+    const currentPythonCommand = getPythonCommand();
     if (chosen === currentPythonCommand) {
         return chosen;
     }

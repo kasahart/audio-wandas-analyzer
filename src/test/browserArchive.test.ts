@@ -6,6 +6,8 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { zipStore } from '../webview/runtime/zipStore';
 
+const LIMITS = { maxEntries: 8, maxBytes: 32 * 1024 * 1024 };
+
 const root = resolve(__dirname, '../..');
 test('browser multi-WAV archive is a valid lossless UTF-8 stored ZIP', () => {
     const directory = mkdtempSync(join(tmpdir(), 'awa-zip-'));
@@ -13,7 +15,7 @@ test('browser multi-WAV archive is a valid lossless UTF-8 stored ZIP', () => {
         const wavPath = join(root, 'src/test/fixtures/short-stereo.wav');
         const wav = readFileSync(wavPath);
         const output = join(directory, 'regions.zip');
-        writeFileSync(output, zipStore([{ name: '1-region.wav', bytes: wav }, { name: '2-日本語.wav', bytes: wav }]));
+        writeFileSync(output, zipStore([{ name: '1-region.wav', bytes: wav }, { name: '2-日本語.wav', bytes: wav }], LIMITS));
         const candidate = join(root, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
         const checked = spawnSync(existsSync(candidate) ? candidate : process.platform === 'win32' ? 'python' : 'python3', ['-c',
             'import sys,zipfile\nz=zipfile.ZipFile(sys.argv[1])\nassert z.namelist()==["1-region.wav","2-日本語.wav"]\nassert z.testzip() is None\nraw=open(sys.argv[2],"rb").read()\nassert all(z.read(i)==raw and i.compress_type==zipfile.ZIP_STORED for i in z.infolist())',
@@ -23,6 +25,6 @@ test('browser multi-WAV archive is a valid lossless UTF-8 stored ZIP', () => {
 });
 
 test('browser ZIP rejects unsafe paths and excessive entries', () => {
-    assert.throws(() => zipStore([{ name: '../audio.wav', bytes: new Uint8Array() }]), /limits/);
-    assert.throws(() => zipStore(Array.from({ length: 9 }, () => ({ name: 'audio.wav', bytes: new Uint8Array() }))), /limits/);
+    assert.throws(() => zipStore([{ name: '../audio.wav', bytes: new Uint8Array() }], LIMITS), /limits/);
+    assert.throws(() => zipStore(Array.from({ length: 9 }, () => ({ name: 'audio.wav', bytes: new Uint8Array() })), LIMITS), /limits/);
 });

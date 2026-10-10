@@ -403,6 +403,32 @@ export interface PendingBackendRequest<T> {
     reject(error: Error): void;
 }
 
+/** Correlates replies with their requests for both hosts; each host injects only its transport `send`. */
+export class PendingBackendRequests<T, C extends string = string> extends Map<string, PendingBackendRequest<T> & { command: C }> {
+    private sequence = 0;
+
+    constructor(private readonly idPrefix: string) {
+        super();
+    }
+
+    nextId(): string {
+        return `${this.idPrefix}${++this.sequence}`;
+    }
+
+    /** Registers `requestId`, then sends; a synchronous send failure unregisters and rejects it. */
+    dispatch<R>(command: C, requestId: string, complete: (response: T) => R, send: () => void): Promise<R> {
+        return new Promise<R>((resolve, reject) => {
+            this.set(requestId, { command, complete: response => { resolve(complete(response)); }, reject });
+            try {
+                send();
+            } catch (error) {
+                this.delete(requestId);
+                reject(error instanceof Error ? error : new Error(String(error)));
+            }
+        });
+    }
+}
+
 export interface BackendReplyDiagnostic {
     kind: 'orphan-response' | 'protocol-validation-error';
     message: string;

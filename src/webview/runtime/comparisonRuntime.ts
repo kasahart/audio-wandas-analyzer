@@ -1,4 +1,6 @@
 import { OrderedSelection } from '../../shared/utils/directorySelection';
+import { channelLabel, channelsForResult, formatClockTime, formatMeasuredLevel, formatMeasurementNumber, formatReportDuration } from '../../shared/utils/format';
+import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { paintSpectrogramRaster } from './spectrogramRaster';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, waveformPointCount } from '../waveform/rangeRequestPolicy';
@@ -362,17 +364,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             clearTimeout(spectrumRequestTimerId);
             spectrumRequestTimerId = null;
         }
-    }
-    function channelsForResult(result: ComparisonTrackState) {
-        return result && Array.isArray(result.channels) ? result.channels : [];
-    }
-    function channelLabel(result: ComparisonTrackState, channelIndex: number) {
-        const channels = channelsForResult(result);
-        const count = Number.isFinite(result && result.channelCount) ? result.channelCount : channels.length;
-        const channelNumber = channelIndex + 1;
-        const base = 'Channel ' + channelNumber + (count > 1 ? ' / ' + count : '');
-        const ch = channels[channelIndex];
-        return ch && ch.label && ch.label !== ('Channel ' + channelNumber) ? base + ' (' + ch.label + ')' : base;
     }
     function spectrumReadoutTrackLabel(result: ComparisonTrackState, channelIndex: number) {
         const channels = channelsForResult(result);
@@ -1256,26 +1247,26 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const pythonButtonClass = 'tb-btn' + (pythonEnvironmentState.status === 'warning' ? ' is-warning' : '');
         return '<div id="directory-selection-layout">'
             + '  <div id="selection-toolbar">'
-            + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + escHtml(STR.selectionHeader) + '</span>'
+            + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + escapeHtml(STR.selectionHeader) + '</span>'
             + '    <div class="tb-sep"></div>'
-            + '    <button class="tb-btn" data-action="open-file">' + escHtml(STR.btnOpenFile) + '</button>'
-            + '    <button class="tb-btn" data-action="open-folder">' + escHtml(STR.btnOpenAnotherFolder) + '</button>'
-            + '    <button class="' + pythonButtonClass + '" id="selection-python-environment" data-action="select-python-environment" title="' + escHtml(pythonButtonTooltip) + '">' + escHtml(pythonButtonText) + '</button>'
+            + '    <button class="tb-btn" data-action="open-file">' + escapeHtml(STR.btnOpenFile) + '</button>'
+            + '    <button class="tb-btn" data-action="open-folder">' + escapeHtml(STR.btnOpenAnotherFolder) + '</button>'
+            + '    <button class="' + pythonButtonClass + '" id="selection-python-environment" data-action="select-python-environment" title="' + escapeHtml(pythonButtonTooltip) + '">' + escapeHtml(pythonButtonText) + '</button>'
             + '  </div>'
             + '  <div id="selection-body">'
             + '    <div id="selection-sidebar">'
             + '      <div id="selection-summary">'
             + '        <div class="selection-count" id="selection-count"></div>'
-            + '        <div class="selection-path">' + escHtml(state.rootPath || '') + '</div>'
+            + '        <div class="selection-path">' + escapeHtml(state.rootPath || '') + '</div>'
             + '      </div>'
             + '      <div id="tree-filter-wrap">'
-            + '        <input id="tree-filter-input" type="text" value="' + escHtml(treeFilterQuery) + '" placeholder="' + escHtml(STR.treeFilterPlaceholder || 'Filter files...') + '" autocomplete="off" spellcheck="false">'
+            + '        <input id="tree-filter-input" type="text" value="' + escapeHtml(treeFilterQuery) + '" placeholder="' + escapeHtml(STR.treeFilterPlaceholder || 'Filter files...') + '" autocomplete="off" spellcheck="false">'
             + '      </div>'
             + '      <div id="selection-actions">'
-            + '        <button class="tb-btn" data-action="selection-select-all">' + escHtml(STR.btnSelectAll) + '</button>'
-            + '        <button class="tb-btn" data-action="selection-clear-all">' + escHtml(STR.btnClear) + '</button>'
+            + '        <button class="tb-btn" data-action="selection-select-all">' + escapeHtml(STR.btnSelectAll) + '</button>'
+            + '        <button class="tb-btn" data-action="selection-clear-all">' + escapeHtml(STR.btnClear) + '</button>'
             + '      </div>'
-            + '      <div id="selection-tree" role="group" aria-label="' + escHtml(STR.ariaSelectionTree) + '">' + buildSelectionTree(__directoryTree, true, 0) + '</div>'
+            + '      <div id="selection-tree" role="group" aria-label="' + escapeHtml(STR.ariaSelectionTree) + '">' + buildSelectionTree(__directoryTree, true, 0) + '</div>'
             + '    </div>'
             + '    <div class="tree-resizer" id="tree-resizer" role="separator" aria-orientation="vertical"></div>'
             + '    <div id="selection-results-pane">'
@@ -1305,21 +1296,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function buildResultsPane(emptyMessage: string) {
         const tracks = buildTrackRowsHtml();
-        return '<div id="toolbar" role="toolbar" aria-label="' + escHtml(STR.ariaToolbar) + '">' + buildToolbar() + '</div>'
+        return '<div id="toolbar" role="toolbar" aria-label="' + escapeHtml(STR.ariaToolbar) + '">' + buildToolbar() + '</div>'
             + '<div id="tracks-wrapper">'
             + '  <div id="ruler-row"><div id="ruler-spacer"></div><div id="ruler-axis-spacer" style="width:' + AXIS_W + 'px;flex:none"></div><canvas id="ruler-canvas"></canvas></div>'
             + '  <div id="stacked-wrap">' + tracks + '</div>'
-            + '  <div id="empty-state"><p>' + escHtml(emptyMessage) + '</p></div>'
+            + '  <div id="empty-state"><p>' + escapeHtml(emptyMessage) + '</p></div>'
             + '</div>'
             + '<div id="spectrum-section">'
-            + '  <div id="spectrum-section-header"><span>' + escHtml(STR.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span><span id="spectrum-freq-readout" style="font-family:var(--font-mono);margin-left:14px;"></span></div>'
+            + '  <div id="spectrum-section-header"><span>' + escapeHtml(STR.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span><span id="spectrum-freq-readout" style="font-family:var(--font-mono);margin-left:14px;"></span></div>'
             + '  <div id="spectrum-zoom-toolbar" style="display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;">'
-            + '    <span class="tb-label">' + escHtml(STR.spectrumZoomLabel) + '</span>'
-            + '    <button class="tb-btn" data-action="spec-zoom-out" aria-label="' + escHtml(STR.ariaSpecZoomOut) + '">－</button>'
-            + '    <button class="tb-btn" data-action="spec-zoom-in" aria-label="' + escHtml(STR.ariaSpecZoomIn) + '">＋</button>'
-            + '    <button class="tb-btn" data-action="spec-zoom-reset" aria-label="' + escHtml(STR.ariaSpecZoomReset) + '">' + escHtml(STR.btnSpecZoomReset) + '</button>'
+            + '    <span class="tb-label">' + escapeHtml(STR.spectrumZoomLabel) + '</span>'
+            + '    <button class="tb-btn" data-action="spec-zoom-out" aria-label="' + escapeHtml(STR.ariaSpecZoomOut) + '">－</button>'
+            + '    <button class="tb-btn" data-action="spec-zoom-in" aria-label="' + escapeHtml(STR.ariaSpecZoomIn) + '">＋</button>'
+            + '    <button class="tb-btn" data-action="spec-zoom-reset" aria-label="' + escapeHtml(STR.ariaSpecZoomReset) + '">' + escapeHtml(STR.btnSpecZoomReset) + '</button>'
             + '  </div>'
-            + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escHtml(STR.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escHtml(STR.spectrumSectionTitle) + '"></canvas></div>'
+            + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(STR.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(STR.spectrumSectionTitle) + '"></canvas></div>'
             + '</div>'
             + '<div id="audio-host">' + buildAudioElements() + '</div>';
     }
@@ -1334,13 +1325,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 var lazyAttr = isExpanded ? '' : ' data-lazy="true"';
                 return '<li>'
                     + '<div class="selection-tree-directory" data-action="toggle-directory"'
-                    + ' data-relative-path="' + escHtml(node.relativePath) + '"'
+                    + ' data-relative-path="' + escapeHtml(node.relativePath) + '"'
                     + ' data-depth="' + depth + '"'
                     + ' role="button" tabindex="0"'
                     + ' aria-expanded="' + (isExpanded ? 'true' : 'false') + '"'
-                    + ' aria-label="' + escHtml(STR.ariaSelectionTreeDir) + ': ' + escHtml(node.name) + '">'
+                    + ' aria-label="' + escapeHtml(STR.ariaSelectionTreeDir) + ': ' + escapeHtml(node.name) + '">'
                     + '<span class="dir-toggle" aria-hidden="true">' + (isExpanded ? '▼' : '▶') + '</span>'
-                    + '<span class="dir-name">' + escHtml(node.name) + '</span>'
+                    + '<span class="dir-name">' + escapeHtml(node.name) + '</span>'
                     + '</div>'
                     + '<ul class="selection-tree-list"' + lazyAttr + ' style="' + (isExpanded ? '' : 'display:none') + '">'
                     + childrenHtml
@@ -1351,10 +1342,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const checked = hasSelectedFilePath(filePath) ? ' checked' : '';
             return '<li>'
                 + '<label class="selection-file-row">'
-                + '  <input class="selection-file-checkbox" type="checkbox" data-file-path="' + escHtml(filePath) + '"' + checked + '>'
+                + '  <input class="selection-file-checkbox" type="checkbox" data-file-path="' + escapeHtml(filePath) + '"' + checked + '>'
                 + '  <span class="selection-file-label">'
-                + '    <span class="selection-file-name">' + escHtml(node.name) + '</span>'
-                + '    <span class="selection-file-path">' + escHtml(node.relativePath) + '</span>'
+                + '    <span class="selection-file-name">' + escapeHtml(node.name) + '</span>'
+                + '    <span class="selection-file-path">' + escapeHtml(node.relativePath) + '</span>'
                 + '  </span>'
                 + '</label>'
                 + '</li>';
@@ -1363,7 +1354,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function buildSelectionTree(nodes: SelectionTreeNode[], isRoot: boolean, depth: number): string {
         depth = depth || 0;
         if (!Array.isArray(nodes) || nodes.length === 0) {
-            return '<div class="selection-path">' + escHtml(STR.selectionNoSupported) + '</div>';
+            return '<div class="selection-path">' + escapeHtml(STR.selectionNoSupported) + '</div>';
         }
         return '<ul class="selection-tree-list' + (isRoot ? ' is-root' : '') + '">'
             + buildSelectionTreeItems(nodes, depth)
@@ -1376,51 +1367,51 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!result.audioSource) {
                 return '';
             }
-            return '<audio id="track-audio-' + record.protocolIndex + '" data-track-id="' + trackId + '" preload="metadata"' + (record.runtime.muted ? ' muted' : '') + ' src="' + escHtml(result.audioSource) + '"></audio>';
+            return '<audio id="track-audio-' + record.protocolIndex + '" data-track-id="' + trackId + '" preload="metadata"' + (record.runtime.muted ? ' muted' : '') + ' src="' + escapeHtml(result.audioSource) + '"></audio>';
         }).join('');
     }
     function buildToolbar() {
         function toolbarMenu(label: string, content: string) {
-            return '<details class="tb-menu"><summary class="tb-btn">' + escHtml(label) + '</summary><div class="tb-menu-popover">' + content + '</div></details>';
+            return '<details class="tb-menu"><summary class="tb-btn">' + escapeHtml(label) + '</summary><div class="tb-menu-popover">' + content + '</div></details>';
         }
-        const adjustMenu = '<div class="tb-menu-row"><span class="tb-label">' + escHtml(STR.toolbarHeightLabel) + '</span></div>'
-            + '<div class="tb-menu-row"><span class="tb-label">' + escHtml(STR.heightTrackLabel) + '</span>'
-            + '<input class="tb-number" type="number" min="' + TRACK_HEIGHT_MIN + '" max="' + TRACK_HEIGHT_MAX + '" step="1" value="' + trackHeight + '" data-action="track-height-input" aria-label="' + escHtml(STR.heightTrackLabel + ' px') + '">'
-            + '<button class="tb-btn" data-action="track-height-reset" aria-label="' + escHtml(STR.ariaTrackHeightReset) + '">' + escHtml(STR.heightTrackLabel + ' ' + STR.btnHeightReset) + '</button></div>'
-            + '<div class="tb-menu-row"><span class="tb-label">' + escHtml(STR.heightSpectrumLabel) + '</span>'
-            + '<input class="tb-number" type="number" min="' + SPECTRUM_HEIGHT_MIN + '" max="' + SPECTRUM_HEIGHT_MAX + '" step="1" value="' + spectrumOverlayHeight + '" data-action="spectrum-height-input" aria-label="' + escHtml(STR.heightSpectrumLabel + ' px') + '">'
-            + '<button class="tb-btn" data-action="spectrum-height-reset" aria-label="' + escHtml(STR.ariaSpectrumHeightReset) + '">' + escHtml(STR.heightSpectrumLabel + ' ' + STR.btnHeightReset) + '</button></div>';
-        const workflowMenu = '<button class="tb-btn" data-action="run-recipe">' + escHtml(STR.btnRunRecipe) + '</button>'
-            + '<button class="tb-btn" data-action="copy-spec">' + escHtml(STR.btnCopySpec) + '</button>';
-        const exportMenu = '<button class="tb-btn" data-action="export-png" title="' + escHtml(STR.btnExportPngTitle) + '">' + escHtml(STR.btnExportPng) + '</button>'
-            + '<button class="tb-btn" data-action="export-csv" title="' + escHtml(STR.btnExportCsvTitle) + '">' + escHtml(STR.btnExportCsv) + '</button>'
-            + '<button class="tb-btn" data-action="export-wav" title="' + escHtml(STR.btnExportWavTitle) + '">' + escHtml(STR.btnExportWav) + '</button>'
-            + '<button class="tb-btn" data-action="export-report" title="' + escHtml(STR.btnExportReportTitle) + '">' + escHtml(STR.btnExportReport) + '</button>';
-        return '<span class="tb-label">' + escHtml(STR.toolbarTrackLabel) + '</span>'
-            + '<button class="tb-btn' + (contentType === 'waveform' ? ' is-active' : '') + '" data-action="content-waveform">' + escHtml(STR.btnWaveform) + '</button>'
-            + '<button class="tb-btn' + (contentType === 'spectrogram' ? ' is-active' : '') + '" data-action="content-spectrogram">' + escHtml(STR.btnSpectrogram) + '</button>'
-            + '<button class="tb-btn" data-action="spectrogram-settings" title="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" aria-label="' + escHtml(STR.btnSpectrogramSettingsTitle) + '" style="display:none">⚙</button>'
+        const adjustMenu = '<div class="tb-menu-row"><span class="tb-label">' + escapeHtml(STR.toolbarHeightLabel) + '</span></div>'
+            + '<div class="tb-menu-row"><span class="tb-label">' + escapeHtml(STR.heightTrackLabel) + '</span>'
+            + '<input class="tb-number" type="number" min="' + TRACK_HEIGHT_MIN + '" max="' + TRACK_HEIGHT_MAX + '" step="1" value="' + trackHeight + '" data-action="track-height-input" aria-label="' + escapeHtml(STR.heightTrackLabel + ' px') + '">'
+            + '<button class="tb-btn" data-action="track-height-reset" aria-label="' + escapeHtml(STR.ariaTrackHeightReset) + '">' + escapeHtml(STR.heightTrackLabel + ' ' + STR.btnHeightReset) + '</button></div>'
+            + '<div class="tb-menu-row"><span class="tb-label">' + escapeHtml(STR.heightSpectrumLabel) + '</span>'
+            + '<input class="tb-number" type="number" min="' + SPECTRUM_HEIGHT_MIN + '" max="' + SPECTRUM_HEIGHT_MAX + '" step="1" value="' + spectrumOverlayHeight + '" data-action="spectrum-height-input" aria-label="' + escapeHtml(STR.heightSpectrumLabel + ' px') + '">'
+            + '<button class="tb-btn" data-action="spectrum-height-reset" aria-label="' + escapeHtml(STR.ariaSpectrumHeightReset) + '">' + escapeHtml(STR.heightSpectrumLabel + ' ' + STR.btnHeightReset) + '</button></div>';
+        const workflowMenu = '<button class="tb-btn" data-action="run-recipe">' + escapeHtml(STR.btnRunRecipe) + '</button>'
+            + '<button class="tb-btn" data-action="copy-spec">' + escapeHtml(STR.btnCopySpec) + '</button>';
+        const exportMenu = '<button class="tb-btn" data-action="export-png" title="' + escapeHtml(STR.btnExportPngTitle) + '">' + escapeHtml(STR.btnExportPng) + '</button>'
+            + '<button class="tb-btn" data-action="export-csv" title="' + escapeHtml(STR.btnExportCsvTitle) + '">' + escapeHtml(STR.btnExportCsv) + '</button>'
+            + '<button class="tb-btn" data-action="export-wav" title="' + escapeHtml(STR.btnExportWavTitle) + '">' + escapeHtml(STR.btnExportWav) + '</button>'
+            + '<button class="tb-btn" data-action="export-report" title="' + escapeHtml(STR.btnExportReportTitle) + '">' + escapeHtml(STR.btnExportReport) + '</button>';
+        return '<span class="tb-label">' + escapeHtml(STR.toolbarTrackLabel) + '</span>'
+            + '<button class="tb-btn' + (contentType === 'waveform' ? ' is-active' : '') + '" data-action="content-waveform">' + escapeHtml(STR.btnWaveform) + '</button>'
+            + '<button class="tb-btn' + (contentType === 'spectrogram' ? ' is-active' : '') + '" data-action="content-spectrogram">' + escapeHtml(STR.btnSpectrogram) + '</button>'
+            + '<button class="tb-btn" data-action="spectrogram-settings" title="' + escapeHtml(STR.btnSpectrogramSettingsTitle) + '" aria-label="' + escapeHtml(STR.btnSpectrogramSettingsTitle) + '" style="display:none">⚙</button>'
             + '<div class="tb-sep"></div>'
-            + '<span class="tb-label">' + escHtml(STR.toolbarZoomLabel) + '</span>'
-            + '<button class="tb-btn" data-action="zoom-out" aria-label="' + escHtml(STR.ariaZoomOut) + '">－</button>'
-            + '<button class="tb-btn" data-action="zoom-in" aria-label="' + escHtml(STR.ariaZoomIn) + '">＋</button>'
-            + '<button class="tb-btn" data-action="zoom-reset" aria-label="' + escHtml(STR.ariaZoomReset) + '">' + escHtml(STR.btnZoomReset) + '</button>'
-            + '<button class="tb-btn" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom" aria-pressed="false">' + escHtml(STR.waveModeLabelRectZoom) + '</button>'
-            + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection" title="' + escHtml(STR.btnZoomToSelectionTitle) + '" disabled>' + escHtml(STR.btnZoomToSelection) + '</button>'
-            + '<button class="tb-btn" data-action="toggle-follow-cursor" title="' + escHtml(STR.btnFollowCursorTitle) + '">' + escHtml(STR.btnFollowCursor) + '</button>'
+            + '<span class="tb-label">' + escapeHtml(STR.toolbarZoomLabel) + '</span>'
+            + '<button class="tb-btn" data-action="zoom-out" aria-label="' + escapeHtml(STR.ariaZoomOut) + '">－</button>'
+            + '<button class="tb-btn" data-action="zoom-in" aria-label="' + escapeHtml(STR.ariaZoomIn) + '">＋</button>'
+            + '<button class="tb-btn" data-action="zoom-reset" aria-label="' + escapeHtml(STR.ariaZoomReset) + '">' + escapeHtml(STR.btnZoomReset) + '</button>'
+            + '<button class="tb-btn" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom" aria-pressed="false">' + escapeHtml(STR.waveModeLabelRectZoom) + '</button>'
+            + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection" title="' + escapeHtml(STR.btnZoomToSelectionTitle) + '" disabled>' + escapeHtml(STR.btnZoomToSelection) + '</button>'
+            + '<button class="tb-btn" data-action="toggle-follow-cursor" title="' + escapeHtml(STR.btnFollowCursorTitle) + '">' + escapeHtml(STR.btnFollowCursor) + '</button>'
             + '<div class="tb-sep"></div>'
             + toolbarMenu(STR.toolbarAdjustLabel, adjustMenu)
             + toolbarMenu(STR.toolbarWorkflowLabel, workflowMenu)
             + toolbarMenu(STR.toolbarExportLabel, exportMenu)
             + '<div class="tb-sep"></div>'
-            + '<span id="cursor-display" title="' + escHtml(STR.cursorDisplayHint) + '">—</span>'
-            + '<span id="playback-display" title="' + escHtml(STR.playbackDisplayTitle) + '"></span>'
-            + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escHtml(STR.loopBadge) + '</span>'
-            + '<span id="loop-time-display" title="' + escHtml(STR.loopTimeDisplayTitle) + '" style="display:none;"></span>';
+            + '<span id="cursor-display" title="' + escapeHtml(STR.cursorDisplayHint) + '">—</span>'
+            + '<span id="playback-display" title="' + escapeHtml(STR.playbackDisplayTitle) + '"></span>'
+            + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escapeHtml(STR.loopBadge) + '</span>'
+            + '<span id="loop-time-display" title="' + escapeHtml(STR.loopTimeDisplayTitle) + '" style="display:none;"></span>';
     }
     function channelMetricSummaryHtml(ch: ChannelSummary) {
         const peakDb = ch ? channelLevel(ch, ch.peakLevelDb) : '—';
-        return '<span>Peak ' + escHtml(peakDb) + '</span>';
+        return '<span>Peak ' + escapeHtml(peakDb) + '</span>';
     }
     function buildChannelLane(result: ComparisonTrackState, trackIndex: number, channelIndex: number) {
         const trackId = trackIdAtIndex(trackIndex);
@@ -1432,7 +1423,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const label = channelLabel(result, channelIndex);
         const suffix = channelCanvasSuffix(channelIndex);
         const header = channels.length > 1
-            ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escHtml(label) + '</span>' + channelMetricSummaryHtml(ch) + '</div>'
+            ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escapeHtml(label) + '</span>' + channelMetricSummaryHtml(ch) + '</div>'
             : '';
         return '<div class="track-channel-lane" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '">'
             + header
@@ -1442,8 +1433,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" style="outline:none;flex:1"></canvas>'
             + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" aria-hidden="true" style="display:none;position:absolute;left:' + AXIS_W + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
             + '    </div>'
-            + '    <div class="track-spectrum-wrap" id="track-spectrum-wrap-' + trackIndex + suffix + '" title="' + escHtml(STR.trackSpectrumTitle) + '">'
-            + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" aria-label="' + escHtml(result.fileName + ' ' + label + ' ' + STR.trackSpectrumTitle) + '"></canvas>'
+            + '    <div class="track-spectrum-wrap" id="track-spectrum-wrap-' + trackIndex + suffix + '" title="' + escapeHtml(STR.trackSpectrumTitle) + '">'
+            + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" aria-label="' + escapeHtml(result.fileName + ' ' + label + ' ' + STR.trackSpectrumTitle) + '"></canvas>'
             + '    </div>'
             + '  </div>'
             + '</div>';
@@ -1475,30 +1466,27 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return '<div class="track-row" id="track-row-' + i + '" data-track-id="' + trackId + '">'
             + '<div class="track-header">'
             + '  <div class="track-title-row">'
-            + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaDragHandle) + '" title="' + escHtml(STR.ariaDragHandle) + '">≡</div>'
-            + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escHtml(STR.ariaPickColor) + '" title="' + escHtml(STR.trackPickColor) + '"></div>'
-            + '    <div class="track-name" title="' + escHtml(result.filePath) + '">' + escHtml(result.fileName) + '</div>'
-            + (channels.some(isChannelClipped) ? '    <span class="clip-badge" title="' + escHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+            + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaDragHandle) + '" title="' + escapeHtml(STR.ariaDragHandle) + '">≡</div>'
+            + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escapeHtml(STR.ariaPickColor) + '" title="' + escapeHtml(STR.trackPickColor) + '"></div>'
+            + '    <div class="track-name" title="' + escapeHtml(result.filePath) + '">' + escapeHtml(result.fileName) + '</div>'
+            + (channels.some(isChannelClipped) ? '    <span class="clip-badge" title="' + escapeHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
             + '  </div>'
             + '  <div class="track-meta">Total: ' + result.channelCount + ' ch &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
             + '  <div class="track-btns">'
-            + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '" title="' + escHtml(STR.trackPlayTitle) + '" aria-label="' + escHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
-            + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '" title="' + escHtml(STR.trackStopTitle) + '" aria-label="' + escHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
-            + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaTrackMute) + '" title="' + escHtml(STR.ariaTrackMute) + '" aria-pressed="' + !!trackStore.require(trackId).runtime.muted + '"' + (result.audioSource ? '' : ' disabled') + '>' + (trackStore.require(trackId).runtime.muted ? '🔇' : '🔊') + '</button>'
-            + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaRemoveTrack) + '">✕</button>'
+            + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '" title="' + escapeHtml(STR.trackPlayTitle) + '" aria-label="' + escapeHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
+            + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '" title="' + escapeHtml(STR.trackStopTitle) + '" aria-label="' + escapeHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
+            + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaTrackMute) + '" title="' + escapeHtml(STR.ariaTrackMute) + '" aria-pressed="' + !!trackStore.require(trackId).runtime.muted + '"' + (result.audioSource ? '' : ' disabled') + '>' + (trackStore.require(trackId).runtime.muted ? '🔇' : '🔊') + '</button>'
+            + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaRemoveTrack) + '">✕</button>'
             + '  </div>'
             + '  <div class="track-offset">'
-            + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '" title="' + escHtml(STR.trackOffsetResetHint) + '" aria-label="' + escHtml(STR.ariaOffsetValue) + '">+0.000s</span>'
-            + '    <button class="track-offset-step" data-action="offset-up" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaOffsetUp) + '">▲</button>'
-            + '    <button class="track-offset-step" data-action="offset-down" data-track-id="' + trackId + '" aria-label="' + escHtml(STR.ariaOffsetDown) + '">▼</button>'
+            + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '" title="' + escapeHtml(STR.trackOffsetResetHint) + '" aria-label="' + escapeHtml(STR.ariaOffsetValue) + '">+0.000s</span>'
+            + '    <button class="track-offset-step" data-action="offset-up" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaOffsetUp) + '">▲</button>'
+            + '    <button class="track-offset-step" data-action="offset-down" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaOffsetDown) + '">▼</button>'
             + '  </div>'
             + '</div>'
             + '<div class="track-channel-lanes">' + buildChannelLanes(result, i) + '</div>'
-            + '<div class="height-resizer track-height-resizer" data-action="track-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escHtml(STR.heightTrackLabel + ' resize') + '"></div>'
+            + '<div class="height-resizer track-height-resizer" data-action="track-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(STR.heightTrackLabel + ' resize') + '"></div>'
             + '</div>';
-    }
-    function escHtml(str: string) {
-        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
     /** フルパスから basename だけを返す（パス区切り文字なしならそのまま返す） */
     function shortPythonName(cmd: string) {
@@ -1617,7 +1605,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         let t = Math.ceil(visStart / step) * step;
         while (t <= visEnd) {
             const x = (t - visStart) / visDur * timeW;
-            ctx.fillText(formatTime(t), x + 2, H - 4);
+            ctx.fillText(formatClockTime(t), x + 2, H - 4);
             t += step;
         }
     }
@@ -1629,11 +1617,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
         return 60;
-    }
-    function formatTime(seconds: number) {
-        const m = Math.floor(seconds / 60);
-        const s = (seconds % 60).toFixed(2);
-        return m + ':' + (parseFloat(s) < 10 ? '0' : '') + s;
     }
     function isPythonEnvError(msg: string): boolean {
         if (!msg) {
@@ -2093,7 +2076,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const gs = computeGlobalSpan();
         const startSec = gs.startSec + loopRegion.start * gs.spanSec;
         const endSec = gs.startSec + loopRegion.end * gs.spanSec;
-        el.textContent = formatTime(startSec) + ' – ' + formatTime(endSec);
+        el.textContent = formatClockTime(startSec) + ' – ' + formatClockTime(endSec);
         el.style.display = 'inline';
     }
     function clearPlaybackState() {
@@ -2372,7 +2355,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const gs = computeGlobalSpan();
                 const startSec = gs.startSec + loopRegion.start * gs.spanSec;
                 const endSec = gs.startSec + loopRegion.end * gs.spanSec;
-                navigator.clipboard.writeText(formatTime(startSec) + ' – ' + formatTime(endSec)).catch(function () { });
+                navigator.clipboard.writeText(formatClockTime(startSec) + ' – ' + formatClockTime(endSec)).catch(function () { });
             });
         }
         document.getElementById('tracks-wrapper').addEventListener('click', function (e) {
@@ -3649,34 +3632,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     // --- Report export helpers ---
-    function _fmtSec(secs: number) {
-        var m = Math.floor(secs / 60);
-        var s = (secs - m * 60).toFixed(3);
-        return (m > 0 ? m + 'm ' : '') + s + 's';
-    }
     function _markdownInline(value: unknown): string {
         return String(value).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     }
     function _markdownTableCell(value: unknown): string {
         return _markdownInline(value).split('|').join('\\|');
     }
-    function _formatReportNumber(value: unknown): string {
-        const numberValue = Number(value);
-        if (!Number.isFinite(numberValue)) { return '—'; }
-        const absolute = Math.abs(numberValue);
-        if (absolute >= 100) { return numberValue.toFixed(0); }
-        if (absolute >= 1) { return numberValue.toFixed(2); }
-        if (absolute >= 0.01) { return numberValue.toFixed(3); }
-        return numberValue.toPrecision(3);
-    }
     function _reportLevel(channel: ChannelSummary, linearValue: number, levelValue: number | undefined): string {
-        const measurement = channel.measurement;
-        if (!Number.isFinite(levelValue)) { return '—'; }
-        const level = Number(levelValue).toFixed(1) + ' ' + (measurement?.levelUnit ?? 'dB');
-        if (!measurement || measurement.calibrationStatus === 'uncalibrated') {
-            return level;
-        }
-        return _formatReportNumber(linearValue) + ' ' + measurement.linearUnit + ' / ' + level;
+        return formatMeasuredLevel(linearValue, levelValue, channel.measurement) ?? '—';
     }
     function _activeReportRecords() {
         return trackStore.activeIds().map(function (trackId) {
@@ -3698,7 +3661,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         ];
         reportRecords.forEach(function (record) {
             const r = record.result;
-            var dur = r.durationSeconds ? _fmtSec(r.durationSeconds) : '-';
+            var dur = r.durationSeconds ? formatReportDuration(r.durationSeconds) : '-';
             channelsForResult(r).forEach(function (ch: ChannelSummary, channelIndex: number) {
                 var peak = ch ? _markdownTableCell(_reportLevel(ch, ch.peakAbsolute, ch.peakLevelDb)) : '-';
                 lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + _markdownTableCell(channelLabel(r, channelIndex)) + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + peak + ' |');
@@ -3722,7 +3685,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     lines.push('| ' + _markdownTableCell(r.fileName)
                         + ' | ' + _markdownTableCell(channelLabel(r, channelIndex))
                         + ' | ' + _markdownTableCell(measurement.calibrationStatus)
-                        + ' | ' + _formatReportNumber(measurement.factor)
+                        + ' | ' + formatMeasurementNumber(measurement.factor)
                         + ' | ' + _markdownTableCell(measurement.linearUnit)
                         + ' | ' + _markdownTableCell(measurement.levelReferenceLabel)
                         + ' | ' + _markdownTableCell(measurement.calibrationSource) + ' |');
@@ -3738,9 +3701,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     if (!measurement) { return; }
                     lines.push('| ' + _markdownTableCell(r.fileName)
                         + ' | ' + _markdownTableCell(channelLabel(r, channelIndex))
-                        + ' | ' + _formatReportNumber(channel.peakAbsolute) + ' ' + _markdownTableCell(measurement.linearUnit)
+                        + ' | ' + formatMeasurementNumber(channel.peakAbsolute) + ' ' + _markdownTableCell(measurement.linearUnit)
                         + ' | ' + _formatReportDb(channel.peakLevelDb, measurement.levelUnit)
-                        + ' | ' + _formatReportNumber(channel.rawPeakFullScale) + ' FS'
+                        + ' | ' + formatMeasurementNumber(channel.rawPeakFullScale) + ' FS'
                         + ' | ' + (channel.clipped ? 'Yes' : 'No') + ' |');
                 });
             });
@@ -3948,16 +3911,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const labelStyle = 'width:42px;font-size:11px;color:var(--muted);';
         pop.innerHTML =
             '<div style="margin-bottom:8px;font-weight:600;font-size:11px;color:var(--muted);">'
-                + escHtml(STR.specRangeTitle)
+                + escapeHtml(STR.specRangeTitle)
                 + ' <span id="spec-range-axis-badge" style="padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;color:#fff;background:#0e639c;"></span>'
                 + '</div>'
                 + '<div id="spec-range-inputs" style="display:flex;flex-direction:column;gap:4px;align-items:center;">'
-                + '<label id="spec-range-min-label" style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escHtml(STR.specRangeMin) + '</span><input id="spec-range-min" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
-                + '<label id="spec-range-max-label" style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escHtml(STR.specRangeMax) + '</span><input id="spec-range-max" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
+                + '<label id="spec-range-min-label" style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escapeHtml(STR.specRangeMin) + '</span><input id="spec-range-min" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
+                + '<label id="spec-range-max-label" style="display:flex;align-items:center;gap:6px;"><span style="' + labelStyle + '">' + escapeHtml(STR.specRangeMax) + '</span><input id="spec-range-max" type="number" step="any" placeholder="auto" style="' + inputStyle + '"></label>'
                 + '</div>'
                 + '<div style="display:flex;gap:6px;margin-top:8px;">'
-                + '<button class="tb-btn" id="spec-range-apply" style="flex:1;">' + escHtml(STR.specRangeApply) + '</button>'
-                + '<button class="tb-btn" id="spec-range-auto" style="flex:1;">' + escHtml(STR.specRangeAuto) + '</button>'
+                + '<button class="tb-btn" id="spec-range-apply" style="flex:1;">' + escapeHtml(STR.specRangeApply) + '</button>'
+                + '<button class="tb-btn" id="spec-range-auto" style="flex:1;">' + escapeHtml(STR.specRangeAuto) + '</button>'
                 + '<button class="tb-btn" id="spec-range-close" aria-label="Close">×</button>'
                 + '</div>'
                 + '<div id="spec-range-error" style="color:#f48771;font-size:11px;margin-top:4px;min-height:14px;"></div>';
@@ -4445,7 +4408,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const t = gs.startSec + norm * gs.spanSec;
         const el = document.getElementById('cursor-display');
         if (el) {
-            el.textContent = formatTime(t);
+            el.textContent = formatClockTime(t);
         }
     }
     let _playbackDisplayVisible = false;
@@ -4464,7 +4427,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
         else {
-            const text = (STR.playbackTimePrefix || '▶') + ' ' + formatTime(timeSec);
+            const text = (STR.playbackTimePrefix || '▶') + ' ' + formatClockTime(timeSec);
             if (!_playbackDisplayVisible) {
                 el.style.display = 'inline';
                 _playbackDisplayVisible = true;
@@ -4928,7 +4891,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const el = document.getElementById('spectrum-cursor-time');
         if (el) {
             const gs = computeGlobalSpan();
-            el.textContent = '@ ' + formatTime(gs.startSec + spectrumCursorNorm * gs.spanSec);
+            el.textContent = '@ ' + formatClockTime(gs.startSec + spectrumCursorNorm * gs.spanSec);
         }
     }
     /** フォーカス中キャンバス → 最後に再生したトラック → 先頭 の順でインデックスを解決 */
@@ -5002,26 +4965,26 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             .join('');
         const html = ''
             + '<div id="spec-settings-popover" hidden style="position:absolute;z-index:50;background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:6px;min-width:260px;color:var(--text);font-family:var(--font-ui);">'
-            + '<label style="display:block;margin-bottom:6px"><input type="checkbox" id="spec-auto"> ' + escHtml(STR.specSettingsAuto) + '</label>'
+            + '<label style="display:block;margin-bottom:6px"><input type="checkbox" id="spec-auto"> ' + escapeHtml(STR.specSettingsAuto) + '</label>'
             + '<fieldset id="spec-stft-fields" style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
-            + '<legend>' + escHtml(STR.specSettingsStftLegend) + '</legend>'
-            + '<label>' + escHtml(STR.specSettingsNFft) + ' <select id="spec-nfft">' + nfftOptions + '</select></label><br>'
-            + '<label>' + escHtml(STR.specSettingsHopSize) + ' <input type="number" id="spec-hop" min="1" step="1"></label><br>'
-            + '<label>' + escHtml(STR.specSettingsWindow) + ' <select id="spec-window">'
+            + '<legend>' + escapeHtml(STR.specSettingsStftLegend) + '</legend>'
+            + '<label>' + escapeHtml(STR.specSettingsNFft) + ' <select id="spec-nfft">' + nfftOptions + '</select></label><br>'
+            + '<label>' + escapeHtml(STR.specSettingsHopSize) + ' <input type="number" id="spec-hop" min="1" step="1"></label><br>'
+            + '<label>' + escapeHtml(STR.specSettingsWindow) + ' <select id="spec-window">'
             + '<option value="hann">hann</option><option value="hamming">hamming</option>'
             + '<option value="blackman">blackman</option><option value="boxcar">boxcar</option>'
             + '</select></label>'
-            + '<div style="font-size:11px;color:var(--muted)">' + escHtml(STR.settingsApplyHint) + '</div>'
+            + '<div style="font-size:11px;color:var(--muted)">' + escapeHtml(STR.settingsApplyHint) + '</div>'
             + '</fieldset>'
             + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
-            + '<legend>' + escHtml(STR.specSettingsDisplayLegend) + '</legend>'
-            + '<label>' + escHtml(STR.specSettingsDbMin) + ' <input type="number" id="spec-dbmin" step="1" placeholder="' + escHtml(STR.specSettingsPlaceholderAuto) + '"></label><br>'
-            + '<label>' + escHtml(STR.specSettingsDbMax) + ' <input type="number" id="spec-dbmax" step="1" placeholder="' + escHtml(STR.specSettingsPlaceholderAuto) + '"></label><br>'
-            + '<label>' + escHtml(STR.specSettingsMaxFreqHz) + ' <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="' + escHtml(STR.specSettingsPlaceholderNyquist) + '"></label>'
+            + '<legend>' + escapeHtml(STR.specSettingsDisplayLegend) + '</legend>'
+            + '<label>' + escapeHtml(STR.specSettingsDbMin) + ' <input type="number" id="spec-dbmin" step="1" placeholder="' + escapeHtml(STR.specSettingsPlaceholderAuto) + '"></label><br>'
+            + '<label>' + escapeHtml(STR.specSettingsDbMax) + ' <input type="number" id="spec-dbmax" step="1" placeholder="' + escapeHtml(STR.specSettingsPlaceholderAuto) + '"></label><br>'
+            + '<label>' + escapeHtml(STR.specSettingsMaxFreqHz) + ' <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="' + escapeHtml(STR.specSettingsPlaceholderNyquist) + '"></label>'
             + '</fieldset>'
             + '<div style="display:flex;gap:6px;justify-content:flex-end">'
-            + '<button class="tb-btn" id="spec-reset">' + escHtml(STR.specSettingsReset) + '</button>'
-            + '<button class="tb-btn" id="spec-apply">' + escHtml(STR.specSettingsApply) + '</button>'
+            + '<button class="tb-btn" id="spec-reset">' + escapeHtml(STR.specSettingsReset) + '</button>'
+            + '<button class="tb-btn" id="spec-apply">' + escapeHtml(STR.specSettingsApply) + '</button>'
             + '</div>'
             + '</div>';
         document.body.insertAdjacentHTML('beforeend', html);
@@ -5113,7 +5076,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + 'padding:8px 14px;border-bottom:1px solid var(--line);font-family:var(--font-ui);font-size:12px;'
             + 'display:none;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'
             + '<span class="spinner" style="width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></span>'
-            + '<span id="reanalyze-overlay-msg">' + escHtml(STR.reanalyzingDefault) + '</span>'
+            + '<span id="reanalyze-overlay-msg">' + escapeHtml(STR.reanalyzingDefault) + '</span>'
             + '</div>'
             + '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>');
     })();
@@ -5160,15 +5123,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // ── ヘルプオーバーレイ ──
     (function __buildHelpOverlay() {
         const tableRows = SHORTCUT_ROWS.map(function (row) {
-            return '<tr><td style="padding:3px 12px 3px 0;font-family:var(--font-mono);white-space:nowrap;color:var(--accent)">' + escHtml(row.shortcut)
-                + '</td><td style="padding:3px 0;color:var(--text)">' + escHtml(STR[row.labelKey as keyof typeof STR]) + '</td></tr>';
+            return '<tr><td style="padding:3px 12px 3px 0;font-family:var(--font-mono);white-space:nowrap;color:var(--accent)">' + escapeHtml(row.shortcut)
+                + '</td><td style="padding:3px 0;color:var(--text)">' + escapeHtml(STR[row.labelKey as keyof typeof STR]) + '</td></tr>';
         }).join('');
-        document.body.insertAdjacentHTML('beforeend', '<div id="help-overlay" hidden role="dialog" aria-modal="true" aria-label="' + escHtml(STR.helpTitle) + '" '
+        document.body.insertAdjacentHTML('beforeend', '<div id="help-overlay" hidden role="dialog" aria-modal="true" aria-label="' + escapeHtml(STR.helpTitle) + '" '
             + 'style="position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.45)">'
             + '<div style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:20px 24px;min-width:320px;box-shadow:0 4px 24px rgba(0,0,0,0.4)">'
             + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
-            + '<span style="font-weight:700;font-size:13px;color:var(--text)">' + escHtml(STR.helpTitle) + '</span>'
-            + '<button id="help-close-btn" class="tb-btn" style="font-size:11px;padding:2px 8px">' + escHtml(STR.helpClose) + '</button>'
+            + '<span style="font-weight:700;font-size:13px;color:var(--text)">' + escapeHtml(STR.helpTitle) + '</span>'
+            + '<button id="help-close-btn" class="tb-btn" style="font-size:11px;padding:2px 8px">' + escapeHtml(STR.helpClose) + '</button>'
             + '</div>'
             + '<table style="border-collapse:collapse;font-size:12px;width:100%">' + tableRows + '</table>'
             + '</div></div>');
@@ -5373,7 +5336,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '<div style="display:flex;flex-wrap:wrap;gap:4px;width:148px">' + swatches + '</div>'
             + '<button id="color-reset-btn" style="margin-top:6px;width:100%;font-size:11px;'
             + 'background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:2px;cursor:pointer;padding:2px 0">'
-            + escHtml(STR.trackColorReset) + '</button>'
+            + escapeHtml(STR.trackColorReset) + '</button>'
             + '</div>';
         var container = document.createElement('div');
         container.innerHTML = html;

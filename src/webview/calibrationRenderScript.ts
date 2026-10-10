@@ -1,3 +1,5 @@
+import { FORMAT_SCRIPT_SOURCE } from '../shared/utils/format';
+
 export function getCalibrationRenderScript(): string {
     return `
         (function() {
@@ -16,23 +18,11 @@ export function getCalibrationRenderScript(): string {
                 });
             }
 
-            function channelsForResult(result) {
-                return result && Array.isArray(result.channels) ? result.channels : [];
-            }
-
             function measurementFor(channel) {
                 return channel && channel.measurement ? channel.measurement : null;
             }
 
-            function formatNumber(value) {
-                const numberValue = Number(value);
-                if (!Number.isFinite(numberValue)) { return '—'; }
-                const absolute = Math.abs(numberValue);
-                if (absolute >= 100) { return numberValue.toFixed(0); }
-                if (absolute >= 1) { return numberValue.toFixed(2); }
-                if (absolute >= 0.01) { return numberValue.toFixed(3); }
-                return numberValue.toPrecision(3);
-            }
+            ${FORMAT_SCRIPT_SOURCE}
 
             function setText(element, text) {
                 if (element && element.textContent !== text) {
@@ -42,24 +32,8 @@ export function getCalibrationRenderScript(): string {
 
             function levelText(channel, linearKey, levelKey, prefix) {
                 const measurement = measurementFor(channel);
-                const level = channel && Number(channel[levelKey]);
-                if (!measurement || !Number.isFinite(level)) { return null; }
-                const levelPart = level.toFixed(1) + ' ' + measurement.levelUnit;
-                if (measurement.calibrationStatus === 'uncalibrated') {
-                    return prefix + ' ' + levelPart;
-                }
-                return prefix + ' ' + formatNumber(channel[linearKey]) + ' ' + measurement.linearUnit
-                    + ' / ' + levelPart;
-            }
-
-            function channelLabel(result, channelIndex) {
-                const channels = channelsForResult(result);
-                const channel = channels[channelIndex];
-                const count = channels.length;
-                const base = 'Channel ' + (channelIndex + 1) + (count > 1 ? ' / ' + count : '');
-                return channel && channel.label && channel.label !== 'Channel ' + (channelIndex + 1)
-                    ? base + ' (' + channel.label + ')'
-                    : base;
+                const text = measurement && formatMeasuredLevel(channel[linearKey], Number(channel[levelKey]), measurement);
+                return text ? prefix + ' ' + text : null;
             }
 
             function calibrationSummary(channels) {

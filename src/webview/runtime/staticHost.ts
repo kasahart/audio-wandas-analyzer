@@ -1,7 +1,7 @@
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal } from '../../shared/analysis/analysisClient';
-import { parseBackendResult, rejectPendingRequests, settleBackendRequest, type PendingBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
+import { parseBackendResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { isConfigureCalibrationMessage } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
@@ -48,14 +48,20 @@ let persisted: PersistedWebviewState = restoredView?.contentType === 'spectrogra
 browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
 let worker: Worker | undefined;
 let recovery: Promise<void> | undefined;
-let nextId = 0;
 let nextSource = 0;
 const sourceGeneration = new SessionRequests();
 const reanalysisGeneration = new SessionRequests();
 const sources = new SourceResults<Source>(new Map(), source => URL.revokeObjectURL(source.url));
 const inboundListeners = new Set<(message: unknown) => void>();
 let loading = false;
-const pending = new Map<string, PendingBackendRequest<Record<string, unknown>>>();
+const pending = new PendingBackendRequests<Record<string, unknown>>('browser-');
+// Session limits come from browser_service.py through the Worker so pre-checks, the backend and the README agree.
+interface BrowserLimits { maxInputBytes: number; maxSources: number; maxTotalInputBytes: number; maxExportBytes: number }
+let browserLimits: BrowserLimits | undefined;
+async function limits(): Promise<BrowserLimits> {
+    return browserLimits ??= await request({ cmd: 'limits' }) as unknown as BrowserLimits;
+}
+const mib = (bytes: number): string => String(bytes / (1024 * 1024));
 const bar = document.createElement('div');
 bar.style.cssText = 'padding:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
 const pick = document.createElement('input');
@@ -110,7 +116,7 @@ async function request(
 }
 function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
     if (!worker) {
-        if (command.cmd !== 'load') throw new Error('No selected source; choose the WAV again.');
+        if (command.cmd !== 'load' && command.cmd !== 'limits') throw new Error('No selected source; choose the WAV again.');
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
         worker = activeWorker;
         worker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: string }>): void => {
@@ -124,9 +130,8 @@ function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forc
             emit({ type: 'reanalyze-end' });
         };
     }
-    const requestId = forcedRequestId ?? `browser-${++nextId}`;
-    return new Promise((resolve, reject) => {
-        pending.set(requestId, { command: String(command.cmd), complete: resolve, reject });
+    const requestId = forcedRequestId ?? pending.nextId();
+    return pending.dispatch(String(command.cmd), requestId, response => response, () => {
         worker!.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
     });
 }
@@ -293,7 +298,7 @@ const ports: ComparisonSessionPorts = {
             complete(): void {
                 if (!entries.length) return;
                 if (entries.length === 1) download(entries[0].bytes, entries[0].name, 'audio/wav');
-                else download(zipStore(entries), 'selected-regions.zip', 'application/zip');
+                else download(zipStore(entries, { maxEntries: browserLimits!.maxSources, maxBytes: browserLimits!.maxExportBytes }), 'selected-regions.zip', 'application/zip');
                 announce(strings.browserExported);
             },
         };
@@ -345,9 +350,11 @@ pick.onchange = (): void => {
             analyze: async file => {
                 let loadedPath: string | undefined;
                 try {
-                    if (file.size > 16 * 1024 * 1024) throw new Error(strings.browserInputTooLarge);
-                    if (sources.size >= 8 || Array.from(sources.values()).reduce((sum, source) => sum + source.inputBytes, file.size) > 64 * 1024 * 1024) {
-                        throw new Error(strings.browserAggregateLimit);
+                    const limit = browserLimits ?? await limits();
+                    if (file.size > limit.maxInputBytes) throw new Error(strings.browserInputTooLarge.replace('{mib}', mib(limit.maxInputBytes)));
+                    if (sources.size >= limit.maxSources || Array.from(sources.values()).reduce((sum, source) => sum + source.inputBytes, file.size) > limit.maxTotalInputBytes) {
+                        throw new Error(strings.browserAggregateLimit
+                            .replace('{count}', String(limit.maxSources)).replace('{mib}', mib(limit.maxTotalInputBytes)));
                     }
                     const bytes = await file.arrayBuffer();
                     if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');

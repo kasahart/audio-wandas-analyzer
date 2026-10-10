@@ -71,6 +71,10 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
                 firstAnalysis.add(`/sources/${command.sourceId}`);
                 this.loadedSources.add(`/sources/${command.sourceId}`);
             }
+            if (command.cmd === 'limits') {
+                queueMicrotask(() => this.reply(command, { maxInputBytes: 16 * 1024 * 1024, maxSources: 8, maxTotalInputBytes: 64 * 1024 * 1024, maxExportBytes: 32 * 1024 * 1024 }));
+                return;
+            }
             if (this.blockedCommands.has(String(command.cmd)) || blockedWorkerCommands.has(String(command.cmd))) return;
             if (command.cmd === 'unload' && !this.loadedSources.delete(String(command.filePath))) {
                 queueMicrotask(() => this.reply(command, {}, 'Source is not loaded'));
@@ -243,8 +247,18 @@ test('invalid additions preserve existing tracks, batch continues and count cap 
     app.picker.files = [{ name: 'ninth.wav', size: 100, arrayBuffer: async () => { reads++; return new ArrayBuffer(100); } }];
     app.picker.onchange!(); await flush();
     assert.equal(reads, 0);
+    assert.match(app.status, /up to 8 WAV files \/ 64 MiB total input/);
     assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 8);
     assert.equal(app.revoked.length, 0);
+});
+
+test('file pre-checks use the session limits published by the Worker once', async () => {
+    const app = harness();
+    app.picker.files = [{ name: 'huge.wav', size: 16 * 1024 * 1024 + 1, arrayBuffer: async () => { throw new Error('must not read'); } }];
+    app.picker.onchange!(); await flush();
+    assert.match(app.status, /huge\.wav: WAV must be 16 MiB or smaller\./);
+    await app.load(); await app.load();
+    assert.deepEqual(app.workers.flatMap(worker => worker.commands).filter(command => command.cmd === 'limits').length, 1);
 });
 
 test('cancel during a file read clears all sources and ignores late completion', async () => {
