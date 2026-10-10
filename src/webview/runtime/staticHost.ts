@@ -1,6 +1,6 @@
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
-import { AnalysisClient } from '../../shared/analysis/analysisClient';
+import { AnalysisClient, type AnalysisCancellationSignal } from '../../shared/analysis/analysisClient';
 import { parseBackendResult, rejectPendingRequests, settleBackendRequest, type PendingBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { isConfigureCalibrationMessage } from '../../shared/utils/audioTarget';
@@ -22,6 +22,7 @@ interface Source {
     name: string;
     url: string;
     inputBytes: number;
+    file: File;
     result: AnalysisResultWithError;
 }
 const browserWindow = window as unknown as ComparisonWindow;
@@ -46,6 +47,7 @@ const restoredView = readSaved(VIEW_STATE_KEY) as PersistedWebviewState | undefi
 let persisted: PersistedWebviewState = restoredView?.contentType === 'spectrogram' ? { contentType: 'spectrogram' } : {};
 browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
 let worker: Worker | undefined;
+let recovery: Promise<void> | undefined;
 let nextId = 0;
 let nextSource = 0;
 const sourceGeneration = new SessionRequests();
@@ -71,15 +73,42 @@ const announce = (value: string): void => { status.textContent = value; };
 const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
 const snapshot = (): void => { emit({ type: 'analysis-update', results: sources.snapshot(source => source.result) }); };
 
-function dispose(): void {
-    sourceGeneration.advance();
+class RecipeWorkerResetError extends Error {}
+
+function resetWorker(reason: Error): void {
     reanalysisGeneration.advance();
     worker?.terminate(); worker = undefined;
-    rejectPendingRequests(pending, new Error('Analysis cancelled'));
-    sources.clear();
+    recovery = undefined;
+    rejectPendingRequests(pending, reason);
     loading = false; pick.disabled = false; pick.value = "";
 }
-function request(command: Record<string, unknown>, bytes?: ArrayBuffer): Promise<Record<string, unknown>> {
+function dispose(): void {
+    sourceGeneration.advance();
+    resetWorker(new Error('Analysis cancelled'));
+    sources.clear();
+}
+async function request(
+    command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string, cancellation?: AnalysisCancellationSignal,
+): Promise<Record<string, unknown>> {
+    if (!worker && !recovery && sources.size) {
+        const generation = sourceGeneration.current;
+        const restoring = (async () => {
+            for (const source of sources.values()) {
+                const bytes = await source.file.arrayBuffer();
+                if (!sourceGeneration.isCurrent(generation) || !sources.owns(source.path, source)) {
+                    throw new Error('Analysis cancelled');
+                }
+                await sendRequest({ cmd: 'load', sourceId: source.path.split('/').pop()! }, bytes);
+            }
+        })();
+        recovery = restoring;
+        void restoring.finally(() => { if (recovery === restoring) recovery = undefined; }).catch(() => {});
+    }
+    if (recovery) await recovery;
+    if (cancellation?.isCancellationRequested) throw new Error('Recipe execution cancelled');
+    return sendRequest(command, bytes, forcedRequestId);
+}
+function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
     if (!worker) {
         if (command.cmd !== 'load') throw new Error('No selected source; choose the WAV again.');
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
@@ -95,7 +124,7 @@ function request(command: Record<string, unknown>, bytes?: ArrayBuffer): Promise
             emit({ type: 'reanalyze-end' });
         };
     }
-    const requestId = `browser-${++nextId}`;
+    const requestId = forcedRequestId ?? `browser-${++nextId}`;
     return new Promise((resolve, reject) => {
         pending.set(requestId, { command: String(command.cmd), complete: resolve, reject });
         worker!.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
@@ -106,11 +135,21 @@ function stft() {
     return state.spectrogramSettings.auto ? {} : { stftOptions: state.spectrogramSettings.stft };
 }
 const analysisClient = new class extends AnalysisClient {
-    protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>): Promise<BackendResult<K>> {
-        const result = await request({ ...payload, cmd: command });
+    protected override cancelRequest(requestId: string, reason: Error): void {
+        if (!pending.has(requestId) && !recovery) return;
+        resetWorker(new RecipeWorkerResetError(reason.message));
+        emit({ type: 'reanalyze-end' });
+        announce(reason.message);
+    }
+    protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>, requestId?: string, cancellation?: AnalysisCancellationSignal): Promise<BackendResult<K>> {
+        const result = await request({ ...payload, cmd: command }, undefined, requestId, cancellation);
         return parseBackendResult(command, result);
     }
-}();
+}({ current: filePath => {
+    const result = sources.get(filePath)?.result;
+    return result && !('error' in result)
+        ? { calibrationProfile: result.calibrationProfile, analysisRevision: result.analysisRevision } : {};
+} });
 function resultWithSource(result: AnalysisResult, name: string, url: string): ComparisonTrackState {
     const alias = String(result.filePath).split('/').pop()!.replace(/\.wav$/, '') + '-' + name.replace(/[\\/\u0000-\u001f]/g, '_');
     return { ...result, fileName: name, audioSource: url, reportSourcePath: alias } as unknown as ComparisonTrackState;
@@ -130,7 +169,7 @@ async function releaseSource(path: string): Promise<void> {
     }
     const myGeneration = sourceGeneration.current;
     try { await request({ cmd: 'unload', filePath: path }); }
-    catch (error) { if (sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(String(error)); } }
+    catch (error) { if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(String(error)); } }
 }
 async function fetchJson(url: string): Promise<unknown> {
     const response = await fetch(url);
@@ -190,9 +229,9 @@ const recipeFlow = new RecipeFlow({
     pickInputFiles: async () => { announce(strings.browserRecipeNoSources); return undefined; },
     resolveRelative: (file) => { throw new Error(`Recipe input ${file} must be a loaded track in the browser`); },
     runWithProgress: async (title, task) => { announce(title); return task(); },
-    execute: async recipe => {
-        if (!worker) throw new Error(strings.browserRecipeNoSources);
-        return analysisClient.runRecipe(recipe);
+    execute: async (recipe, location) => {
+        if (!sources.size) throw new Error(strings.browserRecipeNoSources);
+        return analysisClient.runRecipe(recipe, { recipePath: location });
     },
     showCharts: (title, charts) => { showRecipeCharts(title, charts); announce(strings.browserRecipeDone + title); },
     showError: announce,
@@ -218,7 +257,7 @@ const ports: ComparisonSessionPorts = {
     stftOptions: () => stft().stftOptions,
     client: analysisClient,
     lazyContext(filePath) {
-        if (!worker || !sources.get(filePath)) throw new Error('Source is no longer selected; choose the WAV again.');
+        if (!sources.get(filePath)) throw new Error('Source is no longer selected; choose the WAV again.');
         return {};
     },
     lazyFailed: (_request, reason) => announce(reason),
@@ -318,10 +357,10 @@ pick.onchange = (): void => {
                     const result = await analysisClient.analyze(loadedPath, stft());
                     return { path: loadedPath, result };
                 } catch (error) {
-                    if (sourceGeneration.isCurrent(myGeneration) && loadedPath) {
+                    if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration) && loadedPath) {
                         try { await request({ cmd: 'unload', filePath: loadedPath }); }
                         catch (releaseError) {
-                            if (sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(String(releaseError)); }
+                            if (!(releaseError instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(String(releaseError)); }
                             throw releaseError;
                         }
                     }
@@ -330,7 +369,7 @@ pick.onchange = (): void => {
             },
             commit: (file, loaded) => {
                 const url = URL.createObjectURL(file);
-                sources.set(loaded.path, { path: loaded.path, name: file.name, url, inputBytes: file.size,
+                sources.set(loaded.path, { path: loaded.path, name: file.name, url, inputBytes: file.size, file,
                     result: resultWithSource(loaded.result, file.name, url) });
                 snapshot();
             },

@@ -20,7 +20,7 @@ The runner evaluates each ``expr`` under a restricted AST whitelist (see
 :func:`_validate_node`) and binds the resulting object to ``as``. Bindings
 declared earlier can be referenced by later steps. Every name listed in
 ``display`` is then adapted via ``wandas_to_chart.adapt`` and the list of
-resulting ChartSpec dicts is printed to stdout as JSON.
+resulting ChartSpec dicts is returned to the analysis service.
 
 AST whitelist (all other nodes raise ``RecipeError``):
 
@@ -52,10 +52,7 @@ typos from silently doing surprising things.
 
 from __future__ import annotations
 
-import argparse
 import ast
-import json
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -162,12 +159,6 @@ def _eval_expr(expr: str, bindings: dict[str, Any]) -> Any:
 # ---- recipe loading & execution -------------------------------------------
 
 
-def _load_recipe(path: str | None) -> dict[str, Any]:
-    if path is None or path == "-":
-        return json.load(sys.stdin)
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
 InputLoader = Callable[[str], Any]
 
 
@@ -223,28 +214,3 @@ def run_recipe(
     inputs = recipe.get("inputs") or []
     bindings = _load_inputs(inputs, load or file_input_loader(base_dir))
     return evaluate_recipe(recipe, bindings)
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run a wandas analysis recipe → ChartSpec JSON")
-    parser.add_argument("--recipe", help="Path to the recipe JSON file (omit or '-' to read stdin)")
-    args = parser.parse_args(argv)
-
-    try:
-        recipe = _load_recipe(args.recipe)
-        base_dir = Path(args.recipe).resolve().parent if args.recipe and args.recipe != "-" else Path.cwd()
-        charts = run_recipe(recipe, base_dir)
-    except RecipeError as e:
-        print(f"recipe error: {e}", file=sys.stderr)
-        return 2
-    except Exception as e:  # noqa: BLE001
-        print(f"{type(e).__name__}: {e}", file=sys.stderr)
-        return 1
-
-    json.dump({"charts": charts}, sys.stdout, ensure_ascii=False)
-    sys.stdout.write("\n")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

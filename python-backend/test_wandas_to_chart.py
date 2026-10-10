@@ -43,7 +43,7 @@ def test_spectrogram_frame_from_stft(mono_sin: wd.ChannelFrame) -> None:
     assert spec["kind"] == "heatmap"
     assert len(spec["ys"]) == len(spec["matrix"])
     assert len(spec["xs"]) == len(spec["matrix"][0])
-    assert spec["unit"] == "dB"
+    assert spec["unit"] == mono_sin.channels[0].level_reference.label
 
 
 def test_stereo_roughness_uses_requested_channel_and_bark_axis(two_channel: wd.ChannelFrame) -> None:
@@ -124,3 +124,91 @@ def test_scalar_numeric() -> None:
     spec = adapt(3.14, title="pi")
     assert spec["kind"] == "scalar"
     assert spec["rows"][0]["value"] == pytest.approx(3.14)
+
+
+def test_noct_frame_preserves_each_channel_level_reference(two_channel: wd.ChannelFrame) -> None:
+    frame = two_channel.with_calibration({0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5)})
+    octave = frame.noct_spectrum(fmin=125, fmax=4000, n=3)
+    spec = adapt(octave)
+    assert [series["unit"] for series in spec["series"]] == [
+        channel.level_reference.label for channel in octave.channels
+    ]
+    assert "Pa" in spec["series"][0]["unit"]
+    assert spec["series"][1]["unit"] == "dB re 1 input unit"
+    np.testing.assert_allclose(spec["series"][0]["values"], octave.dB[0])
+
+
+@pytest.mark.parametrize("channel, selected", [(0, 0), (1, 1), (-1, 0), (99, 1)])
+def test_spectrogram_preserves_selected_channel_reference(
+    two_channel: wd.ChannelFrame, channel: int, selected: int
+) -> None:
+    frame = two_channel.with_calibration({0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5)}).stft()
+    spec = adapt(frame, channel=channel)
+    assert spec["unit"] == frame.channels[selected].level_reference.label
+    np.testing.assert_allclose(spec["matrix"], frame.dB[selected])
+
+
+@pytest.mark.parametrize("method", ["csd", "transfer_function"])
+def test_calibrated_pairwise_charts_preserve_values_and_references(two_channel: wd.ChannelFrame, method: str) -> None:
+    frame = two_channel.with_calibration(
+        {
+            0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5),
+            1: wd.ChannelCalibration(factor=3.0, unit="V", ref=1e-6),
+        }
+    )
+    pairwise = getattr(frame, method)()
+    spec = adapt(pairwise)
+    levels = pairwise.level_db if method == "csd" else pairwise.transfer_level_db
+    assert spec["yLabel"] == ("Cross-spectral level [dB]" if method == "csd" else "Transfer level [dB]")
+    assert [series["unit"] for series in spec["series"]] == [
+        channel.level_reference.label for channel in pairwise.channels
+    ]
+    actual = np.array([series["ys"] for series in spec["series"]])
+    finite = np.isfinite(levels)
+    np.testing.assert_allclose(actual[finite], levels[finite])
+    assert any("Pa" in series["unit"] and "V" in series["unit"] for series in spec["series"])
+    if method == "transfer_function":
+        assert adapt(pairwise, value="transfer_level_db") == spec
+        with pytest.raises(ValueError, match="dimensionless transfer pairs"):
+            adapt(pairwise, value="gain_db")
+
+
+def test_same_unit_transfer_default_keeps_gain_even_with_different_references(two_channel: wd.ChannelFrame) -> None:
+    frame = two_channel.with_calibration(
+        {
+            0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5),
+            1: wd.ChannelCalibration(factor=3.0, unit="Pa", ref=1e-3),
+        }
+    ).transfer_function()
+    spec = adapt(frame)
+    assert spec["yLabel"] == "Gain [dB]"
+    actual = np.array([series["ys"] for series in spec["series"]])
+    finite = np.isfinite(frame.gain_db)
+    np.testing.assert_allclose(actual[finite], frame.gain_db[finite])
+    referenced = adapt(frame, value="transfer_level_db")
+    assert [series["unit"] for series in referenced["series"]] == [
+        channel.level_reference.label for channel in frame.channels
+    ]
+
+
+@pytest.mark.parametrize("second_unit", ["V", "Pa"])
+def test_linear_transfer_gain_preserves_channel_units_and_values(
+    two_channel: wd.ChannelFrame, second_unit: str
+) -> None:
+    frame = two_channel.with_calibration(
+        {
+            0: wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5),
+            1: wd.ChannelCalibration(factor=3.0, unit=second_unit, ref=1e-6),
+        }
+    ).transfer_function()
+    spec = adapt(frame, value="gain")
+    assert spec["yLabel"] == "Gain"
+    assert spec["yScale"] == "linear"
+    assert [series["unit"] for series in spec["series"]] == [channel.unit for channel in frame.channels]
+    if second_unit == "V":
+        assert {series["unit"] for series in spec["series"]} == {"1", "Pa/V", "V/Pa"}
+    else:
+        assert {series["unit"] for series in spec["series"]} == {"1"}
+    actual = np.array([series["ys"] for series in spec["series"]])
+    finite = np.isfinite(frame.gain)
+    np.testing.assert_allclose(actual[finite], frame.gain[finite])

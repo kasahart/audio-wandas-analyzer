@@ -63,13 +63,17 @@ def _adapt_channel_frame(frame: Any, *, title: str) -> dict[str, Any]:
     if data.ndim == 1:
         data = data[np.newaxis, :]
     time = np.asarray(getattr(frame, "time", np.arange(data.shape[-1])), dtype=np.float64)
+    series = _series_2d(data, _labels(frame))
+    for item, channel in zip(series, getattr(frame, "channels", []), strict=False):
+        if channel.unit:
+            item["unit"] = channel.unit
     return {
         "kind": "line",
         "title": title,
         "xLabel": "Time [s]",
         "yLabel": "Amplitude",
         "xs": _as_list(time),
-        "series": _series_2d(data, _labels(frame)),
+        "series": series,
     }
 
 
@@ -94,13 +98,19 @@ def _adapt_spectral_frame(
         arr = arr[np.newaxis, :]
     y_label = y_label or {"dB": "Level [dB]", "magnitude": "Magnitude", "phase": "Phase [rad]"}.get(value, value)
     y_scale = y_scale or ("db" if value == "dB" else "linear")
+    series = _series_2d(arr, _labels(frame))
+    for item, channel in zip(series, getattr(frame, "channels", []), strict=False):
+        if value in {"dB", "level_db", "transfer_level_db"}:
+            item["unit"] = channel.level_reference.label
+        elif value in {"magnitude", "gain"} and channel.unit:
+            item["unit"] = channel.unit
     return {
         "kind": "line",
         "title": title,
         "xLabel": "Frequency [Hz]",
         "yLabel": y_label,
         "xs": _as_list(freqs),
-        "series": _series_2d(arr, _labels(frame)),
+        "series": series,
         "xScale": "linear",
         "yScale": y_scale,
     }
@@ -110,12 +120,15 @@ def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> dic
     freqs = np.asarray(frame.freqs, dtype=np.float64)
     db = np.asarray(frame.dB, dtype=np.float64)
     # dB shape is (channels, freqs, time).
+    ch = 0
     if db.ndim == 2:
         plane = db
     else:
         ch = max(0, min(channel, db.shape[0] - 1))
         plane = db[ch]
     n_freq, n_time = plane.shape
+    channels = getattr(frame, "channels", [])
+    unit = channels[ch].level_reference.label if channels else "dB"
     times = np.asarray(frame.times, dtype=np.float64)
     return {
         "kind": "heatmap",
@@ -125,7 +138,7 @@ def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> dic
         "xs": _as_list(times[:n_time]),
         "ys": _as_list(freqs[:n_freq]),
         "matrix": [_as_list(plane[i]) for i in range(n_freq)],
-        "unit": "dB",
+        "unit": unit,
         "colormap": "viridis",
     }
 
@@ -141,6 +154,8 @@ def _adapt_noct_frame(frame: Any, *, title: str) -> dict[str, Any]:
         if i >= db.shape[0]:
             break
         series.append({"name": name, "values": _as_list(db[i]), "unit": "dB"})
+    for item, channel in zip(series, getattr(frame, "channels", []), strict=False):
+        item["unit"] = channel.level_reference.label
     return {
         "kind": "bar",
         "title": title,
@@ -220,7 +235,8 @@ def adapt(obj: Any, *, title: str | None = None, **kwargs: Any) -> dict[str, Any
             y_scale="db" if value == "level_db" else "linear",
         )
     if cls == "TransferFunctionFrame":
-        value = kwargs.get("value", "gain_db")
+        default_value = "transfer_level_db" if any(domain.unit != "1" for domain in obj.pair_domains) else "gain_db"
+        value = kwargs.get("value", default_value)
         labels = {
             "gain_db": "Gain [dB]",
             "transfer_level_db": "Transfer level [dB]",

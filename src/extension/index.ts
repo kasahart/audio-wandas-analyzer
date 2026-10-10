@@ -38,7 +38,7 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     const analysis = new AnalysisOrchestrator(backend, logPerf);
     const exports = new ExportFlows(backend);
-    const recipeFlow = new RecipeFlow(context.extensionPath, context.extensionUri);
+    const recipeFlow = new RecipeFlow(context.extensionPath, context.extensionUri, backend);
     const panelController = new PanelController(context, backend, analysis, exports);
 
     const warmPythonBackend = (pythonCommand: string): void => {

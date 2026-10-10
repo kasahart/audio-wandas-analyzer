@@ -1498,6 +1498,13 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
 
     assert.ok(trackSpy!.clearRectCalls >= trackClearBefore, 'per-track spectrum should remain drawable after a slice failure');
     assert.ok(overlaySpy!.clearRectCalls >= overlayClearBefore, 'overlay spectrum should remain drawable after a slice failure');
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action', actionId: 'slice-retry-after-error',
+        actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.7 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    const retried = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
+    assert.ok(retried.length > requests.length, 'terminal slice error must release the active request for another cursor');
     env.dom.window.close();
 });
 
@@ -3668,5 +3675,31 @@ test('recreated canvases repaint unchanged spectrogram data', async () => {
     await nextAnimationFrame(env.dom);
     assert.notEqual(env.dom.window.document.getElementById('track-canvas-0'), oldCanvas);
     assert.ok(spy.putImageDataCalls > paints, 'the old raster cache must not suppress painting the new canvas');
+    env.dom.window.close();
+});
+
+
+test('renderScript: terminal detail error permits retry with the same analysis settings', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement;
+    button.click();
+    await nextAnimationFrame(env.dom);
+    const before = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
+    const initial = before[0];
+    assert.ok(initial);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        ...initial, type: 'track-detail-error', error: 'Recipe execution timed out',
+    } }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action', actionId: 'detail-retry-after-error',
+        actions: [{ action: 'set-spectrogram-display', payload: { dbMin: -70, dbMax: -5, maxFrequencyHz: 8000 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    const after = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
+    assert.ok(after.length > before.length);
+    const retry = after.at(-1);
+    assert.equal(retry.analysisId, initial.analysisId);
+    assert.equal(retry.settingsSignature, initial.settingsSignature);
+    assert.notEqual(retry.requestId, initial.requestId);
     env.dom.window.close();
 });

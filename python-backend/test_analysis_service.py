@@ -171,3 +171,104 @@ def test_sparse_stft_time_axes_and_amplitudes_match_scipy(n_fft: int, window: st
         assert result.channels[0].unit == "Pa"
         assert result.channels[0].calibration.factor == 1.0
     assert frame.channels[0].calibration.factor == 2.0
+
+
+def test_recipe_uses_calibrated_frames_and_recipe_relative_paths_in_both_hosts(tmp_path):
+    from browser_service import create_service
+
+    wav = tmp_path / "selected.wav"
+    _write_sine_wav(wav)
+    desktop = AnalysisService(AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024))
+    browser = create_service()
+    browser.engine.load(wav.name, wav.read_bytes())
+    labels = list(desktop.engine.get_file(wav).frame.labels)
+    profile = {
+        "schemaVersion": 1,
+        "channels": [
+            {
+                "channelIndex": 0,
+                "expectedLabel": labels[0],
+                "status": "calibrated",
+                "source": "manual",
+                "factor": 10.0,
+                "unit": "Pa",
+                "referenceValue": 2e-5,
+            }
+        ],
+    }
+    recipe = {
+        "inputs": [{"name": "sig", "file": "selected.wav"}],
+        "steps": [
+            {"as": "spectrum", "expr": "sig.fft()"},
+            {"as": "octave", "expr": "sig.noct_spectrum(fmin=125, fmax=4000, n=3)"},
+            {"as": "stft", "expr": "sig.stft()"},
+        ],
+        "display": ["sig", "spectrum", "octave", "stft"],
+    }
+    contexts = {"sig": {"calibrationProfile": profile, "analysisRevision": 3}}
+    native = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
+    web = browser.run_recipe(recipe, recipe_path="/sources/custom.json", input_contexts=contexts)
+    assert native == web
+    assert native["charts"][0]["series"][0]["unit"] == "Pa"
+    assert "Pa" in native["charts"][1]["series"][0]["unit"]
+    assert "Pa" in native["charts"][2]["series"][0]["unit"]
+    assert "Pa" in native["charts"][3]["unit"]
+    raw = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"))
+    assert raw["charts"][2]["series"][0]["unit"] == "dBFS"
+    assert raw["charts"][3]["unit"] == "dBFS"
+    np.testing.assert_allclose(
+        native["charts"][0]["series"][0]["ys"], np.array(raw["charts"][0]["series"][0]["ys"]) * 10
+    )
+    cached = desktop.engine.get_file(wav)
+    desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
+    assert desktop.engine.get_file(wav) is cached
+    assert cached.frame.channels[0].unit != "Pa"
+
+
+@pytest.mark.parametrize("transfer_value", [None, "gain"])
+def test_calibrated_pairwise_recipe_matches_desktop_and_browser(tmp_path, transfer_value):
+    from browser_service import create_service
+
+    rate = 16000
+    samples = 0.01 * np.sin(2 * np.pi * np.arange(rate // 4)[:, None] / rate * np.array([440, 880]))
+    wav = tmp_path / "pairs.wav"
+    sf.write(wav, samples, rate, subtype="PCM_16")
+    desktop = AnalysisService(AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024))
+    browser = create_service()
+    browser.engine.load(wav.name, wav.read_bytes())
+    labels = desktop.engine.get_file(wav).frame.labels
+    profile = {
+        "schemaVersion": 1,
+        "channels": [
+            {
+                "channelIndex": index,
+                "expectedLabel": labels[index],
+                "status": "calibrated",
+                "source": "manual",
+                "factor": factor,
+                "unit": unit,
+                "referenceValue": ref,
+            }
+            for index, (factor, unit, ref) in enumerate([(2.0, "Pa", 2e-5), (3.0, "V", 1e-6)])
+        ],
+    }
+    recipe = {
+        "inputs": [{"name": "sig", "file": wav.name}],
+        "steps": [
+            {"as": "cross", "expr": "sig.csd()"},
+            {"as": "transfer", "expr": "sig.transfer_function()"},
+        ],
+        "display": ["cross", {"name": "transfer", "value": transfer_value}]
+        if transfer_value
+        else ["cross", "transfer"],
+    }
+    contexts = {"sig": {"calibrationProfile": profile}}
+    native = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
+    web = browser.run_recipe(recipe, recipe_path="/sources/custom.json", input_contexts=contexts)
+    assert native == web
+    assert [chart["yLabel"] for chart in native["charts"]] == [
+        "Cross-spectral level [dB]",
+        "Gain" if transfer_value else "Transfer level [dB]",
+    ]
+    for chart in native["charts"]:
+        assert any("Pa" in series["unit"] and "V" in series["unit"] for series in chart["series"])

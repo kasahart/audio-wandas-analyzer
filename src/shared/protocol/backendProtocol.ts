@@ -102,6 +102,8 @@ export type ReleaseTrackDetailResult = Record<never, never>;
 
 export interface RunRecipePayload {
     recipe: RecipeDocument;
+    recipePath?: string;
+    inputContexts?: Record<string, CalibrationRequestContext>;
 }
 
 export interface RunRecipeResult {

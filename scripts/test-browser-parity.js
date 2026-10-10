@@ -44,13 +44,22 @@ service.engine.load('selected.wav',payload)
 commands=packet['commands']
 byte_results=[dispatch(c,service) for c in commands]
 native_service=AnalysisService(AnalysisEngine())
-for c in commands:c['filePath']=packet['fixture']
+for c in commands:
+    c['filePath']=packet['fixture']
+    if c['cmd']=='run-recipe':
+        c['recipePath']=str(__import__('pathlib').Path(packet['fixture']).resolve().parent / 'custom.json')
+        c['recipe']['inputs'][0]['file']=__import__('pathlib').Path(packet['fixture']).name
 native_results=[dispatch(c,native_service) for c in commands]
 print(json.dumps([byte_results,native_results],allow_nan=False))
 `], { maxBuffer: 32 * 1024 * 1024, cwd: root, input: JSON.stringify({commands:fixture.commands || commands,fixture:fixture.path || `src/test/fixtures/${fixture.name}`}), encoding: 'utf8', env: { ...process.env, MPLBACKEND: 'Agg' } });
 assert.equal(native.status, 0, native.stderr);
 return JSON.parse(native.stdout);
 }
+commands.push({
+    cmd: 'run-recipe', requestId: 'recipe-parity', recipePath: '/sources/custom.json',
+    recipe: { inputs: [{ name: 'sig', file: 'selected.wav' }],
+        steps: [{ as: 'spectrum', expr: 'sig.fft()' }], display: ['sig', 'spectrum'] },
+});
 const nativePairs = fixtures.map(nativeResultsFor);
 const byteResults = nativePairs.map(pair => pair[0]);
 const nativeResults = nativePairs.map(pair => pair[1]);

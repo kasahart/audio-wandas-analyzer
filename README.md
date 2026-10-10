@@ -94,6 +94,8 @@ The comparison toolbar includes export actions for everyday handoff work:
 | **Export Report** | Markdown / notebook-ready analysis report |
 | **Run recipe** | A wandas recipe result rendered in VS Code |
 
+Recipe inputs use the same calibrated frames as the main analysis. Relative input paths on desktop are resolved from the Recipe JSON file’s directory; browser Recipes use tracks already loaded into the Worker. Both hosts execute the persistent `run-recipe` command.
+
 ## Settings
 
 | Key | Default | Description |
