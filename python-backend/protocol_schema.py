@@ -31,6 +31,7 @@ SUPPORTED_KEYWORDS = frozenset(
 # enum/const values are limited to JSON scalars so both validators can compare them without deep equality.
 _SCALAR_TYPES = (str, int, float, bool, type(None))
 _TYPES = frozenset({"object", "array", "string", "number", "integer", "boolean", "null"})
+_MAX_SAFE_INTEGER = 2**53 - 1  # Number.MAX_SAFE_INTEGER: larger integers change value in the generated TS.
 
 _NUMBER: Schema = {"type": "number"}
 _NUMBERS: Schema = {"type": "array", "items": _NUMBER}
@@ -85,9 +86,22 @@ COMMANDS: dict[str, dict[str, str]] = {
 }
 
 
+def _is_literal(value: object, declared_type: object) -> bool:
+    """A JSON scalar that survives the trip to a JS number and matches the node's ``type``, if any."""
+    if not isinstance(value, _SCALAR_TYPES):
+        return False
+    if isinstance(value, int) and not isinstance(value, bool) and abs(value) > _MAX_SAFE_INTEGER:
+        return False
+    return declared_type is None or _matches_type(declared_type, value)  # type: ignore[arg-type]
+
+
 def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | None:
-    """Path of the first keyword outside ``SUPPORTED_KEYWORDS`` or unresolvable ``$ref``
-    (all definitions by default), or None."""
+    """Path of the first keyword the validators cannot enforce exactly (all definitions by default), or None.
+
+    Besides keywords outside ``SUPPORTED_KEYWORDS`` that covers unresolvable ``$ref``s, ``$ref`` with
+    sibling keywords (resolution would drop them), unknown type names, and enum/const values that are not
+    JSON scalars, lose precision as JS numbers, or contradict the node's ``type``.
+    """
     if schema is None:
         for name, definition in DEFINITIONS.items():
             found = unsupported_keyword(definition, f"$defs.{name}")
@@ -96,17 +110,23 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
         return None
     if not isinstance(schema, dict):
         return None
+    declared_type = schema.get("type")
     for key, child in schema.items():
         if key not in SUPPORTED_KEYWORDS:
             return f"{path}.{key}"
-        if key == "$ref" and (not child.startswith("#/$defs/") or child.removeprefix("#/$defs/") not in DEFINITIONS):
+        if key == "$ref" and (
+            len(schema) > 1
+            or not isinstance(child, str)
+            or not child.startswith("#/$defs/")
+            or child.removeprefix("#/$defs/") not in DEFINITIONS
+        ):
             return f"{path}.$ref"
-        if key == "type" and child not in _TYPES:
+        if key == "type" and (not isinstance(child, str) or child not in _TYPES):
             return f"{path}.type"
-        if key == "const" and not isinstance(child, _SCALAR_TYPES):
+        if key == "const" and not _is_literal(child, declared_type):
             return f"{path}.const"
         if key == "enum" and (
-            not isinstance(child, list) or not child or not all(isinstance(item, _SCALAR_TYPES) for item in child)
+            not isinstance(child, list) or not child or not all(_is_literal(item, declared_type) for item in child)
         ):
             return f"{path}.enum"
         nested = child.items() if key == "properties" else [(key, child)] if key == "items" else []
