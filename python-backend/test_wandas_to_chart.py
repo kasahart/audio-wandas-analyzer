@@ -230,6 +230,14 @@ def test_long_channel_frame_is_decimated_and_keeps_peaks_at_their_times() -> Non
     assert spec["xs"][second["ys"].index(-0.7)] == pytest.approx(99999 / 48000)
     assert spec["xs"] == sorted(spec["xs"])
     assert spec["xs"][0] == 0.0
+    assert spec["xs"][-1] == pytest.approx(frame.time[-1])
+
+
+def test_decimated_flat_channel_frame_keeps_recording_endpoints() -> None:
+    frame = wd.from_numpy(np.zeros((1, 48000 * 3)), sampling_rate=48000)
+    spec = adapt(frame)
+    assert spec["xs"][0] == 0.0
+    assert spec["xs"][-1] == pytest.approx(frame.time[-1])
 
 
 def test_decimated_channel_frame_keeps_finite_peaks_next_to_nan() -> None:

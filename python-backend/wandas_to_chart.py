@@ -100,7 +100,8 @@ def _min_max_envelope(data: np.ndarray, time: np.ndarray) -> tuple[np.ndarray, n
     """Keep only the samples that shape the envelope: every channel's per-bucket min and max.
 
     Points sit at the samples' own times (the union across channels), so transients stay where
-    they occurred. The first non-finite sample of each bucket is kept too, so a gap survives.
+    they occurred. The first non-finite sample of each bucket is kept too, so a gap survives, and
+    the recording's first and last samples keep the chart's time span intact.
     """
     n = data.shape[-1]
     bucket_count = max(1, CHANNEL_FRAME_POINT_LIMIT // (2 * data.shape[0]))
@@ -108,7 +109,7 @@ def _min_max_envelope(data: np.ndarray, time: np.ndarray) -> tuple[np.ndarray, n
     sizes = np.full(bucket_count, width)
     sizes[:remainder] += 1
     starts = np.concatenate(([0], np.cumsum(sizes[:-1])))
-    keep = []
+    keep = [np.array([0, n - 1])]
     for samples in data:
         keep.append(_bucket_extremum_indices(samples, starts, sizes, np.fmin))
         keep.append(_bucket_extremum_indices(samples, starts, sizes, np.fmax))
