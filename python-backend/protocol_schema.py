@@ -25,7 +25,13 @@ Schema = dict[str, Any]
 
 MAX_WAVEFORM_POINTS = 8192
 
-SUPPORTED_KEYWORDS = frozenset({"$ref", "type", "minimum", "maximum", "required", "properties", "items", "x-tsType"})
+SUPPORTED_KEYWORDS = frozenset(
+    {"$ref", "type", "enum", "const", "minimum", "maximum", "required", "properties", "items", "x-tsType"}
+)
+# enum/const values are limited to JSON scalars so both validators can compare them without deep equality.
+_SCALAR_TYPES = (str, int, float, bool, type(None))
+_TYPES = frozenset({"object", "array", "string", "number", "integer", "boolean", "null"})
+_MAX_SAFE_INTEGER = 2**53 - 1  # Number.MAX_SAFE_INTEGER: larger integers change value in the generated TS.
 
 _NUMBER: Schema = {"type": "number"}
 _NUMBERS: Schema = {"type": "array", "items": _NUMBER}
@@ -80,9 +86,28 @@ COMMANDS: dict[str, dict[str, str]] = {
 }
 
 
+def _is_literal(value: object, declared_type: object) -> bool:
+    """A JSON scalar that survives the trip to a JS number and matches the node's ``type``, if any."""
+    if not isinstance(value, _SCALAR_TYPES):
+        return False
+    if isinstance(value, float) and not math.isfinite(value):
+        return False  # json.dump would emit NaN/Infinity, which JSON.parse rejects.
+    integral = (isinstance(value, int) and not isinstance(value, bool)) or (
+        isinstance(value, float) and value.is_integer()
+    )
+    if integral and abs(value) > _MAX_SAFE_INTEGER:  # Compared exactly; float(10**400) would overflow.
+        return False
+    return declared_type is None or _matches_type(declared_type, value)  # type: ignore[arg-type]
+
+
 def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | None:
-    """Path of the first keyword outside ``SUPPORTED_KEYWORDS`` or unresolvable ``$ref``
-    (all definitions by default), or None."""
+    """Path of the first keyword the validators cannot enforce exactly (all definitions by default), or None.
+
+    Besides keywords outside ``SUPPORTED_KEYWORDS`` that covers unresolvable ``$ref``s, ``$ref`` with
+    sibling keywords (resolution would drop them), unknown type names, ``enum`` together with ``const``,
+    enum/const beside ``minimum``/``maximum``, and enum/const values that are not finite JSON scalars, lose
+    precision as JS numbers, or contradict the node's ``type``.
+    """
     if schema is None:
         for name, definition in DEFINITIONS.items():
             found = unsupported_keyword(definition, f"$defs.{name}")
@@ -91,11 +116,30 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
         return None
     if not isinstance(schema, dict):
         return None
+    declared_type = schema.get("type")
+    # Literal types are emitted as-is, so bounds beside enum/const would make them wider than validation.
+    bounded = "minimum" in schema or "maximum" in schema
     for key, child in schema.items():
         if key not in SUPPORTED_KEYWORDS:
             return f"{path}.{key}"
-        if key == "$ref" and (not child.startswith("#/$defs/") or child.removeprefix("#/$defs/") not in DEFINITIONS):
+        if key == "$ref" and (
+            len(schema) > 1
+            or not isinstance(child, str)
+            or not child.startswith("#/$defs/")
+            or child.removeprefix("#/$defs/") not in DEFINITIONS
+        ):
             return f"{path}.$ref"
+        if key == "type" and (not isinstance(child, str) or child not in _TYPES):
+            return f"{path}.type"
+        if key == "const" and ("enum" in schema or bounded or not _is_literal(child, declared_type)):
+            return f"{path}.const"
+        if key == "enum" and (
+            bounded
+            or not isinstance(child, list)
+            or not child
+            or not all(_is_literal(item, declared_type) for item in child)
+        ):
+            return f"{path}.enum"
         nested = child.items() if key == "properties" else [(key, child)] if key == "items" else []
         for name, node in nested:
             found = unsupported_keyword(node, f"{path}.{name}")
@@ -130,6 +174,8 @@ def _matches_type(expected: str, value: object) -> bool:
         return isinstance(value, str)
     if expected == "boolean":
         return isinstance(value, bool)
+    if expected == "null":
+        return value is None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
     if isinstance(value, int):
@@ -138,14 +184,26 @@ def _matches_type(expected: str, value: object) -> bool:
     return math.isfinite(value) and (expected == "number" or value.is_integer())
 
 
+def _json_equal(left: object, right: object) -> bool:
+    """JSON Schema scalar equality: ``1`` equals ``1.0`` but ``true`` never equals ``1``."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    return left == right
+
+
 def first_violation(schema: Schema, value: object, path: str = "") -> str | None:
     """Return the dotted path of the first value that breaks ``schema`` (``""`` for the root), or None."""
     schema = _resolve(schema)
     if "type" in schema and not _matches_type(schema["type"], value):
         return path
-    if "minimum" in schema and value < schema["minimum"]:  # type: ignore[operator]
+    if "const" in schema and not _json_equal(value, schema["const"]):
         return path
-    if "maximum" in schema and value > schema["maximum"]:  # type: ignore[operator]
+    if "enum" in schema and not any(_json_equal(value, item) for item in schema["enum"]):
+        return path
+    numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
+    if numeric and "minimum" in schema and value < schema["minimum"]:  # type: ignore[operator]
+        return path
+    if numeric and "maximum" in schema and value > schema["maximum"]:  # type: ignore[operator]
         return path
     if isinstance(value, dict):
         properties = schema.get("properties", {})
