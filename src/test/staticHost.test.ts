@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { runInNewContext } from 'node:vm';
+import { createStaticHost, type StaticHostDeps } from '../webview/runtime/staticHost';
 import type { WebviewHostApi } from '../webview/runtime/types';
 import type { UiStrings } from '../shared/i18n/strings';
 
@@ -105,7 +105,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         addEventListener: () => undefined,
         dispatchEvent: () => { throw new Error('Static host must not use the window message channel'); },
     };
-    runInNewContext(readFileSync(join(__dirname, '../webview/staticHost.js'), 'utf8'), {
+    createStaticHost({
         window: browser,
         document: {
             createElement: (tag: string) => { const element = new MockElement(tag); elements.push(element); return element; },
@@ -113,12 +113,11 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
             querySelector: () => elements.find(element => element.tag === 'section' && !element.removed) ?? null,
         },
         fetch: async (url: string) => { fetched.push(url); const body = served[url]; return { ok: body !== undefined, status: body === undefined ? 404 : 200, json: async () => body }; },
-        Object,
         Worker: ControlledWorker,
         URL: { createObjectURL: () => `blob:fixture-${++blobId}`, revokeObjectURL: (url: string) => { revoked.push(url); } },
-        setTimeout: (callback: () => void, delay: number) => setTimeout(callback, delay === 120_000 ? recipeTimeout : delay),
-        clearTimeout, Uint8Array,
-    });
+        setTimeout,
+        recipeTimeoutMs: recipeTimeout,
+    } as unknown as StaticHostDeps);
     const host = browser.__AWA_HOST__!;
     host.onMessage!(message => received.push(message as Record<string, unknown>));
     const picker = elements.find(element => element.tag === 'input')!;
