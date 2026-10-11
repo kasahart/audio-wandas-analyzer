@@ -20,6 +20,7 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
+import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
 import {
     hoverNormForFrequency as mapHoverNormForFrequency,
@@ -1838,24 +1839,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return Math.max(1, canvasWidth - SPECTROGRAM_COLORBAR_WIDTH);
     }
     function trackCanvasTimeHit(canvas: RuntimeElement, clientX: number) {
-        const rect = canvas.getBoundingClientRect();
-        const x = clientX - rect.left;
-        const timeWidth = contentType === 'spectrogram'
-            ? spectrogramPlotWidth(canvas.width)
-            : canvas.width;
-        if (x < 0 || x > timeWidth) {
-            return null;
-        }
-        return {
-            x: x,
-            timeWidth: timeWidth,
-            norm: zoomStart + (x / timeWidth) * (zoomEnd - zoomStart),
-        };
+        const timeWidth = contentType === 'spectrogram' ? spectrogramPlotWidth(canvas.width) : canvas.width;
+        return canvasTimeHit(canvas.getBoundingClientRect().left, clientX, timeWidth, { start: zoomStart, end: zoomEnd });
     }
     function clampedTrackCanvasNorm(canvas: RuntimeElement, clientX: number, timeWidth: number) {
-        const rect = canvas.getBoundingClientRect();
-        const x = Math.max(0, Math.min(timeWidth, clientX - rect.left));
-        return Math.max(0, Math.min(1, zoomStart + (x / timeWidth) * (zoomEnd - zoomStart)));
+        return clampedCanvasNorm(canvas.getBoundingClientRect().left, clientX, timeWidth, { start: zoomStart, end: zoomEnd });
     }
     function spectrumLevelAxisLabel(result: ComparisonTrackState, channel?: ChannelSummary) {
         if (channel?.measurement) {
@@ -1865,45 +1853,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             ? result.units.spectrumLevel.axisLabel
             : 'Spectrum level [dB]';
     }
-    function formatReadoutHz(hz: number) {
-        const rounded = Math.round(hz);
-        const value = Math.abs(hz - rounded) < 0.05 ? String(rounded) : hz.toFixed(1);
-        return value + ' Hz';
-    }
     function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
-        const x = (cursorNorm - zoomStart) / (zoomEnd - zoomStart) * W;
-        if (x < 0 || x > W) {
-            return;
-        }
-        ctx.save();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.globalAlpha = 0.7;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, H);
-        ctx.stroke();
-        ctx.restore();
+        drawDashedTimeLine(ctx, cursorNorm, { start: zoomStart, end: zoomEnd }, W, H, CURSOR_LINE_STYLE);
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
-        if (hoverNorm === null) {
-            return;
+        if (hoverNorm !== null) {
+            drawDashedTimeLine(ctx, hoverNorm, { start: zoomStart, end: zoomEnd }, W, H, HOVER_LINE_STYLE);
         }
-        const x = (hoverNorm - zoomStart) / (zoomEnd - zoomStart) * W;
-        if (x < 0 || x > W) {
-            return;
-        }
-        ctx.save();
-        ctx.strokeStyle = '#aaaaaa';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.globalAlpha = 0.4;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, H);
-        ctx.stroke();
-        ctx.restore();
     }
     function drawLoopRegionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (!loopRegion) {
@@ -1914,32 +1870,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function drawRectZoomSelectionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number) {
-        if (!rectZoomSelection || rectZoomSelection.trackId !== trackIdAtIndex(trackIndex)) {
-            return;
+        if (rectZoomSelection && rectZoomSelection.trackId === trackIdAtIndex(trackIndex)) {
+            drawRectZoomSelection(ctx, rectZoomSelection, { start: zoomStart, end: zoomEnd }, { start: amplitudeZoomMinNorm, end: amplitudeZoomMaxNorm }, W, H);
         }
-        const span = zoomEnd - zoomStart;
-        if (span <= 0) {
-            return;
-        }
-        const x0 = (rectZoomSelection.startNorm - zoomStart) / span * W;
-        const x1 = (rectZoomSelection.endNorm - zoomStart) / span * W;
-        const y0 = amplitudeNormToCanvasY(rectZoomSelection.startAmpNorm, H);
-        const y1 = amplitudeNormToCanvasY(rectZoomSelection.endAmpNorm, H);
-        const left = Math.max(0, Math.min(x0, x1));
-        const right = Math.min(W, Math.max(x0, x1));
-        const top = Math.max(0, Math.min(y0, y1));
-        const bottom = Math.min(H, Math.max(y0, y1));
-        if (right <= left || bottom <= top) {
-            return;
-        }
-        ctx.save();
-        ctx.fillStyle = 'rgba(100, 160, 255, 0.16)';
-        ctx.strokeStyle = 'rgba(100, 160, 255, 0.95)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([5, 3]);
-        ctx.fillRect(left, top, right - left, bottom - top);
-        ctx.strokeRect(left, top, right - left, bottom - top);
-        ctx.restore();
     }
     function updateVisibility() {
         // まず各行の display を更新する
