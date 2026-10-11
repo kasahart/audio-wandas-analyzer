@@ -60,7 +60,7 @@ def audit(ref: str | None) -> dict:
         return parents
 
     desktop = reach(['src/extension/bootstrap.ts', 'python-backend/backend_server.py', 'python-backend/recipe_runner.py', *UI_ROOTS])
-    web = reach(['src/webview/runtime/staticHost.ts', 'src/shared/analysis/analysisTypes.ts', 'python-backend/browser_service.py', *UI_ROOTS])
+    web = reach(['src/webview/runtime/staticHostEntry.ts', 'src/shared/analysis/analysisTypes.ts', 'python-backend/browser_service.py', *UI_ROOTS])
     web['browser/audio.worker.js'] = 'copied:scripts/build-browser.js'
     files = [{'path': p, 'language': {'.ts': 'TS', '.py': 'Python', '.js': 'JS'}[Path(p).suffix],
               'classification': 'shared' if p in desktop and p in web else 'desktopOnly' if p in desktop else 'webOnly',
