@@ -13,7 +13,7 @@ This module must stay importable without numpy so the generator runs on a bare P
 Every command except ``run-recipe`` is in ``COMMANDS``. ``run-recipe`` keeps its hand-written
 validators in ``command_dispatch`` and ``backendProtocol.ts``: its payload embeds a wandas Recipe
 document and its result is a list of ChartSpecs, and both have schemas of their own
-(``chart_spec.py`` needs ``oneOf`` and ``additionalProperties``, which this subset leaves out).
+(``chart_spec.py`` needs ``oneOf``, which this subset leaves out).
 The error envelope, the backend notifications and the browser Worker's ``limits`` reply are
 definitions without a command.
 """
@@ -30,7 +30,20 @@ Schema = dict[str, Any]
 MAX_WAVEFORM_POINTS = 8192
 
 SUPPORTED_KEYWORDS = frozenset(
-    {"$ref", "type", "enum", "const", "minimum", "maximum", "required", "properties", "items", "anyOf", "x-tsType"}
+    {
+        "$ref",
+        "type",
+        "enum",
+        "const",
+        "minimum",
+        "maximum",
+        "required",
+        "properties",
+        "additionalProperties",
+        "items",
+        "anyOf",
+        "x-tsType",
+    }
 )
 # ``anyOf`` is limited to the nullable form ``{"anyOf": [schema, {"type": "null"}]}`` with no siblings, so
 # both validators can report the inner path of a non-null value instead of choosing between branches.
@@ -362,6 +375,26 @@ DEFINITIONS: dict[str, Schema] = {
     },
 }
 
+
+def _close_objects(schema: Schema) -> None:
+    """Give every object that lists its ``properties`` ``additionalProperties: false`` (#224).
+
+    Both sides ship together, so a key one side sends and the other does not define is a bug, not a
+    newer peer. ``CalibrationProfile`` lists no properties and stays open for its own validator.
+    """
+    if "properties" in schema:
+        schema["additionalProperties"] = False
+        for child in schema["properties"].values():
+            _close_objects(child)
+    if "items" in schema:
+        _close_objects(schema["items"])
+    if "anyOf" in schema:
+        _close_objects(schema["anyOf"][0])
+
+
+for _definition in DEFINITIONS.values():
+    _close_objects(_definition)
+
 COMMANDS: dict[str, dict[str, str]] = {
     "analyze": {"payload": "AnalyzePayload", "result": "AnalysisResult"},
     "track-detail": {"payload": "TrackDetailPayload", "result": "TrackDetailResult"},
@@ -390,7 +423,8 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
     """Path of the first keyword the validators cannot enforce exactly (all definitions by default), or None.
 
     Besides keywords outside ``SUPPORTED_KEYWORDS`` that covers unresolvable ``$ref``s, ``$ref`` with
-    sibling keywords (resolution would drop them), unknown type names, ``anyOf`` other than the nullable
+    sibling keywords (resolution would drop them), unknown type names, ``additionalProperties`` other
+    than ``false`` beside ``properties``, ``anyOf`` other than the nullable
     form, ``enum`` together with ``const``, enum/const beside ``minimum``/``maximum``, and enum/const values
     that are not finite JSON scalars, lose precision as JS numbers, or contradict the node's ``type``.
     """
@@ -415,6 +449,8 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
             or child.removeprefix("#/$defs/") not in DEFINITIONS
         ):
             return f"{path}.$ref"
+        if key == "additionalProperties" and (child is not False or "properties" not in schema):
+            return f"{path}.additionalProperties"
         if key == "type" and (not isinstance(child, str) or child not in _TYPES):
             return f"{path}.type"
         if key == "const" and ("enum" in schema or bounded or not _is_literal(child, declared_type)):
@@ -460,6 +496,7 @@ def dump_schema() -> Schema:
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": DEFINITIONS,
         "x-commands": COMMANDS,
+        "x-envelopeKeys": sorted(ENVELOPE_KEYS),
     }
 
 
@@ -513,6 +550,10 @@ def first_violation(schema: Schema, value: object, path: str = "") -> str | None
         return path
     if isinstance(value, dict):
         properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False:
+            for key in value:
+                if key not in properties:
+                    return f"{path}.{key}" if path else key
         for key in schema.get("required", []):
             if key not in value:
                 return f"{path}.{key}" if path else key
@@ -529,13 +570,27 @@ def first_violation(schema: Schema, value: object, path: str = "") -> str | None
     return None
 
 
+# Request and reply envelope keys travel beside the payload or result fields but belong to no schema.
+ENVELOPE_KEYS = frozenset({"cmd", "requestId"})
+
+
 def payload_violation(command: str, value: object) -> str | None:
-    """Path of the first invalid payload field for a schema-defined command, or None when valid."""
+    """Path of the first invalid payload field for a schema-defined command, or None when valid.
+
+    ``value`` may be the whole request: its ``cmd`` and ``requestId`` are not payload fields.
+    """
+    if isinstance(value, dict):
+        value = {key: item for key, item in value.items() if key not in ENVELOPE_KEYS}
     return first_violation(DEFINITIONS[COMMANDS[command]["payload"]], value)
 
 
 def result_violation(command: str, value: object) -> str | None:
-    """Path of the first result field that breaks the schema-defined command's result, or None."""
+    """Path of the first result field that breaks the schema-defined command's result, or None.
+
+    ``value`` may be the whole reply line: the backend emits ``requestId`` beside the result fields.
+    """
+    if isinstance(value, dict):
+        value = {key: item for key, item in value.items() if key not in ENVELOPE_KEYS}
     return first_violation(DEFINITIONS[COMMANDS[command]["result"]], value)
 
 

@@ -350,6 +350,37 @@
         "analysisId": "analysis-1"
       },
       "errorField": "settingsSignature"
+    },
+    {
+      "command": "range",
+      "request": {
+        "cmd": "range",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "startNorm": 0,
+        "endNorm": 1,
+        "points": 100,
+        "pointCount": 100
+      },
+      "errorField": "pointCount"
+    },
+    {
+      "command": "track-detail",
+      "request": {
+        "cmd": "track-detail",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "trackIndex": 0,
+        "analysisId": "analysis-1",
+        "settingsSignature": "settings-1",
+        "stftOptions": {
+          "nFft": 256,
+          "hopSize": 64,
+          "window": "hann",
+          "overlap": 0.5
+        }
+      },
+      "errorField": "stftOptions.overlap"
     }
   ],
   "validResponses": [
@@ -760,6 +791,16 @@
         ]
       },
       "violation": "channels[0].spectrogram"
+    },
+    {
+      "command": "export-wav-loop",
+      "response": {
+        "requestId": "export-wav-loop",
+        "wavBase64": "UklGRg==",
+        "sampleRate": 16000,
+        "channels": 2
+      },
+      "violation": "channels"
     }
   ],
   "errorCodes": [
@@ -1062,6 +1103,58 @@
         "a": {}
       },
       "violation": "a.b"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "a"
+        ],
+        "additionalProperties": false
+      },
+      "value": {
+        "a": 1,
+        "b": 2
+      },
+      "violation": "b"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "a"
+        ],
+        "additionalProperties": false
+      },
+      "value": {
+        "b": 2
+      },
+      "violation": "b"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "value": {
+        "a": 1
+      },
+      "violation": null
     }
   ]
 }

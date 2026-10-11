@@ -3,7 +3,7 @@ import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal, type AnalysisContextPolicy } from '../../shared/analysis/analysisClient';
 import { BackendProtocolError, parseBackendResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { BrowserLimits } from '../../shared/protocol/generated/backendProtocolSchema';
-import { schemaViolation } from '../../shared/protocol/schemaValidation';
+import { schemaViolation, withoutEnvelope } from '../../shared/protocol/schemaValidation';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { isConfigureCalibrationMessage } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
@@ -145,7 +145,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             worker = activeWorker;
             worker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown }>): void => {
                 if (worker !== activeWorker) return;
-                settleBackendRequest(pending, event.data.requestId, event.data.result!, event.data.error);
+                settleBackendRequest(pending, event.data.requestId, withoutEnvelope(event.data.result!), event.data.error);
             };
             worker.onerror = (): void => {
                 if (worker !== activeWorker) return;

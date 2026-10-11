@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { BACKEND_PROTOCOL_SCHEMA, type SchemaCommand } from '../shared/protocol/generated/backendProtocolSchema';
 import { BACKEND_ERROR_CODES, parseBackendErrorPayload, parseBackendNotification, parseBackendResult } from '../shared/protocol/backendProtocol';
-import { inlineSchemaViolation, schemaViolation, type SchemaNode } from '../shared/protocol/schemaValidation';
+import { inlineSchemaViolation, schemaViolation, withoutEnvelope, type SchemaNode } from '../shared/protocol/schemaValidation';
 import Ajv2020 from 'ajv/dist/2020';
 
 interface FixtureCase { command?: string; request: Record<string, unknown>; errorField?: string }
@@ -28,7 +28,7 @@ test('schema commands accept the shared valid request fixtures', () => {
     const cases = schemaCases(fixtures.validRequests);
     assert.ok(cases.length > 0);
     for (const { command, request } of cases) {
-        assert.equal(schemaViolation(commands[command].payload, request), null, command);
+        assert.equal(schemaViolation(commands[command].payload, withoutEnvelope(request)), null, command);
     }
 });
 
@@ -36,7 +36,7 @@ test('schema commands report the same invalid field as the Python validator', ()
     const cases = schemaCases(fixtures.invalidRequests);
     assert.ok(cases.length > 0);
     for (const { command, request, errorField } of cases) {
-        assert.equal(schemaViolation(commands[command].payload, request), errorField, JSON.stringify(request));
+        assert.equal(schemaViolation(commands[command].payload, withoutEnvelope(request)), errorField, JSON.stringify(request));
     }
 });
 
@@ -63,9 +63,10 @@ test('invalid response fixtures report the same path as Python and fail ajv', ()
     assert.ok(fixtures.invalidResponses.length > 0);
     for (const { command, response, violation } of fixtures.invalidResponses) {
         const definition = commands[command].result;
-        assert.equal(schemaViolation(definition, response), violation, JSON.stringify(response));
-        assert.equal(referenceIsValid({ $ref: `#/$defs/${definition}` }, response), false, JSON.stringify(response));
-        assert.throws(() => parseBackendResult(command, response), /success response/);
+        const result = withoutEnvelope(response);
+        assert.equal(schemaViolation(definition, result), violation, JSON.stringify(response));
+        assert.equal(referenceIsValid({ $ref: `#/$defs/${definition}` }, result), false, JSON.stringify(response));
+        assert.throws(() => parseBackendResult(command, result), /success response/);
     }
 });
 
@@ -91,7 +92,9 @@ test('analyze and track-detail results keep the invariants the schema cannot exp
 
 test('error payloads, notifications and Worker limits come from the schema', () => {
     assert.deepEqual([...BACKEND_ERROR_CODES], ['input-error', 'stale-calibration', 'internal-error']);
-    assert.deepEqual(parseBackendErrorPayload({ code: 'stale-calibration', message: 'm', extra: 1 }), { code: 'stale-calibration', message: 'm' });
+    assert.deepEqual(parseBackendErrorPayload({ code: 'stale-calibration', message: 'm' }), { code: 'stale-calibration', message: 'm' });
+    assert.equal(parseBackendErrorPayload({ code: 'stale-calibration', message: 'm', extra: 1 }), null, 'keys the schema does not list are rejected');
+    assert.equal(parseBackendNotification({ type: 'ready', version: 2 }), null);
     assert.equal(parseBackendErrorPayload({ code: 'unknown', message: 'm' }), null);
     assert.deepEqual(parseBackendNotification({ type: 'heartbeat', ts: 1.5 }), { type: 'heartbeat', ts: 1.5 });
     assert.equal(parseBackendNotification({ type: 'heartbeat', ts: Number.NaN }), null);
@@ -122,11 +125,13 @@ test('schema cases report the same path as Python and agree with ajv', () => {
 test('schema commands agree with ajv on the protocol fixtures', () => {
     for (const { command, request } of [...schemaCases(fixtures.validRequests), ...schemaCases(fixtures.invalidRequests)]) {
         const definition = commands[command].payload;
-        assert.equal(referenceIsValid({ $ref: `#/$defs/${definition}` }, request), schemaViolation(definition, request) === null, JSON.stringify(request));
+        const payload = withoutEnvelope(request);
+        assert.equal(referenceIsValid({ $ref: `#/$defs/${definition}` }, payload), schemaViolation(definition, payload) === null, JSON.stringify(request));
     }
     for (const { command, response } of fixtures.validResponses) {
         if (!(command in commands)) continue;
         const definition = commands[command as SchemaCommand].result;
-        assert.equal(referenceIsValid({ $ref: `#/$defs/${definition}` }, response), schemaViolation(definition, response) === null, command);
+        const result = withoutEnvelope(response);
+        assert.equal(referenceIsValid({ $ref: `#/$defs/${definition}` }, result), schemaViolation(definition, result) === null, command);
     }
 });

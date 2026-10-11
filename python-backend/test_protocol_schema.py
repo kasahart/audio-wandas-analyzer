@@ -73,6 +73,10 @@ def test_unsupported_keywords_are_rejected(monkeypatch: pytest.MonkeyPatch) -> N
     assert unsupported_keyword({"anyOf": [{"type": "string"}]}, "x") == "x.anyOf"
     assert unsupported_keyword({"anyOf": [{"oneOf": []}, {"type": "null"}]}, "x") == "x.anyOf[0].oneOf"
     assert unsupported_keyword({"$ref": "#/$defs/Missing"}, "x") == "x.$ref"
+    closed = {"type": "object", "properties": {"a": {"type": "number"}}, "additionalProperties": False}
+    assert unsupported_keyword(closed, "x") is None
+    assert unsupported_keyword({**closed, "additionalProperties": True}, "x") == "x.additionalProperties"
+    assert unsupported_keyword({"type": "object", "additionalProperties": False}, "x") == "x.additionalProperties"
     monkeypatch.setitem(DEFINITIONS, "Bad", {"type": "array", "items": {"oneOf": []}})
     with pytest.raises(ValueError, match=r"\$defs\.Bad\.items\.oneOf"):
         dump_schema()
@@ -107,6 +111,35 @@ def test_schema_cases_report_the_shared_path_and_agree_with_jsonschema(case: dic
     assert _reference_validator(case["schema"]).is_valid(case["value"]) == (case["violation"] is None)
 
 
+def test_every_listed_object_rejects_unknown_keys() -> None:
+    def objects(schema: dict) -> list[dict]:
+        found = [schema] if "properties" in schema else []
+        for child in schema.get("properties", {}).values():
+            found += objects(child)
+        for key in ("items",):
+            if key in schema:
+                found += objects(schema[key])
+        if "anyOf" in schema:
+            found += objects(schema["anyOf"][0])
+        return found
+
+    listed = [node for definition in DEFINITIONS.values() for node in objects(definition)]
+    assert listed and all(node.get("additionalProperties") is False for node in listed)
+    assert "additionalProperties" not in DEFINITIONS["CalibrationProfile"]
+    assert (
+        payload_violation(
+            "range", {"cmd": "range", "requestId": "r", "filePath": "a", "startNorm": 0, "endNorm": 1, "points": 2}
+        )
+        is None
+    )
+
+
+def _without_envelope(message: object) -> object:
+    if not isinstance(message, dict):
+        return message
+    return {key: value for key, value in message.items() if key not in protocol_schema.ENVELOPE_KEYS}
+
+
 def test_schema_commands_agree_with_jsonschema_on_the_protocol_fixtures() -> None:
     Draft202012Validator.check_schema(dump_schema())
     checked = 0
@@ -115,17 +148,19 @@ def test_schema_commands_agree_with_jsonschema_on_the_protocol_fixtures() -> Non
         if command not in protocol_schema.COMMANDS:
             continue
         reference = _reference_validator({"$ref": f"#/$defs/{protocol_schema.COMMANDS[command]['payload']}"})
-        assert reference.is_valid(case["request"]) == (payload_violation(command, case["request"]) is None), case
+        valid = payload_violation(command, case["request"]) is None
+        assert reference.is_valid(_without_envelope(case["request"])) == valid, case
         checked += 1
     for case in FIXTURES["validResponses"]:
         if case["command"] not in protocol_schema.COMMANDS:
             continue
         reference = _reference_validator({"$ref": f"#/$defs/{protocol_schema.COMMANDS[case['command']]['result']}"})
-        assert reference.is_valid(case["response"]) == (result_violation(case["command"], case["response"]) is None)
+        valid = result_violation(case["command"], case["response"]) is None
+        assert reference.is_valid(_without_envelope(case["response"])) == valid, case
         checked += 1
     for case in FIXTURES["invalidResponses"]:
         reference = _reference_validator({"$ref": f"#/$defs/{protocol_schema.COMMANDS[case['command']]['result']}"})
         assert result_violation(case["command"], case["response"]) == case["violation"], case
-        assert not reference.is_valid(case["response"]), case
+        assert not reference.is_valid(_without_envelope(case["response"])), case
         checked += 1
     assert checked > 0

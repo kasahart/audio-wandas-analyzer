@@ -4,6 +4,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createStaticHost, type StaticHostDeps } from '../webview/runtime/staticHost';
+import { withoutEnvelope } from '../shared/protocol/schemaValidation';
 import type { WebviewHostApi } from '../webview/runtime/types';
 import type { UiStrings } from '../shared/i18n/strings';
 
@@ -88,8 +89,10 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         }
         reply(command: Record<string, unknown>, result: Record<string, unknown> = {}, error?: string): void {
             const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')).validResponses as Array<{ command: string; response: Record<string, unknown> }>;
-            const base = fixtures.find(fixture => fixture.command === command.cmd)?.response ?? {};
-            this.onmessage({ data: { requestId: command.requestId, result: { ...base, filePath: command.filePath, ...result }, error: error === undefined ? undefined : { code: 'input-error', message: error } } });
+            const base = withoutEnvelope(fixtures.find(fixture => fixture.command === command.cmd)?.response ?? {});
+            // Only results that carry a filePath echo the request's; the schema rejects it elsewhere.
+            const echoed = 'filePath' in base ? { filePath: command.filePath } : {};
+            this.onmessage({ data: { requestId: command.requestId, result: { ...base, ...echoed, ...result }, error: error === undefined ? undefined : { code: 'input-error', message: error } } });
         }
     }
     const browser = {
