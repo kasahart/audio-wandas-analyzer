@@ -92,8 +92,10 @@ def _is_literal(value: object, declared_type: object) -> bool:
         return False
     if isinstance(value, float) and not math.isfinite(value):
         return False  # json.dump would emit NaN/Infinity, which JSON.parse rejects.
-    numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
-    if numeric and float(value).is_integer() and abs(value) > _MAX_SAFE_INTEGER:
+    integral = (isinstance(value, int) and not isinstance(value, bool)) or (
+        isinstance(value, float) and value.is_integer()
+    )
+    if integral and abs(value) > _MAX_SAFE_INTEGER:  # Compared exactly; float(10**400) would overflow.
         return False
     return declared_type is None or _matches_type(declared_type, value)  # type: ignore[arg-type]
 
@@ -102,9 +104,9 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
     """Path of the first keyword the validators cannot enforce exactly (all definitions by default), or None.
 
     Besides keywords outside ``SUPPORTED_KEYWORDS`` that covers unresolvable ``$ref``s, ``$ref`` with
-    sibling keywords (resolution would drop them), unknown type names, ``enum`` together with ``const``, and
-    enum/const values that are not finite JSON scalars, lose precision as JS numbers, or contradict the
-    node's ``type``.
+    sibling keywords (resolution would drop them), unknown type names, ``enum`` together with ``const``,
+    enum/const beside ``minimum``/``maximum``, and enum/const values that are not finite JSON scalars, lose
+    precision as JS numbers, or contradict the node's ``type``.
     """
     if schema is None:
         for name, definition in DEFINITIONS.items():
@@ -115,6 +117,8 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
     if not isinstance(schema, dict):
         return None
     declared_type = schema.get("type")
+    # Literal types are emitted as-is, so bounds beside enum/const would make them wider than validation.
+    bounded = "minimum" in schema or "maximum" in schema
     for key, child in schema.items():
         if key not in SUPPORTED_KEYWORDS:
             return f"{path}.{key}"
@@ -127,10 +131,13 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
             return f"{path}.$ref"
         if key == "type" and (not isinstance(child, str) or child not in _TYPES):
             return f"{path}.type"
-        if key == "const" and ("enum" in schema or not _is_literal(child, declared_type)):
+        if key == "const" and ("enum" in schema or bounded or not _is_literal(child, declared_type)):
             return f"{path}.const"
         if key == "enum" and (
-            not isinstance(child, list) or not child or not all(_is_literal(item, declared_type) for item in child)
+            bounded
+            or not isinstance(child, list)
+            or not child
+            or not all(_is_literal(item, declared_type) for item in child)
         ):
             return f"{path}.enum"
         nested = child.items() if key == "properties" else [(key, child)] if key == "items" else []

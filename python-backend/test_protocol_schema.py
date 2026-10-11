@@ -59,6 +59,9 @@ def test_unsupported_keywords_are_rejected(monkeypatch: pytest.MonkeyPatch) -> N
     assert unsupported_keyword({"const": 2**53}, "x") == "x.const"
     assert unsupported_keyword({"const": 2**53 - 1}, "x") is None
     assert unsupported_keyword({"const": 9007199254740992.0}, "x") == "x.const"
+    assert unsupported_keyword({"enum": [10**400]}, "x") == "x.enum"
+    assert unsupported_keyword({"type": "integer", "enum": [1, 2], "minimum": 2}, "x") == "x.enum"
+    assert unsupported_keyword({"type": "number", "const": 2, "maximum": 1}, "x") == "x.const"
     assert unsupported_keyword({"enum": [math.nan]}, "x") == "x.enum"
     assert unsupported_keyword({"const": math.inf}, "x") == "x.const"
     assert unsupported_keyword({"type": "string", "enum": ["hann"], "const": "hamming"}, "x") == "x.const"
