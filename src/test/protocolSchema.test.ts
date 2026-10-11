@@ -69,6 +69,26 @@ test('invalid response fixtures report the same path as Python and fail ajv', ()
     }
 });
 
+test('analyze and track-detail results keep the invariants the schema cannot express', () => {
+    const envelope = { min: [0, 1], max: [1, 2], samples: [0.5, 1.5], absolutePeak: 2 };
+    const spectrogram = { values: [[-10, -20]], timeBins: 1, frequencyBins: 2, windowSize: 64, hopSize: 32, maxFrequencyHz: 8000, minDb: -20, maxDb: -10 };
+    const channel = { label: 'ch0', peakAbsolute: 2, waveform: envelope, spectrogram: null };
+    const result = { filePath: 'tone.wav', fileName: 'tone.wav', sampleRateHz: 16000, durationSeconds: 1, channelCount: 1, sampleCount: 16000, channels: [channel] };
+    const detail = { trackIndex: 0, analysisId: 'a', settingsSignature: 's', filePath: 'tone.wav', channels: [{ ...channel, spectrogram }] };
+    assert.deepEqual(parseBackendResult('analyze', result), result);
+    assert.deepEqual(parseBackendResult('track-detail', detail), detail);
+    const invalidAnalyze = [
+        { ...result, channelCount: 2 },
+        { ...result, channels: [{ ...channel, waveform: { ...envelope, samples: [0] } }] },
+        { ...result, channels: [{ ...channel, spectrogram: { ...spectrogram, timeBins: 2 } }] },
+        { ...result, calibrationProfile: { schemaVersion: 1, channels: 'none' } },
+    ];
+    for (const value of invalidAnalyze) {
+        assert.throws(() => parseBackendResult('analyze', value), /Invalid analyze success response/, JSON.stringify(value));
+    }
+    assert.throws(() => parseBackendResult('track-detail', { ...detail, channels: [{ ...channel, spectrogram: { ...spectrogram, frequencyBins: 3 } }] }), /Invalid track-detail success response/);
+});
+
 test('undefined properties count as absent, as after JSON serialization', () => {
     const envelope = { min: [0], max: [1], samples: [0.5], absolutePeak: 1 };
     const result = { startNorm: 0, endNorm: 1, channels: [envelope], calibrationSignature: undefined, analysisRevision: undefined };
