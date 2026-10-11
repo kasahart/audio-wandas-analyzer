@@ -1,7 +1,6 @@
 import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscaping';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import type { ComparisonState } from '../runtime/types';
-import { getCalibrationRenderScript } from '../calibrationRenderScript';
 
 export interface ComparisonAssets {
     waveformScriptUri: string;
@@ -29,7 +28,6 @@ export function renderComparisonDocument(state: ComparisonState, assets: Compari
     <div id="app"></div>
     <div id="canvas-tooltip"></div>
     <script nonce="${nonce}">
-        const __AWA_CALIBRATION_RUNTIME__ = true;
         const __AWA_NATIVE_ACQUIRE_VSCODE_API__ = window.acquireVsCodeApi;
         if (__AWA_NATIVE_ACQUIRE_VSCODE_API__) window.acquireVsCodeApi = function() {
             if (!window.__AWA_VSCODE_API__) {
@@ -44,7 +42,6 @@ export function renderComparisonDocument(state: ComparisonState, assets: Compari
     <script src="${assets.waveformScriptUri}"></script>
     ${assets.hostScriptUri ? `<script src="${assets.hostScriptUri}"></script>` : ''}
     <script src="${assets.runtimeScriptUri}"></script>
-    <script nonce="${nonce}">${getCalibrationRenderScript()}</script>
 </body>
 </html>`;
 }

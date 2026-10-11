@@ -51,7 +51,7 @@ function collectWebviewActionIdsFromSource(source) {
 function collectWebviewActionIds(repoRoot) {
     const sourcePaths = [
         path.join(repoRoot, 'src', 'webview', 'runtime', 'comparisonRuntime.ts'),
-        path.join(repoRoot, 'src', 'webview', 'calibrationRenderScript.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'calibrationDecorations.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'staticHost.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'selectionTreeView.ts'),
     ];

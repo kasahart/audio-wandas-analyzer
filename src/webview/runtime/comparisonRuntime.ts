@@ -20,6 +20,7 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
+import { installCalibrationDecorations } from './calibrationDecorations';
 import {
     hoverNormForFrequency as mapHoverNormForFrequency,
     spectrumBinAtFrequency as findSpectrumBinAtFrequency,
@@ -299,12 +300,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return { offsetSeconds: 0, hidden: false, color: null, defaultColor: defaultColor };
     }
     const trackStore = new TrackStore(state.results, createTrackRuntime);
-    window.__AWA_ACTIVE_TRACKS__ = function () {
+    function activeTrackList() {
         return trackStore.activeIds().map(function (trackId) {
             const record = trackStore.require(trackId);
             return { trackIndex: record.protocolIndex, result: record.result };
         });
-    };
+    }
     const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
     let analysisGeneration = 0;
     function createAnalysisId(): string {
@@ -4690,4 +4691,5 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }, true);
     })();
     __updateSpecGearVisibility();
+    installCalibrationDecorations({ window: window as unknown as Window & typeof globalThis, document: document as unknown as Document, host: vscode, activeTracks: activeTrackList });
 }
