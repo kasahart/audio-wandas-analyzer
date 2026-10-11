@@ -1444,7 +1444,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '" title="' + escapeHtml(STR.trackStopTitle) + '" aria-label="' + escapeHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
             + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaTrackMute) + '" title="' + escapeHtml(STR.ariaTrackMute) + '" aria-pressed="' + !!trackStore.require(trackId).runtime.muted + '"' + (result.audioSource ? '' : ' disabled') + '>' + (trackStore.require(trackId).runtime.muted ? '🔇' : '🔊') + '</button>'
             + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaRemoveTrack) + '">✕</button>'
-            + '    ' + calibrationButtonHtml(trackId)
+            + '    ' + calibrationButtonHtml(trackId, STR)
             + '  </div>'
             + '  <div class="track-offset">'
             + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '" title="' + escapeHtml(STR.trackOffsetResetHint) + '" aria-label="' + escapeHtml(STR.ariaOffsetValue) + '">+0.000s</span>'
@@ -4053,7 +4053,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const visibleResults = trackStore.displayOrder.map(function (trackId) { return trackStore.require(trackId); })
             .filter(function (record) { return !record.runtime.hidden; })
             .map(function (record) { return record.result; });
-        applyOverlayCompatibility(document as unknown as Document, hasIncompatibleLevelReferences(visibleResults));
+        applyOverlayCompatibility(document as unknown as Document, hasIncompatibleLevelReferences(visibleResults), STR.calibrationOverlayIncompatible);
         const wrap = document.getElementById('spectrum-overlay-wrap');
         const w = contentBoxWidth(wrap, 800);
         const prevW = canvas.width;
