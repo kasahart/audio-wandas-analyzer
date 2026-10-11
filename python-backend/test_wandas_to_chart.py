@@ -252,3 +252,17 @@ def test_level_axis_label_uses_shared_level_reference(two_channel: wd.ChannelFra
     assert adapt(frame.noct_spectrum(fmin=125, fmax=4000, n=3))["yLabel"] == f"Level [{label}]"
     mixed = two_channel.with_calibration({0: calibration})
     assert adapt(mixed.welch())["yLabel"] == "Level [dB]"
+
+
+def test_non_finite_values_become_null_but_axes_stay_numeric(mono_sin: wd.ChannelFrame) -> None:
+    import json
+
+    from chart_spec import dump_schema
+
+    data = np.array([[0.0, np.nan, 1.0, np.inf, -np.inf]])
+    spec = adapt(wd.from_numpy(data, sampling_rate=10))
+    assert spec["series"][0]["ys"] == [0.0, None, 1.0, None, None]
+    assert all(isinstance(x, float) for x in spec["xs"])
+    json.loads(json.dumps(spec, allow_nan=False))
+    line_items = dump_schema()["oneOf"][0]["properties"]["series"]["items"]["properties"]["ys"]["items"]
+    assert line_items == {"type": ["number", "null"]}

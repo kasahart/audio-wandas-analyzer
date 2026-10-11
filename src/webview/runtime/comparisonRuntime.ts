@@ -1,5 +1,5 @@
 import { OrderedSelection } from '../../shared/utils/directorySelection';
-import { channelLabel, channelsForResult, formatClockTime, formatMeasuredLevel, formatMeasurementNumber, formatReportDuration } from '../../shared/utils/format';
+import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { paintSpectrogramRaster } from './spectrogramRaster';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, type DrawTheme } from '../draw/canvasDrawers';
@@ -15,6 +15,7 @@ import {
 } from './playback';
 import { parseBoundedInteger, positionPopover } from './settingsPopover';
 import { installRangePopover } from '../rangePopover';
+import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { SHORTCUT_ROWS } from './shortcuts';
 import {
@@ -3633,188 +3634,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             endNorm: loopRegion.end,
         });
     }
-    // --- Report export helpers ---
-    function _markdownInline(value: unknown): string {
-        return String(value).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
-    }
-    function _markdownTableCell(value: unknown): string {
-        return _markdownInline(value).split('|').join('\\|');
-    }
-    function _reportLevel(channel: ChannelSummary, linearValue: number, levelValue: number | undefined): string {
-        return formatMeasuredLevel(linearValue, levelValue, channel.measurement) ?? '—';
-    }
+    // --- Report export (builders live in shared/report/analysisReport) ---
     function _activeReportRecords() {
         return trackStore.activeIds().map(function (trackId) {
             return trackStore.require(trackId);
         });
     }
-    function buildMarkdownReport() {
-        var now = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-        const reportRecords = _activeReportRecords();
-        var lines = [
-            '# Audio Analysis Report',
-            '',
-            '**Generated:** ' + now,
-            '',
-            '## Tracks',
-            '',
-            '| File | Channel | Sample Rate | Duration | Channels | Peak |',
-            '|------|---------|-------------|----------|----------|------|',
-        ];
-        reportRecords.forEach(function (record) {
-            const r = record.result;
-            var dur = r.durationSeconds ? formatReportDuration(r.durationSeconds) : '-';
-            channelsForResult(r).forEach(function (ch: ChannelSummary, channelIndex: number) {
-                var peak = ch ? _markdownTableCell(_reportLevel(ch, ch.peakAbsolute, ch.peakLevelDb)) : '-';
-                lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + _markdownTableCell(channelLabel(r, channelIndex)) + ' | ' + r.sampleRateHz + ' Hz | ' + dur + ' | ' + r.channelCount + ' | ' + peak + ' |');
-            });
-        });
-        lines.push('');
-        const measuredRecords = reportRecords.filter(function (record) {
-            return channelsForResult(record.result).some(function (channel) {
-                return !!channel.measurement;
-            });
-        });
-        if (measuredRecords.length > 0) {
-            lines.push('## Calibration', '');
-            lines.push('| File | Channel | State | Factor | Linear Unit | Level Reference | Source |');
-            lines.push('|------|---------|-------|--------|-------------|-----------------|--------|');
-            measuredRecords.forEach(function (record) {
-                const r = record.result;
-                channelsForResult(r).forEach(function (channel, channelIndex) {
-                    const measurement = channel.measurement;
-                    if (!measurement) { return; }
-                    lines.push('| ' + _markdownTableCell(r.fileName)
-                        + ' | ' + _markdownTableCell(channelLabel(r, channelIndex))
-                        + ' | ' + _markdownTableCell(measurement.calibrationStatus)
-                        + ' | ' + formatMeasurementNumber(measurement.factor)
-                        + ' | ' + _markdownTableCell(measurement.linearUnit)
-                        + ' | ' + _markdownTableCell(measurement.levelReferenceLabel)
-                        + ' | ' + _markdownTableCell(measurement.calibrationSource) + ' |');
-                });
-            });
-            lines.push('', '## Measurements', '');
-            lines.push('| File | Channel | Peak | Peak Level | Raw Peak | Clipped |');
-            lines.push('|------|---------|------|------------|----------|---------|');
-            measuredRecords.forEach(function (record) {
-                const r = record.result;
-                channelsForResult(r).forEach(function (channel, channelIndex) {
-                    const measurement = channel.measurement;
-                    if (!measurement) { return; }
-                    lines.push('| ' + _markdownTableCell(r.fileName)
-                        + ' | ' + _markdownTableCell(channelLabel(r, channelIndex))
-                        + ' | ' + formatMeasurementNumber(channel.peakAbsolute) + ' ' + _markdownTableCell(measurement.linearUnit)
-                        + ' | ' + _formatReportDb(channel.peakLevelDb, measurement.levelUnit)
-                        + ' | ' + formatMeasurementNumber(channel.rawPeakFullScale) + ' FS'
-                        + ' | ' + (channel.clipped ? 'Yes' : 'No') + ' |');
-                });
-            });
-            lines.push('');
-        }
-        // Loop region
-        if (loopRegion && reportRecords.length > 0) {
-            var gs = computeGlobalSpan();
-            var globalStartSec = gs.startSec + loopRegion.start * gs.spanSec;
-            var globalEndSec = gs.startSec + loopRegion.end * gs.spanSec;
-            var globalDurationSec = Math.max(0, globalEndSec - globalStartSec);
-            lines.push('## Loop Region');
-            lines.push('');
-            lines.push('- Time basis: global comparison timeline (offset-adjusted)');
-            lines.push('- Global Start: ' + globalStartSec.toFixed(3) + ' s');
-            lines.push('- Global End: ' + globalEndSec.toFixed(3) + ' s');
-            lines.push('- Global Duration: ' + globalDurationSec.toFixed(3) + ' s');
-            lines.push('');
-            lines.push('| Track | Offset | Local Start | Local End | Local Duration | Status |');
-            lines.push('|-------|--------|-------------|-----------|----------------|--------|');
-            reportRecords.forEach(function (record) {
-                const r = record.result;
-                var dur = r.durationSeconds || 0;
-                var offset = record.runtime.offsetSeconds;
-                var localStart = globalStartSec - offset;
-                var localEnd = globalEndSec - offset;
-                var coveredStart = Math.max(0, localStart);
-                var coveredEnd = Math.min(dur, localEnd);
-                var inRange = dur > 0 && coveredEnd > coveredStart;
-                var status = inRange
-                    ? ((localStart < 0 || localEnd > dur) ? 'Partial' : 'In range')
-                    : 'Out of range';
-                var localStartText = inRange ? coveredStart.toFixed(3) + ' s' : '-';
-                var localEndText = inRange ? coveredEnd.toFixed(3) + ' s' : '-';
-                var localDurationText = inRange ? (coveredEnd - coveredStart).toFixed(3) + ' s' : '-';
-                lines.push('| ' + _markdownTableCell(r.fileName) + ' | ' + offset.toFixed(3) + ' s | ' + localStartText + ' | ' + localEndText + ' | ' + localDurationText + ' | ' + status + ' |');
-            });
-            lines.push('');
-        }
-        lines.push('', '## Source paths', '', 'Source audio is not embedded; make these paths available when running the notebook.', '');
-        reportRecords.forEach(record => lines.push('- ' + _markdownTableCell(record.result.fileName) + ': ' + _markdownTableCell(record.result.reportSourcePath ?? record.result.filePath)));
-        return lines.join('\n');
+    function _reportTracks(): ReportTrack[] {
+        return _activeReportRecords().map(record => ({ result: record.result, offsetSeconds: record.runtime.offsetSeconds }));
     }
-    function _formatReportDb(value: number | undefined, unit: string): string {
-        return Number.isFinite(value) ? Number(value).toFixed(1) + ' ' + _markdownTableCell(unit) : '—';
-    }
-    function _pythonString(value: string): string {
-        return JSON.stringify(value);
-    }
-    function buildNotebook() {
-        const reportRecords = _activeReportRecords();
-        var loadCode = reportRecords.map(function (record, resultIndex) {
-            const result = record.result;
-            const channels = channelsForResult(result);
-            const variable = 'signal_' + (resultIndex + 1);
-            const code = [variable + ' = wd.read(' + _pythonString(result.reportSourcePath ?? result.filePath) + ')'];
-            if (channels.some(function (channel) {
-                return channel.measurement?.calibrationStatus === 'calibrated';
-            })) {
-                code.push(variable + ' = ' + variable + '.with_calibration([');
-                channels.forEach(function (channel) {
-                    const measurement = channel.measurement;
-                    const calibrated = measurement?.calibrationStatus === 'calibrated';
-                    code.push('    wd.ChannelCalibration(factor=' + (calibrated ? measurement.factor : 1)
-                        + ', unit=' + _pythonString(calibrated ? measurement.linearUnit : '')
-                        + ', ref=' + (calibrated ? measurement.referenceValue : 1) + '),');
-                });
-                code.push('])');
-            }
-            code.push(variable + '.describe()');
-            return code.join('\n');
-        }).join('\n\n');
-        var nb = {
-            nbformat: 4,
-            nbformat_minor: 5,
-            metadata: {
-                kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' },
-                language_info: { name: 'python', version: '3.11' }
-            },
-            cells: [
-                {
-                    cell_type: 'markdown',
-                    id: 'title',
-                    metadata: {},
-                    source: ['# Audio Analysis Report\n', '\nGenerated by Audio Wandas Analyzer\n', '\nSource audio is not embedded. Place audio at the paths listed below; browser exports use numbered file aliases.\n']
-                },
-                {
-                    cell_type: 'code',
-                    id: 'imports',
-                    metadata: {},
-                    outputs: [],
-                    source: ['import wandas as wd\n']
-                },
-                {
-                    cell_type: 'markdown',
-                    id: 'files-header',
-                    metadata: {},
-                    source: ['## Files\n']
-                },
-                {
-                    cell_type: 'code',
-                    id: 'load-files',
-                    metadata: {},
-                    outputs: [],
-                    source: [loadCode]
-                }
-            ]
-        };
-        return JSON.stringify(nb, null, 2);
+    function _reportLoopRegion(): ReportLoopRegion | undefined {
+        if (!loopRegion) return undefined;
+        const gs = computeGlobalSpan();
+        return { globalStartSec: gs.startSec + loopRegion.start * gs.spanSec, globalEndSec: gs.startSec + loopRegion.end * gs.spanSec };
     }
     function exportReport() {
         const reportRecords = _activeReportRecords();
@@ -3822,8 +3654,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             messaging.post({ type: 'show-info', message: STR.exportReportNoData });
             return;
         }
-        var mdContent = buildMarkdownReport();
-        var nbContent = buildNotebook();
+        var mdContent = buildMarkdownReport(_reportTracks(), _reportLoopRegion(), new Date());
+        var nbContent = buildNotebook(_reportTracks());
         var defaultName = (reportRecords[0].result.fileName || 'analysis').replace(/.[^.]+$/, '');
         messaging.post({
             type: 'export-report-options',
