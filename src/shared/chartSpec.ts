@@ -1,6 +1,6 @@
 /**
  * ChartSpec IR — the wire contract between python-backend/recipe_runner.py
- * and the webview renderer in src/webview/chartSpecRenderScript.ts.
+ * and the webview renderer in src/webview/runtime/chartSpecRuntime.ts.
  *
  * Kept hand-mirrored from python-backend/chart_spec.py. The
  * src/test/chartSpecSchema.test.ts test spawns

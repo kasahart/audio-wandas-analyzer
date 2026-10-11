@@ -27,6 +27,7 @@ window.paintLoopRegion = paintLoopRegion;`,
 for (const [entry, output] of [
     ['comparisonEntry', 'comparisonRuntime'],
     ['staticHostEntry', 'staticHost'],
+    ['chartSpecEntry', 'chartSpecRuntime'],
 ]) {
     esbuild.buildSync({
         ...options,

@@ -2,7 +2,6 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderComparisonDocument } from '../../webview/panels/comparisonDocument';
-import { getChartSpecRenderScript } from '../../webview/chartSpecRenderScript';
 import { DEFAULT_SPECTROGRAM_SETTINGS } from '../../shared/analysis/analysisTypes';
 import { buildUiSmokeHtml } from './buildHtml';
 
@@ -93,8 +92,7 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
                 : { inputs: [{ name: 'sig', file: '{{selection}}' }], steps: [], display: [] } });
             return;
         }
-        const body = name === 'chartSpec.js' ? getChartSpecRenderScript()
-            : (name === 'staticHost.js' ? init : '') + readFileSync(join(process.cwd(), 'dist/webview', name), 'utf8');
+        const body = (name === 'staticHost.js' ? init : '') + readFileSync(join(process.cwd(), 'dist/webview', name), 'utf8');
         await route.fulfill({ contentType: 'text/javascript', body });
     });
     await page.goto('http://awa.test/');

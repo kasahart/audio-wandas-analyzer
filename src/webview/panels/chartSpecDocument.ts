@@ -1,9 +1,8 @@
 import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscaping';
 import type { ChartSpec } from '../../shared/chartSpec';
 import { getStrings, pickLocale, rangePopoverStrings, type UiStrings } from '../../shared/i18n/strings';
-import { getChartSpecRenderScript } from '../chartSpecRenderScript';
 
-/** Globals the ChartSpec render script reads once when it loads. */
+/** Globals the bundled ChartSpec renderer (dist/webview/chartSpecRuntime.js) reads once when it loads. */
 export interface ChartSpecGlobals {
     __CHART_SPECS__: ChartSpec[];
     __CHART_NO_RESULTS_LABEL__: string;
@@ -47,6 +46,9 @@ canvas { display: block; max-width: 100%; }
 export interface ChartSpecDocumentOptions {
     language: string;
     nonce: string;
+    /** Webview URI of dist/webview/chartSpecRuntime.js. */
+    rendererScriptUri: string;
+    cspSource: string;
 }
 
 /** Complete HTML document for a recipe result: used by the VS Code panel; the Web host mounts the same pieces in a frame. */
@@ -58,7 +60,7 @@ export function renderChartSpecDocument(title: string, charts: ChartSpec[], opti
 <html lang="${escapeHtml(locale)}">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${options.nonce}'; style-src 'unsafe-inline';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${options.nonce}' ${options.cspSource}; style-src 'unsafe-inline';">
 <title>${escapeHtml(title)}</title>
 <style>
 ${renderChartSpecStyles()}
@@ -73,7 +75,7 @@ window.__CHART_NO_RESULTS_LABEL__ = ${serializeForScript(globals.__CHART_NO_RESU
 window.__CHART_SCALAR_HEADERS__ = ${serializeForScript(globals.__CHART_SCALAR_HEADERS__)};
 window.__CHART_RANGE_STRINGS__ = ${serializeForScript(globals.__CHART_RANGE_STRINGS__)};
 </script>
-<script nonce="${options.nonce}">${getChartSpecRenderScript()}</script>
+<script nonce="${options.nonce}" src="${escapeHtml(options.rendererScriptUri)}"></script>
 </body>
 </html>`;
 }

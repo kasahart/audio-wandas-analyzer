@@ -55,7 +55,7 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
 - Recipe は `src/shared/recipe/` の `RecipeFlow` が一覧・選択・`{{selection}}` 置換・実行・表示の手順を持つ。
   native は recipes ディレクトリ、QuickPick、常駐 `AnalysisClient.runRecipe`、ChartSpec Panel を port で渡す。
   Web は build 時の `recipes/manifest.json`、prompt、Worker の `run-recipe` command、同一 origin の
-  `chartSpec.js` を読み込む frame を渡す。両 host の `AnalysisClient.runRecipe` は入力ごとの校正 context と
+  `chartSpecRuntime.js` を読み込む frame を渡す。両 host の `AnalysisClient.runRecipe` は入力ごとの校正 context と
   Recipe の場所を送信し、共通の120秒 timeout・cancel を管理する。native は古い校正を通常解析と同じ規則で
   破棄・再試行する。Python 側の `AnalysisService.run_recipe` は Recipe ファイルの親を相対パスの基準とし、
   `engine.get_analysis(file, profile)` の校正済み frame を `recipe_runner.evaluate_recipe` に渡す。
@@ -63,7 +63,8 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   再起動後に自動で再送し、Recipe の失敗をパネルの解析エラーにしない。Web は読み込んだ File と表示を保持し、
   次の要求で新しい Worker に再ロードする。`requires` を宣言した recipe は
   runtime lock に無い配布物（mosqito）を欠くと Web 一覧で実行不可と表示する。
-  ChartSpec 文書の CSS と globals は `chartSpecDocument.ts` に置き、render script は両 host が同じ文字列を使う。
+  ChartSpec 文書の CSS と globals は `chartSpecDocument.ts` に置き、renderer は `chartSpecRuntime.ts` の
+  `startChartSpecRenderer` を bundle した `dist/webview/chartSpecRuntime.js` を両 host が読み込む。
 
 校正設定 UI、フォルダ選択、codec の Web 対応範囲は増やしていない。
 新しい共通処理は両 host が実際に参照する。host 名による分岐で共通ファイルを膨らませない。
@@ -432,6 +433,7 @@ python-backend/
 dist/webview/               compile による生成物
   comparisonWaveform.js     waveformRenderer.ts の Webview バンドル
   comparisonRuntime.js      比較ビューの runtime バンドル
+  chartSpecRuntime.js       Recipe ChartSpec renderer のバンドル
 media/
   debug/
     sine-440.wav            デバッグ用の単一音声ファイル

@@ -216,7 +216,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (!Number.isInteger(index) || index < 0 || index >= labels.length) { announce(title); return undefined; }
         return index;
     }
-    // Recipe charts render in a same-origin frame: the ChartSpec script arrives as ./chartSpec.js under the page CSP,
+    // Recipe charts render in a same-origin frame: the bundled ChartSpec renderer arrives as ./chartSpecRuntime.js under the page CSP,
     // and a fresh document per run keeps the renderer's one-shot range popup and listeners isolated.
     function showRecipeCharts(title: string, charts: ChartSpec[]): void {
         document.querySelector('[data-recipe-result]')?.remove();
@@ -241,7 +241,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         const chartsHost = target.createElement('div'); chartsHost.id = 'charts';
         target.head.append(style); target.body.append(chartsHost);
         Object.assign(frame.contentWindow as unknown as Record<string, unknown>, chartSpecGlobals(charts, strings));
-        const script = target.createElement('script'); script.src = './chartSpec.js';
+        const script = target.createElement('script'); script.src = './chartSpecRuntime.js';
         target.body.append(script);
     }
     const recipeFlow = new RecipeFlow({
