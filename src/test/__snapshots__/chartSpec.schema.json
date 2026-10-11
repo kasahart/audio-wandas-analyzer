@@ -19,7 +19,10 @@
               },
               "ys": {
                 "items": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "type": "array"
               }
@@ -83,7 +86,10 @@
         "matrix": {
           "items": {
             "items": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ]
             },
             "type": "array"
           },
@@ -155,7 +161,10 @@
               },
               "values": {
                 "items": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "type": "array"
               }

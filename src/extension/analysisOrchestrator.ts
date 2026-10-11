@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AnalysisResult, AnalysisResultWithError, StftOptions } from '../shared/analysis/analysisTypes';
 import type { AnalyzeOptions } from '../shared/analysis/analysisClient';
+import { AnalysisRequestError } from './analysisRequestError';
 
 export interface AnalysisBackend {
     analyze(
@@ -33,9 +34,9 @@ const defaultHost: AnalysisHost = {
 };
 
 function errorAnalysisRevision(error: unknown): number {
-    if (!error || typeof error !== 'object') { return 0; }
-    const revision = (error as { analysisRevision?: unknown }).analysisRevision;
-    return typeof revision === 'number' && Number.isInteger(revision) && revision >= 0 ? revision : 0;
+    if (!(error instanceof AnalysisRequestError)) { return 0; }
+    const revision = error.analysisRevision;
+    return Number.isInteger(revision) && revision >= 0 ? revision : 0;
 }
 
 export class AnalysisOrchestrator {
@@ -96,8 +97,7 @@ export class AnalysisOrchestrator {
     }
 
     private isBackendStartupFailure(error: unknown): boolean {
-        return Boolean(error && typeof error === 'object'
-            && (error as { backendStartupFailure?: unknown }).backendStartupFailure === true);
+        return error instanceof AnalysisRequestError && error.backendStartupFailure;
     }
 
     private errorResult(filePath: string, message: string, analysisRevision: number): AnalysisResultWithError {
