@@ -25,7 +25,6 @@ function levelAxisLabel(slice: SpectrumSlice): string {
     return slice.axisLabel ? slice.axisLabel : 'Spectrum level [dB]';
 }
 
-/** CSV with a frequency column and a level column per track; shorter tracks leave their cells empty. */
 export function buildSpectrumCsv(tracks: CsvSpectrumTrack[]): string {
     const headers: string[] = [];
     tracks.forEach(function (t) {
@@ -50,7 +49,6 @@ export function buildSpectrumCsv(tracks: CsvSpectrumTrack[]): string {
     return rows.join('\n');
 }
 
-/** Per-file normalized regions covering [startSec, endSec] on the global timeline; files outside it are dropped. */
 export function wavLoopRegions(tracks: WavLoopTrack[], startSec: number, endSec: number): WavLoopRegion[] {
     const regions: WavLoopRegion[] = [];
     tracks.forEach(function (track) {
