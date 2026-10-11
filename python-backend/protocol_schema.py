@@ -42,8 +42,20 @@ DEFINITIONS: dict[str, Schema] = {
     "CalibrationProfile": {"x-tsType": "CalibrationProfile"},
     # Requests accept any integer like the other commands; results keep the non-negative
     # guarantee hasCalibrationResultMetadata enforces for every other result.
+    # Same bounds as isSafeCalibrationValue / calibration_profile._MIN/_MAX_SAFE_CALIBRATION_VALUE.
+    "SafeCalibrationValue": {"type": "number", "minimum": 1e-150, "maximum": 1e150},
     "AnalysisRevision": {"type": "integer"},
     "ResultAnalysisRevision": {"type": "integer", "minimum": 0},
+    # Ranges and evenness of nFft/hopSize stay in analyzer.normalize_stft_options.
+    "StftOptions": {
+        "type": "object",
+        "required": ["nFft", "hopSize", "window"],
+        "properties": {
+            "nFft": {"type": "integer"},
+            "hopSize": {"type": "integer"},
+            "window": {"type": "string", "enum": ["hann", "hamming", "blackman", "boxcar"]},
+        },
+    },
     "WaveformEnvelope": {
         "type": "object",
         "required": ["min", "max", "samples", "absolutePeak"],
@@ -68,6 +80,20 @@ DEFINITIONS: dict[str, Schema] = {
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
         },
     },
+    "SpectrumSlicePayload": {
+        "type": "object",
+        "required": ["filePath", "trackIndex", "analysisId", "settingsSignature", "cursorNorm"],
+        "properties": {
+            "filePath": {"type": "string"},
+            "trackIndex": {"type": "integer"},
+            "analysisId": {"type": "string"},
+            "settingsSignature": {"type": "string"},
+            "cursorNorm": _NUMBER,
+            "stftOptions": {"$ref": "#/$defs/StftOptions"},
+            "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
+            "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+        },
+    },
     "RangeResult": {
         "type": "object",
         "required": ["startNorm", "endNorm", "channels"],
@@ -75,6 +101,46 @@ DEFINITIONS: dict[str, Schema] = {
             "startNorm": _NUMBER,
             "endNorm": _NUMBER,
             "channels": {"type": "array", "items": {"$ref": "#/$defs/WaveformEnvelope"}},
+            "calibrationSignature": {"type": "string"},
+            "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+        },
+    },
+    "SpectrumSliceChannel": {
+        "type": "object",
+        "required": ["channelIndex", "values", "minDb", "maxDb"],
+        "properties": {
+            "channelIndex": {"type": "integer"},
+            "values": _NUMBERS,
+            "minDb": _NUMBER,
+            "maxDb": _NUMBER,
+            "unit": {"type": "string"},
+            "axisLabel": {"type": "string"},
+            "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
+            "referenceUnit": {"type": "string"},
+            "levelReferenceLabel": {"type": "string"},
+        },
+    },
+    "SpectrumSliceResult": {
+        "type": "object",
+        "required": [
+            "trackIndex",
+            "analysisId",
+            "settingsSignature",
+            "filePath",
+            "channels",
+            "frequencyBins",
+            "maxFrequencyHz",
+            "computeMs",
+        ],
+        "properties": {
+            "trackIndex": {"type": "integer"},
+            "analysisId": {"type": "string"},
+            "settingsSignature": {"type": "string"},
+            "filePath": {"type": "string"},
+            "channels": {"type": "array", "items": {"$ref": "#/$defs/SpectrumSliceChannel"}},
+            "frequencyBins": {"type": "integer"},
+            "maxFrequencyHz": _NUMBER,
+            "computeMs": _NUMBER,
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
         },
@@ -100,6 +166,7 @@ DEFINITIONS: dict[str, Schema] = {
 
 COMMANDS: dict[str, dict[str, str]] = {
     "range": {"payload": "RangePayload", "result": "RangeResult"},
+    "spectrum-slice": {"payload": "SpectrumSlicePayload", "result": "SpectrumSliceResult"},
     "export-wav-loop": {"payload": "ExportWavLoopPayload", "result": "ExportWavLoopResult"},
     "release-track-detail": {"payload": "ReleaseTrackDetailPayload", "result": "ReleaseTrackDetailResult"},
 }
