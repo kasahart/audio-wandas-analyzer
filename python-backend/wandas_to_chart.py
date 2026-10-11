@@ -19,7 +19,7 @@ Wandas frame surface used here::
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from wandas.frames import (
@@ -31,6 +31,17 @@ from wandas.frames import (
     SpectralFrame,
     SpectrogramFrame,
     TransferFunctionFrame,
+)
+
+from chart_spec import (
+    BarChartSpec,
+    BarSeries,
+    ChartSpec,
+    HeatmapChartSpec,
+    LineChartSpec,
+    LineSeries,
+    ScalarChartSpec,
+    ScalarRow,
 )
 
 # A long ChannelFrame line chart keeps about this many points in total (each channel's per-bucket
@@ -70,11 +81,11 @@ def _level_axis_label(frame: Any, quantity: str) -> str:
     return f"{quantity} [dB]"
 
 
-def _series_2d(matrix: np.ndarray, names: list[str], unit: str | None = None) -> list[dict[str, Any]]:
+def _series_2d(matrix: np.ndarray, names: list[str], unit: str | None = None) -> list[LineSeries]:
     """Build a list of LineSeries from a 2D (n_series, n_bins) matrix."""
-    rows = []
+    rows: list[LineSeries] = []
     for i in range(matrix.shape[0]):
-        item: dict[str, Any] = {
+        item: LineSeries = {
             "name": names[i] if i < len(names) else f"Series {i + 1}",
             "ys": _as_values(matrix[i]),
         }
@@ -133,7 +144,7 @@ def _min_max_envelope(data: np.ndarray, time: np.ndarray) -> tuple[np.ndarray, n
     return data[:, selected], time[selected]
 
 
-def _adapt_channel_frame(frame: Any, *, title: str) -> dict[str, Any]:
+def _adapt_channel_frame(frame: Any, *, title: str) -> LineChartSpec:
     data = np.asarray(frame.data, dtype=np.float64)
     if data.ndim == 1:
         data = data[np.newaxis, :]
@@ -160,8 +171,8 @@ def _adapt_spectral_frame(
     title: str,
     value: str = "dB",
     y_label: str | None = None,
-    y_scale: str | None = None,
-) -> dict[str, Any]:
+    y_scale: Literal["linear", "log", "db"] | None = None,
+) -> LineChartSpec:
     """SpectralFrame → line. ``value`` picks which attribute is plotted.
 
     ``dB`` (default) yields a dB-scale magnitude line; ``magnitude`` and
@@ -197,7 +208,7 @@ def _adapt_spectral_frame(
     }
 
 
-def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> dict[str, Any]:
+def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> HeatmapChartSpec:
     freqs = np.asarray(frame.freqs, dtype=np.float64)
     db = np.asarray(frame.dB, dtype=np.float64)
     # dB shape is (channels, freqs, time).
@@ -224,13 +235,13 @@ def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> dic
     }
 
 
-def _adapt_noct_frame(frame: Any, *, title: str) -> dict[str, Any]:
+def _adapt_noct_frame(frame: Any, *, title: str) -> BarChartSpec:
     freqs = np.asarray(frame.freqs, dtype=np.float64)
     db = np.asarray(frame.dB, dtype=np.float64)
     if db.ndim == 1:
         db = db[np.newaxis, :]
     categories = [f"{f:g}" for f in freqs]
-    series = []
+    series: list[BarSeries] = []
     for i, name in enumerate(_labels(frame)):
         if i >= db.shape[0]:
             break
@@ -247,7 +258,7 @@ def _adapt_noct_frame(frame: Any, *, title: str) -> dict[str, Any]:
     }
 
 
-def _adapt_roughness_frame(frame: Any, *, title: str, channel: int = 0) -> dict[str, Any]:
+def _adapt_roughness_frame(frame: Any, *, title: str, channel: int = 0) -> HeatmapChartSpec:
     data = np.asarray(frame.data, dtype=np.float64)
     if data.ndim == 3:
         ch = max(0, min(channel, data.shape[0] - 1))
@@ -270,11 +281,11 @@ def _adapt_roughness_frame(frame: Any, *, title: str, channel: int = 0) -> dict[
     }
 
 
-def _adapt_ndarray(arr: np.ndarray, *, title: str, unit: str | None = None) -> dict[str, Any]:
+def _adapt_ndarray(arr: np.ndarray, *, title: str, unit: str | None = None) -> ScalarChartSpec:
     flat = np.asarray(arr, dtype=np.float64).reshape(-1)
-    rows = []
+    rows: list[ScalarRow] = []
     for i, v in enumerate(flat.tolist()):
-        item: dict[str, Any] = {"label": f"Channel {i + 1}", "value": float(v)}
+        item: ScalarRow = {"label": f"Channel {i + 1}", "value": float(v)}
         if unit:
             item["unit"] = unit
         rows.append(item)
@@ -284,7 +295,7 @@ def _adapt_ndarray(arr: np.ndarray, *, title: str, unit: str | None = None) -> d
 # ---- public entry ----------------------------------------------------------
 
 
-def adapt(obj: Any, *, title: str | None = None, **kwargs: Any) -> dict[str, Any]:
+def adapt(obj: Any, *, title: str | None = None, **kwargs: Any) -> ChartSpec:
     """Adapt a wandas frame (or ndarray scalar metric) to a ChartSpec dict.
 
     Unknown types fall back to a scalar table representation that at least
