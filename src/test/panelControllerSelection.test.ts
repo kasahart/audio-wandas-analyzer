@@ -43,6 +43,9 @@ test('directory selection uses live result updates with resource URIs, cache reu
     };
     const panel: PanelHandle = { webview, onDidDispose: () => ({ dispose() {} }) };
     const factory: PanelFactory = {
+        getResults: (target) => ComparisonPanel.getResults(target),
+        updateResults: (target, results) => ComparisonPanel.updateResults(target, results),
+        replaceResult: (target, result) => ComparisonPanel.replaceResult(target, result),
         showResults: () => panel,
         showDirectory: () => { webview.html = 'initial shell'; return panel; },
         updateDirectoryResults: (results, target, selectedFilePaths) => ComparisonPanel.updateDirectoryResults(

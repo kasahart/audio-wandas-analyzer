@@ -57,13 +57,10 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     };
 
     let PanelController: typeof import('../extension/panelController').PanelController;
-    let ComparisonPanel: typeof import('../webview/panels/ComparisonPanel').ComparisonPanel;
     let calibrationStore: typeof import('../extension/calibrationStore');
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         PanelController = require('../extension/panelController').PanelController;
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        ComparisonPanel = require('../webview/panels/ComparisonPanel').ComparisonPanel;
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         calibrationStore = require('../extension/calibrationStore');
     } finally {
@@ -153,10 +150,19 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         },
         onDidDispose: () => ({ dispose: () => undefined }),
     };
+    // A store of the test's own proves PanelController reads displayed results through the injected factory.
+    let displayed: AnalysisResultWithError[] = [];
     const panelFactory: PanelFactory = {
+        getResults: () => [...displayed],
+        updateResults: (_target, results) => { displayed = [...results]; },
+        replaceResult: (_target, result) => {
+            if (!displayed.some((entry) => entry.filePath === result.filePath)) { return undefined; }
+            displayed = displayed.map((entry) => (entry.filePath === result.filePath ? result : entry));
+            return [...displayed];
+        },
         updateDirectoryResults: async () => true,
         showResults: (_extensionUri, results) => {
-            ComparisonPanel.updateResults(panel, results);
+            displayed = [...results];
             return panel;
         },
         showDirectory: () => panel,
@@ -266,7 +272,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     ]);
     assert.deepEqual(workspaceUpdateKeys, [calibrationProfilesKey]);
     assert.deepEqual(update.results, [refreshed, initialResults[1]]);
-    assert.deepEqual(ComparisonPanel.getResults(panel), [refreshed, initialResults[1]]);
+    assert.deepEqual(displayed, [refreshed, initialResults[1]]);
 
     multiResults = [{ ...initialResults[0], error: 'obsolete failure' }, initialResults[1]];
     const staleFailureUpdate = nextAnalysisUpdate();
@@ -280,7 +286,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     });
     assert.deepEqual((await staleFailureUpdate).results, [refreshed, initialResults[1]]);
 
-    ComparisonPanel.updateResults(panel, initialResults);
+    displayed = [...initialResults];
     const recoveryUpdate = nextAnalysisUpdate();
     receiveMessage({
         type: 'comparison-panel-ready',
@@ -306,7 +312,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     );
     resolveRacingAnalysis?.();
     await racingAnalysis;
-    assert.equal(ComparisonPanel.getResults(panel)[0]?.analysisRevision, 1);
+    assert.equal(displayed[0]?.analysisRevision, 1);
     assert.equal(raceAttempt, 2);
     controller.dispose();
 });

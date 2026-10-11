@@ -16,6 +16,7 @@ import {
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import { fileCountLabel, fillTemplate, getStrings, type UiStrings } from '../shared/i18n/strings';
 import type { AnalysisOrchestrator } from './analysisOrchestrator';
+import type { AnalysisClient } from '../shared/analysis/analysisClient';
 import type { CalibrationRequestContext } from '../shared/protocol/backendProtocol';
 import {
     getAnalysisRevision,
@@ -35,7 +36,6 @@ import {
     onDidChangePythonEnvironmentState,
     type PythonEnvironmentState,
 } from './pythonEnvironment';
-import type { PythonBackendServer } from './pythonBackendServer';
 import {
     loadPersistedStftOptions,
     loadSpectrogramSettings,
@@ -49,7 +49,7 @@ import {
     type TargetFileSystem,
 } from './targetDiscovery';
 
-export interface PanelBackend extends Pick<PythonBackendServer,
+export interface PanelBackend extends Pick<AnalysisClient,
     | 'requestRange'
     | 'requestTrackDetail'
     | 'releaseTrackDetail'
@@ -66,6 +66,11 @@ export interface PanelHandle extends PanelPort {
 }
 
 export interface PanelFactory {
+    /** The results the panel currently displays; directory updates and `showResults` record them here too. */
+    getResults(panel: PanelHandle): AnalysisResultWithError[];
+    updateResults(panel: PanelHandle, results: AnalysisResultWithError[]): void;
+    /** Swaps in one file's result; undefined when the panel no longer shows that file. */
+    replaceResult(panel: PanelHandle, result: AnalysisResultWithError): AnalysisResultWithError[] | undefined;
     updateDirectoryResults(results: AnalysisResultWithError[], panel: PanelHandle, selectedFilePaths?: string[]): Thenable<boolean>;
     showResults(
         extensionUri: vscode.Uri,
@@ -97,6 +102,9 @@ export interface PanelControllerHost {
 }
 
 const defaultPanelFactory: PanelFactory = {
+    getResults: (panel) => ComparisonPanel.getResults(panel),
+    updateResults: (panel, results) => ComparisonPanel.updateResults(panel, results),
+    replaceResult: (panel, result) => ComparisonPanel.replaceResult(panel, result),
     updateDirectoryResults: (results, panel, selectedFilePaths) => ComparisonPanel.updateDirectoryResults(
         results, panel as vscode.WebviewPanel, selectedFilePaths,
     ),
@@ -417,7 +425,7 @@ export class PanelController implements vscode.Disposable {
         );
         if (!scope.isCurrent()) { return undefined; }
         const displayedByPath = new Map(
-            ComparisonPanel.getResults(session.panel).map((result) => [result.filePath, result]),
+            this.panelFactory.getResults(session.panel).map((result) => [result.filePath, result]),
         );
         const acceptedResults = results.map((result) => {
             if (this.isLiveResult(result)) {
@@ -427,7 +435,7 @@ export class PanelController implements vscode.Disposable {
         });
         session.cacheResults(acceptedResults);
         session.setActiveResults(acceptedResults.map((result) => result.filePath));
-        ComparisonPanel.updateResults(session.panel, acceptedResults);
+        this.panelFactory.updateResults(session.panel, acceptedResults);
         return acceptedResults;
     }
 
@@ -471,14 +479,14 @@ export class PanelController implements vscode.Disposable {
             return;
         }
         if (!this.isLiveResult(result) || result.analysisRevision !== message.analysisRevision) { return; }
-        const results = ComparisonPanel.replaceResult(session.panel, result);
+        const results = this.panelFactory.replaceResult(session.panel, result);
         if (!results) { return; }
         session.cacheResults([result]);
         await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
     }
 
     private async refreshStalePanelResults(session: PanelSession<PanelHandle>): Promise<void> {
-        const stale = ComparisonPanel.getResults(session.panel).filter((result) => !this.isLiveResult(result));
+        const stale = this.panelFactory.getResults(session.panel).filter((result) => !this.isLiveResult(result));
         for (const result of stale) {
             await this.enqueueCalibrationRefresh(session, {
                 filePath: result.filePath,
@@ -493,13 +501,13 @@ export class PanelController implements vscode.Disposable {
     ): Promise<void> {
         if (session.directorySelection) {
             await this.panelFactory.updateDirectoryResults(
-                ComparisonPanel.getResults(session.panel), session.panel, session.directorySelection.selectedFilePaths,
+                this.panelFactory.getResults(session.panel), session.panel, session.directorySelection.selectedFilePaths,
             );
             await this.refreshStalePanelResults(session);
             return;
         }
         await this.refreshStalePanelResults(session);
-        const current = ComparisonPanel.getResults(session.panel);
+        const current = this.panelFactory.getResults(session.panel);
         const reported = new Map(
             message.calibrationRevisions.map((entry) => [entry.filePath, entry.analysisRevision]),
         );
@@ -543,7 +551,7 @@ export class PanelController implements vscode.Disposable {
         filePath: string,
     ): CalibrationRequestContext | undefined {
         if (!this.canPostForFile(session, filePath)) { return undefined; }
-        const displayed = ComparisonPanel.getResults(session.panel).find((result) => result.filePath === filePath);
+        const displayed = this.panelFactory.getResults(session.panel).find((result) => result.filePath === filePath);
         if (!displayed) { return undefined; }
         return {
             calibrationProfile: displayed.calibrationProfile,
