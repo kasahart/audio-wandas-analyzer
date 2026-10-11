@@ -726,3 +726,43 @@ test('recipe range popover is localized through the shared dictionary', () => {
     assert.equal(dom.window.document.getElementById('range-error')!.textContent, 'Min は Max より小さい値を入力してください');
     dom.window.close();
 });
+
+test('Line チャートは null 値で線を切り、0 として描かない', () => {
+    const dom = new JSDOM(`<!DOCTYPE html><html><body><div id="charts"></div></body></html>`, { runScripts: 'dangerously' });
+    const win = dom.window as unknown as Record<string, unknown>;
+    win.__CHART_SPECS__ = [{
+        kind: 'line', title: 'Phase', xLabel: 'X', yLabel: 'Y',
+        xs: [0, 1, 2, 3, 4], series: [{ name: 's', ys: [1, 2, null, 3, 4] }],
+    }];
+    const pathOps: string[] = [];
+    const doc = dom.window.document;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const origCreate = (doc as any).createElement.bind(doc);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (doc as any).createElement = function(tag: string) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const el = origCreate(tag) as any;
+        if (tag === 'canvas') {
+            let stroking = false;
+            el.getContext = () => new Proxy({}, {
+                get(_t: unknown, p: string | symbol) {
+                    if (p === 'canvas') { return el; }
+                    if (p === 'measureText') { return () => ({ width: 0 }); }
+                    if (p === 'createImageData') { return (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }); }
+                    if (p === 'beginPath') { return () => { stroking = true; pathOps.length = 0; }; }
+                    if (p === 'stroke') { return () => { stroking = false; }; }
+                    if (p === 'moveTo' || p === 'lineTo') { return () => { if (stroking) { pathOps.push(String(p)); } }; }
+                    return () => undefined;
+                },
+                set() { return true; },
+            });
+            el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 720, height: 240 });
+        }
+        return el;
+    };
+    const script = doc.createElement('script');
+    script.textContent = getChartSpecRenderScript();
+    doc.body.appendChild(script);
+    assert.deepEqual(pathOps, ['moveTo', 'lineTo', 'moveTo', 'lineTo']);
+    dom.window.close();
+});

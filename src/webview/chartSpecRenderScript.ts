@@ -199,10 +199,13 @@ export function getChartSpecRenderScript(): string {
                 ctx.lineWidth = 1.2;
                 ctx.beginPath();
                 const ys = s.ys || [];
+                // null (NaN/inf in the source) breaks the line instead of dropping to 0.
+                let penDown = false;
                 for (let i = 0; i < xs.length && i < ys.length; i++) {
+                    if (!Number.isFinite(ys[i])) { penDown = false; continue; }
                     const px = xToPx(xs[i]);
                     const py = yToPx(ys[i]);
-                    if (i === 0) { ctx.moveTo(px, py); } else { ctx.lineTo(px, py); }
+                    if (penDown) { ctx.lineTo(px, py); } else { ctx.moveTo(px, py); penDown = true; }
                 }
                 ctx.stroke();
             });

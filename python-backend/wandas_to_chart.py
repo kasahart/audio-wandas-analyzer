@@ -27,10 +27,16 @@ import numpy as np
 
 
 def _as_list(values: Any) -> list[float]:
-    """NaN/inf-safe NumPy → JSON-friendly list[float]."""
+    """Axis coordinates → JSON-friendly list[float]; non-finite coordinates become 0."""
     arr = np.asarray(values, dtype=np.float64)
     arr = np.where(np.isfinite(arr), arr, 0.0)
     return arr.tolist()
+
+
+def _as_values(values: Any) -> list[float | None]:
+    """Plotted values → JSON list; NaN/inf become ``null`` so the renderer leaves a gap instead of drawing 0."""
+    arr = np.asarray(values, dtype=np.float64)
+    return [float(v) if finite else None for v, finite in zip(arr.tolist(), np.isfinite(arr).tolist(), strict=True)]
 
 
 def _labels(frame: Any, default_prefix: str = "Channel") -> list[str]:
@@ -47,7 +53,7 @@ def _series_2d(matrix: np.ndarray, names: list[str], unit: str | None = None) ->
     for i in range(matrix.shape[0]):
         item: dict[str, Any] = {
             "name": names[i] if i < len(names) else f"Series {i + 1}",
-            "ys": _as_list(matrix[i]),
+            "ys": _as_values(matrix[i]),
         }
         if unit:
             item["unit"] = unit
@@ -137,7 +143,7 @@ def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> dic
         "yLabel": "Frequency [Hz]",
         "xs": _as_list(times[:n_time]),
         "ys": _as_list(freqs[:n_freq]),
-        "matrix": [_as_list(plane[i]) for i in range(n_freq)],
+        "matrix": [_as_values(plane[i]) for i in range(n_freq)],
         "unit": unit,
         "colormap": "viridis",
     }
@@ -153,7 +159,7 @@ def _adapt_noct_frame(frame: Any, *, title: str) -> dict[str, Any]:
     for i, name in enumerate(_labels(frame)):
         if i >= db.shape[0]:
             break
-        series.append({"name": name, "values": _as_list(db[i]), "unit": "dB"})
+        series.append({"name": name, "values": _as_values(db[i]), "unit": "dB"})
     for item, channel in zip(series, getattr(frame, "channels", []), strict=False):
         item["unit"] = channel.level_reference.label
     return {
@@ -183,7 +189,7 @@ def _adapt_roughness_frame(frame: Any, *, title: str, channel: int = 0) -> dict[
         "yLabel": "Critical-band rate [Bark]",
         "xs": _as_list(times[:n_time]),
         "ys": _as_list(bark_axis[:n_bark]),
-        "matrix": [_as_list(data[i]) for i in range(n_bark)],
+        "matrix": [_as_values(data[i]) for i in range(n_bark)],
         "unit": "asper",
         "colormap": "magma",
     }

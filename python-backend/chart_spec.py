@@ -13,6 +13,9 @@ Each ``oneOf`` branch covers one ``kind``:
 * ``heatmap`` — 2D matrix indexed by xs and ys.
 * ``bar``     — categorical bars, one or more series.
 * ``scalar``  — small label/value/unit table.
+
+Plotted values (line ``ys``, heatmap ``matrix`` cells, bar ``values``) may be
+``null`` where the source was NaN/inf; renderers treat ``null`` as missing.
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ def dump_schema() -> dict:
                     "required": ["name", "ys"],
                     "properties": {
                         "name": {"type": "string"},
-                        "ys": {"type": "array", "items": {"type": "number"}},
+                        "ys": {"type": "array", "items": {"type": ["number", "null"]}},
                         "unit": {"type": "string"},
                     },
                     "additionalProperties": False,
@@ -62,7 +65,7 @@ def dump_schema() -> dict:
             "ys": {"type": "array", "items": {"type": "number"}},
             "matrix": {
                 "type": "array",
-                "items": {"type": "array", "items": {"type": "number"}},
+                "items": {"type": "array", "items": {"type": ["number", "null"]}},
             },
             "unit": {"type": "string"},
             "colormap": {"type": "string"},
@@ -87,7 +90,7 @@ def dump_schema() -> dict:
                     "required": ["name", "values"],
                     "properties": {
                         "name": {"type": "string"},
-                        "values": {"type": "array", "items": {"type": "number"}},
+                        "values": {"type": "array", "items": {"type": ["number", "null"]}},
                         "unit": {"type": "string"},
                     },
                     "additionalProperties": False,
