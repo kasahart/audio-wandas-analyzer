@@ -15,7 +15,8 @@ import {
     globalNormFromTrackTime as mapGlobalNormFromTrackTime,
     trackTimeFromGlobalNorm as mapTrackTimeFromGlobalNorm,
 } from './playback';
-import { parseBoundedInteger, positionPopover } from './settingsPopover';
+import { positionPopover } from './settingsPopover';
+import { clampHeight, createHeightResize, heightInputRequest, type HeightKind } from './heightResize';
 import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
@@ -853,9 +854,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const kind = entry.payload.kind === 'spectrum' ? 'spectrum' : 'track';
             const startY = Number(entry.payload.startY || 0);
             const endY = Number(entry.payload.endY || startY);
-            beginHeightResize(kind, startY);
-            updateHeightResize(endY);
-            endHeightResize();
+            heightResize.begin(kind, startY);
+            heightResize.update(endY);
+            heightResize.end();
         }
         if (entry.action === 'open-spectrogram-settings') {
             const gear = document.querySelector('[data-action="spectrogram-settings"]');
@@ -2215,7 +2216,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             const action = target.getAttribute('data-action');
-            beginHeightResize(action === 'track-height-drag' ? 'track' : 'spectrum', e.clientY || 0);
+            heightResize.begin(action === 'track-height-drag' ? 'track' : 'spectrum', e.clientY || 0);
             e.preventDefault();
         }
         const tracksWrapperForHeight = document.getElementById('tracks-wrapper');
@@ -2229,13 +2230,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         document.addEventListener('mousedown', handleHeightResizeStart);
         window.addEventListener('mousedown', handleHeightResizeStart, true);
         function handleHeightResizeMove(e: MouseEvent): void {
-            updateHeightResize(e.clientY || 0);
-            if (heightResizeDrag) {
+            heightResize.update(e.clientY || 0);
+            if (heightResize.isActive()) {
                 e.preventDefault();
             }
         }
         function handleHeightResizeEnd() {
-            endHeightResize();
+            heightResize.end();
         }
         document.addEventListener('mousemove', handleHeightResizeMove);
         window.addEventListener('mousemove', handleHeightResizeMove, true);
@@ -3019,25 +3020,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             exportReport();
         }
     }
-    function clampHeight(value: number, minValue: number, maxValue: number): number {
-        return Math.max(minValue, Math.min(maxValue, value));
-    }
-    function parseHeightValue(value: string | number): number | null {
-        return parseBoundedInteger(value, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
-    }
     function applyHeightInput(action: string | null, value: string | number | null): void {
-        if (value === null) {
-            return;
+        const request = heightInputRequest(action, value);
+        if (request) {
+            setHeight(request.kind, request.height);
         }
-        const next = parseHeightValue(value);
-        if (next === null) {
-            return;
+    }
+    function setHeight(kind: HeightKind, value: number): void {
+        if (kind === 'track') {
+            setTrackHeight(value);
         }
-        if (action === 'track-height-input') {
-            setTrackHeight(next);
-        }
-        else if (action === 'spectrum-height-input') {
-            setSpectrumHeight(next);
+        else {
+            setSpectrumHeight(value);
         }
     }
     function setTrackHeight(value: number): void {
@@ -3073,34 +3067,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         syncSpectrumCanvasCssHeight();
         scheduleSpectrumRefresh('immediate');
     }
-    let heightResizeDrag: { kind: 'track' | 'spectrum'; startY: number; startHeight: number } | null = null;
-    function beginHeightResize(kind: 'track' | 'spectrum', clientY: number): void {
-        heightResizeDrag = {
-            kind: kind,
-            startY: clientY,
-            startHeight: kind === 'track' ? trackHeight : spectrumOverlayHeight,
-        };
-        document.body.classList.add('is-height-resizing');
-    }
-    function updateHeightResize(clientY: number) {
-        if (!heightResizeDrag) {
-            return;
-        }
-        const delta = clientY - heightResizeDrag.startY;
-        if (heightResizeDrag.kind === 'track') {
-            setTrackHeight(heightResizeDrag.startHeight + delta);
-        }
-        else {
-            setSpectrumHeight(heightResizeDrag.startHeight - delta);
-        }
-    }
-    function endHeightResize() {
-        if (!heightResizeDrag) {
-            return;
-        }
-        heightResizeDrag = null;
-        document.body.classList.remove('is-height-resizing');
-    }
+    const heightResize = createHeightResize({
+        currentHeight: kind => kind === 'track' ? trackHeight : spectrumOverlayHeight,
+        setHeight,
+        onActiveChange: active => document.body.classList.toggle('is-height-resizing', active),
+    });
     function disableFollowCursor() {
         if (!followCursor) {
             return;
