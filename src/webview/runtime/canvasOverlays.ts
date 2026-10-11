@@ -43,7 +43,11 @@ export function drawDashedTimeLine(
     height: number,
     style: DashedLineStyle,
 ): void {
-    const x = (norm - view.start) / (view.end - view.start) * width;
+    const span = view.end - view.start;
+    if (span <= 0) {
+        return;
+    }
+    const x = (norm - view.start) / span * width;
     if (x < 0 || x > width) {
         return;
     }

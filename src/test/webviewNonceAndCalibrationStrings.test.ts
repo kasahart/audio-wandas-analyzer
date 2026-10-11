@@ -49,3 +49,51 @@ test('overlay incompatibility warning shows the localized message and clears whe
     applyOverlayCompatibility(document, false, ja.calibrationOverlayIncompatible);
     assert.equal(document.querySelector('.calibration-overlay-warning'), null);
 });
+
+test('ChartSpec panel issues a fresh random nonce per panel', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const NodeModule = require('node:module') as {
+        _load: (request: string, parent: unknown, isMain: boolean) => unknown;
+    };
+    const originalLoad = NodeModule._load;
+    const webviews: Array<{ html: string }> = [];
+    const fakeVscode = {
+        ViewColumn: { Beside: -2 },
+        env: { language: 'en' },
+        Uri: { joinPath: (base: { path: string }, ...parts: string[]) => ({ path: [base.path, ...parts].join('/') }) },
+        window: {
+            createWebviewPanel: () => {
+                const webview = {
+                    html: '',
+                    cspSource: 'vscode-resource:',
+                    asWebviewUri: (uri: { path: string }) => ({ toString: () => 'vscode-resource:' + uri.path }),
+                };
+                webviews.push(webview);
+                return { webview };
+            },
+        },
+    };
+    NodeModule._load = function patchedLoad(request: string, parent: unknown, isMain: boolean): unknown {
+        if (request === 'vscode') {
+            return fakeVscode;
+        }
+        return originalLoad.call(this, request, parent, isMain);
+    };
+    let ChartSpecPanel: typeof import('../webview/panels/ChartSpecPanel').ChartSpecPanel;
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        ChartSpecPanel = require('../webview/panels/ChartSpecPanel').ChartSpecPanel;
+    } finally {
+        NodeModule._load = originalLoad;
+    }
+    const extensionUri = { path: '/ext' } as never;
+    ChartSpecPanel.show(extensionUri, 'Charts', []);
+    ChartSpecPanel.show(extensionUri, 'Charts', []);
+    const nonces = webviews.map(({ html }) => {
+        const match = /script-src 'nonce-([^']+)'/.exec(html);
+        assert.ok(match);
+        return match[1];
+    });
+    assert.notEqual(nonces[0], nonces[1]);
+    assert.equal(Buffer.from(nonces[0], 'base64').length, 16);
+});
