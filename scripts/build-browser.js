@@ -2,17 +2,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { renderComparisonDocument } = require('../dist/webview/panels/comparisonDocument');
 const { DEFAULT_SPECTROGRAM_SETTINGS } = require('../dist/shared/analysis/analysisTypes');
-const { getChartSpecRenderScript } = require('../dist/webview/chartSpecRenderScript');
 const root = path.resolve(__dirname, '..');
 const out = path.join(root, 'browser-dist');
 fs.mkdirSync(path.join(out, 'python'), { recursive: true });
 fs.mkdirSync(path.join(out, 'runtime'), { recursive: true });
 fs.mkdirSync(path.join(out, 'recipes'), { recursive: true });
-for (const name of ['comparisonWaveform.js', 'comparisonRuntime.js', 'staticHost.js']) {
+for (const name of ['comparisonWaveform.js', 'comparisonRuntime.js', 'staticHost.js', 'chartSpecRuntime.js']) {
     fs.copyFileSync(path.join(root, 'dist/webview', name), path.join(out, name));
 }
-// The ChartSpec renderer is inlined with a nonce in VS Code; the static site loads it as a same-origin file.
-fs.writeFileSync(path.join(out, 'chartSpec.js'), getChartSpecRenderScript());
 fs.copyFileSync(path.join(root, 'browser/audio.worker.js'), path.join(out, 'audio.worker.js'));
 fs.copyFileSync(path.join(root, 'runtime/lock.json'), path.join(out, 'runtime/lock.json'));
 const lock = JSON.parse(fs.readFileSync(path.join(root, 'runtime/lock.json'), 'utf8'));

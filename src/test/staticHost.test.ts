@@ -350,7 +350,7 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     await flush();
     const frame = app.elements.find(element => element.tag === 'iframe')!;
     assert.equal(JSON.stringify((frame.contentWindow as { __CHART_SPECS__: unknown }).__CHART_SPECS__), JSON.stringify([{ kind: 'scalar', title: 'Peak', rows: [] }]));
-    assert.equal(frame.contentDocument!.body.children.at(-1)!.src, './chartSpec.js');
+    assert.equal(frame.contentDocument!.body.children.at(-1)!.src, './chartSpecRuntime.js');
     assert.equal(frame.contentDocument!.body.children[0].id, 'charts');
     assert.equal(app.status, app.browser.__APP_STRINGS__.browserRecipeDone + 'octave.json');
     const close = app.elements.find(element => element.attributes['data-action'] === 'browser-recipe-close')!;
