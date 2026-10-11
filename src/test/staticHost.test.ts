@@ -346,7 +346,19 @@ test('Worker success envelopes with extra outer keys are protocol errors', async
     worker.onmessage({ data: { requestId: command.requestId, result: {}, debug: 1 } });
     await flush();
     assert.equal(app.received.at(-1)?.type, 'track-detail-error');
-    assert.match(String(app.received.at(-1)?.error), /Invalid track-detail success response/);
+    assert.match(String(app.received.at(-1)?.error), /Invalid track-detail response envelope/);
+});
+
+test('browser-only Worker commands reject success envelopes with extra outer keys', async () => {
+    const app = harness();
+    app.blockedWorkerCommands.add('load');
+    await app.load();
+    const worker = app.workers[0];
+    const load = worker.commands.find(command => command.cmd === 'load')!;
+    worker.onmessage({ data: { requestId: load.requestId, result: { filePath: `/sources/${load.sourceId}` }, debug: 1 } });
+    await flush(); await flush();
+    assert.equal(worker.commands.some(command => command.cmd === 'analyze'), false, 'a malformed load reply must not start analysis');
+    assert.match(app.status, /Invalid load response envelope/);
 });
 
 test('browser recipes run on loaded tracks through the Worker and render charts in a fresh frame', async () => {
