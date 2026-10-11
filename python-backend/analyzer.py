@@ -21,6 +21,8 @@ SPECTROGRAM_TIME_BIN_LIMIT = 720
 SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
 DB_UNIT = "dB"
 SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum amplitude level [dB]"
+# Raw full-scale peak at or above which a channel is reported as clipped (behavior tracked in #132).
+CLIPPING_FULL_SCALE_THRESHOLD = 0.99
 
 
 def sample_range(start_norm: float, end_norm: float, sample_count: int) -> tuple[int, int]:
@@ -304,7 +306,7 @@ def analyze_from_frame(
                 "peakAbsolute": peak,
                 "peakLevelDb": references[index].to_level(peak),
                 "rawPeakFullScale": raw_peak,
-                "clipped": raw_peak >= 0.99,
+                "clipped": raw_peak >= CLIPPING_FULL_SCALE_THRESHOLD,
                 "waveform": build_waveform_envelope(
                     samples,
                     WAVEFORM_POINT_LIMIT,

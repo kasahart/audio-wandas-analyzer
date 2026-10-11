@@ -1,3 +1,5 @@
+import { WAVEFORM_HALF_HEIGHT_RATIO } from './waveformLayout';
+
 export interface WaveformEnv {
     min: number[];
     max: number[];
@@ -155,7 +157,7 @@ export function makeCoordTransform(
             if (amplitudeViewport && ampSpan !== null) {
                 return ((amplitudeViewport.maxNorm - valueNorm) / ampSpan) * H;
             }
-            return H / 2 - valueNorm * (H * 0.44);
+            return H / 2 - valueNorm * (H * WAVEFORM_HALF_HEIGHT_RATIO);
         },
     };
 }
@@ -468,7 +470,7 @@ export function renderWaveformPipeline(
         if (amplitudeViewport) {
             return ((amplitudeViewport.maxNorm - valueNorm) / (amplitudeViewport.maxNorm - amplitudeViewport.minNorm)) * H;
         }
-        return H / 2 - valueNorm * (H * 0.44);
+        return H / 2 - valueNorm * (H * WAVEFORM_HALF_HEIGHT_RATIO);
     };
 
     ctx.lineWidth = lineWidth;

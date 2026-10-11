@@ -3,7 +3,7 @@ import { channelLabel, channelsForResult, formatClockTime, formatMeasuredLevel, 
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { paintSpectrogramRaster } from './spectrogramRaster';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, type DrawTheme } from '../draw/canvasDrawers';
-import { isCacheSufficient, computeReqBounds, waveformPointCount } from '../waveform/rangeRequestPolicy';
+import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { eventTarget } from './domAdapter';
@@ -28,6 +28,7 @@ import { TrackStore } from './trackStore';
 import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
+    ZOOM_IN_FACTOR,
     zoomNormalizedRange,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
@@ -971,7 +972,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             const { reqStart, reqEnd } = computeReqBounds(fileView.fileAtZoomStart, fileView.fileAtZoomEnd);
-            const pts = Math.min(W * 2, 8000);
+            const pts = rangeRequestPointCount(W);
             if (isCacheSufficient(record.rangeCache, reqStart, reqEnd, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd, channelsForResult(result).length)) {
                 return;
             }
@@ -3843,14 +3844,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function zoomIn() {
         disableFollowCursor();
-        const range = zoomNormalizedRange({ start: zoomStart, end: zoomEnd }, 0.7);
+        const range = zoomNormalizedRange({ start: zoomStart, end: zoomEnd }, ZOOM_IN_FACTOR);
         zoomStart = range.start;
         zoomEnd = range.end;
         scheduleRender();
     }
     function zoomOut() {
         disableFollowCursor();
-        const range = zoomNormalizedRange({ start: zoomStart, end: zoomEnd }, 1 / 0.7);
+        const range = zoomNormalizedRange({ start: zoomStart, end: zoomEnd }, 1 / ZOOM_IN_FACTOR);
         zoomStart = range.start;
         zoomEnd = range.end;
         scheduleRender();
@@ -3865,29 +3866,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
     }
     function specZoomIn() {
-        const range = zoomSpectrumRange({ start: specFreqStart, end: specFreqEnd }, 0.7);
-        specFreqStart = range.start;
-        specFreqEnd = range.end;
-        if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
-            const dc = (_lastVisDbMin + _lastVisDbMax) / 2;
-            const dh = (_lastVisDbMax - _lastVisDbMin) / 2 * 0.7;
-            specDbMin = dc - dh;
-            specDbMax = dc + dh;
-        }
-        scheduleSpectrumRefresh('immediate');
+        zoomSpectrumBy(ZOOM_IN_FACTOR);
     }
     function specZoomOut() {
-        const range = zoomSpectrumRange({ start: specFreqStart, end: specFreqEnd }, 1 / 0.7);
+        zoomSpectrumBy(1 / ZOOM_IN_FACTOR);
+    }
+    function zoomSpectrumBy(factor: number) {
+        const range = zoomSpectrumRange({ start: specFreqStart, end: specFreqEnd }, factor);
         specFreqStart = range.start;
         specFreqEnd = range.end;
         // 完全ズームアウト時は dB も自動に戻す（dB ブロックはスキップ）
-        if (specFreqStart <= 0 && specFreqEnd >= 1) {
+        if (factor > 1 && specFreqStart <= 0 && specFreqEnd >= 1) {
             specDbMin = null;
             specDbMax = null;
         }
         else if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
             const dc = (_lastVisDbMin + _lastVisDbMax) / 2;
-            const dh = (_lastVisDbMax - _lastVisDbMin) / 2 * (1 / 0.7);
+            const dh = (_lastVisDbMax - _lastVisDbMin) / 2 * factor;
             specDbMin = dc - dh;
             specDbMax = dc + dh;
         }
