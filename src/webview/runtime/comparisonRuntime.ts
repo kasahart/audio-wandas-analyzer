@@ -7,6 +7,7 @@ import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPo
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { createSelectionTreeView } from './selectionTreeView';
+import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
 import { eventTarget } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
@@ -1869,9 +1870,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const x = Math.max(0, Math.min(timeWidth, clientX - rect.left));
         return Math.max(0, Math.min(1, zoomStart + (x / timeWidth) * (zoomEnd - zoomStart)));
     }
-    function dbLevelAxisLabelFor(value: { axisLabel?: string }): string {
-        return value && value.axisLabel ? value.axisLabel : 'Spectrum level [dB]';
-    }
     function spectrumLevelAxisLabel(result: ComparisonTrackState, channel?: ChannelSummary) {
         if (channel?.measurement) {
             return 'Spectrum amplitude level [' + channel.measurement.levelReferenceLabel + ']';
@@ -3286,28 +3284,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         announce(STR.announceExportCsvStarted || 'CSV export started');
-        function csvCell(s: string) { return /[,"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
-        const headers: string[] = [];
-        tracks.forEach(function (t) {
-            headers.push(csvCell(t.name + ' frequency (Hz)'));
-            headers.push(csvCell(t.name + ' ' + dbLevelAxisLabelFor(t.slice)));
-        });
-        const rows = [headers.join(',')];
-        const maxBins = tracks.reduce(function (max, t) {
-            return Math.max(max, t.slice.frequencyBins || 0, t.slice.values ? t.slice.values.length : 0);
-        }, 0);
-        for (let bin = 0; bin < maxBins; bin++) {
-            const cols: string[] = [];
-            tracks.forEach(function (t) {
-                const fBins = t.slice.frequencyBins || 0;
-                const maxHz = t.slice.originalMaxFrequencyHz || t.slice.maxFrequencyHz || 0;
-                cols.push(bin < fBins ? ((bin / Math.max(fBins - 1, 1)) * maxHz).toFixed(4) : '');
-                const v = t.slice.values[bin];
-                cols.push(v !== undefined && v !== null ? v.toFixed(6) : '');
-            });
-            rows.push(cols.join(','));
-        }
-        const csv = rows.join('\n');
+        const csv = buildSpectrumCsv(tracks);
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
         const a = document.createElement('a');
         a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
@@ -3327,14 +3304,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const span = computeGlobalSpan();
         const startSec = span.startSec + loopRegion.start * span.spanSec;
         const endSec = span.startSec + loopRegion.end * span.spanSec;
-        const fileRegions: Array<{ filePath: string; startNorm: number; endNorm: number }> = [];
-        trackStore.activeIds().forEach(function (trackId) {
-            const record = trackStore.require(trackId);
-            if (record.runtime.hidden) return;
-            const startNorm = Math.max(0, (startSec - record.runtime.offsetSeconds) / record.result.durationSeconds);
-            const endNorm = Math.min(1, (endSec - record.runtime.offsetSeconds) / record.result.durationSeconds);
-            if (endNorm > startNorm) fileRegions.push({ filePath: record.result.filePath, startNorm, endNorm });
-        });
+        const visibleTracks = trackStore.activeIds()
+            .map(trackId => trackStore.require(trackId))
+            .filter(record => !record.runtime.hidden)
+            .map(record => ({ filePath: record.result.filePath, offsetSeconds: record.runtime.offsetSeconds, durationSeconds: record.result.durationSeconds }));
+        const fileRegions = wavLoopRegions(visibleTracks, startSec, endSec);
         if (!fileRegions.length) {
             messaging.post({ type: 'show-info', message: STR.exportWavNoOverlap }); return;
         }
