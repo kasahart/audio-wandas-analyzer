@@ -22,6 +22,7 @@ from analyzer import (
     resolve_stft_params,
     sample_range,
 )
+from backend_errors import InputError
 
 
 class TrackDetailResult(TypedDict):
@@ -66,7 +67,7 @@ def _optional_text(value: object) -> str | None:
 
 def _analysis_revision(value: object) -> int:
     if isinstance(value, bool):
-        raise TypeError("analysisRevision must be an integer")
+        raise InputError("analysisRevision must be an integer")
     return int(value)
 
 
@@ -161,7 +162,7 @@ class AnalysisService:
         if spectrogram is not None:
             time_bins = int(spectrogram.n_frames)
             if time_bins <= 0:
-                raise ValueError("no spectrogram available for spectrum slice")
+                raise InputError("no spectrogram available for spectrum slice")
             centers = np.asarray(spectrogram.frame_center_times[0], dtype=np.float64)
             cursor_seconds = clipped_norm * float(analysis_frame.duration) + float(analysis_frame.source_time_offset[0])
             time_index = int(np.argmin(np.abs(centers - cursor_seconds)))
@@ -271,7 +272,7 @@ class AnalysisService:
         frame_count = end_sample - start_sample
 
         if frame_count <= 0:
-            raise ValueError(
+            raise InputError(
                 f"Loop region produces 0 frames (startNorm={start_norm}, endNorm={end_norm}, "
                 f"total_frames={cached.frame.n_samples}). Ensure startNorm < endNorm and the file is not empty."
             )
@@ -306,7 +307,7 @@ class AnalysisService:
         try:
             charts = evaluate_recipe(dict(recipe), bindings)
         except RecipeError as error:
-            raise ValueError(f"recipe error: {error}") from error
+            raise InputError(f"recipe error: {error}") from error
         return {"charts": charts}
 
     def release_track_detail(self, file_path: str | Path) -> dict[str, object]:

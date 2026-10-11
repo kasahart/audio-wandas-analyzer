@@ -181,7 +181,7 @@ async function releaseSource(path: string): Promise<void> {
     }
     const myGeneration = sourceGeneration.current;
     try { await request({ cmd: 'unload', filePath: path }); }
-    catch (error) { if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(String(error)); } }
+    catch (error) { if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(error instanceof Error ? error.message : String(error)); } }
 }
 async function fetchJson(url: string): Promise<unknown> {
     const response = await fetch(url);

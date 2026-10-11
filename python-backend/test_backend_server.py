@@ -632,7 +632,21 @@ def test_non_finite_response_becomes_request_error(
     response = json.loads(lines[-1])
     assert response["requestId"] == "r1"
     assert "Out of range float values" in response["error"]["message"]
+    assert response["error"]["code"] == "internal-error", "a non-finite result is a backend fault, not bad input"
     assert "Infinity" not in lines[-1]
+
+
+def test_malformed_request_line_is_an_input_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(sys, "stdin", io.StringIO("{not json\n"))
+
+    main(object())  # type: ignore[arg-type]
+
+    response = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert response["error"]["code"] == "input-error"
+    assert "not valid JSON" in response["error"]["message"]
 
 
 def test_analyze_then_range_share_cache(server: _ServerHandle, tmp_path: Path) -> None:

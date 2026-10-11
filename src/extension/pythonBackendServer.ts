@@ -28,8 +28,9 @@ export class AnalysisRequestError extends Error {
         message: string,
         readonly analysisRevision: number,
         readonly backendStartupFailure = false,
+        options?: ErrorOptions,
     ) {
-        super(message);
+        super(message, options);
         this.name = 'AnalysisRequestError';
     }
 }
@@ -74,6 +75,7 @@ export class PythonBackendServer extends AnalysisClient {
                     error instanceof Error ? error.message : String(error),
                     resolved.analysisRevision ?? 0,
                     error instanceof BackendStartupError,
+                    { cause: error },
                 );
             }
         });

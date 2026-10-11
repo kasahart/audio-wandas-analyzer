@@ -13,7 +13,7 @@ import command_dispatch
 from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from analyzer import analyze_from_frame
-from backend_errors import StaleCalibrationError, error_payload
+from backend_errors import InputError, StaleCalibrationError, error_payload
 from calibration_profile import resolve_calibration_profile
 
 
@@ -280,8 +280,13 @@ def test_profile_validation_is_strict_about_channel_labels() -> None:
 
 
 def test_error_payload_codes_and_messages() -> None:
-    assert error_payload(ValueError("bad points")) == {"code": "input-error", "message": "bad points"}
-    assert error_payload(KeyError("file")) == {"code": "input-error", "message": "Missing field: file"}
+    assert error_payload(InputError("bad points")) == {"code": "input-error", "message": "bad points"}
+    # Library and programming errors are backend faults, not something the user can fix.
+    assert error_payload(ValueError("Out of range float values are not JSON compliant")) == {
+        "code": "internal-error",
+        "message": "Out of range float values are not JSON compliant",
+    }
+    assert error_payload(KeyError("file")) == {"code": "internal-error", "message": "'file'"}
     assert error_payload(RuntimeError()) == {"code": "internal-error", "message": "RuntimeError"}
 
 

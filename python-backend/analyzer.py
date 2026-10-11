@@ -8,6 +8,7 @@ from typing import TypedDict
 import numpy as np
 import wandas as wd
 
+from backend_errors import InputError
 from calibration_profile import (
     ResolvedCalibrationProfile,
     ResolvedChannelCalibration,
@@ -216,13 +217,13 @@ def normalize_stft_options(stft_options: Mapping[str, object] | None) -> StftOpt
     hop_size = int(stft_options.get("hop_size", stft_options.get("hopSize", 0)))
     window = str(stft_options.get("window", "hann"))
     if n_fft < 64 or n_fft > 16384:
-        raise ValueError(f"n_fft must be in [64, 16384], got {n_fft}")
+        raise InputError(f"n_fft must be in [64, 16384], got {n_fft}")
     if n_fft % 2:
-        raise ValueError(f"n_fft must be even, got {n_fft}")
+        raise InputError(f"n_fft must be even, got {n_fft}")
     if hop_size < 1 or hop_size > n_fft:
-        raise ValueError(f"hop_size must be in [1, n_fft], got {hop_size}")
+        raise InputError(f"hop_size must be in [1, n_fft], got {hop_size}")
     if window not in _ALLOWED_WINDOWS:
-        raise ValueError(f"window must be one of {sorted(_ALLOWED_WINDOWS)}, got {window!r}")
+        raise InputError(f"window must be one of {sorted(_ALLOWED_WINDOWS)}, got {window!r}")
     return {"n_fft": n_fft, "hop_size": hop_size, "window": window}
 
 

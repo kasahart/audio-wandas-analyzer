@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from backend_errors import error_payload
+from backend_errors import InputError, error_payload
 from command_dispatch import dispatch, validate_request
 from perf import _perf
 
@@ -63,7 +63,10 @@ def main(service: AnalysisService | None = None) -> None:
             continue
         request_id = ""
         try:
-            parsed: object = json.loads(line)
+            try:
+                parsed: object = json.loads(line)
+            except json.JSONDecodeError as error:
+                raise InputError(f"request is not valid JSON: {error}") from error
             if isinstance(parsed, dict) and isinstance(parsed.get("requestId"), str):
                 request_id = parsed["requestId"]
             command = validate_request(parsed)
