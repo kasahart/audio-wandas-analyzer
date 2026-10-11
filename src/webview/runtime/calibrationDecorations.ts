@@ -1,4 +1,3 @@
-/** Calibration badges, the Cal button, calibrated peak text and the overlay guard that the comparison runtime draws. */
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import { channelsForResult, formatMeasuredLevel } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
@@ -15,7 +14,6 @@ function measurementFor(channel: Channel) {
     return channel && channel.measurement ? channel.measurement : null;
 }
 
-/** Calibrated peak text (`Peak 5.00 Pa / 80.0 dB SPL`), or null for an uncalibrated channel. */
 export function peakText(channel: Channel): string | null {
     const measurement = measurementFor(channel);
     const text = measurement && channel && formatMeasuredLevel(channel.peakAbsolute, Number(channel.peakLevelDb), measurement);
@@ -64,13 +62,12 @@ export function ensureCalibrationStyles(document: Document): void {
     document.head.appendChild(style);
 }
 
-/** The calibration badge drawn in a track's title row. */
 export function calibrationBadgeHtml(channels: Channel[]): string {
     const summary = calibrationSummary(channels);
     return '<span class="calibration-badge" title="' + escapeHtml(summary.title) + '">' + escapeHtml(summary.text) + '</span>';
 }
 
-/** The Cal button drawn in a track's button row; the runtime's click delegation posts {@link calibrationRequest}. */
+// The button has no listener of its own: the runtime's click delegation posts calibrationRequest().
 export function calibrationButtonHtml(trackId: string): string {
     return '<button class="track-btn" data-action="configure-calibration" data-track-id="' + escapeHtml(trackId) + '"'
         + ' title="Configure per-channel calibration" aria-label="Configure calibration">Cal</button>';
@@ -88,7 +85,7 @@ export function calibrationRequest(trackIndex: number, result: ComparisonTrackSt
     };
 }
 
-/** True when the visible tracks' channels use more than one level reference, so one shared dB axis would mislead. */
+// More than one level reference would put incomparable dB values on the shared overlay axis.
 export function hasIncompatibleLevelReferences(results: ComparisonTrackState[]): boolean {
     const references = new Set<string>();
     results.forEach(result => channelsForResult(result).forEach(function (channel: Channel) {
@@ -104,7 +101,6 @@ export function hasIncompatibleLevelReferences(results: ComparisonTrackState[]):
     return references.size > 1;
 }
 
-/** Hides the shared spectrum overlay behind a warning while the visible level references are incompatible. */
 export function applyOverlayCompatibility(document: Document, incompatible: boolean): void {
     const wrap = document.getElementById('spectrum-overlay-wrap');
     const canvas = document.getElementById('spectrum-overlay-canvas');
