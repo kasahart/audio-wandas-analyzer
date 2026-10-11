@@ -13,6 +13,7 @@ const fixtures = JSON.parse(readFileSync(path.resolve(process.cwd(), 'src/test/f
     validRequests: FixtureCase[];
     invalidRequests: FixtureCase[];
     validResponses: Array<{ command: string; response: Record<string, unknown> }>;
+    invalidResponses: Array<{ command: SchemaCommand; response: unknown; violation: string }>;
     schemaCases: SchemaCase[];
 };
 // Reference implementation for the cross-check; strict: false lets it ignore the x-* annotations.
@@ -56,6 +57,16 @@ test('spectrum-slice results are checked by the schema plus the per-channel bin 
     assert.equal(schemaViolation('SpectrumSliceResult', { ...result, channels: [{ ...channel, referenceValue: 0 }] }), 'channels[0].referenceValue');
     assert.throws(() => parseBackendResult('spectrum-slice', { ...result, channels: [] }), /Invalid spectrum-slice success response/);
     assert.throws(() => parseBackendResult('spectrum-slice', { ...result, frequencyBins: 3 }), /Invalid spectrum-slice success response/);
+});
+
+test('invalid response fixtures report the same path as Python and fail ajv', () => {
+    assert.ok(fixtures.invalidResponses.length > 0);
+    for (const { command, response, violation } of fixtures.invalidResponses) {
+        const definition = commands[command].result;
+        assert.equal(schemaViolation(definition, response), violation, JSON.stringify(response));
+        assert.equal(referenceIsValid({ $ref: `#/$defs/${definition}` }, response), false, JSON.stringify(response));
+        assert.throws(() => parseBackendResult(command, response), /success response/);
+    }
 });
 
 test('schema cases report the same path as Python and agree with ajv', () => {

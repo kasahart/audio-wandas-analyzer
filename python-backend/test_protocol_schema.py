@@ -117,4 +117,9 @@ def test_schema_commands_agree_with_jsonschema_on_the_protocol_fixtures() -> Non
         reference = _reference_validator({"$ref": f"#/$defs/{protocol_schema.COMMANDS[case['command']]['result']}"})
         assert reference.is_valid(case["response"]) == (result_violation(case["command"], case["response"]) is None)
         checked += 1
+    for case in FIXTURES["invalidResponses"]:
+        reference = _reference_validator({"$ref": f"#/$defs/{protocol_schema.COMMANDS[case['command']]['result']}"})
+        assert result_violation(case["command"], case["response"]) == case["violation"], case
+        assert not reference.is_valid(case["response"]), case
+        checked += 1
     assert checked > 0
