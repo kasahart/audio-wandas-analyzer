@@ -6,6 +6,12 @@ import { getChartSpecRenderScript } from '../../webview/chartSpecRenderScript';
 import { DEFAULT_SPECTROGRAM_SETTINGS } from '../../shared/analysis/analysisTypes';
 import { buildUiSmokeHtml } from './buildHtml';
 
+// The Worker posts `{requestId, result}`; the fixture lines carry `requestId` beside the result fields.
+function workerFixture(entry: { command: string; response: Record<string, unknown> }) {
+    const { requestId: _requestId, ...response } = entry.response;
+    return { ...entry, response };
+}
+
 async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 }
@@ -17,7 +23,7 @@ test(clearSources ? 'clearing a pending browser recipe keeps the cleared status'
     await page.addScriptTag({ content: `
         window.__APP_STATE__ = {};
         window.prompt = () => '1';
-        const fixtures = ${JSON.stringify(fixtures.validResponses)};
+        const fixtures = ${JSON.stringify(fixtures.validResponses.map(workerFixture))};
         window.fetch = async url => ({ ok: true, json: async () => url.endsWith('manifest.json')
             ? [{ name: 'octave.json', location: './recipes/octave.json' }]
             : { inputs: [{ name: 'sig', file: '{{selection}}' }], steps: [], display: [] } });
@@ -68,7 +74,7 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
     });
     const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')).validResponses;
     const init = `window.prompt = () => '1';
-        const fixtures = ${JSON.stringify(fixtures)};
+        const fixtures = ${JSON.stringify(fixtures.map(workerFixture))};
         window.Worker = class {
             terminate() {}
             postMessage(command) {
