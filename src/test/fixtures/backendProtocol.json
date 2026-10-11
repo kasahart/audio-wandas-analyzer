@@ -315,5 +315,236 @@
     "input-error",
     "stale-calibration",
     "internal-error"
+  ],
+  "schemaCases": [
+    {
+      "schema": {
+        "enum": [
+          "hann",
+          "hamming"
+        ]
+      },
+      "value": "hann",
+      "violation": null
+    },
+    {
+      "schema": {
+        "enum": [
+          "hann",
+          "hamming"
+        ]
+      },
+      "value": "boxcar",
+      "violation": ""
+    },
+    {
+      "schema": {
+        "const": 2
+      },
+      "value": 2.0,
+      "violation": null
+    },
+    {
+      "schema": {
+        "const": 2
+      },
+      "value": true,
+      "violation": ""
+    },
+    {
+      "schema": {
+        "enum": [
+          1,
+          "a",
+          null
+        ]
+      },
+      "value": true,
+      "violation": ""
+    },
+    {
+      "schema": {
+        "enum": [
+          1,
+          "a",
+          null
+        ]
+      },
+      "value": null,
+      "violation": null
+    },
+    {
+      "schema": {
+        "enum": [
+          1,
+          "a",
+          null
+        ]
+      },
+      "value": 1.0,
+      "violation": null
+    },
+    {
+      "schema": {
+        "type": "null"
+      },
+      "value": null,
+      "violation": null
+    },
+    {
+      "schema": {
+        "type": "null"
+      },
+      "value": 0,
+      "violation": ""
+    },
+    {
+      "schema": {
+        "type": "integer"
+      },
+      "value": true,
+      "violation": ""
+    },
+    {
+      "schema": {
+        "minimum": 1
+      },
+      "value": "a",
+      "violation": null
+    },
+    {
+      "schema": {
+        "minimum": 1
+      },
+      "value": 0,
+      "violation": ""
+    },
+    {
+      "schema": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "const": "line"
+          },
+          "n": {
+            "type": "integer",
+            "maximum": 3
+          }
+        }
+      },
+      "value": {
+        "kind": "bar"
+      },
+      "violation": "kind"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "const": "line"
+          },
+          "n": {
+            "type": "integer",
+            "maximum": 3
+          }
+        }
+      },
+      "value": {
+        "kind": "line",
+        "n": 4
+      },
+      "violation": "n"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "const": "line"
+          },
+          "n": {
+            "type": "integer",
+            "maximum": 3
+          }
+        }
+      },
+      "value": {
+        "kind": "line",
+        "n": 3.0
+      },
+      "violation": null
+    },
+    {
+      "schema": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "const": "line"
+          },
+          "n": {
+            "type": "integer",
+            "maximum": 3
+          }
+        }
+      },
+      "value": {
+        "n": 1
+      },
+      "violation": "kind"
+    },
+    {
+      "schema": {
+        "type": "array",
+        "items": {
+          "enum": [
+            0,
+            1
+          ]
+        }
+      },
+      "value": [
+        0,
+        1,
+        2
+      ],
+      "violation": "[2]"
+    },
+    {
+      "schema": {
+        "$ref": "#/$defs/RangePayload"
+      },
+      "value": {
+        "filePath": "a.wav",
+        "startNorm": 0,
+        "endNorm": 1,
+        "points": 8192
+      },
+      "violation": null
+    },
+    {
+      "schema": {
+        "$ref": "#/$defs/RangePayload"
+      },
+      "value": {
+        "filePath": "a.wav",
+        "startNorm": 0,
+        "endNorm": 1,
+        "points": 1.5
+      },
+      "violation": "points"
+    }
   ]
 }

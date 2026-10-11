@@ -1,11 +1,14 @@
 // Runtime check against the generated protocol schema; mirrors protocol_schema.first_violation
-// in python-backend and supports the same keyword subset.
+// in python-backend and supports the same keyword subset (enum/const values are JSON scalars).
 import { BACKEND_PROTOCOL_SCHEMA } from './generated/backendProtocolSchema';
 
 type DefinitionName = keyof typeof BACKEND_PROTOCOL_SCHEMA['$defs'];
-interface SchemaNode {
+type Scalar = string | number | boolean | null;
+export interface SchemaNode {
     $ref?: string;
     type?: string;
+    enum?: readonly Scalar[];
+    const?: Scalar;
     minimum?: number;
     maximum?: number;
     required?: readonly string[];
@@ -27,6 +30,7 @@ function matchesType(expected: string, value: unknown): boolean {
         case 'array': return Array.isArray(value);
         case 'string': return typeof value === 'string';
         case 'boolean': return typeof value === 'boolean';
+        case 'null': return value === null;
         case 'number': return typeof value === 'number' && Number.isFinite(value);
         case 'integer': return Number.isInteger(value);
         default: return false;
@@ -36,8 +40,11 @@ function matchesType(expected: string, value: unknown): boolean {
 function firstViolation(schema: SchemaNode, value: unknown, path: string): string | null {
     const node = resolve(schema);
     if (node.type !== undefined && !matchesType(node.type, value)) return path;
-    if (node.minimum !== undefined && (value as number) < node.minimum) return path;
-    if (node.maximum !== undefined && (value as number) > node.maximum) return path;
+    if (node.const !== undefined && value !== node.const) return path;
+    if (node.enum !== undefined && !node.enum.some(item => item === value)) return path;
+    const numeric = typeof value === 'number';
+    if (numeric && node.minimum !== undefined && value < node.minimum) return path;
+    if (numeric && node.maximum !== undefined && value > node.maximum) return path;
     if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
         const record = value as Record<string, unknown>;
         for (const key of node.required ?? []) {
@@ -56,6 +63,11 @@ function firstViolation(schema: SchemaNode, value: unknown, path: string): strin
         }
     }
     return null;
+}
+
+/** Dotted path of the first value that breaks an inline `schema` (`$ref`s resolve to the protocol definitions), or null. */
+export function inlineSchemaViolation(schema: SchemaNode, value: unknown): string | null {
+    return firstViolation(schema, value, '');
 }
 
 /** Dotted path of the first value that breaks the named definition (`''` for the root), or null. */

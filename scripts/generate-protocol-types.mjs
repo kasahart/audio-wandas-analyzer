@@ -34,7 +34,10 @@ function typeOf(node) {
         if (definition['x-tsType']) { externalTypes.add(definition['x-tsType']); return definition['x-tsType']; }
         return definition.type === 'object' ? name : typeOf(definition);
     }
+    if (node.const !== undefined) return JSON.stringify(node.const);
+    if (node.enum) return node.enum.map(value => JSON.stringify(value)).join(' | ');
     switch (node.type) {
+        case 'null': return 'null';
         case 'string': return 'string';
         case 'number': case 'integer': return 'number';
         case 'boolean': return 'boolean';
