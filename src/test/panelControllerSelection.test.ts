@@ -63,12 +63,15 @@ test('directory selection uses live result updates with resource URIs, cache reu
         showInformation() {}, showError: message => { errors.push(message); },
         getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
         onPythonEnvironmentChange: () => ({ dispose() {} }),
+        language: () => 'ja',
     };
+    const progressTitles: string[] = [];
     let analysisGate: Promise<void> | undefined;
     const controller = new PanelController(context, {} as PanelBackend, {
         warmup() {},
-        analyzeFiles: async (filePaths) => {
+        analyzeFiles: async (filePaths, _stftOptions, progressTitle) => {
             analyzed.push([...filePaths]);
+            if (progressTitle) progressTitles.push(progressTitle);
             await analysisGate;
             return filePaths.map(filePath => ({ filePath, fileName: path.basename(filePath), sampleRateHz: 16000,
                 durationSeconds: 1, channelCount: 0, sampleCount: 16000, channels: [], analysisRevision: 0,
@@ -109,6 +112,7 @@ test('directory selection uses live result updates with resource URIs, cache reu
         assert.equal(messages.length, beforeReady + 1, 'ready must synchronize selection before slow calibration refresh');
         assert.deepEqual(messages.at(-1)!.selectedFilePaths, controller.getActiveFilePaths(panel));
         finishRefresh(); await tick();
+        assert.deepEqual(progressTitles, ['校正を適用中 (1 ファイル)'], 'native progress titles follow the VS Code display language');
         analysisGate = undefined;
         await select([]);
         assert.deepEqual(messages.at(-1)!.results, []);

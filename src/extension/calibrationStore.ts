@@ -3,6 +3,7 @@ import {
     validateCalibrationValueInput, validateCalibrationFactorInput, profileForChannels,
     type CalibrationChannelDescriptor,
 } from '../shared/analysis/calibrationModel';
+import { fillTemplate, getStrings, type UiStrings } from '../shared/i18n/strings';
 import { backendErrorCode } from '../shared/protocol/backendProtocol';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -138,14 +139,14 @@ async function persistChannel(
 }
 
 
-function describeCalibration(channel: ChannelCalibrationDefinition): string {
+function describeCalibration(strings: UiStrings, channel: ChannelCalibrationDefinition): string {
     if (channel.status === 'uncalibrated') {
-        return 'Full scale (FS / dBFS)';
+        return strings.calFullScale;
     }
     const level = channel.unit === 'Pa' && channel.referenceValue === 2e-5
         ? 'dB SPL re 20 µPa'
         : `dB re ${channel.referenceValue} ${channel.unit}`;
-    return `factor ${channel.factor}; ${channel.unit}; ${level}`;
+    return fillTemplate(strings.calSummary, { factor: channel.factor, unit: channel.unit, level });
 }
 
 export async function configureCalibrationProfile(
@@ -153,8 +154,10 @@ export async function configureCalibrationProfile(
     filePath: string,
     channels: CalibrationChannelDescriptor[],
 ): Promise<boolean> {
+    const strings = getStrings(vscode.env.language);
+    const channelName = (index: number, label: string): string => fillTemplate(strings.calChannelLabel, { n: index + 1, label });
     if (channels.length === 0) {
-        void vscode.window.showInformationMessage('No audio channels are available for calibration.');
+        void vscode.window.showInformationMessage(strings.calNoChannels);
         return false;
     }
 
@@ -163,18 +166,18 @@ export async function configureCalibrationProfile(
     const picked = await vscode.window.showQuickPick(
         [
             {
-                label: '$(discard) Reset all channels to full scale',
-                description: 'Remove the saved calibration profile for this file',
+                label: `$(discard) ${strings.calResetAllLabel}`,
+                description: strings.calResetAllDescription,
                 value: resetAll,
             },
             ...channels.map((channel) => ({
-                label: `$(settings-gear) Channel ${channel.channelIndex + 1}: ${channel.label}`,
-                description: describeCalibration(current.channels[channel.channelIndex]),
+                label: `$(settings-gear) ${channelName(channel.channelIndex, channel.label)}`,
+                description: describeCalibration(strings, current.channels[channel.channelIndex]),
                 value: channel.channelIndex,
             })),
         ],
         {
-            placeHolder: `Configure calibration for ${path.basename(filePath)}`,
+            placeHolder: fillTemplate(strings.calConfigurePlaceholder, { file: path.basename(filePath) }),
             matchOnDescription: true,
         },
     );
@@ -184,7 +187,7 @@ export async function configureCalibrationProfile(
 
     if (picked.value === resetAll) {
         await persistProfile(context, filePath, () => undefined);
-        void vscode.window.showInformationMessage(`Calibration reset to full scale: ${path.basename(filePath)}`);
+        void vscode.window.showInformationMessage(fillTemplate(strings.calResetDone, { file: path.basename(filePath) }));
         return true;
     }
 
@@ -194,21 +197,22 @@ export async function configureCalibrationProfile(
         throw new Error(`Calibration channel was not found: ${channelIndex}`);
     }
     const existing = current.channels[channelIndex] ?? identityChannel(channel);
+    const name = channelName(channelIndex, channel.label);
     const mode = await vscode.window.showQuickPick(
         [
             {
-                label: 'Calibrated physical quantity',
-                description: 'Apply a raw-FS-to-physical conversion before analysis',
+                label: strings.calModeCalibratedLabel,
+                description: strings.calModeCalibratedDescription,
                 value: 'calibrated' as const,
             },
             {
-                label: 'Uncalibrated full scale',
-                description: 'Use FS and dBFS for this channel',
+                label: strings.calModeUncalibratedLabel,
+                description: strings.calModeUncalibratedDescription,
                 value: 'uncalibrated' as const,
             },
         ],
         {
-            placeHolder: `Channel ${channelIndex + 1}: ${channel.label}`,
+            placeHolder: name,
         },
     );
     if (!mode) {
@@ -221,8 +225,8 @@ export async function configureCalibrationProfile(
     }
 
     const factor = await vscode.window.showInputBox({
-        title: `Calibration factor — Channel ${channelIndex + 1}: ${channel.label}`,
-        prompt: 'Physical value = raw full-scale sample × factor',
+        title: fillTemplate(strings.calFactorTitle, { channel: name }),
+        prompt: strings.calFactorPrompt,
         value: existing.status === 'calibrated' ? String(existing.factor) : '1',
         validateInput: (value) => validateCalibrationFactorInput(value, channel.rawPeakFullScale),
     });
@@ -231,10 +235,10 @@ export async function configureCalibrationProfile(
     }
 
     const unit = await vscode.window.showInputBox({
-        title: `Physical unit — Channel ${channelIndex + 1}: ${channel.label}`,
-        prompt: "Examples: Pa, m/s^2, V. Use '1' for a dimensionless physical quantity.",
+        title: fillTemplate(strings.calUnitTitle, { channel: name }),
+        prompt: strings.calUnitPrompt,
         value: existing.status === 'calibrated' ? existing.unit : 'Pa',
-        validateInput: (value) => value.trim() ? undefined : "Enter a unit, or '1' for dimensionless data.",
+        validateInput: (value) => value.trim() ? undefined : strings.calUnitRequired,
     });
     if (unit === undefined) {
         return false;
@@ -247,10 +251,10 @@ export async function configureCalibrationProfile(
             ? 2e-5
             : 1;
     const referenceValue = await vscode.window.showInputBox({
-        title: `Level reference — Channel ${channelIndex + 1}: ${channel.label}`,
+        title: fillTemplate(strings.calReferenceTitle, { channel: name }),
         prompt: normalizedUnit === 'Pa'
-            ? '20 µPa is 0.00002 Pa and produces dB SPL.'
-            : `Reference value in ${normalizedUnit}.`,
+            ? strings.calReferencePromptPa
+            : fillTemplate(strings.calReferencePrompt, { unit: normalizedUnit }),
         value: String(defaultReference),
         validateInput: validateCalibrationValueInput,
     });

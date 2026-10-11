@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pickLocale, getStrings, getAllStrings } from '../shared/i18n/strings';
+import { pickLocale, getStrings, getAllStrings, fillTemplate, fileCountLabel } from '../shared/i18n/strings';
 
 test('pickLocale: VS Code 言語 "ja" は ja', () => {
     assert.equal(pickLocale('ja'), 'ja');
@@ -63,4 +63,15 @@ test('browser input limits have Japanese wording in the shared dictionary', () =
     assert.match(ja.browserAggregateLimit, /削除/);
     assert.match(getStrings('en').browserAggregateLimit, /\{count\} WAV files \/ \{mib\} MiB/);
     assert.match(getStrings('en').browserInputTooLarge, /\{mib\} MiB/);
+});
+
+test('fillTemplate fills named placeholders and leaves unknown ones', () => {
+    assert.equal(fillTemplate('{a} / {b} / {c}', { a: 1, b: 'x' }), '1 / x / {c}');
+    assert.equal(fileCountLabel(getStrings('en'), 1), '1 file');
+    assert.equal(fileCountLabel(getStrings('en'), 3), '3 files');
+    assert.equal(fileCountLabel(getStrings('ja'), 3), '3 ファイル');
+    assert.equal(
+        fillTemplate(getStrings('ja').calFactorTitle, { channel: fillTemplate(getStrings('ja').calChannelLabel, { n: 2, label: 'R' }) }),
+        '校正係数 — チャンネル 2: R',
+    );
 });

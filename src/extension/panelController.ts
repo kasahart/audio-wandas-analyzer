@@ -14,6 +14,7 @@ import {
     sanitizeSelectedAudioFilePaths,
 } from '../shared/utils/directorySelection';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
+import { fileCountLabel, fillTemplate, getStrings, type UiStrings } from '../shared/i18n/strings';
 import type { AnalysisOrchestrator } from './analysisOrchestrator';
 import type { CalibrationRequestContext } from '../shared/protocol/backendProtocol';
 import {
@@ -92,6 +93,7 @@ export interface PanelControllerHost {
     showError(message: string): void;
     getPythonEnvironment(): PythonEnvironmentState;
     onPythonEnvironmentChange(listener: (state: PythonEnvironmentState) => void): vscode.Disposable;
+    language(): string;
 }
 
 const defaultPanelFactory: PanelFactory = {
@@ -133,6 +135,7 @@ const defaultHost: PanelControllerHost = {
     showError: (message) => { void vscode.window.showErrorMessage(message); },
     getPythonEnvironment: getCurrentPythonEnvironmentState,
     onPythonEnvironmentChange: onDidChangePythonEnvironmentState,
+    language: () => vscode.env.language,
 };
 
 export class PanelController implements vscode.Disposable {
@@ -173,7 +176,7 @@ export class PanelController implements vscode.Disposable {
             if (existingSession && revision !== undefined && !existingSession.isCurrent(revision)) { return; }
             const filePaths = collectAudioFilePaths(tree);
             if (filePaths.length === 0) {
-                throw new Error(`No supported audio files were found in ${targetUri.fsPath}`);
+                throw new Error(fillTemplate(this.strings().noSupportedAudioFiles, { path: targetUri.fsPath }));
             }
             if (options.autoSelectAllDirectoryFiles) {
                 await this.analyzeMultipleFiles(filePaths, existingPanel, revision);
@@ -277,13 +280,25 @@ export class PanelController implements vscode.Disposable {
             const refreshed = await this.analysis.analyzeFiles(
                 stalePaths,
                 stftOptions,
-                `Synchronizing calibration (${stalePaths.length} file${stalePaths.length === 1 ? '' : 's'})`,
+                this.progressTitle('progressSyncCalibration', stalePaths.length),
                 undefined,
                 false,
             );
             const refreshedByPath = new Map(refreshed.map((result) => [result.filePath, result]));
             results = results.map((result) => refreshedByPath.get(result.filePath) ?? result);
         }
+    }
+
+    private strings(): UiStrings {
+        return getStrings(this.host.language());
+    }
+
+    private progressTitle(
+        key: 'progressSyncCalibration' | 'progressRecomputeSpectrogram' | 'progressApplyCalibration',
+        fileCount: number,
+    ): string {
+        const strings = this.strings();
+        return fillTemplate(strings[key], { files: fileCountLabel(strings, fileCount) });
     }
 
     private ensureSession(panel: PanelHandle): PanelSession<PanelHandle> {
@@ -382,7 +397,7 @@ export class PanelController implements vscode.Disposable {
     }
 
     private async handleSelectTarget(session: PanelSession<PanelHandle>, targetKind: SelectionTargetKind): Promise<void> {
-        const selected = await pickAudioTarget(targetKind, this.host.showOpenDialog);
+        const selected = await pickAudioTarget(targetKind, this.host.showOpenDialog, this.host.language());
         if (selected && !session.isDisposed) {
             await this.analyzeTarget(selected, session.panel);
         }
@@ -397,7 +412,7 @@ export class PanelController implements vscode.Disposable {
         const results = await this.analysis.analyzeFiles(
             filePaths,
             stftOptions,
-            `Recomputing spectrogram (${filePaths.length} file${filePaths.length === 1 ? '' : 's'})`,
+            this.progressTitle('progressRecomputeSpectrogram', filePaths.length),
             session,
         );
         if (!scope.isCurrent()) { return undefined; }
@@ -445,7 +460,7 @@ export class PanelController implements vscode.Disposable {
         const [result] = await this.analysis.analyzeFiles(
             [message.filePath],
             undefined,
-            'Applying calibration (1 file)',
+            this.progressTitle('progressApplyCalibration', 1),
             undefined,
             false,
         );

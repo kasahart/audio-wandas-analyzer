@@ -34,11 +34,13 @@ test('desktop export honors per-file timeline regions and still supports legacy 
     const Flows = load();
     const calls: Array<[string, number, number]> = [];
     const writes: string[] = [];
+    const notices: string[] = [];
     const host = {
         pickOutputFolder: async () => ({ fsPath: '/export' }),
         writeFile: async (uri: { fsPath: string }) => { writes.push(uri.fsPath); },
-        showInformation: () => undefined,
+        showInformation: (message: string) => { notices.push(message); },
         showError: (reason: string) => { throw new Error(reason); },
+        language: () => 'ja',
     } as unknown as ExportHost;
     const flows = new Flows({ exportWavLoop: async (...args: [string, number, number]) => {
         calls.push(args); return { wavBase64: Buffer.from('WAV').toString('base64'), sampleRate: 8000 };
@@ -50,6 +52,7 @@ test('desktop export honors per-file timeline regions and still supports legacy 
     await exportWav(flows, message);
     assert.deepEqual(calls, [['/short.wav', 0.5, 1], ['/long.wav', 0.2, 0.6]]);
     assert.deepEqual(writes, ['/export/short_loop.wav', '/export/long_loop.wav']);
+    assert.deepEqual(notices, ['WAV を書き出しました (2 ファイル) → /export']);
     calls.length = 0;
     await exportWav(flows, { type: 'export-wav-loop', filePaths: ['/short.wav'], startNorm: 0.1, endNorm: 0.9 });
     assert.deepEqual(calls, [['/short.wav', 0.1, 0.9]]);
