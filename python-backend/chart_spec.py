@@ -16,12 +16,76 @@ Each ``oneOf`` branch covers one ``kind``:
 
 Plotted values (line ``ys``, heatmap ``matrix`` cells, bar ``values``) may be
 ``null`` where the source was NaN/inf; renderers treat ``null`` as missing.
-"""
 
-from __future__ import annotations
+The TypedDicts below type the same shapes for the Python producers
+(``wandas_to_chart.adapt``); ``test_recipe_runner.py`` checks their keys
+against the schema.
+"""
 
 import json
 import sys
+from typing import Literal, NotRequired, TypedDict
+
+
+class LineSeries(TypedDict):
+    name: str
+    ys: list[float | None]
+    unit: NotRequired[str]
+
+
+class LineChartSpec(TypedDict):
+    kind: Literal["line"]
+    title: str
+    xLabel: str
+    yLabel: str
+    xs: list[float]
+    series: list[LineSeries]
+    xScale: NotRequired[Literal["linear", "log"]]
+    yScale: NotRequired[Literal["linear", "log", "db"]]
+
+
+class HeatmapChartSpec(TypedDict):
+    kind: Literal["heatmap"]
+    title: str
+    xLabel: str
+    yLabel: str
+    xs: list[float]
+    ys: list[float]
+    matrix: list[list[float | None]]
+    unit: NotRequired[str]
+    colormap: NotRequired[str]
+    vmin: NotRequired[float]
+    vmax: NotRequired[float]
+
+
+class BarSeries(TypedDict):
+    name: str
+    values: list[float | None]
+    unit: NotRequired[str]
+
+
+class BarChartSpec(TypedDict):
+    kind: Literal["bar"]
+    title: str
+    xLabel: str
+    yLabel: str
+    categories: list[str]
+    series: list[BarSeries]
+
+
+class ScalarRow(TypedDict):
+    label: str
+    value: float | str
+    unit: NotRequired[str]
+
+
+class ScalarChartSpec(TypedDict):
+    kind: Literal["scalar"]
+    title: str
+    rows: list[ScalarRow]
+
+
+ChartSpec = LineChartSpec | HeatmapChartSpec | BarChartSpec | ScalarChartSpec
 
 
 def dump_schema() -> dict:

@@ -59,6 +59,7 @@ from typing import Any
 
 import wandas as wd
 
+from chart_spec import ChartSpec
 from wandas_to_chart import adapt
 
 
@@ -178,7 +179,7 @@ def _load_inputs(inputs: list[dict[str, Any]], load: InputLoader) -> dict[str, A
     return {str(item["name"]): load(str(item["file"])) for item in inputs}
 
 
-def evaluate_recipe(recipe: dict[str, Any], bindings: dict[str, Any]) -> list[dict[str, Any]]:
+def evaluate_recipe(recipe: dict[str, Any], bindings: dict[str, Any]) -> list[ChartSpec]:
     """Run ``steps`` over already-loaded ``bindings`` and adapt ``display`` entries to ChartSpec."""
     steps = recipe.get("steps") or []
     display = recipe.get("display") or []
@@ -187,7 +188,7 @@ def evaluate_recipe(recipe: dict[str, Any], bindings: dict[str, Any]) -> list[di
         expr = str(step["expr"])
         bindings[name] = _eval_expr(expr, bindings)
 
-    charts: list[dict[str, Any]] = []
+    charts: list[ChartSpec] = []
     for entry in display:
         if isinstance(entry, str):
             name, title, kwargs = entry, entry, {}
@@ -205,7 +206,7 @@ def run_recipe(
     recipe: dict[str, Any],
     base_dir: Path,
     load: InputLoader | None = None,
-) -> list[dict[str, Any]]:
+) -> list[ChartSpec]:
     """Load ``inputs`` through ``load`` (filesystem by default) and evaluate the recipe.
 
     Hosts that keep audio in memory (the browser Worker) pass their own loader so

@@ -192,6 +192,24 @@ def test_chart_spec_schema_validates_against_kind() -> None:
     assert kinds == {"line", "heatmap", "bar", "scalar"}
 
 
+def test_chart_spec_typed_dicts_match_schema() -> None:
+    from typing import get_args, get_type_hints
+
+    from chart_spec import ChartSpec, dump_schema
+
+    def check(typed_dict: type, schema: dict) -> None:
+        assert typed_dict.__required_keys__ == set(schema["required"]), typed_dict.__name__
+        assert typed_dict.__required_keys__ | typed_dict.__optional_keys__ == set(schema["properties"])
+        for key, hint in get_type_hints(typed_dict).items():
+            items = schema["properties"][key].get("items", {})
+            if items.get("type") == "object":
+                (item_dict,) = get_args(hint)
+                check(item_dict, items)
+
+    for typed_dict, schema in zip(get_args(ChartSpec), dump_schema()["oneOf"], strict=True):
+        check(typed_dict, schema)
+
+
 def test_run_recipe_accepts_injected_input_loader(tmp_path: Path) -> None:
     import wandas as wd
 
