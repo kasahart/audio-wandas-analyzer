@@ -199,6 +199,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         showError: (message) => { throw new Error(message); },
         getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
         onPythonEnvironmentChange: () => ({ dispose: () => undefined }),
+        language: () => 'en',
     };
     let lazyCalibration: import('../shared/protocol/backendProtocol').CalibrationRequestContext | undefined;
     const backend = {

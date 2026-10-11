@@ -158,6 +158,39 @@ export interface UiStrings {
     reportFormatPlaceholder: string;
     reportSaveLabel: string;
     reportExportedPrefix: string;
+    fileCountOne: string;
+    fileCountMany: string;
+    exportSelectOutputFolder: string;
+    exportWavComplete: string;
+    exportWavPartial: string;
+    noSupportedAudioFiles: string;
+    progressSyncCalibration: string;
+    progressRecomputeSpectrogram: string;
+    progressApplyCalibration: string;
+    dialogSelectAudioDirectory: string;
+    dialogSelectAudioFile: string;
+    dialogAnalyzeAudioTarget: string;
+    dialogAudioFilesFilter: string;
+    calFullScale: string;
+    calSummary: string;
+    calNoChannels: string;
+    calResetAllLabel: string;
+    calResetAllDescription: string;
+    calChannelLabel: string;
+    calConfigurePlaceholder: string;
+    calResetDone: string;
+    calModeCalibratedLabel: string;
+    calModeCalibratedDescription: string;
+    calModeUncalibratedLabel: string;
+    calModeUncalibratedDescription: string;
+    calFactorTitle: string;
+    calFactorPrompt: string;
+    calUnitTitle: string;
+    calUnitPrompt: string;
+    calUnitRequired: string;
+    calReferenceTitle: string;
+    calReferencePromptPa: string;
+    calReferencePrompt: string;
     trackPickColor: string;
     trackColorReset: string;
     ariaDragHandle: string;
@@ -338,6 +371,39 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportFormatPlaceholder: 'Select report format',
         reportSaveLabel: 'Export Report',
         reportExportedPrefix: 'Report exported → ',
+        fileCountOne: '1 file',
+        fileCountMany: '{count} files',
+        exportSelectOutputFolder: 'Select output folder',
+        exportWavComplete: 'WAV export complete ({files}) → {folder}',
+        exportWavPartial: 'WAV export: {succeeded} succeeded, {failed} failed — {errors}',
+        noSupportedAudioFiles: 'No supported audio files were found in {path}',
+        progressSyncCalibration: 'Synchronizing calibration ({files})',
+        progressRecomputeSpectrogram: 'Recomputing spectrogram ({files})',
+        progressApplyCalibration: 'Applying calibration ({files})',
+        dialogSelectAudioDirectory: 'Select audio directory',
+        dialogSelectAudioFile: 'Select audio file',
+        dialogAnalyzeAudioTarget: 'Analyze audio file or folder',
+        dialogAudioFilesFilter: 'Audio Files',
+        calFullScale: 'Full scale (FS / dBFS)',
+        calSummary: 'factor {factor}; {unit}; {level}',
+        calNoChannels: 'No audio channels are available for calibration.',
+        calResetAllLabel: 'Reset all channels to full scale',
+        calResetAllDescription: 'Remove the saved calibration profile for this file',
+        calChannelLabel: 'Channel {n}: {label}',
+        calConfigurePlaceholder: 'Configure calibration for {file}',
+        calResetDone: 'Calibration reset to full scale: {file}',
+        calModeCalibratedLabel: 'Calibrated physical quantity',
+        calModeCalibratedDescription: 'Apply a raw-FS-to-physical conversion before analysis',
+        calModeUncalibratedLabel: 'Uncalibrated full scale',
+        calModeUncalibratedDescription: 'Use FS and dBFS for this channel',
+        calFactorTitle: 'Calibration factor — {channel}',
+        calFactorPrompt: 'Physical value = raw full-scale sample × factor',
+        calUnitTitle: 'Physical unit — {channel}',
+        calUnitPrompt: 'Examples: Pa, m/s^2, V. Use \'1\' for a dimensionless physical quantity.',
+        calUnitRequired: 'Enter a unit, or \'1\' for dimensionless data.',
+        calReferenceTitle: 'Level reference — {channel}',
+        calReferencePromptPa: '20 µPa is 0.00002 Pa and produces dB SPL.',
+        calReferencePrompt: 'Reference value in {unit}.',
         trackPickColor: 'Change color',
         trackColorReset: 'Reset to default',
         ariaDragHandle: 'Drag to reorder track',
@@ -516,6 +582,39 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportFormatPlaceholder: 'レポート形式を選択',
         reportSaveLabel: 'レポートを書き出す',
         reportExportedPrefix: 'レポートを書き出しました → ',
+        fileCountOne: '1 ファイル',
+        fileCountMany: '{count} ファイル',
+        exportSelectOutputFolder: '出力フォルダを選択',
+        exportWavComplete: 'WAV を書き出しました ({files}) → {folder}',
+        exportWavPartial: 'WAV 書き出し: 成功 {succeeded} 件、失敗 {failed} 件 — {errors}',
+        noSupportedAudioFiles: '{path} に対応する音声ファイルが見つかりませんでした',
+        progressSyncCalibration: '校正を同期中 ({files})',
+        progressRecomputeSpectrogram: 'スペクトログラムを再計算中 ({files})',
+        progressApplyCalibration: '校正を適用中 ({files})',
+        dialogSelectAudioDirectory: '音声フォルダを選択',
+        dialogSelectAudioFile: '音声ファイルを選択',
+        dialogAnalyzeAudioTarget: '解析する音声ファイルまたはフォルダを選択',
+        dialogAudioFilesFilter: '音声ファイル',
+        calFullScale: 'フルスケール (FS / dBFS)',
+        calSummary: '係数 {factor}; {unit}; {level}',
+        calNoChannels: '校正できる音声チャンネルがありません。',
+        calResetAllLabel: 'すべてのチャンネルをフルスケールに戻す',
+        calResetAllDescription: 'このファイルの保存済み校正プロファイルを削除します',
+        calChannelLabel: 'チャンネル {n}: {label}',
+        calConfigurePlaceholder: '{file} の校正を設定',
+        calResetDone: '校正をフルスケールに戻しました: {file}',
+        calModeCalibratedLabel: '校正済みの物理量',
+        calModeCalibratedDescription: '解析の前に生の FS 値を物理量に換算します',
+        calModeUncalibratedLabel: '未校正のフルスケール',
+        calModeUncalibratedDescription: 'このチャンネルは FS と dBFS で扱います',
+        calFactorTitle: '校正係数 — {channel}',
+        calFactorPrompt: '物理量 = 生のフルスケール値 × 係数',
+        calUnitTitle: '物理単位 — {channel}',
+        calUnitPrompt: '例: Pa、m/s^2、V。無次元の物理量には \'1\' を入力します。',
+        calUnitRequired: '単位を入力してください。無次元のデータには \'1\' を入力します。',
+        calReferenceTitle: 'レベル基準値 — {channel}',
+        calReferencePromptPa: '20 µPa は 0.00002 Pa で、dB SPL になります。',
+        calReferencePrompt: '{unit} での基準値。',
         trackPickColor: '色を変更',
         trackColorReset: 'デフォルトに戻す',
         ariaDragHandle: 'ドラッグしてトラックを並び替え',
@@ -575,6 +674,15 @@ export function rangePopoverStrings(strings: UiStrings) {
         axisY: strings.rangeAxisY,
         axisColor: strings.rangeAxisColor,
     };
+}
+
+/** Replaces each `{name}` placeholder in `template` with `values[name]`; unknown placeholders stay as is. */
+export function fillTemplate(template: string, values: Record<string, string | number>): string {
+    return template.replace(/\{(\w+)\}/g, (match, name: string) => (name in values ? String(values[name]) : match));
+}
+
+export function fileCountLabel(strings: UiStrings, count: number): string {
+    return fillTemplate(count === 1 ? strings.fileCountOne : strings.fileCountMany, { count });
 }
 
 export function getStrings(language: string | undefined): UiStrings {

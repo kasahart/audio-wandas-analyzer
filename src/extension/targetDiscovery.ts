@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { DirectoryTreeNode } from '../shared/analysis/analysisTypes';
+import { getStrings } from '../shared/i18n/strings';
 import { isSupportedAudioFile, SUPPORTED_AUDIO_DIALOG_EXTENSIONS, type SelectionTargetKind } from '../shared/utils/audioTarget';
 
 const DIRECTORY_READ_CONCURRENCY = 8;
@@ -66,18 +67,20 @@ export async function buildDirectoryTree(
 export async function pickAudioTarget(
     targetKind?: SelectionTargetKind,
     showOpenDialog: OpenDialog = vscode.window.showOpenDialog,
+    language: string = vscode.env.language,
 ): Promise<vscode.Uri | undefined> {
+    const strings = getStrings(language);
     const selected = await showOpenDialog({
         canSelectMany: false,
         canSelectFiles: targetKind !== 'directory',
         canSelectFolders: targetKind !== 'file',
         openLabel: targetKind === 'directory'
-            ? 'Select audio directory'
+            ? strings.dialogSelectAudioDirectory
             : targetKind === 'file'
-                ? 'Select audio file'
-                : 'Analyze audio file or folder',
+                ? strings.dialogSelectAudioFile
+                : strings.dialogAnalyzeAudioTarget,
         filters: targetKind !== 'directory'
-            ? { 'Audio Files': SUPPORTED_AUDIO_DIALOG_EXTENSIONS }
+            ? { [strings.dialogAudioFilesFilter]: SUPPORTED_AUDIO_DIALOG_EXTENSIONS }
             : undefined,
     });
     return selected?.[0];

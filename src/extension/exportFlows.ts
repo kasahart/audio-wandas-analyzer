@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { getStrings } from '../shared/i18n/strings';
+import { fileCountLabel, fillTemplate, getStrings } from '../shared/i18n/strings';
 import type { ExportReportOptionsMessage, ExportWavLoopMessage } from '../shared/utils/audioTarget';
 import type { ReportFormat } from '../shared/utils/exportArtifact';
 import type { ExportWavLoopResult } from '../shared/protocol/backendProtocol';
@@ -26,7 +26,7 @@ const defaultHost: ExportHost = {
             canSelectFiles: false,
             canSelectFolders: true,
             canSelectMany: false,
-            openLabel: 'Select output folder',
+            openLabel: getStrings(vscode.env.language).exportSelectOutputFolder,
         });
         return folders?.[0];
     },
@@ -87,14 +87,18 @@ export class ExportFlows {
                 },
             },
             complete: () => {
+                const strings = getStrings(this.host.language());
                 if (errors.length > 0) {
-                    this.host.showError(
-                        `WAV export: ${successCount} succeeded, ${errors.length} failed — ${errors.join('; ')}`,
-                    );
+                    this.host.showError(fillTemplate(strings.exportWavPartial, {
+                        succeeded: successCount,
+                        failed: errors.length,
+                        errors: errors.join('; '),
+                    }));
                 } else {
-                    this.host.showInformation(
-                        `WAV export complete (${successCount} file${successCount !== 1 ? 's' : ''}) → ${outputFolder.fsPath}`,
-                    );
+                    this.host.showInformation(fillTemplate(strings.exportWavComplete, {
+                        files: fileCountLabel(strings, successCount),
+                        folder: outputFolder.fsPath,
+                    }));
                 }
             },
         };
