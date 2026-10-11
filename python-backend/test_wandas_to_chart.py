@@ -215,21 +215,32 @@ def test_linear_transfer_gain_preserves_channel_units_and_values(
     np.testing.assert_allclose(actual[finite], frame.gain[finite])
 
 
-def test_long_channel_frame_is_decimated_and_keeps_peaks() -> None:
-    from wandas_to_chart import CHANNEL_FRAME_BUCKET_LIMIT
+def test_long_channel_frame_is_decimated_and_keeps_peaks_at_their_times() -> None:
+    from wandas_to_chart import CHANNEL_FRAME_POINT_LIMIT
 
     samples = np.zeros((2, 48000 * 3))
     samples[0, 12345] = 0.9
     samples[1, 99999] = -0.7
     frame = wd.from_numpy(samples, sampling_rate=48000)
     spec = adapt(frame)
-    assert len(spec["xs"]) == 2 * CHANNEL_FRAME_BUCKET_LIMIT
+    assert len(spec["xs"]) <= CHANNEL_FRAME_POINT_LIMIT
     assert all(len(series["ys"]) == len(spec["xs"]) for series in spec["series"])
-    assert max(spec["series"][0]["ys"]) == pytest.approx(0.9)
-    assert min(spec["series"][1]["ys"]) == pytest.approx(-0.7)
+    first, second = spec["series"]
+    assert spec["xs"][first["ys"].index(0.9)] == pytest.approx(12345 / 48000)
+    assert spec["xs"][second["ys"].index(-0.7)] == pytest.approx(99999 / 48000)
     assert spec["xs"] == sorted(spec["xs"])
     assert spec["xs"][0] == 0.0
-    assert spec["xs"][-1] == pytest.approx(frame.time[-1])
+
+
+def test_decimated_channel_frame_keeps_finite_peaks_next_to_nan() -> None:
+    samples = np.zeros(48000 * 3)
+    samples[50000] = np.nan
+    samples[50001] = 0.8
+    spec = adapt(wd.from_numpy(samples[np.newaxis, :], sampling_rate=48000))
+    ys = spec["series"][0]["ys"]
+    assert max(y for y in ys if y is not None) == pytest.approx(0.8)
+    assert spec["xs"][ys.index(0.8)] == pytest.approx(50001 / 48000)
+    assert spec["xs"][ys.index(None)] == pytest.approx(50000 / 48000)
 
 
 def test_short_channel_frame_keeps_every_sample(mono_sin: wd.ChannelFrame) -> None:

@@ -33,11 +33,9 @@ from wandas.frames import (
     TransferFunctionFrame,
 )
 
-from decimator import decimated_waveform
-
-# A ChannelFrame line chart keeps at most this many min/max buckets per channel (two points each),
-# so a long recording does not serialize every sample into the Recipe result.
-CHANNEL_FRAME_BUCKET_LIMIT = 4096
+# A long ChannelFrame line chart keeps about this many points in total (each channel's per-bucket
+# minimum and maximum), so a long recording does not serialize every sample into the Recipe result.
+CHANNEL_FRAME_POINT_LIMIT = 8192
 
 # ---- helpers ---------------------------------------------------------------
 
@@ -88,27 +86,36 @@ def _series_2d(matrix: np.ndarray, names: list[str], unit: str | None = None) ->
 # ---- per-type adapters -----------------------------------------------------
 
 
-def _min_max_envelope(data: np.ndarray, time: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Reduce (channels, samples) to two points per bucket via ``decimated_waveform``.
+def _bucket_extremum_indices(samples: np.ndarray, starts: np.ndarray, sizes: np.ndarray, pick: Any) -> np.ndarray:
+    """First index of each bucket's NaN-ignoring extremum; an all-NaN bucket yields its first index."""
+    indices = np.arange(len(samples))
+    finite = np.isfinite(samples)
+    extrema = pick.reduceat(np.where(finite, samples, np.nan), starts)
+    matches = finite & (samples == np.repeat(extrema, sizes))
+    found = np.minimum.reduceat(np.where(matches, indices, len(samples)), starts)
+    return np.where(found < len(samples), found, starts)
 
-    Each bucket contributes its minimum and maximum in time order, so peaks survive. The shared x
-    positions are the bucket's first and last sample times, matching the decimator's bucket split.
+
+def _min_max_envelope(data: np.ndarray, time: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Keep only the samples that shape the envelope: every channel's per-bucket min and max.
+
+    Points sit at the samples' own times (the union across channels), so transients stay where
+    they occurred. The first non-finite sample of each bucket is kept too, so a gap survives.
     """
     n = data.shape[-1]
-    width, remainder = divmod(n, CHANNEL_FRAME_BUCKET_LIMIT)
-    sizes = np.full(CHANNEL_FRAME_BUCKET_LIMIT, width)
+    bucket_count = max(1, CHANNEL_FRAME_POINT_LIMIT // (2 * data.shape[0]))
+    width, remainder = divmod(n, bucket_count)
+    sizes = np.full(bucket_count, width)
     sizes[:remainder] += 1
     starts = np.concatenate(([0], np.cumsum(sizes[:-1])))
-    xs = np.column_stack((time[starts], time[starts + sizes - 1])).reshape(-1)
-    rows = []
+    keep = []
     for samples in data:
-        bucket = decimated_waveform(samples, CHANNEL_FRAME_BUCKET_LIMIT, 0, n)
-        minima, maxima = np.asarray(bucket["min"]), np.asarray(bucket["max"])
-        min_first = np.asarray(bucket["minT"]) <= np.asarray(bucket["maxT"])
-        first = np.where(min_first, minima, maxima)
-        second = np.where(min_first, maxima, minima)
-        rows.append(np.column_stack((first, second)).reshape(-1))
-    return np.asarray(rows), xs
+        keep.append(_bucket_extremum_indices(samples, starts, sizes, np.fmin))
+        keep.append(_bucket_extremum_indices(samples, starts, sizes, np.fmax))
+        gaps = np.minimum.reduceat(np.where(np.isfinite(samples), n, np.arange(n)), starts)
+        keep.append(gaps[gaps < n])
+    selected = np.unique(np.concatenate(keep))
+    return data[:, selected], time[selected]
 
 
 def _adapt_channel_frame(frame: Any, *, title: str) -> dict[str, Any]:
@@ -116,7 +123,7 @@ def _adapt_channel_frame(frame: Any, *, title: str) -> dict[str, Any]:
     if data.ndim == 1:
         data = data[np.newaxis, :]
     time = np.asarray(getattr(frame, "time", np.arange(data.shape[-1])), dtype=np.float64)
-    if data.shape[-1] > 2 * CHANNEL_FRAME_BUCKET_LIMIT:
+    if data.shape[0] * data.shape[-1] > CHANNEL_FRAME_POINT_LIMIT:
         data, time = _min_max_envelope(data, time)
     series = _series_2d(data, _labels(frame))
     for item, channel in zip(series, getattr(frame, "channels", []), strict=False):
