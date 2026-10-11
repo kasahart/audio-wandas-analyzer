@@ -90,7 +90,10 @@ def _is_literal(value: object, declared_type: object) -> bool:
     """A JSON scalar that survives the trip to a JS number and matches the node's ``type``, if any."""
     if not isinstance(value, _SCALAR_TYPES):
         return False
-    if isinstance(value, int) and not isinstance(value, bool) and abs(value) > _MAX_SAFE_INTEGER:
+    if isinstance(value, float) and not math.isfinite(value):
+        return False  # json.dump would emit NaN/Infinity, which JSON.parse rejects.
+    numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
+    if numeric and float(value).is_integer() and abs(value) > _MAX_SAFE_INTEGER:
         return False
     return declared_type is None or _matches_type(declared_type, value)  # type: ignore[arg-type]
 
@@ -99,8 +102,9 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
     """Path of the first keyword the validators cannot enforce exactly (all definitions by default), or None.
 
     Besides keywords outside ``SUPPORTED_KEYWORDS`` that covers unresolvable ``$ref``s, ``$ref`` with
-    sibling keywords (resolution would drop them), unknown type names, and enum/const values that are not
-    JSON scalars, lose precision as JS numbers, or contradict the node's ``type``.
+    sibling keywords (resolution would drop them), unknown type names, ``enum`` together with ``const``, and
+    enum/const values that are not finite JSON scalars, lose precision as JS numbers, or contradict the
+    node's ``type``.
     """
     if schema is None:
         for name, definition in DEFINITIONS.items():
@@ -123,7 +127,7 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
             return f"{path}.$ref"
         if key == "type" and (not isinstance(child, str) or child not in _TYPES):
             return f"{path}.type"
-        if key == "const" and not _is_literal(child, declared_type):
+        if key == "const" and ("enum" in schema or not _is_literal(child, declared_type)):
             return f"{path}.const"
         if key == "enum" and (
             not isinstance(child, list) or not child or not all(_is_literal(item, declared_type) for item in child)

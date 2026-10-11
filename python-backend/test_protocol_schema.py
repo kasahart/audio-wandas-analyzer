@@ -58,6 +58,10 @@ def test_unsupported_keywords_are_rejected(monkeypatch: pytest.MonkeyPatch) -> N
     assert unsupported_keyword({"type": "integer", "const": 1.5}, "x") == "x.const"
     assert unsupported_keyword({"const": 2**53}, "x") == "x.const"
     assert unsupported_keyword({"const": 2**53 - 1}, "x") is None
+    assert unsupported_keyword({"const": 9007199254740992.0}, "x") == "x.const"
+    assert unsupported_keyword({"enum": [math.nan]}, "x") == "x.enum"
+    assert unsupported_keyword({"const": math.inf}, "x") == "x.const"
+    assert unsupported_keyword({"type": "string", "enum": ["hann"], "const": "hamming"}, "x") == "x.const"
     assert unsupported_keyword({"oneOf": []}, "x") == "x.oneOf"
     assert unsupported_keyword({"$ref": "#/$defs/Missing"}, "x") == "x.$ref"
     monkeypatch.setitem(DEFINITIONS, "Bad", {"type": "array", "items": {"oneOf": []}})
