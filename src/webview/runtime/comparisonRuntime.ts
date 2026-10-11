@@ -6,6 +6,7 @@ import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFo
 import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
+import { createSelectionTreeView } from './selectionTreeView';
 import { eventTarget } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
@@ -64,21 +65,42 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         persistedStore.update(patch);
         persistedWebviewState = persistedStore.snapshot;
     }
-    var currentTreeFilterRootPath = state.rootPath || '';
-    // ディレクトリ折りたたみ状態を保持 (current rootPath 内の relativePath → expanded: boolean)
-    // webview.html 再代入後も vscode.getState() で復元する
-    var directoryCollapseState = persistedWebviewState.directoryCollapseRootPath === currentTreeFilterRootPath
-        ? (persistedWebviewState.directoryCollapseState || {})
-        : {};
-    var treeFilterQuery = persistedWebviewState.treeFilterRootPath === currentTreeFilterRootPath
-        && typeof persistedWebviewState.treeFilterQuery === 'string'
-        ? persistedWebviewState.treeFilterQuery
-        : '';
+    const currentTreeFilterRootPath = state.rootPath || '';
     // ─── ファイルパス一覧からディレクトリツリーを webview 側で組み立てる (#91) ───
-    // __selectionDirMap: relativePath → ディレクトリノード（レイジーレンダリング用）
     const selectionTree = buildSelectionTreeFromPaths(state.rootPath, allSelectableFilePaths);
-    var __selectionDirMap = selectionTree.directories;
     var __directoryTree = isSelectionMode ? selectionTree.roots : [];
+    // 折りたたみ状態とフィルタ文字列は webview.html 再代入後も vscode.getState() から current rootPath 単位で復元する
+    const selectionTreeView = createSelectionTreeView({
+        document,
+        strings: STR,
+        tree: selectionTree,
+        rootPath: currentTreeFilterRootPath,
+        collapseState: persistedWebviewState.directoryCollapseRootPath === currentTreeFilterRootPath
+            ? (persistedWebviewState.directoryCollapseState || {})
+            : {},
+        filterQuery: persistedWebviewState.treeFilterRootPath === currentTreeFilterRootPath
+            && typeof persistedWebviewState.treeFilterQuery === 'string'
+            ? persistedWebviewState.treeFilterQuery
+            : '',
+        isSelected: hasSelectedFilePath,
+        persist: persistWebviewState,
+        onFileToggled(filePath, checked) {
+            if (checked) {
+                trackStore.allowExplicitSelection(filePath);
+                addSelectedFilePath(filePath);
+            }
+            else {
+                removeSelectedFilePath(filePath);
+            }
+            syncSelectionSummary();
+            postSelectedFiles();
+        },
+        handleAction: handleSelectionAction,
+        syncSummary: syncSelectionSummary,
+        setFilterFlush: (handler) => testBridge.setTreeFilterFlush(handler),
+        setTimeout: (handler, timeout) => setTimeout(handler, timeout),
+        clearTimeout,
+    });
     let selectionMessageSeq = 0;
     let pythonEnvironmentState = state.pythonEnvironmentState || {
         pythonCommand: 'python3',
@@ -1264,13 +1286,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '        <div class="selection-path">' + escapeHtml(state.rootPath || '') + '</div>'
             + '      </div>'
             + '      <div id="tree-filter-wrap">'
-            + '        <input id="tree-filter-input" type="text" value="' + escapeHtml(treeFilterQuery) + '" placeholder="' + escapeHtml(STR.treeFilterPlaceholder || 'Filter files...') + '" autocomplete="off" spellcheck="false">'
+            + '        <input id="tree-filter-input" type="text" value="' + escapeHtml(selectionTreeView.filterQuery) + '" placeholder="' + escapeHtml(STR.treeFilterPlaceholder || 'Filter files...') + '" autocomplete="off" spellcheck="false">'
             + '      </div>'
             + '      <div id="selection-actions">'
             + '        <button class="tb-btn" data-action="selection-select-all">' + escapeHtml(STR.btnSelectAll) + '</button>'
             + '        <button class="tb-btn" data-action="selection-clear-all">' + escapeHtml(STR.btnClear) + '</button>'
             + '      </div>'
-            + '      <div id="selection-tree" role="group" aria-label="' + escapeHtml(STR.ariaSelectionTree) + '">' + buildSelectionTree(__directoryTree, true, 0) + '</div>'
+            + '      <div id="selection-tree" role="group" aria-label="' + escapeHtml(STR.ariaSelectionTree) + '">' + selectionTreeView.renderTree(__directoryTree, true, 0) + '</div>'
             + '    </div>'
             + '    <div class="tree-resizer" id="tree-resizer" role="separator" aria-orientation="vertical"></div>'
             + '    <div id="selection-results-pane">'
@@ -1317,52 +1339,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(STR.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(STR.spectrumSectionTitle) + '"></canvas></div>'
             + '</div>'
             + '<div id="audio-host">' + buildAudioElements() + '</div>';
-    }
-    function buildSelectionTreeItems(nodes: SelectionTreeNode[], depth: number): string {
-        return nodes.map(function (node: SelectionTreeNode) {
-            if (node.type === 'directory') {
-                // 保存済み状態があればそれを使う、なければ depth === 0 のみ展開
-                var savedExpanded = directoryCollapseState[node.relativePath];
-                var isExpanded = (savedExpanded !== undefined) ? savedExpanded : (depth === 0);
-                // 折りたたみ時は子要素をレンダリングしない（#90 レイジーレンダリング）
-                var childrenHtml: string = isExpanded ? buildSelectionTreeItems(node.children || [], depth + 1) : '';
-                var lazyAttr = isExpanded ? '' : ' data-lazy="true"';
-                return '<li>'
-                    + '<div class="selection-tree-directory" data-action="toggle-directory"'
-                    + ' data-relative-path="' + escapeHtml(node.relativePath) + '"'
-                    + ' data-depth="' + depth + '"'
-                    + ' role="button" tabindex="0"'
-                    + ' aria-expanded="' + (isExpanded ? 'true' : 'false') + '"'
-                    + ' aria-label="' + escapeHtml(STR.ariaSelectionTreeDir) + ': ' + escapeHtml(node.name) + '">'
-                    + '<span class="dir-toggle" aria-hidden="true">' + (isExpanded ? '▼' : '▶') + '</span>'
-                    + '<span class="dir-name">' + escapeHtml(node.name) + '</span>'
-                    + '</div>'
-                    + '<ul class="selection-tree-list"' + lazyAttr + ' style="' + (isExpanded ? '' : 'display:none') + '">'
-                    + childrenHtml
-                    + '</ul>'
-                    + '</li>';
-            }
-            const filePath = node.filePath || '';
-            const checked = hasSelectedFilePath(filePath) ? ' checked' : '';
-            return '<li>'
-                + '<label class="selection-file-row">'
-                + '  <input class="selection-file-checkbox" type="checkbox" data-file-path="' + escapeHtml(filePath) + '"' + checked + '>'
-                + '  <span class="selection-file-label">'
-                + '    <span class="selection-file-name">' + escapeHtml(node.name) + '</span>'
-                + '    <span class="selection-file-path">' + escapeHtml(node.relativePath) + '</span>'
-                + '  </span>'
-                + '</label>'
-                + '</li>';
-        }).join('');
-    }
-    function buildSelectionTree(nodes: SelectionTreeNode[], isRoot: boolean, depth: number): string {
-        depth = depth || 0;
-        if (!Array.isArray(nodes) || nodes.length === 0) {
-            return '<div class="selection-path">' + escapeHtml(STR.selectionNoSupported) + '</div>';
-        }
-        return '<ul class="selection-tree-list' + (isRoot ? ' is-root' : '') + '">'
-            + buildSelectionTreeItems(nodes, depth)
-            + '</ul>';
     }
     function buildAudioElements() {
         return trackStore.activeIds().map(function (trackId) {
@@ -2938,262 +2914,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function attachDirectorySelectionEvents() {
         const layout = document.getElementById('directory-selection-layout');
-        if (!layout) {
-            return;
-        }
-        function toggleDirectoryHeader(dirHeader: RuntimeElement) {
-            const list = dirHeader.nextElementSibling;
-            const toggle = dirHeader.querySelector('.dir-toggle');
-            if (list && list.classList && list.classList.contains('selection-tree-list')) {
-                const listElement = list as RuntimeElement;
-                const isCollapsed = listElement.style.display === 'none';
-                // 展開時: data-lazy な子要素を初めてレンダリングする (#90)
-                if (isCollapsed && list.getAttribute('data-lazy') === 'true') {
-                    const relPath = dirHeader.getAttribute('data-relative-path');
-                    const depth = parseInt(dirHeader.getAttribute('data-depth') || '0', 10);
-                    const node = __selectionDirMap[relPath];
-                    if (node && node.children) {
-                        listElement.innerHTML = buildSelectionTreeItems(node.children, depth + 1);
-                        listElement.removeAttribute('data-lazy');
-                    }
-                }
-                listElement.style.display = isCollapsed ? '' : 'none';
-                if (toggle) {
-                    toggle.textContent = isCollapsed ? '▼' : '▶';
-                }
-                dirHeader.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
-                // 折りたたみ状態を保存し vscode.setState() で永続化する
-                // (isCollapsed=true → 展開に戻った → expanded=true)
-                const relativePath = dirHeader.getAttribute('data-relative-path');
-                if (relativePath) {
-                    directoryCollapseState[relativePath] = isCollapsed;
-                    persistWebviewState({
-                        directoryCollapseState: directoryCollapseState,
-                        directoryCollapseRootPath: currentTreeFilterRootPath,
-                    });
-                }
-            }
-        }
-        layout.addEventListener('click', function (e) {
-            const target = eventTarget(e);
-            if (!target || typeof target.getAttribute !== 'function') {
-                return;
-            }
-            const dirHeader = target.closest('.selection-tree-directory');
-            if (dirHeader) {
-                toggleDirectoryHeader(dirHeader);
-                return;
-            }
-            const action = target.getAttribute('data-action');
-            if (!action) {
-                return;
-            }
-            if (handleSelectionAction(action)) {
-                return;
-            }
-        });
-        layout.addEventListener('keydown', function (e) {
-            if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') {
-                return;
-            }
-            const target = eventTarget(e);
-            if (!target || typeof target.closest !== 'function') {
-                return;
-            }
-            const dirHeader = target.closest('.selection-tree-directory');
-            if (!dirHeader) {
-                return;
-            }
-            e.preventDefault();
-            toggleDirectoryHeader(dirHeader);
-        });
-        layout.addEventListener('change', function (e) {
-            const target = eventTarget(e);
-            if (!target || !target.classList || !target.classList.contains('selection-file-checkbox')) {
-                return;
-            }
-            const filePath = target.getAttribute('data-file-path');
-            if (!filePath) {
-                return;
-            }
-            if (target.checked) {
-                trackStore.allowExplicitSelection(filePath);
-                addSelectedFilePath(filePath);
-            }
-            else {
-                removeSelectedFilePath(filePath);
-            }
-            syncSelectionSummary();
-            postSelectedFiles();
-        });
-        syncSelectionSummary();
-        // ── Tree filter ──
-        var treeFilterInput = document.getElementById('tree-filter-input');
-        if (treeFilterInput) {
-            function applyTreeFilter(query: string) {
-                if (!query) {
-                    // フィルタ解除: 全ファイル <li> を表示し、折りたたみ状態を復元する
-                    document.querySelectorAll('#selection-tree li').forEach(function (li) {
-                        li.style.display = '';
-                    });
-                    document.querySelectorAll('.selection-tree-directory').forEach(function (dirHeader: RuntimeElement) {
-                        var relativePath = dirHeader.getAttribute('data-relative-path');
-                        var list = dirHeader.nextElementSibling;
-                        if (!list || !list.classList.contains('selection-tree-list')) {
-                            return;
-                        }
-                        var savedExpanded = relativePath ? directoryCollapseState[relativePath] : undefined;
-                        // 保存済み状態があればそれを、なければ depth=0 かどうかで判断（ルート直下要素は expanded）
-                        // data-depth が付いていない場合はデフォルト展開
-                        var expanded = (savedExpanded !== undefined) ? savedExpanded : true;
-                        (list as RuntimeElement).style.display = expanded ? '' : 'none';
-                        var toggle = dirHeader.querySelector('.dir-toggle');
-                        if (toggle) {
-                            toggle.textContent = expanded ? '▼' : '▶';
-                        }
-                        dirHeader.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-                    });
-                    syncSelectionSummary();
-                    return;
-                }
-                // フィルタ適用前: レイジー未展開の子要素を全てレンダリングする (#90 との連携)
-                // 1 回のループでは新たに挿入された子ノードに data-lazy が残るため、
-                // lazy ノードがなくなるか進捗がなくなるまで繰り返す
-                var prevLazyCount = -1;
-                while (true) {
-                    var lazyLists = document.querySelectorAll('#selection-tree [data-lazy="true"]');
-                    if (!lazyLists.length || lazyLists.length === prevLazyCount) {
-                        break;
-                    }
-                    prevLazyCount = lazyLists.length;
-                    lazyLists.forEach(function (lazyList) {
-                        var dh = lazyList.previousElementSibling;
-                        if (!dh || !dh.classList.contains('selection-tree-directory')) {
-                            return;
-                        }
-                        var relPath = dh.getAttribute('data-relative-path');
-                        var depth = parseInt(dh.getAttribute('data-depth') || '0', 10);
-                        var node = relPath ? __selectionDirMap[relPath] : undefined;
-                        if (node && node.children) {
-                            lazyList.innerHTML = buildSelectionTreeItems(node.children, depth + 1);
-                            lazyList.removeAttribute('data-lazy');
-                        }
-                    });
-                }
-                // フィルタ適用: ファイル名・パスで一致する <li> のみ表示
-                var allLis = document.querySelectorAll('#selection-tree li');
-                for (var i = 0; i < allLis.length; i++) {
-                    var li = allLis[i];
-                    var fileRow = li.querySelector('.selection-file-row');
-                    if (!fileRow) {
-                        continue;
-                    }
-                    var checkbox = li.querySelector('.selection-file-checkbox');
-                    var fp = checkbox ? (checkbox.getAttribute('data-file-path') || '') : '';
-                    var nameEl = li.querySelector('.selection-file-name');
-                    var nm = nameEl ? (nameEl.textContent || '') : '';
-                    var match = fp.toLowerCase().indexOf(query) >= 0 || nm.toLowerCase().indexOf(query) >= 0;
-                    li.style.display = match ? '' : 'none';
-                    // 一致したファイルの祖先ディレクトリを全て展開する
-                    if (match) {
-                        var ancestor = li.parentElement;
-                        while (ancestor && ancestor.id !== 'selection-tree') {
-                            if (ancestor.classList && ancestor.classList.contains('selection-tree-list')) {
-                                var dh = ancestor.previousElementSibling;
-                                var rel = dh && dh.classList && dh.classList.contains('selection-tree-directory')
-                                    ? dh.getAttribute('data-relative-path')
-                                    : null;
-                                var savedExpanded = rel ? directoryCollapseState[rel] : undefined;
-                                var shouldExpandForFilter = savedExpanded !== false;
-                                ancestor.style.display = shouldExpandForFilter ? '' : 'none';
-                                if (dh && dh.classList.contains('selection-tree-directory')) {
-                                    dh.setAttribute('aria-expanded', shouldExpandForFilter ? 'true' : 'false');
-                                    var tog = dh.querySelector('.dir-toggle');
-                                    if (tog) {
-                                        tog.textContent = shouldExpandForFilter ? '▼' : '▶';
-                                    }
-                                }
-                            }
-                            ancestor = ancestor.parentElement;
-                        }
-                    }
-                }
-                // 一致ファイルを持たないディレクトリ <li> を非表示にする（葉から順に評価）
-                var dirLis = document.querySelectorAll('#selection-tree li');
-                for (var j = dirLis.length - 1; j >= 0; j--) {
-                    var dirLi = dirLis[j];
-                    var subList = dirLi.querySelector('.selection-tree-list');
-                    if (!subList) {
-                        continue;
-                    }
-                    var visCount = 0;
-                    var children = subList.querySelectorAll('li');
-                    for (var k = 0; k < children.length; k++) {
-                        if (children[k].style.display !== 'none') {
-                            visCount++;
-                        }
-                    }
-                    dirLi.style.display = visCount > 0 ? '' : 'none';
-                }
-                syncSelectionSummary();
-            }
-            // debounce: 150ms (#92)
-            var treeFilterTimer: number | null = null;
-            treeFilterInput.addEventListener('input', function () {
-                if (treeFilterTimer !== null) {
-                    clearTimeout(treeFilterTimer);
-                }
-                treeFilterQuery = treeFilterInput.value;
-                persistWebviewState({
-                    treeFilterQuery: treeFilterQuery,
-                    treeFilterRootPath: currentTreeFilterRootPath,
-                });
-                treeFilterTimer = setTimeout(function () {
-                    applyTreeFilter(treeFilterInput.value.toLowerCase());
-                }, 150);
-            });
-            // テスト環境からデバウンスを即時フラッシュできるようにする
-            testBridge.setTreeFilterFlush(function () {
-                if (treeFilterTimer !== null) {
-                    clearTimeout(treeFilterTimer);
-                }
-                treeFilterTimer = null;
-                applyTreeFilter(treeFilterInput.value.toLowerCase());
-            });
-            if (treeFilterQuery) {
-                applyTreeFilter(treeFilterQuery.toLowerCase());
-            }
-        }
-        // ── Tree resizer ──
-        var resizerEl = document.getElementById('tree-resizer');
-        var sidebarEl = document.getElementById('selection-sidebar');
-        if (resizerEl && sidebarEl) {
-            var dragStartX = 0;
-            var dragStartW = 0;
-            var isDragging = false;
-            function onResizerMouseMove(e: MouseEvent): void {
-                if (!isDragging) {
-                    return;
-                }
-                var delta = e.clientX - dragStartX;
-                var newW = Math.max(160, Math.min(600, dragStartW + delta));
-                sidebarEl.style.width = newW + 'px';
-            }
-            function onResizerMouseUp() {
-                isDragging = false;
-                resizerEl.classList.remove('is-dragging');
-                document.removeEventListener('mousemove', onResizerMouseMove);
-                document.removeEventListener('mouseup', onResizerMouseUp);
-            }
-            resizerEl.addEventListener('mousedown', function (e) {
-                isDragging = true;
-                dragStartX = e.clientX;
-                dragStartW = sidebarEl.getBoundingClientRect().width;
-                resizerEl.classList.add('is-dragging');
-                document.addEventListener('mousemove', onResizerMouseMove);
-                document.addEventListener('mouseup', onResizerMouseUp);
-                e.preventDefault();
-            });
+        if (layout) {
+            selectionTreeView.attach(layout);
         }
     }
     function handleSelectionAction(action: string) {
@@ -3208,7 +2930,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             clearSelectedFilePaths();
             // 可視状態のチェックボックスのみを対象にする
             document.querySelectorAll('.selection-file-checkbox').forEach(function (input) {
-                if (isVisibleInTree(input)) {
+                if (selectionTreeView.isVisible(input)) {
                     const filePath = input.getAttribute('data-file-path');
                     if (filePath) {
                         trackStore.allowExplicitSelection(filePath);
@@ -3244,23 +2966,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function addSelectedFilePath(filePath: string) { selection.add(filePath); }
     function removeSelectedFilePath(filePath: string) { selection.remove(filePath); }
     function clearSelectedFilePaths() { selection.clear(); }
-    function isVisibleInTree(el: RuntimeElement) {
-        // el から #selection-tree までの祖先を辿り、display:none が設定された要素があれば非表示と判定する
-        var node: RuntimeElement | null = el;
-        while (node && node.id !== 'selection-tree') {
-            if (node.style && node.style.display === 'none') {
-                return false;
-            }
-            node = node.parentElement as RuntimeElement | null;
-        }
-        return true;
-    }
     function syncSelectionSummary() {
         const countEl = document.getElementById('selection-count');
         const count = selectedFilePaths.length;
         // 可視チェックボックスの数を分母にする
         const visibleCount = Array.from(document.querySelectorAll('.selection-file-checkbox')).filter(function (el: RuntimeElement) {
-            return isVisibleInTree(el);
+            return selectionTreeView.isVisible(el);
         }).length;
         if (countEl) {
             countEl.textContent = count + ' / ' + visibleCount + ' ' + STR.selectionCountLabel;
