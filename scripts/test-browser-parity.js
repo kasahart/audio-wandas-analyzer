@@ -20,16 +20,19 @@ fs.mkdirSync(path.join(root, 'test-results'), { recursive: true });
 const tonePath = path.join(root, 'test-results/generated-frequency-tones.wav');
 fs.writeFileSync(tonePath, toneBytes);
 const bytes = fixtures[0].bytes;
+// Only these payloads list stftOptions; the schema rejects keys it does not list.
+const STFT_COMMANDS = new Set(['analyze', 'track-detail', 'spectrum-slice']);
+const withStft = (command, stftOptions) => (STFT_COMMANDS.has(command.cmd) ? { ...command, stftOptions } : command);
 const commands = [
     { cmd: 'analyze' },
     { cmd: 'track-detail', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture' },
     { cmd: 'spectrum-slice', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture', cursorNorm: 0.437 },
     { cmd: 'range', startNorm: 0.21, endNorm: 0.63, points: 128 },
     { cmd: 'export-wav-loop', startNorm: 0.21, endNorm: 0.63 },
-].map((command, index) => ({ ...command, requestId: String(index), filePath: '/sources/selected.wav', stftOptions: { nFft: 256, hopSize: 64, window: 'hann' } }));
+].map((command, index) => withStft({ ...command, requestId: String(index), filePath: '/sources/selected.wav' }, { nFft: 256, hopSize: 64, window: 'hann' }));
 fixtures.push({ name: 'generated-frequency-tones.wav', path: tonePath, bytes: toneBytes, commands: [
     { ...commands[2], cursorNorm: 0.5 }, ...commands,
-].map(command => ({ ...command, stftOptions: { nFft: 2048, hopSize: 512, window: 'hann' } })) });
+].map(command => withStft(command, { nFft: 2048, hopSize: 512, window: 'hann' })) });
 function nativeResultsFor(fixture) {
 const native = spawnSync(path.join(root, '.venv/bin/python'), ['-c', `
 import sys,json
