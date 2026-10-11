@@ -2,7 +2,13 @@ import type { ChartSpec } from '../chartSpec';
 import type { RecipeDocument } from '../recipe/recipeSelection';
 import { isCalibrationStatus, isCalibrationSource, isCalibrationProfile } from '../analysis/calibrationModel';
 import { isSafeCalibrationValue } from '../analysis/analysisTypes';
-import type { RangePayload, RangeResult } from './generated/backendProtocolSchema';
+import type {
+    ExportWavLoopPayload,
+    ExportWavLoopResult,
+    RangePayload,
+    RangeResult,
+    ReleaseTrackDetailPayload,
+} from './generated/backendProtocolSchema';
 import { schemaViolation } from './schemaValidation';
 import type {
     AnalysisResult,
@@ -15,7 +21,7 @@ import type {
     WaveformEnvelope,
 } from '../analysis/analysisTypes';
 
-export type { RangePayload, RangeResult };
+export type { ExportWavLoopPayload, ExportWavLoopResult, RangePayload, RangeResult, ReleaseTrackDetailPayload };
 
 export interface CalibrationRequestContext {
     calibrationProfile?: CalibrationProfile;
@@ -37,16 +43,6 @@ export interface TrackDetailPayload extends CalibrationRequestContext {
 
 export interface SpectrumSlicePayload extends TrackDetailPayload {
     cursorNorm: number;
-}
-
-export interface ReleaseTrackDetailPayload {
-    filePath: string;
-}
-
-export interface ExportWavLoopPayload {
-    filePath: string;
-    startNorm: number;
-    endNorm: number;
 }
 
 export interface TrackDetailResult {
@@ -80,11 +76,6 @@ export interface SpectrumSliceResult {
     computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;
-}
-
-export interface ExportWavLoopResult {
-    wavBase64: string;
-    sampleRate: number;
 }
 
 export type ReleaseTrackDetailResult = Record<never, never>;
@@ -367,9 +358,11 @@ function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
 }
 
 function isExportWavLoopResult(value: unknown): value is ExportWavLoopResult {
-    return isJsonObject(value)
-        && typeof value['wavBase64'] === 'string'
-        && isInteger(value['sampleRate']);
+    return schemaViolation('ExportWavLoopResult', value) === null;
+}
+
+function isReleaseTrackDetailResult(value: unknown): value is ReleaseTrackDetailResult {
+    return schemaViolation('ReleaseTrackDetailResult', value) === null;
 }
 
 function isRunRecipeResult(value: unknown): value is RunRecipeResult {
@@ -386,7 +379,7 @@ const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
     analyze: isAnalysisResult,
     range: isRangeResult,
     'track-detail': isTrackDetailResult,
-    'release-track-detail': isJsonObject,
+    'release-track-detail': isReleaseTrackDetailResult,
     'spectrum-slice': isSpectrumSliceResult,
     'export-wav-loop': isExportWavLoopResult,
     'run-recipe': isRunRecipeResult,

@@ -117,17 +117,73 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 }
             }
+        },
+        "ExportWavLoopPayload": {
+            "type": "object",
+            "required": [
+                "filePath",
+                "startNorm",
+                "endNorm"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                },
+                "startNorm": {
+                    "type": "number"
+                },
+                "endNorm": {
+                    "type": "number"
+                }
+            }
+        },
+        "ExportWavLoopResult": {
+            "type": "object",
+            "required": [
+                "wavBase64",
+                "sampleRate"
+            ],
+            "properties": {
+                "wavBase64": {
+                    "type": "string"
+                },
+                "sampleRate": {
+                    "type": "integer"
+                }
+            }
+        },
+        "ReleaseTrackDetailPayload": {
+            "type": "object",
+            "required": [
+                "filePath"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                }
+            }
+        },
+        "ReleaseTrackDetailResult": {
+            "type": "object"
         }
     },
     "x-commands": {
         "range": {
             "payload": "RangePayload",
             "result": "RangeResult"
+        },
+        "export-wav-loop": {
+            "payload": "ExportWavLoopPayload",
+            "result": "ExportWavLoopResult"
+        },
+        "release-track-detail": {
+            "payload": "ReleaseTrackDetailPayload",
+            "result": "ReleaseTrackDetailResult"
         }
     }
 } as const;
 
-export type SchemaCommand = 'range';
+export type SchemaCommand = 'range' | 'export-wav-loop' | 'release-track-detail';
 
 export interface WaveformEnvelope {
     min: number[];
@@ -153,4 +209,19 @@ export interface RangeResult {
     channels: WaveformEnvelope[];
     calibrationSignature?: string;
     analysisRevision?: number;
+}
+
+export interface ExportWavLoopPayload {
+    filePath: string;
+    startNorm: number;
+    endNorm: number;
+}
+
+export interface ExportWavLoopResult {
+    wavBase64: string;
+    sampleRate: number;
+}
+
+export interface ReleaseTrackDetailPayload {
+    filePath: string;
 }

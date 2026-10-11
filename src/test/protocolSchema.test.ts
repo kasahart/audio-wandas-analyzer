@@ -19,7 +19,7 @@ const fixtures = JSON.parse(readFileSync(path.resolve(process.cwd(), 'src/test/f
 const ajv = new Ajv2020({ strict: false });
 const referenceIsValid = (schema: object, value: unknown): boolean =>
     ajv.validate({ ...schema, $defs: BACKEND_PROTOCOL_SCHEMA.$defs }, value) as boolean;
-const commands = BACKEND_PROTOCOL_SCHEMA['x-commands'] as Record<SchemaCommand, { payload: 'RangePayload'; result: 'RangeResult' }>;
+const commands = BACKEND_PROTOCOL_SCHEMA['x-commands'];
 const schemaCases = (cases: FixtureCase[]): Array<FixtureCase & { command: SchemaCommand }> =>
     cases.filter((entry): entry is FixtureCase & { command: SchemaCommand } => typeof entry.command === 'string' && entry.command in commands);
 
