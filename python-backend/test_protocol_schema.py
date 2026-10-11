@@ -45,6 +45,7 @@ def test_unsupported_keywords_are_rejected(monkeypatch: pytest.MonkeyPatch) -> N
     assert unsupported_keyword({"type": "string", "enum": ["a"]}, "x") == "x.enum"
     nested = {"type": "object", "properties": {"mode": {"const": "a"}}}
     assert unsupported_keyword(nested, "x") == "x.mode.const"
+    assert unsupported_keyword({"$ref": "#/$defs/Missing"}, "x") == "x.$ref"
     monkeypatch.setitem(DEFINITIONS, "Bad", {"type": "array", "items": {"oneOf": []}})
     with pytest.raises(ValueError, match=r"\$defs\.Bad\.items\.oneOf"):
         dump_schema()
@@ -57,6 +58,7 @@ def test_result_violation_checks_the_result_definition() -> None:
     assert result_violation("range", {**result, "channels": [{**envelope, "absolutePeak": math.nan}]}) == (
         "channels[0].absolutePeak"
     )
+    assert result_violation("range", {**result, "analysisRevision": -1}) == "analysisRevision"
     assert first_violation({"type": "object", "required": ["a"]}, {}) == "a"
 
 

@@ -37,5 +37,6 @@ test('range results are checked by the schema plus the envelope length invariant
     assert.deepEqual(parseBackendResult('range', result), result);
     assert.equal(schemaViolation('RangeResult', { ...result, channels: [{ ...envelope, absolutePeak: Number.NaN }] }), 'channels[0].absolutePeak');
     assert.equal(schemaViolation('RangeResult', { ...result, analysisRevision: 1.5 }), 'analysisRevision');
+    assert.equal(schemaViolation('RangeResult', { ...result, analysisRevision: -1 }), 'analysisRevision', 'results keep the non-negative revision check');
     assert.throws(() => parseBackendResult('range', { ...result, channels: [{ ...envelope, samples: [0] }] }), /Invalid range success response/);
 });

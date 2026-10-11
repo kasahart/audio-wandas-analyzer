@@ -11,6 +11,10 @@ export const BACKEND_PROTOCOL_SCHEMA = {
         "AnalysisRevision": {
             "type": "integer"
         },
+        "ResultAnalysisRevision": {
+            "type": "integer",
+            "minimum": 0
+        },
         "WaveformEnvelope": {
             "type": "object",
             "required": [
@@ -110,7 +114,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "type": "string"
                 },
                 "analysisRevision": {
-                    "$ref": "#/$defs/AnalysisRevision"
+                    "$ref": "#/$defs/ResultAnalysisRevision"
                 }
             }
         }

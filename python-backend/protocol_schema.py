@@ -34,7 +34,10 @@ DEFINITIONS: dict[str, Schema] = {
     # Deep calibration validation stays in calibration_profile.py / calibrationModel.ts.
     # No ``type`` so ``null`` keeps meaning "no profile", as for the other commands.
     "CalibrationProfile": {"x-tsType": "CalibrationProfile"},
+    # Requests accept any integer like the other commands; results keep the non-negative
+    # guarantee hasCalibrationResultMetadata enforces for every other result.
     "AnalysisRevision": {"type": "integer"},
+    "ResultAnalysisRevision": {"type": "integer", "minimum": 0},
     "WaveformEnvelope": {
         "type": "object",
         "required": ["min", "max", "samples", "absolutePeak"],
@@ -67,7 +70,7 @@ DEFINITIONS: dict[str, Schema] = {
             "endNorm": _NUMBER,
             "channels": {"type": "array", "items": {"$ref": "#/$defs/WaveformEnvelope"}},
             "calibrationSignature": {"type": "string"},
-            "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
         },
     },
 }
@@ -78,7 +81,8 @@ COMMANDS: dict[str, dict[str, str]] = {
 
 
 def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | None:
-    """Path of the first keyword outside ``SUPPORTED_KEYWORDS`` (all definitions by default), or None."""
+    """Path of the first keyword outside ``SUPPORTED_KEYWORDS`` or unresolvable ``$ref``
+    (all definitions by default), or None."""
     if schema is None:
         for name, definition in DEFINITIONS.items():
             found = unsupported_keyword(definition, f"$defs.{name}")
@@ -90,6 +94,8 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
     for key, child in schema.items():
         if key not in SUPPORTED_KEYWORDS:
             return f"{path}.{key}"
+        if key == "$ref" and (not child.startswith("#/$defs/") or child.removeprefix("#/$defs/") not in DEFINITIONS):
+            return f"{path}.$ref"
         nested = child.items() if key == "properties" else [(key, child)] if key == "items" else []
         for name, node in nested:
             found = unsupported_keyword(node, f"{path}.{name}")
@@ -101,7 +107,7 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
 def dump_schema() -> Schema:
     unsupported = unsupported_keyword()
     if unsupported is not None:
-        raise ValueError(f"protocol schema uses an unsupported keyword at {unsupported}")
+        raise ValueError(f"protocol schema uses an unsupported keyword or unknown $ref at {unsupported}")
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": DEFINITIONS,
