@@ -121,7 +121,9 @@ export function processStdoutLine(
         });
         return;
     }
-    if (parsed['type'] !== undefined) {
+    const correlated = typeof parsed['requestId'] === 'string' && pending.has(parsed['requestId']);
+    // A typed reply that names a pending request is settled (and rejected for its unknown `type`) so it cannot hang.
+    if (parsed['type'] !== undefined && !correlated) {
         handlers.onDiagnostic?.({
             kind: 'unknown-notification',
             message: `Backend emitted unknown notification: ${String(parsed['type'])}`,

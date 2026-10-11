@@ -135,3 +135,9 @@ test('schema commands agree with ajv on the protocol fixtures', () => {
         assert.equal(referenceIsValid({ $ref: `#/$defs/${definition}` }, result), schemaViolation(definition, result) === null, command);
     }
 });
+
+test('run-recipe results allow only charts at the top level', () => {
+    const chart = { kind: 'line', title: 'Level', extension: true };
+    assert.deepEqual(parseBackendResult('run-recipe', { charts: [chart] }), { charts: [chart] });
+    assert.throws(() => parseBackendResult('run-recipe', { charts: [], unexpected: 1 }), /Invalid run-recipe success response/);
+});

@@ -146,8 +146,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             worker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown }>): void => {
                 if (worker !== activeWorker) return;
                 // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
+                // A success reply with other outer keys is validated whole, so the closed result schema rejects it.
                 const { requestId, result, error } = event.data;
-                settleBackendRequest(pending, requestId, error === undefined ? result! : withoutResponseEnvelope(event.data), error);
+                const envelope: Record<string, unknown> = withoutResponseEnvelope(event.data);
+                const wellFormed = Object.keys(envelope).every(key => key === 'result' || envelope[key] === undefined);
+                settleBackendRequest(pending, requestId, error === undefined && wellFormed ? result! : envelope, error);
             };
             worker.onerror = (): void => {
                 if (worker !== activeWorker) return;

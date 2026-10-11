@@ -338,6 +338,17 @@ test('Worker error envelopes use the native correlation contract and empty error
     assert.equal(app.received.at(-1)?.error, 'Invalid error response for track-detail', 'a reply with result and error is malformed');
 });
 
+test('Worker success envelopes with extra outer keys are protocol errors', async () => {
+    const app = harness(); await app.load();
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    const worker = app.workers[0];
+    const command = worker.commands.at(-1)!;
+    worker.onmessage({ data: { requestId: command.requestId, result: {}, debug: 1 } });
+    await flush();
+    assert.equal(app.received.at(-1)?.type, 'track-detail-error');
+    assert.match(String(app.received.at(-1)?.error), /Invalid track-detail success response/);
+});
+
 test('browser recipes run on loaded tracks through the Worker and render charts in a fresh frame', async () => {
     const app = harness();
     app.host.postMessage({ type: 'run-recipe' });

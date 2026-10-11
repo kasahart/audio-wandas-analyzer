@@ -191,7 +191,9 @@ function isReleaseTrackDetailResult(value: unknown): value is ReleaseTrackDetail
 }
 
 function isRunRecipeResult(value: unknown): value is RunRecipeResult {
+    // Outside the generated schema: the envelope is closed here, each ChartSpec stays open.
     return isJsonObject(value)
+        && Object.keys(value).every(key => key === 'charts')
         && Array.isArray(value['charts'])
         && value['charts'].every((chart) => isJsonObject(chart)
             && ['line', 'heatmap', 'bar', 'scalar'].includes(String(chart['kind']))
