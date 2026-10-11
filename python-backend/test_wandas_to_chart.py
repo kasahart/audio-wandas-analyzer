@@ -80,9 +80,10 @@ def test_coherence_yields_multi_series(two_channel: wd.ChannelFrame) -> None:
 
 
 def test_cross_spectral_frame_yields_db_series(two_channel: wd.ChannelFrame) -> None:
-    spec = adapt(two_channel.csd(), title="CSD")
+    csd = two_channel.csd()
+    spec = adapt(csd, title="CSD")
     assert spec["kind"] == "line"
-    assert spec["yLabel"] == "Cross-spectral level [dB]"
+    assert spec["yLabel"] == f"Cross-spectral level [{csd.channels[0].level_reference.label}]"
     assert spec["yScale"] == "db"
     assert len(spec["series"]) >= 2
 
@@ -212,3 +213,42 @@ def test_linear_transfer_gain_preserves_channel_units_and_values(
     actual = np.array([series["ys"] for series in spec["series"]])
     finite = np.isfinite(frame.gain)
     np.testing.assert_allclose(actual[finite], frame.gain[finite])
+
+
+def test_long_channel_frame_is_decimated_and_keeps_peaks() -> None:
+    from wandas_to_chart import CHANNEL_FRAME_BUCKET_LIMIT
+
+    samples = np.zeros((2, 48000 * 3))
+    samples[0, 12345] = 0.9
+    samples[1, 99999] = -0.7
+    frame = wd.from_numpy(samples, sampling_rate=48000)
+    spec = adapt(frame)
+    assert len(spec["xs"]) == 2 * CHANNEL_FRAME_BUCKET_LIMIT
+    assert all(len(series["ys"]) == len(spec["xs"]) for series in spec["series"])
+    assert max(spec["series"][0]["ys"]) == pytest.approx(0.9)
+    assert min(spec["series"][1]["ys"]) == pytest.approx(-0.7)
+    assert spec["xs"] == sorted(spec["xs"])
+    assert spec["xs"][0] == 0.0
+    assert spec["xs"][-1] == pytest.approx(frame.time[-1])
+
+
+def test_short_channel_frame_keeps_every_sample(mono_sin: wd.ChannelFrame) -> None:
+    spec = adapt(mono_sin)
+    assert len(spec["xs"]) == mono_sin.n_samples
+
+
+def test_frame_subclasses_dispatch_like_their_base(mono_sin: wd.ChannelFrame) -> None:
+    spectral = mono_sin.welch()
+    subclass = type("CustomSpectralFrame", (type(spectral),), {})
+    spectral.__class__ = subclass
+    assert adapt(spectral)["kind"] == "line"
+
+
+def test_level_axis_label_uses_shared_level_reference(two_channel: wd.ChannelFrame) -> None:
+    calibration = wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5)
+    frame = two_channel.with_calibration({0: calibration, 1: calibration})
+    label = frame.channels[0].level_reference.label
+    assert adapt(frame.welch())["yLabel"] == f"Level [{label}]"
+    assert adapt(frame.noct_spectrum(fmin=125, fmax=4000, n=3))["yLabel"] == f"Level [{label}]"
+    mixed = two_channel.with_calibration({0: calibration})
+    assert adapt(mixed.welch())["yLabel"] == "Level [dB]"
