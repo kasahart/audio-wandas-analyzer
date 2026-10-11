@@ -20,7 +20,7 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
-import { installCalibrationDecorations } from './calibrationDecorations';
+import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
 import {
     hoverNormForFrequency as mapHoverNormForFrequency,
     spectrumBinAtFrequency as findSpectrumBinAtFrequency,
@@ -300,12 +300,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return { offsetSeconds: 0, hidden: false, color: null, defaultColor: defaultColor };
     }
     const trackStore = new TrackStore(state.results, createTrackRuntime);
-    function activeTrackList() {
-        return trackStore.activeIds().map(function (trackId) {
-            const record = trackStore.require(trackId);
-            return { trackIndex: record.protocolIndex, result: record.result };
-        });
-    }
     const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
     let analysisGeneration = 0;
     function createAnalysisId(): string {
@@ -1393,7 +1387,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function channelMetricSummaryHtml(ch: ChannelSummary) {
         const peakDb = ch ? channelLevel(ch, ch.peakLevelDb) : '—';
-        return '<span>Peak ' + escapeHtml(peakDb) + '</span>';
+        return '<span>' + escapeHtml(peakText(ch) ?? 'Peak ' + peakDb) + '</span>';
     }
     function buildChannelLane(result: ComparisonTrackState, trackIndex: number, channelIndex: number) {
         const trackId = trackIdAtIndex(trackIndex);
@@ -1426,16 +1420,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return buildChannelLane(result, i, channelIndex);
         }).join('');
     }
-    function isChannelClipped(channel: ChannelSummary): boolean {
-        if (channel.clipped !== undefined) {
-            return channel.clipped;
-        }
-        if (Number.isFinite(channel.rawPeakFullScale)) {
-            return Number(channel.rawPeakFullScale) >= 0.99;
-        }
-        return (!channel.measurement || channel.measurement.calibrationStatus === 'uncalibrated')
-            && channel.peakAbsolute >= 0.99;
-    }
     function buildTrackRow(result: ComparisonTrackState, i: number) {
         const trackId = trackIdAtIndex(i);
         if (!trackId) {
@@ -1451,7 +1435,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaDragHandle) + '" title="' + escapeHtml(STR.ariaDragHandle) + '">≡</div>'
             + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escapeHtml(STR.ariaPickColor) + '" title="' + escapeHtml(STR.trackPickColor) + '"></div>'
             + '    <div class="track-name" title="' + escapeHtml(result.filePath) + '">' + escapeHtml(result.fileName) + '</div>'
-            + (channels.some(isChannelClipped) ? '    <span class="clip-badge" title="' + escapeHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+            + (isClipped(channels) ? '    <span class="clip-badge" title="' + escapeHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
+            + '    ' + calibrationBadgeHtml(channels)
             + '  </div>'
             + '  <div class="track-meta">Total: ' + result.channelCount + ' ch &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
             + '  <div class="track-btns">'
@@ -1459,6 +1444,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '" title="' + escapeHtml(STR.trackStopTitle) + '" aria-label="' + escapeHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
             + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaTrackMute) + '" title="' + escapeHtml(STR.ariaTrackMute) + '" aria-pressed="' + !!trackStore.require(trackId).runtime.muted + '"' + (result.audioSource ? '' : ' disabled') + '>' + (trackStore.require(trackId).runtime.muted ? '🔇' : '🔊') + '</button>'
             + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaRemoveTrack) + '">✕</button>'
+            + '    ' + calibrationButtonHtml(trackId)
             + '  </div>'
             + '  <div class="track-offset">'
             + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '" title="' + escapeHtml(STR.trackOffsetResetHint) + '" aria-label="' + escapeHtml(STR.ariaOffsetValue) + '">+0.000s</span>'
@@ -2358,6 +2344,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             if (action === 'remove-track' && trackId) {
                 removeTrack(trackId);
+            }
+            if (action === 'configure-calibration' && trackId && idx !== null) {
+                e.preventDefault();
+                vscode.postMessage(calibrationRequest(idx, trackStore.require(trackId).result));
             }
             if (action === 'offset-up' && idx !== null) {
                 adjustOffset(idx, 0.01);
@@ -4060,6 +4050,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!canvas) {
             return;
         }
+        const visibleResults = trackStore.displayOrder.map(function (trackId) { return trackStore.require(trackId); })
+            .filter(function (record) { return !record.runtime.hidden; })
+            .map(function (record) { return record.result; });
+        applyOverlayCompatibility(document as unknown as Document, hasIncompatibleLevelReferences(visibleResults));
         const wrap = document.getElementById('spectrum-overlay-wrap');
         const w = contentBoxWidth(wrap, 800);
         const prevW = canvas.width;
@@ -4691,5 +4685,5 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }, true);
     })();
     __updateSpecGearVisibility();
-    installCalibrationDecorations({ window: window as unknown as Window & typeof globalThis, document: document as unknown as Document, host: vscode, activeTracks: activeTrackList });
+    ensureCalibrationStyles(document as unknown as Document);
 }

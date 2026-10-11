@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
-import { calibrationSummary, isClipped } from '../webview/runtime/calibrationDecorations';
+import { calibrationBadgeHtml, calibrationRequest, calibrationSummary, hasIncompatibleLevelReferences, isClipped, peakText } from '../webview/runtime/calibrationDecorations';
+import type { ComparisonTrackState } from '../webview/runtime/types';
 import { BackendRequestError } from '../shared/protocol/backendProtocol';
 
 test('configure-calibration message guard accepts exact channel metadata', () => {
@@ -86,6 +87,26 @@ test('calibration badges summarize the channel calibration and raw clipping', ()
     assert.equal(isClipped([channel({ rawPeakFullScale: 0.99 })]), true);
     assert.equal(isClipped([channel({ peakAbsolute: 1 })]), true, 'uncalibrated peaks fall back to the displayed peak');
     assert.equal(isClipped([channel({ peakAbsolute: 1, measurement: measurement('Pa') })]), false);
+});
+
+test('calibration row helpers draw badges, peak text, requests and the overlay guard', () => {
+    const measurement = (linearUnit: string, levelReferenceLabel: string) => ({
+        calibrationStatus: 'calibrated' as const, calibrationSource: 'manual' as const, factor: 2, linearUnit,
+        referenceValue: 2e-5, referenceUnit: linearUnit, levelUnit: 'dB SPL', levelReferenceLabel,
+    });
+    const channel = (extra: object) => ({ label: 'L', peakAbsolute: 5, peakLevelDb: 80, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
+    const track = (channels: object[]) => ({ filePath: '/a.wav', fileName: 'a.wav', channels }) as unknown as ComparisonTrackState;
+    const pa = measurement('Pa', 'dB SPL re 20 µPa');
+
+    assert.equal(calibrationBadgeHtml([channel({ measurement: measurement('<b>', 'x') })]), '<span class="calibration-badge" title="&lt;b&gt;; factor 2; x">CAL: &lt;b&gt;</span>');
+    assert.equal(peakText(channel({})), null, 'uncalibrated channels keep the runtime dBFS text');
+    assert.match(peakText(channel({ measurement: pa })) ?? '', /^Peak 5\.00 Pa/);
+    assert.deepEqual(calibrationRequest(3, track([channel({}), channel({ label: '' })])), {
+        type: 'configure-calibration', trackIndex: 3, filePath: '/a.wav',
+        channels: [{ channelIndex: 0, label: 'L' }, { channelIndex: 1, label: 'Channel 2' }],
+    });
+    assert.equal(hasIncompatibleLevelReferences([track([channel({ measurement: pa })]), track([channel({ measurement: pa }), channel({})])]), false);
+    assert.equal(hasIncompatibleLevelReferences([track([channel({ measurement: pa })]), track([channel({ measurement: measurement('m/s^2', 'dB re 1 m/s^2') })])]), true);
 });
 
 test('calibration uses composition rather than global prototype or panel-method patches', () => {
