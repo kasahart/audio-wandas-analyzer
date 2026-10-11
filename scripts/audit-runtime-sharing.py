@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 UI_ROOTS = [
     'src/webview/runtime/comparisonEntry.ts',
+    'src/webview/runtime/chartSpecEntry.ts',
     'src/webview/waveform/waveformRenderer.ts',
     'src/webview/draw/canvasDrawers.ts',
     'src/webview/panels/comparisonDocument.ts',

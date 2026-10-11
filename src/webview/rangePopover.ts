@@ -1,6 +1,4 @@
-// Axis range popover shared by the comparison runtime (bundled import) and the recipe ChartSpec
-// render script (inlined through Function.prototype.toString(), so this function must stay
-// self-contained: no references to anything outside its own body).
+// Axis range popover shared by the comparison runtime and the recipe ChartSpec renderer.
 
 export interface RangePopoverStrings {
     title: string;

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { getChartSpecRenderScript } from '../webview/chartSpecRenderScript';
+import { renderChartSpecDocument, type ChartSpecGlobals } from '../webview/panels/chartSpecDocument';
+import { startChartSpecRenderer } from '../webview/runtime/chartSpecRuntime';
 import { normalizedColor, viridis } from '../shared/gui-core/index';
 import { getStrings, rangePopoverStrings } from '../shared/i18n/strings';
 
@@ -37,10 +38,14 @@ function applyCanvasStub(
     };
 }
 
+function renderCharts(dom: JSDOM): void {
+    startChartSpecRenderer(dom.window as unknown as Window, dom.window.document, dom.window as unknown as Partial<ChartSpecGlobals>);
+}
+
 function setupChartEnv(specs: unknown[], fillTextSpy?: (text: string) => void) {
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="charts"></div>
-    </body></html>`, { runScripts: 'dangerously' });
+    </body></html>`);
     const win = dom.window as unknown as Record<string, unknown>;
     win.__CHART_SPECS__ = specs;
     win.__CHART_NO_RESULTS_LABEL__ = 'No results';
@@ -48,9 +53,7 @@ function setupChartEnv(specs: unknown[], fillTextSpy?: (text: string) => void) {
 
     applyCanvasStub(dom.window.document, fillTextSpy);
 
-    const script = dom.window.document.createElement('script');
-    script.textContent = getChartSpecRenderScript();
-    dom.window.document.body.appendChild(script);
+    renderCharts(dom);
     return dom;
 }
 
@@ -78,7 +81,7 @@ test('range-popup が HTML になくても buildRangePopup() が注入する', (
     // No #range-popup in the HTML template — injection path must run
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="charts"></div>
-    </body></html>`, { runScripts: 'dangerously' });
+    </body></html>`);
     const win = dom.window as unknown as Record<string, unknown>;
     win.__CHART_SPECS__ = [{
         kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
@@ -89,9 +92,7 @@ test('range-popup が HTML になくても buildRangePopup() が注入する', (
 
     applyCanvasStub(dom.window.document);
 
-    const script = dom.window.document.createElement('script');
-    script.textContent = getChartSpecRenderScript();
-    dom.window.document.body.appendChild(script);
+    renderCharts(dom);
 
     const popup = dom.window.document.getElementById('range-popup');
     assert.ok(popup, 'buildRangePopup() が #range-popup を body に注入すること');
@@ -235,7 +236,7 @@ test('Apply で redraw に override が渡される（fillText で軸ラベル�
     const filledTexts: string[] = [];
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="charts"></div>
-    </body></html>`, { runScripts: 'dangerously' });
+    </body></html>`);
     const win = dom.window as unknown as Record<string, unknown>;
     win.__CHART_SPECS__ = [{
         kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y',
@@ -246,9 +247,7 @@ test('Apply で redraw に override が渡される（fillText で軸ラベル�
 
     applyCanvasStub(dom.window.document, (text: string) => { filledTexts.push(text); });
 
-    const script = dom.window.document.createElement('script');
-    script.textContent = getChartSpecRenderScript();
-    dom.window.document.body.appendChild(script);
+    renderCharts(dom);
 
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
     canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
@@ -533,7 +532,7 @@ test('Heatmap の Y レンジを Apply すると軸ラベルが変化する', ()
     const filledTexts: string[] = [];
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="charts"></div>
-    </body></html>`, { runScripts: 'dangerously' });
+    </body></html>`);
     const win = dom.window as unknown as Record<string, unknown>;
     win.__CHART_SPECS__ = [{
         kind: 'heatmap', title: 'H', xLabel: 'X', yLabel: 'Y',
@@ -545,9 +544,7 @@ test('Heatmap の Y レンジを Apply すると軸ラベルが変化する', ()
 
     applyCanvasStub(dom.window.document, (text: string) => { filledTexts.push(text); });
 
-    const script = dom.window.document.createElement('script');
-    script.textContent = getChartSpecRenderScript();
-    dom.window.document.body.appendChild(script);
+    renderCharts(dom);
 
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
     canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
@@ -569,7 +566,7 @@ test('Heatmap の X レンジを Apply すると軸ラベルが変化する', ()
     const filledTexts: string[] = [];
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="charts"></div>
-    </body></html>`, { runScripts: 'dangerously' });
+    </body></html>`);
     const win = dom.window as unknown as Record<string, unknown>;
     win.__CHART_SPECS__ = [{
         kind: 'heatmap', title: 'H', xLabel: 'X', yLabel: 'Y',
@@ -581,9 +578,7 @@ test('Heatmap の X レンジを Apply すると軸ラベルが変化する', ()
 
     applyCanvasStub(dom.window.document, (text: string) => { filledTexts.push(text); });
 
-    const script = dom.window.document.createElement('script');
-    script.textContent = getChartSpecRenderScript();
-    dom.window.document.body.appendChild(script);
+    renderCharts(dom);
 
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
     // X 軸エリア dblclick
@@ -607,7 +602,7 @@ function heatmapZoomRaster(axis: 'x' | 'y'): { width: number; height: number; da
     const images: Array<{ width: number; height: number; data: Uint8ClampedArray }> = [];
     const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="charts"></div>
-    </body></html>`, { runScripts: 'dangerously' });
+    </body></html>`);
     const win = dom.window as unknown as Record<string, unknown>;
     win.__CHART_SPECS__ = [{
         kind: 'heatmap', title: 'H', xLabel: 'X', yLabel: 'Y',
@@ -622,9 +617,7 @@ function heatmapZoomRaster(axis: 'x' | 'y'): { width: number; height: number; da
     win.__CHART_NO_RESULTS_LABEL__ = 'No results';
     win.__CHART_SCALAR_HEADERS__ = ['Label', 'Value', 'Unit'];
     applyCanvasStub(dom.window.document, undefined, undefined, image => { images.push(image); });
-    const script = dom.window.document.createElement('script');
-    script.textContent = getChartSpecRenderScript();
-    dom.window.document.body.appendChild(script);
+    renderCharts(dom);
 
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
     canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', {
@@ -706,14 +699,12 @@ test('heatmap color scales visibly display their calibrated reference', () => {
 });
 
 test('recipe range popover is localized through the shared dictionary', () => {
-    const dom = new JSDOM(`<!DOCTYPE html><html><body><div id="charts"></div></body></html>`, { runScripts: 'dangerously' });
+    const dom = new JSDOM(`<!DOCTYPE html><html><body><div id="charts"></div></body></html>`);
     const win = dom.window as unknown as Record<string, unknown>;
     win.__CHART_SPECS__ = [{ kind: 'line', title: 'T', xLabel: 'X', yLabel: 'Y', xs: [0, 1], series: [{ name: 's', ys: [0, 1] }] }];
     win.__CHART_RANGE_STRINGS__ = rangePopoverStrings(getStrings('ja'));
     applyCanvasStub(dom.window.document);
-    const script = dom.window.document.createElement('script');
-    script.textContent = getChartSpecRenderScript();
-    dom.window.document.body.appendChild(script);
+    renderCharts(dom);
     const canvas = dom.window.document.querySelector('canvas') as HTMLElement;
     canvas.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 300, clientY: 220 }));
     const popup = dom.window.document.getElementById('range-popup') as HTMLElement;
@@ -728,7 +719,7 @@ test('recipe range popover is localized through the shared dictionary', () => {
 });
 
 test('Line チャートは null 値で線を切り、0 として描かない', () => {
-    const dom = new JSDOM(`<!DOCTYPE html><html><body><div id="charts"></div></body></html>`, { runScripts: 'dangerously' });
+    const dom = new JSDOM(`<!DOCTYPE html><html><body><div id="charts"></div></body></html>`);
     const win = dom.window as unknown as Record<string, unknown>;
     win.__CHART_SPECS__ = [{
         kind: 'line', title: 'Phase', xLabel: 'X', yLabel: 'Y',
@@ -760,9 +751,17 @@ test('Line チャートは null 値で線を切り、0 として描かない', (
         }
         return el;
     };
-    const script = doc.createElement('script');
-    script.textContent = getChartSpecRenderScript();
-    doc.body.appendChild(script);
+    renderCharts(dom);
     assert.deepEqual(pathOps, ['moveTo', 'lineTo', 'moveTo', 'lineTo']);
     dom.window.close();
+});
+
+test('ChartSpec document loads the bundled renderer by nonce under the webview CSP source', () => {
+    const html = renderChartSpecDocument('Recipe', [{ kind: 'scalar', title: 'Peak', rows: [] }], {
+        language: 'en', nonce: 'n1', rendererScriptUri: 'vscode-resource:/ext/dist/webview/chartSpecRuntime.js', cspSource: 'vscode-resource:',
+    });
+    assert.match(html, /script-src 'nonce-n1' vscode-resource:;/);
+    assert.match(html, /<script nonce="n1" src="vscode-resource:\/ext\/dist\/webview\/chartSpecRuntime\.js"><\/script>/);
+    assert.match(html, /window\.__CHART_SPECS__ = \[\{"kind":"scalar"/);
+    assert.doesNotMatch(html, /installRangePopover/);
 });

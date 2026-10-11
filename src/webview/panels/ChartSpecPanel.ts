@@ -10,11 +10,16 @@ export class ChartSpecPanel {
             vscode.ViewColumn.Beside,
             {
                 enableScripts: true,
-                localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+                localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media'), vscode.Uri.joinPath(extensionUri, 'dist', 'webview')],
             },
         );
         const language = typeof vscode.env?.language === 'string' ? vscode.env.language : 'en';
-        panel.webview.html = renderChartSpecDocument(title, charts, { language, nonce: Date.now().toString() });
+        panel.webview.html = renderChartSpecDocument(title, charts, {
+            language,
+            nonce: Date.now().toString(),
+            rendererScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'chartSpecRuntime.js')).toString(),
+            cspSource: panel.webview.cspSource,
+        });
         return panel;
     }
 }
