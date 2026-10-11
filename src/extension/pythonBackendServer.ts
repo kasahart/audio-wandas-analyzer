@@ -22,18 +22,9 @@ import {
     type BackendResult,
 } from '../shared/protocol/backendProtocol';
 import { getPythonCommand, resolveConfiguredPythonCommand } from './pythonEnvironment';
+import { AnalysisRequestError } from './analysisRequestError';
 
-export class AnalysisRequestError extends Error {
-    constructor(
-        message: string,
-        readonly analysisRevision: number,
-        readonly backendStartupFailure = false,
-        options?: ErrorOptions,
-    ) {
-        super(message, options);
-        this.name = 'AnalysisRequestError';
-    }
-}
+export { AnalysisRequestError };
 
 class RecipeBackendRestartError extends Error {}
 

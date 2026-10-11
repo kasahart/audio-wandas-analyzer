@@ -3,13 +3,15 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import numpy as np
 import wandas as wd
 
 from backend_errors import InputError
 from calibration_profile import (
+    CalibrationSource,
+    CalibrationStatus,
     ResolvedCalibrationProfile,
     ResolvedChannelCalibration,
 )
@@ -21,6 +23,71 @@ SPECTROGRAM_TIME_BIN_LIMIT = 720
 SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
 DB_UNIT = "dB"
 SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum amplitude level [dB]"
+# Raw full-scale peak at or above which a channel is reported as clipped.
+CLIPPING_FULL_SCALE_THRESHOLD = 0.99
+
+
+class MeasurementMetadata(TypedDict):
+    calibrationStatus: CalibrationStatus
+    calibrationSource: CalibrationSource
+    factor: float
+    linearUnit: str
+    referenceValue: float
+    referenceUnit: str
+    levelUnit: str
+    levelReferenceLabel: str
+
+
+class LevelScaleMetadata(TypedDict):
+    unit: str
+    axisLabel: str
+    referenceValue: float
+    referenceUnit: str
+    levelReferenceLabel: str
+
+
+class AnalysisUnits(TypedDict):
+    amplitudeLevel: LevelScaleMetadata
+    spectrumLevel: LevelScaleMetadata
+    spectrogramLevel: LevelScaleMetadata
+
+
+class SpectrogramPayload(LevelScaleMetadata):
+    values: list[list[float]]
+    timeBins: int
+    frequencyBins: int
+    windowSize: int
+    hopSize: int
+    maxFrequencyHz: float
+    minDb: float
+    maxDb: float
+
+
+class ChannelSummary(TypedDict):
+    label: str
+    unit: str
+    measurement: MeasurementMetadata
+    peakAbsolute: float
+    peakLevelDb: float
+    rawPeakFullScale: float
+    clipped: bool
+    waveform: dict[str, object]
+    spectrogram: SpectrogramPayload | None
+
+
+class AnalysisResult(TypedDict):
+    filePath: str
+    fileName: str
+    sampleRateHz: int
+    durationSeconds: float
+    channelCount: int
+    sampleCount: int
+    schemaVersion: int
+    calibrationSignature: str
+    calibrationProfile: dict[str, object]
+    channels: list[ChannelSummary]
+    units: NotRequired[AnalysisUnits]
+    analysisRevision: NotRequired[int]
 
 
 def sample_range(start_norm: float, end_norm: float, sample_count: int) -> tuple[int, int]:
@@ -31,7 +98,7 @@ def sample_range(start_norm: float, end_norm: float, sample_count: int) -> tuple
 def measurement_metadata(
     channel: ResolvedChannelCalibration,
     reference: wd.LevelReference,
-) -> dict[str, object]:
+) -> MeasurementMetadata:
     return {
         "calibrationStatus": channel.status,
         "calibrationSource": channel.source,
@@ -44,7 +111,7 @@ def measurement_metadata(
     }
 
 
-def level_scale_metadata(reference: wd.LevelReference, quantity_label: str) -> dict[str, object]:
+def level_scale_metadata(reference: wd.LevelReference, quantity_label: str) -> LevelScaleMetadata:
     return {
         "unit": reference.unit,
         "axisLabel": f"{quantity_label} [{reference.label}]",
@@ -54,7 +121,7 @@ def level_scale_metadata(reference: wd.LevelReference, quantity_label: str) -> d
     }
 
 
-def _analysis_units_metadata(references: list[wd.LevelReference]) -> dict[str, object] | None:
+def _analysis_units_metadata(references: list[wd.LevelReference]) -> AnalysisUnits | None:
     if not references:
         return None
     first = references[0]
@@ -153,11 +220,11 @@ def _build_spectrogram(
     sample_rate_hz: int,
     window_size: int,
     hop_size: int,
-    scale_metadata: dict[str, object] | None = None,
+    scale_metadata: LevelScaleMetadata | None = None,
     time_bin_limit: int = SPECTROGRAM_TIME_BIN_LIMIT,
     frequency_bin_limit: int = SPECTROGRAM_FREQUENCY_BIN_LIMIT,
-) -> dict[str, object]:
-    scale = scale_metadata or {
+) -> SpectrogramPayload:
+    scale: LevelScaleMetadata = scale_metadata or {
         "unit": DB_UNIT,
         "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
         "referenceValue": 1.0,
@@ -249,7 +316,7 @@ def analyze_from_frame(
     stft_options: Mapping[str, object] | None = None,
     spectrogram_frame: wd.SpectrogramFrame | None = None,
     include_spectrogram: bool = False,
-) -> dict[str, object]:
+) -> AnalysisResult:
     """Build the AnalysisResult JSON payload from a ChannelFrame."""
     target = Path(file_path)
     t_frame = time.perf_counter()
@@ -280,7 +347,7 @@ def analyze_from_frame(
             raise ValueError(f"Expected 2D or 3D spectrogram data, got shape {stft_db.shape}")
 
     t_channels = time.perf_counter()
-    channels: list[dict[str, object]] = []
+    channels: list[ChannelSummary] = []
     for index in range(channel_count):
         samples = data[index]
         measurement = measurements[index]
@@ -304,7 +371,7 @@ def analyze_from_frame(
                 "peakAbsolute": peak,
                 "peakLevelDb": references[index].to_level(peak),
                 "rawPeakFullScale": raw_peak,
-                "clipped": raw_peak >= 0.99,
+                "clipped": raw_peak >= CLIPPING_FULL_SCALE_THRESHOLD,
                 "waveform": build_waveform_envelope(
                     samples,
                     WAVEFORM_POINT_LIMIT,
@@ -317,7 +384,7 @@ def analyze_from_frame(
 
     _perf("channels_build", t_channels, count=channel_count)
 
-    result: dict[str, object] = {
+    result: AnalysisResult = {
         "filePath": str(target),
         "fileName": target.name,
         "sampleRateHz": sample_rate_hz,

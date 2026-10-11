@@ -11,7 +11,14 @@ import wandas as wd
 
 from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
-from analyzer import _build_spectrogram, resample_frequency_bins
+from analyzer import (
+    AnalysisResult,
+    ChannelSummary,
+    MeasurementMetadata,
+    SpectrogramPayload,
+    _build_spectrogram,
+    resample_frequency_bins,
+)
 
 
 @pytest.fixture
@@ -21,6 +28,10 @@ def service() -> AnalysisService:
 
 def _mean_power_db(values_db: list[float]) -> float:
     return float(10.0 * np.log10(np.mean(np.power(10.0, np.asarray(values_db) / 10.0))))
+
+
+def _typed_dict_keys(typed_dict: type) -> set[str]:
+    return set(typed_dict.__required_keys__ | typed_dict.__optional_keys__)
 
 
 def _write_sine_wav(path: Path, freq_hz: float = 440.0, seconds: float = 1.0, sr: int = 16000) -> None:
@@ -42,6 +53,10 @@ def test_service_analyze_defaults(tmp_path: Path, service: AnalysisService) -> N
     assert spec["windowSize"] > 0
     assert spec["hopSize"] > 0
     assert ch["unit"] == "FS"
+    assert set(result) == _typed_dict_keys(AnalysisResult)
+    assert set(ch) == _typed_dict_keys(ChannelSummary)
+    assert set(ch["measurement"]) == _typed_dict_keys(MeasurementMetadata)
+    assert set(spec) == _typed_dict_keys(SpectrogramPayload)
     assert result["units"]["spectrumLevel"] == {
         "unit": "dBFS",
         "axisLabel": "Spectrum amplitude level [dBFS]",

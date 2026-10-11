@@ -10,9 +10,12 @@
  * two sides surfaces there.
  */
 
+/** Plotted values are `null` where the source was NaN/inf; renderers leave those points out. */
+export type ChartValue = number | null;
+
 export interface LineSeries {
     name: string;
-    ys: number[];
+    ys: ChartValue[];
     unit?: string;
 }
 
@@ -34,7 +37,7 @@ export interface HeatmapChart {
     yLabel: string;
     xs: number[];
     ys: number[];
-    matrix: number[][];
+    matrix: ChartValue[][];
     unit?: string;
     colormap?: string;
     vmin?: number;
@@ -43,7 +46,7 @@ export interface HeatmapChart {
 
 export interface BarSeries {
     name: string;
-    values: number[];
+    values: ChartValue[];
     unit?: string;
 }
 

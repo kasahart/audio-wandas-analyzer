@@ -13,6 +13,8 @@ import soundfile as sf
 from analysis_engine import AnalysisEngine
 from analyzer import (
     SPECTROGRAM_FREQUENCY_BIN_LIMIT,
+    AnalysisResult,
+    ChannelSummary,
     StftOptions,
     analyze_from_frame,
     build_waveform_envelope,
@@ -23,6 +25,7 @@ from analyzer import (
     sample_range,
 )
 from backend_errors import InputError
+from chart_spec import ChartSpec
 
 
 class TrackDetailResult(TypedDict):
@@ -30,7 +33,7 @@ class TrackDetailResult(TypedDict):
     analysisId: str | None
     settingsSignature: str | None
     filePath: str
-    channels: list[dict[str, object]]
+    channels: list[ChannelSummary]
     calibrationSignature: str
     analysisRevision: int
 
@@ -61,6 +64,10 @@ class WavLoopExportResult(TypedDict):
     sampleRate: int
 
 
+class RecipeRunResult(TypedDict):
+    charts: list[ChartSpec]
+
+
 def _optional_text(value: object) -> str | None:
     return None if value is None else str(value)
 
@@ -82,7 +89,7 @@ class AnalysisService:
         stft_options: Mapping[str, object] | None = None,
         calibration_profile: object = None,
         analysis_revision: object = 0,
-    ) -> dict[str, object]:
+    ) -> AnalysisResult:
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         result = analyze_from_frame(
             analysis_frame,
@@ -292,7 +299,7 @@ class AnalysisService:
         *,
         recipe_path: str | None = None,
         input_contexts: Mapping[str, object] | None = None,
-    ) -> dict[str, object]:
+    ) -> RecipeRunResult:
         from recipe_runner import RecipeError, evaluate_recipe
 
         base_dir = Path(recipe_path).parent if recipe_path else Path.cwd()
@@ -316,6 +323,7 @@ class AnalysisService:
 
 __all__ = [
     "AnalysisService",
+    "RecipeRunResult",
     "SpectrumSliceResult",
     "StftOptions",
     "TrackDetailResult",
