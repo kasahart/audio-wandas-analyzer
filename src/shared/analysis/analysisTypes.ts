@@ -1,3 +1,5 @@
+import type { WaveformEnvelope } from '../protocol/generated/backendProtocolSchema';
+
 export interface DbScaleMetadata {
     unit: string;
     axisLabel: string;
@@ -55,14 +57,7 @@ export interface ChannelMeasurementContext {
     levelReferenceLabel: string;
 }
 
-export interface WaveformEnvelope {
-    min: number[];
-    max: number[];
-    minT?: number[];
-    maxT?: number[];
-    samples: number[];
-    absolutePeak: number;
-}
+export type { WaveformEnvelope };
 
 export interface SpectrogramData {
     values: number[][];

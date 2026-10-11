@@ -73,7 +73,7 @@ def _optional_text(value: object) -> str | None:
 
 
 def _analysis_revision(value: object) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not (isinstance(value, int) or (isinstance(value, float) and value.is_integer())):
         raise InputError("analysisRevision must be an integer")
     return int(value)
 

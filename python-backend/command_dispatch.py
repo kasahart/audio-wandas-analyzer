@@ -7,7 +7,8 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from backend_errors import InputError
-from decimator import MAX_WAVEFORM_POINTS
+from protocol_schema import COMMANDS as SCHEMA_COMMANDS
+from protocol_schema import payload_violation
 
 if TYPE_CHECKING:
     from analysis_service import AnalysisService
@@ -35,12 +36,6 @@ def _is_object(value: object) -> bool:
 
 _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
     "analyze": {"filePath": _is_string},
-    "range": {
-        "filePath": _is_string,
-        "startNorm": _is_finite_number,
-        "endNorm": _is_finite_number,
-        "points": lambda value: _is_integer(value) and value <= MAX_WAVEFORM_POINTS,
-    },
     "track-detail": {
         "filePath": _is_string,
         "trackIndex": _is_integer,
@@ -86,8 +81,12 @@ def validate_request(value: object) -> Command:
     name = value.get("cmd")
     if not isinstance(name, str):
         raise InputError("invalid request field 'cmd'")
-    fields = _REQUEST_FIELDS.get(name)
-    if fields is None:
+    if name in SCHEMA_COMMANDS:
+        violation = payload_violation(name, value)
+        if violation is not None:
+            raise InputError(f"invalid request field {violation!r} for command {name!r}")
+        fields = {}
+    elif (fields := _REQUEST_FIELDS.get(name)) is None:
         raise InputError(f"unknown cmd: {name!r}")
     for key, validator in fields.items():
         if key not in value or not validator(value[key]):

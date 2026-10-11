@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 
 from backend_errors import InputError
+from protocol_schema import MAX_WAVEFORM_POINTS
 
-MAX_WAVEFORM_POINTS = 8192
 _DECIMATION_BLOCK_SAMPLES = 65536
 
 

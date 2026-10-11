@@ -27,6 +27,9 @@ npm run compile
 echo "==> webview pattern lint"
 node scripts/lint-webview-patterns.js
 
+echo "==> generated protocol types (python-backend/protocol_schema.py)"
+node scripts/generate-protocol-types.mjs
+
 echo "==> single-source consistency (dependency pins, browser limits)"
 node scripts/check-single-sources.mjs
 
