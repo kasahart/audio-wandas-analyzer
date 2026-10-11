@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import functools
 import json
+import sys
+import traceback
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -13,7 +15,7 @@ import wandas as wd
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
 from analysis_service import AnalysisService
 from analyzer import resolve_stft_params, sample_range
-from backend_errors import error_payload
+from backend_errors import INTERNAL_ERROR, InputError, error_payload
 from calibration_profile import source_channel_peaks
 from command_dispatch import dispatch, validate_request
 
@@ -57,9 +59,9 @@ class BrowserEngine(AnalysisEngine):
 
     def load(self, source_id: str, payload: bytes) -> dict[str, object]:
         if not payload or len(payload) > MAX_INPUT_BYTES:
-            raise ValueError(f"Select a non-empty WAV up to {_mib(MAX_INPUT_BYTES)}")
+            raise InputError(f"Select a non-empty WAV up to {_mib(MAX_INPUT_BYTES)}")
         if payload[:4] != b"RIFF" or payload[8:12] != b"WAVE":
-            raise ValueError("This prototype supports RIFF WAV only")
+            raise InputError("This prototype supports RIFF WAV only")
         header = wd.inspect(payload, file_type=".wav")
         length, channels, rate = (int(header[key]) for key in ("frames", "channels", "samplerate"))
         if (
@@ -68,30 +70,30 @@ class BrowserEngine(AnalysisEngine):
             or not MIN_SAMPLE_RATE_HZ <= rate <= MAX_SAMPLE_RATE_HZ
             or length / rate > MAX_DURATION_SECONDS
         ):
-            raise ValueError(
+            raise InputError(
                 f"Prototype limits: 32+ samples, 1–{MAX_CHANNELS} channels, "
                 f"{MIN_SAMPLE_RATE_HZ // 1000}–{MAX_SAMPLE_RATE_HZ // 1000} kHz, "
                 f"up to {MAX_DURATION_SECONDS} seconds"
             )
         path = Path("/sources") / source_id
         if path.name != source_id or not source_id.endswith(".wav"):
-            raise ValueError("Invalid source identity")
+            raise InputError("Invalid source identity")
         if path in self._files:
-            raise ValueError("Source identity is already loaded")
+            raise InputError("Source identity is already loaded")
         frame_bytes = length * channels * AUDIO_CACHE_DTYPE.itemsize
         input_bytes = self.input_bytes + len(payload)
         decoded_bytes = sum(entry.frame_nbytes for entry in self._files.values()) + frame_bytes
         if len(self._files) >= MAX_SOURCES or input_bytes > MAX_TOTAL_INPUT_BYTES:
-            raise ValueError(
+            raise InputError(
                 f"Browser session limit: up to {MAX_SOURCES} WAV files / {_mib(MAX_TOTAL_INPUT_BYTES)} total input"
             )
         if decoded_bytes > MAX_TOTAL_DECODED_BYTES:
-            raise ValueError(f"Browser session exceeds {_mib(MAX_TOTAL_DECODED_BYTES)} decoded audio budget")
+            raise InputError(f"Browser session exceeds {_mib(MAX_TOTAL_DECODED_BYTES)} decoded audio budget")
         if self.estimated_bytes(len(payload) * 2 + frame_bytes * 8) > MAX_ESTIMATED_BYTES:
-            raise ValueError("Loading exceeds browser estimated memory budget; remove another track")
+            raise InputError("Loading exceeds browser estimated memory budget; remove another track")
         frame = wd.read(payload, file_type=".wav", source_name=source_id).astype(AUDIO_CACHE_DTYPE).cache()
         if not np.isfinite(frame.data).all():
-            raise ValueError("WAV contains non-finite samples")
+            raise InputError("WAV contains non-finite samples")
         self._files[path] = CachedAnalysis(
             path=path,
             frame=frame,
@@ -122,7 +124,7 @@ class BrowserEngine(AnalysisEngine):
         path = Path(file_path)
         cached = self._files.get(path)
         if cached is None:
-            raise ValueError("Source is no longer selected")
+            raise InputError("Source is no longer selected")
         self._files.move_to_end(path)
         return cached
 
@@ -152,7 +154,7 @@ class BrowserEngine(AnalysisEngine):
         cached = self.get_file(file_path)
         length, channels = cached.frame.n_samples, cached.frame.n_channels
         if length < n_fft // 2:
-            raise ValueError("WAV is too short for this STFT window; choose a smaller window")
+            raise InputError("WAV is too short for this STFT window; choose a smaller window")
         key = (n_fft, hop_length, window)
         if any(old[1:] != key for old in cached.spectrograms):
             self.discard_spectrograms(file_path)
@@ -161,7 +163,7 @@ class BrowserEngine(AnalysisEngine):
             return existing
         working = length * channels * 32 + ((length // hop_length) + 5) * channels * (n_fft // 2 + 1) * 56
         if self.estimated_bytes(working) > MAX_ESTIMATED_BYTES:
-            raise ValueError("STFT exceeds prototype estimated memory budget; increase hop size")
+            raise InputError("STFT exceeds prototype estimated memory budget; increase hop size")
         return super().get_spectrogram(file_path, n_fft, hop_length, window, calibration_profile)
 
 
@@ -185,7 +187,7 @@ class BrowserService(AnalysisService):
             if not resolved.is_absolute():
                 resolved = (Path(recipe_path).parent if recipe_path else Path.cwd()) / resolved
             if not self.engine.is_loaded(resolved):
-                raise ValueError(f"Recipe input {file!r} is not a loaded source")
+                raise InputError(f"Recipe input {file!r} is not a loaded source")
         return super().run_recipe(recipe, recipe_path=recipe_path, input_contexts=input_contexts)
 
 
@@ -205,7 +207,10 @@ def _json_reply(function: Callable[..., str]) -> Callable[..., str]:
         try:
             return function(*args)
         except Exception as error:
-            return json.dumps({"error": error_payload(error)})
+            payload = error_payload(error)
+            if payload["code"] == INTERNAL_ERROR:
+                traceback.print_exc(file=sys.stderr)
+            return json.dumps({"error": payload})
 
     return reply
 
@@ -215,7 +220,7 @@ def load_source(source_id: str, payload: object) -> str:
     try:
         return json.dumps(service.engine.load(source_id, bytes(payload)))
     except sf.LibsndfileError as error:
-        raise ValueError("Unable to read WAV: invalid or unsupported WAV data") from error
+        raise InputError("Unable to read WAV: invalid or unsupported WAV data") from error
 
 
 @_json_reply
@@ -233,12 +238,12 @@ def release_source(file_path: str) -> str:
 def prepare_export_json(raw: str) -> str:
     commands = json.loads(raw)
     if not isinstance(commands, list) or not 1 <= len(commands) <= MAX_SOURCES:
-        raise ValueError(f"Select up to {MAX_SOURCES} sources for export")
+        raise InputError(f"Select up to {MAX_SOURCES} sources for export")
     if any(not isinstance(command, dict) for command in commands):
-        raise ValueError("Invalid export plan")
+        raise InputError("Invalid export plan")
     commands = [validate_request({**command, "requestId": f"export-{index}"}) for index, command in enumerate(commands)]
     if any(command["cmd"] != "export-wav-loop" for command in commands):
-        raise ValueError("Invalid export plan")
+        raise InputError("Invalid export plan")
     engine = service.engine
     engine.discard_all_spectrograms()
     sizes = []
@@ -248,7 +253,7 @@ def prepare_export_json(raw: str) -> str:
         sizes.append(max(0, end - start) * cached.frame.n_channels * 2 + 44)
     estimated = engine.estimated_bytes(sum(sizes) * 4 + max(sizes) * 6)
     if estimated > MAX_ESTIMATED_BYTES or sum(sizes) > MAX_EXPORT_BYTES:
-        raise ValueError("Export exceeds browser memory budget; choose a smaller region or fewer tracks")
+        raise InputError("Export exceeds browser memory budget; choose a smaller region or fewer tracks")
     return "{}"
 
 

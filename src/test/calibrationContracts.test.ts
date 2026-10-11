@@ -345,10 +345,21 @@ test('native injected calibration retry preserves cancellation token and request
         return originalLoad.call(this, request, parent, isMain);
     };
     let backendModule: typeof import('../extension/pythonBackendServer');
-    try { backendModule = require('../extension/pythonBackendServer'); }
-    finally { NodeModule._load = originalLoad; }
+    let calibrationStore: typeof import('../extension/calibrationStore');
+    try {
+        backendModule = require('../extension/pythonBackendServer');
+        calibrationStore = require('../extension/calibrationStore');
+    } finally { NodeModule._load = originalLoad; }
     const { BackendStartupCancelledError } = await import('../extension/backendIpc');
     const profile = { schemaVersion: 1 as const, channels: [] };
+    const storageKey = 'audioWandasAnalyzer.calibrationProfiles.v1';
+    const stored: Record<string, unknown> = { [storageKey]: { [path.resolve('source')]: profile } };
+    const extensionContext = {
+        workspaceState: {
+            get: <T>(key: string, fallback: T): T => (stored[key] as T | undefined) ?? fallback,
+            update: async (key: string, value: unknown): Promise<void> => { stored[key] = value; },
+        },
+    } as unknown as import('vscode').ExtensionContext;
     let revision = 2;
     const tokens: unknown[] = [];
     const token = { isCancellationRequested: false } as import('vscode').CancellationToken;
@@ -357,10 +368,15 @@ test('native injected calibration retry preserves cancellation token and request
         constructor() {
             super('unused', () => {}, () => {}, {
                 current: () => ({ calibrationProfile: profile, analysisRevision: revision }),
-                discardStale: async (_path, error) => {
+                discardStale: async (filePath, error, attempted) => {
                     if (!(error instanceof backendModule.AnalysisRequestError)) return false;
                     assert.equal(error.analysisRevision, 2);
-                    revision = 3; return true;
+                    // The real predicate must still see the backend code through the wrapper.
+                    const discarded = await calibrationStore.discardStaleCalibrationProfile(
+                        extensionContext, filePath, error, attempted.calibrationProfile!,
+                    );
+                    if (discarded) revision = 3;
+                    return discarded;
                 },
             });
         }
@@ -376,6 +392,7 @@ test('native injected calibration retry preserves cancellation token and request
     }();
     await server.analyze('source', {}, token);
     assert.deepEqual(tokens, [token, token]);
+    assert.equal(calibrationStore.getCalibrationProfile(extensionContext, 'source'), undefined);
     server.failCancellation = true;
     await assert.rejects(server.analyze('source', {}, token), CancellationError);
     assert.equal(tokens.length, 3);

@@ -10,7 +10,7 @@ from typing import Literal
 import numpy as np
 import wandas as wd
 
-from backend_errors import StaleCalibrationError
+from backend_errors import InputError, StaleCalibrationError
 
 CalibrationStatus = Literal["uncalibrated", "calibrated"]
 CalibrationSource = Literal["default", "manual", "derived", "embedded"]
@@ -78,14 +78,14 @@ class ResolvedCalibrationProfile:
 
 def _finite_positive(value: object, *, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, numbers.Real):
-        raise TypeError(f"{name} must be a positive finite number")
+        raise InputError(f"{name} must be a positive finite number")
     normalized = float(value)
     if (
         not math.isfinite(normalized)
         or normalized < _MIN_SAFE_CALIBRATION_VALUE
         or normalized > _MAX_SAFE_CALIBRATION_VALUE
     ):
-        raise ValueError(f"{name} must be between 1e-150 and 1e150")
+        raise InputError(f"{name} must be between 1e-150 and 1e150")
     return normalized
 
 
@@ -112,7 +112,7 @@ def _validate_factor_for_source(
     source_peak: float,
 ) -> None:
     if not math.isfinite(source_peak):
-        raise ValueError(f"Source channel {channel_index} contains non-finite samples")
+        raise InputError(f"Source channel {channel_index} contains non-finite samples")
     if source_peak == 0.0:
         return
     maximum = min(_MAX_SAFE_CALIBRATION_VALUE, _MAX_SAFE_CALIBRATED_SAMPLE / source_peak)
@@ -148,12 +148,12 @@ def resolve_calibration_profile(
         return ResolvedCalibrationProfile(1, channels, _signature(normalized))
 
     if not isinstance(payload, dict):
-        raise TypeError("calibrationProfile must be an object")
+        raise InputError("calibrationProfile must be an object")
     if payload.get("schemaVersion") != 1:
-        raise ValueError("calibrationProfile.schemaVersion must be 1")
+        raise InputError("calibrationProfile.schemaVersion must be 1")
     raw_channels = payload.get("channels")
     if not isinstance(raw_channels, list):
-        raise TypeError("calibrationProfile.channels must be an array")
+        raise InputError("calibrationProfile.channels must be an array")
     if len(raw_channels) != len(labels):
         raise StaleCalibrationError(
             "Calibration channel count mismatch\n"
@@ -167,18 +167,18 @@ def resolve_calibration_profile(
     resolved_by_index: dict[int, ResolvedChannelCalibration] = {}
     for raw in raw_channels:
         if not isinstance(raw, dict):
-            raise TypeError("Each calibration channel must be an object")
+            raise InputError("Each calibration channel must be an object")
         index = raw.get("channelIndex")
         if isinstance(index, bool) or not isinstance(index, int):
-            raise TypeError("Calibration channelIndex must be an integer")
+            raise InputError("Calibration channelIndex must be an integer")
         if index < 0 or index >= len(labels):
-            raise ValueError(f"Calibration channelIndex out of range: {index}")
+            raise InputError(f"Calibration channelIndex out of range: {index}")
         if index in resolved_by_index:
-            raise ValueError(f"Duplicate calibration channelIndex: {index}")
+            raise InputError(f"Duplicate calibration channelIndex: {index}")
 
         expected_label = raw.get("expectedLabel")
         if not isinstance(expected_label, str):
-            raise TypeError("Calibration expectedLabel must be a string")
+            raise InputError("Calibration expectedLabel must be a string")
         if expected_label != labels[index]:
             raise StaleCalibrationError(
                 "Calibration channel label mismatch\n"
@@ -189,10 +189,10 @@ def resolve_calibration_profile(
 
         status = raw.get("status")
         if status not in _ALLOWED_STATUSES:
-            raise ValueError(f"Unsupported calibration status: {status!r}")
+            raise InputError(f"Unsupported calibration status: {status!r}")
         source = raw.get("source", "manual" if status == "calibrated" else "default")
         if source not in _ALLOWED_SOURCES:
-            raise ValueError(f"Unsupported calibration source: {source!r}")
+            raise InputError(f"Unsupported calibration source: {source!r}")
 
         if status == "uncalibrated":
             resolved_by_index[index] = _uncalibrated_channel(frame, index, expected_label)
@@ -202,10 +202,10 @@ def resolve_calibration_profile(
         _validate_factor_for_source(factor, index, peaks[index])
         unit = raw.get("unit")
         if not isinstance(unit, str):
-            raise TypeError("Calibration unit must be a string")
+            raise InputError("Calibration unit must be a string")
         normalized_unit = unit.strip()
         if not normalized_unit:
-            raise ValueError("Calibrated channels require a unit; use '1' for a dimensionless quantity")
+            raise InputError("Calibrated channels require a unit; use '1' for a dimensionless quantity")
         reference_value = _finite_positive(raw.get("referenceValue"), name="Calibration referenceValue")
         resolved_by_index[index] = ResolvedChannelCalibration(
             channel_index=index,

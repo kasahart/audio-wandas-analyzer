@@ -3,7 +3,7 @@ import {
     validateCalibrationValueInput, validateCalibrationFactorInput, profileForChannels,
     type CalibrationChannelDescriptor,
 } from '../shared/analysis/calibrationModel';
-import { BackendRequestError } from '../shared/protocol/backendProtocol';
+import { backendErrorCode } from '../shared/protocol/backendProtocol';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -65,7 +65,7 @@ export async function discardStaleCalibrationProfile(
     error: unknown,
     failedProfile: CalibrationProfile,
 ): Promise<boolean> {
-    if (!(error instanceof BackendRequestError && error.code === 'stale-calibration')) {
+    if (backendErrorCode(error) !== 'stale-calibration') {
         return false;
     }
     let discarded = false;

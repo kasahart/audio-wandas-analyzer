@@ -6,6 +6,7 @@ import math
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
+from backend_errors import InputError
 from decimator import MAX_WAVEFORM_POINTS
 
 if TYPE_CHECKING:
@@ -65,7 +66,7 @@ _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
 
 def _validate_stft_options(value: object) -> None:
     if not isinstance(value, dict):
-        raise ValueError("invalid request field 'stftOptions': expected object")
+        raise InputError("invalid request field 'stftOptions': expected object")
     fields: dict[str, FieldValidator] = {
         "nFft": _is_integer,
         "hopSize": _is_integer,
@@ -73,32 +74,32 @@ def _validate_stft_options(value: object) -> None:
     }
     for key, validator in fields.items():
         if key not in value or not validator(value[key]):
-            raise ValueError(f"invalid request field 'stftOptions.{key}'")
+            raise InputError(f"invalid request field 'stftOptions.{key}'")
 
 
 def validate_request(value: object) -> Command:
     if not isinstance(value, dict):
-        raise ValueError("request must be a JSON object")
+        raise InputError("request must be a JSON object")
     request_id = value.get("requestId")
     if not isinstance(request_id, str):
-        raise ValueError("invalid request field 'requestId'")
+        raise InputError("invalid request field 'requestId'")
     name = value.get("cmd")
     if not isinstance(name, str):
-        raise ValueError("invalid request field 'cmd'")
+        raise InputError("invalid request field 'cmd'")
     fields = _REQUEST_FIELDS.get(name)
     if fields is None:
-        raise ValueError(f"unknown cmd: {name!r}")
+        raise InputError(f"unknown cmd: {name!r}")
     for key, validator in fields.items():
         if key not in value or not validator(value[key]):
-            raise ValueError(f"invalid request field {key!r} for command {name!r}")
+            raise InputError(f"invalid request field {key!r} for command {name!r}")
     if name == "run-recipe":
         if "recipePath" in value and not _is_string(value["recipePath"]):
-            raise ValueError("invalid request field 'recipePath'")
+            raise InputError("invalid request field 'recipePath'")
         if "inputContexts" in value and (
             not isinstance(value["inputContexts"], dict)
             or any(not isinstance(context, dict) for context in value["inputContexts"].values())
         ):
-            raise ValueError("invalid request field 'inputContexts'")
+            raise InputError("invalid request field 'inputContexts'")
     if "stftOptions" in value:
         _validate_stft_options(value["stftOptions"])
     return value
@@ -109,7 +110,7 @@ def _stft_options(command: Command) -> Mapping[str, object] | None:
     if raw is None:
         return None
     if not isinstance(raw, dict):
-        raise ValueError("stftOptions must be an object")
+        raise InputError("stftOptions must be an object")
     return raw
 
 
@@ -199,5 +200,5 @@ def dispatch(command: Command, service: AnalysisService) -> dict[str, object]:
     name = command.get("cmd")
     handler = COMMANDS.get(name)
     if handler is None:
-        raise ValueError(f"unknown cmd: {name!r}")
+        raise InputError(f"unknown cmd: {name!r}")
     return handler(service, command)

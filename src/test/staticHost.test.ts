@@ -208,6 +208,17 @@ test('worker errors clear results and stale requests cannot resurrect an unloade
     assert.equal(app.workers[1].commands.length, 2);
 });
 
+test('a failed release announces the backend message without the error class name', async () => {
+    const app = harness();
+    await app.load();
+    const firstPath = app.sourcePath;
+    await app.load();
+    app.workers[0].loadedSources.delete(firstPath);
+    app.host.releaseSource!(firstPath);
+    await flush();
+    assert.equal(app.status, 'Source is not loaded');
+});
+
 test('file picker appends multiple sources and per-track release preserves the other source', async () => {
     const app = harness();
     assert.equal(app.picker.multiple, true);

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from backend_errors import InputError
+
 MAX_WAVEFORM_POINTS = 8192
 _DECIMATION_BLOCK_SAMPLES = 65536
 
@@ -17,7 +19,7 @@ def decimated_waveform(
     minT/maxT は total_samples 全体における正規化位置 (0–1)。
     """
     if point_limit > MAX_WAVEFORM_POINTS:
-        raise ValueError(f"point_limit must not exceed {MAX_WAVEFORM_POINTS}")
+        raise InputError(f"point_limit must not exceed {MAX_WAVEFORM_POINTS}")
     n = len(samples)
     if n == 0:
         return {"min": [], "max": [], "minT": [], "maxT": [], "samples": [], "absolutePeak": 0.0}

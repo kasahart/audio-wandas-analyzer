@@ -178,6 +178,14 @@ export class BackendRequestError extends Error {
     }
 }
 
+/** The backend error code of `error` or of any error in its `cause` chain. */
+export function backendErrorCode(error: unknown): BackendErrorCode | undefined {
+    for (let current = error, depth = 0; current instanceof Error && depth < 8; current = current.cause, depth++) {
+        if (current instanceof BackendRequestError) return current.code;
+    }
+    return undefined;
+}
+
 export function parseBackendErrorPayload(value: unknown): BackendErrorPayload | null {
     if (!isJsonObject(value) || typeof value['message'] !== 'string') return null;
     const code = value['code'];
