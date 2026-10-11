@@ -220,6 +220,36 @@
         "points": 0
       },
       "errorField": "points"
+    },
+    {
+      "command": "export-wav-loop",
+      "request": {
+        "cmd": "export-wav-loop",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "startNorm": "0.25",
+        "endNorm": 0.75
+      },
+      "errorField": "startNorm"
+    },
+    {
+      "command": "export-wav-loop",
+      "request": {
+        "cmd": "export-wav-loop",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "startNorm": 0.25
+      },
+      "errorField": "endNorm"
+    },
+    {
+      "command": "release-track-detail",
+      "request": {
+        "cmd": "release-track-detail",
+        "requestId": "r1",
+        "filePath": 7
+      },
+      "errorField": "filePath"
     }
   ],
   "validResponses": [

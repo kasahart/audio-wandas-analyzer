@@ -756,8 +756,7 @@ def test_export_wav_loop(tmp_path: Path) -> None:
             "endNorm": 0.75,
         }
     )
-    assert "wavBase64" in result
-    assert "sampleRate" in result
+    assert result_violation("export-wav-loop", result) is None
     raw = base64.b64decode(result["wavBase64"])
     with wave.open(io.BytesIO(raw)) as w:
         assert w.getnframes() > 0
@@ -929,7 +928,9 @@ def test_release_track_detail_keeps_reusable_stft_and_file_frame(
     cached = engine.get_file(wav)
     engine.get_spectrogram(wav, 256, 128, "hann")
 
-    assert handle_release_track_detail({"filePath": str(wav)}, service) == {}
+    released = handle_release_track_detail({"filePath": str(wav)}, service)
+    assert released == {}
+    assert result_violation("release-track-detail", released) is None
     assert engine.get_file(wav) is cached
     assert cached.spectrograms
 

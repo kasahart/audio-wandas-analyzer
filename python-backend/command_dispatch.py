@@ -42,18 +42,12 @@ _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
         "analysisId": _is_string,
         "settingsSignature": _is_string,
     },
-    "release-track-detail": {"filePath": _is_string},
     "spectrum-slice": {
         "filePath": _is_string,
         "trackIndex": _is_integer,
         "analysisId": _is_string,
         "settingsSignature": _is_string,
         "cursorNorm": _is_finite_number,
-    },
-    "export-wav-loop": {
-        "filePath": _is_string,
-        "startNorm": _is_finite_number,
-        "endNorm": _is_finite_number,
     },
     "run-recipe": {"recipe": _is_object},
 }

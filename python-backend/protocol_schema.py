@@ -79,10 +79,29 @@ DEFINITIONS: dict[str, Schema] = {
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
         },
     },
+    "ExportWavLoopPayload": {
+        "type": "object",
+        "required": ["filePath", "startNorm", "endNorm"],
+        "properties": {"filePath": {"type": "string"}, "startNorm": _NUMBER, "endNorm": _NUMBER},
+    },
+    "ExportWavLoopResult": {
+        "type": "object",
+        "required": ["wavBase64", "sampleRate"],
+        "properties": {"wavBase64": {"type": "string"}, "sampleRate": {"type": "integer"}},
+    },
+    "ReleaseTrackDetailPayload": {
+        "type": "object",
+        "required": ["filePath"],
+        "properties": {"filePath": {"type": "string"}},
+    },
+    # Nothing to report; the reply only settles the request.
+    "ReleaseTrackDetailResult": {"type": "object"},
 }
 
 COMMANDS: dict[str, dict[str, str]] = {
     "range": {"payload": "RangePayload", "result": "RangeResult"},
+    "export-wav-loop": {"payload": "ExportWavLoopPayload", "result": "ExportWavLoopResult"},
+    "release-track-detail": {"payload": "ReleaseTrackDetailPayload", "result": "ReleaseTrackDetailResult"},
 }
 
 
