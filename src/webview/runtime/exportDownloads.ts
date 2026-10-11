@@ -11,7 +11,6 @@ export function triggerAnchorDownload(document: Document, href: string, fileName
     document.body.removeChild(anchor);
 }
 
-/** Track canvases a PNG export captures: laid out (offsetParent set) and not blanked by the calibration overlay guard. */
 export function visibleExportCanvases(wrapper: Element | null): RuntimeElement[] {
     if (!wrapper) {
         return [];
@@ -20,7 +19,6 @@ export function visibleExportCanvases(wrapper: Element | null): RuntimeElement[]
         canvas.offsetParent !== null && canvas.getAttribute('data-calibration-hidden') !== 'true');
 }
 
-/** Stacks track canvases vertically with each track's axis canvas in a left gutter of `axisWidth`. */
 export function composeTrackCanvases(
     document: Document,
     canvases: RuntimeElement[],
