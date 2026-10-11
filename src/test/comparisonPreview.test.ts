@@ -17,7 +17,7 @@ test('buildComparisonPreviewHtml returns results-mode ComparisonPanel HTML', () 
     assert.match(html, /"mode":"results"/);
     assert.match(html, /id="toolbar"/);
     assert.match(html, /data-action="content-waveform"/);
-    assert.match(html, /__AWA_CALIBRATION_RUNTIME__/);
+    assert.match(html, /calibration-runtime-styles/, 'calibration decorations ship inside the runtime bundle');
     assert.doesNotMatch(html, /"mode":"directory-selection"/);
 });
 

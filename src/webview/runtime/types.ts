@@ -120,7 +120,6 @@ export interface UiSmokeState {
 
 export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'removeEventListener'> {
     ResizeObserver: typeof ResizeObserver;
-    __AWA_ACTIVE_TRACKS__?: () => Array<{ trackIndex: number; result: ComparisonTrackState }>;
     __uiSmokeState?: UiSmokeState;
     __treeFilterFlush?: () => void;
     renderWaveformPipeline?: (

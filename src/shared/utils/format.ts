@@ -1,6 +1,4 @@
-// Display formatters shared by the bundled comparison runtime and the inlined render scripts.
-// Each function is self-contained (no module references beyond the other functions listed in
-// FORMAT_SCRIPT_SOURCE) so render scripts can inline them through Function.prototype.toString().
+// Display formatters shared by the comparison runtime and the report builders.
 
 export interface LevelMeasurement {
     calibrationStatus?: string;
@@ -59,6 +57,3 @@ export function channelLabel(result: ChannelLabelSource | null | undefined, chan
     const channel = channels[channelIndex];
     return channel && channel.label && channel.label !== 'Channel ' + channelNumber ? base + ' (' + channel.label + ')' : base;
 }
-
-/** Source of the formatters for render scripts that run as inline strings. */
-export const FORMAT_SCRIPT_SOURCE = [formatMeasurementNumber, formatMeasuredLevel, channelsForResult].map(fn => fn.toString()).join('\n');

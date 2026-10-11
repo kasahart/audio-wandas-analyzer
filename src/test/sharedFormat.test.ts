@@ -1,8 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { runInNewContext } from 'node:vm';
 import {
-    channelLabel, formatClockTime, formatMeasuredLevel, formatMeasurementNumber, formatReportDuration, FORMAT_SCRIPT_SOURCE,
+    channelLabel, formatClockTime, formatMeasuredLevel, formatMeasurementNumber, formatReportDuration,
 } from '../shared/utils/format';
 import { escapeHtml } from '../shared/utils/webviewEscaping';
 import { PendingBackendRequests } from '../shared/protocol/backendProtocol';
@@ -21,12 +20,6 @@ test('time and channel labels share one implementation', () => {
     assert.equal(formatReportDuration(2.5), '2.500s');
     assert.equal(channelLabel({ channels: [{ label: 'Channel 1' }, { label: 'Mic B' }] }, 1), 'Channel 2 / 2 (Mic B)');
     assert.equal(channelLabel({ channels: [{ label: 'Channel 1' }], channelCount: 1 }, 0), 'Channel 1');
-});
-
-test('render scripts can inline the shared formatters', () => {
-    const context: Record<string, unknown> = {};
-    runInNewContext(`${FORMAT_SCRIPT_SOURCE}; result = [formatMeasuredLevel(2, 40, { calibrationStatus: 'calibrated', linearUnit: 'Pa', levelUnit: 'dB SPL' }), channelsForResult(null).length];`, context);
-    assert.equal(JSON.stringify(context.result), JSON.stringify(['2.00 Pa / 40.0 dB SPL', 0]));
 });
 
 test('webview HTML escaping covers quotes and apostrophes', () => {

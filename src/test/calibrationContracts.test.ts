@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
-import { getCalibrationRenderScript } from '../webview/calibrationRenderScript';
+import { calibrationSummary, isClipped } from '../webview/runtime/calibrationDecorations';
 import { BackendRequestError } from '../shared/protocol/backendProtocol';
 
 test('configure-calibration message guard accepts exact channel metadata', () => {
@@ -59,18 +59,33 @@ test('configure-calibration message guard rejects malformed payloads', () => {
 });
 
 test('calibration webview runtime exposes the GUI and calibrated evidence output', () => {
-    const script = getCalibrationRenderScript();
+    const source = readFileSync(path.resolve(process.cwd(), 'src/webview/runtime/calibrationDecorations.ts'), 'utf8');
 
-    assert.match(script, /data-action="configure-calibration"/);
-    assert.match(script, /peakLevelDb/);
-    assert.doesNotMatch(script, /rmsLevelDb/);
-    assert.match(script, /rawPeakFullScale/);
-    assert.match(script, /levelReferenceLabel/);
-    assert.match(script, /Spectrum overlay is unavailable/);
-    assert.doesNotMatch(script, /calibration-reload/);
-    assert.doesNotMatch(script, /stopImmediatePropagation/);
-    assert.match(script, /__AWA_ACTIVE_TRACKS__/);
-    assert.doesNotMatch(script, /request-calibration-refresh/);
+    assert.match(source, /data-action="configure-calibration"/);
+    assert.match(source, /peakLevelDb/);
+    assert.doesNotMatch(source, /rmsLevelDb/);
+    assert.match(source, /rawPeakFullScale/);
+    assert.match(source, /levelReferenceLabel/);
+    assert.match(source, /Spectrum overlay is unavailable/);
+    assert.doesNotMatch(source, /calibration-reload/);
+    assert.doesNotMatch(source, /stopImmediatePropagation/);
+    assert.doesNotMatch(source, /request-calibration-refresh/);
+});
+
+test('calibration badges summarize the channel calibration and raw clipping', () => {
+    const measurement = (linearUnit: string) => ({
+        calibrationStatus: 'calibrated' as const, calibrationSource: 'manual' as const, factor: 2, linearUnit,
+        referenceValue: 2e-5, referenceUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa',
+    });
+    const channel = (extra: object) => ({ label: 'ch', peakAbsolute: 0.5, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
+    assert.deepEqual(calibrationSummary([channel({})]), { text: 'FS', title: 'Uncalibrated full scale (dBFS)' });
+    assert.equal(calibrationSummary([channel({ measurement: measurement('Pa') }), channel({})]).text, 'PARTIAL');
+    assert.deepEqual(calibrationSummary([channel({ measurement: measurement('Pa') })]), { text: 'CAL: Pa', title: 'Pa; factor 2; dB SPL re 20 µPa' });
+    assert.equal(calibrationSummary([channel({ measurement: measurement('Pa') }), channel({ measurement: measurement('m/s^2') })]).text, 'CAL');
+    assert.equal(isClipped([channel({ clipped: false, rawPeakFullScale: 1 })]), false, 'the backend clip flag wins');
+    assert.equal(isClipped([channel({ rawPeakFullScale: 0.99 })]), true);
+    assert.equal(isClipped([channel({ peakAbsolute: 1 })]), true, 'uncalibrated peaks fall back to the displayed peak');
+    assert.equal(isClipped([channel({ peakAbsolute: 1, measurement: measurement('Pa') })]), false);
 });
 
 test('calibration uses composition rather than global prototype or panel-method patches', () => {
