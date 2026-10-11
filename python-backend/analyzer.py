@@ -21,7 +21,7 @@ SPECTROGRAM_TIME_BIN_LIMIT = 720
 SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
 DB_UNIT = "dB"
 SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum amplitude level [dB]"
-# Raw full-scale peak at or above which a channel is reported as clipped (behavior tracked in #132).
+# Raw full-scale peak at or above which a channel is reported as clipped.
 CLIPPING_FULL_SCALE_THRESHOLD = 0.99
 
 
