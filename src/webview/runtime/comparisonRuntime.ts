@@ -33,6 +33,7 @@ import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { TrackStore } from './trackStore';
 import { installColorPicker } from './colorPicker';
+import { installTrackReorderDrag } from './trackReorderDrag';
 import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
@@ -2430,55 +2431,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }, { passive: false });
         var stackedWrap = document.getElementById('stacked-wrap');
         if (stackedWrap) {
-            stackedWrap.addEventListener('dragstart', function (e) {
-                var handle = eventTarget(e).closest ? eventTarget(e).closest('.track-drag-handle') : null;
-                if (!handle) {
-                    e.preventDefault();
-                    return;
-                }
-                reorderDragFrom = trackIdFromElement(handle);
-                if (e.dataTransfer) {
-                    e.dataTransfer.effectAllowed = 'move';
-                }
-                const dragIndex = reorderDragFrom ? trackStore.protocolIndexForId(reorderDragFrom) : null;
-                var row = dragIndex === null ? null : document.getElementById('track-row-' + dragIndex);
-                if (row) {
-                    row.style.opacity = '0.4';
-                }
-            });
-            stackedWrap.addEventListener('dragover', function (e) {
-                if (reorderDragFrom === null) {
-                    return;
-                }
-                e.preventDefault();
-                if (e.dataTransfer) {
-                    e.dataTransfer.dropEffect = 'move';
-                }
-                var row = eventTarget(e).closest ? eventTarget(e).closest('.track-row') : null;
-                document.querySelectorAll('.track-row').forEach(function (r) { r.classList.remove('drag-over'); });
-                if (row) {
-                    var toId = trackIdFromElement(row);
-                    if (toId && toId !== reorderDragFrom) {
-                        row.classList.add('drag-over');
-                    }
-                }
-            });
-            stackedWrap.addEventListener('drop', function (e) {
-                if (reorderDragFrom === null) {
-                    return;
-                }
-                e.preventDefault();
-                var row = eventTarget(e).closest ? eventTarget(e).closest('.track-row') : null;
-                if (row) {
-                    var toId = trackIdFromElement(row);
-                    if (toId && toId !== reorderDragFrom) {
-                        reorderTracks(reorderDragFrom, toId);
-                    }
-                }
-                cleanupReorderDrag();
-            });
-            stackedWrap.addEventListener('dragend', function () {
-                cleanupReorderDrag();
+            installTrackReorderDrag(document, stackedWrap, {
+                trackIdFromElement,
+                rowFor(trackId) {
+                    const index = trackStore.protocolIndexForId(trackId);
+                    return index === null ? null : document.getElementById('track-row-' + index);
+                },
+                onReorder: reorderTracks,
             });
         }
         function handleLayoutResize() {
@@ -4429,7 +4388,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     });
     // ── Track drag reorder ──
-    var reorderDragFrom: TrackId | null = null;
     function reorderTracks(fromTrackId: TrackId, toTrackId: TrackId) {
         if (!trackStore.reorder(fromTrackId, toTrackId)) {
             return;
@@ -4445,19 +4403,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
-    }
-    function cleanupReorderDrag() {
-        if (reorderDragFrom !== null) {
-            const dragIndex = trackStore.protocolIndexForId(reorderDragFrom);
-            var row = dragIndex === null ? null : document.getElementById('track-row-' + dragIndex);
-            if (row) {
-                row.style.opacity = '';
-            }
-        }
-        document.querySelectorAll('.track-row').forEach(function (r) {
-            r.classList.remove('drag-over');
-        });
-        reorderDragFrom = null;
     }
     var colorPicker = installColorPicker(document, {
         colors: TRACK_COLORS,
