@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from backend_errors import InputError
 from protocol_schema import COMMANDS as SCHEMA_COMMANDS
-from protocol_schema import payload_violation
+from protocol_schema import REQUEST_ENVELOPE_KEYS, payload_violation
 
 if TYPE_CHECKING:
     from analysis_service import AnalysisService
@@ -32,6 +32,10 @@ def _is_object(value: object) -> bool:
 _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
     "run-recipe": {"recipe": _is_object},
 }
+# ``run-recipe`` is outside the generated schema, so its keys are closed here. The nested Recipe
+# document stays open; it is validated by the recipe runner.
+_RUN_RECIPE_KEYS = REQUEST_ENVELOPE_KEYS | {"recipe", "recipePath", "inputContexts"}
+_INPUT_CONTEXT_KEYS = frozenset({"calibrationProfile", "analysisRevision"})
 
 
 def _validate_stft_options(value: object) -> None:
@@ -67,11 +71,17 @@ def validate_request(value: object) -> Command:
         if key not in value or not validator(value[key]):
             raise InputError(f"invalid request field {key!r} for command {name!r}")
     if name == "run-recipe":
+        unknown = sorted(set(value) - _RUN_RECIPE_KEYS)
+        if unknown:
+            raise InputError(f"invalid request field {unknown[0]!r} for command {name!r}")
         if "recipePath" in value and not _is_string(value["recipePath"]):
             raise InputError("invalid request field 'recipePath'")
         if "inputContexts" in value and (
             not isinstance(value["inputContexts"], dict)
-            or any(not isinstance(context, dict) for context in value["inputContexts"].values())
+            or any(
+                not isinstance(context, dict) or not set(context) <= _INPUT_CONTEXT_KEYS
+                for context in value["inputContexts"].values()
+            )
         ):
             raise InputError("invalid request field 'inputContexts'")
     if "stftOptions" in value:

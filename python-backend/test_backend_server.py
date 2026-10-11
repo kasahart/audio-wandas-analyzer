@@ -545,6 +545,20 @@ def test_validate_request_rejects_invalid_payloads(payload: object, message: str
         validate_request(payload)
 
 
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ({"typo": 1}, "'typo'"),
+        ({"inputContexts": {"tone": {"analysisRevision": 0, "debug": True}}}, "'inputContexts'"),
+    ],
+)
+def test_validate_request_rejects_unknown_run_recipe_keys(extra: dict, message: str) -> None:
+    base = {"cmd": "run-recipe", "requestId": "r", "recipe": {"version": 1, "extension": {"open": True}}}
+    validate_request({**base, "recipePath": "/r.json", "inputContexts": {"tone": {"analysisRevision": 0}}})
+    with pytest.raises(ValueError, match=message):
+        validate_request({**base, **extra})
+
+
 def test_validate_request_rejects_non_finite_numbers() -> None:
     payload = {
         "cmd": "range",

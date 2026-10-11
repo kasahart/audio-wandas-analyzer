@@ -6,6 +6,7 @@ import {
     type BackendCommand,
     type BackendNotification,
 } from '../shared/protocol/backendProtocol';
+import { withoutResponseEnvelope } from '../shared/protocol/schemaValidation';
 
 export interface PendingRequest extends PendingBackendRequest<{ [key: string]: unknown }> {
     command: BackendCommand;
@@ -120,7 +121,9 @@ export function processStdoutLine(
         });
         return;
     }
-    if (parsed['type'] !== undefined) {
+    const correlated = typeof parsed['requestId'] === 'string' && pending.has(parsed['requestId']);
+    // A typed reply that names a pending request is settled (and rejected for its unknown `type`) so it cannot hang.
+    if (parsed['type'] !== undefined && !correlated) {
         handlers.onDiagnostic?.({
             kind: 'unknown-notification',
             message: `Backend emitted unknown notification: ${String(parsed['type'])}`,
@@ -139,6 +142,6 @@ export function processStdoutLine(
         return;
     }
 
-    const diagnostic = settleBackendRequest(pending, requestId, parsed, parsed['error']);
+    const diagnostic = settleBackendRequest(pending, requestId, withoutResponseEnvelope(parsed), parsed['error']);
     if (diagnostic) handlers.onDiagnostic?.({ ...diagnostic, rawLine: line });
 }

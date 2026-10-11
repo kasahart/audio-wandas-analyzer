@@ -3,7 +3,7 @@ import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal, type AnalysisContextPolicy } from '../../shared/analysis/analysisClient';
 import { BackendProtocolError, parseBackendResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { BrowserLimits } from '../../shared/protocol/generated/backendProtocolSchema';
-import { schemaViolation } from '../../shared/protocol/schemaValidation';
+import { schemaViolation, withoutResponseEnvelope } from '../../shared/protocol/schemaValidation';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { isConfigureCalibrationMessage } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
@@ -145,7 +145,19 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             worker = activeWorker;
             worker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown }>): void => {
                 if (worker !== activeWorker) return;
-                settleBackendRequest(pending, event.data.requestId, event.data.result!, event.data.error);
+                // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
+                const { requestId, result, error } = event.data;
+                const envelope: Record<string, unknown> = withoutResponseEnvelope(event.data);
+                const wellFormed = Object.keys(envelope).every(key => key === 'result' || envelope[key] === undefined);
+                if (error === undefined && !wellFormed) {
+                    // Rejected here because browser-only commands (load, unload, export-plan) settle without a result schema.
+                    const request = pending.get(requestId);
+                    if (!request) return;
+                    pending.delete(requestId);
+                    request.reject(new BackendProtocolError(`Invalid ${request.command} response envelope`));
+                    return;
+                }
+                settleBackendRequest(pending, requestId, error === undefined ? result! : envelope, error);
             };
             worker.onerror = (): void => {
                 if (worker !== activeWorker) return;

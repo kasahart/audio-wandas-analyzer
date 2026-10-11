@@ -43,7 +43,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "boxcar"
                     ]
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "WaveformEnvelope": {
             "type": "object",
@@ -87,7 +88,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "absolutePeak": {
                     "type": "number"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "DbScaleMetadata": {
             "type": "object",
@@ -111,7 +113,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "levelReferenceLabel": {
                     "type": "string"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "AnalysisUnits": {
             "type": "object",
@@ -130,7 +133,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "spectrogramLevel": {
                     "$ref": "#/$defs/DbScaleMetadata"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "ChannelMeasurementContext": {
             "type": "object",
@@ -179,7 +183,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "levelReferenceLabel": {
                     "type": "string"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "SpectrogramData": {
             "type": "object",
@@ -239,7 +244,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "levelReferenceLabel": {
                     "type": "string"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "ChannelSummary": {
             "type": "object",
@@ -291,7 +297,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         }
                     ]
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "AnalyzePayload": {
             "type": "object",
@@ -311,7 +318,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "AnalysisResult": {
             "type": "object",
@@ -365,7 +373,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "$ref": "#/$defs/ChannelSummary"
                     }
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "TrackDetailPayload": {
             "type": "object",
@@ -397,7 +406,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "TrackDetailResult": {
             "type": "object",
@@ -433,7 +443,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "RangePayload": {
             "type": "object",
@@ -464,7 +475,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "SpectrumSlicePayload": {
             "type": "object",
@@ -500,7 +512,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "RangeResult": {
             "type": "object",
@@ -528,7 +541,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "SpectrumSliceChannel": {
             "type": "object",
@@ -569,7 +583,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "levelReferenceLabel": {
                     "type": "string"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "SpectrumSliceResult": {
             "type": "object",
@@ -617,7 +632,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "ExportWavLoopPayload": {
             "type": "object",
@@ -636,7 +652,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "endNorm": {
                     "type": "number"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "ExportWavLoopResult": {
             "type": "object",
@@ -651,7 +668,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "sampleRate": {
                     "type": "integer"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "ReleaseTrackDetailPayload": {
             "type": "object",
@@ -662,10 +680,13 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "filePath": {
                     "type": "string"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "ReleaseTrackDetailResult": {
-            "type": "object"
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
         },
         "BackendErrorPayload": {
             "type": "object",
@@ -685,7 +706,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "message": {
                     "type": "string"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "BackendReadyNotification": {
             "type": "object",
@@ -697,7 +719,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "type": "string",
                     "const": "ready"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "BackendHeartbeatNotification": {
             "type": "object",
@@ -713,7 +736,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "ts": {
                     "type": "number"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "BrowserLimits": {
             "type": "object",
@@ -764,7 +788,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "minimum": 1,
                     "maximum": 9007199254740991
                 }
-            }
+            },
+            "additionalProperties": false
         }
     },
     "x-commands": {
@@ -792,7 +817,14 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "payload": "ReleaseTrackDetailPayload",
             "result": "ReleaseTrackDetailResult"
         }
-    }
+    },
+    "x-requestEnvelopeKeys": [
+        "cmd",
+        "requestId"
+    ],
+    "x-responseEnvelopeKeys": [
+        "requestId"
+    ]
 } as const;
 
 export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'export-wav-loop' | 'release-track-detail';
@@ -973,6 +1005,10 @@ export interface ExportWavLoopResult {
 
 export interface ReleaseTrackDetailPayload {
     filePath: string;
+}
+
+export interface ReleaseTrackDetailResult {
+
 }
 
 export interface BackendErrorPayload {

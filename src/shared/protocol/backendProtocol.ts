@@ -191,7 +191,9 @@ function isReleaseTrackDetailResult(value: unknown): value is ReleaseTrackDetail
 }
 
 function isRunRecipeResult(value: unknown): value is RunRecipeResult {
+    // Outside the generated schema: the envelope is closed here, each ChartSpec stays open.
     return isJsonObject(value)
+        && Object.keys(value).every(key => key === 'charts')
         && Array.isArray(value['charts'])
         && value['charts'].every((chart) => isJsonObject(chart)
             && ['line', 'heatmap', 'bar', 'scalar'].includes(String(chart['kind']))
@@ -281,7 +283,9 @@ export function settleBackendRequest<T>(
     }
     pending.delete(requestId);
     if (failure !== undefined) {
-        const payload = parseBackendErrorPayload(failure);
+        // An error reply carries only `error` beside its envelope; anything else is protocol drift.
+        const extraKeys = isJsonObject(response) ? Object.keys(response).filter(key => key !== 'error' && response[key] !== undefined) : [];
+        const payload = extraKeys.length === 0 ? parseBackendErrorPayload(failure) : null;
         if (payload) {
             request.reject(new BackendRequestError(payload.code, payload.message));
             return;

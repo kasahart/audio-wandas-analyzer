@@ -13,6 +13,8 @@ export interface SchemaNode {
     maximum?: number;
     required?: readonly string[];
     properties?: Readonly<Record<string, SchemaNode>>;
+    /** Only `false`, beside `properties`: keys the node does not list are rejected. */
+    additionalProperties?: false;
     items?: SchemaNode;
     /** Only the nullable form `[schema, { type: 'null' }]`; see protocol_schema.py. */
     anyOf?: readonly [SchemaNode, SchemaNode];
@@ -51,6 +53,11 @@ function firstViolation(schema: SchemaNode, value: unknown, path: string): strin
     if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
         const record = value as Record<string, unknown>;
         // An undefined property is absent, as JSON.stringify drops it; postMessage results can carry one.
+        if (node.additionalProperties === false) {
+            for (const [key, item] of Object.entries(record)) {
+                if (item !== undefined && !Object.hasOwn(node.properties ?? {}, key)) return path ? `${path}.${key}` : key;
+            }
+        }
         for (const key of node.required ?? []) {
             if (record[key] === undefined) return path ? `${path}.${key}` : key;
         }
@@ -67,6 +74,26 @@ function firstViolation(schema: SchemaNode, value: unknown, path: string): strin
         }
     }
     return null;
+}
+
+const REQUEST_ENVELOPE_KEYS: ReadonlySet<string> = new Set(BACKEND_PROTOCOL_SCHEMA['x-requestEnvelopeKeys']);
+const RESPONSE_ENVELOPE_KEYS: ReadonlySet<string> = new Set(BACKEND_PROTOCOL_SCHEMA['x-responseEnvelopeKeys']);
+
+function withoutKeys(message: unknown, keys: ReadonlySet<string>): unknown {
+    if (typeof message !== 'object' || message === null || Array.isArray(message)) return message;
+    return Object.fromEntries(Object.entries(message).filter(([key]) => !keys.has(key)));
+}
+
+/** Drops `cmd` and `requestId`, which travel beside the payload fields but belong to no definition. */
+export function withoutRequestEnvelope(message: unknown): unknown {
+    return withoutKeys(message, REQUEST_ENVELOPE_KEYS);
+}
+
+/** Drops `requestId`; replies carry no `cmd`, so one is left for the result schema to reject. */
+export function withoutResponseEnvelope(message: Record<string, unknown>): Record<string, unknown>;
+export function withoutResponseEnvelope(message: unknown): unknown;
+export function withoutResponseEnvelope(message: unknown): unknown {
+    return withoutKeys(message, RESPONSE_ENVELOPE_KEYS);
 }
 
 /** Dotted path of the first value that breaks an inline `schema` (`$ref`s resolve to the protocol definitions), or null. */

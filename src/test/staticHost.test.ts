@@ -4,6 +4,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createStaticHost, type StaticHostDeps } from '../webview/runtime/staticHost';
+import { withoutResponseEnvelope } from '../shared/protocol/schemaValidation';
 import type { WebviewHostApi } from '../webview/runtime/types';
 import type { UiStrings } from '../shared/i18n/strings';
 
@@ -88,8 +89,12 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         }
         reply(command: Record<string, unknown>, result: Record<string, unknown> = {}, error?: string): void {
             const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')).validResponses as Array<{ command: string; response: Record<string, unknown> }>;
-            const base = fixtures.find(fixture => fixture.command === command.cmd)?.response ?? {};
-            this.onmessage({ data: { requestId: command.requestId, result: { ...base, filePath: command.filePath, ...result }, error: error === undefined ? undefined : { code: 'input-error', message: error } } });
+            const base = withoutResponseEnvelope(fixtures.find(fixture => fixture.command === command.cmd)?.response ?? {});
+            // Only results that carry a filePath echo the request's; the schema rejects it elsewhere.
+            const echoed = 'filePath' in base ? { filePath: command.filePath } : {};
+            this.onmessage({ data: error === undefined
+                ? { requestId: command.requestId, result: { ...base, ...echoed, ...result } }
+                : { requestId: command.requestId, error: { code: 'input-error', message: error } } });
         }
     }
     const browser = {
@@ -326,6 +331,34 @@ test('Worker error envelopes use the native correlation contract and empty error
     await flush();
     assert.equal(app.received.at(-1)?.type, 'track-detail-error');
     assert.equal(app.received.at(-1)?.error, '');
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    const mixed = worker.commands.at(-1)!;
+    worker.onmessage({ data: { requestId: mixed.requestId, result: {}, error: { code: 'input-error', message: 'm' } } });
+    await flush();
+    assert.equal(app.received.at(-1)?.error, 'Invalid error response for track-detail', 'a reply with result and error is malformed');
+});
+
+test('Worker success envelopes with extra outer keys are protocol errors', async () => {
+    const app = harness(); await app.load();
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    const worker = app.workers[0];
+    const command = worker.commands.at(-1)!;
+    worker.onmessage({ data: { requestId: command.requestId, result: {}, debug: 1 } });
+    await flush();
+    assert.equal(app.received.at(-1)?.type, 'track-detail-error');
+    assert.match(String(app.received.at(-1)?.error), /Invalid track-detail response envelope/);
+});
+
+test('browser-only Worker commands reject success envelopes with extra outer keys', async () => {
+    const app = harness();
+    app.blockedWorkerCommands.add('load');
+    await app.load();
+    const worker = app.workers[0];
+    const load = worker.commands.find(command => command.cmd === 'load')!;
+    worker.onmessage({ data: { requestId: load.requestId, result: { filePath: `/sources/${load.sourceId}` }, debug: 1 } });
+    await flush(); await flush();
+    assert.equal(worker.commands.some(command => command.cmd === 'analyze'), false, 'a malformed load reply must not start analysis');
+    assert.match(app.status, /Invalid load response envelope/);
 });
 
 test('browser recipes run on loaded tracks through the Worker and render charts in a fresh frame', async () => {
