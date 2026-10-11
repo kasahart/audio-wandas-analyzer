@@ -16,6 +16,7 @@ import {
     trackTimeFromGlobalNorm as mapTrackTimeFromGlobalNorm,
 } from './playback';
 import { positionPopover } from './settingsPopover';
+import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
 import { clampHeight, createHeightResize, heightInputRequest, type HeightKind } from './heightResize';
 import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
@@ -3108,49 +3109,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function exportPng() {
         const wrapper = document.getElementById('tracks-wrapper');
-        const canvases: RuntimeElement[] = wrapper
-            ? Array.from(wrapper.querySelectorAll('canvas:not(.track-axis-canvas)')).filter(function (c) {
-                return c.offsetParent !== null && c.getAttribute('data-calibration-hidden') !== 'true';
-            })
-            : [];
+        const canvases = visibleExportCanvases(wrapper as unknown as Element | null);
+        const failed = STR.announceExportPngFailed || 'PNG export failed: no visible canvases';
         if (canvases.length === 0) {
-            messaging.post({ type: 'show-info', message: STR.announceExportPngFailed || 'PNG export failed: no visible canvases' });
+            messaging.post({ type: 'show-info', message: failed });
             return;
         }
         announce(STR.announceExportPngStarted || 'PNG export started');
         setTimeout(function () {
-            const waveW = canvases.reduce(function (m, c) { return Math.max(m, c.width); }, 0);
-            const totalWidth = AXIS_W + waveW;
-            const totalHeight = canvases.reduce(function (sum, c) { return sum + c.height; }, 0);
-            const offscreen = document.createElement('canvas');
-            offscreen.width = totalWidth;
-            offscreen.height = totalHeight;
-            const ctx = offscreen.getContext('2d');
-            if (!ctx) {
-                messaging.post({ type: 'show-info', message: STR.announceExportPngFailed || 'PNG export failed: no visible canvases' });
+            const composed = composeTrackCanvases(document as unknown as Document, canvases, function (canvas) {
+                const axisId = canvas.id ? canvas.id.replace(/^track-canvas-/, 'track-axis-canvas-') : '';
+                return axisId && axisId !== canvas.id && wrapper ? wrapper.querySelector('#' + axisId) as unknown as Element | null : null;
+            }, AXIS_W);
+            if (!composed) {
+                messaging.post({ type: 'show-info', message: failed });
                 return;
             }
-            ctx.fillStyle = '#1e1e1e';
-            ctx.fillRect(0, 0, totalWidth, totalHeight);
-            let y = 0;
-            canvases.forEach(function (c) {
-                var axisId = c.id ? c.id.replace(/^track-canvas-/, 'track-axis-canvas-') : '';
-                if (axisId && axisId !== c.id) {
-                    var axisCanvas = wrapper ? wrapper.querySelector('#' + axisId) : null;
-                    if (axisCanvas) {
-                        ctx.drawImage(axisCanvas as unknown as HTMLCanvasElement, 0, y);
-                    }
-                }
-                ctx.drawImage(c as unknown as HTMLCanvasElement, AXIS_W, y);
-                y += c.height;
-            });
-            const dataURL = offscreen.toDataURL('image/png');
-            const a = document.createElement('a');
-            a.href = dataURL;
-            a.download = 'waveform-export.png';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            triggerAnchorDownload(document as unknown as Document, composed.toDataURL('image/png'), 'waveform-export.png');
         }, 0);
     }
     function exportCsv() {
@@ -3181,12 +3156,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         announce(STR.announceExportCsvStarted || 'CSV export started');
         const csv = buildSpectrumCsv(tracks);
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
-        const a = document.createElement('a');
-        a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
-        a.download = 'spectrum-export.csv';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        triggerAnchorDownload(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
     }
     function exportWavLoop() {
         if (!loopRegion) {
