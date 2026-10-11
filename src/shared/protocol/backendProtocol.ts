@@ -8,6 +8,8 @@ import type {
     RangePayload,
     RangeResult,
     ReleaseTrackDetailPayload,
+    SpectrumSlicePayload,
+    SpectrumSliceResult,
 } from './generated/backendProtocolSchema';
 import { schemaViolation } from './schemaValidation';
 import type {
@@ -21,7 +23,15 @@ import type {
     WaveformEnvelope,
 } from '../analysis/analysisTypes';
 
-export type { ExportWavLoopPayload, ExportWavLoopResult, RangePayload, RangeResult, ReleaseTrackDetailPayload };
+export type {
+    ExportWavLoopPayload,
+    ExportWavLoopResult,
+    RangePayload,
+    RangeResult,
+    ReleaseTrackDetailPayload,
+    SpectrumSlicePayload,
+    SpectrumSliceResult,
+};
 
 export interface CalibrationRequestContext {
     calibrationProfile?: CalibrationProfile;
@@ -41,39 +51,12 @@ export interface TrackDetailPayload extends CalibrationRequestContext {
     stftOptions?: StftOptions;
 }
 
-export interface SpectrumSlicePayload extends TrackDetailPayload {
-    cursorNorm: number;
-}
-
 export interface TrackDetailResult {
     trackIndex: number;
     analysisId: string;
     settingsSignature: string;
     filePath: string;
     channels: ChannelSummary[];
-    calibrationSignature?: string;
-    analysisRevision?: number;
-}
-
-export interface SpectrumSliceResult {
-    trackIndex: number;
-    analysisId: string;
-    settingsSignature: string;
-    filePath: string;
-    channels: Array<{
-        channelIndex: number;
-        values: number[];
-        minDb: number;
-        maxDb: number;
-        unit?: string;
-        axisLabel?: string;
-        referenceValue?: number;
-        referenceUnit?: string;
-        levelReferenceLabel?: string;
-    }>;
-    frequencyBins: number;
-    maxFrequencyHz: number;
-    computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;
 }
@@ -331,30 +314,11 @@ function isTrackDetailResult(value: unknown): value is TrackDetailResult {
         && hasCalibrationResultMetadata(value);
 }
 
+/** Invariants the schema cannot express: at least one channel, each with one value per frequency bin. */
 function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
-    const channels = isJsonObject(value) ? value['channels'] : undefined;
-    return isJsonObject(value)
-        && isInteger(value['trackIndex'])
-        && typeof value['analysisId'] === 'string'
-        && typeof value['settingsSignature'] === 'string'
-        && typeof value['filePath'] === 'string'
-        && Array.isArray(channels)
-        && channels.every((channel) => isJsonObject(channel)
-            && isInteger(channel['channelIndex'])
-            && isFiniteNumberArray(channel['values'])
-            && isFiniteNumber(channel['minDb'])
-            && isFiniteNumber(channel['maxDb'])
-            && isOptionalString(channel['unit'])
-            && isOptionalString(channel['axisLabel'])
-            && (channel['referenceValue'] === undefined || isSafeCalibrationValue(channel['referenceValue']))
-            && isOptionalString(channel['referenceUnit'])
-            && isOptionalString(channel['levelReferenceLabel'])
-            && channel['values'].length === value['frequencyBins'])
-        && isInteger(value['frequencyBins'])
-        && isFiniteNumber(value['maxFrequencyHz'])
-        && isFiniteNumber(value['computeMs'])
-        && hasCalibrationResultMetadata(value)
-        && channels.length > 0;
+    if (schemaViolation('SpectrumSliceResult', value) !== null) return false;
+    const result = value as SpectrumSliceResult;
+    return result.channels.length > 0 && result.channels.every(channel => channel.values.length === result.frequencyBins);
 }
 
 function isExportWavLoopResult(value: unknown): value is ExportWavLoopResult {

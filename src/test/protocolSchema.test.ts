@@ -49,6 +49,15 @@ test('range results are checked by the schema plus the envelope length invariant
     assert.throws(() => parseBackendResult('range', { ...result, channels: [{ ...envelope, samples: [0] }] }), /Invalid range success response/);
 });
 
+test('spectrum-slice results are checked by the schema plus the per-channel bin invariant', () => {
+    const channel = { channelIndex: 0, values: [-10, -20], minDb: -20, maxDb: -10, referenceValue: 2e-5 };
+    const result = { trackIndex: 0, analysisId: 'a', settingsSignature: 's', filePath: 'tone.wav', channels: [channel], frequencyBins: 2, maxFrequencyHz: 8000, computeMs: 1 };
+    assert.deepEqual(parseBackendResult('spectrum-slice', result), result);
+    assert.equal(schemaViolation('SpectrumSliceResult', { ...result, channels: [{ ...channel, referenceValue: 0 }] }), 'channels[0].referenceValue');
+    assert.throws(() => parseBackendResult('spectrum-slice', { ...result, channels: [] }), /Invalid spectrum-slice success response/);
+    assert.throws(() => parseBackendResult('spectrum-slice', { ...result, frequencyBins: 3 }), /Invalid spectrum-slice success response/);
+});
+
 test('schema cases report the same path as Python and agree with ajv', () => {
     assert.ok(fixtures.schemaCases.length > 0);
     for (const { schema, value, violation } of fixtures.schemaCases) {

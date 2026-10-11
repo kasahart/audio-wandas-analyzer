@@ -1,4 +1,4 @@
-import type { WaveformEnvelope } from '../protocol/generated/backendProtocolSchema';
+import type { StftOptions, WaveformEnvelope } from '../protocol/generated/backendProtocolSchema';
 
 export interface DbScaleMetadata {
     unit: string;
@@ -115,13 +115,8 @@ export interface DirectoryTreeNode {
     children?: DirectoryTreeNode[];
 }
 
-export type StftWindow = 'hann' | 'hamming' | 'blackman' | 'boxcar';
-
-export interface StftOptions {
-    nFft: number;
-    hopSize: number;
-    window: StftWindow;
-}
+export type { StftOptions };
+export type StftWindow = StftOptions['window'];
 
 export interface SpectrogramDisplaySettings {
     dbMin: number | null;

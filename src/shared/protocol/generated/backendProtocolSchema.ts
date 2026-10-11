@@ -8,12 +8,42 @@ export const BACKEND_PROTOCOL_SCHEMA = {
         "CalibrationProfile": {
             "x-tsType": "CalibrationProfile"
         },
+        "SafeCalibrationValue": {
+            "type": "number",
+            "minimum": 1e-150,
+            "maximum": 1e+150
+        },
         "AnalysisRevision": {
             "type": "integer"
         },
         "ResultAnalysisRevision": {
             "type": "integer",
             "minimum": 0
+        },
+        "StftOptions": {
+            "type": "object",
+            "required": [
+                "nFft",
+                "hopSize",
+                "window"
+            ],
+            "properties": {
+                "nFft": {
+                    "type": "integer"
+                },
+                "hopSize": {
+                    "type": "integer"
+                },
+                "window": {
+                    "type": "string",
+                    "enum": [
+                        "hann",
+                        "hamming",
+                        "blackman",
+                        "boxcar"
+                    ]
+                }
+            }
         },
         "WaveformEnvelope": {
             "type": "object",
@@ -90,6 +120,42 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 }
             }
         },
+        "SpectrumSlicePayload": {
+            "type": "object",
+            "required": [
+                "filePath",
+                "trackIndex",
+                "analysisId",
+                "settingsSignature",
+                "cursorNorm"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                },
+                "trackIndex": {
+                    "type": "integer"
+                },
+                "analysisId": {
+                    "type": "string"
+                },
+                "settingsSignature": {
+                    "type": "string"
+                },
+                "cursorNorm": {
+                    "type": "number"
+                },
+                "stftOptions": {
+                    "$ref": "#/$defs/StftOptions"
+                },
+                "calibrationProfile": {
+                    "$ref": "#/$defs/CalibrationProfile"
+                },
+                "analysisRevision": {
+                    "$ref": "#/$defs/AnalysisRevision"
+                }
+            }
+        },
         "RangeResult": {
             "type": "object",
             "required": [
@@ -109,6 +175,95 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "$ref": "#/$defs/WaveformEnvelope"
                     }
+                },
+                "calibrationSignature": {
+                    "type": "string"
+                },
+                "analysisRevision": {
+                    "$ref": "#/$defs/ResultAnalysisRevision"
+                }
+            }
+        },
+        "SpectrumSliceChannel": {
+            "type": "object",
+            "required": [
+                "channelIndex",
+                "values",
+                "minDb",
+                "maxDb"
+            ],
+            "properties": {
+                "channelIndex": {
+                    "type": "integer"
+                },
+                "values": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "minDb": {
+                    "type": "number"
+                },
+                "maxDb": {
+                    "type": "number"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "axisLabel": {
+                    "type": "string"
+                },
+                "referenceValue": {
+                    "$ref": "#/$defs/SafeCalibrationValue"
+                },
+                "referenceUnit": {
+                    "type": "string"
+                },
+                "levelReferenceLabel": {
+                    "type": "string"
+                }
+            }
+        },
+        "SpectrumSliceResult": {
+            "type": "object",
+            "required": [
+                "trackIndex",
+                "analysisId",
+                "settingsSignature",
+                "filePath",
+                "channels",
+                "frequencyBins",
+                "maxFrequencyHz",
+                "computeMs"
+            ],
+            "properties": {
+                "trackIndex": {
+                    "type": "integer"
+                },
+                "analysisId": {
+                    "type": "string"
+                },
+                "settingsSignature": {
+                    "type": "string"
+                },
+                "filePath": {
+                    "type": "string"
+                },
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SpectrumSliceChannel"
+                    }
+                },
+                "frequencyBins": {
+                    "type": "integer"
+                },
+                "maxFrequencyHz": {
+                    "type": "number"
+                },
+                "computeMs": {
+                    "type": "number"
                 },
                 "calibrationSignature": {
                     "type": "string"
@@ -172,6 +327,10 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "payload": "RangePayload",
             "result": "RangeResult"
         },
+        "spectrum-slice": {
+            "payload": "SpectrumSlicePayload",
+            "result": "SpectrumSliceResult"
+        },
         "export-wav-loop": {
             "payload": "ExportWavLoopPayload",
             "result": "ExportWavLoopResult"
@@ -183,7 +342,13 @@ export const BACKEND_PROTOCOL_SCHEMA = {
     }
 } as const;
 
-export type SchemaCommand = 'range' | 'export-wav-loop' | 'release-track-detail';
+export type SchemaCommand = 'range' | 'spectrum-slice' | 'export-wav-loop' | 'release-track-detail';
+
+export interface StftOptions {
+    nFft: number;
+    hopSize: number;
+    window: "hann" | "hamming" | "blackman" | "boxcar";
+}
 
 export interface WaveformEnvelope {
     min: number[];
@@ -203,10 +368,46 @@ export interface RangePayload {
     analysisRevision?: number;
 }
 
+export interface SpectrumSlicePayload {
+    filePath: string;
+    trackIndex: number;
+    analysisId: string;
+    settingsSignature: string;
+    cursorNorm: number;
+    stftOptions?: StftOptions;
+    calibrationProfile?: CalibrationProfile;
+    analysisRevision?: number;
+}
+
 export interface RangeResult {
     startNorm: number;
     endNorm: number;
     channels: WaveformEnvelope[];
+    calibrationSignature?: string;
+    analysisRevision?: number;
+}
+
+export interface SpectrumSliceChannel {
+    channelIndex: number;
+    values: number[];
+    minDb: number;
+    maxDb: number;
+    unit?: string;
+    axisLabel?: string;
+    referenceValue?: number;
+    referenceUnit?: string;
+    levelReferenceLabel?: string;
+}
+
+export interface SpectrumSliceResult {
+    trackIndex: number;
+    analysisId: string;
+    settingsSignature: string;
+    filePath: string;
+    channels: SpectrumSliceChannel[];
+    frequencyBins: number;
+    maxFrequencyHz: number;
+    computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;
 }

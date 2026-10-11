@@ -291,6 +291,7 @@ def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> N
     time_index = min(spec["timeBins"] - 1, int(np.floor(cursor_norm * spec["timeBins"])))
     expected_row = spec["values"][time_index]
 
+    assert result_violation("spectrum-slice", resp) is None
     assert resp["trackIndex"] == 0
     assert resp["frequencyBins"] == spec["frequencyBins"]
     assert resp["maxFrequencyHz"] == spec["maxFrequencyHz"]

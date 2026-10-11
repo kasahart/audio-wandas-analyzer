@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -26,10 +25,6 @@ def _is_integer(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _is_finite_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-
-
 def _is_object(value: object) -> bool:
     return isinstance(value, dict)
 
@@ -41,13 +36,6 @@ _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
         "trackIndex": _is_integer,
         "analysisId": _is_string,
         "settingsSignature": _is_string,
-    },
-    "spectrum-slice": {
-        "filePath": _is_string,
-        "trackIndex": _is_integer,
-        "analysisId": _is_string,
-        "settingsSignature": _is_string,
-        "cursorNorm": _is_finite_number,
     },
     "run-recipe": {"recipe": _is_object},
 }
