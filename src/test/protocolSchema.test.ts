@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { BACKEND_PROTOCOL_SCHEMA, type SchemaCommand } from '../shared/protocol/generated/backendProtocolSchema';
-import { parseBackendResult } from '../shared/protocol/backendProtocol';
+import { BACKEND_ERROR_CODES, parseBackendErrorPayload, parseBackendNotification, parseBackendResult } from '../shared/protocol/backendProtocol';
 import { inlineSchemaViolation, schemaViolation, type SchemaNode } from '../shared/protocol/schemaValidation';
 import Ajv2020 from 'ajv/dist/2020';
 
@@ -87,6 +87,20 @@ test('analyze and track-detail results keep the invariants the schema cannot exp
         assert.throws(() => parseBackendResult('analyze', value), /Invalid analyze success response/, JSON.stringify(value));
     }
     assert.throws(() => parseBackendResult('track-detail', { ...detail, channels: [{ ...channel, spectrogram: { ...spectrogram, frequencyBins: 3 } }] }), /Invalid track-detail success response/);
+});
+
+test('error payloads, notifications and Worker limits come from the schema', () => {
+    assert.deepEqual([...BACKEND_ERROR_CODES], ['input-error', 'stale-calibration', 'internal-error']);
+    assert.deepEqual(parseBackendErrorPayload({ code: 'stale-calibration', message: 'm', extra: 1 }), { code: 'stale-calibration', message: 'm' });
+    assert.equal(parseBackendErrorPayload({ code: 'unknown', message: 'm' }), null);
+    assert.deepEqual(parseBackendNotification({ type: 'heartbeat', ts: 1.5 }), { type: 'heartbeat', ts: 1.5 });
+    assert.equal(parseBackendNotification({ type: 'heartbeat', ts: Number.NaN }), null);
+    assert.deepEqual(parseBackendNotification({ type: 'ready' }), { type: 'ready' });
+    const limits = { maxInputBytes: 1, maxSources: 1, maxTotalInputBytes: 1, maxExportBytes: 1 };
+    assert.equal(schemaViolation('BrowserLimits', limits), null);
+    assert.equal(schemaViolation('BrowserLimits', { ...limits, maxSources: 0 }), 'maxSources');
+    assert.equal(schemaViolation('BrowserLimits', { ...limits, maxExportBytes: 2 ** 53 }), 'maxExportBytes');
+    assert.equal(schemaViolation('BrowserLimits', { ...limits, maxChannels: 0 }), 'maxChannels');
 });
 
 test('undefined properties count as absent, as after JSON serialization', () => {

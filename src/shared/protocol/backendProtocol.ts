@@ -1,8 +1,12 @@
 import type { ChartSpec } from '../chartSpec';
 import type { RecipeDocument } from '../recipe/recipeSelection';
 import { isCalibrationProfile } from '../analysis/calibrationModel';
+import { BACKEND_PROTOCOL_SCHEMA } from './generated/backendProtocolSchema';
 import type {
     AnalyzePayload,
+    BackendErrorPayload,
+    BackendHeartbeatNotification,
+    BackendReadyNotification,
     ExportWavLoopPayload,
     ExportWavLoopResult,
     RangePayload,
@@ -24,6 +28,9 @@ import type {
 
 export type {
     AnalyzePayload,
+    BackendErrorPayload,
+    BackendHeartbeatNotification,
+    BackendReadyNotification,
     ExportWavLoopPayload,
     ExportWavLoopResult,
     RangePayload,
@@ -79,26 +86,12 @@ export type BackendRequest<K extends BackendCommand> = { cmd: K; requestId: stri
 export type BackendSuccessEnvelope<K extends BackendCommand> = { requestId: string } & BackendResult<K>;
 
 /** Error codes from `python-backend/backend_errors.py`; hosts branch on these, never on the message text. */
-export const BACKEND_ERROR_CODES = ['input-error', 'stale-calibration', 'internal-error'] as const;
-export type BackendErrorCode = typeof BACKEND_ERROR_CODES[number];
-
-export interface BackendErrorPayload {
-    code: BackendErrorCode;
-    message: string;
-}
+export const BACKEND_ERROR_CODES = BACKEND_PROTOCOL_SCHEMA.$defs.BackendErrorPayload.properties.code.enum;
+export type BackendErrorCode = BackendErrorPayload['code'];
 
 export interface BackendErrorEnvelope {
     requestId: string;
     error: BackendErrorPayload;
-}
-
-export interface BackendReadyNotification {
-    type: 'ready';
-}
-
-export interface BackendHeartbeatNotification {
-    type: 'heartbeat';
-    ts: number;
 }
 
 export type BackendNotification = BackendReadyNotification | BackendHeartbeatNotification;
@@ -129,11 +122,9 @@ export function backendErrorCode(error: unknown): BackendErrorCode | undefined {
 }
 
 export function parseBackendErrorPayload(value: unknown): BackendErrorPayload | null {
-    if (!isJsonObject(value) || typeof value['message'] !== 'string') return null;
-    const code = value['code'];
-    return (BACKEND_ERROR_CODES as ReadonlyArray<unknown>).includes(code)
-        ? { code: code as BackendErrorCode, message: value['message'] }
-        : null;
+    if (schemaViolation('BackendErrorPayload', value) !== null) return null;
+    const { code, message } = value as BackendErrorPayload;
+    return { code, message };
 }
 
 export function isBackendCommand(value: unknown): value is BackendCommand {
@@ -228,10 +219,9 @@ export function parseBackendResult<K extends BackendCommand>(command: K, value: 
 }
 
 export function parseBackendNotification(value: unknown): BackendNotification | null {
-    if (!isJsonObject(value)) { return null; }
-    if (value['type'] === 'ready') { return { type: 'ready' }; }
-    if (value['type'] === 'heartbeat' && isFiniteNumber(value['ts'])) {
-        return { type: 'heartbeat', ts: value['ts'] };
+    if (schemaViolation('BackendReadyNotification', value) === null) return { type: 'ready' };
+    if (schemaViolation('BackendHeartbeatNotification', value) === null) {
+        return { type: 'heartbeat', ts: (value as BackendHeartbeatNotification).ts };
     }
     return null;
 }

@@ -21,7 +21,7 @@ import backend_errors
 from analysis_engine import AnalysisEngine, CachedAnalysis
 from analysis_service import AnalysisService
 from backend_server import dispatch, main, validate_request
-from protocol_schema import result_violation
+from protocol_schema import DEFINITIONS, first_violation, result_violation
 
 ROOT = Path(__file__).parent
 PROTOCOL_FIXTURES = json.loads(
@@ -519,6 +519,7 @@ def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
 def test_error_codes_match_the_shared_protocol_fixture() -> None:
     codes = {backend_errors.INPUT_ERROR, backend_errors.STALE_CALIBRATION, backend_errors.INTERNAL_ERROR}
     assert codes == set(PROTOCOL_FIXTURES["errorCodes"])
+    assert codes == set(DEFINITIONS["BackendErrorPayload"]["properties"]["code"]["enum"])
 
 
 def test_unknown_cmd_returns_error(server: _ServerHandle) -> None:
@@ -570,6 +571,7 @@ def test_invalid_payload_returns_deterministic_error_response(server: _ServerHan
     )
 
     assert response["requestId"] == "r1"
+    assert first_violation(DEFINITIONS["BackendErrorPayload"], response["error"]) is None
     assert response["error"]["code"] == "input-error"
     assert "points" in response["error"]["message"]
 
@@ -702,8 +704,7 @@ def test_heartbeat_loop_produces_heartbeat_json(monkeypatch: pytest.MonkeyPatch)
     printed = output.getvalue().splitlines()
     assert len(printed) >= 1
     msg = _json.loads(str(printed[0]))
-    assert msg["type"] == "heartbeat"
-    assert "ts" in msg
+    assert first_violation(DEFINITIONS["BackendHeartbeatNotification"], msg) is None
 
 
 def test_heartbeat_loop_emits_valid_json(monkeypatch):

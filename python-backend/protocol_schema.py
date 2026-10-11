@@ -10,8 +10,12 @@ keyword can never shape the TS types without also being checked at runtime.
 
 This module must stay importable without numpy so the generator runs on a bare Python.
 
-Commands move into ``COMMANDS`` one at a time; the rest still use the hand-written
-validators in ``command_dispatch`` and ``backendProtocol.ts``.
+Every command except ``run-recipe`` is in ``COMMANDS``. ``run-recipe`` keeps its hand-written
+validators in ``command_dispatch`` and ``backendProtocol.ts``: its payload embeds a wandas Recipe
+document and its result is a list of ChartSpecs, and both have schemas of their own
+(``chart_spec.py`` needs ``oneOf`` and ``additionalProperties``, which this subset leaves out).
+The error envelope, the backend notifications and the browser Worker's ``limits`` reply are
+definitions without a command.
 """
 
 from __future__ import annotations
@@ -35,6 +39,17 @@ _NULL: Schema = {"type": "null"}
 _SCALAR_TYPES = (str, int, float, bool, type(None))
 _TYPES = frozenset({"object", "array", "string", "number", "integer", "boolean", "null"})
 _MAX_SAFE_INTEGER = 2**53 - 1  # Number.MAX_SAFE_INTEGER: larger integers change value in the generated TS.
+
+_BROWSER_LIMIT_KEYS = (
+    "maxInputBytes",
+    "maxDurationSeconds",
+    "maxChannels",
+    "minSampleRateHz",
+    "maxSampleRateHz",
+    "maxSources",
+    "maxTotalInputBytes",
+    "maxExportBytes",
+)
 
 _NUMBER: Schema = {"type": "number"}
 _NUMBERS: Schema = {"type": "array", "items": _NUMBER}
@@ -317,6 +332,34 @@ DEFINITIONS: dict[str, Schema] = {
     },
     # Nothing to report; the reply only settles the request.
     "ReleaseTrackDetailResult": {"type": "object"},
+    # Codes from backend_errors.py; hosts branch on them, never on the message text.
+    "BackendErrorPayload": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+            "code": {"type": "string", "enum": ["input-error", "stale-calibration", "internal-error"]},
+            "message": {"type": "string"},
+        },
+    },
+    "BackendReadyNotification": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {"type": {"type": "string", "const": "ready"}},
+    },
+    "BackendHeartbeatNotification": {
+        "type": "object",
+        "required": ["type", "ts"],
+        "properties": {"type": {"type": "string", "const": "heartbeat"}, "ts": _NUMBER},
+    },
+    # browser_service.browser_limits(); bounded so a skewed Worker cannot disable the host's pre-checks.
+    "BrowserLimits": {
+        "type": "object",
+        # The host's file and export pre-checks read these four; the rest are published for the README.
+        "required": ["maxInputBytes", "maxSources", "maxTotalInputBytes", "maxExportBytes"],
+        "properties": {
+            key: {"type": "integer", "minimum": 1, "maximum": _MAX_SAFE_INTEGER} for key in _BROWSER_LIMIT_KEYS
+        },
+    },
 }
 
 COMMANDS: dict[str, dict[str, str]] = {

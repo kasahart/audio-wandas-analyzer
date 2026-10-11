@@ -6,6 +6,7 @@ import pytest
 
 from browser_service import BrowserService, create_service
 from command_dispatch import dispatch, validate_request
+from protocol_schema import DEFINITIONS, first_violation
 
 FIXTURE = Path(__file__).resolve().parents[1] / "src/test/fixtures/short-stereo.wav"
 
@@ -231,6 +232,7 @@ def test_browser_limits_are_published_from_the_python_constants() -> None:
     import browser_service as browser
 
     limits = json.loads(browser.browser_limits_json())
+    assert first_violation(DEFINITIONS["BrowserLimits"], limits) is None
     assert limits == {
         "maxInputBytes": 16 * 1024 * 1024,
         "maxDurationSeconds": 30,
