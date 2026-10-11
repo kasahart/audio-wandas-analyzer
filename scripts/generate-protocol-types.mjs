@@ -9,9 +9,20 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const target = join(root, 'src/shared/protocol/generated/backendProtocolSchema.ts');
-const python = [join(root, '.venv/bin/python'), join(root, '.venv/Scripts/python.exe')].find(existsSync) ?? 'python3';
+// Same lookup order as src/test/chartSpecSchema.test.ts. protocol_schema.py needs only the standard library.
+function findPython() {
+    for (const candidate of [join(root, '.venv/bin/python'), join(root, '.venv/Scripts/python.exe'), process.env.WANDAS_PYTHON, 'python3', 'python']) {
+        if (!candidate) continue;
+        if (candidate.includes('/') || candidate.includes('\\')) { if (existsSync(candidate)) return candidate; continue; }
+        if (spawnSync(candidate, ['--version'], { stdio: 'ignore' }).status === 0) return candidate;
+    }
+    throw new Error('No Python found for python-backend/protocol_schema.py (tried .venv, $WANDAS_PYTHON, python3, python)');
+}
+const python = findPython();
 const dumped = spawnSync(python, ['protocol_schema.py'], { cwd: join(root, 'python-backend'), encoding: 'utf8' });
-if (dumped.status !== 0) throw new Error(`python protocol_schema.py failed:\n${dumped.stderr}`);
+if (dumped.status !== 0) {
+    throw new Error(`${python} protocol_schema.py failed (exit ${dumped.status}):\n${dumped.stderr || dumped.error?.message || '(no output)'}`);
+}
 const schema = JSON.parse(dumped.stdout);
 const definitions = schema.$defs;
 const externalTypes = new Set();
@@ -23,8 +34,6 @@ function typeOf(node) {
         if (definition['x-tsType']) { externalTypes.add(definition['x-tsType']); return definition['x-tsType']; }
         return definition.type === 'object' ? name : typeOf(definition);
     }
-    if (node.const !== undefined) return JSON.stringify(node.const);
-    if (node.enum) return node.enum.map(value => JSON.stringify(value)).join(' | ');
     switch (node.type) {
         case 'string': return 'string';
         case 'number': case 'integer': return 'number';
@@ -58,7 +67,8 @@ const output = [
     '',
 ].join('\n');
 
-const current = existsSync(target) ? readFileSync(target, 'utf8') : '';
+// Compare without line-ending differences so a CRLF checkout (core.autocrlf) still passes.
+const current = existsSync(target) ? readFileSync(target, 'utf8').replace(/\r\n/g, '\n') : '';
 if (current === output) {
     console.log('Generated protocol types match python-backend/protocol_schema.py');
 } else if (process.argv.includes('--write')) {

@@ -6,12 +6,10 @@ export const BACKEND_PROTOCOL_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
         "CalibrationProfile": {
-            "type": "object",
             "x-tsType": "CalibrationProfile"
         },
         "AnalysisRevision": {
-            "type": "integer",
-            "minimum": 0
+            "type": "integer"
         },
         "WaveformEnvelope": {
             "type": "object",
@@ -77,6 +75,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "points": {
                     "type": "integer",
+                    "minimum": 1,
                     "maximum": 8192
                 },
                 "calibrationProfile": {

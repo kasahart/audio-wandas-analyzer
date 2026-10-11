@@ -21,6 +21,7 @@ import backend_errors
 from analysis_engine import AnalysisEngine, CachedAnalysis
 from analysis_service import AnalysisService
 from backend_server import dispatch, main, validate_request
+from protocol_schema import result_violation
 
 ROOT = Path(__file__).parent
 PROTOCOL_FIXTURES = json.loads(
@@ -509,6 +510,7 @@ def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
     assert "error" not in resp, resp
     assert resp["startNorm"] == 0.2
     assert len(resp["channels"]) == 1
+    assert result_violation("range", resp) is None, "the real range result must satisfy the shared schema"
 
 
 def test_error_codes_match_the_shared_protocol_fixture() -> None:

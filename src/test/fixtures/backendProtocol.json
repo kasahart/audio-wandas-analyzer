@@ -20,6 +20,19 @@
       }
     },
     {
+      "command": "range",
+      "request": {
+        "cmd": "range",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "startNorm": 0,
+        "endNorm": 1,
+        "points": 2000.0,
+        "calibrationProfile": null,
+        "analysisRevision": 0
+      }
+    },
+    {
       "command": "track-detail",
       "request": {
         "cmd": "track-detail",
@@ -192,9 +205,21 @@
         "startNorm": 0,
         "endNorm": 1,
         "points": 2000,
-        "analysisRevision": -1
+        "analysisRevision": 1.5
       },
       "errorField": "analysisRevision"
+    },
+    {
+      "command": "range",
+      "request": {
+        "cmd": "range",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "startNorm": 0,
+        "endNorm": 1,
+        "points": 0
+      },
+      "errorField": "points"
     }
   ],
   "validResponses": [
