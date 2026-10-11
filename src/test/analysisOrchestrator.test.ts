@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type * as vscode from 'vscode';
 import type { AnalysisHost } from '../extension/analysisOrchestrator';
+import { AnalysisRequestError } from '../extension/analysisRequestError';
 
 test('AnalysisOrchestrator exposes non-cancellable progress for calibration reanalysis', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -78,7 +79,7 @@ test('AnalysisOrchestrator preserves the requested calibration revision on error
             { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => undefined }) },
         ),
     };
-    const revisionedError = Object.assign(new Error('stale failure'), { analysisRevision: 4 });
+    const revisionedError = new AnalysisRequestError('stale failure', 4);
     const orchestrator = new AnalysisOrchestrator({
         warmup: async () => undefined,
         analyze: async () => { throw revisionedError; },
@@ -127,10 +128,7 @@ test('AnalysisOrchestrator does not retry a shared backend startup failure for e
         ['/tmp/two.wav', 5],
         ['/tmp/three.wav', 8],
     ]);
-    const startupError = Object.assign(new Error('startup timed out'), {
-        analysisRevision: 2,
-        backendStartupFailure: true,
-    });
+    const startupError = new AnalysisRequestError('startup timed out', 2, true);
     const orchestrator = new AnalysisOrchestrator({
         warmup: async () => undefined,
         analysisRevisionFor: (filePath) => revisions.get(filePath) ?? 0,
