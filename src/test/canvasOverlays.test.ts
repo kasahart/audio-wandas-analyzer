@@ -47,6 +47,9 @@ test('drawDashedTimeLine draws only when the time is inside the view', () => {
     const outside = recordingContext();
     drawDashedTimeLine(outside.ctx, 0.9, { start: 0, end: 0.5 }, 200, 40, CURSOR_LINE_STYLE);
     assert.equal(outside.calls.length, 0);
+    const collapsed = recordingContext();
+    drawDashedTimeLine(collapsed.ctx, 0.5, { start: 0.5, end: 0.5 }, 200, 40, CURSOR_LINE_STYLE);
+    assert.equal(collapsed.calls.length, 0);
 });
 
 test('drawRectZoomSelection clips the selection rectangle to the canvas', () => {
@@ -57,4 +60,17 @@ test('drawRectZoomSelection clips the selection rectangle to the canvas', () => 
     assert.ok(fill);
     assert.equal(fill[1][0], 25);
     assert.equal(fill[1][2], 75);
+});
+
+test('drawRectZoomSelection maps amplitudes through the zoomed amplitude range', () => {
+    const { ctx, calls } = recordingContext();
+    const selection = { trackId: 't', startNorm: 0, endNorm: 1, startAmpNorm: 0.4, endAmpNorm: 0.1 };
+    drawRectZoomSelection(ctx, selection as never, { start: 0, end: 1 }, { start: 0, end: 0.5 }, 100, 100);
+    const fill = calls.find(([name]) => name === 'fillRect');
+    assert.ok(fill);
+    const [left, top, width, height] = fill[1] as number[];
+    assert.equal(left, 0);
+    assert.equal(width, 100);
+    assert.ok(Math.abs(top - 20) < 1e-9);
+    assert.ok(Math.abs(height - 60) < 1e-9);
 });
