@@ -80,9 +80,10 @@ def test_coherence_yields_multi_series(two_channel: wd.ChannelFrame) -> None:
 
 
 def test_cross_spectral_frame_yields_db_series(two_channel: wd.ChannelFrame) -> None:
-    spec = adapt(two_channel.csd(), title="CSD")
+    csd = two_channel.csd()
+    spec = adapt(csd, title="CSD")
     assert spec["kind"] == "line"
-    assert spec["yLabel"] == "Cross-spectral level [dB]"
+    assert spec["yLabel"] == f"Cross-spectral level [{csd.channels[0].level_reference.label}]"
     assert spec["yScale"] == "db"
     assert len(spec["series"]) >= 2
 
@@ -212,6 +213,88 @@ def test_linear_transfer_gain_preserves_channel_units_and_values(
     actual = np.array([series["ys"] for series in spec["series"]])
     finite = np.isfinite(frame.gain)
     np.testing.assert_allclose(actual[finite], frame.gain[finite])
+
+
+def test_long_channel_frame_is_decimated_and_keeps_peaks_at_their_times() -> None:
+    from wandas_to_chart import CHANNEL_FRAME_POINT_LIMIT
+
+    samples = np.zeros((2, 48000 * 3))
+    samples[0, 12345] = 0.9
+    samples[1, 99999] = -0.7
+    frame = wd.from_numpy(samples, sampling_rate=48000)
+    spec = adapt(frame)
+    assert len(spec["xs"]) <= CHANNEL_FRAME_POINT_LIMIT
+    assert all(len(series["ys"]) == len(spec["xs"]) for series in spec["series"])
+    first, second = spec["series"]
+    assert spec["xs"][first["ys"].index(0.9)] == pytest.approx(12345 / 48000)
+    assert spec["xs"][second["ys"].index(-0.7)] == pytest.approx(99999 / 48000)
+    assert spec["xs"] == sorted(spec["xs"])
+    assert spec["xs"][0] == 0.0
+    assert spec["xs"][-1] == pytest.approx(frame.time[-1])
+
+
+def test_decimated_channel_frame_keeps_every_nan_run_in_a_bucket() -> None:
+    samples = np.zeros(48000 * 3)
+    samples[[50002, 50008]] = np.nan
+    samples[50003] = -0.5
+    samples[50010] = 0.5
+    spec = adapt(wd.from_numpy(samples[np.newaxis, :], sampling_rate=48000))
+    gap_times = [x for x, y in zip(spec["xs"], spec["series"][0]["ys"], strict=True) if y is None]
+    assert gap_times == pytest.approx([50002 / 48000, 50008 / 48000])
+
+
+def test_envelope_blocks_match_a_single_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    import wandas_to_chart
+
+    rng = np.random.default_rng(0)
+    data = rng.standard_normal((2, 100_000))
+    data[0, rng.choice(100_000, 50, replace=False)] = np.nan
+    time = np.arange(data.shape[1]) / 1000.0
+    whole = wandas_to_chart._min_max_envelope(data, time)
+    monkeypatch.setattr(wandas_to_chart, "_ENVELOPE_BLOCK_SAMPLES", 100)
+    blocked = wandas_to_chart._min_max_envelope(data, time)
+    np.testing.assert_array_equal(whole[1], blocked[1])
+    np.testing.assert_array_equal(whole[0], blocked[0])
+
+
+def test_decimated_flat_channel_frame_keeps_recording_endpoints() -> None:
+    frame = wd.from_numpy(np.zeros((1, 48000 * 3)), sampling_rate=48000)
+    spec = adapt(frame)
+    assert spec["xs"][0] == 0.0
+    assert spec["xs"][-1] == pytest.approx(frame.time[-1])
+
+
+def test_decimated_channel_frame_keeps_finite_peaks_next_to_nan() -> None:
+    samples = np.zeros(48000 * 3)
+    samples[50000] = np.nan
+    samples[50001] = 0.8
+    spec = adapt(wd.from_numpy(samples[np.newaxis, :], sampling_rate=48000))
+    ys = spec["series"][0]["ys"]
+    assert max(y for y in ys if y is not None) == pytest.approx(0.8)
+    assert spec["xs"][ys.index(0.8)] == pytest.approx(50001 / 48000)
+    assert spec["xs"][ys.index(None)] == pytest.approx(50000 / 48000)
+
+
+def test_short_channel_frame_keeps_every_sample(mono_sin: wd.ChannelFrame) -> None:
+    spec = adapt(mono_sin)
+    assert len(spec["xs"]) == mono_sin.n_samples
+
+
+def test_frame_subclasses_dispatch_like_their_base(mono_sin: wd.ChannelFrame) -> None:
+    spectral = mono_sin.welch()
+    subclass = type("CustomSpectralFrame", (type(spectral),), {})
+    spectral.__class__ = subclass
+    assert adapt(spectral)["kind"] == "line"
+
+
+def test_level_axis_label_uses_shared_level_reference(two_channel: wd.ChannelFrame) -> None:
+    calibration = wd.ChannelCalibration(factor=2.0, unit="Pa", ref=2e-5)
+    frame = two_channel.with_calibration({0: calibration, 1: calibration})
+    label = frame.channels[0].level_reference.label
+    assert adapt(frame.welch())["yLabel"] == f"Level [{label}]"
+    assert adapt(frame.noct_spectrum(fmin=125, fmax=4000, n=3))["yLabel"] == f"Level [{label}]"
+    mixed = two_channel.with_calibration({0: calibration})
+    assert adapt(mixed.welch())["yLabel"] == "Level [dB]"
 
 
 def test_non_finite_values_become_null_but_axes_stay_numeric(mono_sin: wd.ChannelFrame) -> None:
