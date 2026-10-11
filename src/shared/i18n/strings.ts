@@ -107,6 +107,10 @@ export interface UiStrings {
     playbackTimePrefix: string;
     playbackDisplayTitle: string;
     clipBadgeTitle: string;
+    calibrationButtonLabel: string;
+    calibrationButtonTitle: string;
+    calibrationButtonAria: string;
+    calibrationOverlayIncompatible: string;
     loopTimeDisplayTitle: string;
     btnFollowCursor: string;
     btnFollowCursorTitle: string;
@@ -321,6 +325,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         playbackTimePrefix: '▶',
         playbackDisplayTitle: 'Playback position',
         clipBadgeTitle: 'Peak ≥ 0.99 — possible clipping',
+        calibrationButtonLabel: 'Cal',
+        calibrationButtonTitle: 'Configure per-channel calibration',
+        calibrationButtonAria: 'Configure calibration',
+        calibrationOverlayIncompatible: 'Spectrum overlay is unavailable because visible channels use incompatible level references. Per-channel spectra remain available.',
         loopTimeDisplayTitle: 'Click to copy loop range',
         btnFollowCursor: 'Follow',
         btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback',
@@ -532,6 +540,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         playbackTimePrefix: '▶',
         playbackDisplayTitle: '再生位置',
         clipBadgeTitle: 'ピーク ≥ 0.99 — クリッピングの可能性',
+        calibrationButtonLabel: '校正',
+        calibrationButtonTitle: 'チャンネルごとの校正を設定',
+        calibrationButtonAria: '校正を設定',
+        calibrationOverlayIncompatible: '表示中のチャンネルのレベル基準が互換でないため、スペクトルの重ね表示は使用できません。チャンネルごとのスペクトルは引き続き表示できます。',
         loopTimeDisplayTitle: 'クリックでループ範囲をコピー',
         btnFollowCursor: '追従',
         btnFollowCursorTitle: '再生中にカーソルを中央に保つ',

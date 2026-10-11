@@ -1,4 +1,5 @@
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
+import type { UiStrings } from '../../shared/i18n/strings';
 import { channelsForResult, formatMeasuredLevel } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { ComparisonTrackState } from './types';
@@ -9,6 +10,8 @@ interface CalibrationSummary {
 }
 
 type Channel = ChannelSummary | null | undefined;
+
+type CalibrationButtonStrings = Pick<UiStrings, 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'>;
 
 function measurementFor(channel: Channel) {
     return channel && channel.measurement ? channel.measurement : null;
@@ -68,9 +71,10 @@ export function calibrationBadgeHtml(channels: Channel[]): string {
 }
 
 // The button has no listener of its own: the runtime's click delegation posts calibrationRequest().
-export function calibrationButtonHtml(trackId: string): string {
+export function calibrationButtonHtml(trackId: string, strings: CalibrationButtonStrings): string {
     return '<button class="track-btn" data-action="configure-calibration" data-track-id="' + escapeHtml(trackId) + '"'
-        + ' title="Configure per-channel calibration" aria-label="Configure calibration">Cal</button>';
+        + ' title="' + escapeHtml(strings.calibrationButtonTitle) + '" aria-label="' + escapeHtml(strings.calibrationButtonAria) + '">'
+        + escapeHtml(strings.calibrationButtonLabel) + '</button>';
 }
 
 export function calibrationRequest(trackIndex: number, result: ComparisonTrackState) {
@@ -101,7 +105,7 @@ export function hasIncompatibleLevelReferences(results: ComparisonTrackState[]):
     return references.size > 1;
 }
 
-export function applyOverlayCompatibility(document: Document, incompatible: boolean): void {
+export function applyOverlayCompatibility(document: Document, incompatible: boolean, message: string): void {
     const wrap = document.getElementById('spectrum-overlay-wrap');
     const canvas = document.getElementById('spectrum-overlay-canvas');
     if (!wrap || !canvas) { return; }
@@ -115,7 +119,7 @@ export function applyOverlayCompatibility(document: Document, incompatible: bool
     if (!warning) {
         warning = document.createElement('div');
         warning.className = 'calibration-overlay-warning';
-        warning.textContent = 'Spectrum overlay is unavailable because visible channels use incompatible level references. Per-channel spectra remain available.';
         wrap.appendChild(warning);
     }
+    warning.textContent = message;
 }

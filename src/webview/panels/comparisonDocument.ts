@@ -1,6 +1,7 @@
 import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscaping';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import type { ComparisonState } from '../runtime/types';
+import { createNonce } from './nonce';
 
 export interface ComparisonAssets {
     waveformScriptUri: string;
@@ -11,7 +12,7 @@ export interface ComparisonAssets {
 }
 
 export function renderComparisonDocument(state: ComparisonState, assets: ComparisonAssets): string {
-    const nonce = Date.now().toString();
+    const nonce = createNonce();
     const locale = pickLocale(assets.language);
     const strings = getStrings(assets.language);
     return `<!DOCTYPE html>

@@ -67,7 +67,8 @@ test('calibration webview runtime exposes the GUI and calibrated evidence output
     assert.doesNotMatch(source, /rmsLevelDb/);
     assert.match(source, /rawPeakFullScale/);
     assert.match(source, /levelReferenceLabel/);
-    assert.match(source, /Spectrum overlay is unavailable/);
+    assert.match(source, /calibration-overlay-warning/);
+    assert.doesNotMatch(source, /Spectrum overlay is unavailable/);
     assert.doesNotMatch(source, /calibration-reload/);
     assert.doesNotMatch(source, /stopImmediatePropagation/);
     assert.doesNotMatch(source, /request-calibration-refresh/);
