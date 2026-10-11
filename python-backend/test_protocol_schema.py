@@ -132,12 +132,17 @@ def test_every_listed_object_rejects_unknown_keys() -> None:
         )
         is None
     )
+    assert result_violation("release-track-detail", {"requestId": "r"}) is None
+    assert result_violation("release-track-detail", {"requestId": "r", "released": True}) == "released"
+    wav = {"requestId": "r", "wavBase64": "", "sampleRate": 8000}
+    assert result_violation("export-wav-loop", wav) is None
+    assert result_violation("export-wav-loop", {**wav, "cmd": "export-wav-loop"}) == "cmd"
 
 
-def _without_envelope(message: object) -> object:
+def _without_envelope(message: object, keys: frozenset[str]) -> object:
     if not isinstance(message, dict):
         return message
-    return {key: value for key, value in message.items() if key not in protocol_schema.ENVELOPE_KEYS}
+    return {key: value for key, value in message.items() if key not in keys}
 
 
 def test_schema_commands_agree_with_jsonschema_on_the_protocol_fixtures() -> None:
@@ -149,18 +154,22 @@ def test_schema_commands_agree_with_jsonschema_on_the_protocol_fixtures() -> Non
             continue
         reference = _reference_validator({"$ref": f"#/$defs/{protocol_schema.COMMANDS[command]['payload']}"})
         valid = payload_violation(command, case["request"]) is None
-        assert reference.is_valid(_without_envelope(case["request"])) == valid, case
+        assert reference.is_valid(_without_envelope(case["request"], protocol_schema.REQUEST_ENVELOPE_KEYS)) == valid, (
+            case
+        )
         checked += 1
     for case in FIXTURES["validResponses"]:
         if case["command"] not in protocol_schema.COMMANDS:
             continue
         reference = _reference_validator({"$ref": f"#/$defs/{protocol_schema.COMMANDS[case['command']]['result']}"})
         valid = result_violation(case["command"], case["response"]) is None
-        assert reference.is_valid(_without_envelope(case["response"])) == valid, case
+        assert (
+            reference.is_valid(_without_envelope(case["response"], protocol_schema.RESPONSE_ENVELOPE_KEYS)) == valid
+        ), case
         checked += 1
     for case in FIXTURES["invalidResponses"]:
         reference = _reference_validator({"$ref": f"#/$defs/{protocol_schema.COMMANDS[case['command']]['result']}"})
         assert result_violation(case["command"], case["response"]) == case["violation"], case
-        assert not reference.is_valid(_without_envelope(case["response"])), case
+        assert not reference.is_valid(_without_envelope(case["response"], protocol_schema.RESPONSE_ENVELOPE_KEYS)), case
         checked += 1
     assert checked > 0

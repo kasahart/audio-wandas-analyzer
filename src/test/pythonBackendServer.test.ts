@@ -470,6 +470,15 @@ test('shared reply correlation consumes a request once and isolates completion f
     assert.equal(rejected.length, 2);
 });
 
+test('error replies with fields beside the error are protocol errors', () => {
+    const rejected: Error[] = [];
+    const diagnostics: BackendDiagnostic[] = [];
+    const pending = new Map<string, PendingRequest>([['r1', makePending('analyze', [], rejected)]]);
+    processStdoutLine('{"requestId":"r1","error":{"code":"input-error","message":"m"},"unexpected":1}', pending, { onDiagnostic: diagnostic => { diagnostics.push(diagnostic); } });
+    assert.deepEqual(diagnostics.map(diagnostic => diagnostic.kind), ['protocol-validation-error']);
+    assert.match(rejected[0]?.message ?? '', /Invalid error response for analyze/);
+});
+
 
 test('readline preserves split UTF-8, CRLF and a final response without newline', async () => {
     const input = new PassThrough();

@@ -344,7 +344,7 @@ DEFINITIONS: dict[str, Schema] = {
         "properties": {"filePath": {"type": "string"}},
     },
     # Nothing to report; the reply only settles the request.
-    "ReleaseTrackDetailResult": {"type": "object"},
+    "ReleaseTrackDetailResult": {"type": "object", "properties": {}},
     # Codes from backend_errors.py; hosts branch on them, never on the message text.
     "BackendErrorPayload": {
         "type": "object",
@@ -496,7 +496,8 @@ def dump_schema() -> Schema:
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": DEFINITIONS,
         "x-commands": COMMANDS,
-        "x-envelopeKeys": sorted(ENVELOPE_KEYS),
+        "x-requestEnvelopeKeys": sorted(REQUEST_ENVELOPE_KEYS),
+        "x-responseEnvelopeKeys": sorted(RESPONSE_ENVELOPE_KEYS),
     }
 
 
@@ -570,8 +571,10 @@ def first_violation(schema: Schema, value: object, path: str = "") -> str | None
     return None
 
 
-# Request and reply envelope keys travel beside the payload or result fields but belong to no schema.
-ENVELOPE_KEYS = frozenset({"cmd", "requestId"})
+# Envelope keys travel beside the payload or result fields but belong to no schema. Replies carry
+# only ``requestId``, so a ``cmd`` in a reply is reported as an unknown result field.
+REQUEST_ENVELOPE_KEYS = frozenset({"cmd", "requestId"})
+RESPONSE_ENVELOPE_KEYS = frozenset({"requestId"})
 
 
 def payload_violation(command: str, value: object) -> str | None:
@@ -580,7 +583,7 @@ def payload_violation(command: str, value: object) -> str | None:
     ``value`` may be the whole request: its ``cmd`` and ``requestId`` are not payload fields.
     """
     if isinstance(value, dict):
-        value = {key: item for key, item in value.items() if key not in ENVELOPE_KEYS}
+        value = {key: item for key, item in value.items() if key not in REQUEST_ENVELOPE_KEYS}
     return first_violation(DEFINITIONS[COMMANDS[command]["payload"]], value)
 
 
@@ -590,7 +593,7 @@ def result_violation(command: str, value: object) -> str | None:
     ``value`` may be the whole reply line: the backend emits ``requestId`` beside the result fields.
     """
     if isinstance(value, dict):
-        value = {key: item for key, item in value.items() if key not in ENVELOPE_KEYS}
+        value = {key: item for key, item in value.items() if key not in RESPONSE_ENVELOPE_KEYS}
     return first_violation(DEFINITIONS[COMMANDS[command]["result"]], value)
 
 

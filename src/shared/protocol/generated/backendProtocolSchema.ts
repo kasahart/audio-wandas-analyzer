@@ -684,7 +684,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "additionalProperties": false
         },
         "ReleaseTrackDetailResult": {
-            "type": "object"
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
         },
         "BackendErrorPayload": {
             "type": "object",
@@ -816,8 +818,11 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "result": "ReleaseTrackDetailResult"
         }
     },
-    "x-envelopeKeys": [
+    "x-requestEnvelopeKeys": [
         "cmd",
+        "requestId"
+    ],
+    "x-responseEnvelopeKeys": [
         "requestId"
     ]
 } as const;
@@ -1000,6 +1005,10 @@ export interface ExportWavLoopResult {
 
 export interface ReleaseTrackDetailPayload {
     filePath: string;
+}
+
+export interface ReleaseTrackDetailResult {
+
 }
 
 export interface BackendErrorPayload {

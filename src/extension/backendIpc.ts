@@ -6,7 +6,7 @@ import {
     type BackendCommand,
     type BackendNotification,
 } from '../shared/protocol/backendProtocol';
-import { withoutEnvelope } from '../shared/protocol/schemaValidation';
+import { withoutResponseEnvelope } from '../shared/protocol/schemaValidation';
 
 export interface PendingRequest extends PendingBackendRequest<{ [key: string]: unknown }> {
     command: BackendCommand;
@@ -140,6 +140,6 @@ export function processStdoutLine(
         return;
     }
 
-    const diagnostic = settleBackendRequest(pending, requestId, withoutEnvelope(parsed), parsed['error']);
+    const diagnostic = settleBackendRequest(pending, requestId, withoutResponseEnvelope(parsed), parsed['error']);
     if (diagnostic) handlers.onDiagnostic?.({ ...diagnostic, rawLine: line });
 }

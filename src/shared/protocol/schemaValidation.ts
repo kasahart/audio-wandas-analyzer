@@ -76,14 +76,24 @@ function firstViolation(schema: SchemaNode, value: unknown, path: string): strin
     return null;
 }
 
-const ENVELOPE_KEYS: ReadonlySet<string> = new Set(BACKEND_PROTOCOL_SCHEMA['x-envelopeKeys']);
+const REQUEST_ENVELOPE_KEYS: ReadonlySet<string> = new Set(BACKEND_PROTOCOL_SCHEMA['x-requestEnvelopeKeys']);
+const RESPONSE_ENVELOPE_KEYS: ReadonlySet<string> = new Set(BACKEND_PROTOCOL_SCHEMA['x-responseEnvelopeKeys']);
 
-/** Drops `cmd` and `requestId`, which travel beside payload and result fields but belong to no definition. */
-export function withoutEnvelope(message: Record<string, unknown>): Record<string, unknown>;
-export function withoutEnvelope(message: unknown): unknown;
-export function withoutEnvelope(message: unknown): unknown {
+function withoutKeys(message: unknown, keys: ReadonlySet<string>): unknown {
     if (typeof message !== 'object' || message === null || Array.isArray(message)) return message;
-    return Object.fromEntries(Object.entries(message).filter(([key]) => !ENVELOPE_KEYS.has(key)));
+    return Object.fromEntries(Object.entries(message).filter(([key]) => !keys.has(key)));
+}
+
+/** Drops `cmd` and `requestId`, which travel beside the payload fields but belong to no definition. */
+export function withoutRequestEnvelope(message: unknown): unknown {
+    return withoutKeys(message, REQUEST_ENVELOPE_KEYS);
+}
+
+/** Drops `requestId`; replies carry no `cmd`, so one is left for the result schema to reject. */
+export function withoutResponseEnvelope(message: Record<string, unknown>): Record<string, unknown>;
+export function withoutResponseEnvelope(message: unknown): unknown;
+export function withoutResponseEnvelope(message: unknown): unknown {
+    return withoutKeys(message, RESPONSE_ENVELOPE_KEYS);
 }
 
 /** Dotted path of the first value that breaks an inline `schema` (`$ref`s resolve to the protocol definitions), or null. */
