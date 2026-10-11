@@ -6,7 +6,6 @@ export function clampHeight(value: number, minValue: number, maxValue: number): 
     return Math.max(minValue, Math.min(maxValue, value));
 }
 
-/** Maps a height number-input action and its raw value to the height it requests; null when it requests none. */
 export function heightInputRequest(action: string | null, value: string | number | null): { kind: HeightKind; height: number } | null {
     const kind = action === 'track-height-input' ? 'track' : action === 'spectrum-height-input' ? 'spectrum' : null;
     if (!kind || value === null) {
