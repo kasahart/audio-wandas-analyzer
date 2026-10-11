@@ -1,7 +1,12 @@
+import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
+
 export interface NormalizedRange {
     start: number;
     end: number;
 }
+
+/** One zoom-in step keeps this fraction of the visible span (zoom-out divides by it). */
+export const ZOOM_IN_FACTOR = 0.7;
 
 export function zoomNormalizedRange(range: NormalizedRange, factor: number): NormalizedRange {
     const center = (range.start + range.end) / 2;
@@ -21,7 +26,7 @@ export function amplitudeNormToCanvasY(
     if (amplitudeMin > -0.999999 || amplitudeMax < 0.999999) {
         return ((amplitudeMax - norm) / Math.max(amplitudeMax - amplitudeMin, 1e-9)) * height;
     }
-    return height / 2 - norm * (height * 0.44);
+    return height / 2 - norm * (height * WAVEFORM_HALF_HEIGHT_RATIO);
 }
 
 export function canvasYToAmplitudeNorm(
@@ -37,5 +42,5 @@ export function canvasYToAmplitudeNorm(
     if (amplitudeMin > -0.999999 || amplitudeMax < 0.999999) {
         return amplitudeMax - (clampedY / Math.max(height, 1)) * (amplitudeMax - amplitudeMin);
     }
-    return Math.max(-1, Math.min(1, (height / 2 - clampedY) / (height * 0.44)));
+    return Math.max(-1, Math.min(1, (height / 2 - clampedY) / (height * WAVEFORM_HALF_HEIGHT_RATIO)));
 }
