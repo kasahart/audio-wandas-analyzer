@@ -1,8 +1,8 @@
 import type { ChartSpec } from '../chartSpec';
 import type { RecipeDocument } from '../recipe/recipeSelection';
-import { isCalibrationStatus, isCalibrationSource, isCalibrationProfile } from '../analysis/calibrationModel';
-import { isSafeCalibrationValue } from '../analysis/analysisTypes';
+import { isCalibrationProfile } from '../analysis/calibrationModel';
 import type {
+    AnalyzePayload,
     ExportWavLoopPayload,
     ExportWavLoopResult,
     RangePayload,
@@ -10,20 +10,20 @@ import type {
     ReleaseTrackDetailPayload,
     SpectrumSlicePayload,
     SpectrumSliceResult,
+    TrackDetailPayload,
+    TrackDetailResult,
 } from './generated/backendProtocolSchema';
 import { schemaViolation } from './schemaValidation';
 import type {
     AnalysisResult,
     CalibrationProfile,
-    AnalysisUnits,
     ChannelSummary,
-    DbScaleMetadata,
     SpectrogramData,
-    StftOptions,
     WaveformEnvelope,
 } from '../analysis/analysisTypes';
 
 export type {
+    AnalyzePayload,
     ExportWavLoopPayload,
     ExportWavLoopResult,
     RangePayload,
@@ -31,33 +31,12 @@ export type {
     ReleaseTrackDetailPayload,
     SpectrumSlicePayload,
     SpectrumSliceResult,
+    TrackDetailPayload,
+    TrackDetailResult,
 };
 
 export interface CalibrationRequestContext {
     calibrationProfile?: CalibrationProfile;
-    analysisRevision?: number;
-}
-
-export interface AnalyzePayload extends CalibrationRequestContext {
-    filePath: string;
-    stftOptions?: StftOptions;
-}
-
-export interface TrackDetailPayload extends CalibrationRequestContext {
-    filePath: string;
-    trackIndex: number;
-    analysisId: string;
-    settingsSignature: string;
-    stftOptions?: StftOptions;
-}
-
-export interface TrackDetailResult {
-    trackIndex: number;
-    analysisId: string;
-    settingsSignature: string;
-    filePath: string;
-    channels: ChannelSummary[];
-    calibrationSignature?: string;
     analysisRevision?: number;
 }
 
@@ -169,66 +148,6 @@ function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
 }
 
-function isInteger(value: unknown): value is number {
-    return isFiniteNumber(value) && Number.isInteger(value);
-}
-
-function isOptionalString(value: unknown): value is string | undefined {
-    return value === undefined || typeof value === 'string';
-}
-
-function isOptionalFiniteNumber(value: unknown): value is number | undefined {
-    return value === undefined || isFiniteNumber(value);
-}
-
-function isOptionalBoolean(value: unknown): value is boolean | undefined {
-    return value === undefined || typeof value === 'boolean';
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-    return isInteger(value) && value >= 0;
-}
-
-
-
-function isFiniteNumberArray(value: unknown): value is number[] {
-    return Array.isArray(value) && value.every(isFiniteNumber);
-}
-
-function isDbScaleMetadata(value: unknown): value is DbScaleMetadata {
-    return isJsonObject(value)
-        && typeof value['unit'] === 'string'
-        && typeof value['axisLabel'] === 'string'
-        && (value['referenceValue'] === undefined || isSafeCalibrationValue(value['referenceValue']))
-        && isOptionalString(value['referenceUnit'])
-        && isOptionalString(value['levelReferenceLabel']);
-}
-
-
-function isChannelMeasurementContext(value: unknown): boolean {
-    return isJsonObject(value)
-        && isCalibrationStatus(value['calibrationStatus'])
-        && isCalibrationSource(value['calibrationSource'])
-        && isSafeCalibrationValue(value['factor'])
-        && typeof value['linearUnit'] === 'string'
-        && isSafeCalibrationValue(value['referenceValue'])
-        && typeof value['referenceUnit'] === 'string'
-        && typeof value['levelUnit'] === 'string'
-        && typeof value['levelReferenceLabel'] === 'string';
-}
-
-function hasCalibrationResultMetadata(value: { [key: string]: unknown }): boolean {
-    return isOptionalString(value['calibrationSignature'])
-        && (value['analysisRevision'] === undefined || isNonNegativeInteger(value['analysisRevision']));
-}
-
-function isAnalysisUnits(value: unknown): value is AnalysisUnits {
-    return isJsonObject(value)
-        && isDbScaleMetadata(value['amplitudeLevel'])
-        && isDbScaleMetadata(value['spectrumLevel'])
-        && isDbScaleMetadata(value['spectrogramLevel']);
-}
-
 /** Cross-field invariant the schema cannot express: every per-point array has the same length. */
 function hasAlignedEnvelopeArrays(envelope: WaveformEnvelope): boolean {
     const pointCount = envelope.min.length;
@@ -236,66 +155,24 @@ function hasAlignedEnvelopeArrays(envelope: WaveformEnvelope): boolean {
         .every(points => points === undefined || points.length === pointCount);
 }
 
-function isWaveformEnvelope(value: unknown): value is WaveformEnvelope {
-    return schemaViolation('WaveformEnvelope', value) === null && hasAlignedEnvelopeArrays(value as WaveformEnvelope);
+/** Cross-field invariant the schema cannot express: timeBins rows of frequencyBins values. */
+function hasSpectrogramShape(spectrogram: SpectrogramData): boolean {
+    return spectrogram.values.length === spectrogram.timeBins
+        && spectrogram.values.every(row => row.length === spectrogram.frequencyBins);
 }
 
-function isSpectrogramData(value: unknown): value is SpectrogramData {
-    if (!isJsonObject(value)
-        || !Array.isArray(value['values'])
-        || !value['values'].every(isFiniteNumberArray)) {
-        return false;
-    }
-    return isInteger(value['timeBins'])
-        && isInteger(value['frequencyBins'])
-        && isInteger(value['windowSize'])
-        && isInteger(value['hopSize'])
-        && isFiniteNumber(value['maxFrequencyHz'])
-        && isFiniteNumber(value['minDb'])
-        && isFiniteNumber(value['maxDb'])
-        && isOptionalString(value['unit'])
-        && isOptionalString(value['axisLabel'])
-        && (value['referenceValue'] === undefined || isSafeCalibrationValue(value['referenceValue']))
-        && isOptionalString(value['referenceUnit'])
-        && isOptionalString(value['levelReferenceLabel'])
-        && value['values'].length === value['timeBins']
-        && value['values'].every((row) => row.length === value['frequencyBins']);
+function hasChannelInvariants(channel: ChannelSummary): boolean {
+    return hasAlignedEnvelopeArrays(channel.waveform)
+        && (channel.spectrogram === null || hasSpectrogramShape(channel.spectrogram));
 }
 
-function isChannelSummary(value: unknown): value is ChannelSummary {
-    if (!isJsonObject(value)
-        || typeof value['label'] !== 'string'
-        || !(value['unit'] === undefined || value['unit'] === null || typeof value['unit'] === 'string')
-        || !isFiniteNumber(value['peakAbsolute'])
-        || !isWaveformEnvelope(value['waveform'])) {
-        return false;
-    }
-    if ((value['measurement'] !== undefined && !isChannelMeasurementContext(value['measurement']))
-        || !isOptionalFiniteNumber(value['peakLevelDb'])
-        || !isOptionalFiniteNumber(value['rawPeakFullScale'])
-        || !isOptionalBoolean(value['clipped'])) {
-        return false;
-    }
-    return value['spectrogram'] === null || isSpectrogramData(value['spectrogram']);
-}
-
+/** Schema plus the channel count and the calibration profile's own checks (calibrationModel.ts). */
 function isAnalysisResult(value: unknown): value is AnalysisResult {
-    if (!isJsonObject(value)
-        || typeof value['filePath'] !== 'string'
-        || typeof value['fileName'] !== 'string'
-        || !isFiniteNumber(value['sampleRateHz'])
-        || !isFiniteNumber(value['durationSeconds'])
-        || !isInteger(value['channelCount'])
-        || !isInteger(value['sampleCount'])
-        || !Array.isArray(value['channels'])
-        || !value['channels'].every(isChannelSummary)) {
-        return false;
-    }
-    return value['channels'].length === value['channelCount']
-        && (value['schemaVersion'] === undefined || value['schemaVersion'] === 2)
-        && hasCalibrationResultMetadata(value)
-        && (value['calibrationProfile'] === undefined || isCalibrationProfile(value['calibrationProfile']))
-        && (value['units'] === undefined || isAnalysisUnits(value['units']));
+    if (schemaViolation('AnalysisResult', value) !== null) return false;
+    const result = value as AnalysisResult;
+    return result.channels.length === result.channelCount
+        && result.channels.every(hasChannelInvariants)
+        && (result.calibrationProfile === undefined || isCalibrationProfile(result.calibrationProfile));
 }
 
 function isRangeResult(value: unknown): value is RangeResult {
@@ -304,17 +181,10 @@ function isRangeResult(value: unknown): value is RangeResult {
 }
 
 function isTrackDetailResult(value: unknown): value is TrackDetailResult {
-    return isJsonObject(value)
-        && isInteger(value['trackIndex'])
-        && typeof value['analysisId'] === 'string'
-        && typeof value['settingsSignature'] === 'string'
-        && typeof value['filePath'] === 'string'
-        && Array.isArray(value['channels'])
-        && value['channels'].every(isChannelSummary)
-        && hasCalibrationResultMetadata(value);
+    return schemaViolation('TrackDetailResult', value) === null
+        && (value as TrackDetailResult).channels.every(hasChannelInvariants);
 }
 
-/** Invariants the schema cannot express: at least one channel, each with one value per frequency bin. */
 function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
     if (schemaViolation('SpectrumSliceResult', value) !== null) return false;
     const result = value as SpectrumSliceResult;

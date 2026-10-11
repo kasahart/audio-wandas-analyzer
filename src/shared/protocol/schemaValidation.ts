@@ -14,6 +14,8 @@ export interface SchemaNode {
     required?: readonly string[];
     properties?: Readonly<Record<string, SchemaNode>>;
     items?: SchemaNode;
+    /** Only the nullable form `[schema, { type: 'null' }]`; see protocol_schema.py. */
+    anyOf?: readonly [SchemaNode, SchemaNode];
 }
 
 const DEFINITIONS = BACKEND_PROTOCOL_SCHEMA.$defs as unknown as Readonly<Record<string, SchemaNode>>;
@@ -39,6 +41,7 @@ function matchesType(expected: string, value: unknown): boolean {
 
 function firstViolation(schema: SchemaNode, value: unknown, path: string): string | null {
     const node = resolve(schema);
+    if (node.anyOf) return value === null ? null : firstViolation(node.anyOf[0], value, path);
     if (node.type !== undefined && !matchesType(node.type, value)) return path;
     if (node.const !== undefined && value !== node.const) return path;
     if (node.enum !== undefined && !node.enum.some(item => item === value)) return path;
@@ -47,11 +50,12 @@ function firstViolation(schema: SchemaNode, value: unknown, path: string): strin
     if (numeric && node.maximum !== undefined && value > node.maximum) return path;
     if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
         const record = value as Record<string, unknown>;
+        // An undefined property is absent, as JSON.stringify drops it; postMessage results can carry one.
         for (const key of node.required ?? []) {
-            if (!(key in record)) return path ? `${path}.${key}` : key;
+            if (record[key] === undefined) return path ? `${path}.${key}` : key;
         }
         for (const [key, child] of Object.entries(node.properties ?? {})) {
-            if (!(key in record)) continue;
+            if (record[key] === undefined) continue;
             const found = firstViolation(child, record[key], path ? `${path}.${key}` : key);
             if (found !== null) return found;
         }

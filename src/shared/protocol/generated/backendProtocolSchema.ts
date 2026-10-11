@@ -89,6 +89,352 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 }
             }
         },
+        "DbScaleMetadata": {
+            "type": "object",
+            "required": [
+                "unit",
+                "axisLabel"
+            ],
+            "properties": {
+                "unit": {
+                    "type": "string"
+                },
+                "axisLabel": {
+                    "type": "string"
+                },
+                "referenceValue": {
+                    "$ref": "#/$defs/SafeCalibrationValue"
+                },
+                "referenceUnit": {
+                    "type": "string"
+                },
+                "levelReferenceLabel": {
+                    "type": "string"
+                }
+            }
+        },
+        "AnalysisUnits": {
+            "type": "object",
+            "required": [
+                "amplitudeLevel",
+                "spectrumLevel",
+                "spectrogramLevel"
+            ],
+            "properties": {
+                "amplitudeLevel": {
+                    "$ref": "#/$defs/DbScaleMetadata"
+                },
+                "spectrumLevel": {
+                    "$ref": "#/$defs/DbScaleMetadata"
+                },
+                "spectrogramLevel": {
+                    "$ref": "#/$defs/DbScaleMetadata"
+                }
+            }
+        },
+        "ChannelMeasurementContext": {
+            "type": "object",
+            "required": [
+                "calibrationStatus",
+                "calibrationSource",
+                "factor",
+                "linearUnit",
+                "referenceValue",
+                "referenceUnit",
+                "levelUnit",
+                "levelReferenceLabel"
+            ],
+            "properties": {
+                "calibrationStatus": {
+                    "type": "string",
+                    "enum": [
+                        "uncalibrated",
+                        "calibrated"
+                    ]
+                },
+                "calibrationSource": {
+                    "type": "string",
+                    "enum": [
+                        "default",
+                        "manual",
+                        "derived",
+                        "embedded"
+                    ]
+                },
+                "factor": {
+                    "$ref": "#/$defs/SafeCalibrationValue"
+                },
+                "linearUnit": {
+                    "type": "string"
+                },
+                "referenceValue": {
+                    "$ref": "#/$defs/SafeCalibrationValue"
+                },
+                "referenceUnit": {
+                    "type": "string"
+                },
+                "levelUnit": {
+                    "type": "string"
+                },
+                "levelReferenceLabel": {
+                    "type": "string"
+                }
+            }
+        },
+        "SpectrogramData": {
+            "type": "object",
+            "required": [
+                "values",
+                "timeBins",
+                "frequencyBins",
+                "windowSize",
+                "hopSize",
+                "maxFrequencyHz",
+                "minDb",
+                "maxDb"
+            ],
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number"
+                        }
+                    }
+                },
+                "timeBins": {
+                    "type": "integer"
+                },
+                "frequencyBins": {
+                    "type": "integer"
+                },
+                "windowSize": {
+                    "type": "integer"
+                },
+                "hopSize": {
+                    "type": "integer"
+                },
+                "maxFrequencyHz": {
+                    "type": "number"
+                },
+                "minDb": {
+                    "type": "number"
+                },
+                "maxDb": {
+                    "type": "number"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "axisLabel": {
+                    "type": "string"
+                },
+                "referenceValue": {
+                    "$ref": "#/$defs/SafeCalibrationValue"
+                },
+                "referenceUnit": {
+                    "type": "string"
+                },
+                "levelReferenceLabel": {
+                    "type": "string"
+                }
+            }
+        },
+        "ChannelSummary": {
+            "type": "object",
+            "required": [
+                "label",
+                "peakAbsolute",
+                "waveform",
+                "spectrogram"
+            ],
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "unit": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "peakAbsolute": {
+                    "type": "number"
+                },
+                "measurement": {
+                    "$ref": "#/$defs/ChannelMeasurementContext"
+                },
+                "peakLevelDb": {
+                    "type": "number"
+                },
+                "rawPeakFullScale": {
+                    "type": "number"
+                },
+                "clipped": {
+                    "type": "boolean"
+                },
+                "waveform": {
+                    "$ref": "#/$defs/WaveformEnvelope"
+                },
+                "spectrogram": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SpectrogramData"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            }
+        },
+        "AnalyzePayload": {
+            "type": "object",
+            "required": [
+                "filePath"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                },
+                "stftOptions": {
+                    "$ref": "#/$defs/StftOptions"
+                },
+                "calibrationProfile": {
+                    "$ref": "#/$defs/CalibrationProfile"
+                },
+                "analysisRevision": {
+                    "$ref": "#/$defs/AnalysisRevision"
+                }
+            }
+        },
+        "AnalysisResult": {
+            "type": "object",
+            "required": [
+                "filePath",
+                "fileName",
+                "sampleRateHz",
+                "durationSeconds",
+                "channelCount",
+                "sampleCount",
+                "channels"
+            ],
+            "properties": {
+                "schemaVersion": {
+                    "type": "integer",
+                    "const": 2
+                },
+                "filePath": {
+                    "type": "string"
+                },
+                "fileName": {
+                    "type": "string"
+                },
+                "sampleRateHz": {
+                    "type": "number"
+                },
+                "durationSeconds": {
+                    "type": "number"
+                },
+                "channelCount": {
+                    "type": "integer"
+                },
+                "sampleCount": {
+                    "type": "integer"
+                },
+                "calibrationSignature": {
+                    "type": "string"
+                },
+                "calibrationProfile": {
+                    "$ref": "#/$defs/CalibrationProfile"
+                },
+                "analysisRevision": {
+                    "$ref": "#/$defs/ResultAnalysisRevision"
+                },
+                "units": {
+                    "$ref": "#/$defs/AnalysisUnits"
+                },
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/ChannelSummary"
+                    }
+                }
+            }
+        },
+        "TrackDetailPayload": {
+            "type": "object",
+            "required": [
+                "filePath",
+                "trackIndex",
+                "analysisId",
+                "settingsSignature"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                },
+                "trackIndex": {
+                    "type": "integer"
+                },
+                "analysisId": {
+                    "type": "string"
+                },
+                "settingsSignature": {
+                    "type": "string"
+                },
+                "stftOptions": {
+                    "$ref": "#/$defs/StftOptions"
+                },
+                "calibrationProfile": {
+                    "$ref": "#/$defs/CalibrationProfile"
+                },
+                "analysisRevision": {
+                    "$ref": "#/$defs/AnalysisRevision"
+                }
+            }
+        },
+        "TrackDetailResult": {
+            "type": "object",
+            "required": [
+                "trackIndex",
+                "analysisId",
+                "settingsSignature",
+                "filePath",
+                "channels"
+            ],
+            "properties": {
+                "trackIndex": {
+                    "type": "integer"
+                },
+                "analysisId": {
+                    "type": "string"
+                },
+                "settingsSignature": {
+                    "type": "string"
+                },
+                "filePath": {
+                    "type": "string"
+                },
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/ChannelSummary"
+                    }
+                },
+                "calibrationSignature": {
+                    "type": "string"
+                },
+                "analysisRevision": {
+                    "$ref": "#/$defs/ResultAnalysisRevision"
+                }
+            }
+        },
         "RangePayload": {
             "type": "object",
             "required": [
@@ -323,6 +669,14 @@ export const BACKEND_PROTOCOL_SCHEMA = {
         }
     },
     "x-commands": {
+        "analyze": {
+            "payload": "AnalyzePayload",
+            "result": "AnalysisResult"
+        },
+        "track-detail": {
+            "payload": "TrackDetailPayload",
+            "result": "TrackDetailResult"
+        },
         "range": {
             "payload": "RangePayload",
             "result": "RangeResult"
@@ -342,7 +696,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
     }
 } as const;
 
-export type SchemaCommand = 'range' | 'spectrum-slice' | 'export-wav-loop' | 'release-track-detail';
+export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'export-wav-loop' | 'release-track-detail';
 
 export interface StftOptions {
     nFft: number;
@@ -357,6 +711,101 @@ export interface WaveformEnvelope {
     maxT?: number[];
     samples: number[];
     absolutePeak: number;
+}
+
+export interface DbScaleMetadata {
+    unit: string;
+    axisLabel: string;
+    referenceValue?: number;
+    referenceUnit?: string;
+    levelReferenceLabel?: string;
+}
+
+export interface AnalysisUnits {
+    amplitudeLevel: DbScaleMetadata;
+    spectrumLevel: DbScaleMetadata;
+    spectrogramLevel: DbScaleMetadata;
+}
+
+export interface ChannelMeasurementContext {
+    calibrationStatus: "uncalibrated" | "calibrated";
+    calibrationSource: "default" | "manual" | "derived" | "embedded";
+    factor: number;
+    linearUnit: string;
+    referenceValue: number;
+    referenceUnit: string;
+    levelUnit: string;
+    levelReferenceLabel: string;
+}
+
+export interface SpectrogramData {
+    values: number[][];
+    timeBins: number;
+    frequencyBins: number;
+    windowSize: number;
+    hopSize: number;
+    maxFrequencyHz: number;
+    minDb: number;
+    maxDb: number;
+    unit?: string;
+    axisLabel?: string;
+    referenceValue?: number;
+    referenceUnit?: string;
+    levelReferenceLabel?: string;
+}
+
+export interface ChannelSummary {
+    label: string;
+    unit?: string | null;
+    peakAbsolute: number;
+    measurement?: ChannelMeasurementContext;
+    peakLevelDb?: number;
+    rawPeakFullScale?: number;
+    clipped?: boolean;
+    waveform: WaveformEnvelope;
+    spectrogram: SpectrogramData | null;
+}
+
+export interface AnalyzePayload {
+    filePath: string;
+    stftOptions?: StftOptions;
+    calibrationProfile?: CalibrationProfile;
+    analysisRevision?: number;
+}
+
+export interface AnalysisResult {
+    schemaVersion?: 2;
+    filePath: string;
+    fileName: string;
+    sampleRateHz: number;
+    durationSeconds: number;
+    channelCount: number;
+    sampleCount: number;
+    calibrationSignature?: string;
+    calibrationProfile?: CalibrationProfile;
+    analysisRevision?: number;
+    units?: AnalysisUnits;
+    channels: ChannelSummary[];
+}
+
+export interface TrackDetailPayload {
+    filePath: string;
+    trackIndex: number;
+    analysisId: string;
+    settingsSignature: string;
+    stftOptions?: StftOptions;
+    calibrationProfile?: CalibrationProfile;
+    analysisRevision?: number;
+}
+
+export interface TrackDetailResult {
+    trackIndex: number;
+    analysisId: string;
+    settingsSignature: string;
+    filePath: string;
+    channels: ChannelSummary[];
+    calibrationSignature?: string;
+    analysisRevision?: number;
 }
 
 export interface RangePayload {
