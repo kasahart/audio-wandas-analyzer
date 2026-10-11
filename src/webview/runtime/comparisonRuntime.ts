@@ -32,6 +32,7 @@ import {
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { TrackStore } from './trackStore';
+import { installColorPicker } from './colorPicker';
 import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
@@ -4183,8 +4184,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         trackStore.remove(trackId);
         messaging.releaseSource(record.result.filePath);
         announce((STR.announceTrackRemoved || 'Track {n} removed').replace('{n}', String(n)));
-        if (__colorPickTarget === trackId) {
-            closeColorPicker();
+        if (colorPicker.target() === trackId) {
+            colorPicker.close();
         }
         updateVisibility();
         scheduleRender();
@@ -4458,106 +4459,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         reorderDragFrom = null;
     }
-    // ── Color picker popover ──
-    var __colorPickTarget: TrackId | null = null;
-    var __colorPickAnchor: RuntimeElement | null = null;
+    var colorPicker = installColorPicker(document, {
+        colors: TRACK_COLORS,
+        resetLabel: STR.trackColorReset,
+        onPick(trackId, color) {
+            trackStore.require(trackId).runtime.color = color;
+            var trigger = document.querySelector('[data-action="pick-color"][data-track-id="' + trackId + '"]');
+            if (trigger) {
+                trigger.style.background = color === null ? trackColor(trackIndexForId(trackId)) : color;
+            }
+            scheduleRender();
+            scheduleSpectrumRefresh('immediate');
+        },
+    });
     function openColorPicker(trackId: TrackId, anchorEl: RuntimeElement) {
-        __colorPickTarget = trackId;
-        __colorPickAnchor = anchorEl || null;
-        var pop = document.getElementById('color-picker-popover');
-        if (!pop) {
-            return;
-        }
-        var rect = anchorEl.getBoundingClientRect();
-        pop.style.top = (rect.bottom + 4) + 'px';
-        pop.style.left = rect.left + 'px';
-        pop.removeAttribute('hidden');
-        pop.focus();
+        colorPicker.open(trackId, anchorEl);
     }
-    function closeColorPicker() {
-        var pop = document.getElementById('color-picker-popover');
-        if (pop) {
-            pop.setAttribute('hidden', '');
-        }
-        if (__colorPickAnchor && typeof __colorPickAnchor.focus === 'function') {
-            __colorPickAnchor.focus();
-        }
-        __colorPickTarget = null;
-        __colorPickAnchor = null;
-    }
-    (function __buildColorPopover() {
-        var swatches = TRACK_COLORS.map(function (hex: string) {
-            return '<div class="color-palette-swatch" data-color="' + hex + '"'
-                + ' style="background:' + hex + '" role="button" tabindex="0"'
-                + ' aria-label="' + hex + '"></div>';
-        }).join('');
-        var html = '<div id="color-picker-popover" hidden tabindex="-1"'
-            + ' style="position:fixed;z-index:9999;background:var(--panel);'
-            + 'border:1px solid var(--line);padding:8px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.4);">'
-            + '<div style="display:flex;flex-wrap:wrap;gap:4px;width:148px">' + swatches + '</div>'
-            + '<button id="color-reset-btn" style="margin-top:6px;width:100%;font-size:11px;'
-            + 'background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:2px;cursor:pointer;padding:2px 0">'
-            + escapeHtml(STR.trackColorReset) + '</button>'
-            + '</div>';
-        var container = document.createElement('div');
-        container.innerHTML = html;
-        const popoverNode = container.firstChild;
-        if (popoverNode) {
-            document.body.appendChild(popoverNode);
-        }
-        var pop = document.getElementById('color-picker-popover');
-        pop.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') {
-                closeColorPicker();
-                return;
-            }
-            if (e.key !== 'Enter' && e.key !== ' ') {
-                return;
-            }
-            var sw = eventTarget(e).closest ? eventTarget(e).closest('.color-palette-swatch') : null;
-            if (sw) {
-                e.preventDefault();
-                sw.click();
-            }
-        });
-        pop.addEventListener('click', function (e) {
-            var sw = eventTarget(e).closest ? eventTarget(e).closest('.color-palette-swatch') : null;
-            if (sw && __colorPickTarget !== null) {
-                var hex = sw.getAttribute('data-color');
-                trackStore.require(__colorPickTarget).runtime.color = hex;
-                var hs = document.querySelector('[data-action="pick-color"][data-track-id="' + __colorPickTarget + '"]');
-                if (hs) {
-                    hs.style.background = hex;
-                }
-                scheduleRender();
-                scheduleSpectrumRefresh('immediate');
-                closeColorPicker();
-                return;
-            }
-            if (eventTarget(e).id === 'color-reset-btn' && __colorPickTarget !== null) {
-                trackStore.require(__colorPickTarget).runtime.color = null;
-                var def = trackColor(trackIndexForId(__colorPickTarget));
-                var hs2 = document.querySelector('[data-action="pick-color"][data-track-id="' + __colorPickTarget + '"]');
-                if (hs2) {
-                    hs2.style.background = def;
-                }
-                scheduleRender();
-                scheduleSpectrumRefresh('immediate');
-                closeColorPicker();
-            }
-        });
-        document.addEventListener('click', function (e) {
-            var pop2 = document.getElementById('color-picker-popover');
-            if (!pop2 || pop2.hasAttribute('hidden')) {
-                return;
-            }
-            var clickedSwatch = eventTarget(e).closest ? eventTarget(e).closest('[data-action="pick-color"]') : null;
-            if (pop2.contains(eventTarget(e)) || clickedSwatch) {
-                return;
-            }
-            closeColorPicker();
-        }, true);
-    })();
     __updateSpecGearVisibility();
     ensureCalibrationStyles(document as unknown as Document);
 }
