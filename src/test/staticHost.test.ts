@@ -92,7 +92,9 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
             const base = withoutResponseEnvelope(fixtures.find(fixture => fixture.command === command.cmd)?.response ?? {});
             // Only results that carry a filePath echo the request's; the schema rejects it elsewhere.
             const echoed = 'filePath' in base ? { filePath: command.filePath } : {};
-            this.onmessage({ data: { requestId: command.requestId, result: { ...base, ...echoed, ...result }, error: error === undefined ? undefined : { code: 'input-error', message: error } } });
+            this.onmessage({ data: error === undefined
+                ? { requestId: command.requestId, result: { ...base, ...echoed, ...result } }
+                : { requestId: command.requestId, error: { code: 'input-error', message: error } } });
         }
     }
     const browser = {
@@ -329,6 +331,11 @@ test('Worker error envelopes use the native correlation contract and empty error
     await flush();
     assert.equal(app.received.at(-1)?.type, 'track-detail-error');
     assert.equal(app.received.at(-1)?.error, '');
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    const mixed = worker.commands.at(-1)!;
+    worker.onmessage({ data: { requestId: mixed.requestId, result: {}, error: { code: 'input-error', message: 'm' } } });
+    await flush();
+    assert.equal(app.received.at(-1)?.error, 'Invalid error response for track-detail', 'a reply with result and error is malformed');
 });
 
 test('browser recipes run on loaded tracks through the Worker and render charts in a fresh frame', async () => {

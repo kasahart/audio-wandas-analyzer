@@ -3,7 +3,7 @@ import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal, type AnalysisContextPolicy } from '../../shared/analysis/analysisClient';
 import { BackendProtocolError, parseBackendResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { BrowserLimits } from '../../shared/protocol/generated/backendProtocolSchema';
-import { schemaViolation } from '../../shared/protocol/schemaValidation';
+import { schemaViolation, withoutResponseEnvelope } from '../../shared/protocol/schemaValidation';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { isConfigureCalibrationMessage } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
@@ -147,7 +147,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 if (worker !== activeWorker) return;
                 // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
                 const { requestId, result, error } = event.data;
-                settleBackendRequest(pending, requestId, error === undefined ? result! : {}, error);
+                settleBackendRequest(pending, requestId, error === undefined ? result! : withoutResponseEnvelope(event.data), error);
             };
             worker.onerror = (): void => {
                 if (worker !== activeWorker) return;

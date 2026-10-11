@@ -282,7 +282,7 @@ export function settleBackendRequest<T>(
     pending.delete(requestId);
     if (failure !== undefined) {
         // An error reply carries only `error` beside its envelope; anything else is protocol drift.
-        const extraKeys = isJsonObject(response) ? Object.keys(response).filter(key => key !== 'error') : [];
+        const extraKeys = isJsonObject(response) ? Object.keys(response).filter(key => key !== 'error' && response[key] !== undefined) : [];
         const payload = extraKeys.length === 0 ? parseBackendErrorPayload(failure) : null;
         if (payload) {
             request.reject(new BackendRequestError(payload.code, payload.message));
