@@ -666,6 +666,105 @@ export const BACKEND_PROTOCOL_SCHEMA = {
         },
         "ReleaseTrackDetailResult": {
             "type": "object"
+        },
+        "BackendErrorPayload": {
+            "type": "object",
+            "required": [
+                "code",
+                "message"
+            ],
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "enum": [
+                        "input-error",
+                        "stale-calibration",
+                        "internal-error"
+                    ]
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "BackendReadyNotification": {
+            "type": "object",
+            "required": [
+                "type"
+            ],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "ready"
+                }
+            }
+        },
+        "BackendHeartbeatNotification": {
+            "type": "object",
+            "required": [
+                "type",
+                "ts"
+            ],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "heartbeat"
+                },
+                "ts": {
+                    "type": "number"
+                }
+            }
+        },
+        "BrowserLimits": {
+            "type": "object",
+            "required": [
+                "maxInputBytes",
+                "maxSources",
+                "maxTotalInputBytes",
+                "maxExportBytes"
+            ],
+            "properties": {
+                "maxInputBytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                },
+                "maxDurationSeconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                },
+                "maxChannels": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                },
+                "minSampleRateHz": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                },
+                "maxSampleRateHz": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                },
+                "maxSources": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                },
+                "maxTotalInputBytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                },
+                "maxExportBytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                }
+            }
         }
     },
     "x-commands": {
@@ -874,4 +973,29 @@ export interface ExportWavLoopResult {
 
 export interface ReleaseTrackDetailPayload {
     filePath: string;
+}
+
+export interface BackendErrorPayload {
+    code: "input-error" | "stale-calibration" | "internal-error";
+    message: string;
+}
+
+export interface BackendReadyNotification {
+    type: "ready";
+}
+
+export interface BackendHeartbeatNotification {
+    type: "heartbeat";
+    ts: number;
+}
+
+export interface BrowserLimits {
+    maxInputBytes: number;
+    maxDurationSeconds?: number;
+    maxChannels?: number;
+    minSampleRateHz?: number;
+    maxSampleRateHz?: number;
+    maxSources: number;
+    maxTotalInputBytes: number;
+    maxExportBytes: number;
 }

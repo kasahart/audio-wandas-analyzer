@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { BACKEND_PROTOCOL_SCHEMA, type SchemaCommand } from '../shared/protocol/generated/backendProtocolSchema';
-import { parseBackendResult } from '../shared/protocol/backendProtocol';
+import { BACKEND_ERROR_CODES, parseBackendErrorPayload, parseBackendNotification, parseBackendResult } from '../shared/protocol/backendProtocol';
 import { inlineSchemaViolation, schemaViolation, type SchemaNode } from '../shared/protocol/schemaValidation';
 import Ajv2020 from 'ajv/dist/2020';
 
@@ -67,6 +67,40 @@ test('invalid response fixtures report the same path as Python and fail ajv', ()
         assert.equal(referenceIsValid({ $ref: `#/$defs/${definition}` }, response), false, JSON.stringify(response));
         assert.throws(() => parseBackendResult(command, response), /success response/);
     }
+});
+
+test('analyze and track-detail results keep the invariants the schema cannot express', () => {
+    const envelope = { min: [0, 1], max: [1, 2], samples: [0.5, 1.5], absolutePeak: 2 };
+    const spectrogram = { values: [[-10, -20]], timeBins: 1, frequencyBins: 2, windowSize: 64, hopSize: 32, maxFrequencyHz: 8000, minDb: -20, maxDb: -10 };
+    const channel = { label: 'ch0', peakAbsolute: 2, waveform: envelope, spectrogram: null };
+    const result = { filePath: 'tone.wav', fileName: 'tone.wav', sampleRateHz: 16000, durationSeconds: 1, channelCount: 1, sampleCount: 16000, channels: [channel] };
+    const detail = { trackIndex: 0, analysisId: 'a', settingsSignature: 's', filePath: 'tone.wav', channels: [{ ...channel, spectrogram }] };
+    assert.deepEqual(parseBackendResult('analyze', result), result);
+    assert.deepEqual(parseBackendResult('track-detail', detail), detail);
+    const invalidAnalyze = [
+        { ...result, channelCount: 2 },
+        { ...result, channels: [{ ...channel, waveform: { ...envelope, samples: [0] } }] },
+        { ...result, channels: [{ ...channel, spectrogram: { ...spectrogram, timeBins: 2 } }] },
+        { ...result, calibrationProfile: { schemaVersion: 1, channels: 'none' } },
+    ];
+    for (const value of invalidAnalyze) {
+        assert.throws(() => parseBackendResult('analyze', value), /Invalid analyze success response/, JSON.stringify(value));
+    }
+    assert.throws(() => parseBackendResult('track-detail', { ...detail, channels: [{ ...channel, spectrogram: { ...spectrogram, frequencyBins: 3 } }] }), /Invalid track-detail success response/);
+});
+
+test('error payloads, notifications and Worker limits come from the schema', () => {
+    assert.deepEqual([...BACKEND_ERROR_CODES], ['input-error', 'stale-calibration', 'internal-error']);
+    assert.deepEqual(parseBackendErrorPayload({ code: 'stale-calibration', message: 'm', extra: 1 }), { code: 'stale-calibration', message: 'm' });
+    assert.equal(parseBackendErrorPayload({ code: 'unknown', message: 'm' }), null);
+    assert.deepEqual(parseBackendNotification({ type: 'heartbeat', ts: 1.5 }), { type: 'heartbeat', ts: 1.5 });
+    assert.equal(parseBackendNotification({ type: 'heartbeat', ts: Number.NaN }), null);
+    assert.deepEqual(parseBackendNotification({ type: 'ready' }), { type: 'ready' });
+    const limits = { maxInputBytes: 1, maxSources: 1, maxTotalInputBytes: 1, maxExportBytes: 1 };
+    assert.equal(schemaViolation('BrowserLimits', limits), null);
+    assert.equal(schemaViolation('BrowserLimits', { ...limits, maxSources: 0 }), 'maxSources');
+    assert.equal(schemaViolation('BrowserLimits', { ...limits, maxExportBytes: 2 ** 53 }), 'maxExportBytes');
+    assert.equal(schemaViolation('BrowserLimits', { ...limits, maxChannels: 0 }), 'maxChannels');
 });
 
 test('undefined properties count as absent, as after JSON serialization', () => {
