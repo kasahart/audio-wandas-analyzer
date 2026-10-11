@@ -233,6 +233,30 @@ def test_long_channel_frame_is_decimated_and_keeps_peaks_at_their_times() -> Non
     assert spec["xs"][-1] == pytest.approx(frame.time[-1])
 
 
+def test_decimated_channel_frame_keeps_every_nan_run_in_a_bucket() -> None:
+    samples = np.zeros(48000 * 3)
+    samples[[50002, 50008]] = np.nan
+    samples[50003] = -0.5
+    samples[50010] = 0.5
+    spec = adapt(wd.from_numpy(samples[np.newaxis, :], sampling_rate=48000))
+    gap_times = [x for x, y in zip(spec["xs"], spec["series"][0]["ys"], strict=True) if y is None]
+    assert gap_times == pytest.approx([50002 / 48000, 50008 / 48000])
+
+
+def test_envelope_blocks_match_a_single_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    import wandas_to_chart
+
+    rng = np.random.default_rng(0)
+    data = rng.standard_normal((2, 100_000))
+    data[0, rng.choice(100_000, 50, replace=False)] = np.nan
+    time = np.arange(data.shape[1]) / 1000.0
+    whole = wandas_to_chart._min_max_envelope(data, time)
+    monkeypatch.setattr(wandas_to_chart, "_ENVELOPE_BLOCK_SAMPLES", 100)
+    blocked = wandas_to_chart._min_max_envelope(data, time)
+    np.testing.assert_array_equal(whole[1], blocked[1])
+    np.testing.assert_array_equal(whole[0], blocked[0])
+
+
 def test_decimated_flat_channel_frame_keeps_recording_endpoints() -> None:
     frame = wd.from_numpy(np.zeros((1, 48000 * 3)), sampling_rate=48000)
     spec = adapt(frame)

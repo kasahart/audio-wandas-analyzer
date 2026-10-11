@@ -36,6 +36,7 @@ from wandas.frames import (
 # A long ChannelFrame line chart keeps about this many points in total (each channel's per-bucket
 # minimum and maximum), so a long recording does not serialize every sample into the Recipe result.
 CHANNEL_FRAME_POINT_LIMIT = 8192
+_ENVELOPE_BLOCK_SAMPLES = 1 << 20
 
 # ---- helpers ---------------------------------------------------------------
 
@@ -86,22 +87,40 @@ def _series_2d(matrix: np.ndarray, names: list[str], unit: str | None = None) ->
 # ---- per-type adapters -----------------------------------------------------
 
 
-def _bucket_extremum_indices(samples: np.ndarray, starts: np.ndarray, sizes: np.ndarray, pick: Any) -> np.ndarray:
-    """First index of each bucket's NaN-ignoring extremum; an all-NaN bucket yields its first index."""
-    indices = np.arange(len(samples))
-    finite = np.isfinite(samples)
-    extrema = pick.reduceat(np.where(finite, samples, np.nan), starts)
-    matches = finite & (samples == np.repeat(extrema, sizes))
-    found = np.minimum.reduceat(np.where(matches, indices, len(samples)), starts)
-    return np.where(found < len(samples), found, starts)
+def _envelope_indices(samples: np.ndarray, starts: np.ndarray, sizes: np.ndarray) -> np.ndarray:
+    """Indices of each bucket's NaN-ignoring min and max, plus the first sample of every non-finite run.
+
+    Buckets are processed in blocks of about ``_ENVELOPE_BLOCK_SAMPLES`` so scratch memory stays
+    bounded however long the recording is. An all-NaN bucket contributes its first index.
+    """
+    found: list[np.ndarray] = []
+    per_block = max(1, _ENVELOPE_BLOCK_SAMPLES // int(sizes.max()))
+    previous_finite = True
+    for first in range(0, len(starts), per_block):
+        last = min(len(starts), first + per_block)
+        lo, hi = int(starts[first]), int(starts[last - 1] + sizes[last - 1])
+        block = samples[lo:hi]
+        local_starts, local_sizes = starts[first:last] - lo, sizes[first:last]
+        finite = np.isfinite(block)
+        masked = np.where(finite, block, np.nan)
+        positions = np.arange(len(block))
+        for pick in (np.fmin, np.fmax):
+            extrema = pick.reduceat(masked, local_starts)
+            matches = finite & (block == np.repeat(extrema, local_sizes))
+            index = np.minimum.reduceat(np.where(matches, positions, len(block)), local_starts)
+            found.append(lo + np.where(index < len(block), index, local_starts))
+        run_starts = ~finite & np.concatenate(([previous_finite], finite[:-1]))
+        found.append(lo + np.flatnonzero(run_starts))
+        previous_finite = bool(finite[-1])
+    return np.concatenate(found)
 
 
 def _min_max_envelope(data: np.ndarray, time: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Keep only the samples that shape the envelope: every channel's per-bucket min and max.
 
     Points sit at the samples' own times (the union across channels), so transients stay where
-    they occurred. The first non-finite sample of each bucket is kept too, so a gap survives, and
-    the recording's first and last samples keep the chart's time span intact.
+    they occurred. Each non-finite run keeps its first sample so every gap survives, and the
+    recording's first and last samples keep the chart's time span intact.
     """
     n = data.shape[-1]
     bucket_count = max(1, CHANNEL_FRAME_POINT_LIMIT // (2 * data.shape[0]))
@@ -109,12 +128,7 @@ def _min_max_envelope(data: np.ndarray, time: np.ndarray) -> tuple[np.ndarray, n
     sizes = np.full(bucket_count, width)
     sizes[:remainder] += 1
     starts = np.concatenate(([0], np.cumsum(sizes[:-1])))
-    keep = [np.array([0, n - 1])]
-    for samples in data:
-        keep.append(_bucket_extremum_indices(samples, starts, sizes, np.fmin))
-        keep.append(_bucket_extremum_indices(samples, starts, sizes, np.fmax))
-        gaps = np.minimum.reduceat(np.where(np.isfinite(samples), n, np.arange(n)), starts)
-        keep.append(gaps[gaps < n])
+    keep = [np.array([0, n - 1])] + [_envelope_indices(samples, starts, sizes) for samples in data]
     selected = np.unique(np.concatenate(keep))
     return data[:, selected], time[selected]
 
