@@ -1,18 +1,24 @@
-import type { StftOptions, WaveformEnvelope } from '../protocol/generated/backendProtocolSchema';
+import type {
+    AnalysisResult,
+    AnalysisUnits,
+    ChannelMeasurementContext,
+    ChannelSummary,
+    DbScaleMetadata,
+    SpectrogramData,
+    StftOptions,
+    WaveformEnvelope,
+} from '../protocol/generated/backendProtocolSchema';
 
-export interface DbScaleMetadata {
-    unit: string;
-    axisLabel: string;
-    referenceValue?: number;
-    referenceUnit?: string;
-    levelReferenceLabel?: string;
-}
-
-export interface AnalysisUnits {
-    amplitudeLevel: DbScaleMetadata;
-    spectrumLevel: DbScaleMetadata;
-    spectrogramLevel: DbScaleMetadata;
-}
+export type {
+    AnalysisResult,
+    AnalysisUnits,
+    ChannelMeasurementContext,
+    ChannelSummary,
+    DbScaleMetadata,
+    SpectrogramData,
+    StftOptions,
+    WaveformEnvelope,
+};
 
 export type CalibrationStatus = 'uncalibrated' | 'calibrated';
 export type CalibrationSource = 'default' | 'manual' | 'derived' | 'embedded';
@@ -46,63 +52,6 @@ export interface CalibrationProfile {
     channels: ChannelCalibrationDefinition[];
 }
 
-export interface ChannelMeasurementContext {
-    calibrationStatus: CalibrationStatus;
-    calibrationSource: CalibrationSource;
-    factor: number;
-    linearUnit: string;
-    referenceValue: number;
-    referenceUnit: string;
-    levelUnit: string;
-    levelReferenceLabel: string;
-}
-
-export type { WaveformEnvelope };
-
-export interface SpectrogramData {
-    values: number[][];
-    timeBins: number;
-    frequencyBins: number;
-    windowSize: number;
-    hopSize: number;
-    maxFrequencyHz: number;
-    minDb: number;
-    maxDb: number;
-    unit?: string;
-    axisLabel?: string;
-    referenceValue?: number;
-    referenceUnit?: string;
-    levelReferenceLabel?: string;
-}
-
-export interface ChannelSummary {
-    label: string;
-    unit?: string | null;
-    peakAbsolute: number;
-    measurement?: ChannelMeasurementContext;
-    peakLevelDb?: number;
-    rawPeakFullScale?: number;
-    clipped?: boolean;
-    waveform: WaveformEnvelope;
-    spectrogram: SpectrogramData | null;
-}
-
-export interface AnalysisResult {
-    schemaVersion?: 2;
-    filePath: string;
-    fileName: string;
-    sampleRateHz: number;
-    durationSeconds: number;
-    channelCount: number;
-    sampleCount: number;
-    calibrationSignature?: string;
-    calibrationProfile?: CalibrationProfile;
-    analysisRevision?: number;
-    /** Compatibility metadata for results whose channels share one reference. */
-    units?: AnalysisUnits;
-    channels: ChannelSummary[];
-}
-
 export interface AnalysisResultWithError extends AnalysisResult {
     error?: string;
 }
@@ -115,7 +64,6 @@ export interface DirectoryTreeNode {
     children?: DirectoryTreeNode[];
 }
 
-export type { StftOptions };
 export type StftWindow = StftOptions['window'];
 
 export interface SpectrogramDisplaySettings {

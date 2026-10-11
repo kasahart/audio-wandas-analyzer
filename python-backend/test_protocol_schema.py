@@ -66,6 +66,12 @@ def test_unsupported_keywords_are_rejected(monkeypatch: pytest.MonkeyPatch) -> N
     assert unsupported_keyword({"const": math.inf}, "x") == "x.const"
     assert unsupported_keyword({"type": "string", "enum": ["hann"], "const": "hamming"}, "x") == "x.const"
     assert unsupported_keyword({"oneOf": []}, "x") == "x.oneOf"
+    assert unsupported_keyword({"anyOf": [{"type": "string"}, {"type": "null"}]}, "x") is None
+    assert unsupported_keyword({"anyOf": [{"type": "string"}, {"type": "integer"}]}, "x") == "x.anyOf"
+    assert unsupported_keyword({"anyOf": [{"type": "null"}, {"type": "string"}]}, "x") == "x.anyOf"
+    assert unsupported_keyword({"anyOf": [{"type": "string"}, {"type": "null"}], "type": "string"}, "x") == "x.anyOf"
+    assert unsupported_keyword({"anyOf": [{"type": "string"}]}, "x") == "x.anyOf"
+    assert unsupported_keyword({"anyOf": [{"oneOf": []}, {"type": "null"}]}, "x") == "x.anyOf[0].oneOf"
     assert unsupported_keyword({"$ref": "#/$defs/Missing"}, "x") == "x.$ref"
     monkeypatch.setitem(DEFINITIONS, "Bad", {"type": "array", "items": {"oneOf": []}})
     with pytest.raises(ValueError, match=r"\$defs\.Bad\.items\.oneOf"):

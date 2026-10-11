@@ -144,6 +144,7 @@ def test_analyze_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
     _write_sine_wav(wav)
     resp = server.request({"cmd": "analyze", "filePath": str(wav)})
     assert "error" not in resp, resp
+    assert result_violation("analyze", resp) is None, "the real analyze result must satisfy the shared schema"
     assert resp["fileName"] == "tone.wav"
     assert resp["channelCount"] == 1
     assert len(resp["channels"]) == 1
@@ -199,6 +200,7 @@ def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> 
         }
     )
 
+    assert result_violation("track-detail", resp) is None
     assert resp["trackIndex"] == 2
     assert resp["analysisId"] == "a1"
     assert resp["settingsSignature"] == "sig1"

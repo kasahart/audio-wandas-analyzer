@@ -34,6 +34,7 @@ function typeOf(node) {
         if (definition['x-tsType']) { externalTypes.add(definition['x-tsType']); return definition['x-tsType']; }
         return definition.type === 'object' ? name : typeOf(definition);
     }
+    if (node.anyOf) return `${wrap(typeOf(node.anyOf[0]))} | null`;
     if (node.const !== undefined) return JSON.stringify(node.const);
     if (node.enum) return node.enum.map(value => JSON.stringify(value)).join(' | ');
     switch (node.type) {

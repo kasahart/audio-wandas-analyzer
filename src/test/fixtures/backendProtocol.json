@@ -120,6 +120,21 @@
         "calibrationProfile": null,
         "analysisRevision": 3
       }
+    },
+    {
+      "command": "analyze",
+      "request": {
+        "cmd": "analyze",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "stftOptions": {
+          "nFft": 2048,
+          "hopSize": 512,
+          "window": "hamming"
+        },
+        "calibrationProfile": null,
+        "analysisRevision": 2
+      }
     }
   ],
   "invalidRequests": [
@@ -142,6 +157,7 @@
       "errorField": "cmd"
     },
     {
+      "command": "analyze",
       "request": {
         "cmd": "analyze",
         "requestId": "r1"
@@ -149,6 +165,7 @@
       "errorField": "filePath"
     },
     {
+      "command": "track-detail",
       "request": {
         "cmd": "track-detail",
         "requestId": "r1",
@@ -312,6 +329,27 @@
         "cursorNorm": 0.5
       },
       "errorField": "trackIndex"
+    },
+    {
+      "command": "analyze",
+      "request": {
+        "cmd": "analyze",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "stftOptions": null
+      },
+      "errorField": "stftOptions"
+    },
+    {
+      "command": "track-detail",
+      "request": {
+        "cmd": "track-detail",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "trackIndex": 0,
+        "analysisId": "analysis-1"
+      },
+      "errorField": "settingsSignature"
     }
   ],
   "validResponses": [
@@ -401,6 +439,78 @@
           }
         ]
       }
+    },
+    {
+      "command": "analyze",
+      "response": {
+        "requestId": "analyze",
+        "filePath": "tone.wav",
+        "fileName": "tone.wav",
+        "sampleRateHz": 16000,
+        "durationSeconds": 1,
+        "channelCount": 1,
+        "sampleCount": 16000,
+        "channels": [
+          {
+            "label": "ch0",
+            "unit": "Pa",
+            "peakAbsolute": 1,
+            "waveform": {
+              "min": [
+                0
+              ],
+              "max": [
+                1
+              ],
+              "samples": [
+                0.5
+              ],
+              "absolutePeak": 1
+            },
+            "spectrogram": {
+              "values": [
+                [
+                  -10,
+                  -20
+                ]
+              ],
+              "timeBins": 1,
+              "frequencyBins": 2,
+              "windowSize": 64,
+              "hopSize": 32,
+              "maxFrequencyHz": 8000,
+              "minDb": -20,
+              "maxDb": -10
+            },
+            "measurement": {
+              "calibrationStatus": "calibrated",
+              "calibrationSource": "manual",
+              "factor": 0.5,
+              "linearUnit": "Pa",
+              "referenceValue": 2e-05,
+              "referenceUnit": "Pa",
+              "levelUnit": "dB SPL",
+              "levelReferenceLabel": "20 µPa"
+            }
+          }
+        ],
+        "schemaVersion": 2,
+        "units": {
+          "amplitudeLevel": {
+            "unit": "dB",
+            "axisLabel": "Level [dBFS]"
+          },
+          "spectrumLevel": {
+            "unit": "dB",
+            "axisLabel": "Level [dBFS]"
+          },
+          "spectrogramLevel": {
+            "unit": "dB",
+            "axisLabel": "Level [dBFS]",
+            "referenceValue": 1
+          }
+        }
+      }
     }
   ],
   "invalidResponses": [
@@ -469,6 +579,187 @@
         "maxFrequencyHz": 8000
       },
       "violation": "computeMs"
+    },
+    {
+      "command": "analyze",
+      "response": {
+        "requestId": "analyze",
+        "filePath": "tone.wav",
+        "fileName": "tone.wav",
+        "sampleRateHz": 16000,
+        "durationSeconds": 1,
+        "channelCount": 1,
+        "sampleCount": 16000,
+        "channels": [
+          {
+            "label": "ch0",
+            "unit": null,
+            "peakAbsolute": 1,
+            "waveform": {
+              "min": [
+                0
+              ],
+              "max": [
+                1
+              ],
+              "samples": [
+                0.5
+              ],
+              "absolutePeak": 1
+            },
+            "spectrogram": null
+          }
+        ],
+        "schemaVersion": 1
+      },
+      "violation": "schemaVersion"
+    },
+    {
+      "command": "analyze",
+      "response": {
+        "requestId": "analyze",
+        "filePath": "tone.wav",
+        "fileName": "tone.wav",
+        "sampleRateHz": 16000,
+        "durationSeconds": 1,
+        "channelCount": 1,
+        "sampleCount": 16000,
+        "channels": [
+          {
+            "label": "ch0",
+            "unit": 3,
+            "peakAbsolute": 1,
+            "waveform": {
+              "min": [
+                0
+              ],
+              "max": [
+                1
+              ],
+              "samples": [
+                0.5
+              ],
+              "absolutePeak": 1
+            },
+            "spectrogram": null
+          }
+        ]
+      },
+      "violation": "channels[0].unit"
+    },
+    {
+      "command": "analyze",
+      "response": {
+        "requestId": "analyze",
+        "filePath": "tone.wav",
+        "fileName": "tone.wav",
+        "sampleRateHz": 16000,
+        "durationSeconds": 1,
+        "channelCount": 1,
+        "sampleCount": 16000,
+        "channels": [
+          {
+            "label": "ch0",
+            "unit": null,
+            "peakAbsolute": 1,
+            "waveform": {
+              "min": [
+                0
+              ],
+              "max": [
+                1
+              ],
+              "samples": [
+                0.5
+              ],
+              "absolutePeak": 1
+            },
+            "spectrogram": {
+              "values": [],
+              "timeBins": 0,
+              "frequencyBins": 0,
+              "windowSize": 64,
+              "hopSize": 32,
+              "maxFrequencyHz": 8000,
+              "minDb": 0
+            }
+          }
+        ]
+      },
+      "violation": "channels[0].spectrogram.maxDb"
+    },
+    {
+      "command": "analyze",
+      "response": {
+        "requestId": "analyze",
+        "filePath": "tone.wav",
+        "fileName": "tone.wav",
+        "sampleRateHz": 16000,
+        "durationSeconds": 1,
+        "channelCount": 1,
+        "sampleCount": 16000,
+        "channels": [
+          {
+            "label": "ch0",
+            "unit": null,
+            "peakAbsolute": 1,
+            "waveform": {
+              "min": [
+                0
+              ],
+              "max": [
+                1
+              ],
+              "samples": [
+                0.5
+              ],
+              "absolutePeak": 1
+            },
+            "spectrogram": null,
+            "measurement": {
+              "calibrationStatus": "unknown",
+              "calibrationSource": "manual",
+              "factor": 1,
+              "linearUnit": "Pa",
+              "referenceValue": 2e-05,
+              "referenceUnit": "Pa",
+              "levelUnit": "dB",
+              "levelReferenceLabel": "x"
+            }
+          }
+        ]
+      },
+      "violation": "channels[0].measurement.calibrationStatus"
+    },
+    {
+      "command": "track-detail",
+      "response": {
+        "requestId": "track-detail",
+        "trackIndex": 0,
+        "analysisId": "a",
+        "settingsSignature": "s",
+        "filePath": "tone.wav",
+        "channels": [
+          {
+            "label": "ch0",
+            "unit": null,
+            "peakAbsolute": 1,
+            "waveform": {
+              "min": [
+                0
+              ],
+              "max": [
+                1
+              ],
+              "samples": [
+                0.5
+              ],
+              "absolutePeak": 1
+            }
+          }
+        ]
+      },
+      "violation": "channels[0].spectrogram"
     }
   ],
   "errorCodes": [
@@ -705,6 +996,72 @@
         "points": 1.5
       },
       "violation": "points"
+    },
+    {
+      "schema": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "value": null,
+      "violation": null
+    },
+    {
+      "schema": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "value": "x",
+      "violation": null
+    },
+    {
+      "schema": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "value": 1,
+      "violation": ""
+    },
+    {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "b"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "value": {
+        "a": {}
+      },
+      "violation": "a.b"
     }
   ]
 }

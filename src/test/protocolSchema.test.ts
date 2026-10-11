@@ -69,6 +69,13 @@ test('invalid response fixtures report the same path as Python and fail ajv', ()
     }
 });
 
+test('undefined properties count as absent, as after JSON serialization', () => {
+    const envelope = { min: [0], max: [1], samples: [0.5], absolutePeak: 1 };
+    const result = { startNorm: 0, endNorm: 1, channels: [envelope], calibrationSignature: undefined, analysisRevision: undefined };
+    assert.equal(schemaViolation('RangeResult', result), null);
+    assert.equal(schemaViolation('RangeResult', { ...result, startNorm: undefined }), 'startNorm');
+});
+
 test('schema cases report the same path as Python and agree with ajv', () => {
     assert.ok(fixtures.schemaCases.length > 0);
     for (const { schema, value, violation } of fixtures.schemaCases) {

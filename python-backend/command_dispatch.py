@@ -30,13 +30,6 @@ def _is_object(value: object) -> bool:
 
 
 _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
-    "analyze": {"filePath": _is_string},
-    "track-detail": {
-        "filePath": _is_string,
-        "trackIndex": _is_integer,
-        "analysisId": _is_string,
-        "settingsSignature": _is_string,
-    },
     "run-recipe": {"recipe": _is_object},
 }
 

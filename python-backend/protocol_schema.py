@@ -26,8 +26,11 @@ Schema = dict[str, Any]
 MAX_WAVEFORM_POINTS = 8192
 
 SUPPORTED_KEYWORDS = frozenset(
-    {"$ref", "type", "enum", "const", "minimum", "maximum", "required", "properties", "items", "x-tsType"}
+    {"$ref", "type", "enum", "const", "minimum", "maximum", "required", "properties", "items", "anyOf", "x-tsType"}
 )
+# ``anyOf`` is limited to the nullable form ``{"anyOf": [schema, {"type": "null"}]}`` with no siblings, so
+# both validators can report the inner path of a non-null value instead of choosing between branches.
+_NULL: Schema = {"type": "null"}
 # enum/const values are limited to JSON scalars so both validators can compare them without deep equality.
 _SCALAR_TYPES = (str, int, float, bool, type(None))
 _TYPES = frozenset({"object", "array", "string", "number", "integer", "boolean", "null"})
@@ -66,6 +69,158 @@ DEFINITIONS: dict[str, Schema] = {
             "maxT": _NUMBERS,
             "samples": _NUMBERS,
             "absolutePeak": _NUMBER,
+        },
+    },
+    "DbScaleMetadata": {
+        "type": "object",
+        "required": ["unit", "axisLabel"],
+        "properties": {
+            "unit": {"type": "string"},
+            "axisLabel": {"type": "string"},
+            "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
+            "referenceUnit": {"type": "string"},
+            "levelReferenceLabel": {"type": "string"},
+        },
+    },
+    "AnalysisUnits": {
+        "type": "object",
+        "required": ["amplitudeLevel", "spectrumLevel", "spectrogramLevel"],
+        "properties": {
+            "amplitudeLevel": {"$ref": "#/$defs/DbScaleMetadata"},
+            "spectrumLevel": {"$ref": "#/$defs/DbScaleMetadata"},
+            "spectrogramLevel": {"$ref": "#/$defs/DbScaleMetadata"},
+        },
+    },
+    "ChannelMeasurementContext": {
+        "type": "object",
+        "required": [
+            "calibrationStatus",
+            "calibrationSource",
+            "factor",
+            "linearUnit",
+            "referenceValue",
+            "referenceUnit",
+            "levelUnit",
+            "levelReferenceLabel",
+        ],
+        "properties": {
+            "calibrationStatus": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
+            "calibrationSource": {"type": "string", "enum": ["default", "manual", "derived", "embedded"]},
+            "factor": {"$ref": "#/$defs/SafeCalibrationValue"},
+            "linearUnit": {"type": "string"},
+            "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
+            "referenceUnit": {"type": "string"},
+            "levelUnit": {"type": "string"},
+            "levelReferenceLabel": {"type": "string"},
+        },
+    },
+    # values must hold timeBins rows of frequencyBins values; that invariant is checked in code.
+    "SpectrogramData": {
+        "type": "object",
+        "required": [
+            "values",
+            "timeBins",
+            "frequencyBins",
+            "windowSize",
+            "hopSize",
+            "maxFrequencyHz",
+            "minDb",
+            "maxDb",
+        ],
+        "properties": {
+            "values": {"type": "array", "items": _NUMBERS},
+            "timeBins": {"type": "integer"},
+            "frequencyBins": {"type": "integer"},
+            "windowSize": {"type": "integer"},
+            "hopSize": {"type": "integer"},
+            "maxFrequencyHz": _NUMBER,
+            "minDb": _NUMBER,
+            "maxDb": _NUMBER,
+            "unit": {"type": "string"},
+            "axisLabel": {"type": "string"},
+            "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
+            "referenceUnit": {"type": "string"},
+            "levelReferenceLabel": {"type": "string"},
+        },
+    },
+    "ChannelSummary": {
+        "type": "object",
+        "required": ["label", "peakAbsolute", "waveform", "spectrogram"],
+        "properties": {
+            "label": {"type": "string"},
+            "unit": {"anyOf": [{"type": "string"}, _NULL]},
+            "peakAbsolute": _NUMBER,
+            "measurement": {"$ref": "#/$defs/ChannelMeasurementContext"},
+            "peakLevelDb": _NUMBER,
+            "rawPeakFullScale": _NUMBER,
+            "clipped": {"type": "boolean"},
+            "waveform": {"$ref": "#/$defs/WaveformEnvelope"},
+            # null until track-detail computes it.
+            "spectrogram": {"anyOf": [{"$ref": "#/$defs/SpectrogramData"}, _NULL]},
+        },
+    },
+    "AnalyzePayload": {
+        "type": "object",
+        "required": ["filePath"],
+        "properties": {
+            "filePath": {"type": "string"},
+            "stftOptions": {"$ref": "#/$defs/StftOptions"},
+            "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
+            "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+        },
+    },
+    # channels.length === channelCount and the calibration profile's own checks stay in code.
+    "AnalysisResult": {
+        "type": "object",
+        "required": [
+            "filePath",
+            "fileName",
+            "sampleRateHz",
+            "durationSeconds",
+            "channelCount",
+            "sampleCount",
+            "channels",
+        ],
+        "properties": {
+            "schemaVersion": {"type": "integer", "const": 2},
+            "filePath": {"type": "string"},
+            "fileName": {"type": "string"},
+            "sampleRateHz": _NUMBER,
+            "durationSeconds": _NUMBER,
+            "channelCount": {"type": "integer"},
+            "sampleCount": {"type": "integer"},
+            "calibrationSignature": {"type": "string"},
+            "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
+            "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            # Compatibility metadata for results whose channels share one reference.
+            "units": {"$ref": "#/$defs/AnalysisUnits"},
+            "channels": {"type": "array", "items": {"$ref": "#/$defs/ChannelSummary"}},
+        },
+    },
+    "TrackDetailPayload": {
+        "type": "object",
+        "required": ["filePath", "trackIndex", "analysisId", "settingsSignature"],
+        "properties": {
+            "filePath": {"type": "string"},
+            "trackIndex": {"type": "integer"},
+            "analysisId": {"type": "string"},
+            "settingsSignature": {"type": "string"},
+            "stftOptions": {"$ref": "#/$defs/StftOptions"},
+            "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
+            "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+        },
+    },
+    "TrackDetailResult": {
+        "type": "object",
+        "required": ["trackIndex", "analysisId", "settingsSignature", "filePath", "channels"],
+        "properties": {
+            "trackIndex": {"type": "integer"},
+            "analysisId": {"type": "string"},
+            "settingsSignature": {"type": "string"},
+            "filePath": {"type": "string"},
+            "channels": {"type": "array", "items": {"$ref": "#/$defs/ChannelSummary"}},
+            "calibrationSignature": {"type": "string"},
+            "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
         },
     },
     "RangePayload": {
@@ -165,6 +320,8 @@ DEFINITIONS: dict[str, Schema] = {
 }
 
 COMMANDS: dict[str, dict[str, str]] = {
+    "analyze": {"payload": "AnalyzePayload", "result": "AnalysisResult"},
+    "track-detail": {"payload": "TrackDetailPayload", "result": "TrackDetailResult"},
     "range": {"payload": "RangePayload", "result": "RangeResult"},
     "spectrum-slice": {"payload": "SpectrumSlicePayload", "result": "SpectrumSliceResult"},
     "export-wav-loop": {"payload": "ExportWavLoopPayload", "result": "ExportWavLoopResult"},
@@ -190,9 +347,9 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
     """Path of the first keyword the validators cannot enforce exactly (all definitions by default), or None.
 
     Besides keywords outside ``SUPPORTED_KEYWORDS`` that covers unresolvable ``$ref``s, ``$ref`` with
-    sibling keywords (resolution would drop them), unknown type names, ``enum`` together with ``const``,
-    enum/const beside ``minimum``/``maximum``, and enum/const values that are not finite JSON scalars, lose
-    precision as JS numbers, or contradict the node's ``type``.
+    sibling keywords (resolution would drop them), unknown type names, ``anyOf`` other than the nullable
+    form, ``enum`` together with ``const``, enum/const beside ``minimum``/``maximum``, and enum/const values
+    that are not finite JSON scalars, lose precision as JS numbers, or contradict the node's ``type``.
     """
     if schema is None:
         for name, definition in DEFINITIONS.items():
@@ -226,7 +383,25 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
             or not all(_is_literal(item, declared_type) for item in child)
         ):
             return f"{path}.enum"
-        nested = child.items() if key == "properties" else [(key, child)] if key == "items" else []
+        if key == "anyOf" and (
+            len(schema) > 1
+            or not isinstance(child, list)
+            or len(child) != 2
+            or child[1] != _NULL
+            or not isinstance(child[0], dict)
+            or "anyOf" in child[0]
+            or child[0] == _NULL
+        ):
+            return f"{path}.anyOf"
+        nested = (
+            child.items()
+            if key == "properties"
+            else [(key, child)]
+            if key == "items"
+            else [("anyOf[0]", child[0])]
+            if key == "anyOf"
+            else []
+        )
         for name, node in nested:
             found = unsupported_keyword(node, f"{path}.{name}")
             if found is not None:
@@ -280,6 +455,8 @@ def _json_equal(left: object, right: object) -> bool:
 def first_violation(schema: Schema, value: object, path: str = "") -> str | None:
     """Return the dotted path of the first value that breaks ``schema`` (``""`` for the root), or None."""
     schema = _resolve(schema)
+    if "anyOf" in schema:
+        return None if value is None else first_violation(schema["anyOf"][0], value, path)
     if "type" in schema and not _matches_type(schema["type"], value):
         return path
     if "const" in schema and not _json_equal(value, schema["const"]):
