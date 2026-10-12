@@ -1,4 +1,4 @@
-import { dbLevelUnitFor } from '../draw/canvasDrawers';
+import { dbLevelUnitFor, type SpectrumPlotFrame } from '../draw/canvasDrawers';
 import { formatReadoutHz } from './canvasOverlays';
 import type { HostInboundMessage } from './hostMessaging';
 import type { SpectrumSlice, SpectrumSnap } from './types';
@@ -52,15 +52,22 @@ export function hoverNormForFrequency(frequencyHz: number, visibleMin: number, v
     return range <= 0 ? 0 : Math.max(0, Math.min(1, (frequencyHz - visibleMin) / range));
 }
 
-export interface SpectrumPlotFrame {
-    padLeft: number;
-    plotWidth: number;
-    padTop: number;
-    plotHeight: number;
-    frequencyMin: number;
-    frequencyMax: number;
-    dbMin: number;
-    dbMax: number;
+export type { SpectrumPlotFrame };
+
+export interface SpectrumSeriesRange {
+    minDb: number;
+    maxDb: number;
+    maxFrequencyHz: number;
+}
+
+export function spectrumSeriesRange(series: ReadonlyArray<{ slice: SpectrumSlice }>): SpectrumSeriesRange {
+    let minDb = Infinity, maxDb = -Infinity, maxFrequencyHz = 0;
+    series.forEach(({ slice }) => {
+        minDb = Math.min(minDb, slice.minDb);
+        maxDb = Math.max(maxDb, slice.maxDb);
+        maxFrequencyHz = Math.max(maxFrequencyHz, slice.maxFrequencyHz);
+    });
+    return { minDb, maxDb, maxFrequencyHz };
 }
 
 export interface SpectrumSnapHit<S> {

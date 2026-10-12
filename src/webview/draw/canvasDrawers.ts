@@ -203,8 +203,39 @@ export function drawSpectrogramColorbar(ctx: CanvasDrawCtx, W: number, H: number
     ctx.restore();
 }
 
-export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, color: string, opts: { padL?: number; padR?: number; padT?: number; padB?: number; lineWidth?: number } = {}, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null): void {
+export interface SpectrumPlotFrame {
+    padLeft: number;
+    plotWidth: number;
+    padTop: number;
+    plotHeight: number;
+    frequencyMin: number;
+    frequencyMax: number;
+    dbMin: number;
+    dbMax: number;
+}
+
+export function traceSpectrumPath(ctx: CanvasDrawCtx, slice: SpectrumSliceLike, frame: SpectrumPlotFrame, cutoffHz: number): void {
     const fBins = slice.frequencyBins;
+    const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
+    const freqRange = frame.frequencyMax - frame.frequencyMin;
+    const dbRange = frame.dbMax - frame.dbMin;
+    for (let i = 0; i < fBins; i++) {
+        const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
+        if (fHz > cutoffHz) {
+            break;
+        }
+        const x = frame.padLeft + ((fHz - frame.frequencyMin) / freqRange) * frame.plotWidth;
+        const y = frame.padTop + (1 - (slice.values[i] - frame.dbMin) / dbRange) * frame.plotHeight;
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        }
+        else {
+            ctx.lineTo(x, y);
+        }
+    }
+}
+
+export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, color: string, opts: { padL?: number; padR?: number; padT?: number; padB?: number; lineWidth?: number } = {}, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null): void {
     const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
     const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
     const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
@@ -226,28 +257,15 @@ export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice
     ctx.strokeStyle = color;
     ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
     ctx.beginPath();
-    const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
     const visFreqRange = _visFreqMax - _visFreqMin;
     if (visFreqRange <= 0) {
         ctx.restore();
         return;
     }
-    for (let i = 0; i < fBins; i++) {
-        const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
-        if (fHz > slice.maxFrequencyHz) {
-            break;
-        }
-        const x = padL + ((fHz - _visFreqMin) / visFreqRange) * plotW;
-        const v = slice.values[i];
-        const norm = (v - _visDbMin) / range;
-        const y = padT + (1 - norm) * plotH;
-        if (i === 0) {
-            ctx.moveTo(x, y);
-        }
-        else {
-            ctx.lineTo(x, y);
-        }
-    }
+    traceSpectrumPath(ctx, slice, {
+        padLeft: padL, plotWidth: plotW, padTop: padT, plotHeight: plotH,
+        frequencyMin: _visFreqMin, frequencyMax: _visFreqMax, dbMin: _visDbMin, dbMax: _visDbMax,
+    }, slice.maxFrequencyHz);
     ctx.stroke();
     ctx.restore();
 }
