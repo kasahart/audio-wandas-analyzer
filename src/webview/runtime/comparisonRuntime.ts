@@ -2305,26 +2305,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleSpectrumRefresh('hover');
             }
             else if (intent.kind === 'shortcut') {
-                if (intent.action === 'zoom-in') {
-                    zoomIn();
-                }
-                else if (intent.action === 'zoom-out') {
-                    zoomOut();
-                }
-                else if (intent.action === 'zoom-reset') {
-                    resetZoom();
-                }
-                else if (intent.action === 'toggle-follow-cursor') {
-                    followCursor = !followCursor;
-                    const fcBtn = document.querySelector('[data-action="toggle-follow-cursor"]');
-                    if (fcBtn) {
-                        fcBtn.classList.toggle('is-active', followCursor);
-                    }
-                    scheduleRender();
-                }
-                else {
-                    zoomToSelection();
-                }
+                handleToolbarAction(intent.action);
             }
             else if (intent.kind === 'toggle-playback') {
                 const trackId = intent.target === 'focused-track'
@@ -2627,89 +2608,55 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             filePaths: orderedSelection,
         });
     }
-    function handleToolbarAction(action: string) {
-        if (action === 'open-file') {
-            messaging.post({ type: 'select-target', targetKind: 'file' });
-        }
-        else if (action === 'open-folder') {
-            messaging.post({ type: 'select-target', targetKind: 'directory' });
-        }
-        else if (action === 'select-python-environment') {
-            messaging.post({ type: 'select-python-environment' });
-        }
-        else if (action === 'content-waveform') {
-            contentType = 'waveform';
+    function setContentType(next: 'waveform' | 'spectrogram') {
+        contentType = next;
+        if (next === 'waveform') {
             state.results.forEach(function (_result, index) { releaseTrackDetail(index); });
-            persistWebviewState({ contentType: contentType });
-            document.querySelector('[data-action="content-waveform"]').classList.add('is-active');
-            document.querySelector('[data-action="content-spectrogram"]').classList.remove('is-active');
-            __updateSpecGearVisibility();
-            scheduleRender();
         }
-        else if (action === 'content-spectrogram') {
-            contentType = 'spectrogram';
-            persistWebviewState({ contentType: contentType });
-            document.querySelector('[data-action="content-waveform"]').classList.remove('is-active');
-            document.querySelector('[data-action="content-spectrogram"]').classList.add('is-active');
-            __updateSpecGearVisibility();
-            scheduleRender();
+        persistWebviewState({ contentType: contentType });
+        document.querySelector('[data-action="content-waveform"]').classList.toggle('is-active', next === 'waveform');
+        document.querySelector('[data-action="content-spectrogram"]').classList.toggle('is-active', next === 'spectrogram');
+        __updateSpecGearVisibility();
+        scheduleRender();
+    }
+    function toggleFollowCursor() {
+        followCursor = !followCursor;
+        const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
+        if (btn) {
+            btn.classList.toggle('is-active', followCursor);
         }
-        else if (action === 'zoom-in') {
-            zoomIn();
-        }
-        else if (action === 'zoom-out') {
-            zoomOut();
-        }
-        else if (action === 'zoom-reset') {
-            resetZoom();
-        }
-        else if (action === 'spec-zoom-in') {
-            specZoomIn();
-        }
-        else if (action === 'spec-zoom-out') {
-            specZoomOut();
-        }
-        else if (action === 'spec-zoom-reset') {
-            specZoomReset();
-        }
-        else if (action === 'track-height-reset') {
-            setTrackHeight(TRACK_HEIGHT_DEFAULT);
-        }
-        else if (action === 'spectrum-height-reset') {
-            setSpectrumHeight(SPECTRUM_HEIGHT_DEFAULT);
-        }
-        else if (action === 'wave-mode-rect-zoom') {
-            waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
-            syncWaveformModeButton();
-        }
-        else if (action === 'toggle-follow-cursor') {
-            followCursor = !followCursor;
-            const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
-            if (btn) {
-                btn.classList.toggle('is-active', followCursor);
-            }
-            scheduleRender();
-        }
-        else if (action === 'zoom-to-selection') {
-            zoomToSelection();
-        }
-        else if (action === 'run-recipe') {
-            messaging.post({ type: 'run-recipe' });
-        }
-        else if (action === 'copy-spec') {
-            copySpecToClipboard();
-        }
-        else if (action === 'export-png') {
-            exportPng();
-        }
-        else if (action === 'export-csv') {
-            exportCsv();
-        }
-        else if (action === 'export-wav') {
-            exportWavLoop();
-        }
-        else if (action === 'export-report') {
-            exportReport();
+        scheduleRender();
+    }
+    function handleToolbarAction(action: string) {
+        const toolbarActions: Record<string, () => void> = {
+            'open-file': () => messaging.post({ type: 'select-target', targetKind: 'file' }),
+            'open-folder': () => messaging.post({ type: 'select-target', targetKind: 'directory' }),
+            'select-python-environment': () => messaging.post({ type: 'select-python-environment' }),
+            'content-waveform': () => setContentType('waveform'),
+            'content-spectrogram': () => setContentType('spectrogram'),
+            'zoom-in': zoomIn,
+            'zoom-out': zoomOut,
+            'zoom-reset': resetZoom,
+            'spec-zoom-in': specZoomIn,
+            'spec-zoom-out': specZoomOut,
+            'spec-zoom-reset': specZoomReset,
+            'track-height-reset': () => setTrackHeight(TRACK_HEIGHT_DEFAULT),
+            'spectrum-height-reset': () => setSpectrumHeight(SPECTRUM_HEIGHT_DEFAULT),
+            'wave-mode-rect-zoom': () => {
+                waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
+                syncWaveformModeButton();
+            },
+            'toggle-follow-cursor': toggleFollowCursor,
+            'zoom-to-selection': zoomToSelection,
+            'run-recipe': () => messaging.post({ type: 'run-recipe' }),
+            'copy-spec': copySpecToClipboard,
+            'export-png': exportPng,
+            'export-csv': exportCsv,
+            'export-wav': exportWavLoop,
+            'export-report': exportReport,
+        };
+        if (Object.prototype.hasOwnProperty.call(toolbarActions, action)) {
+            toolbarActions[action]();
         }
     }
     function applyHeightInput(action: string | null, value: string | number | null): void {
