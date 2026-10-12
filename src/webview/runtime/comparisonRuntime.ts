@@ -71,6 +71,7 @@ import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
     exceedsDragThreshold,
+    loopRegionClockText,
     loopRegionForDrag,
     rectZoomTarget,
     ZOOM_IN_FACTOR,
@@ -1607,10 +1608,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             el.style.display = 'none';
             return;
         }
-        const gs = trackStore.globalSpan();
-        const startSec = gs.startSec + loopRegion.start * gs.spanSec;
-        const endSec = gs.startSec + loopRegion.end * gs.spanSec;
-        el.textContent = formatClockTime(startSec) + ' – ' + formatClockTime(endSec);
+        el.textContent = loopRegionClockText(loopRegion, trackStore.globalSpan());
         el.style.display = 'inline';
     }
     function clearPlaybackState() {
@@ -1821,10 +1819,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!navigator.clipboard || !navigator.clipboard.writeText) {
                     return;
                 }
-                const gs = trackStore.globalSpan();
-                const startSec = gs.startSec + loopRegion.start * gs.spanSec;
-                const endSec = gs.startSec + loopRegion.end * gs.spanSec;
-                navigator.clipboard.writeText(formatClockTime(startSec) + ' – ' + formatClockTime(endSec)).catch(function () { });
+                navigator.clipboard.writeText(loopRegionClockText(loopRegion, trackStore.globalSpan())).catch(function () { });
             });
         }
         attachTrackLaneActions(document.getElementById('tracks-wrapper'), {

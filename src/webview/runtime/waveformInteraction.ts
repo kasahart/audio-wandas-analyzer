@@ -1,3 +1,4 @@
+import { formatClockTime } from '../../shared/utils/format';
 import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
 
 export interface NormalizedRange {
@@ -92,4 +93,10 @@ export function rectZoomTarget(selection: { startNorm: number; endNorm: number; 
         return null;
     }
     return { zoomStart: Math.max(0, start), zoomEnd: Math.min(1, end), amplitudeMin, amplitudeMax };
+}
+
+export function loopRegionClockText(region: NormalizedRange, span: { startSec: number; spanSec: number }): string {
+    const startSec = span.startSec + region.start * span.spanSec;
+    const endSec = span.startSec + region.end * span.spanSec;
+    return formatClockTime(startSec) + ' – ' + formatClockTime(endSec);
 }
