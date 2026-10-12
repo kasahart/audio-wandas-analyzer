@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { isOffsetEditorOpen, openOffsetEditor } from '../webview/runtime/offsetInlineEditor';
+import { attachOffsetEditing, isOffsetEditorOpen, OFFSET_EDIT_OPEN_DELAY_MS, openOffsetEditor } from '../webview/runtime/offsetInlineEditor';
 import type { RuntimeDocument, RuntimeElement } from '../webview/runtime/types';
 
 const LABELS = { placeholder: 'ms', ariaLabel: 'Offset (ms)' };
@@ -60,4 +60,51 @@ test('Escape closes without committing, and a second open while editing is ignor
     assert.deepEqual(commits, []);
     assert.equal(doc.querySelector('.track-offset-input'), null);
     assert.equal(isOffsetEditorOpen(span), false);
+});
+
+function setupWrapper() {
+    const dom = new JSDOM('<!doctype html><body><div id="wrap"><span class="track-offset-val" data-index="1">+0 ms</span><span class="other">x</span></div></body>');
+    const doc = dom.window.document as unknown as RuntimeDocument;
+    const wrapper = doc.getElementById('wrap');
+    const span = doc.querySelector('.track-offset-val');
+    const calls: string[] = [];
+    attachOffsetEditing(wrapper, doc, LABELS, {
+        trackIndexFromElement: (el) => (el.dataset.index ? Number(el.dataset.index) : null),
+        currentOffsetMs: () => 250,
+        onReset: (idx) => calls.push('reset:' + idx),
+        onEdited: (idx, ms) => calls.push('edited:' + idx + ':' + ms),
+    });
+    const fire = (el: RuntimeElement, type: string) => el.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true }));
+    const wait = () => new Promise((resolve) => setTimeout(resolve, OFFSET_EDIT_OPEN_DELAY_MS + 30));
+    return { doc, span, calls, fire, wait, other: doc.querySelector('.other') };
+}
+
+test('attachOffsetEditing opens the editor after the click delay and reports the edit', async () => {
+    const { doc, span, calls, fire, wait } = setupWrapper();
+    fire(span, 'click');
+    assert.equal(isOffsetEditorOpen(span), false);
+    await wait();
+    const input = doc.querySelector('.track-offset-input');
+    assert.equal(input.value, '250');
+    input.value = '-40';
+    input.dispatchEvent(new (doc.defaultView as unknown as { FocusEvent: typeof FocusEvent }).FocusEvent('blur'));
+    assert.deepEqual(calls, ['edited:1:-40']);
+});
+
+test('attachOffsetEditing: a double-click resets the offset and cancels the pending editor', async () => {
+    const { doc, span, calls, fire, wait } = setupWrapper();
+    fire(span, 'click');
+    fire(span, 'dblclick');
+    await wait();
+    assert.equal(doc.querySelector('.track-offset-input'), null);
+    assert.deepEqual(calls, ['reset:1']);
+});
+
+test('attachOffsetEditing ignores clicks outside the offset label', async () => {
+    const { doc, other, calls, fire, wait } = setupWrapper();
+    fire(other, 'click');
+    fire(other, 'dblclick');
+    await wait();
+    assert.equal(doc.querySelector('.track-offset-input'), null);
+    assert.deepEqual(calls, []);
 });

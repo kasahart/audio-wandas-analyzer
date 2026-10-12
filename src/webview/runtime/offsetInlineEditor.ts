@@ -1,3 +1,4 @@
+import { eventTarget } from './domAdapter';
 import type { RuntimeDocument, RuntimeElement } from './types';
 
 export interface OffsetEditorLabels {
@@ -58,4 +59,57 @@ export function openOffsetEditor(
         }
     });
     input.addEventListener('blur', commitEdit);
+}
+
+/** A single click waits this long so that a double-click (reset to 0) can cancel opening the editor. */
+export const OFFSET_EDIT_OPEN_DELAY_MS = 200;
+
+export interface OffsetEditingHooks {
+    trackIndexFromElement(element: RuntimeElement): number | null;
+    currentOffsetMs(trackIndex: number): number;
+    onReset(trackIndex: number): void;
+    onEdited(trackIndex: number, offsetMs: number | null): void;
+}
+
+export function attachOffsetEditing(
+    wrapper: RuntimeElement,
+    doc: RuntimeDocument,
+    labels: OffsetEditorLabels,
+    hooks: OffsetEditingHooks,
+): void {
+    let openTimer: ReturnType<typeof setTimeout> | null = null;
+    function cancelPendingOpen(): void {
+        if (openTimer !== null) {
+            clearTimeout(openTimer);
+        }
+        openTimer = null;
+    }
+    wrapper.addEventListener('dblclick', function (e) {
+        const target = eventTarget(e);
+        if (!target.classList.contains('track-offset-val')) {
+            return;
+        }
+        cancelPendingOpen();
+        const idx = hooks.trackIndexFromElement(target);
+        if (idx !== null) {
+            hooks.onReset(idx);
+        }
+    });
+    wrapper.addEventListener('click', function (e) {
+        const span = eventTarget(e);
+        if (!span.classList.contains('track-offset-val')) {
+            return;
+        }
+        const idx = hooks.trackIndexFromElement(span);
+        if (idx === null || isOffsetEditorOpen(span)) {
+            return;
+        }
+        cancelPendingOpen();
+        openTimer = setTimeout(function () {
+            openTimer = null;
+            openOffsetEditor(doc, span, hooks.currentOffsetMs(idx), labels, function (offsetMs) {
+                hooks.onEdited(idx, offsetMs);
+            });
+        }, OFFSET_EDIT_OPEN_DELAY_MS);
+    });
 }
