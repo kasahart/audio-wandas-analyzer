@@ -29,6 +29,7 @@ import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, 
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
+import { SpectrumHover } from './spectrumHover';
 import { toolbarHtml } from './toolbarHtml';
 import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
 import { selectionLayoutHtml } from './selectionLayoutHtml';
@@ -300,11 +301,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let zoomEnd = 1;
     let cursorNorm = 0; // グローバルカーソル（常に number）
     let hoverNorm: number | null = null; // ホバープレビュー位置（null = 非表示）
-    let spectrumHoverNorm: number | null = null; // スペクトルカーソル（正規化周波数 0..1、null = 非表示）
-    let spectrumHoverYFrac: number | null = null; // スペクトルカーソルy（canvas高さに対する比率 0..1）
-    let spectrumHoverTrackId: TrackId | 'overlay' | null = null;
-    let spectrumHoverChannelIndex: number | null = null; // number = per-track channel, null = overlay/none
-    let spectrumHasMouse = false; // マウスがスペクトルキャンバス上にある間 true
+    const spectrumHover = new SpectrumHover();
     let trackHeight = TRACK_HEIGHT_DEFAULT;
     let spectrumOverlayHeight = SPECTRUM_HEIGHT_DEFAULT;
     // ── スペクトルズーム ───────────────────────────────────
@@ -2138,7 +2135,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const active = document.activeElement;
             const helpEl = document.getElementById('help-overlay');
             const intent = keydownIntent(e, {
-                spectrumActive: spectrumHasMouse || !!(active && (active.id === 'spectrum-overlay-canvas'
+                spectrumActive: spectrumHover.hasMouse || !!(active && (active.id === 'spectrum-overlay-canvas'
                     || (active.classList && active.classList.contains('track-spectrum-canvas')))),
                 helpOpen: !!(helpEl && !helpEl.hidden),
                 textEntryFocused: isTextEntryTag(active && active.tagName),
@@ -2192,41 +2189,26 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return null;
             }
             function setSpectrumFocusTarget(trackIndex: number, channelIndex: number | null) {
-                if (spectrumHoverNorm === null) {
-                    spectrumHoverNorm = 0;
-                }
-                if (spectrumHoverYFrac === null) {
-                    spectrumHoverYFrac = 0.5;
-                }
-                spectrumHoverTrackId = trackIndex < 0 ? 'overlay' : trackIdAtIndex(trackIndex);
-                spectrumHoverChannelIndex = Number.isInteger(channelIndex) ? channelIndex : null;
-                spectrumHasMouse = false;
+                spectrumHover.focus(trackIndex < 0 ? 'overlay' : trackIdAtIndex(trackIndex), channelIndex);
                 scheduleSpectrumRefresh('hover');
             }
             function clearSpectrumFocusTarget() {
-                spectrumHoverNorm = null;
-                spectrumHoverYFrac = null;
-                spectrumHoverTrackId = null;
-                spectrumHoverChannelIndex = null;
+                spectrumHover.clear();
                 scheduleSpectrumRefresh('hover');
             }
             function onSpectrumMove(padL: number, padR: number, canvasEl: CanvasHitTarget & { height: number }, e: MouseEvent, trackIndex: number | null, channelIndex: number | null) {
                 const rect = canvasEl.getBoundingClientRect();
                 const hover = spectrumHoverAt(e.clientX - rect.left, e.clientY - rect.top, canvasEl.width, canvasEl.height, padL, padR);
                 if (!hover) {
-                    spectrumHasMouse = false;
+                    spectrumHover.hasMouse = false;
                     clearSpectrumFocusTarget();
                     return;
                 }
-                spectrumHoverNorm = hover.hoverNorm;
-                spectrumHoverYFrac = hover.yFrac;
-                spectrumHoverTrackId = trackIndex === null || trackIndex < 0 ? 'overlay' : trackIdAtIndex(trackIndex);
-                spectrumHoverChannelIndex = Number.isInteger(channelIndex) ? channelIndex : null;
-                spectrumHasMouse = true;
+                spectrumHover.move(hover, trackIndex === null || trackIndex < 0 ? 'overlay' : trackIdAtIndex(trackIndex), channelIndex);
                 scheduleSpectrumRefresh('hover');
             }
             function onSpectrumLeave() {
-                spectrumHasMouse = false;
+                spectrumHover.hasMouse = false;
                 const focused = spectrumFocusTargetFromElement(document.activeElement);
                 if (focused) {
                     setSpectrumFocusTarget(focused.trackIndex, focused.channelIndex);
@@ -2242,7 +2224,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 setSpectrumFocusTarget(trackIndex, channelIndex);
             }
             function onSpectrumBlur() {
-                if (spectrumHasMouse) {
+                if (spectrumHover.hasMouse) {
                     return;
                 }
                 clearSpectrumFocusTarget();
@@ -3181,28 +3163,28 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return slices;
     }
     function moveSpectrumHoverByBin(deltaIdx: number) {
-        if (spectrumHoverNorm === null) {
-            spectrumHoverNorm = 0.5;
+        if (spectrumHover.norm === null) {
+            spectrumHover.norm = 0.5;
         }
-        if (spectrumHoverTrackId !== null && spectrumHoverTrackId !== 'overlay') {
-            const record = trackStore.get(spectrumHoverTrackId);
+        if (spectrumHover.target !== null && spectrumHover.target !== 'overlay') {
+            const record = trackStore.get(spectrumHover.target);
             if (!record?.active) {
                 return;
             }
             const trackIndex = record.protocolIndex;
             const result = record.result;
-            const channelIndex = typeof spectrumHoverChannelIndex === 'number' ? spectrumHoverChannelIndex : 0;
+            const channelIndex = typeof spectrumHover.channelIndex === 'number' ? spectrumHover.channelIndex : 0;
             const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
             if (!slice) {
                 return;
             }
             const visFreqMin = specFreqStart * slice.maxFrequencyHz;
             const visFreqMax = specFreqEnd * slice.maxFrequencyHz;
-            const snap = spectrumBinAtHover(slice, spectrumHoverNorm, { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1, frequencyMin: visFreqMin, frequencyMax: visFreqMax, dbMin: slice.minDb, dbMax: slice.maxDb });
+            const snap = spectrumBinAtHover(slice, spectrumHover.norm, { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1, frequencyMin: visFreqMin, frequencyMax: visFreqMax, dbMin: slice.minDb, dbMax: slice.maxDb });
             if (!snap) {
                 return;
             }
-            spectrumHoverNorm = steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, visFreqMin, visFreqMax);
+            spectrumHover.norm = steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, visFreqMin, visFreqMax);
             return;
         }
         const slices = visibleSpectrumSlices();
@@ -3212,17 +3194,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const range = spectrumSeriesRange(slices);
         const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumViewState());
         const overlayC = document.getElementById('spectrum-overlay-canvas');
-        const mouseY = spectrumHoverYFrac !== null && overlayC ? spectrumHoverYFrac * overlayC.height : null;
+        const mouseY = spectrumHover.yFrac !== null && overlayC ? spectrumHover.yFrac * overlayC.height : null;
         const frame = { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1, ...vis };
-        const nearest = nearestSpectrumSnap(slices, spectrumHoverNorm, mouseY, frame);
+        const nearest = nearestSpectrumSnap(slices, spectrumHover.norm, mouseY, frame);
         const chosen = nearest ? nearest.s : slices[0];
-        const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, spectrumHoverNorm, frame);
+        const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, spectrumHover.norm, frame);
         if (!snap) {
             return;
         }
-        spectrumHoverNorm = steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, vis.frequencyMin, vis.frequencyMax);
-        spectrumHoverTrackId = 'overlay';
-        spectrumHoverChannelIndex = null;
+        spectrumHover.norm = steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, vis.frequencyMin, vis.frequencyMax);
+        spectrumHover.target = 'overlay';
+        spectrumHover.channelIndex = null;
     }
 
     function renderTrackSpectra() {
@@ -3276,9 +3258,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 drawSpectrumAxes(ctx, W, H, slice, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, drawTheme());
                 drawSpectrumLine(ctx, W, H, slice, color, { padL: pad.left, padR: pad.right, padT: pad.top, padB: pad.bottom }, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax);
                 paintedByChannel.set(channelIndex, true);
-                if (spectrumHoverNorm !== null && spectrumHoverTrackId === trackId && spectrumHoverChannelIndex === channelIndex) {
+                if (spectrumHover.norm !== null && spectrumHover.target === trackId && spectrumHover.channelIndex === channelIndex) {
                     const frame = spectrumPlotFrame(W, H, pad, vis);
-                    const snap = spectrumBinAtHover(slice, spectrumHoverNorm, frame);
+                    const snap = spectrumBinAtHover(slice, spectrumHover.norm, frame);
                     if (!snap) {
                         return;
                     }
@@ -3368,16 +3350,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const frame = spectrumPlotFrame(W, H, pad, vis);
         strokeSpectrumSeries(ctx, frame, vis.dbMax - vis.dbMin > 0 ? slices : [], 1.4, maxF);
-        if (spectrumHoverNorm !== null && spectrumHoverTrackId === 'overlay') {
-            const mouseY = spectrumHoverYFrac !== null ? spectrumHoverYFrac * H : null;
-            const nearest = nearestSpectrumSnap(slices, spectrumHoverNorm, mouseY, frame);
+        if (spectrumHover.norm !== null && spectrumHover.target === 'overlay') {
+            const mouseY = spectrumHover.yFrac !== null ? spectrumHover.yFrac * H : null;
+            const nearest = nearestSpectrumSnap(slices, spectrumHover.norm, mouseY, frame);
             if (nearest) {
                 strokeSpectrumSeries(ctx, frame, [nearest.s], 2.5, maxF);
             }
             drawSpectrumCrosshair(
                 ctx,
                 frame,
-                nearest ? nearest.snap.x : frame.padLeft + spectrumHoverNorm * frame.plotWidth,
+                nearest ? nearest.snap.x : frame.padLeft + spectrumHover.norm * frame.plotWidth,
                 nearest ? nearest.snapY : null,
                 'rgba(255,255,255,0.7)',
                 nearest ? nearest.s.color : '',
@@ -3388,7 +3370,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 nearest ? nearest.s.color : '',
             );
         }
-        else if (spectrumHoverNorm === null) {
+        else if (spectrumHover.norm === null) {
             setSpectrumReadout(document.getElementById('spectrum-freq-readout'), '', '');
         }
         // ── スペクトルドラッグ選択ゴムバンド ─────────────────────
