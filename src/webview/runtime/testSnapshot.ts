@@ -49,7 +49,6 @@ export function sliceSpectrumAxisLabels(slice: SpectrumSlice | null, view: Spect
     return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, slice);
 }
 
-// The overlay shares one axis across all visible slices and labels its unit from the first one.
 export function overlaySpectrumAxisLabels(slices: readonly SpectrumSlice[], view: SpectrumViewState): string[] {
     const range = spectrumSeriesRange(slices.map(slice => ({ slice })));
     if (slices.length === 0 || !isFinite(range.minDb)) {
