@@ -3,6 +3,7 @@ import { channelLabel, channelsForResult, formatClockTime } from '../../shared/u
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { paintSpectrogramRaster } from './spectrogramRaster';
 import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
+import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawSpectrumSelectionBox, strokeSpectrumSeries, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
@@ -127,11 +128,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         clearTimeout,
     });
     let selectionMessageSeq = 0;
-    let pythonEnvironmentState = state.pythonEnvironmentState || {
-        pythonCommand: 'python3',
-        status: 'normal',
-        tooltip: 'Click to select Python environment',
-    };
+    let pythonEnvironmentState = state.pythonEnvironmentState || DEFAULT_PYTHON_ENVIRONMENT_STATE;
     function drawTheme(): DrawTheme {
         const style = getComputedStyle(document.body);
         return {
@@ -707,7 +704,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const pending = record.detailRequest;
-        if (!pending || pending.trackId !== trackId || pending.requestId !== msg.requestId || pending.analysisId !== msg.analysisId || pending.settingsSignature !== msg.settingsSignature || pending.channelIndex !== msg.channelIndex) {
+        if (!isResponseToLazyRequest(pending, trackId, msg) || pending.channelIndex !== msg.channelIndex) {
             return;
         }
         record.detailRequest = null;
@@ -715,14 +712,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
-            msg.channels.forEach(function (channel: ChannelSummary, channelIndex: number) {
-                if (!state.results[i].channels[channelIndex]) {
-                    return;
-                }
-                if (channel && channel.spectrogram) {
-                    state.results[i].channels[channelIndex].spectrogram = channel.spectrogram;
-                }
-            });
+            mergeDetailSpectrograms(state.results[i].channels, msg.channels);
             scheduleRender();
             scheduleSpectrumRefresh('immediate');
             requestAnimationFrame(function () { publishTestSnapshot(); });
@@ -745,7 +735,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const pending = record.spectrumSliceRequests.get(0);
-        if (!pending || pending.trackId !== trackId || pending.requestId !== msg.requestId || pending.analysisId !== msg.analysisId || pending.settingsSignature !== msg.settingsSignature) {
+        if (!isResponseToLazyRequest(pending, trackId, msg)) {
             pumpSpectrumSliceRequests();
             return;
         }
@@ -778,11 +768,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!msg || msg.type !== 'python-environment-state') {
             return;
         }
-        pythonEnvironmentState = {
-            pythonCommand: typeof msg.pythonCommand === 'string' ? msg.pythonCommand : 'python3',
-            status: msg.status === 'warning' ? 'warning' : 'normal',
-            tooltip: typeof msg.tooltip === 'string' ? msg.tooltip : 'Click to select Python environment',
-        };
+        pythonEnvironmentState = pythonEnvironmentStateFromMessage(msg);
         syncPythonEnvironmentButton();
     });
     testBridge.onActions(function (msg) {
