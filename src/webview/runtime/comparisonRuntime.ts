@@ -2,6 +2,7 @@ import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { paintSpectrogramRaster } from './spectrogramRaster';
+import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawSpectrumSelectionBox, strokeSpectrumSeries, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
@@ -1619,67 +1620,35 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         ctx.lineTo(W, H / 2);
         ctx.stroke();
         const src = resolveWaveformSource(result, trackIndex, channelIndex, offsetSeconds);
+        const record = trackRecordAtIndex(trackIndex);
+        let coverage: WaveformCoverage | null = null;
         if (src && window.renderWaveformPipeline) {
-            const dur = result.durationSeconds || 1;
-            const gs = trackStore.globalSpan();
-            const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
-            const trackDurRatio = dur / gs.spanSec;
-            const originalMoveTo = ctx.moveTo.bind(ctx);
-            const originalLineTo = ctx.lineTo.bind(ctx);
-            let minX = Number.POSITIVE_INFINITY;
-            let maxX = Number.NEGATIVE_INFINITY;
-            ctx.moveTo = function (x: number, y: number) {
-                if (Number.isFinite(x)) {
-                    minX = Math.min(minX, x);
-                    maxX = Math.max(maxX, x);
+            const renderPipeline = window.renderWaveformPipeline;
+            const placement = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
+            const extent = traceXExtent(ctx, function () {
+                ctx.save();
+                try {
+                    renderPipeline(ctx, W, H, src.waveform, {
+                        zoomStart,
+                        zoomEnd,
+                        offsetNorm: placement.offsetNorm,
+                        trackDurRatio: placement.trackDurRatio,
+                        dataStart: src.dataStart,
+                        dataEnd: src.dataEnd,
+                        color,
+                        amplitudeScale: src.amplitudeScale,
+                        amplitudeMinNorm: isAmplitudeZoomActive() ? amplitudeZoomMinNorm : undefined,
+                        amplitudeMaxNorm: isAmplitudeZoomActive() ? amplitudeZoomMaxNorm : undefined,
+                    });
                 }
-                return originalMoveTo(x, y);
-            };
-            ctx.lineTo = function (x: number, y: number) {
-                if (Number.isFinite(x)) {
-                    minX = Math.min(minX, x);
-                    maxX = Math.max(maxX, x);
+                finally {
+                    ctx.restore();
                 }
-                return originalLineTo(x, y);
-            };
-            ctx.save();
-            try {
-                window.renderWaveformPipeline(ctx, W, H, src.waveform, {
-                    zoomStart,
-                    zoomEnd,
-                    offsetNorm: trackStart,
-                    trackDurRatio,
-                    dataStart: src.dataStart,
-                    dataEnd: src.dataEnd,
-                    color,
-                    amplitudeScale: src.amplitudeScale,
-                    amplitudeMinNorm: isAmplitudeZoomActive() ? amplitudeZoomMinNorm : undefined,
-                    amplitudeMaxNorm: isAmplitudeZoomActive() ? amplitudeZoomMaxNorm : undefined,
-                });
-            }
-            finally {
-                ctx.restore();
-                ctx.moveTo = originalMoveTo;
-                ctx.lineTo = originalLineTo;
-            }
-            const record = trackRecordAtIndex(trackIndex);
-            if (record) {
-                record.waveformCoverage = Number.isFinite(minX) && Number.isFinite(maxX)
-                ? {
-                    minX: minX,
-                    maxX: maxX,
-                    canvasWidth: W,
-                    coversLeft: minX <= 1,
-                    coversRight: maxX >= W - 1,
-                }
-                    : null;
-            }
+            });
+            coverage = waveformCoverageFromExtent(extent, W);
         }
-        else {
-            const record = trackRecordAtIndex(trackIndex);
-            if (record) {
-                record.waveformCoverage = null;
-            }
+        if (record) {
+            record.waveformCoverage = coverage;
         }
         if (shouldDrawCursor) {
             drawLoopRegionOnCanvas(ctx, W, H);
