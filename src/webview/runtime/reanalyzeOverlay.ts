@@ -1,5 +1,4 @@
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import type { RuntimeDocument } from './types';
 
 export interface ReanalyzeOverlayOptions {
     defaultMessage: string;
@@ -21,13 +20,13 @@ export function reanalyzeOverlayHtml(defaultMessage: string): string {
         + '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>';
 }
 
-export function installReanalyzeOverlay(document: RuntimeDocument, options: ReanalyzeOverlayOptions): ReanalyzeOverlay {
+export function installReanalyzeOverlay(document: Document, options: ReanalyzeOverlayOptions): ReanalyzeOverlay {
     document.body.insertAdjacentHTML('beforeend', reanalyzeOverlayHtml(options.defaultMessage));
     const overlay = document.getElementById('reanalyze-overlay');
     const messageEl = document.getElementById('reanalyze-overlay-msg');
     return {
         setBusy(busy, message) {
-            if (!overlay) {
+            if (!overlay || !messageEl) {
                 return;
             }
             if (busy) {

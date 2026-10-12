@@ -37,6 +37,11 @@ test('fillSpectrogramDisplayForm: 入力欄を埋め、数値以外は null の�
     assert.deepEqual(display, { dbMin: -90, dbMax: null, maxFrequencyHz: null });
 });
 
+test('fillSpectrogramSettingsForm: names the missing form field', () => {
+    const doc = makeDoc('<input type="checkbox" id="spec-auto">');
+    assert.throws(() => fillSpectrogramSettingsForm(doc, { auto: true, nFft: 2048 }), /Form field not found: spec-nfft/);
+});
+
 test('setSelectionFileChecked: 対象のチェックボックスを切り替えて change を発火する', () => {
     const doc = makeDoc(`
         <input type="checkbox" class="selection-file-checkbox" data-file-path="/a.wav">

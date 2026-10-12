@@ -2,10 +2,9 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { eventTarget } from './domAdapter';
 import { SHORTCUT_ROWS } from './shortcuts';
-import type { RuntimeDocument } from './types';
 
 /** Keyboard-shortcut dialog toggled by `?`; the comparison runtime suspends its shortcuts while it is open. */
-export function installHelpOverlay(document: RuntimeDocument, STR: UiStrings): void {
+export function installHelpOverlay(document: Document, STR: UiStrings): void {
     const tableRows = SHORTCUT_ROWS.map(function (row) {
         return '<tr><td style="padding:3px 12px 3px 0;font-family:var(--font-mono);white-space:nowrap;color:var(--accent)">' + escapeHtml(row.shortcut)
             + '</td><td style="padding:3px 0;color:var(--text)">' + escapeHtml(STR[row.labelKey as keyof typeof STR]) + '</td></tr>';
@@ -42,18 +41,21 @@ export function installHelpOverlay(document: RuntimeDocument, STR: UiStrings): v
     if (closeBtn) {
         closeBtn.addEventListener('click', closeHelp);
     }
-    document.getElementById('help-overlay').addEventListener('click', function (e) {
-        if (eventTarget(e) === document.getElementById('help-overlay')) {
+    const overlayEl = document.getElementById('help-overlay');
+    if (!overlayEl) {
+        return;
+    }
+    overlayEl.addEventListener('click', function (e) {
+        if (eventTarget(e) === overlayEl) {
             closeHelp();
         }
     });
     // フォーカストラップ: aria-modal="true" の期待に応えるため、Tab キーをダイアログ内に閉じ込める
-    document.getElementById('help-overlay').addEventListener('keydown', function (ev) {
+    overlayEl.addEventListener('keydown', function (ev) {
         if (ev.key !== 'Tab') {
             return;
         }
-        var overlay = document.getElementById('help-overlay');
-        var focusable = Array.from(overlay.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+        var focusable = Array.from(overlayEl.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
         if (focusable.length === 0) {
             ev.preventDefault();
             return;
