@@ -1,3 +1,5 @@
+import { dbLevelUnitFor } from '../draw/canvasDrawers';
+import { formatReadoutHz } from './canvasOverlays';
 import type { SpectrumSlice, SpectrumSnap } from './types';
 import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
 
@@ -100,4 +102,12 @@ export function nearestSpectrumSnap<S extends { slice: SpectrumSlice }>(
         }
     }
     return nearest;
+}
+
+export function spectrumReadoutText(label: string, slice: SpectrumSlice, freqHz: number, dbVal: number): string {
+    return label + ' / ' + formatReadoutHz(freqHz) + ' / ' + dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice);
+}
+
+export function trackSpectrumReadoutText(label: string, slice: SpectrumSlice, freqHz: number, dbVal: number | undefined): string {
+    return label + ' ' + formatReadoutHz(freqHz) + (dbVal !== undefined ? '  ' + dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice) : '');
 }
