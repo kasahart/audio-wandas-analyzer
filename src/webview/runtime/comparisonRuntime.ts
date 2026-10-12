@@ -1,6 +1,5 @@
 import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
-import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { paintSpectrogramRaster, spectrogramDisplayBounds } from './spectrogramRaster';
 import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, loopRegionFromPayload, setSelectionFileChecked } from './testActionForms';
@@ -31,7 +30,7 @@ import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { toolbarHtml } from './toolbarHtml';
-import { resultsPaneHtml } from './resultsPaneHtml';
+import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
 import { selectionLayoutHtml } from './selectionLayoutHtml';
 import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
@@ -1141,7 +1140,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!result.audioSource) {
                 return '';
             }
-            return '<audio id="track-audio-' + record.protocolIndex + '" data-track-id="' + trackId + '" preload="metadata"' + (record.runtime.muted ? ' muted' : '') + ' src="' + escapeHtml(result.audioSource) + '"></audio>';
+            return trackAudioHtml(trackId, record.protocolIndex, result.audioSource, !!record.runtime.muted);
         }).join('');
     }
     function buildToolbar() {

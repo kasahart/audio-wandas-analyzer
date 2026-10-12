@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getStrings } from '../shared/i18n/strings';
-import { resultsPaneHtml, type ResultsPaneParts } from '../webview/runtime/resultsPaneHtml';
+import { resultsPaneHtml, trackAudioHtml, type ResultsPaneParts } from '../webview/runtime/resultsPaneHtml';
 
 const strings = getStrings('en');
 const parts: ResultsPaneParts = {
@@ -32,4 +32,12 @@ test('results pane renders the spectrum section controls', () => {
         assert.ok(html.includes('data-action="' + action + '"'), action);
     }
     assert.ok(html.includes('<canvas id="spectrum-overlay-canvas" tabindex="0"'));
+});
+
+test('track audio element carries the track id, mute state and escaped source', () => {
+    assert.equal(
+        trackAudioHtml('track-2', 1, 'vscode-resource:/a&b.wav', false),
+        '<audio id="track-audio-1" data-track-id="track-2" preload="metadata" src="vscode-resource:/a&amp;b.wav"></audio>',
+    );
+    assert.ok(trackAudioHtml('track-2', 1, 'x.wav', true).includes('preload="metadata" muted src="x.wav"'));
 });
