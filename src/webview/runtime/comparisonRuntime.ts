@@ -29,6 +29,7 @@ import { arrowCursorStep, isTextEntryTag, keydownIntent, type GlobalShortcutActi
 import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
+import { channelLaneHtml } from './trackLaneHtml';
 import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped } from './calibrationDecorations';
 import {
@@ -424,7 +425,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const name = result && result.fileName ? result.fileName : '';
         return channels.length > 1 ? name + ' ' + channelLabel(result, channelIndex) : name;
     }
-    function displayedChannel(result: ComparisonTrackState, trackIndex: number) {
+    function displayedChannel(result: ComparisonTrackState) {
         const channels = channelsForResult(result);
         return channels.length > 0 ? channels[0] : null;
     }
@@ -983,7 +984,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 visibleSlices.push(slice);
             }
             waveformPerTrack.push(waveformAxisLabelsForResult(result, trackIndex));
-            const ch = displayedChannel(result, trackIndex);
+            const ch = displayedChannel(result);
             spectrogramPerTrack.push(spectrogramAxisLabelTexts(
                 ch && ch.spectrogram,
                 __spectrogramSettings.display,
@@ -1014,7 +1015,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const overlayRange = spectrumSeriesRange(visibleSlices.map(function (slice) { return { slice: slice }; }));
         let latestSpectrogram;
         try {
-            const firstChannel = state.results[0] ? displayedChannel(state.results[0], 0) : undefined;
+            const firstChannel = state.results[0] ? displayedChannel(state.results[0]) : undefined;
             latestSpectrogram = latestSpectrogramSnapshot(
                 firstChannel?.spectrogram,
                 (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings) ? __spectrogramSettings : null,
@@ -1216,24 +1217,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return '';
         }
         const channels = channelsForResult(result);
-        const ch = channels[channelIndex];
-        const label = channelLabel(result, channelIndex);
-        const header = channels.length > 1
-            ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escapeHtml(label) + '</span>' + channelMetricSummaryHtml(ch) + '</div>'
-            : '';
-        return '<div class="track-channel-lane" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '">'
-            + header
-            + '  <div class="track-channel-lane-body">'
-            + '    <div class="track-canvas-wrap" id="' + trackCanvasWrapId(trackIndex, channelIndex) + '">'
-            + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + AXIS_W + 'px" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '"></canvas>'
-            + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" style="outline:none;flex:1"></canvas>'
-            + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" aria-hidden="true" style="display:none;position:absolute;left:' + AXIS_W + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
-            + '    </div>'
-            + '    <div class="track-spectrum-wrap" id="' + trackSpectrumWrapId(trackIndex, channelIndex) + '" title="' + escapeHtml(STR.trackSpectrumTitle) + '">'
-            + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" aria-label="' + escapeHtml(result.fileName + ' ' + label + ' ' + STR.trackSpectrumTitle) + '"></canvas>'
-            + '    </div>'
-            + '  </div>'
-            + '</div>';
+        return channelLaneHtml({
+            trackId,
+            trackIndex,
+            channelIndex,
+            channelCount: channels.length,
+            channelLabel: channelLabel(result, channelIndex),
+            metricSummaryHtml: channelMetricSummaryHtml(channels[channelIndex]),
+            fileName: result.fileName,
+            axisWidth: AXIS_W,
+            spectrumTitle: STR.trackSpectrumTitle,
+        });
     }
     function buildChannelLanes(result: ComparisonTrackState, i: number) {
         return channelsForResult(result).map(function (_, channelIndex: number) {
