@@ -1,5 +1,6 @@
 import type { SpectrogramDisplaySettings } from '../../shared/analysis/analysisTypes';
-import type { LoopRegion, RuntimeDocument } from './types';
+import type { HeightKind } from './heightResize';
+import type { LoopRegion, RuntimeDocument, TestAction, TrackId } from './types';
 
 type ActionPayload = Record<string, unknown>;
 
@@ -46,4 +47,32 @@ export function loopRegionFromPayload(payload: ActionPayload): LoopRegion | null
     const start = Math.max(0, Math.min(1, Number(payload.start)));
     const end = Math.max(0, Math.min(1, Number(payload.end)));
     return end > start ? { start, end } : null;
+}
+
+// An explicit trackId wins only while that track still exists; otherwise fall back to the positional trackIndex.
+export function testActionTrackId(
+    entry: TestAction,
+    isKnownTrack: (trackId: TrackId) => boolean,
+    trackIdAtIndex: (trackIndex: number) => TrackId | null,
+): TrackId | null {
+    const requested = typeof entry.trackId === 'string' ? entry.trackId as TrackId : null;
+    if (requested && isKnownTrack(requested)) {
+        return requested;
+    }
+    return typeof entry.trackIndex === 'number' ? trackIdAtIndex(entry.trackIndex) : null;
+}
+
+export interface HeightDragRequest {
+    kind: HeightKind;
+    startY: number;
+    endY: number;
+}
+
+export function heightDragFromPayload(payload: ActionPayload): HeightDragRequest {
+    const startY = Number(payload.startY || 0);
+    return {
+        kind: payload.kind === 'spectrum' ? 'spectrum' : 'track',
+        startY,
+        endY: Number(payload.endY || startY),
+    };
 }

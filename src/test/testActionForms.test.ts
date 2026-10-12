@@ -4,10 +4,12 @@ import { JSDOM } from 'jsdom';
 import {
     fillSpectrogramDisplayForm,
     fillSpectrogramSettingsForm,
+    heightDragFromPayload,
     loopRegionFromPayload,
     setSelectionFileChecked,
+    testActionTrackId,
 } from '../webview/runtime/testActionForms';
-import type { RuntimeDocument } from '../webview/runtime/types';
+import type { RuntimeDocument, TrackId } from '../webview/runtime/types';
 
 function makeDoc(html: string): RuntimeDocument {
     return new JSDOM(`<!doctype html><body>${html}</body>`).window.document as unknown as RuntimeDocument;
@@ -53,4 +55,20 @@ test('loopRegionFromPayload: 0..1 に収め、幅がなければ null', () => {
     assert.deepEqual(loopRegionFromPayload({ start: 0.2, end: 3 }), { start: 0.2, end: 1 });
     assert.equal(loopRegionFromPayload({ start: 0.5, end: 0.5 }), null);
     assert.equal(loopRegionFromPayload({ start: 'x', end: 0.5 }), null);
+});
+
+test('testActionTrackId prefers a known trackId and otherwise falls back to trackIndex', () => {
+    const known = new Set(['track-1']);
+    const isKnown = (id: TrackId) => known.has(id);
+    const atIndex = (i: number) => (i === 0 ? 'track-9' as TrackId : null);
+    assert.equal(testActionTrackId({ action: 'x', trackId: 'track-1', trackIndex: 0 }, isKnown, atIndex), 'track-1');
+    assert.equal(testActionTrackId({ action: 'x', trackId: 'gone', trackIndex: 0 }, isKnown, atIndex), 'track-9');
+    assert.equal(testActionTrackId({ action: 'x', trackIndex: 3 }, isKnown, atIndex), null);
+    assert.equal(testActionTrackId({ action: 'x' }, isKnown, atIndex), null);
+});
+
+test('heightDragFromPayload defaults to a zero-length track drag', () => {
+    assert.deepEqual(heightDragFromPayload({}), { kind: 'track', startY: 0, endY: 0 });
+    assert.deepEqual(heightDragFromPayload({ kind: 'spectrum', startY: 100, endY: 40 }), { kind: 'spectrum', startY: 100, endY: 40 });
+    assert.deepEqual(heightDragFromPayload({ startY: 50 }), { kind: 'track', startY: 50, endY: 50 });
 });
