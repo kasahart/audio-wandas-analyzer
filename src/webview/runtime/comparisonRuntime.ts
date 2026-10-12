@@ -5,7 +5,7 @@ import { paintSpectrogramRaster } from './spectrogramRaster';
 import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, loopRegionFromPayload, setSelectionFileChecked } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
-import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawSpectrumSelectionBox, strokeSpectrumSeries, type DrawTheme } from '../draw/canvasDrawers';
+import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawSpectrumSelectionBox, drawCanvasMessage, strokeSpectrumSeries, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
@@ -44,6 +44,7 @@ import {
     TRACK_SPECTRUM_PAD,
     type SpectrumViewState,
     trackSpectrumReadoutText,
+    setSpectrumReadout,
     spectrumSlicesFromResult,
     zoomSpectrumRange,
 } from './spectrumRuntime';
@@ -1622,12 +1623,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const ch = channelsForResult(result)[channelIndex];
         if (!ch || !ch.spectrogram) {
-            ctx.clearRect(0, 0, W, H);
             requestTrackDetail(trackIndex);
-            ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-            ctx.font = '11px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(STR.spectrogramLoading, W / 2, H / 2);
+            drawCanvasMessage(ctx, W, H, STR.spectrogramLoading, '11px sans-serif', drawTheme().mutedColor);
             return;
         }
         const spec = ch.spectrogram;
@@ -3546,11 +3543,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     if (paintedByChannel.get(channelIndex) && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) {
                         return;
                     }
-                    ctx.clearRect(0, 0, W, H);
-                    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-                    ctx.font = '9px sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(STR.canvasOutOfRange, W / 2, H / 2);
+                    drawCanvasMessage(ctx, W, H, STR.canvasOutOfRange, '9px sans-serif', drawTheme().mutedColor);
                     paintedByChannel.set(channelIndex, false);
                     return;
                 }
@@ -3568,10 +3561,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         return;
                     }
                     drawSpectrumCrosshair(ctx, frame, snap.x, snap.dbVal !== undefined ? snap.y : null, 'rgba(255,255,255,0.75)', color);
-                    const readoutEl = document.getElementById('spectrum-freq-readout');
-                    if (readoutEl && snap.dbVal !== undefined) {
-                        readoutEl.style.color = color;
-                        readoutEl.textContent = trackSpectrumReadoutText(spectrumReadoutTrackLabel(result, channelIndex), slice, snap.freqHz, snap.dbVal);
+                    if (snap.dbVal !== undefined) {
+                        setSpectrumReadout(document.getElementById('spectrum-freq-readout'), trackSpectrumReadoutText(spectrumReadoutTrackLabel(result, channelIndex), slice, snap.freqHz, snap.dbVal), color);
                     }
                 }
             });
@@ -3625,11 +3616,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (slices.length === 0) {
-            ctx.clearRect(0, 0, W, H);
-            ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-            ctx.font = '11px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(STR.spectrumNoData, W / 2, H / 2);
+            drawCanvasMessage(ctx, W, H, STR.spectrumNoData, '11px sans-serif', drawTheme().mutedColor);
             overlaySpectrumPainted = false;
             return;
         }
@@ -3670,24 +3657,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 'rgba(255,255,255,0.7)',
                 nearest ? nearest.s.color : '',
             );
-            const readoutEl = document.getElementById('spectrum-freq-readout');
-            if (readoutEl) {
-                if (nearest) {
-                    readoutEl.textContent = spectrumReadoutText(nearest.s.label, nearest.s.slice, nearest.snap.freqHz, nearest.dbVal);
-                    readoutEl.style.color = nearest.s.color;
-                }
-                else {
-                    readoutEl.textContent = '';
-                    readoutEl.style.color = '';
-                }
-            }
+            setSpectrumReadout(
+                document.getElementById('spectrum-freq-readout'),
+                nearest ? spectrumReadoutText(nearest.s.label, nearest.s.slice, nearest.snap.freqHz, nearest.dbVal) : '',
+                nearest ? nearest.s.color : '',
+            );
         }
         else if (spectrumHoverNorm === null) {
-            const readoutEl = document.getElementById('spectrum-freq-readout');
-            if (readoutEl) {
-                readoutEl.textContent = '';
-                readoutEl.style.color = '';
-            }
+            setSpectrumReadout(document.getElementById('spectrum-freq-readout'), '', '');
         }
         // ── スペクトルドラッグ選択ゴムバンド ─────────────────────
         if (specDragAnchor !== null && specDragCurrent !== null) {
