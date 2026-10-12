@@ -1180,7 +1180,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             lanesHtml: buildChannelLanes(result, i),
         }, STR);
     }
-    /** フルパスから basename だけを返す（パス区切り文字なしならそのまま返す） */
     // ── Rendering ──
     function renderAll() {
         updateUiSmokeSpectrumState();

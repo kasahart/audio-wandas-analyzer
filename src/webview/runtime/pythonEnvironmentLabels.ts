@@ -1,3 +1,4 @@
+/** フルパスから basename だけを返す（パス区切り文字なしならそのまま返す） */
 function shortPythonName(cmd: string): string {
     const s = String(cmd);
     const last = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
