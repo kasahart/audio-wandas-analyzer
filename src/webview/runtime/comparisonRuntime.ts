@@ -2,6 +2,7 @@ import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { paintSpectrogramRaster, spectrogramDisplayBounds } from './spectrogramRaster';
 import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
+import { isOffsetEditorOpen, openOffsetEditor } from './offsetInlineEditor';
 import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setSelectionFileChecked, testActionTrackId } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
@@ -1919,8 +1920,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (idx === null) {
                 return;
             }
-            // Don't open if already editing
-            if (span.style.display === 'none') {
+            if (isOffsetEditorOpen(span)) {
                 return;
             }
             // Delay to allow dblclick (reset) to cancel before opening editor
@@ -1929,59 +1929,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             _offsetEditTimer = setTimeout(function () {
                 _offsetEditTimer = null;
-                if (span.style.display === 'none') {
-                    return;
-                }
                 const currentMs = Math.round(trackRuntimeAt(idx).offsetSeconds * 1000);
-                const input = document.createElement('input');
-                input.type = 'number';
-                input.className = 'track-offset-input';
-                input.value = String(currentMs);
-                input.placeholder = STR.offsetEditPlaceholder;
-                input.setAttribute('aria-label', STR.offsetEditAriaLabel);
-                span.style.display = 'none';
-                span.parentNode.insertBefore(input, span);
-                input.focus();
-                input.select();
-                let settled = false;
-                function commitEdit() {
-                    if (settled) {
-                        return;
+                openOffsetEditor(document, span, currentMs, { placeholder: STR.offsetEditPlaceholder, ariaLabel: STR.offsetEditAriaLabel }, function (offsetMs) {
+                    if (offsetMs !== null) {
+                        trackRuntimeAt(idx).offsetSeconds = offsetMs / 1000;
                     }
-                    settled = true;
-                    const val = parseFloat(input.value);
-                    if (!isNaN(val)) {
-                        trackRuntimeAt(idx!).offsetSeconds = val / 1000;
-                    }
-                    if (input.parentNode) {
-                        input.parentNode.removeChild(input);
-                    }
-                    span.style.display = '';
                     updateOffsetDisplays();
                     scheduleRender();
                     scheduleSpectrumRefresh('immediate');
-                }
-                function cancelEdit() {
-                    if (settled) {
-                        return;
-                    }
-                    settled = true;
-                    if (input.parentNode) {
-                        input.parentNode.removeChild(input);
-                    }
-                    span.style.display = '';
-                }
-                input.addEventListener('keydown', function (ev) {
-                    if (ev.key === 'Enter') {
-                        ev.preventDefault();
-                        commitEdit();
-                    }
-                    else if (ev.key === 'Escape') {
-                        ev.preventDefault();
-                        cancelEdit();
-                    }
                 });
-                input.addEventListener('blur', function () { commitEdit(); });
             }, 200); // end setTimeout
         });
         document.getElementById('tracks-wrapper').addEventListener('mousemove', function (e) {
