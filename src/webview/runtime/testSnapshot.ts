@@ -1,6 +1,6 @@
 import type { SpectrogramData, SpectrogramDisplaySettings, SpectrogramSettings } from '../../shared/analysis/analysisTypes';
 import { formatDbLevel, formatHz } from '../draw/canvasDrawers';
-import type { RuntimeDocument, RuntimeElement } from './types';
+import type { RuntimeDocument, RuntimeElement, WaveformCoverage } from './types';
 
 export interface LatestSpectrogramSnapshot {
     windowSize: number | null;
@@ -68,5 +68,26 @@ export function latestSpectrogramSnapshot(
         dbMinApplied: disp.dbMin == null ? null : Number(disp.dbMin),
         dbMaxApplied: disp.dbMax == null ? null : Number(disp.dbMax),
         maxFrequencyHzApplied: disp.maxFrequencyHz == null ? null : Number(disp.maxFrequencyHz),
+    };
+}
+
+export function visibleFileRange(
+    zoomStart: number,
+    zoomEnd: number,
+    placement: { offsetNorm: number; trackDurRatio: number },
+): { startNorm: number; endNorm: number } {
+    return {
+        startNorm: Math.max(0, (zoomStart - placement.offsetNorm) / placement.trackDurRatio),
+        endNorm: Math.min(1, (zoomEnd - placement.offsetNorm) / placement.trackDurRatio),
+    };
+}
+
+export function waveformCoverageSnapshot(coverage: WaveformCoverage | null | undefined) {
+    return {
+        waveformCoversViewportLeft: !!coverage && coverage.coversLeft,
+        waveformCoversViewportRight: !!coverage && coverage.coversRight,
+        waveformMinDrawX: coverage ? coverage.minX : null,
+        waveformMaxDrawX: coverage ? coverage.maxX : null,
+        waveformCanvasWidth: coverage ? coverage.canvasWidth : null,
     };
 }

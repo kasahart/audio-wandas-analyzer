@@ -25,7 +25,7 @@ import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportT
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
 import { arrowCursorStep, globalShortcutAction, isTextEntryTag } from './shortcuts';
-import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts } from './testSnapshot';
+import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
 import {
@@ -1028,41 +1028,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return prefix + formatAmplitudeValue(value);
     }
     function publishTestSnapshot(actionId?: string) {
-        let visibleSpectrumTrackCount = 0;
+        const visibleSlices: SpectrumSlice[] = [];
         const spectrogramPerTrack: string[][] = [];
         const spectrumPerTrack: string[][] = [];
         const waveformPerTrack: string[][] = [];
-        let overlayMinDb = Infinity, overlayMaxDb = -Infinity, overlayMaxF = 0;
-        let overlayDbSource: SpectrumSlice | SpectrogramData | null = null;
         const trackInfo = trackStore.activeIds().map(function (trackId) {
             const record = trackStore.require(trackId);
             const result = record.result;
             const trackIndex = record.protocolIndex;
-            const dur = result.durationSeconds || 1;
-            const gs = trackStore.globalSpan();
-            const trackStart = (trackRuntimeAt(trackIndex).offsetSeconds - gs.startSec) / gs.spanSec;
-            const trackDurRatio = dur / gs.spanSec;
-            const visibleFileStartNorm = Math.max(0, (zoomStart - trackStart) / trackDurRatio);
-            const visibleFileEndNorm = Math.min(1, (zoomEnd - trackStart) / trackDurRatio);
-            const coverage = record.waveformCoverage;
+            const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
+            const visibleFile = visibleFileRange(zoomStart, zoomEnd, placement);
             const spectrumCanvas = document.getElementById('track-spectrum-' + trackIndex);
             const slice = trackRuntimeAt(trackIndex).hidden
                 ? null
                 : extractSpectrumAtCursor(result, trackIndex, trackRuntimeAt(trackIndex).offsetSeconds, spectrumCursorNorm);
             if (slice) {
-                visibleSpectrumTrackCount++;
-                if (slice.minDb < overlayMinDb) {
-                    overlayMinDb = slice.minDb;
-                }
-                if (slice.maxDb > overlayMaxDb) {
-                    overlayMaxDb = slice.maxDb;
-                }
-                if (slice.maxFrequencyHz > overlayMaxF) {
-                    overlayMaxF = slice.maxFrequencyHz;
-                }
-                if (!overlayDbSource) {
-                    overlayDbSource = slice;
-                }
+                visibleSlices.push(slice);
             }
             waveformPerTrack.push(waveformAxisLabelsForResult(result, trackIndex));
             const ch = displayedChannel(result, trackIndex);
@@ -1083,19 +1064,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 trackIndex: trackIndex,
                 filePath: result.filePath,
                 offsetSeconds: trackRuntimeAt(trackIndex).offsetSeconds,
-                visibleFileStartNorm: visibleFileStartNorm,
-                visibleFileEndNorm: visibleFileEndNorm,
-                waveformFullyVisible: visibleFileStartNorm <= 0 && visibleFileEndNorm >= 1,
-                waveformCoversViewportLeft: !!coverage && coverage.coversLeft,
-                waveformCoversViewportRight: !!coverage && coverage.coversRight,
-                waveformMinDrawX: coverage ? coverage.minX : null,
-                waveformMaxDrawX: coverage ? coverage.maxX : null,
-                waveformCanvasWidth: coverage ? coverage.canvasWidth : null,
+                visibleFileStartNorm: visibleFile.startNorm,
+                visibleFileEndNorm: visibleFile.endNorm,
+                waveformFullyVisible: visibleFile.startNorm <= 0 && visibleFile.endNorm >= 1,
+                ...waveformCoverageSnapshot(record.waveformCoverage),
                 resultError: result.error || null,
                 spectrumCanvasPresent: !!spectrumCanvas,
                 spectrumSlicePresent: !!slice,
             };
         });
+        const visibleSpectrumTrackCount = visibleSlices.length;
+        const overlayRange = spectrumSeriesRange(visibleSlices.map(function (slice) { return { slice: slice }; }));
         let latestSpectrogram;
         try {
             const firstChannel = state.results[0] ? displayedChannel(state.results[0], 0) : undefined;
@@ -1118,10 +1097,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 reanalyzeBusy: isReanalyzeBusy(),
                 latestSpectrogram: latestSpectrogram,
                 axisLabels: {
-                    spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayMinDb)
+                    spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayRange.minDb)
                         ? (function () {
-                            const vis = spectrumVisibleWindow(overlayMaxF, overlayMinDb, overlayMaxDb, spectrumViewState());
-                            return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, overlayDbSource);
+                            const vis = spectrumVisibleWindow(overlayRange.maxFrequencyHz, overlayRange.minDb, overlayRange.maxDb, spectrumViewState());
+                            return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, visibleSlices[0]);
                         })()
                         : [],
                     spectrogramPerTrack: spectrogramPerTrack,
