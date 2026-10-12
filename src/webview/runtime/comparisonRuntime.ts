@@ -2,7 +2,7 @@ import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { paintSpectrogramRaster, spectrogramDisplayBounds } from './spectrogramRaster';
 import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
-import { isOffsetEditorOpen, openOffsetEditor } from './offsetInlineEditor';
+import { attachOffsetEditing } from './offsetInlineEditor';
 import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setSelectionFileChecked, testActionTrackId } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
@@ -1832,21 +1832,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 openColorPicker(trackId, target.closest ? target.closest('[data-action="pick-color"]') : target);
             },
         });
-        let _offsetEditTimer: number | null = null;
-        document.getElementById('tracks-wrapper').addEventListener('dblclick', function (e) {
-            if (eventTarget(e).classList.contains('track-offset-val')) {
-                if (_offsetEditTimer !== null) {
-                    clearTimeout(_offsetEditTimer);
+        attachOffsetEditing(document.getElementById('tracks-wrapper'), document, { placeholder: STR.offsetEditPlaceholder, ariaLabel: STR.offsetEditAriaLabel }, {
+            trackIndexFromElement,
+            currentOffsetMs: (idx) => Math.round(trackRuntimeAt(idx).offsetSeconds * 1000),
+            onReset(idx) {
+                trackRuntimeAt(idx).offsetSeconds = 0;
+                updateOffsetDisplays();
+                scheduleRender();
+                scheduleSpectrumRefresh('immediate');
+            },
+            onEdited(idx, offsetMs) {
+                if (offsetMs !== null) {
+                    trackRuntimeAt(idx).offsetSeconds = offsetMs / 1000;
                 }
-                _offsetEditTimer = null;
-                const idx = trackIndexFromElement(eventTarget(e));
-                if (idx !== null) {
-                    trackRuntimeAt(idx).offsetSeconds = 0;
-                    updateOffsetDisplays();
-                    scheduleRender();
-                    scheduleSpectrumRefresh('immediate');
-                }
-            }
+                updateOffsetDisplays();
+                scheduleRender();
+                scheduleSpectrumRefresh('immediate');
+            },
         });
         // 波形キャンバス・軸キャンバスのダブルクリック → ズームリセット
         document.getElementById('tracks-wrapper').addEventListener('dblclick', function (e) {
@@ -1857,35 +1859,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             resetZoom();
-        });
-        document.getElementById('tracks-wrapper').addEventListener('click', function (e) {
-            if (!eventTarget(e).classList.contains('track-offset-val')) {
-                return;
-            }
-            const span = eventTarget(e);
-            const idx = trackIndexFromElement(span);
-            if (idx === null) {
-                return;
-            }
-            if (isOffsetEditorOpen(span)) {
-                return;
-            }
-            // Delay to allow dblclick (reset) to cancel before opening editor
-            if (_offsetEditTimer !== null) {
-                clearTimeout(_offsetEditTimer);
-            }
-            _offsetEditTimer = setTimeout(function () {
-                _offsetEditTimer = null;
-                const currentMs = Math.round(trackRuntimeAt(idx).offsetSeconds * 1000);
-                openOffsetEditor(document, span, currentMs, { placeholder: STR.offsetEditPlaceholder, ariaLabel: STR.offsetEditAriaLabel }, function (offsetMs) {
-                    if (offsetMs !== null) {
-                        trackRuntimeAt(idx).offsetSeconds = offsetMs / 1000;
-                    }
-                    updateOffsetDisplays();
-                    scheduleRender();
-                    scheduleSpectrumRefresh('immediate');
-                });
-            }, 200); // end setTimeout
         });
         document.getElementById('tracks-wrapper').addEventListener('mousemove', function (e) {
             handleCanvasMouseMove(e);
