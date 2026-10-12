@@ -296,7 +296,6 @@ export function steppedTrackSpectrumHoverNorm(slice: SpectrumSlice, hoverNorm: n
     return snap ? steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, frequencyMin, frequencyMax) : null;
 }
 
-/** Steps from the series nearest to the pointer's Y, or from the first series when no series has a value under the pointer. */
 export function steppedOverlaySpectrumHoverNorm(
     series: ReadonlyArray<{ slice: SpectrumSlice }>,
     hoverNorm: number,
