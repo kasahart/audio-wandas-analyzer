@@ -27,7 +27,7 @@ export interface SelectionTreeViewDeps {
 export interface SelectionTreeView {
     readonly filterQuery: string;
     renderTree(nodes: SelectionTreeNode[], isRoot: boolean, depth: number): string;
-    isVisible(el: RuntimeElement): boolean;
+    isVisible(el: HTMLElement): boolean;
     /** Wires folder toggles, checkboxes, the filter box and the sidebar resizer inside the selection layout. */
     attach(layout: RuntimeElement): void;
 }
@@ -82,14 +82,14 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
             + renderItems(nodes, depth)
             + '</ul>';
     }
-    function isVisible(el: RuntimeElement) {
+    function isVisible(el: HTMLElement) {
         // el から #selection-tree までの祖先を辿り、display:none が設定された要素があれば非表示と判定する
-        var node: RuntimeElement | null = el;
+        var node: HTMLElement | null = el;
         while (node && node.id !== 'selection-tree') {
             if (node.style && node.style.display === 'none') {
                 return false;
             }
-            node = node.parentElement as RuntimeElement | null;
+            node = node.parentElement;
         }
         return true;
     }
