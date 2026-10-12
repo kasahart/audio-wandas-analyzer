@@ -35,6 +35,7 @@ import { attachCanvasFocusHint, createCanvasTooltip } from './canvasTooltip';
 import { createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
+import { rulerTicks } from './timeRuler';
 import { SpectrumHover } from './spectrumHover';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { toolbarHtml } from './toolbarHtml';
@@ -1244,26 +1245,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const gs = trackStore.globalSpan();
         const visStart = gs.startSec + zoomStart * gs.spanSec;
         const visEnd = gs.startSec + zoomEnd * gs.spanSec;
-        const visDur = visEnd - visStart;
         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
         ctx.font = '9px monospace';
         ctx.textAlign = 'left';
-        const step = niceTimeStep(visDur);
-        let t = Math.ceil(visStart / step) * step;
-        while (t <= visEnd) {
-            const x = (t - visStart) / visDur * timeW;
-            ctx.fillText(formatClockTime(t), x + 2, H - 4);
-            t += step;
-        }
-    }
-    function niceTimeStep(dur: number) {
-        const steps = [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30];
-        for (let i = 0; i < steps.length; i++) {
-            if (dur / steps[i] <= 8) {
-                return steps[i];
-            }
-        }
-        return 60;
+        rulerTicks(visStart, visEnd, timeW).forEach(function (tick) {
+            ctx.fillText(tick.label, tick.x + 2, H - 4);
+        });
     }
     function renderStackedTracks() {
         trackStore.displayOrder.forEach(function (trackId) {
