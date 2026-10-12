@@ -47,6 +47,12 @@ test('keydownIntent steps the spectrum cursor before anything else, even with he
     assert.deepEqual(keydownIntent(key('ArrowRight', 'ArrowRight'), ctx), { kind: 'spectrum-step', delta: 1 });
 });
 
+test('keydownIntent lets non-arrow keys fall through to shortcuts while the spectrum cursor is active', () => {
+    const ctx = { ...idle, spectrumActive: true };
+    assert.deepEqual(keydownIntent(key('+', 'Equal'), ctx), { kind: 'shortcut', action: 'zoom-in' });
+    assert.deepEqual(keydownIntent(key(' ', 'Space'), ctx), { kind: 'toggle-playback', target: 'current' });
+});
+
 test('keydownIntent disables shortcuts, playback and cursor keys while help is open', () => {
     const ctx = { ...idle, helpOpen: true, trackCanvasFocused: true };
     assert.equal(keydownIntent(key('+', 'Equal'), ctx), null);
