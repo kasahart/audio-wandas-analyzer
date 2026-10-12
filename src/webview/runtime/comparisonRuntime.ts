@@ -30,7 +30,7 @@ import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, 
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
-import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
+import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped } from './calibrationDecorations';
 import {
     channelIndexAttribute,
     nearestSpectrumSnap,
@@ -427,10 +427,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function displayedChannel(result: ComparisonTrackState, trackIndex: number) {
         const channels = channelsForResult(result);
         return channels.length > 0 ? channels[0] : null;
-    }
-    function channelLevel(channel: ChannelSummary, levelDb: number | undefined): string {
-        if (!Number.isFinite(levelDb)) { return '—'; }
-        return Number(levelDb).toFixed(1) + ' ' + (channel.measurement?.levelUnit ?? 'dB');
     }
     function trackLocalCursorNorm(i: number, cursorNormValue: number) {
         const result = state.results[i];
@@ -1213,10 +1209,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             + '<span id="playback-display" title="' + escapeHtml(STR.playbackDisplayTitle) + '"></span>'
             + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escapeHtml(STR.loopBadge) + '</span>'
             + '<span id="loop-time-display" title="' + escapeHtml(STR.loopTimeDisplayTitle) + '" style="display:none;"></span>';
-    }
-    function channelMetricSummaryHtml(ch: ChannelSummary) {
-        const peakDb = ch ? channelLevel(ch, ch.peakLevelDb) : '—';
-        return '<span>' + escapeHtml(peakText(ch) ?? 'Peak ' + peakDb) + '</span>';
     }
     function buildChannelLane(result: ComparisonTrackState, trackIndex: number, channelIndex: number) {
         const trackId = trackIdAtIndex(trackIndex);

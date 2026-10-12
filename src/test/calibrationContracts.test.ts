@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
-import { calibrationBadgeHtml, calibrationRequest, calibrationSummary, hasIncompatibleLevelReferences, isClipped, peakText } from '../webview/runtime/calibrationDecorations';
+import { calibrationBadgeHtml, calibrationRequest, calibrationSummary, channelMetricSummaryHtml, hasIncompatibleLevelReferences, isClipped, peakText } from '../webview/runtime/calibrationDecorations';
 import type { ComparisonTrackState } from '../webview/runtime/types';
 import { BackendRequestError } from '../shared/protocol/backendProtocol';
 
@@ -102,6 +102,10 @@ test('calibration row helpers draw badges, peak text, requests and the overlay g
     assert.equal(calibrationBadgeHtml([channel({ measurement: measurement('<b>', 'x') })]), '<span class="calibration-badge" title="&lt;b&gt;; factor 2; x">CAL: &lt;b&gt;</span>');
     assert.equal(peakText(channel({})), null, 'uncalibrated channels keep the runtime dBFS text');
     assert.match(peakText(channel({ measurement: pa })) ?? '', /^Peak 5\.00 Pa/);
+    assert.equal(channelMetricSummaryHtml(channel({})), '<span>Peak 80.0 dB</span>');
+    assert.equal(channelMetricSummaryHtml(channel({ peakLevelDb: Number.NEGATIVE_INFINITY })), '<span>Peak —</span>');
+    assert.equal(channelMetricSummaryHtml(undefined), '<span>Peak —</span>');
+    assert.match(channelMetricSummaryHtml(channel({ measurement: pa })), /^<span>Peak 5\.00 Pa/);
     assert.deepEqual(calibrationRequest(3, track([channel({}), channel({ label: '' })])), {
         type: 'configure-calibration', trackIndex: 3, filePath: '/a.wav',
         channels: [{ channelIndex: 0, label: 'L' }, { channelIndex: 1, label: 'Channel 2' }],
