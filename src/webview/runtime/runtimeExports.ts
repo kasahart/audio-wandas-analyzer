@@ -58,3 +58,30 @@ export function wavLoopRegions(tracks: WavLoopTrack[], startSec: number, endSec:
     });
     return regions;
 }
+
+export interface SpecSummaryTrack {
+    fileName?: string;
+    sampleRateHz?: number;
+    durationSeconds?: number;
+    channelCount?: number;
+}
+
+export interface SpecSummaryStft {
+    nFft?: number;
+    hopSize?: number;
+    window?: string;
+}
+
+export function buildSpecSummaryText(tracks: readonly SpecSummaryTrack[], stft: SpecSummaryStft | undefined): string {
+    const lines = ['=== Audio Analyzer Spec ==='];
+    tracks.forEach((track, i) => {
+        const sampleRate = ((track.sampleRateHz || 0) / 1000).toFixed(1) + ' kHz';
+        const duration = (track.durationSeconds || 0).toFixed(2) + ' s';
+        const channels = (track.channelCount || 0) + ' ch';
+        lines.push('[Track ' + (i + 1) + '] ' + (track.fileName || '') + '  ' + sampleRate + '  ' + duration + '  ' + channels);
+    });
+    lines.push('--- STFT ---');
+    const s = stft || {};
+    lines.push('nFft: ' + (s.nFft || '') + '  hopSize: ' + (s.hopSize || '') + '  window: ' + (s.window || ''));
+    return lines.join('\n');
+}

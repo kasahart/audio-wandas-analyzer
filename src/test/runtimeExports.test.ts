@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSpectrumCsv, wavLoopRegions } from '../webview/runtime/runtimeExports';
+import { buildSpecSummaryText, buildSpectrumCsv, wavLoopRegions } from '../webview/runtime/runtimeExports';
 import type { SpectrumSlice } from '../webview/runtime/types';
 
 const slice = (values: number[], extra: Partial<SpectrumSlice> = {}): SpectrumSlice => ({
@@ -31,4 +31,22 @@ test('WAV loop regions clip to each file and drop files outside the loop', () =>
         { filePath: 'b.wav', startNorm: 0, endNorm: 0.5 },
     ]);
     assert.deepEqual(wavLoopRegions(tracks, 30, 40), []);
+});
+
+test('spec summary lists each track and the STFT settings', () => {
+    const text = buildSpecSummaryText([
+        { fileName: 'a.wav', sampleRateHz: 48000, durationSeconds: 1.5, channelCount: 2 },
+        {},
+    ], { nFft: 1024, hopSize: 256, window: 'hann' });
+    assert.equal(text, [
+        '=== Audio Analyzer Spec ===',
+        '[Track 1] a.wav  48.0 kHz  1.50 s  2 ch',
+        '[Track 2]   0.0 kHz  0.00 s  0 ch',
+        '--- STFT ---',
+        'nFft: 1024  hopSize: 256  window: hann',
+    ].join('\n'));
+});
+
+test('spec summary tolerates missing STFT settings', () => {
+    assert.match(buildSpecSummaryText([], undefined), /nFft: {3}hopSize: {3}window: $/);
 });

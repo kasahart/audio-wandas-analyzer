@@ -7,7 +7,7 @@ import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPo
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { createSelectionTreeView } from './selectionTreeView';
-import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
+import { buildSpecSummaryText, buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
 import { eventTarget } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
@@ -28,6 +28,8 @@ import {
     hoverNormForFrequency as mapHoverNormForFrequency,
     nearestSpectrumSnap,
     spectrumBinAtHover,
+    spectrumReadoutText,
+    trackSpectrumReadoutText,
     zoomSpectrumRange,
 } from './spectrumRuntime';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
@@ -399,9 +401,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const channels = channelsForResult(result);
         const name = result && result.fileName ? result.fileName : '';
         return channels.length > 1 ? name + ' ' + channelLabel(result, channelIndex) : name;
-    }
-    function spectrumCursorReadoutText(label: string, freqHz: number, dbVal: number, unit: string) {
-        return label + ' ' + formatReadoutHz(freqHz) + (dbVal !== undefined ? '  ' + dbVal.toFixed(1) + ' ' + unit : '');
     }
     function displayedChannelIndex(result: ComparisonTrackState, trackIndex: number) {
         return channelsForResult(result).length > 0 ? 0 : -1;
@@ -3297,19 +3296,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             messaging.post({ type: 'show-info', message: STR.announceSpecCopyFailed || 'Copy failed: clipboard not available' });
             return;
         }
-        const lines = ['=== Audio Analyzer Spec ==='];
-        const results = state.results || [];
-        results.forEach(function (r, i: number) {
-            const srKhz = ((r.sampleRateHz || 0) / 1000).toFixed(1) + ' kHz';
-            const dur = ((r.durationSeconds || 0).toFixed(2)) + ' s';
-            const ch = (r.channelCount || 0) + ' ch';
-            lines.push('[Track ' + (i + 1) + '] ' + (r.fileName || '') + '  ' + srKhz + '  ' + dur + '  ' + ch);
-        });
-        lines.push('--- STFT ---');
-        const _settings = __spectrogramSettings;
-        const stft = _settings.stft || {};
-        lines.push('nFft: ' + (stft.nFft || '') + '  hopSize: ' + (stft.hopSize || '') + '  window: ' + (stft.window || ''));
-        navigator.clipboard.writeText(lines.join('\n'))
+        navigator.clipboard.writeText(buildSpecSummaryText(state.results || [], __spectrogramSettings.stft))
             .then(function () { announce(STR.announceSpecCopied || 'Spec copied to clipboard'); })
             .catch(function () {
             messaging.post({ type: 'show-info', message: STR.announceSpecCopyFailed || 'Copy failed: clipboard not available' });
@@ -3663,15 +3650,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function spectrumSeriesLabel(result: ComparisonTrackState, channelIndex: number) {
         return result.fileName + ' / ' + channelLabel(result, channelIndex);
     }
-    function spectrumReadoutText(series: SpectrumSeries, snap: SpectrumSnap, dbVal: number): string {
-        return series.label
-            + ' / '
-            + formatReadoutHz(snap.freqHz)
-            + ' / '
-            + dbVal.toFixed(1)
-            + ' '
-            + dbLevelUnitFor(series.slice);
-    }
     function visibleSpectrumSlices(): SpectrumSeries[] {
         const slices: SpectrumSeries[] = [];
         trackStore.displayOrder.forEach(function (trackId) {
@@ -3846,7 +3824,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl && snap.dbVal !== undefined) {
                         readoutEl.style.color = color;
-                        readoutEl.textContent = spectrumCursorReadoutText(spectrumReadoutTrackLabel(result, channelIndex), snap.freqHz, snap.dbVal, dbLevelUnitFor(slice));
+                        readoutEl.textContent = trackSpectrumReadoutText(spectrumReadoutTrackLabel(result, channelIndex), slice, snap.freqHz, snap.dbVal);
                     }
                 }
             });
@@ -4032,7 +4010,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const readoutEl = document.getElementById('spectrum-freq-readout');
             if (readoutEl) {
                 if (nearest) {
-                    readoutEl.textContent = spectrumReadoutText(nearest.s, nearest.snap, nearest.dbVal);
+                    readoutEl.textContent = spectrumReadoutText(nearest.s.label, nearest.s.slice, nearest.snap.freqHz, nearest.dbVal);
                     readoutEl.style.color = nearest.s.color;
                 }
                 else {
