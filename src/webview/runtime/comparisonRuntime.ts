@@ -3,6 +3,7 @@ import { channelLabel, channelsForResult, formatClockTime } from '../../shared/u
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { paintSpectrogramRaster } from './spectrogramRaster';
 import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
+import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, loopRegionFromPayload, setSelectionFileChecked } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawSpectrumSelectionBox, strokeSpectrumSeries, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPointCount } from '../waveform/rangeRequestPolicy';
@@ -839,16 +840,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!specSettingsPopover.isOpen()) {
                 specSettingsPopover.open();
             }
-            document.getElementById('spec-auto').checked = !!p.auto;
-            if (p.nFft != null) {
-                document.getElementById('spec-nfft').value = String(p.nFft);
-            }
-            if (p.hopSize != null) {
-                document.getElementById('spec-hop').value = String(p.hopSize);
-            }
-            if (p.window != null) {
-                document.getElementById('spec-window').value = String(p.window);
-            }
+            fillSpectrogramSettingsForm(document, p);
             specSettingsPopover.applyAutoState();
             document.getElementById('spec-apply').click();
         }
@@ -860,13 +852,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleSpectrumRefresh('immediate');
         }
         if (entry.action === 'set-file-selected' && entry.payload) {
-            const checkbox = Array.from(document.querySelectorAll('.selection-file-checkbox'))
-                .find((input) => input.getAttribute('data-file-path') === entry.payload?.filePath);
-            if (!checkbox) { throw new Error('Selection checkbox not found'); }
-            checkbox.checked = !!entry.payload.selected;
-            const event = document.createEvent('Event');
-            event.initEvent('change', true, false);
-            checkbox.dispatchEvent(event);
+            setSelectionFileChecked(document, entry.payload.filePath, !!entry.payload.selected);
         }
         if (entry.action === 'set-track-offset' && idx >= 0 && entry.payload) {
             const offsetSeconds = Number(entry.payload.offsetSeconds ?? 0);
@@ -881,10 +867,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleSpectrumRefresh('immediate');
         }
         if (entry.action === 'set-loop-region' && entry.payload) {
-            const start = Math.max(0, Math.min(1, Number(entry.payload.start)));
-            const end = Math.max(0, Math.min(1, Number(entry.payload.end)));
-            if (end > start) {
-                loopRegion = { start: start, end: end };
+            const region = loopRegionFromPayload(entry.payload);
+            if (region) {
+                loopRegion = region;
                 updateLoopTimeDisplay();
                 updateZoomToSelectionBtn();
                 scheduleRender();
@@ -895,18 +880,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!specSettingsPopover.isOpen()) {
                 specSettingsPopover.open();
             }
-            function __setN(id: string, v: unknown): void {
-                const el = document.getElementById(id);
-                el.value = (v == null) ? '' : String(v);
-            }
-            __setN('spec-dbmin', p.dbMin);
-            __setN('spec-dbmax', p.dbMax);
-            __setN('spec-maxfreq', p.maxFrequencyHz);
-            __setSpectrogramDisplay({
-                dbMin: typeof p.dbMin === 'number' ? p.dbMin : null,
-                dbMax: typeof p.dbMax === 'number' ? p.dbMax : null,
-                maxFrequencyHz: typeof p.maxFrequencyHz === 'number' ? p.maxFrequencyHz : null,
-            });
+            __setSpectrogramDisplay(fillSpectrogramDisplayForm(document, p));
         }
     }
     function scheduleRangeRequests() {
