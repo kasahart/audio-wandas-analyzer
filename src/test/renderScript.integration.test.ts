@@ -1526,6 +1526,27 @@ test('renderScript: spectrum at exact track end renders silence instead of the l
     env.dom.window.close();
 });
 
+test('renderScript: test actions named after inherited object keys are ignored', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        actionId: 'inherited-key-actions',
+        actions: [
+            { action: '__proto__', trackIndex: 0, payload: {} },
+            { action: 'constructor', trackIndex: 0, payload: {} },
+            { action: 'set-cursor', payload: { cursorNorm: 0.25 } },
+        ],
+    } }));
+    await nextAnimationFrame(env.dom);
+
+    const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
+    const snap = snapshots[snapshots.length - 1];
+    assert.equal(snap.renderedUi.cursorNorm, 0.25);
+    env.dom.window.close();
+});
+
 test('再生ボタンで play 状態に切り替わる', async () => {
     const { dom } = setupEnv();
     const playButton = dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]');

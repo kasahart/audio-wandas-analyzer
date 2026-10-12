@@ -2,7 +2,7 @@ import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { paintSpectrogramRaster, spectrogramDisplayBounds } from './spectrogramRaster';
 import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
-import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, loopRegionFromPayload, setSelectionFileChecked } from './testActionForms';
+import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setSelectionFileChecked, testActionTrackId } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, isOverviewSufficient, rangeCacheCoversView, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
@@ -792,83 +792,84 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!entry || typeof entry !== 'object' || typeof entry.action !== 'string') {
             return;
         }
-        const requestedTrackId = typeof entry.trackId === 'string' ? entry.trackId as TrackId : null;
-        const indexedTrackId = typeof entry.trackIndex === 'number' ? trackIdAtIndex(entry.trackIndex) : null;
-        const actionTrackId = requestedTrackId && trackStore.protocolIndexForId(requestedTrackId) !== null
-            ? requestedTrackId
-            : indexedTrackId;
+        const actionTrackId = testActionTrackId(entry, id => trackStore.protocolIndexForId(id) !== null, trackIdAtIndex);
         const idx = actionTrackId ? trackIndexForId(actionTrackId) : -1;
-        if (entry.action === 'offset-up' && idx >= 0) {
-            adjustOffset(idx, 0.01);
-        }
-        if (entry.action === 'offset-down' && idx >= 0) {
-            adjustOffset(idx, -0.01);
-        }
-        if (entry.action === 'remove-track' && idx >= 0) {
-            if (actionTrackId) {
-                removeTrack(actionTrackId);
+        const payload = entry.payload;
+        const trackActions: Record<string, (trackId: TrackId, trackIndex: number) => void> = {
+            'offset-up': (_, trackIndex) => adjustOffset(trackIndex, 0.01),
+            'offset-down': (_, trackIndex) => adjustOffset(trackIndex, -0.01),
+            'remove-track': trackId => removeTrack(trackId),
+            'set-track-offset': (_, trackIndex) => {
+                const offsetSeconds = Number(payload?.offsetSeconds ?? 0);
+                if (!payload || !Number.isFinite(offsetSeconds)) {
+                    return;
+                }
+                trackRuntimeAt(trackIndex).offsetSeconds = offsetSeconds;
+                invalidateDesiredSpectrumSliceRequests();
+                updateOffsetDisplays();
+                updateLoopTimeDisplay();
+                scheduleRender();
+                scheduleSpectrumRefresh('immediate');
+            },
+        };
+        const payloadActions: Record<string, (p: Record<string, unknown>) => void> = {
+            'resize-height-drag': p => {
+                const drag = heightDragFromPayload(p);
+                heightResize.begin(drag.kind, drag.startY);
+                heightResize.update(drag.endY);
+                heightResize.end();
+            },
+            'apply-spectrogram-settings': p => {
+                if (!specSettingsPopover.isOpen()) {
+                    specSettingsPopover.open();
+                }
+                fillSpectrogramSettingsForm(document, p);
+                specSettingsPopover.applyAutoState();
+                document.getElementById('spec-apply').click();
+            },
+            'set-cursor': p => {
+                invalidateDesiredSpectrumSliceRequests();
+                cursorNorm = Math.max(0, Math.min(1, Number(p.cursorNorm)));
+                updateCursorDisplay(cursorNorm);
+                scheduleRender();
+                scheduleSpectrumRefresh('immediate');
+            },
+            'set-file-selected': p => setSelectionFileChecked(document, p.filePath, !!p.selected),
+            'set-loop-region': p => {
+                const region = loopRegionFromPayload(p);
+                if (region) {
+                    loopRegion = region;
+                    updateLoopTimeDisplay();
+                    updateZoomToSelectionBtn();
+                    scheduleRender();
+                }
+            },
+            'set-spectrogram-display': p => {
+                if (!specSettingsPopover.isOpen()) {
+                    specSettingsPopover.open();
+                }
+                __setSpectrogramDisplay(fillSpectrogramDisplayForm(document, p));
+            },
+        };
+        const trackAction = Object.hasOwn(trackActions, entry.action) ? trackActions[entry.action] : undefined;
+        if (trackAction) {
+            if (actionTrackId && idx >= 0) {
+                trackAction(actionTrackId, idx);
             }
+            return;
         }
-        if (entry.action === 'resize-height-drag' && entry.payload) {
-            const kind = entry.payload.kind === 'spectrum' ? 'spectrum' : 'track';
-            const startY = Number(entry.payload.startY || 0);
-            const endY = Number(entry.payload.endY || startY);
-            heightResize.begin(kind, startY);
-            heightResize.update(endY);
-            heightResize.end();
+        const payloadAction = Object.hasOwn(payloadActions, entry.action) ? payloadActions[entry.action] : undefined;
+        if (payloadAction) {
+            if (payload) {
+                payloadAction(payload);
+            }
+            return;
         }
         if (entry.action === 'open-spectrogram-settings') {
             const gear = document.querySelector('[data-action="spectrogram-settings"]');
             if (gear) {
                 gear.click();
             }
-        }
-        if (entry.action === 'apply-spectrogram-settings' && entry.payload) {
-            const p = entry.payload;
-            if (!specSettingsPopover.isOpen()) {
-                specSettingsPopover.open();
-            }
-            fillSpectrogramSettingsForm(document, p);
-            specSettingsPopover.applyAutoState();
-            document.getElementById('spec-apply').click();
-        }
-        if (entry.action === 'set-cursor' && entry.payload) {
-            invalidateDesiredSpectrumSliceRequests();
-            cursorNorm = Math.max(0, Math.min(1, Number(entry.payload.cursorNorm)));
-            updateCursorDisplay(cursorNorm);
-            scheduleRender();
-            scheduleSpectrumRefresh('immediate');
-        }
-        if (entry.action === 'set-file-selected' && entry.payload) {
-            setSelectionFileChecked(document, entry.payload.filePath, !!entry.payload.selected);
-        }
-        if (entry.action === 'set-track-offset' && idx >= 0 && entry.payload) {
-            const offsetSeconds = Number(entry.payload.offsetSeconds ?? 0);
-            if (!Number.isFinite(offsetSeconds)) {
-                return;
-            }
-            trackRuntimeAt(idx).offsetSeconds = offsetSeconds;
-            invalidateDesiredSpectrumSliceRequests();
-            updateOffsetDisplays();
-            updateLoopTimeDisplay();
-            scheduleRender();
-            scheduleSpectrumRefresh('immediate');
-        }
-        if (entry.action === 'set-loop-region' && entry.payload) {
-            const region = loopRegionFromPayload(entry.payload);
-            if (region) {
-                loopRegion = region;
-                updateLoopTimeDisplay();
-                updateZoomToSelectionBtn();
-                scheduleRender();
-            }
-        }
-        if (entry.action === 'set-spectrogram-display' && entry.payload) {
-            const p = entry.payload;
-            if (!specSettingsPopover.isOpen()) {
-                specSettingsPopover.open();
-            }
-            __setSpectrogramDisplay(fillSpectrogramDisplayForm(document, p));
         }
     }
     function scheduleRangeRequests() {
