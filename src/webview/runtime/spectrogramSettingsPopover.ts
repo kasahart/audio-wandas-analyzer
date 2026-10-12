@@ -2,7 +2,6 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { SpectrogramDisplaySettings, SpectrogramSettings, StftWindow } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { eventTarget } from './domAdapter';
-import type { RuntimeDocument, RuntimeElement } from './types';
 
 export type SpectrogramSettingsPopoverStrings = Pick<UiStrings,
     'specSettingsAuto' | 'specSettingsStftLegend' | 'specSettingsNFft' | 'specSettingsHopSize' | 'specSettingsWindow'
