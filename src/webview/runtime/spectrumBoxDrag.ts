@@ -1,3 +1,4 @@
+import { overlayPlotPoint } from './spectrumRuntime';
 import type { DragPoint } from './types';
 
 export interface SpectrumBoxSpan {
@@ -31,4 +32,56 @@ export class SpectrumBoxDrag {
         this.span = null;
         return span;
     }
+}
+
+export interface BoxDragCanvas {
+    width: number;
+    height: number;
+    getBoundingClientRect(): { left: number; top: number };
+    addEventListener(type: 'mousedown', listener: (event: MouseEvent) => void): void;
+}
+
+export interface BoxDragListeners {
+    onUpdate(): void;
+    onFinish(span: SpectrumBoxSpan): void;
+}
+
+export function attachSpectrumBoxDrag(
+    canvas: BoxDragCanvas,
+    doc: Pick<Document, 'addEventListener'>,
+    drag: SpectrumBoxDrag,
+    listeners: BoxDragListeners,
+): void {
+    function plotPoint(event: MouseEvent): DragPoint | null {
+        const rect = canvas.getBoundingClientRect();
+        return overlayPlotPoint(event.clientX - rect.left, event.clientY - rect.top, canvas.width, canvas.height);
+    }
+    canvas.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) {
+            return;
+        }
+        const point = plotPoint(e);
+        if (!point) {
+            return;
+        }
+        drag.begin(point);
+        e.preventDefault();
+    });
+    doc.addEventListener('mousemove', function (e) {
+        if (!drag.active) {
+            return;
+        }
+        const point = plotPoint(e);
+        if (!point) {
+            return;
+        }
+        drag.update(point);
+        listeners.onUpdate();
+    });
+    doc.addEventListener('mouseup', function () {
+        const span = drag.finish();
+        if (span !== null) {
+            listeners.onFinish(span);
+        }
+    });
 }

@@ -30,7 +30,7 @@ import { domSnapshotBase, latestSpectrogramSnapshot, overlaySpectrumAxisLabels, 
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
-import { SpectrumBoxDrag } from './spectrumBoxDrag';
+import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
 import { createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { SpectrumHover } from './spectrumHover';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
@@ -44,7 +44,6 @@ import {
     channelIndexAttribute,
     nearestSpectrumSnap,
     OVERLAY_SPECTRUM_PAD,
-    overlayPlotPoint,
     overlaySpectrumRegionAt,
     spectrumBinAtHover,
     spectrumBoxZoom,
@@ -2079,52 +2078,27 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 overlayCanvas.addEventListener('mouseleave', spectrumCursor.leave);
                 overlayCanvas.addEventListener('focus', function () { spectrumCursor.focus(-1, null); });
                 overlayCanvas.addEventListener('blur', spectrumCursor.blur);
-                overlayCanvas.addEventListener('mousedown', function (e) {
-                    if (e.button !== 0) {
-                        return;
-                    }
-                    const rect = overlayCanvas.getBoundingClientRect();
-                    const point = overlayPlotPoint(e.clientX - rect.left, e.clientY - rect.top, overlayCanvas.width, overlayCanvas.height);
-                    if (!point) {
-                        return;
-                    }
-                    specBoxDrag.begin(point);
-                    e.preventDefault();
-                });
-                document.addEventListener('mousemove', function (e) {
-                    if (!specBoxDrag.active) {
-                        return;
-                    }
-                    const rect = overlayCanvas.getBoundingClientRect();
-                    const point = overlayPlotPoint(e.clientX - rect.left, e.clientY - rect.top, overlayCanvas.width, overlayCanvas.height);
-                    if (!point) {
-                        return;
-                    }
-                    specBoxDrag.update(point);
-                    scheduleSpectrumRefresh('hover');
-                });
-                document.addEventListener('mouseup', function () {
-                    const drag = specBoxDrag.finish();
-                    if (drag === null) {
-                        return;
-                    }
-                    const zoom = spectrumBoxZoom(
-                        drag.anchor,
-                        drag.current,
-                        overlayCanvas.width,
-                        overlayCanvas.height,
-                        { freqStart: specFreqStart, freqEnd: specFreqEnd },
-                        _lastVisDbMin !== null && _lastVisDbMax !== null ? { min: _lastVisDbMin, max: _lastVisDbMax } : null,
-                    );
-                    if (zoom) {
-                        specFreqStart = zoom.freqStart;
-                        specFreqEnd = zoom.freqEnd;
-                        if (zoom.dbMin !== undefined && zoom.dbMax !== undefined) {
-                            specDbMin = zoom.dbMin;
-                            specDbMax = zoom.dbMax;
+                attachSpectrumBoxDrag(overlayCanvas, document, specBoxDrag, {
+                    onUpdate: () => scheduleSpectrumRefresh('hover'),
+                    onFinish(drag) {
+                        const zoom = spectrumBoxZoom(
+                            drag.anchor,
+                            drag.current,
+                            overlayCanvas.width,
+                            overlayCanvas.height,
+                            { freqStart: specFreqStart, freqEnd: specFreqEnd },
+                            _lastVisDbMin !== null && _lastVisDbMax !== null ? { min: _lastVisDbMin, max: _lastVisDbMax } : null,
+                        );
+                        if (zoom) {
+                            specFreqStart = zoom.freqStart;
+                            specFreqEnd = zoom.freqEnd;
+                            if (zoom.dbMin !== undefined && zoom.dbMax !== undefined) {
+                                specDbMin = zoom.dbMin;
+                                specDbMax = zoom.dbMax;
+                            }
                         }
-                    }
-                    scheduleSpectrumRefresh('immediate');
+                        scheduleSpectrumRefresh('immediate');
+                    },
                 });
                 overlayCanvas.addEventListener('dblclick', function (e) {
                     if (_lastSpectrumMaxF <= 0) {
