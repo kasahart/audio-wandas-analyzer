@@ -25,7 +25,7 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
-import { arrowCursorStep, globalShortcutAction, isTextEntryTag } from './shortcuts';
+import { arrowCursorStep, isTextEntryTag, keydownIntent } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
@@ -2285,40 +2285,34 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
         }
         document.addEventListener('keydown', function (e) {
-            if (e.ctrlKey || e.metaKey || e.altKey) {
-                return;
-            }
             const active = document.activeElement;
-            const spectrumCanvasFocused = active && (active.id === 'spectrum-overlay-canvas'
-                || (active.classList && active.classList.contains('track-spectrum-canvas')));
-            // ── スペクトルカーソル操作（マウス hover またはスペクトル canvas フォーカス時）──
-            if ((spectrumHasMouse || spectrumCanvasFocused) && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
-                e.preventDefault();
-                moveSpectrumHoverByBin(e.code === 'ArrowLeft' ? -1 : 1);
-                scheduleSpectrumRefresh('hover');
-                return;
-            }
-            // ── 時刻カーソル操作（波形キャンバスフォーカス時）──
-            // ── Help overlay が開いている間はショートカットを無効化 ──
             const helpEl = document.getElementById('help-overlay');
-            if (helpEl && !helpEl.hidden) {
+            const intent = keydownIntent(e, {
+                spectrumActive: spectrumHasMouse || !!(active && (active.id === 'spectrum-overlay-canvas'
+                    || (active.classList && active.classList.contains('track-spectrum-canvas')))),
+                helpOpen: !!(helpEl && !helpEl.hidden),
+                textEntryFocused: isTextEntryTag(active && active.tagName),
+                trackCanvasFocused: !!(active && active.classList.contains('track-canvas')),
+            });
+            if (!intent) {
                 return;
             }
-            // ── グローバルショートカット (入力要素以外で有効) ──
-            const isInputFocused = isTextEntryTag(active && active.tagName);
-            const shortcut = isInputFocused ? null : globalShortcutAction(e.key);
-            if (shortcut) {
-                e.preventDefault();
-                if (shortcut === 'zoom-in') {
+            e.preventDefault();
+            if (intent.kind === 'spectrum-step') {
+                moveSpectrumHoverByBin(intent.delta);
+                scheduleSpectrumRefresh('hover');
+            }
+            else if (intent.kind === 'shortcut') {
+                if (intent.action === 'zoom-in') {
                     zoomIn();
                 }
-                else if (shortcut === 'zoom-out') {
+                else if (intent.action === 'zoom-out') {
                     zoomOut();
                 }
-                else if (shortcut === 'zoom-reset') {
+                else if (intent.action === 'zoom-reset') {
                     resetZoom();
                 }
-                else if (shortcut === 'toggle-follow-cursor') {
+                else if (intent.action === 'toggle-follow-cursor') {
                     followCursor = !followCursor;
                     const fcBtn = document.querySelector('[data-action="toggle-follow-cursor"]');
                     if (fcBtn) {
@@ -2329,39 +2323,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 else {
                     zoomToSelection();
                 }
-                return;
             }
-            // ── Space: グローバル再生/停止トグル (入力要素以外で有効) ──
-            if (e.code === 'Space') {
-                if (!isInputFocused) {
-                    e.preventDefault();
-                    if (active && active.classList.contains('track-canvas')) {
-                        const trackId = trackIdFromElement(active);
-                        if (trackId) {
-                            togglePlayback(trackId);
-                        }
-                    }
-                    else {
-                        const trackId = playbackTrackId ?? trackStore.activeIds()[0];
-                        if (trackId) {
-                            togglePlayback(trackId);
-                        }
-                    }
-                    return;
+            else if (intent.kind === 'toggle-playback') {
+                const trackId = intent.target === 'focused-track'
+                    ? trackIdFromElement(active)
+                    : playbackTrackId ?? trackStore.activeIds()[0];
+                if (trackId) {
+                    togglePlayback(trackId);
                 }
             }
-            // ── 以下は track-canvas フォーカス時のみ ──
-            if (!active || !active.classList.contains('track-canvas')) {
-                return;
-            }
-            if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
-                e.preventDefault();
-                let delta = arrowCursorStep(e.shiftKey, trackStore.globalSpan().spanSec, zoomStart, zoomEnd, active.width || 800);
-                if (e.code === 'ArrowLeft') {
-                    delta = -delta;
-                }
+            else {
+                const step = arrowCursorStep(e.shiftKey, trackStore.globalSpan().spanSec, zoomStart, zoomEnd, active.width || 800);
                 invalidateDesiredSpectrumSliceRequests();
-                cursorNorm = Math.max(0, Math.min(1, cursorNorm + delta));
+                cursorNorm = Math.max(0, Math.min(1, cursorNorm + intent.direction * step));
                 updateCursorDisplay(cursorNorm);
                 scheduleRender();
             }
