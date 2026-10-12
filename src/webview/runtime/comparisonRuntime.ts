@@ -2,7 +2,7 @@ import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { paintSpectrogramRaster } from './spectrogramRaster';
-import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, type DrawTheme } from '../draw/canvasDrawers';
+import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, traceSpectrumPath, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
@@ -30,6 +30,7 @@ import {
     nearestSpectrumSnap,
     spectrumBinAtHover,
     spectrumReadoutText,
+    spectrumSeriesRange,
     trackSpectrumReadoutText,
     spectrumSlicesFromResult,
     zoomSpectrumRange,
@@ -3798,18 +3799,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         ctx.clearRect(0, 0, W, H);
-        let minDb = Infinity, maxDb = -Infinity, maxF = 0;
-        slices.forEach(function (s: SpectrumSeries) {
-            if (s.slice.minDb < minDb) {
-                minDb = s.slice.minDb;
-            }
-            if (s.slice.maxDb > maxDb) {
-                maxDb = s.slice.maxDb;
-            }
-            if (s.slice.maxFrequencyHz > maxF) {
-                maxF = s.slice.maxFrequencyHz;
-            }
-        });
+        const { minDb, maxDb, maxFrequencyHz: maxF } = spectrumSeriesRange(slices);
         const padL = 36, padR = 8, padT = 8, padB = 18;
         const visFreqMinO = specFreqStart * maxF;
         const visFreqMaxO = specFreqEnd * maxF;
@@ -3836,6 +3826,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (visFreqRangeO <= 0) {
             return;
         }
+        const frame = { padLeft: padL, plotWidth: plotW, padTop: padT, plotHeight: plotH, frequencyMin: visFreqMinO, frequencyMax: visFreqMaxO, dbMin: visDbMinO, dbMax: visDbMaxO };
         ctx.save();
         ctx.beginPath();
         ctx.rect(padL, padT, plotW, plotH);
@@ -3847,30 +3838,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             ctx.strokeStyle = s.color;
             ctx.lineWidth = 1.4;
             ctx.beginPath();
-            const fBins = s.slice.frequencyBins;
-            const originalMaxFreq = s.slice.originalMaxFrequencyHz || s.slice.maxFrequencyHz;
-            for (let i = 0; i < fBins; i++) {
-                const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
-                if (fHz > maxF) {
-                    break;
-                }
-                const x = padL + ((fHz - visFreqMinO) / visFreqRangeO) * plotW;
-                const v = s.slice.values[i];
-                const norm = (v - visDbMinO) / range;
-                const y = padT + (1 - norm) * plotH;
-                if (i === 0) {
-                    ctx.moveTo(x, y);
-                }
-                else {
-                    ctx.lineTo(x, y);
-                }
-            }
+            traceSpectrumPath(ctx, s.slice, frame, maxF);
             ctx.stroke();
         });
         ctx.restore();
         if (spectrumHoverNorm !== null && spectrumHoverTrackId === 'overlay') {
             const mouseY = spectrumHoverYFrac !== null ? spectrumHoverYFrac * H : null;
-            const nearest = nearestSpectrumSnap(slices, spectrumHoverNorm, mouseY, { padLeft: padL, plotWidth: plotW, padTop: padT, plotHeight: plotH, frequencyMin: visFreqMinO, frequencyMax: visFreqMaxO, dbMin: visDbMinO, dbMax: visDbMaxO });
+            const nearest = nearestSpectrumSnap(slices, spectrumHoverNorm, mouseY, frame);
             if (nearest) {
                 ctx.save();
                 ctx.beginPath();
@@ -3879,24 +3853,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 ctx.strokeStyle = nearest.s.color;
                 ctx.lineWidth = 2.5;
                 ctx.beginPath();
-                const fBinsH = nearest.s.slice.frequencyBins;
-                const origMaxFH = nearest.s.slice.originalMaxFrequencyHz || nearest.s.slice.maxFrequencyHz;
-                for (let i = 0; i < fBinsH; i++) {
-                    const f = (i / Math.max(fBinsH - 1, 1)) * origMaxFH;
-                    if (f > maxF) {
-                        break;
-                    }
-                    const x = padL + ((f - visFreqMinO) / visFreqRangeO) * plotW;
-                    const v = nearest.s.slice.values[i];
-                    const n = (v - visDbMinO) / range;
-                    const y = padT + (1 - n) * plotH;
-                    if (i === 0) {
-                        ctx.moveTo(x, y);
-                    }
-                    else {
-                        ctx.lineTo(x, y);
-                    }
-                }
+                traceSpectrumPath(ctx, nearest.s.slice, frame, maxF);
                 ctx.stroke();
                 ctx.restore();
             }
