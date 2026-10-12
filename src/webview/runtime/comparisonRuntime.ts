@@ -27,6 +27,7 @@ import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
 import { arrowCursorStep, isTextEntryTag, keydownIntent } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
+import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
 import {
@@ -67,7 +68,7 @@ import {
     zoomNormalizedRange,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
-import type { CanvasSyncOptions, ComparisonBootstrap, ComparisonTrackState, DragPoint, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
+import type { ComparisonBootstrap, ComparisonTrackState, DragPoint, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
@@ -1331,37 +1332,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (contentType === 'waveform') {
             scheduleRangeRequests();
         }
-    }
-    function syncCanvasSize(canvas: RuntimeElement, width: number, height: number, options: CanvasSyncOptions = {}): void {
-        const w = Math.max(1, Math.round(width));
-        const h = Math.max(1, Math.round(height));
-        const syncStyle = !options || options.syncStyle !== false;
-        if (syncStyle && canvas.style.width !== w + 'px') {
-            canvas.style.width = w + 'px';
-        }
-        if (syncStyle && canvas.style.height !== h + 'px') {
-            canvas.style.height = h + 'px';
-        }
-        if (canvas.width !== w) {
-            canvas.width = w;
-        }
-        if (canvas.height !== h) {
-            canvas.height = h;
-        }
-    }
-    function contentBoxWidth(el: RuntimeElement, fallback: number) {
-        if (!el) {
-            return fallback;
-        }
-        const style = typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
-            ? window.getComputedStyle(el)
-            : null;
-        if (!el.clientWidth) {
-            return fallback;
-        }
-        const padL = style ? parseFloat(style.paddingLeft || '0') || 0 : 0;
-        const padR = style ? parseFloat(style.paddingRight || '0') || 0 : 0;
-        return Math.max(1, el.clientWidth - padL - padR);
     }
     function resizeAllCanvases() {
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
@@ -3459,7 +3429,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             .map(function (record) { return record.result; });
         applyOverlayCompatibility(document as unknown as Document, hasIncompatibleLevelReferences(visibleResults), STR.calibrationOverlayIncompatible);
         const wrap = document.getElementById('spectrum-overlay-wrap');
-        const w = contentBoxWidth(wrap, 800);
+        const wrapStyle = wrap && typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+            ? window.getComputedStyle(wrap)
+            : null;
+        const w = contentBoxWidth(wrap, 800, wrapStyle);
         const prevW = canvas.width;
         const prevH = canvas.height;
         syncCanvasSize(canvas, w, spectrumOverlayHeight);
