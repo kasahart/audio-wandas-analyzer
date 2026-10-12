@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loopRegionFromDrag, MIN_SELECTION_SPAN, moveLoopEdge, rectZoomTarget } from '../webview/runtime/waveformInteraction';
+import {
+    exceedsDragThreshold,
+    loopRegionForDrag,
+    loopRegionFromDrag,
+    MIN_SELECTION_SPAN,
+    moveLoopEdge,
+    rectZoomTarget,
+} from '../webview/runtime/waveformInteraction';
 
 test('loopRegionFromDrag: アンカーとポインタの前後に関係なく昇順の区間を返し、幅 0 は null', () => {
     assert.deepEqual(loopRegionFromDrag(0.6, 0.2), { start: 0.2, end: 0.6 });
@@ -36,4 +43,20 @@ test('rectZoomTarget: 逆方向に引いた矩形も昇順に正規化し、時�
 test('rectZoomTarget: 時間または振幅の幅が最小幅以下なら null', () => {
     assert.equal(rectZoomTarget({ startNorm: 0.4, endNorm: 0.4 + MIN_SELECTION_SPAN / 2, startAmpNorm: 0, endAmpNorm: 0.5 }), null);
     assert.equal(rectZoomTarget({ startNorm: 0.2, endNorm: 0.6, startAmpNorm: 0.3, endAmpNorm: 0.3 }), null);
+});
+
+test('exceedsDragThreshold: どちらかの軸で 3px を超えたらドラッグとみなす', () => {
+    assert.equal(exceedsDragThreshold(3, -3), false);
+    assert.equal(exceedsDragThreshold(-4, 0), true);
+    assert.equal(exceedsDragThreshold(0, 4), true);
+});
+
+test('loopRegionForDrag: loop はアンカーから区間を作り、グリップは既存区間の端を動かす', () => {
+    const region = { start: 0.3, end: 0.5 };
+    assert.deepEqual(loopRegionForDrag('loop', 0.6, region, 0.2), { start: 0.2, end: 0.6 });
+    assert.equal(loopRegionForDrag('loop', 0.4, region, 0.4), null);
+    assert.deepEqual(loopRegionForDrag('gripStart', 0, region, 0.1), { start: 0.1, end: 0.5 });
+    assert.deepEqual(loopRegionForDrag('gripEnd', 0, region, 0.8), { start: 0.3, end: 0.8 });
+    assert.equal(loopRegionForDrag('gripStart', 0, null, 0.1), null);
+    assert.equal(loopRegionForDrag('gripEnd', 0, null, 0.8), null);
 });

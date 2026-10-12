@@ -68,8 +68,8 @@ import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
-    loopRegionFromDrag,
-    moveLoopEdge,
+    exceedsDragThreshold,
+    loopRegionForDrag,
     rectZoomTarget,
     ZOOM_IN_FACTOR,
     zoomNormalizedRange,
@@ -2891,7 +2891,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const dx = e.clientX - dragState.startClientX;
         const dy = e.clientY - dragState.startClientY;
-        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        if (exceedsDragThreshold(dx, dy)) {
             dragState.isDrag = true;
         }
         if (!dragState.isDrag) {
@@ -2905,57 +2905,30 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             trackRuntimeAt(dragTrackIndex).offsetSeconds = dragState.startOffset + dx * secsPerPx;
             updateOffsetDisplays();
         }
-        else if (dragState.dragType === 'loop') {
+        else {
             const canvasEl = document.getElementById(trackCanvasId(dragTrackIndex, 0));
-            if (!canvasEl) {
-                scheduleRender();
-                return;
+            if (canvasEl) {
+                const norm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
+                if (dragState.dragType === 'rectZoom') {
+                    const y = e.clientY - canvasEl.getBoundingClientRect().top;
+                    rectZoomSelection = {
+                        trackId: dragState.trackId,
+                        startNorm: dragState.startNorm,
+                        endNorm: norm,
+                        startAmpNorm: dragState.startAmpNorm,
+                        endAmpNorm: canvasYToAmplitudeNorm(y, dragState.canvasHeight),
+                    };
+                    updateUiSmokeWaveformState();
+                }
+                else {
+                    const region = loopRegionForDrag(dragState.dragType, dragState.startNorm, loopRegion, norm);
+                    if (region) {
+                        loopRegion = region;
+                        updateLoopTimeDisplay();
+                        updateZoomToSelectionBtn();
+                    }
+                }
             }
-            const region = loopRegionFromDrag(dragState.startNorm, clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth));
-            if (region) {
-                loopRegion = region;
-                updateLoopTimeDisplay();
-                updateZoomToSelectionBtn();
-            }
-        }
-        else if (dragState.dragType === 'rectZoom') {
-            const canvasEl = document.getElementById(trackCanvasId(dragTrackIndex, 0));
-            if (!canvasEl) {
-                scheduleRender();
-                return;
-            }
-            const rect = canvasEl.getBoundingClientRect();
-            const y = e.clientY - rect.top;
-            const norm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
-            const ampNorm = canvasYToAmplitudeNorm(y, dragState.canvasHeight);
-            rectZoomSelection = {
-                trackId: dragState.trackId,
-                startNorm: dragState.startNorm,
-                endNorm: norm,
-                startAmpNorm: dragState.startAmpNorm,
-                endAmpNorm: ampNorm,
-            };
-            updateUiSmokeWaveformState();
-        }
-        else if (dragState.dragType === 'gripStart') {
-            const canvasEl = document.getElementById(trackCanvasId(dragTrackIndex, 0));
-            if (!canvasEl || !loopRegion) {
-                scheduleRender();
-                return;
-            }
-            loopRegion = moveLoopEdge(loopRegion, 'start', clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth));
-            updateLoopTimeDisplay();
-            updateZoomToSelectionBtn();
-        }
-        else if (dragState.dragType === 'gripEnd') {
-            const canvasEl = document.getElementById(trackCanvasId(dragTrackIndex, 0));
-            if (!canvasEl || !loopRegion) {
-                scheduleRender();
-                return;
-            }
-            loopRegion = moveLoopEdge(loopRegion, 'end', clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth));
-            updateLoopTimeDisplay();
-            updateZoomToSelectionBtn();
         }
         scheduleRender();
     }

@@ -60,6 +60,22 @@ export function moveLoopEdge(region: NormalizedRange, edge: 'start' | 'end', nor
         : { start: region.start, end: Math.max(region.start + MIN_SELECTION_SPAN, Math.min(1, norm)) };
 }
 
+/** Pointer travel in px, on either axis, before a press on a waveform counts as a drag rather than a click. */
+export const DRAG_START_THRESHOLD_PX = 3;
+
+export function exceedsDragThreshold(dx: number, dy: number): boolean {
+    return Math.abs(dx) > DRAG_START_THRESHOLD_PX || Math.abs(dy) > DRAG_START_THRESHOLD_PX;
+}
+
+export type LoopDragKind = 'loop' | 'gripStart' | 'gripEnd';
+
+export function loopRegionForDrag(kind: LoopDragKind, anchorNorm: number, current: NormalizedRange | null, norm: number): NormalizedRange | null {
+    if (kind === 'loop') {
+        return loopRegionFromDrag(anchorNorm, norm);
+    }
+    return current ? moveLoopEdge(current, kind === 'gripStart' ? 'start' : 'end', norm) : null;
+}
+
 export interface RectZoomTarget {
     zoomStart: number;
     zoomEnd: number;
