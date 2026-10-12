@@ -5,12 +5,14 @@ import type { SpectrogramData } from '../shared/analysis/analysisTypes';
 import {
     domSnapshotBase,
     latestSpectrogramSnapshot,
+    overlaySpectrumAxisLabels,
+    sliceSpectrumAxisLabels,
     spectrogramAxisLabelTexts,
     spectrumAxisLabelTexts,
     visibleFileRange,
     waveformCoverageSnapshot,
 } from '../webview/runtime/testSnapshot';
-import type { RuntimeDocument } from '../webview/runtime/types';
+import type { RuntimeDocument, SpectrumSlice } from '../webview/runtime/types';
 
 function spectrogram(overrides: Partial<SpectrogramData> = {}): SpectrogramData {
     return {
@@ -97,4 +99,25 @@ test('waveformCoverageSnapshot: coverage がなければ false と null を返�
         waveformMaxDrawX: 80,
         waveformCanvasWidth: 100,
     });
+});
+
+const fullSpectrumView = { freqStart: 0, freqEnd: 1, dbMin: null, dbMax: null };
+
+function slice(overrides: Partial<SpectrumSlice> = {}): SpectrumSlice {
+    return { values: [-60, -20], frequencyBins: 2, maxFrequencyHz: 1000, minDb: -60, maxDb: -20, ...overrides };
+}
+
+test('sliceSpectrumAxisLabels labels the slice window and is empty without a slice', () => {
+    assert.deepEqual(sliceSpectrumAxisLabels(null, fullSpectrumView), []);
+    const s = slice();
+    const labels = sliceSpectrumAxisLabels(s, { ...fullSpectrumView, dbMin: -80, dbMax: 0 });
+    assert.deepEqual(labels, spectrumAxisLabelTexts(-80, 0, 0, 1000, s));
+});
+
+test('overlaySpectrumAxisLabels spans every slice and is empty without data', () => {
+    assert.deepEqual(overlaySpectrumAxisLabels([], fullSpectrumView), []);
+    const a = slice();
+    const b = slice({ maxFrequencyHz: 4000, minDb: -90, maxDb: -10 });
+    const view = { ...fullSpectrumView, dbMin: -90, dbMax: -10 };
+    assert.deepEqual(overlaySpectrumAxisLabels([a, b], view), spectrumAxisLabelTexts(-90, -10, 0, 4000, a));
 });

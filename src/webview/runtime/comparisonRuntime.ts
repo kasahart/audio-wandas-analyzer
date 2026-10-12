@@ -25,7 +25,7 @@ import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportT
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
 import { arrowCursorStep, isTextEntryTag, keydownIntent, type GlobalShortcutAction } from './shortcuts';
-import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
+import { domSnapshotBase, latestSpectrogramSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
@@ -995,13 +995,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 __spectrogramSettings.display,
                 result.sampleRateHz ? result.sampleRateHz / 2 : 0,
             ));
-            if (slice) {
-                const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, spectrumViewState());
-                spectrumPerTrack.push(spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, slice));
-            }
-            else {
-                spectrumPerTrack.push([]);
-            }
+            spectrumPerTrack.push(sliceSpectrumAxisLabels(slice, spectrumViewState()));
             return {
                 trackId: trackId,
                 trackIndex: trackIndex,
@@ -1017,7 +1011,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             };
         });
         const visibleSpectrumTrackCount = visibleSlices.length;
-        const overlayRange = spectrumSeriesRange(visibleSlices.map(function (slice) { return { slice: slice }; }));
         let latestSpectrogram;
         try {
             const firstChannel = state.results[0] ? displayedChannel(state.results[0]) : undefined;
@@ -1040,12 +1033,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 reanalyzeBusy: isReanalyzeBusy(),
                 latestSpectrogram: latestSpectrogram,
                 axisLabels: {
-                    spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayRange.minDb)
-                        ? (function () {
-                            const vis = spectrumVisibleWindow(overlayRange.maxFrequencyHz, overlayRange.minDb, overlayRange.maxDb, spectrumViewState());
-                            return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, visibleSlices[0]);
-                        })()
-                        : [],
+                    spectrumOverlay: overlaySpectrumAxisLabels(visibleSlices, spectrumViewState()),
                     spectrogramPerTrack: spectrogramPerTrack,
                     spectrumPerTrack: spectrumPerTrack,
                     waveformPerTrack: waveformPerTrack,

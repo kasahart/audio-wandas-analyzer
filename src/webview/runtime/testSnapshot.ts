@@ -1,7 +1,8 @@
 import type { SpectrogramData, SpectrogramDisplaySettings, SpectrogramSettings } from '../../shared/analysis/analysisTypes';
 import { formatDbLevel, formatHz } from '../draw/canvasDrawers';
 import { spectrogramDisplayBounds } from './spectrogramRaster';
-import type { RuntimeDocument, RuntimeElement, WaveformCoverage } from './types';
+import { spectrumSeriesRange, spectrumVisibleWindow, type SpectrumViewState } from './spectrumRuntime';
+import type { RuntimeDocument, RuntimeElement, SpectrumSlice, WaveformCoverage } from './types';
 
 export interface LatestSpectrogramSnapshot {
     windowSize: number | null;
@@ -38,6 +39,23 @@ export function spectrumAxisLabelTexts(
         formatDbLevel(dbMin, source),
         formatHz(freqMin), formatHz((freqMin + freqMax) / 2), formatHz(freqMax),
     ];
+}
+
+export function sliceSpectrumAxisLabels(slice: SpectrumSlice | null, view: SpectrumViewState): string[] {
+    if (!slice) {
+        return [];
+    }
+    const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, view);
+    return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, slice);
+}
+
+export function overlaySpectrumAxisLabels(slices: readonly SpectrumSlice[], view: SpectrumViewState): string[] {
+    const range = spectrumSeriesRange(slices.map(slice => ({ slice })));
+    if (slices.length === 0 || !isFinite(range.minDb)) {
+        return [];
+    }
+    const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, view);
+    return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, slices[0]);
 }
 
 export function spectrogramAxisLabelTexts(
