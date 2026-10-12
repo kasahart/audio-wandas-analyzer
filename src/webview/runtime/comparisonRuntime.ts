@@ -58,6 +58,9 @@ import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
+    loopRegionFromDrag,
+    moveLoopEdge,
+    rectZoomTarget,
     ZOOM_IN_FACTOR,
     zoomNormalizedRange,
 } from './waveformInteraction';
@@ -3242,11 +3245,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleRender();
                 return;
             }
-            const norm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
-            const s = Math.min(dragState.startNorm, norm);
-            const end = Math.max(dragState.startNorm, norm);
-            if (end > s) {
-                loopRegion = { start: s, end: end };
+            const region = loopRegionFromDrag(dragState.startNorm, clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth));
+            if (region) {
+                loopRegion = region;
                 updateLoopTimeDisplay();
                 updateZoomToSelectionBtn();
             }
@@ -3276,9 +3277,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleRender();
                 return;
             }
-            const hitNorm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
-            const norm = Math.max(0, Math.min(loopRegion.end - 0.001, hitNorm));
-            loopRegion = { start: norm, end: loopRegion.end };
+            loopRegion = moveLoopEdge(loopRegion, 'start', clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth));
             updateLoopTimeDisplay();
             updateZoomToSelectionBtn();
         }
@@ -3288,9 +3287,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleRender();
                 return;
             }
-            const hitNorm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
-            const norm = Math.max(loopRegion.start + 0.001, Math.min(1, hitNorm));
-            loopRegion = { start: loopRegion.start, end: norm };
+            loopRegion = moveLoopEdge(loopRegion, 'end', clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth));
             updateLoopTimeDisplay();
             updateZoomToSelectionBtn();
         }
@@ -3320,17 +3317,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const completedRectZoom = wasRectZoom && rectZoomSelection ? Object.assign({}, rectZoomSelection) : null;
         dragState = null;
         if (completedRectZoom) {
-            const start = Math.min(completedRectZoom.startNorm, completedRectZoom.endNorm);
-            const end = Math.max(completedRectZoom.startNorm, completedRectZoom.endNorm);
-            const ampMin = Math.min(completedRectZoom.startAmpNorm, completedRectZoom.endAmpNorm);
-            const ampMax = Math.max(completedRectZoom.startAmpNorm, completedRectZoom.endAmpNorm);
+            const target = rectZoomTarget(completedRectZoom);
             rectZoomSelection = null;
-            if (end - start > 0.001 && ampMax - ampMin > 0.001) {
+            if (target) {
                 disableFollowCursor();
-                zoomStart = Math.max(0, start);
-                zoomEnd = Math.min(1, end);
-                amplitudeZoomMinNorm = ampMin;
-                amplitudeZoomMaxNorm = ampMax;
+                zoomStart = target.zoomStart;
+                zoomEnd = target.zoomEnd;
+                amplitudeZoomMinNorm = target.amplitudeMin;
+                amplitudeZoomMaxNorm = target.amplitudeMax;
             }
             loopRegion = null;
             updateZoomToSelectionBtn();
