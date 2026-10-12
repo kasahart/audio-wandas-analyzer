@@ -37,6 +37,7 @@ import { attachTrackLaneActions } from './trackLaneActions';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
 import { rulerTicks } from './timeRuler';
 import { createPlaybackDisplay } from './playbackDisplay';
+import { installLayoutResizeHandling } from './layoutResize';
 import { SpectrumHover } from './spectrumHover';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { toolbarHtml } from './toolbarHtml';
@@ -1890,32 +1891,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 onReorder: reorderTracks,
             });
         }
-        function handleLayoutResize() {
+        const layoutElementIds = ['tracks-wrapper', 'ruler-row', 'spectrum-overlay-wrap'];
+        state.results.forEach(function (result: ComparisonTrackState, i: number) {
+            channelsForResult(result).forEach(function (_, channelIndex: number) {
+                layoutElementIds.push(trackCanvasWrapId(i, channelIndex), trackSpectrumWrapId(i, channelIndex));
+            });
+        });
+        installLayoutResizeHandling(window, document, layoutElementIds, function () {
             scheduleRender();
             scheduleSpectrumRefresh('interactive');
-        }
-        window.addEventListener('resize', handleLayoutResize);
-        if (typeof ResizeObserver === 'function') {
-            const layoutObserver = new ResizeObserver(function () { handleLayoutResize(); });
-            ['tracks-wrapper', 'ruler-row', 'spectrum-overlay-wrap'].forEach(function (id: string) {
-                const el = document.getElementById(id);
-                if (el) {
-                    layoutObserver.observe(el);
-                }
-            });
-            state.results.forEach(function (result: ComparisonTrackState, i: number) {
-                channelsForResult(result).forEach(function (_, channelIndex: number) {
-                    const waveWrap = document.getElementById(trackCanvasWrapId(i, channelIndex));
-                    if (waveWrap) {
-                        layoutObserver.observe(waveWrap);
-                    }
-                    const spectrumWrap = document.getElementById(trackSpectrumWrapId(i, channelIndex));
-                    if (spectrumWrap) {
-                        layoutObserver.observe(spectrumWrap);
-                    }
-                });
-            });
-        }
+        }, typeof ResizeObserver === 'function' ? ResizeObserver : undefined);
         attachAudioEvents();
         updatePlaybackButtons();
         function attachTrackCanvasFocusEvents() {
