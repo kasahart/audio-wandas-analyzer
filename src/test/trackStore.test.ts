@@ -152,3 +152,28 @@ test('TrackStore releases inactive payloads across repeated deselection and expl
         assert.equal(store.activeIds()[1], bId);
     }
 });
+
+test('TrackStore globalSpan covers visible, error-free tracks including their offsets', () => {
+    const store = new TrackStore([result('/a.wav'), result('/b.wav'), result('/c.wav'), result('/d.wav')], runtime);
+    const [aId, bId, cId, dId] = store.activeIds();
+    store.require(aId).runtime.offsetSeconds = -0.5;
+    store.require(bId).runtime.offsetSeconds = 2;
+    store.require(cId).runtime.offsetSeconds = 10;
+    store.require(cId).runtime.hidden = true;
+    store.require(dId).result.error = 'failed';
+    store.require(dId).runtime.offsetSeconds = -5;
+
+    assert.deepEqual(store.globalSpan(), { startSec: -0.5, endSec: 3, spanSec: 3.5 });
+});
+
+test('TrackStore globalSpan falls back to a one-second span when no track is visible', () => {
+    const store = new TrackStore([result('/a.wav')], runtime);
+    const [aId] = store.activeIds();
+    store.require(aId).runtime.hidden = true;
+    assert.deepEqual(store.globalSpan(), { startSec: 0, endSec: 1, spanSec: 1 });
+
+    store.require(aId).runtime.hidden = false;
+    store.require(aId).result.durationSeconds = 0;
+    store.require(aId).runtime.offsetSeconds = 4;
+    assert.deepEqual(store.globalSpan(), { startSec: 4, endSec: 5, spanSec: 1 });
+});

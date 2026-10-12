@@ -1,5 +1,6 @@
 import { dbLevelUnitFor } from '../draw/canvasDrawers';
 import { formatReadoutHz } from './canvasOverlays';
+import type { HostInboundMessage } from './hostMessaging';
 import type { SpectrumSlice, SpectrumSnap } from './types';
 import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
 
@@ -110,4 +111,22 @@ export function spectrumReadoutText(label: string, slice: SpectrumSlice, freqHz:
 
 export function trackSpectrumReadoutText(label: string, slice: SpectrumSlice, freqHz: number, dbVal: number | undefined): string {
     return label + ' ' + formatReadoutHz(freqHz) + (dbVal !== undefined ? '  ' + dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice) : '');
+}
+
+export type SpectrumSliceResultMessage = Extract<HostInboundMessage, { type: 'spectrum-slice-result' }>;
+
+export function spectrumSlicesFromResult(msg: SpectrumSliceResultMessage, cursorNorm: number | undefined): Array<SpectrumSlice & { channelIndex: number }> {
+    return msg.channels.map((channel) => ({
+        settingsSignature: msg.settingsSignature,
+        cursorNorm,
+        channelIndex: channel.channelIndex,
+        values: channel.values,
+        frequencyBins: msg.frequencyBins,
+        originalMaxFrequencyHz: msg.maxFrequencyHz,
+        maxFrequencyHz: msg.maxFrequencyHz,
+        minDb: channel.minDb,
+        maxDb: channel.maxDb,
+        unit: channel.unit,
+        axisLabel: channel.axisLabel,
+    }));
 }

@@ -30,6 +30,7 @@ import {
     spectrumBinAtHover,
     spectrumReadoutText,
     trackSpectrumReadoutText,
+    spectrumSlicesFromResult,
     zoomSpectrumRange,
 } from './spectrumRuntime';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
@@ -440,7 +441,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (dur <= 0) {
             return null;
         }
-        const gs = computeGlobalSpan();
+        const gs = trackStore.globalSpan();
         const cursorSec = gs.startSec + cursorNormValue * gs.spanSec;
         const local = (cursorSec - trackRuntimeAt(i).offsetSeconds) / dur;
         if (local < 0 || local > 1) {
@@ -659,31 +660,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             el.style.display = 'none';
         }
     }
-    function computeGlobalSpan() {
-        let startSec = Infinity, endSec = -Infinity;
-        trackStore.activeIds().forEach(function (trackId) {
-            const record = trackStore.require(trackId);
-            const result = record.result;
-            if (record.runtime.hidden || result.error) {
-                return;
-            }
-            const off = record.runtime.offsetSeconds;
-            const dur = result.durationSeconds || 0;
-            if (off < startSec) {
-                startSec = off;
-            }
-            if (off + dur > endSec) {
-                endSec = off + dur;
-            }
-        });
-        if (!isFinite(startSec)) {
-            startSec = 0;
-        }
-        if (!isFinite(endSec) || endSec <= startSec) {
-            endSec = startSec + 1;
-        }
-        return { startSec, endSec, spanSec: endSec - startSec };
-    }
     // ── On-demand range cache ──
     const OVERVIEW_PTS = 1200;
     let rangeRequestTimer: number | null = null;
@@ -763,20 +739,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             && pending.analysisId === analysisId
             && pending.settingsSignature === currentSpectrumDataSignature();
         if (msg.type === 'spectrum-slice-result' && isCurrent) {
-            msg.channels.forEach(function (channel) {
-                record.spectrumSliceCache.set(channel.channelIndex, {
-                    settingsSignature: msg.settingsSignature,
-                    cursorNorm: pending.cursorNorm,
-                    channelIndex: channel.channelIndex,
-                    values: channel.values,
-                    frequencyBins: msg.frequencyBins,
-                    originalMaxFrequencyHz: msg.maxFrequencyHz,
-                    maxFrequencyHz: msg.maxFrequencyHz,
-                    minDb: channel.minDb,
-                    maxDb: channel.maxDb,
-                    unit: channel.unit,
-                    axisLabel: channel.axisLabel,
-                });
+            spectrumSlicesFromResult(msg, pending.cursorNorm).forEach(function (slice) {
+                record.spectrumSliceCache.set(slice.channelIndex, slice);
             });
             spectrumCursorNorm = active.globalCursorNorm;
             if (testBridge.state) {
@@ -952,7 +916,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function computeTrackFileView(result: ComparisonTrackState, trackIndex: number, offsetSeconds?: number): TrackFileView {
         const dur = result.durationSeconds || 1;
-        const gs = computeGlobalSpan();
+        const gs = trackStore.globalSpan();
         const offsetSec = offsetSeconds === undefined ? trackRuntimeAt(trackIndex).offsetSeconds : offsetSeconds;
         const trackStart = (offsetSec - gs.startSec) / gs.spanSec;
         const trackDurRatio = dur / gs.spanSec;
@@ -1076,7 +1040,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const result = record.result;
             const trackIndex = record.protocolIndex;
             const dur = result.durationSeconds || 1;
-            const gs = computeGlobalSpan();
+            const gs = trackStore.globalSpan();
             const trackStart = (trackRuntimeAt(trackIndex).offsetSeconds - gs.startSec) / gs.spanSec;
             const trackDurRatio = dur / gs.spanSec;
             const visibleFileStartNorm = Math.max(0, (zoomStart - trackStart) / trackDurRatio);
@@ -1568,7 +1532,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const timeW = contentType === 'spectrogram' ? spectrogramPlotWidth(W) : W;
         const H = canvas.height;
         ctx.clearRect(0, 0, W, H);
-        const gs = computeGlobalSpan();
+        const gs = trackStore.globalSpan();
         const visStart = gs.startSec + zoomStart * gs.spanSec;
         const visEnd = gs.startSec + zoomEnd * gs.spanSec;
         const visDur = visEnd - visStart;
@@ -1705,7 +1669,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const src = resolveWaveformSource(result, trackIndex, channelIndex, offsetSeconds);
         if (src && window.renderWaveformPipeline) {
             const dur = result.durationSeconds || 1;
-            const gs = computeGlobalSpan();
+            const gs = trackStore.globalSpan();
             const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
             const trackDurRatio = dur / gs.spanSec;
             const originalMoveTo = ctx.moveTo.bind(ctx);
@@ -1808,7 +1772,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const spec = ch.spectrogram;
         const dur = result.durationSeconds || 1;
-        const gs = computeGlobalSpan();
+        const gs = trackStore.globalSpan();
         const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
         const trackDurRatio = dur / gs.spanSec;
         const dispCfg = __spectrogramSettings.display;
@@ -1916,7 +1880,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return null;
         }
         const durationSeconds = result.durationSeconds || 0;
-        const gs = computeGlobalSpan();
+        const gs = trackStore.globalSpan();
         return createTrackTimeMapping(durationSeconds, trackRuntimeAt(idx).offsetSeconds, {
             startSeconds: gs.startSec,
             spanSeconds: gs.spanSec,
@@ -1976,7 +1940,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             el.style.display = 'none';
             return;
         }
-        const gs = computeGlobalSpan();
+        const gs = trackStore.globalSpan();
         const startSec = gs.startSec + loopRegion.start * gs.spanSec;
         const endSec = gs.startSec + loopRegion.end * gs.spanSec;
         el.textContent = formatClockTime(startSec) + ' – ' + formatClockTime(endSec);
@@ -2255,7 +2219,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!navigator.clipboard || !navigator.clipboard.writeText) {
                     return;
                 }
-                const gs = computeGlobalSpan();
+                const gs = trackStore.globalSpan();
                 const startSec = gs.startSec + loopRegion.start * gs.spanSec;
                 const endSec = gs.startSec + loopRegion.end * gs.spanSec;
                 navigator.clipboard.writeText(formatClockTime(startSec) + ' – ' + formatClockTime(endSec)).catch(function () { });
@@ -2575,7 +2539,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const W = active.width || 800;
                 let delta;
                 if (e.shiftKey) {
-                    const gs = computeGlobalSpan();
+                    const gs = trackStore.globalSpan();
                     delta = gs.spanSec > 0 ? (0.1 / gs.spanSec) : 0.001;
                 }
                 else {
@@ -3127,7 +3091,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
             return;
         }
-        const span = computeGlobalSpan();
+        const span = trackStore.globalSpan();
         const startSec = span.startSec + loopRegion.start * span.spanSec;
         const endSec = span.startSec + loopRegion.end * span.spanSec;
         const visibleTracks = trackStore.activeIds()
@@ -3157,7 +3121,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function _reportLoopRegion(): ReportLoopRegion | undefined {
         if (!loopRegion) return undefined;
-        const gs = computeGlobalSpan();
+        const gs = trackStore.globalSpan();
         return { globalStartSec: gs.startSec + loopRegion.start * gs.spanSec, globalEndSec: gs.startSec + loopRegion.end * gs.spanSec };
     }
     function exportReport() {
@@ -3472,7 +3436,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         disableFollowCursor();
         hideTooltip();
         if (dragState.dragType === 'offset') {
-            const gs = computeGlobalSpan();
+            const gs = trackStore.globalSpan();
             const secsPerPx = (zoomEnd - zoomStart) * gs.spanSec / dragState.canvasWidth;
             trackRuntimeAt(dragTrackIndex).offsetSeconds = dragState.startOffset + dx * secsPerPx;
             updateOffsetDisplays();
@@ -3599,7 +3563,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         updateCursorDisplay(cursorNorm);
     }
     function updateCursorDisplay(norm: number) {
-        const gs = computeGlobalSpan();
+        const gs = trackStore.globalSpan();
         const t = gs.startSec + norm * gs.spanSec;
         const el = document.getElementById('cursor-display');
         if (el) {
@@ -3635,7 +3599,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function extractSpectrumAtCursor(result: ComparisonTrackState, trackIndex: number, offsetSeconds: number, cursorNormValue: number, channelIndex = 0): SpectrumSlice | null {
         const chIdx = Number.isInteger(channelIndex) ? channelIndex : 0;
-        return extractCursorSpectrum(result, offsetSeconds, cursorNormValue, computeGlobalSpan(), {
+        return extractCursorSpectrum(result, offsetSeconds, cursorNormValue, trackStore.globalSpan(), {
             trackIndex,
             channelIndex: chIdx,
             cached: trackIndex >= 0 ? trackRecordAtIndex(trackIndex)?.spectrumSliceCache.get(chIdx) ?? null : null,
@@ -4051,7 +4015,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         updateUiSmokeSpectrumState();
         const el = document.getElementById('spectrum-cursor-time');
         if (el) {
-            const gs = computeGlobalSpan();
+            const gs = trackStore.globalSpan();
             el.textContent = '@ ' + formatClockTime(gs.startSec + spectrumCursorNorm * gs.spanSec);
         }
     }
