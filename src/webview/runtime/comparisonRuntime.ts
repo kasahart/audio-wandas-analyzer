@@ -4,7 +4,7 @@ import { paintSpectrogramRaster, spectrogramDisplayBounds } from './spectrogramR
 import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, loopRegionFromPayload, setSelectionFileChecked } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
-import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawSpectrumSelectionBox, drawCanvasMessage, strokeSpectrumSeries, type DrawTheme } from '../draw/canvasDrawers';
+import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, isOverviewSufficient, rangeCacheCoversView, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
@@ -31,6 +31,7 @@ import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOv
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { SpectrumBoxDrag } from './spectrumBoxDrag';
 import { SpectrumHover } from './spectrumHover';
+import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
@@ -46,7 +47,6 @@ import {
     spectrumBinAtHover,
     spectrumBoxZoom,
     spectrumHoverAt,
-    spectrumReadoutText,
     spectrumPlotFrame,
     spectrumSeriesRange,
     spectrumVisibleWindow,
@@ -3228,56 +3228,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             overlaySpectrumPainted = false;
             return;
         }
-        ctx.clearRect(0, 0, W, H);
-        const { minDb, maxDb, maxFrequencyHz: maxF } = spectrumSeriesRange(slices);
-        const pad = OVERLAY_SPECTRUM_PAD;
-        const vis = spectrumVisibleWindow(maxF, minDb, maxDb, spectrumViewState());
-        _lastSpectrumMaxF = maxF;
-        _lastVisDbMin = vis.dbMin;
-        _lastVisDbMax = vis.dbMax;
-        const commonSlice = slices[0].slice;
-        const sharedAxis = {
-            values: [],
-            frequencyBins: 1,
-            maxFrequencyHz: maxF,
-            minDb: vis.dbMin,
-            maxDb: vis.dbMax,
-            unit: commonSlice.unit,
-            axisLabel: commonSlice.axisLabel,
-        };
-        drawSpectrumAxes(ctx, W, H, sharedAxis, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, drawTheme());
-        if (vis.frequencyMax - vis.frequencyMin <= 0) {
+        const paint = paintOverlaySpectrum(ctx, W, H, slices, spectrumViewState(), spectrumHover, specBoxDrag.box, drawTheme());
+        _lastSpectrumMaxF = paint.maxFrequencyHz;
+        _lastVisDbMin = paint.dbMin;
+        _lastVisDbMax = paint.dbMax;
+        if (paint.readout) {
+            setSpectrumReadout(document.getElementById('spectrum-freq-readout'), paint.readout.text, paint.readout.color);
+        }
+        if (!paint.painted) {
             return;
-        }
-        const frame = spectrumPlotFrame(W, H, pad, vis);
-        strokeSpectrumSeries(ctx, frame, vis.dbMax - vis.dbMin > 0 ? slices : [], 1.4, maxF);
-        if (spectrumHover.norm !== null && spectrumHover.target === 'overlay') {
-            const mouseY = spectrumHover.yFrac !== null ? spectrumHover.yFrac * H : null;
-            const nearest = nearestSpectrumSnap(slices, spectrumHover.norm, mouseY, frame);
-            if (nearest) {
-                strokeSpectrumSeries(ctx, frame, [nearest.s], 2.5, maxF);
-            }
-            drawSpectrumCrosshair(
-                ctx,
-                frame,
-                nearest ? nearest.snap.x : frame.padLeft + spectrumHover.norm * frame.plotWidth,
-                nearest ? nearest.snapY : null,
-                'rgba(255,255,255,0.7)',
-                nearest ? nearest.s.color : '',
-            );
-            setSpectrumReadout(
-                document.getElementById('spectrum-freq-readout'),
-                nearest ? spectrumReadoutText(nearest.s.label, nearest.s.slice, nearest.snap.freqHz, nearest.dbVal) : '',
-                nearest ? nearest.s.color : '',
-            );
-        }
-        else if (spectrumHover.norm === null) {
-            setSpectrumReadout(document.getElementById('spectrum-freq-readout'), '', '');
-        }
-        // ── スペクトルドラッグ選択ゴムバンド ─────────────────────
-        const specBox = specBoxDrag.box;
-        if (specBox !== null) {
-            drawSpectrumSelectionBox(ctx, frame, specBox.anchor, specBox.current);
         }
         overlaySpectrumPainted = true;
     }
