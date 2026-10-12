@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { JSDOM } from 'jsdom';
+import {
+    fillSpectrogramDisplayForm,
+    fillSpectrogramSettingsForm,
+    loopRegionFromPayload,
+    setSelectionFileChecked,
+} from '../webview/runtime/testActionForms';
+import type { RuntimeDocument } from '../webview/runtime/types';
+
+function makeDoc(html: string): RuntimeDocument {
+    return new JSDOM(`<!doctype html><body>${html}</body>`).window.document as unknown as RuntimeDocument;
+}
+
+test('fillSpectrogramSettingsForm: 指定された項目だけを書き換え、auto は常に反映する', () => {
+    const doc = makeDoc(`
+        <input type="checkbox" id="spec-auto" checked>
+        <input id="spec-nfft" value="1024">
+        <input id="spec-hop" value="256">
+        <select id="spec-window"><option value="hann">hann</option><option value="hamming">hamming</option></select>`);
+    fillSpectrogramSettingsForm(doc, { auto: false, nFft: 2048, window: 'hamming' });
+    assert.equal(doc.getElementById('spec-auto').checked, false);
+    assert.equal(doc.getElementById('spec-nfft').value, '2048');
+    assert.equal(doc.getElementById('spec-hop').value, '256');
+    assert.equal(doc.getElementById('spec-window').value, 'hamming');
+});
+
+test('fillSpectrogramDisplayForm: 入力欄を埋め、数値以外は null の表示設定を返す', () => {
+    const doc = makeDoc('<input id="spec-dbmin" value="x"><input id="spec-dbmax"><input id="spec-maxfreq">');
+    const display = fillSpectrogramDisplayForm(doc, { dbMin: -90, dbMax: null, maxFrequencyHz: '8000' });
+    assert.equal(doc.getElementById('spec-dbmin').value, '-90');
+    assert.equal(doc.getElementById('spec-dbmax').value, '');
+    assert.equal(doc.getElementById('spec-maxfreq').value, '8000');
+    assert.deepEqual(display, { dbMin: -90, dbMax: null, maxFrequencyHz: null });
+});
+
+test('setSelectionFileChecked: 対象のチェックボックスを切り替えて change を発火する', () => {
+    const doc = makeDoc(`
+        <input type="checkbox" class="selection-file-checkbox" data-file-path="/a.wav">
+        <input type="checkbox" class="selection-file-checkbox" data-file-path="/b.wav">`);
+    const changed: string[] = [];
+    doc.addEventListener('change', (event) => { changed.push(event.target.getAttribute('data-file-path') || ''); });
+    setSelectionFileChecked(doc, '/b.wav', true);
+    const boxes = Array.from(doc.querySelectorAll('.selection-file-checkbox'));
+    assert.deepEqual(boxes.map((b) => b.checked), [false, true]);
+    assert.deepEqual(changed, ['/b.wav']);
+    assert.throws(() => setSelectionFileChecked(doc, '/missing.wav', true), /Selection checkbox not found/);
+});
+
+test('loopRegionFromPayload: 0..1 に収め、幅がなければ null', () => {
+    assert.deepEqual(loopRegionFromPayload({ start: -0.5, end: 0.4 }), { start: 0, end: 0.4 });
+    assert.deepEqual(loopRegionFromPayload({ start: 0.2, end: 3 }), { start: 0.2, end: 1 });
+    assert.equal(loopRegionFromPayload({ start: 0.5, end: 0.5 }), null);
+    assert.equal(loopRegionFromPayload({ start: 'x', end: 0.5 }), null);
+});
