@@ -32,6 +32,7 @@ import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { SpectrumBoxDrag } from './spectrumBoxDrag';
 import { SpectrumHover } from './spectrumHover';
 import { toolbarHtml } from './toolbarHtml';
+import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
 import { selectionLayoutHtml } from './selectionLayoutHtml';
 import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
@@ -317,6 +318,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let _lastVisDbMax: number | null = null;
     let _lastSpectrumMaxF = 0; // overlay の最大周波数(Hz) キャッシュ（freq popover 用）
     const specBoxDrag = new SpectrumBoxDrag();
+    const heightResize = createHeightResize({
+        currentHeight: kind => kind === 'track' ? trackHeight : spectrumOverlayHeight,
+        setHeight,
+        onActiveChange: active => document.body.classList.toggle('is-height-resizing', active),
+    });
     // ── 波形モード ────────────────────────────────────────
     let waveformMode: 'loop' | 'rect-zoom' = 'loop';
     let amplitudeZoomMinNorm = -1;
@@ -1814,81 +1820,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (isSelectionMode) {
             attachDirectorySelectionEvents();
         }
-        function attachToolbarActions(containerId: string) {
-            const container = document.getElementById(containerId);
-            if (!container) {
-                return;
-            }
-            container.addEventListener('click', function (e) {
-                const target = eventTarget(e) && eventTarget(e).closest ? eventTarget(e).closest('[data-action]') : eventTarget(e);
-                const action = target && target.getAttribute ? target.getAttribute('data-action') : null;
-                if (!action || action === 'track-height-input' || action === 'spectrum-height-input') {
-                    return;
-                }
-                handleToolbarAction(action);
-            });
-            container.addEventListener('input', function (e) {
-                const target = eventTarget(e);
-                const action = target && target.getAttribute ? target.getAttribute('data-action') : null;
-                applyHeightInput(action, target ? target.value : null);
-            });
-            container.addEventListener('change', function (e) {
-                const target = eventTarget(e);
-                const action = target && target.getAttribute ? target.getAttribute('data-action') : null;
-                applyHeightInput(action, target ? target.value : null);
-            });
-        }
-        attachToolbarActions('toolbar');
-        attachToolbarActions('spectrum-zoom-toolbar');
-        const toolbarForMenus = document.getElementById('toolbar');
-        if (toolbarForMenus) {
-            toolbarForMenus.querySelectorAll('details.tb-menu').forEach(function (menu: RuntimeElement) {
-                menu.addEventListener('toggle', function () {
-                    if (!menu.open) {
-                        return;
-                    }
-                    toolbarForMenus.querySelectorAll('details.tb-menu[open]').forEach(function (otherMenu: RuntimeElement) {
-                        if (otherMenu !== menu) {
-                            otherMenu.open = false;
-                        }
-                    });
-                });
-            });
-        }
-        function handleHeightResizeStart(e: MouseEvent): void {
-            const target = eventTarget(e) && eventTarget(e).closest
-                ? eventTarget(e).closest('[data-action="track-height-drag"], [data-action="spectrum-height-drag"]')
-                : null;
-            if (!target) {
-                return;
-            }
-            const action = target.getAttribute('data-action');
-            heightResize.begin(action === 'track-height-drag' ? 'track' : 'spectrum', e.clientY || 0);
-            e.preventDefault();
-        }
-        const tracksWrapperForHeight = document.getElementById('tracks-wrapper');
-        if (tracksWrapperForHeight) {
-            tracksWrapperForHeight.addEventListener('mousedown', handleHeightResizeStart);
-        }
-        const spectrumSectionForHeight = document.getElementById('spectrum-section');
-        if (spectrumSectionForHeight) {
-            spectrumSectionForHeight.addEventListener('mousedown', handleHeightResizeStart);
-        }
-        document.addEventListener('mousedown', handleHeightResizeStart);
-        window.addEventListener('mousedown', handleHeightResizeStart, true);
-        function handleHeightResizeMove(e: MouseEvent): void {
-            heightResize.update(e.clientY || 0);
-            if (heightResize.isActive()) {
-                e.preventDefault();
-            }
-        }
-        function handleHeightResizeEnd() {
-            heightResize.end();
-        }
-        document.addEventListener('mousemove', handleHeightResizeMove);
-        window.addEventListener('mousemove', handleHeightResizeMove, true);
-        document.addEventListener('mouseup', handleHeightResizeEnd);
-        window.addEventListener('mouseup', handleHeightResizeEnd, true);
+        const toolbarHandlers = { onAction: handleToolbarAction, onHeightInput: applyHeightInput };
+        attachToolbarActions(document.getElementById('toolbar'), toolbarHandlers);
+        attachToolbarActions(document.getElementById('spectrum-zoom-toolbar'), toolbarHandlers);
+        attachExclusiveMenus(document.getElementById('toolbar'));
+        attachHeightResizeListeners(
+            heightResize,
+            [document.getElementById('tracks-wrapper'), document.getElementById('spectrum-section')],
+            document,
+            window,
+        );
         const loopTimeDisplayEl = document.getElementById('loop-time-display');
         if (loopTimeDisplayEl) {
             loopTimeDisplayEl.addEventListener('click', function () {
@@ -2521,11 +2462,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         syncSpectrumCanvasCssHeight();
         scheduleSpectrumRefresh('immediate');
     }
-    const heightResize = createHeightResize({
-        currentHeight: kind => kind === 'track' ? trackHeight : spectrumOverlayHeight,
-        setHeight,
-        onActiveChange: active => document.body.classList.toggle('is-height-resizing', active),
-    });
     function disableFollowCursor() {
         if (!followCursor) {
             return;
