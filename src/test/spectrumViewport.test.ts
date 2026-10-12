@@ -63,23 +63,24 @@ test('steppedTrackSpectrumHoverNorm: ビンが無ければ null', () => {
     assert.equal(steppedTrackSpectrumHoverNorm(slice({ frequencyBins: 0 }), 0.5, 0, 1, 1), null);
 });
 
-test('steppedOverlaySpectrumHoverNorm: マウス Y に最も近い系列のビン間隔で移動する', () => {
-    const vis = { frequencyMin: 0, frequencyMax: 1000, dbMin: -80, dbMax: 0 };
-    const quiet = { slice: flat(-70, 11) };
-    const loud = { slice: flat(-10, 21) };
-    assert.ok(Math.abs((steppedOverlaySpectrumHoverNorm([quiet, loud], 0.5, 0.9, vis, 1) ?? NaN) - 0.6) < 1e-9);
-    assert.ok(Math.abs((steppedOverlaySpectrumHoverNorm([quiet, loud], 0.5, 0.1, vis, 1) ?? NaN) - 0.55) < 1e-9);
-});
-
 test('steppedOverlaySpectrumHoverNorm: Y が決まらない系列しか無ければ先頭の系列で移動する', () => {
     const vis = { frequencyMin: 0, frequencyMax: 1000, dbMin: 0, dbMax: 0 };
     const first = { slice: flat(-40, 11) };
     const second = { slice: flat(-40, 21) };
-    assert.ok(Math.abs((steppedOverlaySpectrumHoverNorm([first, second], 0.5, 0.5, vis, 1) ?? NaN) - 0.6) < 1e-9);
+    assert.ok(Math.abs((steppedOverlaySpectrumHoverNorm([first, second], 0.5, 0.5, null, vis, 1) ?? NaN) - 0.6) < 1e-9);
 });
 
 test('steppedOverlaySpectrumHoverNorm: 系列が無い、または表示周波数幅が 0 なら null', () => {
     const vis = { frequencyMin: 0, frequencyMax: 1000, dbMin: -80, dbMax: 0 };
-    assert.equal(steppedOverlaySpectrumHoverNorm([], 0.5, null, vis, 1), null);
-    assert.equal(steppedOverlaySpectrumHoverNorm([{ slice: flat(-40, 11) }], 0.5, null, { ...vis, frequencyMax: 0 }, 1), null);
+    assert.equal(steppedOverlaySpectrumHoverNorm([], 0.5, null, null, vis, 1), null);
+    assert.equal(steppedOverlaySpectrumHoverNorm([{ slice: flat(-40, 11) }], 0.5, null, null, { ...vis, frequencyMax: 0 }, 1), null);
+});
+
+test('steppedOverlaySpectrumHoverNorm: キャンバスがあれば描画と同じピクセル座標で最寄り系列を選ぶ', () => {
+    const vis = { frequencyMin: 0, frequencyMax: 1000, dbMin: -80, dbMax: 0 };
+    const quiet = { slice: flat(-70, 11) };
+    const loud = { slice: flat(-10, 21) };
+    const canvas = { width: 300, height: 120 };
+    assert.ok(Math.abs((steppedOverlaySpectrumHoverNorm([quiet, loud], 0.5, 0.1, canvas, vis, 1) ?? NaN) - 0.55) < 1e-9);
+    assert.ok(Math.abs((steppedOverlaySpectrumHoverNorm([quiet, loud], 0.5, 0.8, canvas, vis, 1) ?? NaN) - 0.6) < 1e-9);
 });
