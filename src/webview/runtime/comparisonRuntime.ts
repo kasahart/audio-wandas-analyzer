@@ -35,6 +35,7 @@ import { TrackStore } from './trackStore';
 import { installColorPicker } from './colorPicker';
 import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
+import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
@@ -1037,8 +1038,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     });
     function isReanalyzeBusy() {
-        const overlay = document.getElementById('reanalyze-overlay');
-        return !!overlay && overlay.style.display !== 'none';
+        return !!reanalyzeOverlay && reanalyzeOverlay.isBusy();
     }
 
     function waveformAxisLabelsForChannel(result: ComparisonTrackState, channelIndex: number) {
@@ -4198,29 +4198,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             messaging.post({ type: 'request-reanalyze', settings: __spectrogramSettings });
         },
     });
-    // 再解析中のオーバーレイ
-    (function __buildReanalyzeOverlay() {
-        document.body.insertAdjacentHTML('beforeend', '<div id="reanalyze-overlay" style="position:fixed;top:0;left:0;right:0;z-index:60;background:var(--panel);color:var(--text);'
-            + 'padding:8px 14px;border-bottom:1px solid var(--line);font-family:var(--font-ui);font-size:12px;'
-            + 'display:none;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'
-            + '<span class="spinner" style="width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></span>'
-            + '<span id="reanalyze-overlay-msg">' + escapeHtml(STR.reanalyzingDefault) + '</span>'
-            + '</div>'
-            + '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>');
-    })();
+    var reanalyzeOverlay = installReanalyzeOverlay(document, {
+        defaultMessage: STR.reanalyzingDefault,
+        onShow(message) {
+            announce((STR.announceAnalyzing || 'Analyzing: {msg}').replace('{msg}', message || ''));
+        },
+    });
     function __setReanalyzeBusy(busy: boolean, msg?: string): void {
-        const overlay = document.getElementById('reanalyze-overlay');
-        if (!overlay) {
-            return;
-        }
-        if (busy) {
-            document.getElementById('reanalyze-overlay-msg').textContent = msg || STR.reanalyzingDefault;
-            overlay.style.display = 'flex';
-            announce((STR.announceAnalyzing || 'Analyzing: {msg}').replace('{msg}', msg || STR.reanalyzingDefault || ''));
-        }
-        else {
-            overlay.style.display = 'none';
-        }
+        reanalyzeOverlay.setBusy(busy, msg);
         const applyBtn = document.getElementById('spec-apply');
         if (applyBtn) {
             applyBtn.disabled = !!busy;
