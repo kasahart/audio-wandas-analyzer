@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { arrowCursorStep, globalShortcutAction, isTextEntryTag, keydownIntent, type KeydownContext } from '../webview/runtime/shortcuts';
+import { arrowCursorStep, globalShortcutAction, isTextEntryTag, keydownContextFor, keydownIntent, type KeydownContext } from '../webview/runtime/shortcuts';
 
 test('globalShortcutAction maps both key variants of each documented shortcut', () => {
     assert.equal(globalShortcutAction('+'), 'zoom-in');
@@ -76,4 +76,23 @@ test('keydownIntent moves the time cursor with arrows only while a track canvas 
     assert.deepEqual(keydownIntent(key('ArrowRight', 'ArrowRight'), { ...idle, trackCanvasFocused: true }), { kind: 'cursor-step', direction: 1 });
     assert.equal(keydownIntent(key('ArrowLeft', 'ArrowLeft'), idle), null);
     assert.equal(keydownIntent(key('x', 'KeyX'), { ...idle, trackCanvasFocused: true }), null);
+});
+
+function focused(id: string, tagName: string, classes: string[] = []) {
+    return { id, tagName, classList: { contains: (token: string) => classes.includes(token) } };
+}
+
+test('keydownContextFor derives the keyboard context from the focused element', () => {
+    assert.deepEqual(keydownContextFor(focused('t0', 'CANVAS', ['track-canvas']), { hidden: true }, false), {
+        spectrumActive: false, helpOpen: false, textEntryFocused: false, trackCanvasFocused: true,
+    });
+    assert.equal(keydownContextFor(focused('spectrum-overlay-canvas', 'CANVAS'), null, false).spectrumActive, true);
+    assert.equal(keydownContextFor(focused('s0', 'CANVAS', ['track-spectrum-canvas']), null, false).spectrumActive, true);
+    assert.equal(keydownContextFor(focused('q', 'input'), null, false).textEntryFocused, true);
+});
+
+test('keydownContextFor treats a hovered spectrum and a visible help overlay as active without focus', () => {
+    assert.deepEqual(keydownContextFor(null, { hidden: false }, true), {
+        spectrumActive: true, helpOpen: true, textEntryFocused: false, trackCanvasFocused: false,
+    });
 });

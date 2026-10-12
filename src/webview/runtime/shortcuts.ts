@@ -65,6 +65,21 @@ export interface KeydownContext {
     trackCanvasFocused: boolean;
 }
 
+export interface FocusedElementLike {
+    id: string;
+    tagName: string;
+    classList: { contains(token: string): boolean };
+}
+
+export function keydownContextFor(active: FocusedElementLike | null, helpOverlay: { hidden: boolean } | null, spectrumHasMouse: boolean): KeydownContext {
+    return {
+        spectrumActive: spectrumHasMouse || !!(active && (active.id === 'spectrum-overlay-canvas' || active.classList.contains('track-spectrum-canvas'))),
+        helpOpen: !!(helpOverlay && !helpOverlay.hidden),
+        textEntryFocused: isTextEntryTag(active && active.tagName),
+        trackCanvasFocused: !!(active && active.classList.contains('track-canvas')),
+    };
+}
+
 function arrowDirection(code: string): -1 | 1 | null {
     return code === 'ArrowLeft' ? -1 : code === 'ArrowRight' ? 1 : null;
 }

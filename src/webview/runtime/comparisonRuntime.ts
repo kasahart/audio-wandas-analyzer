@@ -25,7 +25,7 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
-import { arrowCursorStep, isTextEntryTag, keydownIntent, type GlobalShortcutAction } from './shortcuts';
+import { arrowCursorStep, keydownContextFor, keydownIntent, type GlobalShortcutAction } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
@@ -1910,14 +1910,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         document.addEventListener('keydown', function (e) {
             const active = document.activeElement;
-            const helpEl = document.getElementById('help-overlay');
-            const intent = keydownIntent(e, {
-                spectrumActive: spectrumHover.hasMouse || !!(active && (active.id === 'spectrum-overlay-canvas'
-                    || (active.classList && active.classList.contains('track-spectrum-canvas')))),
-                helpOpen: !!(helpEl && !helpEl.hidden),
-                textEntryFocused: isTextEntryTag(active && active.tagName),
-                trackCanvasFocused: !!(active && active.classList.contains('track-canvas')),
-            });
+            const intent = keydownIntent(e, keydownContextFor(active, document.getElementById('help-overlay'), spectrumHover.hasMouse));
             if (!intent) {
                 return;
             }
