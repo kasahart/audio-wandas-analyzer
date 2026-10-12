@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     exceedsDragThreshold,
+    loopRegionClockText,
     loopRegionForDrag,
     loopRegionFromDrag,
     MIN_SELECTION_SPAN,
@@ -59,4 +60,9 @@ test('loopRegionForDrag: loop はアンカーから区間を作り、グリッ�
     assert.deepEqual(loopRegionForDrag('gripEnd', 0, region, 0.8), { start: 0.3, end: 0.8 });
     assert.equal(loopRegionForDrag('gripStart', 0, null, 0.1), null);
     assert.equal(loopRegionForDrag('gripEnd', 0, null, 0.8), null);
+});
+
+test('loopRegionClockText: 正規化区間をグローバル時間軸の時刻範囲に変換する', () => {
+    assert.equal(loopRegionClockText({ start: 0.25, end: 0.5 }, { startSec: 10, spanSec: 120 }), '0:40.00 – 1:10.00');
+    assert.equal(loopRegionClockText({ start: 0, end: 1 }, { startSec: 0, spanSec: 5.5 }), '0:00.00 – 0:05.50');
 });
