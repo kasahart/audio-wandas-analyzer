@@ -4,6 +4,14 @@ export function eventTarget(event: Event): RuntimeElement {
     return event.target as RuntimeElement;
 }
 
+export function requiredElementById(doc: { getElementById(elementId: string): HTMLElement | null }, elementId: string): HTMLElement {
+    const element = doc.getElementById(elementId);
+    if (!element) {
+        throw new Error('Missing element #' + elementId);
+    }
+    return element;
+}
+
 export function canvasById(doc: { getElementById(elementId: string): unknown }, elementId: string): HTMLCanvasElement | null {
     return doc.getElementById(elementId) as HTMLCanvasElement | null;
 }

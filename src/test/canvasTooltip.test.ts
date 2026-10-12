@@ -7,7 +7,7 @@ import type { RuntimeDocument, RuntimeElement } from '../webview/runtime/types';
 function setup(withTooltip = true) {
     const dom = new JSDOM(`<!doctype html><body>${withTooltip ? '<div id="canvas-tooltip" style="display:none"></div>' : ''}<canvas class="track-canvas" tabindex="0"></canvas></body>`);
     const doc = dom.window.document as unknown as RuntimeDocument;
-    return { dom, doc, tooltipEl: doc.getElementById('canvas-tooltip'), tooltip: createCanvasTooltip(doc) };
+    return { dom, doc, tooltipEl: doc.getElementById('canvas-tooltip') as HTMLElement, tooltip: createCanvasTooltip(doc) };
 }
 
 test('showAtPointer places the tooltip just below-right of the pointer', () => {

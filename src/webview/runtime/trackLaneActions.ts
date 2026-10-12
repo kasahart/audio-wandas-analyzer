@@ -35,7 +35,7 @@ function laneContext(event: Event, resolver: TrackLaneResolver): (TrackLaneConte
     return { action, trackId, trackIndex: resolver.trackIndexForId(trackId), target, event };
 }
 
-export function attachTrackLaneActions(wrapper: RuntimeElement, resolver: TrackLaneResolver, handlers: TrackLaneHandlers): void {
+export function attachTrackLaneActions(wrapper: HTMLElement, resolver: TrackLaneResolver, handlers: TrackLaneHandlers): void {
     wrapper.addEventListener('click', function (e) {
         const ctx = laneContext(e, resolver);
         if (ctx && Object.hasOwn(handlers, ctx.action)) {

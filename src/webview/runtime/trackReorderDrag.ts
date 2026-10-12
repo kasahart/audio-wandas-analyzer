@@ -3,11 +3,11 @@ import type { RuntimeDocument, RuntimeElement, TrackId } from './types';
 
 export interface TrackReorderDragOptions {
     trackIdFromElement(element: RuntimeElement): TrackId | null;
-    rowFor(trackId: TrackId): RuntimeElement | null;
+    rowFor(trackId: TrackId): HTMLElement | null;
     onReorder(fromTrackId: TrackId, toTrackId: TrackId): void;
 }
 
-export function installTrackReorderDrag(document: RuntimeDocument, wrap: RuntimeElement, options: TrackReorderDragOptions): void {
+export function installTrackReorderDrag(document: RuntimeDocument, wrap: HTMLElement, options: TrackReorderDragOptions): void {
     let dragFrom: TrackId | null = null;
 
     function rowAt(e: Event): RuntimeElement | null {

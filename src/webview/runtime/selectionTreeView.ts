@@ -29,7 +29,7 @@ export interface SelectionTreeView {
     renderTree(nodes: SelectionTreeNode[], isRoot: boolean, depth: number): string;
     isVisible(el: HTMLElement): boolean;
     /** Wires folder toggles, checkboxes, the filter box and the sidebar resizer inside the selection layout. */
-    attach(layout: RuntimeElement): void;
+    attach(layout: HTMLElement): void;
 }
 
 /** The file tree of the directory-selection layout: lazy folder rendering, collapse state, filter and resizer. */
@@ -93,7 +93,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
         }
         return true;
     }
-    function attach(layout: RuntimeElement): void {
+    function attach(layout: HTMLElement): void {
         function toggleDirectoryHeader(dirHeader: RuntimeElement) {
             const list = dirHeader.nextElementSibling;
             const toggle = dirHeader.querySelector('.dir-toggle');

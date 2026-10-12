@@ -11,7 +11,7 @@ import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cu
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { createSelectionTreeView } from './selectionTreeView';
 import { buildSpecSummaryText, buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
-import { audioById, buttonById, buttonMatching, canvasById, eventTarget, inputMatching, inputsMatching } from './domAdapter';
+import { audioById, buttonById, buttonMatching, canvasById, eventTarget, inputMatching, inputsMatching, requiredElementById } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
@@ -174,7 +174,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const TRACK_COLORS = ['#4ec994', '#ff8c4a', '#4a9eff', '#e8637a', '#c084fc',
         '#f0c040', '#40b0d0', '#d09060', '#80c080', '#a0a0ff'];
     function announce(msg: string): void {
-        var el = document.getElementById('a11y-announce');
+        const el = document.getElementById('a11y-announce');
         if (!el) {
             return;
         }
@@ -826,7 +826,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
                 fillSpectrogramSettingsForm(document, p);
                 specSettingsPopover.applyAutoState();
-                document.getElementById('spec-apply').click();
+                requiredElementById(document, 'spec-apply').click();
             },
             'set-cursor': p => {
                 invalidateDesiredSpectrumSliceRequests();
@@ -926,7 +926,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     // ── Build DOM ──
-    const app = document.getElementById('app');
+    const app = requiredElementById(document, 'app');
     app.innerHTML = buildLayout();
     syncPythonEnvironmentButton();
     syncWaveformModeButton();
@@ -1775,13 +1775,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (isSelectionMode) {
             attachDirectorySelectionEvents();
         }
+        const tracksWrapper = requiredElementById(document, 'tracks-wrapper');
         const toolbarHandlers = { onAction: handleToolbarAction, onHeightInput: applyHeightInput };
         attachToolbarActions(document.getElementById('toolbar'), toolbarHandlers);
         attachToolbarActions(document.getElementById('spectrum-zoom-toolbar'), toolbarHandlers);
         attachExclusiveMenus(document.getElementById('toolbar'));
         attachHeightResizeListeners(
             heightResize,
-            [document.getElementById('tracks-wrapper'), document.getElementById('spectrum-section')],
+            [tracksWrapper, document.getElementById('spectrum-section')],
             document,
             window,
         );
@@ -1797,7 +1798,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 navigator.clipboard.writeText(loopRegionClockText(loopRegion, trackStore.globalSpan())).catch(function () { });
             });
         }
-        attachTrackLaneActions(document.getElementById('tracks-wrapper'), {
+        attachTrackLaneActions(tracksWrapper, {
             trackIdFromElement,
             trackIndexForId: (trackId) => trackStore.protocolIndexForId(trackId),
         }, {
@@ -1836,7 +1837,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 openColorPicker(trackId, target.closest ? target.closest('[data-action="pick-color"]') : target);
             },
         });
-        attachOffsetEditing(document.getElementById('tracks-wrapper'), document, { placeholder: STR.offsetEditPlaceholder, ariaLabel: STR.offsetEditAriaLabel }, {
+        attachOffsetEditing(tracksWrapper, document, { placeholder: STR.offsetEditPlaceholder, ariaLabel: STR.offsetEditAriaLabel }, {
             trackIndexFromElement,
             currentOffsetMs: (idx) => Math.round(trackRuntimeAt(idx).offsetSeconds * 1000),
             onReset(idx) {
@@ -1855,7 +1856,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             },
         });
         // 波形キャンバス・軸キャンバスのダブルクリック → ズームリセット
-        document.getElementById('tracks-wrapper').addEventListener('dblclick', function (e) {
+        tracksWrapper.addEventListener('dblclick', function (e) {
             const targetCanvas = eventTarget(e).closest
                 ? (eventTarget(e).closest('.track-canvas') || eventTarget(e).closest('.track-axis-canvas'))
                 : null;
@@ -1864,16 +1865,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             resetZoom();
         });
-        document.getElementById('tracks-wrapper').addEventListener('mousemove', function (e) {
+        tracksWrapper.addEventListener('mousemove', function (e) {
             handleCanvasMouseMove(e);
         });
-        document.getElementById('tracks-wrapper').addEventListener('mouseleave', clearHover);
-        document.getElementById('tracks-wrapper').addEventListener('mousedown', function (e) {
+        tracksWrapper.addEventListener('mouseleave', clearHover);
+        tracksWrapper.addEventListener('mousedown', function (e) {
             handleCanvasMouseDown(e);
         });
         document.addEventListener('mousemove', function (e) { handleDocMouseMove(e); });
         document.addEventListener('mouseup', function (e) { handleDocMouseUp(e); });
-        document.getElementById('tracks-wrapper').addEventListener('wheel', function (e) {
+        tracksWrapper.addEventListener('wheel', function (e) {
             if (e.ctrlKey) {
                 e.preventDefault();
                 handleZoomWheel(e);
@@ -3118,7 +3119,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!trackStore.reorder(fromTrackId, toTrackId)) {
             return;
         }
-        var wrap = document.getElementById('stacked-wrap');
+        const wrap = document.getElementById('stacked-wrap');
         if (wrap) {
             trackStore.displayOrder.forEach(function (trackId) {
                 var row = document.getElementById('track-row-' + trackIndexForId(trackId));
