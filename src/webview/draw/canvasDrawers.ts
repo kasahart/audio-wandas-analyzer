@@ -35,6 +35,7 @@ export interface CanvasDrawCtx {
     rect(x: number, y: number, w: number, h: number): void;
     clip(): void;
     fillRect(x: number, y: number, w: number, h: number): void;
+    strokeRect(x: number, y: number, w: number, h: number): void;
     fillText(text: string, x: number, y: number): void;
     createImageData(w: number, h: number): { data: Uint8ClampedArray; width: number; height: number };
     putImageData(img: { data: Uint8ClampedArray; width: number; height: number }, x: number, y: number): void;
@@ -234,6 +235,49 @@ export function traceSpectrumPath(ctx: CanvasDrawCtx, slice: SpectrumSliceLike, 
             ctx.lineTo(x, y);
         }
     }
+}
+
+export function strokeSpectrumSeries(
+    ctx: CanvasDrawCtx,
+    frame: SpectrumPlotFrame,
+    series: ReadonlyArray<{ slice: SpectrumSliceLike; color: string }>,
+    lineWidth: number,
+    cutoffHz: number,
+): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(frame.padLeft, frame.padTop, frame.plotWidth, frame.plotHeight);
+    ctx.clip();
+    ctx.lineWidth = lineWidth;
+    for (const s of series) {
+        ctx.strokeStyle = s.color;
+        ctx.beginPath();
+        traceSpectrumPath(ctx, s.slice, frame, cutoffHz);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+export function drawSpectrumSelectionBox(
+    ctx: CanvasDrawCtx,
+    frame: SpectrumPlotFrame,
+    anchor: { freqNorm: number; dbNorm: number },
+    current: { freqNorm: number; dbNorm: number },
+): void {
+    const ax = frame.padLeft + anchor.freqNorm * frame.plotWidth;
+    const ay = frame.padTop + (1 - anchor.dbNorm) * frame.plotHeight;
+    const bx = frame.padLeft + current.freqNorm * frame.plotWidth;
+    const by = frame.padTop + (1 - current.dbNorm) * frame.plotHeight;
+    const rx = Math.min(ax, bx), ry = Math.min(ay, by);
+    const rw = Math.abs(bx - ax), rh = Math.abs(by - ay);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(100,180,255,0.9)';
+    ctx.fillStyle = 'rgba(100,180,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.restore();
 }
 
 export function drawSpectrumCrosshair(
