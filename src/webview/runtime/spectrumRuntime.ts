@@ -1,7 +1,7 @@
 import { dbLevelUnitFor, type SpectrumPlotFrame } from '../draw/canvasDrawers';
 import { formatReadoutHz } from './canvasOverlays';
 import type { HostInboundMessage } from './hostMessaging';
-import type { SpectrumSlice, SpectrumSnap } from './types';
+import type { DragPoint, SpectrumSlice, SpectrumSnap } from './types';
 import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
 
 export function zoomSpectrumRange(range: NormalizedRange, factor: number): NormalizedRange {
@@ -136,4 +136,73 @@ export function spectrumSlicesFromResult(msg: SpectrumSliceResultMessage, cursor
         unit: channel.unit,
         axisLabel: channel.axisLabel,
     }));
+}
+
+export const OVERLAY_SPECTRUM_PAD = { left: 36, right: 8, top: 8, bottom: 18 } as const;
+
+export function overlayPlotPoint(x: number, y: number, width: number, height: number): DragPoint | null {
+    const pad = OVERLAY_SPECTRUM_PAD;
+    const plotW = width - pad.left - pad.right;
+    const plotH = height - pad.top - pad.bottom;
+    if (plotW <= 0 || plotH <= 0) {
+        return null;
+    }
+    return {
+        freqNorm: Math.max(0, Math.min(1, (x - pad.left) / plotW)),
+        dbNorm: Math.max(0, Math.min(1, 1 - (y - pad.top) / plotH)),
+    };
+}
+
+export interface SpectrumBoxZoom {
+    freqStart: number;
+    freqEnd: number;
+    dbMin?: number;
+    dbMax?: number;
+}
+
+const MIN_BOX_ZOOM_PX = 5;
+
+export function spectrumBoxZoom(
+    anchor: DragPoint,
+    current: DragPoint,
+    width: number,
+    height: number,
+    view: { freqStart: number; freqEnd: number },
+    visibleDb: { min: number; max: number } | null,
+): SpectrumBoxZoom | null {
+    const pad = OVERLAY_SPECTRUM_PAD;
+    const pxDx = Math.abs((anchor.freqNorm - current.freqNorm) * (width - pad.left - pad.right));
+    const pxDy = Math.abs((anchor.dbNorm - current.dbNorm) * (height - pad.top - pad.bottom));
+    if (pxDx < MIN_BOX_ZOOM_PX || pxDy < MIN_BOX_ZOOM_PX) {
+        return null;
+    }
+    const f0 = Math.min(anchor.freqNorm, current.freqNorm);
+    const f1 = Math.max(anchor.freqNorm, current.freqNorm);
+    const freqSpan = view.freqEnd - view.freqStart;
+    const zoom: SpectrumBoxZoom = {
+        freqStart: view.freqStart + f0 * freqSpan,
+        freqEnd: view.freqStart + f1 * freqSpan,
+    };
+    if (visibleDb) {
+        const dbSpan = visibleDb.max - visibleDb.min;
+        zoom.dbMin = visibleDb.min + Math.min(anchor.dbNorm, current.dbNorm) * dbSpan;
+        zoom.dbMax = visibleDb.min + Math.max(anchor.dbNorm, current.dbNorm) * dbSpan;
+    }
+    return zoom;
+}
+
+export type OverlaySpectrumRegion = 'db-axis' | 'freq-axis' | 'plot' | null;
+
+export function overlaySpectrumRegionAt(x: number, y: number, width: number, height: number): OverlaySpectrumRegion {
+    const pad = OVERLAY_SPECTRUM_PAD;
+    if (x < pad.left) {
+        return 'db-axis';
+    }
+    if (x > width - pad.right) {
+        return null;
+    }
+    if (y > height - pad.bottom) {
+        return 'freq-axis';
+    }
+    return y >= pad.top ? 'plot' : null;
 }

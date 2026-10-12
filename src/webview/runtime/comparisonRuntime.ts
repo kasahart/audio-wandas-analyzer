@@ -28,7 +28,11 @@ import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml,
 import {
     hoverNormForFrequency as mapHoverNormForFrequency,
     nearestSpectrumSnap,
+    OVERLAY_SPECTRUM_PAD,
+    overlayPlotPoint,
+    overlaySpectrumRegionAt,
     spectrumBinAtHover,
+    spectrumBoxZoom,
     spectrumReadoutText,
     spectrumSeriesRange,
     trackSpectrumReadoutText,
@@ -2588,7 +2592,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     if (specDragAnchor !== null) {
                         return;
                     } // ドラッグ中はホバー不要
-                    onSpectrumMove(36, 8, overlayCanvas, e, -1, null);
+                    onSpectrumMove(OVERLAY_SPECTRUM_PAD.left, OVERLAY_SPECTRUM_PAD.right, overlayCanvas, e, -1, null);
                 });
                 overlayCanvas.addEventListener('mouseleave', onSpectrumLeave);
                 overlayCanvas.addEventListener('focus', function () { onSpectrumFocus(-1, null); });
@@ -2598,18 +2602,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         return;
                     }
                     const rect = overlayCanvas.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
-                    const y = e.clientY - rect.top;
-                    const padL = 36, padR = 8, padT = 8, padB = 18;
-                    const plotW = overlayCanvas.width - padL - padR;
-                    const plotH = overlayCanvas.height - padT - padB;
-                    if (plotW <= 0 || plotH <= 0) {
+                    const point = overlayPlotPoint(e.clientX - rect.left, e.clientY - rect.top, overlayCanvas.width, overlayCanvas.height);
+                    if (!point) {
                         return;
                     }
-                    const freqNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
-                    const dbNorm = Math.max(0, Math.min(1, 1 - (y - padT) / plotH));
-                    specDragAnchor = { freqNorm: freqNorm, dbNorm: dbNorm };
-                    specDragCurrent = { freqNorm: freqNorm, dbNorm: dbNorm };
+                    specDragAnchor = point;
+                    specDragCurrent = { ...point };
                     e.preventDefault();
                 });
                 document.addEventListener('mousemove', function (e) {
@@ -2617,17 +2615,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         return;
                     }
                     const rect = overlayCanvas.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
-                    const y = e.clientY - rect.top;
-                    const padL = 36, padR = 8, padT = 8, padB = 18;
-                    const plotW = overlayCanvas.width - padL - padR;
-                    const plotH = overlayCanvas.height - padT - padB;
-                    if (plotW <= 0 || plotH <= 0) {
+                    const point = overlayPlotPoint(e.clientX - rect.left, e.clientY - rect.top, overlayCanvas.width, overlayCanvas.height);
+                    if (!point) {
                         return;
                     }
-                    const freqNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
-                    const dbNorm = Math.max(0, Math.min(1, 1 - (y - padT) / plotH));
-                    specDragCurrent = { freqNorm: freqNorm, dbNorm: dbNorm };
+                    specDragCurrent = point;
                     scheduleSpectrumRefresh('hover');
                 });
                 document.addEventListener('mouseup', function (e) {
@@ -2642,25 +2634,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         scheduleSpectrumRefresh('immediate');
                         return;
                     }
-                    const pxDx = Math.abs((anchor.freqNorm - current.freqNorm) * (overlayCanvas.width - 36 - 8));
-                    const pxDy = Math.abs((anchor.dbNorm - current.dbNorm) * (overlayCanvas.height - 8 - 18));
-                    if (pxDx < 5 || pxDy < 5) {
-                        scheduleSpectrumRefresh('immediate');
-                        return;
-                    }
-                    // ズームを適用: freqNorm は現在の visFreqStart..visFreqEnd 内の相対値
-                    const f0 = Math.min(anchor.freqNorm, current.freqNorm);
-                    const f1 = Math.max(anchor.freqNorm, current.freqNorm);
-                    const d0 = Math.min(anchor.dbNorm, current.dbNorm);
-                    const d1 = Math.max(anchor.dbNorm, current.dbNorm);
-                    const prevFreqStart = specFreqStart;
-                    const prevFreqEnd = specFreqEnd;
-                    specFreqStart = prevFreqStart + f0 * (prevFreqEnd - prevFreqStart);
-                    specFreqEnd = prevFreqStart + f1 * (prevFreqEnd - prevFreqStart);
-                    if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
-                        const visDbRange = _lastVisDbMax - _lastVisDbMin;
-                        specDbMin = _lastVisDbMin + d0 * visDbRange;
-                        specDbMax = _lastVisDbMin + d1 * visDbRange;
+                    const zoom = spectrumBoxZoom(
+                        anchor,
+                        current,
+                        overlayCanvas.width,
+                        overlayCanvas.height,
+                        { freqStart: specFreqStart, freqEnd: specFreqEnd },
+                        _lastVisDbMin !== null && _lastVisDbMax !== null ? { min: _lastVisDbMin, max: _lastVisDbMax } : null,
+                    );
+                    if (zoom) {
+                        specFreqStart = zoom.freqStart;
+                        specFreqEnd = zoom.freqEnd;
+                        if (zoom.dbMin !== undefined && zoom.dbMax !== undefined) {
+                            specDbMin = zoom.dbMin;
+                            specDbMax = zoom.dbMax;
+                        }
                     }
                     scheduleSpectrumRefresh('immediate');
                 });
@@ -2668,20 +2656,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     const rect = overlayCanvas.getBoundingClientRect();
                     const scaleX = overlayCanvas.width / (rect.width || overlayCanvas.width);
                     const scaleY = overlayCanvas.height / (rect.height || overlayCanvas.height);
-                    const cx = (e.clientX - rect.left) * scaleX;
-                    const cy = (e.clientY - rect.top) * scaleY;
-                    const padL = 36, padR = 8, padT = 8, padB = 18;
-                    const W = overlayCanvas.width, H = overlayCanvas.height;
                     if (_lastSpectrumMaxF <= 0) {
                         return;
                     } // データ無し
-                    if (cx < padL) {
+                    const region = overlaySpectrumRegionAt(
+                        (e.clientX - rect.left) * scaleX,
+                        (e.clientY - rect.top) * scaleY,
+                        overlayCanvas.width,
+                        overlayCanvas.height,
+                    );
+                    if (region === 'db-axis') {
                         openSpectrumRangePopup('db', e.clientX, e.clientY);
                     }
-                    else if (cx >= padL && cx <= W - padR && cy > H - padB) {
+                    else if (region === 'freq-axis') {
                         openSpectrumRangePopup('freq', e.clientX, e.clientY);
                     }
-                    else if (cx >= padL && cx <= W - padR && cy >= padT && cy <= H - padB) {
+                    else if (region === 'plot') {
                         specZoomReset();
                     }
                 });
@@ -3800,7 +3790,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         ctx.clearRect(0, 0, W, H);
         const { minDb, maxDb, maxFrequencyHz: maxF } = spectrumSeriesRange(slices);
-        const padL = 36, padR = 8, padT = 8, padB = 18;
+        const { left: padL, right: padR, top: padT, bottom: padB } = OVERLAY_SPECTRUM_PAD;
         const visFreqMinO = specFreqStart * maxF;
         const visFreqMaxO = specFreqEnd * maxF;
         const visDbMinO = (specDbMin != null) ? specDbMin : minDb;
