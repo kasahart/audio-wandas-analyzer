@@ -34,6 +34,7 @@ import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
 import { attachCanvasFocusHint, createCanvasTooltip } from './canvasTooltip';
 import { createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
+import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
 import { SpectrumHover } from './spectrumHover';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { toolbarHtml } from './toolbarHtml';
@@ -1180,21 +1181,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             lanesHtml: buildChannelLanes(result, i),
         }, STR);
     }
-    /** フルパスから basename だけを返す（パス区切り文字なしならそのまま返す） */
-    function shortPythonName(cmd: string) {
-        var s = String(cmd);
-        var last = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
-        return last >= 0 ? (s.slice(last + 1) || s) : s;
-    }
-    /** Python ボタンのラベル文字列を生成する（短い表示名のみ） */
-    function buildPythonButtonText(cmd: string, isWarning: boolean) {
-        return 'Python: ' + shortPythonName(cmd || 'python3') + (isWarning ? ' ⚠' : '');
-    }
-    /** Python ボタンのツールチップ文字列を生成する（フルパス＋説明） */
-    function buildPythonTooltip(cmd: string, tooltip: string) {
-        var full = cmd || 'python3';
-        return tooltip ? full + ' — ' + tooltip : full;
-    }
     // ── Rendering ──
     function renderAll() {
         updateUiSmokeSpectrumState();
@@ -1278,12 +1264,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
         return 60;
-    }
-    function isPythonEnvError(msg: string): boolean {
-        if (!msg) {
-            return false;
-        }
-        return /Failed to start Python process|No module named|ModuleNotFoundError|ENOENT|spawn.*python|command not found/i.test(msg);
     }
     function renderStackedTracks() {
         trackStore.displayOrder.forEach(function (trackId) {
