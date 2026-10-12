@@ -1,4 +1,7 @@
+import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
+import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
+import { calibrationBadgeHtml, calibrationButtonHtml, channelMetricSummaryHtml, isClipped } from './calibrationDecorations';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 
 export interface ChannelLaneSpec {
@@ -31,5 +34,59 @@ export function channelLaneHtml(spec: ChannelLaneSpec): string {
         + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="0" aria-label="' + escapeHtml(spec.fileName + ' ' + label + ' ' + spec.spectrumTitle) + '"></canvas>'
         + '    </div>'
         + '  </div>'
+        + '</div>';
+}
+
+export interface TrackRowSpec {
+    trackId: string;
+    trackIndex: number;
+    fileName: string;
+    filePath: string;
+    channelCount: number;
+    sampleRateHz: number;
+    channels: ChannelSummary[];
+    color: string;
+    playable: boolean;
+    muted: boolean;
+    lanesHtml: string;
+}
+
+export type TrackRowStrings = Pick<UiStrings,
+    | 'ariaDragHandle' | 'ariaPickColor' | 'trackPickColor' | 'clipBadgeTitle'
+    | 'trackPlayTitle' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaTrackMute' | 'ariaRemoveTrack'
+    | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'
+    | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'heightTrackLabel'>;
+
+export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): string {
+    const { trackId, trackIndex: i, channels } = spec;
+    const monoSummary = channels.length === 1
+        ? ' &nbsp; ' + channelMetricSummaryHtml(channels[0])
+        : '';
+    const disabled = spec.playable ? '' : ' disabled';
+    return '<div class="track-row" id="track-row-' + i + '" data-track-id="' + trackId + '">'
+        + '<div class="track-header">'
+        + '  <div class="track-title-row">'
+        + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaDragHandle) + '" title="' + escapeHtml(strings.ariaDragHandle) + '">≡</div>'
+        + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + spec.color + '" role="button" tabindex="0" aria-label="' + escapeHtml(strings.ariaPickColor) + '" title="' + escapeHtml(strings.trackPickColor) + '"></div>'
+        + '    <div class="track-name" title="' + escapeHtml(spec.filePath) + '">' + escapeHtml(spec.fileName) + '</div>'
+        + (isClipped(channels) ? '    <span class="clip-badge" title="' + escapeHtml(strings.clipBadgeTitle) + '">CLIP</span>' : '')
+        + '    ' + calibrationBadgeHtml(channels)
+        + '  </div>'
+        + '  <div class="track-meta">Total: ' + spec.channelCount + ' ch &nbsp;' + (spec.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
+        + '  <div class="track-btns">'
+        + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '" title="' + escapeHtml(strings.trackPlayTitle) + '" aria-label="' + escapeHtml(strings.ariaTrackPlay) + '"' + disabled + '>▶</button>'
+        + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '" title="' + escapeHtml(strings.trackStopTitle) + '" aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'
+        + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaTrackMute) + '" title="' + escapeHtml(strings.ariaTrackMute) + '" aria-pressed="' + spec.muted + '"' + disabled + '>' + (spec.muted ? '🔇' : '🔊') + '</button>'
+        + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaRemoveTrack) + '">✕</button>'
+        + '    ' + calibrationButtonHtml(trackId, strings)
+        + '  </div>'
+        + '  <div class="track-offset">'
+        + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '" title="' + escapeHtml(strings.trackOffsetResetHint) + '" aria-label="' + escapeHtml(strings.ariaOffsetValue) + '">+0.000s</span>'
+        + '    <button class="track-offset-step" data-action="offset-up" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaOffsetUp) + '">▲</button>'
+        + '    <button class="track-offset-step" data-action="offset-down" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaOffsetDown) + '">▼</button>'
+        + '  </div>'
+        + '</div>'
+        + '<div class="track-channel-lanes">' + spec.lanesHtml + '</div>'
+        + '<div class="height-resizer track-height-resizer" data-action="track-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.heightTrackLabel + ' resize') + '"></div>'
         + '</div>';
 }

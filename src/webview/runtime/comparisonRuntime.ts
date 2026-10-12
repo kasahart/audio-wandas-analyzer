@@ -29,9 +29,9 @@ import { arrowCursorStep, isTextEntryTag, keydownIntent, type GlobalShortcutActi
 import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
-import { channelLaneHtml } from './trackLaneHtml';
+import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
-import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped } from './calibrationDecorations';
+import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
     nearestSpectrumSnap,
@@ -1239,36 +1239,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!trackId) {
             return '';
         }
-        const channels = channelsForResult(result);
-        const monoSummary = channels.length === 1
-            ? ' &nbsp; ' + channelMetricSummaryHtml(channels[0])
-            : '';
-        return '<div class="track-row" id="track-row-' + i + '" data-track-id="' + trackId + '">'
-            + '<div class="track-header">'
-            + '  <div class="track-title-row">'
-            + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaDragHandle) + '" title="' + escapeHtml(STR.ariaDragHandle) + '">≡</div>'
-            + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + trackColor(i) + '" role="button" tabindex="0" aria-label="' + escapeHtml(STR.ariaPickColor) + '" title="' + escapeHtml(STR.trackPickColor) + '"></div>'
-            + '    <div class="track-name" title="' + escapeHtml(result.filePath) + '">' + escapeHtml(result.fileName) + '</div>'
-            + (isClipped(channels) ? '    <span class="clip-badge" title="' + escapeHtml(STR.clipBadgeTitle) + '">CLIP</span>' : '')
-            + '    ' + calibrationBadgeHtml(channels)
-            + '  </div>'
-            + '  <div class="track-meta">Total: ' + result.channelCount + ' ch &nbsp;' + (result.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
-            + '  <div class="track-btns">'
-            + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '" title="' + escapeHtml(STR.trackPlayTitle) + '" aria-label="' + escapeHtml(STR.ariaTrackPlay) + '"' + (result.audioSource ? '' : ' disabled') + '>▶</button>'
-            + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '" title="' + escapeHtml(STR.trackStopTitle) + '" aria-label="' + escapeHtml(STR.ariaTrackStop) + '"' + (result.audioSource ? '' : ' disabled') + '>■</button>'
-            + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaTrackMute) + '" title="' + escapeHtml(STR.ariaTrackMute) + '" aria-pressed="' + !!trackStore.require(trackId).runtime.muted + '"' + (result.audioSource ? '' : ' disabled') + '>' + (trackStore.require(trackId).runtime.muted ? '🔇' : '🔊') + '</button>'
-            + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaRemoveTrack) + '">✕</button>'
-            + '    ' + calibrationButtonHtml(trackId, STR)
-            + '  </div>'
-            + '  <div class="track-offset">'
-            + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '" title="' + escapeHtml(STR.trackOffsetResetHint) + '" aria-label="' + escapeHtml(STR.ariaOffsetValue) + '">+0.000s</span>'
-            + '    <button class="track-offset-step" data-action="offset-up" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaOffsetUp) + '">▲</button>'
-            + '    <button class="track-offset-step" data-action="offset-down" data-track-id="' + trackId + '" aria-label="' + escapeHtml(STR.ariaOffsetDown) + '">▼</button>'
-            + '  </div>'
-            + '</div>'
-            + '<div class="track-channel-lanes">' + buildChannelLanes(result, i) + '</div>'
-            + '<div class="height-resizer track-height-resizer" data-action="track-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(STR.heightTrackLabel + ' resize') + '"></div>'
-            + '</div>';
+        return trackRowHtml({
+            trackId,
+            trackIndex: i,
+            fileName: result.fileName,
+            filePath: result.filePath,
+            channelCount: result.channelCount,
+            sampleRateHz: result.sampleRateHz,
+            channels: channelsForResult(result),
+            color: trackColor(i),
+            playable: !!result.audioSource,
+            muted: !!trackStore.require(trackId).runtime.muted,
+            lanesHtml: buildChannelLanes(result, i),
+        }, STR);
     }
     /** フルパスから basename だけを返す（パス区切り文字なしならそのまま返す） */
     function shortPythonName(cmd: string) {

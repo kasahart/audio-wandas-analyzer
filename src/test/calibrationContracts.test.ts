@@ -104,6 +104,7 @@ test('calibration row helpers draw badges, peak text, requests and the overlay g
     assert.match(peakText(channel({ measurement: pa })) ?? '', /^Peak 5\.00 Pa/);
     assert.equal(channelMetricSummaryHtml(channel({})), '<span>Peak 80.0 dB</span>');
     assert.equal(channelMetricSummaryHtml(channel({ peakLevelDb: Number.NEGATIVE_INFINITY })), '<span>Peak —</span>');
+    assert.equal(channelMetricSummaryHtml(channel({ peakLevelDb: Number.NaN })), '<span>Peak —</span>');
     assert.equal(channelMetricSummaryHtml(undefined), '<span>Peak —</span>');
     assert.match(channelMetricSummaryHtml(channel({ measurement: pa })), /^<span>Peak 5\.00 Pa/);
     assert.deepEqual(calibrationRequest(3, track([channel({}), channel({ label: '' })])), {
