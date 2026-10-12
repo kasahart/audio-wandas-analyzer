@@ -43,3 +43,52 @@ export function arrowCursorStep(shiftKey: boolean, spanSec: number, zoomStart: n
     }
     return (zoomEnd - zoomStart) / canvasWidth;
 }
+
+export type KeydownIntent =
+    | { kind: 'spectrum-step'; delta: -1 | 1 }
+    | { kind: 'shortcut'; action: GlobalShortcutAction }
+    | { kind: 'toggle-playback'; target: 'focused-track' | 'current' }
+    | { kind: 'cursor-step'; direction: -1 | 1 };
+
+export interface KeydownEventLike {
+    key: string;
+    code: string;
+    ctrlKey: boolean;
+    metaKey: boolean;
+    altKey: boolean;
+}
+
+export interface KeydownContext {
+    spectrumActive: boolean;
+    helpOpen: boolean;
+    textEntryFocused: boolean;
+    trackCanvasFocused: boolean;
+}
+
+function arrowDirection(code: string): -1 | 1 | null {
+    return code === 'ArrowLeft' ? -1 : code === 'ArrowRight' ? 1 : null;
+}
+
+export function keydownIntent(e: KeydownEventLike, ctx: KeydownContext): KeydownIntent | null {
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+        return null;
+    }
+    const arrow = arrowDirection(e.code);
+    if (ctx.spectrumActive && arrow !== null) {
+        return { kind: 'spectrum-step', delta: arrow };
+    }
+    if (ctx.helpOpen) {
+        return null;
+    }
+    const action = ctx.textEntryFocused ? null : globalShortcutAction(e.key);
+    if (action) {
+        return { kind: 'shortcut', action };
+    }
+    if (e.code === 'Space' && !ctx.textEntryFocused) {
+        return { kind: 'toggle-playback', target: ctx.trackCanvasFocused ? 'focused-track' : 'current' };
+    }
+    if (ctx.trackCanvasFocused && arrow !== null) {
+        return { kind: 'cursor-step', direction: arrow };
+    }
+    return null;
+}
