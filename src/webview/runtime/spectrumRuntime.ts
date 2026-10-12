@@ -8,6 +8,26 @@ export function zoomSpectrumRange(range: NormalizedRange, factor: number): Norma
     return zoomNormalizedRange(range, factor);
 }
 
+/**
+ * dB range to apply after a button zoom: `{ dbMin: null, dbMax: null }` restores auto scaling once the
+ * frequency axis is fully zoomed out, and `null` means the caller keeps its current dB range.
+ */
+export function spectrumDbRangeAfterZoom(
+    freqRange: NormalizedRange,
+    factor: number,
+    lastVisibleDb: { min: number; max: number } | null,
+): { dbMin: number | null; dbMax: number | null } | null {
+    if (factor > 1 && freqRange.start <= 0 && freqRange.end >= 1) {
+        return { dbMin: null, dbMax: null };
+    }
+    if (!lastVisibleDb) {
+        return null;
+    }
+    const center = (lastVisibleDb.min + lastVisibleDb.max) / 2;
+    const halfSpan = (lastVisibleDb.max - lastVisibleDb.min) / 2 * factor;
+    return { dbMin: center - halfSpan, dbMax: center + halfSpan };
+}
+
 export function spectrumBinAtFrequency(
     slice: SpectrumSlice,
     targetFreqHz: number,

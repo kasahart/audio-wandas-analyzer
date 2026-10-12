@@ -60,6 +60,7 @@ import {
     trackSpectrumReadoutText,
     setSpectrumReadout,
     spectrumSlicesFromResult,
+    spectrumDbRangeAfterZoom,
     zoomSpectrumRange,
 } from './spectrumRuntime';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
@@ -2449,16 +2450,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const range = zoomSpectrumRange({ start: specFreqStart, end: specFreqEnd }, factor);
         specFreqStart = range.start;
         specFreqEnd = range.end;
-        // 完全ズームアウト時は dB も自動に戻す（dB ブロックはスキップ）
-        if (factor > 1 && specFreqStart <= 0 && specFreqEnd >= 1) {
-            specDbMin = null;
-            specDbMax = null;
-        }
-        else if (_lastVisDbMin !== null && _lastVisDbMax !== null) {
-            const dc = (_lastVisDbMin + _lastVisDbMax) / 2;
-            const dh = (_lastVisDbMax - _lastVisDbMin) / 2 * factor;
-            specDbMin = dc - dh;
-            specDbMax = dc + dh;
+        const db = spectrumDbRangeAfterZoom(
+            range,
+            factor,
+            _lastVisDbMin !== null && _lastVisDbMax !== null ? { min: _lastVisDbMin, max: _lastVisDbMax } : null,
+        );
+        if (db) {
+            specDbMin = db.dbMin;
+            specDbMax = db.dbMax;
         }
         scheduleSpectrumRefresh('immediate');
     }
