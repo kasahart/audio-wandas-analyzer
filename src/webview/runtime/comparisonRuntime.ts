@@ -28,6 +28,7 @@ import { installHelpOverlay } from './helpOverlay';
 import { arrowCursorStep, isTextEntryTag, keydownIntent, type GlobalShortcutAction } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
+import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
 import {
@@ -426,21 +427,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function displayedChannel(result: ComparisonTrackState, trackIndex: number) {
         const channels = channelsForResult(result);
         return channels.length > 0 ? channels[0] : null;
-    }
-    function channelCanvasSuffix(channelIndex: number) {
-        return channelIndex === 0 ? '' : '-' + channelIndex;
-    }
-    function trackCanvasId(trackIndex: number, channelIndex: number) {
-        return 'track-canvas-' + trackIndex + channelCanvasSuffix(channelIndex);
-    }
-    function trackAxisCanvasId(trackIndex: number, channelIndex: number) {
-        return 'track-axis-canvas-' + trackIndex + channelCanvasSuffix(channelIndex);
-    }
-    function trackSpectrogramOverlayCanvasId(trackIndex: number, channelIndex: number) {
-        return 'track-spectrogram-overlay-' + trackIndex + channelCanvasSuffix(channelIndex);
-    }
-    function trackSpectrumCanvasId(trackIndex: number, channelIndex: number) {
-        return 'track-spectrum-' + trackIndex + channelCanvasSuffix(channelIndex);
     }
     function channelLevel(channel: ChannelSummary, levelDb: number | undefined): string {
         if (!Number.isFinite(levelDb)) { return '—'; }
@@ -993,7 +979,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const trackIndex = record.protocolIndex;
             const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
             const visibleFile = visibleFileRange(zoomStart, zoomEnd, placement);
-            const spectrumCanvas = document.getElementById('track-spectrum-' + trackIndex);
+            const spectrumCanvas = document.getElementById(trackSpectrumCanvasId(trackIndex, 0));
             const slice = trackRuntimeAt(trackIndex).hidden
                 ? null
                 : extractSpectrumAtCursor(result, trackIndex, trackRuntimeAt(trackIndex).offsetSeconds, spectrumCursorNorm);
@@ -1240,19 +1226,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const channels = channelsForResult(result);
         const ch = channels[channelIndex];
         const label = channelLabel(result, channelIndex);
-        const suffix = channelCanvasSuffix(channelIndex);
         const header = channels.length > 1
             ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escapeHtml(label) + '</span>' + channelMetricSummaryHtml(ch) + '</div>'
             : '';
         return '<div class="track-channel-lane" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '">'
             + header
             + '  <div class="track-channel-lane-body">'
-            + '    <div class="track-canvas-wrap" id="track-canvas-wrap-' + trackIndex + suffix + '">'
+            + '    <div class="track-canvas-wrap" id="' + trackCanvasWrapId(trackIndex, channelIndex) + '">'
             + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + AXIS_W + 'px" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '"></canvas>'
             + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" style="outline:none;flex:1"></canvas>'
             + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" aria-hidden="true" style="display:none;position:absolute;left:' + AXIS_W + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
             + '    </div>'
-            + '    <div class="track-spectrum-wrap" id="track-spectrum-wrap-' + trackIndex + suffix + '" title="' + escapeHtml(STR.trackSpectrumTitle) + '">'
+            + '    <div class="track-spectrum-wrap" id="' + trackSpectrumWrapId(trackIndex, channelIndex) + '" title="' + escapeHtml(STR.trackSpectrumTitle) + '">'
             + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '" data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '" tabindex="0" aria-label="' + escapeHtml(result.fileName + ' ' + label + ' ' + STR.trackSpectrumTitle) + '"></canvas>'
             + '    </div>'
             + '  </div>'
@@ -1334,7 +1319,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!canvas) {
                     return;
                 }
-                const wrap = document.getElementById('track-canvas-wrap-' + i + channelCanvasSuffix(channelIndex));
+                const wrap = document.getElementById(trackCanvasWrapId(i, channelIndex));
                 if (!wrap) {
                     return;
                 }
@@ -2207,11 +2192,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             state.results.forEach(function (result: ComparisonTrackState, i: number) {
                 channelsForResult(result).forEach(function (_, channelIndex: number) {
-                    const waveWrap = document.getElementById('track-canvas-wrap-' + i + channelCanvasSuffix(channelIndex));
+                    const waveWrap = document.getElementById(trackCanvasWrapId(i, channelIndex));
                     if (waveWrap) {
                         layoutObserver.observe(waveWrap);
                     }
-                    const spectrumWrap = document.getElementById('track-spectrum-wrap-' + i + channelCanvasSuffix(channelIndex));
+                    const spectrumWrap = document.getElementById(trackSpectrumWrapId(i, channelIndex));
                     if (spectrumWrap) {
                         layoutObserver.observe(spectrumWrap);
                     }
@@ -3101,7 +3086,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             updateOffsetDisplays();
         }
         else if (dragState.dragType === 'loop') {
-            const canvasEl = document.getElementById('track-canvas-' + dragTrackIndex);
+            const canvasEl = document.getElementById(trackCanvasId(dragTrackIndex, 0));
             if (!canvasEl) {
                 scheduleRender();
                 return;
@@ -3114,7 +3099,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
         else if (dragState.dragType === 'rectZoom') {
-            const canvasEl = document.getElementById('track-canvas-' + dragTrackIndex);
+            const canvasEl = document.getElementById(trackCanvasId(dragTrackIndex, 0));
             if (!canvasEl) {
                 scheduleRender();
                 return;
@@ -3133,7 +3118,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             updateUiSmokeWaveformState();
         }
         else if (dragState.dragType === 'gripStart') {
-            const canvasEl = document.getElementById('track-canvas-' + dragTrackIndex);
+            const canvasEl = document.getElementById(trackCanvasId(dragTrackIndex, 0));
             if (!canvasEl || !loopRegion) {
                 scheduleRender();
                 return;
@@ -3143,7 +3128,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             updateZoomToSelectionBtn();
         }
         else if (dragState.dragType === 'gripEnd') {
-            const canvasEl = document.getElementById('track-canvas-' + dragTrackIndex);
+            const canvasEl = document.getElementById(trackCanvasId(dragTrackIndex, 0));
             if (!canvasEl || !loopRegion) {
                 scheduleRender();
                 return;
@@ -3160,7 +3145,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (dragState && !dragState.isDrag) {
             // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
             const dragTrackIndex = trackStore.protocolIndexForId(dragState.trackId);
-            const canvasId = dragTrackIndex === null ? '' : 'track-canvas-' + dragTrackIndex;
+            const canvasId = dragTrackIndex === null ? '' : trackCanvasId(dragTrackIndex, 0);
             const canvas = document.getElementById(canvasId);
             if (canvas) {
                 const hit = trackCanvasTimeHit(canvas, e.clientX);
@@ -3340,7 +3325,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!canvas) {
                     return;
                 }
-                const wrap = document.getElementById('track-spectrum-wrap-' + i + channelCanvasSuffix(channelIndex));
+                const wrap = document.getElementById(trackSpectrumWrapId(i, channelIndex));
                 if (!wrap) {
                     return;
                 }
