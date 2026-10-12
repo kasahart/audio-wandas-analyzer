@@ -48,7 +48,6 @@ import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STY
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
-    nearestSpectrumSnap,
     OVERLAY_SPECTRUM_PAD,
     overlaySpectrumRegionAt,
     spectrumBinAtHover,
@@ -56,7 +55,8 @@ import {
     spectrumPlotFrame,
     spectrumSeriesRange,
     spectrumVisibleWindow,
-    steppedSpectrumHoverNorm,
+    steppedOverlaySpectrumHoverNorm,
+    steppedTrackSpectrumHoverNorm,
     TRACK_SPECTRUM_PAD,
     type SpectrumViewState,
     trackSpectrumReadoutText,
@@ -2798,16 +2798,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const result = record.result;
             const channelIndex = typeof spectrumHover.channelIndex === 'number' ? spectrumHover.channelIndex : 0;
             const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
-            if (!slice) {
-                return;
+            const nextNorm = slice ? steppedTrackSpectrumHoverNorm(slice, spectrumHover.norm, specFreqStart, specFreqEnd, deltaIdx) : null;
+            if (nextNorm !== null) {
+                spectrumHover.norm = nextNorm;
             }
-            const visFreqMin = specFreqStart * slice.maxFrequencyHz;
-            const visFreqMax = specFreqEnd * slice.maxFrequencyHz;
-            const snap = spectrumBinAtHover(slice, spectrumHover.norm, { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1, frequencyMin: visFreqMin, frequencyMax: visFreqMax, dbMin: slice.minDb, dbMax: slice.maxDb });
-            if (!snap) {
-                return;
-            }
-            spectrumHover.norm = steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, visFreqMin, visFreqMax);
             return;
         }
         const slices = visibleSpectrumSlices();
@@ -2818,14 +2812,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumViewState());
         const overlayC = document.getElementById('spectrum-overlay-canvas');
         const mouseY = spectrumHover.yFrac !== null && overlayC ? spectrumHover.yFrac * overlayC.height : null;
-        const frame = { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1, ...vis };
-        const nearest = nearestSpectrumSnap(slices, spectrumHover.norm, mouseY, frame);
-        const chosen = nearest ? nearest.s : slices[0];
-        const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, spectrumHover.norm, frame);
-        if (!snap) {
+        const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, mouseY, vis, deltaIdx);
+        if (nextNorm === null) {
             return;
         }
-        spectrumHover.norm = steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, vis.frequencyMin, vis.frequencyMax);
+        spectrumHover.norm = nextNorm;
         spectrumHover.target = 'overlay';
         spectrumHover.channelIndex = null;
     }

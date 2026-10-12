@@ -5,7 +5,9 @@ import {
     TRACK_SPECTRUM_PAD,
     spectrumPlotFrame,
     spectrumVisibleWindow,
+    steppedOverlaySpectrumHoverNorm,
     steppedSpectrumHoverNorm,
+    steppedTrackSpectrumHoverNorm,
 } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSlice } from '../webview/runtime/types';
 
@@ -46,4 +48,38 @@ test('steppedSpectrumHoverNorm: ビン番号は端でクランプされる', () 
 
 test('steppedSpectrumHoverNorm: 間引き前の最大周波数があればそれを基準にする', () => {
     assert.equal(steppedSpectrumHoverNorm(slice({ originalMaxFrequencyHz: 2000 }), 4, 1, 0, 2000), 0.5);
+});
+
+function flat(db: number, bins: number): SpectrumSlice {
+    return slice({ values: new Array(bins).fill(db), frequencyBins: bins });
+}
+
+test('steppedTrackSpectrumHoverNorm: 表示中の周波数範囲で 1 ビン先の位置を返す', () => {
+    assert.ok(Math.abs((steppedTrackSpectrumHoverNorm(flat(-40, 11), 0.5, 0, 1, 1) ?? NaN) - 0.6) < 1e-9);
+    assert.ok(Math.abs((steppedTrackSpectrumHoverNorm(flat(-40, 11), 0, 0.5, 1, 1) ?? NaN) - 0.2) < 1e-9);
+});
+
+test('steppedTrackSpectrumHoverNorm: ビンが無ければ null', () => {
+    assert.equal(steppedTrackSpectrumHoverNorm(slice({ frequencyBins: 0 }), 0.5, 0, 1, 1), null);
+});
+
+test('steppedOverlaySpectrumHoverNorm: マウス Y に最も近い系列のビン間隔で移動する', () => {
+    const vis = { frequencyMin: 0, frequencyMax: 1000, dbMin: -80, dbMax: 0 };
+    const quiet = { slice: flat(-70, 11) };
+    const loud = { slice: flat(-10, 21) };
+    assert.ok(Math.abs((steppedOverlaySpectrumHoverNorm([quiet, loud], 0.5, 0.9, vis, 1) ?? NaN) - 0.6) < 1e-9);
+    assert.ok(Math.abs((steppedOverlaySpectrumHoverNorm([quiet, loud], 0.5, 0.1, vis, 1) ?? NaN) - 0.55) < 1e-9);
+});
+
+test('steppedOverlaySpectrumHoverNorm: Y が決まらない系列しか無ければ先頭の系列で移動する', () => {
+    const vis = { frequencyMin: 0, frequencyMax: 1000, dbMin: 0, dbMax: 0 };
+    const first = { slice: flat(-40, 11) };
+    const second = { slice: flat(-40, 21) };
+    assert.ok(Math.abs((steppedOverlaySpectrumHoverNorm([first, second], 0.5, 0.5, vis, 1) ?? NaN) - 0.6) < 1e-9);
+});
+
+test('steppedOverlaySpectrumHoverNorm: 系列が無い、または表示周波数幅が 0 なら null', () => {
+    const vis = { frequencyMin: 0, frequencyMax: 1000, dbMin: -80, dbMax: 0 };
+    assert.equal(steppedOverlaySpectrumHoverNorm([], 0.5, null, vis, 1), null);
+    assert.equal(steppedOverlaySpectrumHoverNorm([{ slice: flat(-40, 11) }], 0.5, null, { ...vis, frequencyMax: 0 }, 1), null);
 });
