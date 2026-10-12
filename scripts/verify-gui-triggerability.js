@@ -53,6 +53,7 @@ function collectWebviewActionIds(repoRoot) {
         path.join(repoRoot, 'src', 'webview', 'runtime', 'comparisonRuntime.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'calibrationDecorations.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'trackLaneHtml.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'toolbarHtml.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'staticHost.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'selectionTreeView.ts'),
     ];
