@@ -1,0 +1,49 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+    OVERLAY_SPECTRUM_PAD,
+    TRACK_SPECTRUM_PAD,
+    spectrumPlotFrame,
+    spectrumVisibleWindow,
+    steppedSpectrumHoverNorm,
+} from '../webview/runtime/spectrumRuntime';
+import type { SpectrumSlice } from '../webview/runtime/types';
+
+function slice(overrides: Partial<SpectrumSlice> = {}): SpectrumSlice {
+    return { values: [], frequencyBins: 11, maxFrequencyHz: 1000, minDb: -80, maxDb: 0, ...overrides };
+}
+
+test('spectrumVisibleWindow: ズーム比率で周波数範囲を決め、dB はデータ値を使う', () => {
+    const vis = spectrumVisibleWindow(8000, -90, -10, { freqStart: 0.25, freqEnd: 0.5, dbMin: null, dbMax: null });
+    assert.deepEqual(vis, { frequencyMin: 2000, frequencyMax: 4000, dbMin: -90, dbMax: -10 });
+});
+
+test('spectrumVisibleWindow: dB 上書きはデータ値より優先される（0 dB も上書き扱い）', () => {
+    const vis = spectrumVisibleWindow(8000, -90, -10, { freqStart: 0, freqEnd: 1, dbMin: -60, dbMax: 0 });
+    assert.equal(vis.dbMin, -60);
+    assert.equal(vis.dbMax, 0);
+});
+
+test('spectrumPlotFrame: パディングを除いたプロット領域と表示範囲を返す', () => {
+    const vis = { frequencyMin: 100, frequencyMax: 900, dbMin: -70, dbMax: -5 };
+    assert.deepEqual(spectrumPlotFrame(200, 100, TRACK_SPECTRUM_PAD, vis), {
+        padLeft: 32, plotWidth: 162, padTop: 4, plotHeight: 82, ...vis,
+    });
+    const overlay = spectrumPlotFrame(300, 120, OVERLAY_SPECTRUM_PAD, vis);
+    assert.equal(overlay.plotWidth, 256);
+    assert.equal(overlay.plotHeight, 94);
+});
+
+test('steppedSpectrumHoverNorm: 1 ビン移動した周波数を表示範囲の正規化位置に変換する', () => {
+    assert.equal(steppedSpectrumHoverNorm(slice(), 4, 1, 0, 1000), 0.5);
+    assert.equal(steppedSpectrumHoverNorm(slice(), 4, -1, 200, 400), 0.5);
+});
+
+test('steppedSpectrumHoverNorm: ビン番号は端でクランプされる', () => {
+    assert.equal(steppedSpectrumHoverNorm(slice(), 0, -1, 0, 1000), 0);
+    assert.equal(steppedSpectrumHoverNorm(slice(), 10, 1, 0, 1000), 1);
+});
+
+test('steppedSpectrumHoverNorm: 間引き前の最大周波数があればそれを基準にする', () => {
+    assert.equal(steppedSpectrumHoverNorm(slice({ originalMaxFrequencyHz: 2000 }), 4, 1, 0, 2000), 0.5);
+});

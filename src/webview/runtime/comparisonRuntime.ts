@@ -2,7 +2,7 @@ import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { paintSpectrogramRaster } from './spectrogramRaster';
-import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, traceSpectrumPath, type DrawTheme } from '../draw/canvasDrawers';
+import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, traceSpectrumPath, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
@@ -35,7 +35,12 @@ import {
     spectrumBinAtHover,
     spectrumBoxZoom,
     spectrumReadoutText,
+    spectrumPlotFrame,
     spectrumSeriesRange,
+    spectrumVisibleWindow,
+    steppedSpectrumHoverNorm,
+    TRACK_SPECTRUM_PAD,
+    type SpectrumViewState,
     trackSpectrumReadoutText,
     spectrumSlicesFromResult,
     zoomSpectrumRange,
@@ -298,6 +303,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let specFreqEnd = 1;
     let specDbMin: number | null = null; // null = データ自動, number = dB 上書き
     let specDbMax: number | null = null;
+    function spectrumViewState(): SpectrumViewState {
+        return { freqStart: specFreqStart, freqEnd: specFreqEnd, dbMin: specDbMin, dbMax: specDbMax };
+    }
     let _lastVisDbMin: number | null = null; // 前回レンダリング時の visDbMin キャッシュ
     let _lastVisDbMax: number | null = null;
     let _lastSpectrumMaxF = 0; // overlay の最大周波数(Hz) キャッシュ（freq popover 用）
@@ -1078,13 +1086,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 result.sampleRateHz ? result.sampleRateHz / 2 : 0,
             ));
             if (slice) {
-                spectrumPerTrack.push(spectrumAxisLabelTexts(
-                    (specDbMin != null) ? specDbMin : slice.minDb,
-                    (specDbMax != null) ? specDbMax : slice.maxDb,
-                    specFreqStart * slice.maxFrequencyHz,
-                    specFreqEnd * slice.maxFrequencyHz,
-                    slice,
-                ));
+                const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, spectrumViewState());
+                spectrumPerTrack.push(spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, slice));
             }
             else {
                 spectrumPerTrack.push([]);
@@ -1130,13 +1133,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 latestSpectrogram: latestSpectrogram,
                 axisLabels: {
                     spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayMinDb)
-                        ? spectrumAxisLabelTexts(
-                            (specDbMin != null) ? specDbMin : overlayMinDb,
-                            (specDbMax != null) ? specDbMax : overlayMaxDb,
-                            specFreqStart * overlayMaxF,
-                            specFreqEnd * overlayMaxF,
-                            overlayDbSource,
-                        )
+                        ? (function () {
+                            const vis = spectrumVisibleWindow(overlayMaxF, overlayMinDb, overlayMaxDb, spectrumViewState());
+                            return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, overlayDbSource);
+                        })()
                         : [],
                     spectrogramPerTrack: spectrogramPerTrack,
                     spectrumPerTrack: spectrumPerTrack,
@@ -2662,7 +2662,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     c.addEventListener('mousemove', function (e) {
                         const idx = trackIndexFromElement(c);
                         const channelIndex = parseInt(c.getAttribute('data-channel-index'), 10);
-                        onSpectrumMove(32, 6, c, e, idx, isNaN(channelIndex) ? null : channelIndex);
+                        onSpectrumMove(TRACK_SPECTRUM_PAD.left, TRACK_SPECTRUM_PAD.right, c, e, idx, isNaN(channelIndex) ? null : channelIndex);
                     });
                     c.addEventListener('mouseleave', onSpectrumLeave);
                     c.addEventListener('focus', function () {
@@ -3579,45 +3579,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!snap) {
                 return;
             }
-            const nextIdx = Math.max(0, Math.min(slice.frequencyBins - 1, snap.binIdx + deltaIdx));
-            const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
-            const freqHz = (nextIdx / Math.max(slice.frequencyBins - 1, 1)) * originalMaxFreq;
-            spectrumHoverNorm = hoverNormForFrequency(freqHz, visFreqMin, visFreqMax);
+            spectrumHoverNorm = steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, visFreqMin, visFreqMax);
             return;
         }
         const slices = visibleSpectrumSlices();
         if (slices.length === 0) {
             return;
         }
-        let maxF = 0, minDb = Infinity, maxDb = -Infinity;
-        slices.forEach(function (s: SpectrumSeries) {
-            if (s.slice.maxFrequencyHz > maxF) {
-                maxF = s.slice.maxFrequencyHz;
-            }
-            if (s.slice.minDb < minDb) {
-                minDb = s.slice.minDb;
-            }
-            if (s.slice.maxDb > maxDb) {
-                maxDb = s.slice.maxDb;
-            }
-        });
-        const visFreqMin = specFreqStart * maxF;
-        const visFreqMax = specFreqEnd * maxF;
-        const visDbMin = (specDbMin != null) ? specDbMin : minDb;
-        const visDbMax = (specDbMax != null) ? specDbMax : maxDb;
+        const range = spectrumSeriesRange(slices);
+        const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumViewState());
         const overlayC = document.getElementById('spectrum-overlay-canvas');
         const mouseY = spectrumHoverYFrac !== null && overlayC ? spectrumHoverYFrac * overlayC.height : null;
-        const frame = { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1, frequencyMin: visFreqMin, frequencyMax: visFreqMax, dbMin: visDbMin, dbMax: visDbMax };
+        const frame = { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1, ...vis };
         const nearest = nearestSpectrumSnap(slices, spectrumHoverNorm, mouseY, frame);
         const chosen = nearest ? nearest.s : slices[0];
         const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, spectrumHoverNorm, frame);
         if (!snap) {
             return;
         }
-        const nextIdx = Math.max(0, Math.min(chosen.slice.frequencyBins - 1, snap.binIdx + deltaIdx));
-        const originalMaxFreq = chosen.slice.originalMaxFrequencyHz || chosen.slice.maxFrequencyHz;
-        const freqHz = (nextIdx / Math.max(chosen.slice.frequencyBins - 1, 1)) * originalMaxFreq;
-        spectrumHoverNorm = hoverNormForFrequency(freqHz, visFreqMin, visFreqMax);
+        spectrumHoverNorm = steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, vis.frequencyMin, vis.frequencyMax);
         spectrumHoverTrackId = 'overlay';
         spectrumHoverChannelIndex = null;
     }
@@ -3672,38 +3652,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
                 ctx.clearRect(0, 0, W, H);
                 const color = trackColor(i);
-                const visFreqMinT = specFreqStart * slice.maxFrequencyHz;
-                const visFreqMaxT = specFreqEnd * slice.maxFrequencyHz;
-                const visDbMinT = (specDbMin != null) ? specDbMin : slice.minDb;
-                const visDbMaxT = (specDbMax != null) ? specDbMax : slice.maxDb;
-                drawSpectrumAxes(ctx, W, H, slice, 32, 6, 4, 14, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT, drawTheme());
-                drawSpectrumLine(ctx, W, H, slice, color, { padL: 32, padR: 6, padT: 4, padB: 14 }, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
+                const pad = TRACK_SPECTRUM_PAD;
+                const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, spectrumViewState());
+                drawSpectrumAxes(ctx, W, H, slice, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, drawTheme());
+                drawSpectrumLine(ctx, W, H, slice, color, { padL: pad.left, padR: pad.right, padT: pad.top, padB: pad.bottom }, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax);
                 paintedByChannel.set(channelIndex, true);
                 if (spectrumHoverNorm !== null && spectrumHoverTrackId === trackId && spectrumHoverChannelIndex === channelIndex) {
-                    const padL2 = 32, padR2 = 6, padT2 = 4, padB2 = 14;
-                    const plotW2 = W - padL2 - padR2;
-                    const plotH2 = H - padT2 - padB2;
-                    const snap = spectrumBinAtHover(slice, spectrumHoverNorm, { padLeft: padL2, plotWidth: plotW2, padTop: padT2, plotHeight: plotH2, frequencyMin: visFreqMinT, frequencyMax: visFreqMaxT, dbMin: visDbMinT, dbMax: visDbMaxT });
+                    const frame = spectrumPlotFrame(W, H, pad, vis);
+                    const snap = spectrumBinAtHover(slice, spectrumHoverNorm, frame);
                     if (!snap) {
                         return;
                     }
-                    ctx.save();
-                    ctx.lineWidth = 1;
-                    ctx.setLineDash([3, 3]);
-                    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-                    ctx.beginPath();
-                    ctx.moveTo(snap.x, padT2);
-                    ctx.lineTo(snap.x, H - padB2);
-                    ctx.stroke();
-                    if (snap.dbVal !== undefined && snap.y !== null) {
-                        ctx.strokeStyle = color;
-                        ctx.beginPath();
-                        ctx.moveTo(padL2, snap.y);
-                        ctx.lineTo(W - padR2, snap.y);
-                        ctx.stroke();
-                    }
-                    ctx.setLineDash([]);
-                    ctx.restore();
+                    drawSpectrumCrosshair(ctx, frame, snap.x, snap.dbVal !== undefined ? snap.y : null, 'rgba(255,255,255,0.75)', color);
                     const readoutEl = document.getElementById('spectrum-freq-readout');
                     if (readoutEl && snap.dbVal !== undefined) {
                         readoutEl.style.color = color;
@@ -3772,10 +3732,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         ctx.clearRect(0, 0, W, H);
         const { minDb, maxDb, maxFrequencyHz: maxF } = spectrumSeriesRange(slices);
         const { left: padL, right: padR, top: padT, bottom: padB } = OVERLAY_SPECTRUM_PAD;
-        const visFreqMinO = specFreqStart * maxF;
-        const visFreqMaxO = specFreqEnd * maxF;
-        const visDbMinO = (specDbMin != null) ? specDbMin : minDb;
-        const visDbMaxO = (specDbMax != null) ? specDbMax : maxDb;
+        const vis = spectrumVisibleWindow(maxF, minDb, maxDb, spectrumViewState());
+        const visFreqMinO = vis.frequencyMin;
+        const visFreqMaxO = vis.frequencyMax;
+        const visDbMinO = vis.dbMin;
+        const visDbMaxO = vis.dbMax;
         _lastSpectrumMaxF = maxF;
         _lastVisDbMin = visDbMinO;
         _lastVisDbMax = visDbMaxO;
@@ -3797,7 +3758,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (visFreqRangeO <= 0) {
             return;
         }
-        const frame = { padLeft: padL, plotWidth: plotW, padTop: padT, plotHeight: plotH, frequencyMin: visFreqMinO, frequencyMax: visFreqMaxO, dbMin: visDbMinO, dbMax: visDbMaxO };
+        const frame = spectrumPlotFrame(W, H, OVERLAY_SPECTRUM_PAD, vis);
         ctx.save();
         ctx.beginPath();
         ctx.rect(padL, padT, plotW, plotH);
@@ -3828,24 +3789,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 ctx.stroke();
                 ctx.restore();
             }
-            ctx.save();
-            ctx.lineWidth = 1;
-            ctx.setLineDash([3, 3]);
-            ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-            const curX = nearest ? nearest.snap.x : padL + spectrumHoverNorm * plotW;
-            ctx.beginPath();
-            ctx.moveTo(curX, padT);
-            ctx.lineTo(curX, H - padB);
-            ctx.stroke();
-            if (nearest) {
-                ctx.strokeStyle = nearest.s.color;
-                ctx.beginPath();
-                ctx.moveTo(padL, nearest.snapY);
-                ctx.lineTo(W - padR, nearest.snapY);
-                ctx.stroke();
-            }
-            ctx.setLineDash([]);
-            ctx.restore();
+            drawSpectrumCrosshair(
+                ctx,
+                frame,
+                nearest ? nearest.snap.x : padL + spectrumHoverNorm * plotW,
+                nearest ? nearest.snapY : null,
+                'rgba(255,255,255,0.7)',
+                nearest ? nearest.s.color : '',
+            );
             const readoutEl = document.getElementById('spectrum-freq-readout');
             if (readoutEl) {
                 if (nearest) {
