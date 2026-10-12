@@ -1,7 +1,7 @@
 import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { paintSpectrogramRaster } from './spectrogramRaster';
+import { paintSpectrogramRaster, spectrogramDisplayBounds } from './spectrogramRaster';
 import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, loopRegionFromPayload, setSelectionFileChecked } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
@@ -890,11 +890,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         rangeRequestTimer = setTimeout(function () { checkAndRequestRanges(); }, 80);
     }
     function computeTrackFileView(result: ComparisonTrackState, trackIndex: number, offsetSeconds?: number): TrackFileView {
-        const dur = result.durationSeconds || 1;
-        const gs = trackStore.globalSpan();
         const offsetSec = offsetSeconds === undefined ? trackRuntimeAt(trackIndex).offsetSeconds : offsetSeconds;
-        const trackStart = (offsetSec - gs.startSec) / gs.spanSec;
-        const trackDurRatio = dur / gs.spanSec;
+        const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSec, result.durationSeconds, trackStore.globalSpan());
         const fileAtZoomStart = (zoomStart - trackStart) / trackDurRatio;
         const fileAtZoomEnd = (zoomEnd - trackStart) / trackDurRatio;
         return {
@@ -1609,14 +1606,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const spec = ch.spectrogram;
-        const dur = result.durationSeconds || 1;
-        const gs = trackStore.globalSpan();
-        const trackStart = (offsetSeconds - gs.startSec) / gs.spanSec;
-        const trackDurRatio = dur / gs.spanSec;
-        const dispCfg = __spectrogramSettings.display;
-        const dbLo = (dispCfg.dbMin != null) ? dispCfg.dbMin : spec.minDb;
-        const dbHi = (dispCfg.dbMax != null) ? dispCfg.dbMax : spec.maxDb;
-        const maxFreq = (dispCfg.maxFrequencyHz != null) ? Math.min(dispCfg.maxFrequencyHz, spec.maxFrequencyHz) : spec.maxFrequencyHz;
+        const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
+        const { dbLo, dbHi, maxFrequencyHz: maxFreq } = spectrogramDisplayBounds(spec, __spectrogramSettings.display);
         const plotW = spectrogramPlotWidth(W);
         const cacheId = trackRecordAtIndex(trackIndex)!.id + ':' + channelIndex;
         const rasterKey = [plotW, H, zoomStart, zoomEnd, trackStart, trackDurRatio, dbLo, dbHi, maxFreq].join(':');

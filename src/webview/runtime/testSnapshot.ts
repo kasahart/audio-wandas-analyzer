@@ -1,5 +1,6 @@
 import type { SpectrogramData, SpectrogramDisplaySettings, SpectrogramSettings } from '../../shared/analysis/analysisTypes';
 import { formatDbLevel, formatHz } from '../draw/canvasDrawers';
+import { spectrogramDisplayBounds } from './spectrogramRaster';
 import type { RuntimeDocument, RuntimeElement, WaveformCoverage } from './types';
 
 export interface LatestSpectrogramSnapshot {
@@ -44,10 +45,10 @@ export function spectrogramAxisLabelTexts(
     display: SpectrogramDisplaySettings,
     fallbackMaxFrequencyHz: number,
 ): string[] {
-    const dbLo = display.dbMin != null ? display.dbMin : (spec ? spec.minDb : -120);
-    const dbHi = display.dbMax != null ? display.dbMax : (spec ? spec.maxDb : 0);
-    const originalMaxF = spec ? spec.maxFrequencyHz : fallbackMaxFrequencyHz;
-    const maxF = display.maxFrequencyHz != null ? Math.min(display.maxFrequencyHz, originalMaxF) : originalMaxF;
+    const { dbLo, dbHi, maxFrequencyHz: maxF } = spectrogramDisplayBounds(
+        spec ?? { minDb: -120, maxDb: 0, maxFrequencyHz: fallbackMaxFrequencyHz },
+        display,
+    );
     return maxF > 0
         ? ['0 Hz', formatHz(maxF / 2), formatHz(maxF), formatDbLevel(dbLo, spec ?? null), formatDbLevel(dbHi, spec ?? null), 'Freq']
         : [];
