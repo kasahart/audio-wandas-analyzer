@@ -11,7 +11,7 @@ import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cu
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { createSelectionTreeView } from './selectionTreeView';
 import { buildSpecSummaryText, buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
-import { eventTarget } from './domAdapter';
+import { canvasById, eventTarget } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
@@ -901,7 +901,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!record || record.runtime.hidden || result.error) {
                 return;
             }
-            const canvas = document.getElementById(trackCanvasId(i, 0));
+            const canvas = canvasById(document, trackCanvasId(i, 0));
             const W = (canvas ? canvas.width : 0) || 800;
             const fileView = computeTrackFileView(result, i);
             if (overviewIsSufficient(result, W, fileView)) {
@@ -983,7 +983,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const trackIndex = record.protocolIndex;
             const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
             const visibleFile = visibleFileRange(zoomStart, zoomEnd, placement);
-            const spectrumCanvas = document.getElementById(trackSpectrumCanvasId(trackIndex, 0));
+            const spectrumCanvas = canvasById(document, trackSpectrumCanvasId(trackIndex, 0));
             const slice = trackRuntimeAt(trackIndex).hidden
                 ? null
                 : extractSpectrumAtCursor(result, trackIndex, trackRuntimeAt(trackIndex).offsetSeconds, spectrumCursorNorm);
@@ -1203,7 +1203,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function resizeAllCanvases() {
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
             channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const canvas = document.getElementById(trackCanvasId(i, channelIndex));
+                const canvas = canvasById(document, trackCanvasId(i, channelIndex));
                 if (!canvas) {
                     return;
                 }
@@ -1219,17 +1219,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
                 canvasWidthCache[cacheIdx] = cacheKey;
                 syncCanvasSize(canvas, newW - AXIS_W, trackHeight);
-                const spectrogramOverlay = document.getElementById(trackSpectrogramOverlayCanvasId(i, channelIndex));
+                const spectrogramOverlay = canvasById(document, trackSpectrogramOverlayCanvasId(i, channelIndex));
                 if (spectrogramOverlay) {
                     syncCanvasSize(spectrogramOverlay, newW - AXIS_W, trackHeight);
                 }
-                const axisCanvas = document.getElementById(trackAxisCanvasId(i, channelIndex));
+                const axisCanvas = canvasById(document, trackAxisCanvasId(i, channelIndex));
                 if (axisCanvas) {
                     syncCanvasSize(axisCanvas, AXIS_W, trackHeight);
                 }
             });
         });
-        const rulerCanvas = document.getElementById('ruler-canvas');
+        const rulerCanvas = canvasById(document, 'ruler-canvas');
         if (rulerCanvas) {
             const row = document.getElementById('ruler-row');
             if (row) {
@@ -1238,11 +1238,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function renderRuler() {
-        const canvas = document.getElementById('ruler-canvas');
-        if (!canvas) {
+        const canvas = canvasById(document, 'ruler-canvas');
+        const ctx = canvas?.getContext('2d');
+        if (!canvas || !ctx) {
             return;
         }
-        const ctx = canvas.getContext('2d');
         const W = canvas.width;
         const timeW = contentType === 'spectrogram' ? spectrogramPlotWidth(W) : W;
         const H = canvas.height;
@@ -1271,11 +1271,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             if (result.error) {
                 channelsForResult(result).forEach(function (_, channelIndex: number) {
-                    const canvas = document.getElementById(trackCanvasId(i, channelIndex));
-                    if (canvas) {
-                        const ctx = canvas.getContext('2d');
-                        ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    }
+                    const canvas = canvasById(document, trackCanvasId(i, channelIndex));
+                    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
                 });
                 const row = document.getElementById('track-row-' + i);
                 if (row) {
@@ -1302,17 +1299,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             const color = trackColor(i);
             channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const canvas = document.getElementById(trackCanvasId(i, channelIndex));
+                const canvas = canvasById(document, trackCanvasId(i, channelIndex));
                 if (!canvas) {
                     return;
                 }
                 if (contentType === 'waveform') {
                     spectrogramRasterCache.delete(trackId + ':' + channelIndex);
-                    const spectrogramOverlay = document.getElementById(trackSpectrogramOverlayCanvasId(i, channelIndex));
+                    const spectrogramOverlay = canvasById(document, trackSpectrogramOverlayCanvasId(i, channelIndex));
                     if (spectrogramOverlay) {
                         spectrogramOverlay.style.display = 'none';
                     }
-                    const axisC = document.getElementById(trackAxisCanvasId(i, channelIndex));
+                    const axisC = canvasById(document, trackAxisCanvasId(i, channelIndex));
                     if (axisC) {
                         const ac = axisC.getContext('2d');
                         if (ac) {
@@ -1334,7 +1331,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const amplitudeScale = fullWaveform ? fullWaveform.absolutePeak : undefined;
         const c = trackRecordAtIndex(trackIndex)?.rangeCache ?? null;
         const cachedChannel = c && c.channels ? c.channels[channelIndex] : null;
-        const canvas = document.getElementById(trackCanvasId(trackIndex, channelIndex));
+        const canvas = canvasById(document, trackCanvasId(trackIndex, channelIndex));
         const W = (canvas ? canvas.width : 0) || 800;
         if (c && cachedChannel && !overviewIsSufficient(result, W, fileView) &&
             rangeCacheCoversView(c, channelIndex, fileView.fileAtZoomStart, fileView.fileAtZoomEnd)) {
@@ -1344,8 +1341,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             ? { waveform: fullWaveform, dataStart: 0, dataEnd: 1, amplitudeScale: amplitudeScale }
             : null;
     }
-    function drawTrackWaveform(canvas: RuntimeElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number, color: string, options: WaveformDrawOptions = {}): void {
+    function drawTrackWaveform(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number, color: string, options: WaveformDrawOptions = {}): void {
         const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return;
+        }
         const W = canvas.width, H = canvas.height;
         const shouldClear = !options || options.clear !== false;
         const shouldDrawCursor = !options || options.drawCursor !== false;
@@ -1396,7 +1396,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             drawHoverLineOnCanvas(ctx, W, H);
             drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
         }
-        const axisCanvas = document.getElementById(trackAxisCanvasId(trackIndex, channelIndex));
+        const axisCanvas = canvasById(document, trackAxisCanvasId(trackIndex, channelIndex));
         if (axisCanvas) {
             const axisCtx = axisCanvas.getContext('2d');
             if (axisCtx) {
@@ -1404,11 +1404,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
     }
-    function drawSpectrogram(canvas: RuntimeElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number) {
+    function drawSpectrogram(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number) {
         const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return;
+        }
         const W = canvas.width;
         const H = canvas.height;
-        const overlayCanvas = document.getElementById(trackSpectrogramOverlayCanvasId(trackIndex, channelIndex));
+        const overlayCanvas = canvasById(document, trackSpectrogramOverlayCanvasId(trackIndex, channelIndex));
         const overlayCtx = overlayCanvas ? overlayCanvas.getContext('2d') : null;
         if (overlayCanvas) {
             overlayCanvas.style.display = '';
@@ -1416,9 +1419,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (overlayCtx && overlayCanvas) {
             overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
         }
-        const axisCanvas = document.getElementById(trackAxisCanvasId(trackIndex, channelIndex));
+        const axisCanvas = canvasById(document, trackAxisCanvasId(trackIndex, channelIndex));
         const axisCtx = axisCanvas ? axisCanvas.getContext('2d') : null;
-        if (axisCtx) {
+        if (axisCanvas && axisCtx) {
             axisCtx.clearRect(0, 0, axisCanvas.width, axisCanvas.height);
         }
         const ch = channelsForResult(result)[channelIndex];
@@ -1445,7 +1448,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             raster = { source: spec, key: rasterKey };
             spectrogramRasterCache.set(cacheId, raster);
         }
-        if (axisCtx) {
+        if (axisCanvas && axisCtx) {
             drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq }, drawTheme());
         }
         if (overlayCtx) {
@@ -1952,7 +1955,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 activeElement: () => document.activeElement,
                 refresh: () => scheduleSpectrumRefresh('hover'),
             });
-            const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
+            const overlayCanvas = canvasById(document, 'spectrum-overlay-canvas');
             if (overlayCanvas) {
                 overlayCanvas.addEventListener('mousemove', function (e) {
                     if (specBoxDrag.active) {
@@ -2201,7 +2204,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
     }
     function syncSpectrumCanvasCssHeight() {
-        const canvas = document.getElementById('spectrum-overlay-canvas');
+        const canvas = canvasById(document, 'spectrum-overlay-canvas');
         if (canvas && canvas.style.height !== spectrumOverlayHeight + 'px') {
             canvas.style.height = spectrumOverlayHeight + 'px';
         }
@@ -2648,7 +2651,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             updateOffsetDisplays();
         }
         else {
-            const canvasEl = document.getElementById(trackCanvasId(dragTrackIndex, 0));
+            const canvasEl = canvasById(document, trackCanvasId(dragTrackIndex, 0));
             if (canvasEl) {
                 const norm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
                 if (dragState.dragType === 'rectZoom') {
@@ -2681,7 +2684,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
             const dragTrackIndex = trackStore.protocolIndexForId(dragState.trackId);
             const canvasId = dragTrackIndex === null ? '' : trackCanvasId(dragTrackIndex, 0);
-            const canvas = document.getElementById(canvasId);
+            const canvas = canvasById(document, canvasId);
             if (canvas) {
                 const hit = trackCanvasTimeHit(canvas, e.clientX);
                 if (hit) {
@@ -2803,7 +2806,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const range = spectrumSeriesRange(slices);
         const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumViewState());
-        const overlayC = document.getElementById('spectrum-overlay-canvas');
+        const overlayC = canvasById(document, 'spectrum-overlay-canvas');
         const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx);
         if (nextNorm === null) {
             return;
@@ -2819,7 +2822,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const result = record.result;
             const i = record.protocolIndex;
             channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const canvas = document.getElementById(trackSpectrumCanvasId(i, channelIndex));
+                const canvas = canvasById(document, trackSpectrumCanvasId(i, channelIndex));
                 if (!canvas) {
                     return;
                 }
@@ -2842,6 +2845,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     paintedByChannel.set(channelIndex, false);
                 }
                 const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    return;
+                }
                 const W = canvas.width, H = canvas.height;
                 if (trackRuntimeAt(i).hidden) {
                     ctx.clearRect(0, 0, W, H);
@@ -2879,7 +2885,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     function renderOverlaySpectrum() {
-        const canvas = document.getElementById('spectrum-overlay-canvas');
+        const canvas = canvasById(document, 'spectrum-overlay-canvas');
         if (!canvas) {
             return;
         }
@@ -2899,6 +2905,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             overlaySpectrumPainted = false;
         }
         const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return;
+        }
         const W = canvas.width, H = canvas.height;
         const slices: SpectrumSeries[] = [];
         let pendingVisibleSlice = false;
