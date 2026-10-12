@@ -1,25 +1,34 @@
 import type { SpectrogramDisplaySettings } from '../../shared/analysis/analysisTypes';
 import type { HeightKind } from './heightResize';
-import type { LoopRegion, RuntimeDocument, TestAction, TrackId } from './types';
+import { inputsMatching } from './domAdapter';
+import type { LoopRegion, TestAction, TrackId } from './types';
 
 type ActionPayload = Record<string, unknown>;
 
-export function fillSpectrogramSettingsForm(doc: RuntimeDocument, payload: ActionPayload): void {
-    doc.getElementById('spec-auto').checked = !!payload.auto;
+function formField<T extends HTMLInputElement | HTMLSelectElement = HTMLInputElement>(doc: Document, id: string): T {
+    const el = doc.getElementById(id) as T | null;
+    if (!el) {
+        throw new Error('Form field not found: ' + id);
+    }
+    return el;
+}
+
+export function fillSpectrogramSettingsForm(doc: Document, payload: ActionPayload): void {
+    formField(doc, 'spec-auto').checked = !!payload.auto;
     if (payload.nFft != null) {
-        doc.getElementById('spec-nfft').value = String(payload.nFft);
+        formField(doc, 'spec-nfft').value = String(payload.nFft);
     }
     if (payload.hopSize != null) {
-        doc.getElementById('spec-hop').value = String(payload.hopSize);
+        formField(doc, 'spec-hop').value = String(payload.hopSize);
     }
     if (payload.window != null) {
-        doc.getElementById('spec-window').value = String(payload.window);
+        formField<HTMLSelectElement>(doc, 'spec-window').value = String(payload.window);
     }
 }
 
-export function fillSpectrogramDisplayForm(doc: RuntimeDocument, payload: ActionPayload): SpectrogramDisplaySettings {
+export function fillSpectrogramDisplayForm(doc: Document, payload: ActionPayload): SpectrogramDisplaySettings {
     const setValue = function (id: string, v: unknown) {
-        doc.getElementById(id).value = v == null ? '' : String(v);
+        formField(doc, id).value = v == null ? '' : String(v);
     };
     setValue('spec-dbmin', payload.dbMin);
     setValue('spec-dbmax', payload.dbMax);
@@ -31,8 +40,8 @@ export function fillSpectrogramDisplayForm(doc: RuntimeDocument, payload: Action
     };
 }
 
-export function setSelectionFileChecked(doc: RuntimeDocument, filePath: unknown, selected: boolean): void {
-    const checkbox = Array.from(doc.querySelectorAll('.selection-file-checkbox'))
+export function setSelectionFileChecked(doc: Document, filePath: unknown, selected: boolean): void {
+    const checkbox = inputsMatching(doc, '.selection-file-checkbox')
         .find((input) => input.getAttribute('data-file-path') === filePath);
     if (!checkbox) {
         throw new Error('Selection checkbox not found');
