@@ -9,7 +9,7 @@ import type { RangeWaveform, RuntimeWindow, WebviewHostApi } from './types';
 export type HostOutboundMessage = PanelMessage
     | { type: 'comparison-panel-test-snapshot'; actionId?: string; renderedUi: Record<string, unknown> };
 
-interface LazyResponseIdentity {
+export interface LazyResponseIdentity {
     requestId: string;
     analysisId: string;
     settingsSignature: string;
