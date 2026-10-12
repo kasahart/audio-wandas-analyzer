@@ -2804,8 +2804,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const range = spectrumSeriesRange(slices);
         const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumViewState());
         const overlayC = document.getElementById('spectrum-overlay-canvas');
-        const mouseY = spectrumHover.yFrac !== null && overlayC ? spectrumHover.yFrac * overlayC.height : null;
-        const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, mouseY, vis, deltaIdx);
+        const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx);
         if (nextNorm === null) {
             return;
         }

@@ -299,14 +299,17 @@ export function steppedTrackSpectrumHoverNorm(slice: SpectrumSlice, hoverNorm: n
 export function steppedOverlaySpectrumHoverNorm(
     series: ReadonlyArray<{ slice: SpectrumSlice }>,
     hoverNorm: number,
-    mouseY: number | null,
+    yFrac: number | null,
+    canvas: { width: number; height: number } | null,
     visible: SpectrumVisibleWindow,
     deltaIdx: number,
 ): number | null {
     if (series.length === 0) {
         return null;
     }
-    const frame = { ...UNIT_PLOT, ...visible };
+    // mouseY must be in the same pixel space as the painter's frame, or the nearest series differs from the highlighted one.
+    const frame = canvas ? spectrumPlotFrame(canvas.width, canvas.height, OVERLAY_SPECTRUM_PAD, visible) : { ...UNIT_PLOT, ...visible };
+    const mouseY = canvas && yFrac !== null ? yFrac * canvas.height : null;
     const nearest = nearestSpectrumSnap(series, hoverNorm, mouseY, frame);
     const chosen = nearest ? nearest.s : series[0];
     const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, hoverNorm, frame);
