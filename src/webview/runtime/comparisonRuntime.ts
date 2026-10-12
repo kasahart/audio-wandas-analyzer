@@ -31,6 +31,7 @@ import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { toolbarHtml } from './toolbarHtml';
+import { resultsPaneHtml } from './resultsPaneHtml';
 import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -1144,24 +1145,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
     }
     function buildResultsPane(emptyMessage: string) {
-        const tracks = buildTrackRowsHtml();
-        return '<div id="toolbar" role="toolbar" aria-label="' + escapeHtml(STR.ariaToolbar) + '">' + buildToolbar() + '</div>'
-            + '<div id="tracks-wrapper">'
-            + '  <div id="ruler-row"><div id="ruler-spacer"></div><div id="ruler-axis-spacer" style="width:' + AXIS_W + 'px;flex:none"></div><canvas id="ruler-canvas"></canvas></div>'
-            + '  <div id="stacked-wrap">' + tracks + '</div>'
-            + '  <div id="empty-state"><p>' + escapeHtml(emptyMessage) + '</p></div>'
-            + '</div>'
-            + '<div id="spectrum-section">'
-            + '  <div id="spectrum-section-header"><span>' + escapeHtml(STR.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span><span id="spectrum-freq-readout" style="font-family:var(--font-mono);margin-left:14px;"></span></div>'
-            + '  <div id="spectrum-zoom-toolbar" style="display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;">'
-            + '    <span class="tb-label">' + escapeHtml(STR.spectrumZoomLabel) + '</span>'
-            + '    <button class="tb-btn" data-action="spec-zoom-out" aria-label="' + escapeHtml(STR.ariaSpecZoomOut) + '">－</button>'
-            + '    <button class="tb-btn" data-action="spec-zoom-in" aria-label="' + escapeHtml(STR.ariaSpecZoomIn) + '">＋</button>'
-            + '    <button class="tb-btn" data-action="spec-zoom-reset" aria-label="' + escapeHtml(STR.ariaSpecZoomReset) + '">' + escapeHtml(STR.btnSpecZoomReset) + '</button>'
-            + '  </div>'
-            + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(STR.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(STR.spectrumSectionTitle) + '"></canvas></div>'
-            + '</div>'
-            + '<div id="audio-host">' + buildAudioElements() + '</div>';
+        return resultsPaneHtml({
+            tracksHtml: buildTrackRowsHtml(),
+            toolbarHtml: buildToolbar(),
+            audioHtml: buildAudioElements(),
+            emptyMessage,
+            axisWidth: AXIS_W,
+        }, STR);
     }
     function buildAudioElements() {
         return trackStore.activeIds().map(function (trackId) {
