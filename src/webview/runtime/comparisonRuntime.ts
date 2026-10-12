@@ -31,6 +31,7 @@ import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { SpectrumBoxDrag } from './spectrumBoxDrag';
+import { createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { SpectrumHover } from './spectrumHover';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { toolbarHtml } from './toolbarHtml';
@@ -47,7 +48,6 @@ import {
     overlaySpectrumRegionAt,
     spectrumBinAtHover,
     spectrumBoxZoom,
-    spectrumHoverAt,
     spectrumPlotFrame,
     spectrumSeriesRange,
     spectrumVisibleWindow,
@@ -2061,71 +2061,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         // スペクトルカーソルイベント（オーバーレイ＋各トラック）
         (function attachSpectrumCursorEvents() {
-            function spectrumFocusTargetFromElement(el: Element | null): { trackIndex: number; channelIndex: number | null } | null {
-                if (!el) {
-                    return null;
-                }
-                if (el.id === 'spectrum-overlay-canvas') {
-                    return { trackIndex: -1, channelIndex: null };
-                }
-                if (el.classList && el.classList.contains('track-spectrum-canvas')) {
-                    const idx = trackIndexFromElement(el);
-                    return idx === null ? null : { trackIndex: idx, channelIndex: channelIndexAttribute(el) };
-                }
-                return null;
-            }
-            function setSpectrumFocusTarget(trackIndex: number, channelIndex: number | null) {
-                spectrumHover.focus(trackIndex < 0 ? 'overlay' : trackIdAtIndex(trackIndex), channelIndex);
-                scheduleSpectrumRefresh('hover');
-            }
-            function clearSpectrumFocusTarget() {
-                spectrumHover.clear();
-                scheduleSpectrumRefresh('hover');
-            }
-            function onSpectrumMove(padL: number, padR: number, canvasEl: CanvasHitTarget & { height: number }, e: MouseEvent, trackIndex: number | null, channelIndex: number | null) {
-                const rect = canvasEl.getBoundingClientRect();
-                const hover = spectrumHoverAt(e.clientX - rect.left, e.clientY - rect.top, canvasEl.width, canvasEl.height, padL, padR);
-                if (!hover) {
-                    spectrumHover.hasMouse = false;
-                    clearSpectrumFocusTarget();
-                    return;
-                }
-                spectrumHover.move(hover, trackIndex === null || trackIndex < 0 ? 'overlay' : trackIdAtIndex(trackIndex), channelIndex);
-                scheduleSpectrumRefresh('hover');
-            }
-            function onSpectrumLeave() {
-                spectrumHover.hasMouse = false;
-                const focused = spectrumFocusTargetFromElement(document.activeElement);
-                if (focused) {
-                    setSpectrumFocusTarget(focused.trackIndex, focused.channelIndex);
-                    return;
-                }
-                clearSpectrumFocusTarget();
-            }
-            function onSpectrumFocus(trackIndex: number | null, channelIndex: number | null) {
-                if (trackIndex === null) {
-                    clearSpectrumFocusTarget();
-                    return;
-                }
-                setSpectrumFocusTarget(trackIndex, channelIndex);
-            }
-            function onSpectrumBlur() {
-                if (spectrumHover.hasMouse) {
-                    return;
-                }
-                clearSpectrumFocusTarget();
-            }
+            const spectrumCursor = createSpectrumCursorHandlers({
+                hover: spectrumHover,
+                trackIdAtIndex,
+                trackIndexFromElement,
+                activeElement: () => document.activeElement,
+                refresh: () => scheduleSpectrumRefresh('hover'),
+            });
             const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
             if (overlayCanvas) {
                 overlayCanvas.addEventListener('mousemove', function (e) {
                     if (specBoxDrag.active) {
                         return;
                     } // ドラッグ中はホバー不要
-                    onSpectrumMove(OVERLAY_SPECTRUM_PAD.left, OVERLAY_SPECTRUM_PAD.right, overlayCanvas, e, -1, null);
+                    spectrumCursor.move(overlayCanvas, OVERLAY_SPECTRUM_PAD.left, OVERLAY_SPECTRUM_PAD.right, e, -1, null);
                 });
-                overlayCanvas.addEventListener('mouseleave', onSpectrumLeave);
-                overlayCanvas.addEventListener('focus', function () { onSpectrumFocus(-1, null); });
-                overlayCanvas.addEventListener('blur', onSpectrumBlur);
+                overlayCanvas.addEventListener('mouseleave', spectrumCursor.leave);
+                overlayCanvas.addEventListener('focus', function () { spectrumCursor.focus(-1, null); });
+                overlayCanvas.addEventListener('blur', spectrumCursor.blur);
                 overlayCanvas.addEventListener('mousedown', function (e) {
                     if (e.button !== 0) {
                         return;
@@ -2193,13 +2146,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             function attachTrackSpectrumCursorEvents() {
                 document.querySelectorAll('.track-spectrum-canvas').forEach(function (c) {
                     c.addEventListener('mousemove', function (e) {
-                        onSpectrumMove(TRACK_SPECTRUM_PAD.left, TRACK_SPECTRUM_PAD.right, c, e, trackIndexFromElement(c), channelIndexAttribute(c));
+                        spectrumCursor.move(c, TRACK_SPECTRUM_PAD.left, TRACK_SPECTRUM_PAD.right, e, trackIndexFromElement(c), channelIndexAttribute(c));
                     });
-                    c.addEventListener('mouseleave', onSpectrumLeave);
+                    c.addEventListener('mouseleave', spectrumCursor.leave);
                     c.addEventListener('focus', function () {
-                        onSpectrumFocus(trackIndexFromElement(c), channelIndexAttribute(c));
+                        spectrumCursor.focus(trackIndexFromElement(c), channelIndexAttribute(c));
                     });
-                    c.addEventListener('blur', onSpectrumBlur);
+                    c.addEventListener('blur', spectrumCursor.blur);
                 });
             }
             attachRebuiltTrackEvents = function () {
