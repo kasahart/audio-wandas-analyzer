@@ -26,7 +26,8 @@ import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
 import {
     hoverNormForFrequency as mapHoverNormForFrequency,
-    spectrumBinAtFrequency as findSpectrumBinAtFrequency,
+    nearestSpectrumSnap,
+    spectrumBinAtHover,
     zoomSpectrumRange,
 } from './spectrumRuntime';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
@@ -3656,13 +3657,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             applyDisplaySettings: applySpectrumDisplaySettings,
         });
     }
-    function spectrumBinAtFrequency(slice: SpectrumSlice, targetFreqHz: number, padL: number, plotW: number, padT: number, plotH: number, visFreqMin: number, visFreqMax: number, visDbMin: number, visDbMax: number) {
-        return findSpectrumBinAtFrequency(slice, targetFreqHz, padL, plotW, padT, plotH, visFreqMin, visFreqMax, visDbMin, visDbMax);
-    }
-    function spectrumBinAtHover(slice: SpectrumSlice, hoverNormValue: number, padL: number, plotW: number, padT: number, plotH: number, visFreqMin: number, visFreqMax: number, visDbMin: number, visDbMax: number) {
-        const targetFreqHz = visFreqMin + hoverNormValue * (visFreqMax - visFreqMin);
-        return spectrumBinAtFrequency(slice, targetFreqHz, padL, plotW, padT, plotH, visFreqMin, visFreqMax, visDbMin, visDbMax);
-    }
     function hoverNormForFrequency(freqHz: number, visFreqMin: number, visFreqMax: number) {
         return mapHoverNormForFrequency(freqHz, visFreqMin, visFreqMax);
     }
@@ -3702,29 +3696,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         return slices;
     }
-    function chooseOverlaySpectrumSnap(slices: SpectrumSeries[], hoverNormValue: number, mouseY: number | null, padL: number, plotW: number, padT: number, plotH: number, visFreqMin: number, visFreqMax: number, visDbMin: number, visDbMax: number) {
-        let nearest: { s: SpectrumSeries; snap: SpectrumSnap; dbVal: number; snapY: number } | null = null;
-        let minDist = Infinity;
-        for (const s of slices) {
-            const snap = spectrumBinAtHover(s.slice, hoverNormValue, padL, plotW, padT, plotH, visFreqMin, visFreqMax, visDbMin, visDbMax);
-            if (!snap || snap.dbVal === undefined || snap.y === null) {
-                continue;
-            }
-            const item = { s: s, snap: snap, dbVal: snap.dbVal, snapY: snap.y };
-            if (mouseY === null) {
-                if (!nearest) {
-                    nearest = item;
-                }
-                continue;
-            }
-            const dist = Math.abs(snap.y - mouseY);
-            if (dist < minDist) {
-                minDist = dist;
-                nearest = item;
-            }
-        }
-        return nearest;
-    }
     function moveSpectrumHoverByBin(deltaIdx: number) {
         if (spectrumHoverNorm === null) {
             spectrumHoverNorm = 0.5;
@@ -3743,7 +3714,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             const visFreqMin = specFreqStart * slice.maxFrequencyHz;
             const visFreqMax = specFreqEnd * slice.maxFrequencyHz;
-            const snap = spectrumBinAtHover(slice, spectrumHoverNorm, 0, 1, 0, 1, visFreqMin, visFreqMax, slice.minDb, slice.maxDb);
+            const snap = spectrumBinAtHover(slice, spectrumHoverNorm, { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1, frequencyMin: visFreqMin, frequencyMax: visFreqMax, dbMin: slice.minDb, dbMax: slice.maxDb });
             if (!snap) {
                 return;
             }
@@ -3775,9 +3746,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const visDbMax = (specDbMax != null) ? specDbMax : maxDb;
         const overlayC = document.getElementById('spectrum-overlay-canvas');
         const mouseY = spectrumHoverYFrac !== null && overlayC ? spectrumHoverYFrac * overlayC.height : null;
-        const nearest = chooseOverlaySpectrumSnap(slices, spectrumHoverNorm, mouseY, 0, 1, 0, 1, visFreqMin, visFreqMax, visDbMin, visDbMax);
+        const frame = { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1, frequencyMin: visFreqMin, frequencyMax: visFreqMax, dbMin: visDbMin, dbMax: visDbMax };
+        const nearest = nearestSpectrumSnap(slices, spectrumHoverNorm, mouseY, frame);
         const chosen = nearest ? nearest.s : slices[0];
-        const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, spectrumHoverNorm, 0, 1, 0, 1, visFreqMin, visFreqMax, visDbMin, visDbMax);
+        const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, spectrumHoverNorm, frame);
         if (!snap) {
             return;
         }
@@ -3850,7 +3822,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     const padL2 = 32, padR2 = 6, padT2 = 4, padB2 = 14;
                     const plotW2 = W - padL2 - padR2;
                     const plotH2 = H - padT2 - padB2;
-                    const snap = spectrumBinAtHover(slice, spectrumHoverNorm, padL2, plotW2, padT2, plotH2, visFreqMinT, visFreqMaxT, visDbMinT, visDbMaxT);
+                    const snap = spectrumBinAtHover(slice, spectrumHoverNorm, { padLeft: padL2, plotWidth: plotW2, padTop: padT2, plotHeight: plotH2, frequencyMin: visFreqMinT, frequencyMax: visFreqMaxT, dbMin: visDbMinT, dbMax: visDbMaxT });
                     if (!snap) {
                         return;
                     }
@@ -4009,7 +3981,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         ctx.restore();
         if (spectrumHoverNorm !== null && spectrumHoverTrackId === 'overlay') {
             const mouseY = spectrumHoverYFrac !== null ? spectrumHoverYFrac * H : null;
-            const nearest = chooseOverlaySpectrumSnap(slices, spectrumHoverNorm, mouseY, padL, plotW, padT, plotH, visFreqMinO, visFreqMaxO, visDbMinO, visDbMaxO);
+            const nearest = nearestSpectrumSnap(slices, spectrumHoverNorm, mouseY, { padLeft: padL, plotWidth: plotW, padTop: padT, plotHeight: plotH, frequencyMin: visFreqMinO, frequencyMax: visFreqMaxO, dbMin: visDbMinO, dbMax: visDbMaxO });
             if (nearest) {
                 ctx.save();
                 ctx.beginPath();

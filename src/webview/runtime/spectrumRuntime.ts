@@ -48,3 +48,56 @@ export function hoverNormForFrequency(frequencyHz: number, visibleMin: number, v
     const range = visibleMax - visibleMin;
     return range <= 0 ? 0 : Math.max(0, Math.min(1, (frequencyHz - visibleMin) / range));
 }
+
+export interface SpectrumPlotFrame {
+    padLeft: number;
+    plotWidth: number;
+    padTop: number;
+    plotHeight: number;
+    frequencyMin: number;
+    frequencyMax: number;
+    dbMin: number;
+    dbMax: number;
+}
+
+export interface SpectrumSnapHit<S> {
+    s: S;
+    snap: SpectrumSnap;
+    dbVal: number;
+    snapY: number;
+}
+
+export function spectrumBinAtHover(slice: SpectrumSlice, hoverNorm: number, frame: SpectrumPlotFrame): SpectrumSnap | null {
+    const targetFreqHz = frame.frequencyMin + hoverNorm * (frame.frequencyMax - frame.frequencyMin);
+    return spectrumBinAtFrequency(slice, targetFreqHz, frame.padLeft, frame.plotWidth, frame.padTop, frame.plotHeight,
+        frame.frequencyMin, frame.frequencyMax, frame.dbMin, frame.dbMax);
+}
+
+export function nearestSpectrumSnap<S extends { slice: SpectrumSlice }>(
+    series: readonly S[],
+    hoverNorm: number,
+    mouseY: number | null,
+    frame: SpectrumPlotFrame,
+): SpectrumSnapHit<S> | null {
+    let nearest: SpectrumSnapHit<S> | null = null;
+    let minDist = Infinity;
+    for (const s of series) {
+        const snap = spectrumBinAtHover(s.slice, hoverNorm, frame);
+        if (!snap || snap.dbVal === undefined || snap.y === null) {
+            continue;
+        }
+        const item = { s, snap, dbVal: snap.dbVal, snapY: snap.y };
+        if (mouseY === null) {
+            if (!nearest) {
+                nearest = item;
+            }
+            continue;
+        }
+        const dist = Math.abs(snap.y - mouseY);
+        if (dist < minDist) {
+            minDist = dist;
+            nearest = item;
+        }
+    }
+    return nearest;
+}
