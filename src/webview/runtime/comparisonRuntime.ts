@@ -34,6 +34,7 @@ import { ComparisonTestBridge } from './testBridge';
 import { TrackStore } from './trackStore';
 import { installColorPicker } from './colorPicker';
 import { installTrackReorderDrag } from './trackReorderDrag';
+import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
 import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
@@ -869,8 +870,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (entry.action === 'apply-spectrogram-settings' && entry.payload) {
             const p = entry.payload;
-            if (__specPopover && __specPopover.hidden) {
-                __openSpecPopover();
+            if (!specSettingsPopover.isOpen()) {
+                specSettingsPopover.open();
             }
             document.getElementById('spec-auto').checked = !!p.auto;
             if (p.nFft != null) {
@@ -882,7 +883,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (p.window != null) {
                 document.getElementById('spec-window').value = String(p.window);
             }
-            __applySpecAutoState();
+            specSettingsPopover.applyAutoState();
             document.getElementById('spec-apply').click();
         }
         if (entry.action === 'set-cursor' && entry.payload) {
@@ -925,8 +926,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (entry.action === 'set-spectrogram-display' && entry.payload) {
             const p = entry.payload;
-            if (__specPopover && __specPopover.hidden) {
-                __openSpecPopover();
+            if (!specSettingsPopover.isOpen()) {
+                specSettingsPopover.open();
             }
             function __setN(id: string, v: unknown): void {
                 const el = document.getElementById(id);
@@ -4169,58 +4170,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             gear.style.display = (contentType === 'spectrogram') ? '' : 'none';
         }
     }
-    (function __buildSpecPopover() {
-        const nfftOptions = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
-            .map(function (v) { return '<option value="' + v + '">' + v + '</option>'; })
-            .join('');
-        const html = ''
-            + '<div id="spec-settings-popover" hidden style="position:absolute;z-index:50;background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:6px;min-width:260px;color:var(--text);font-family:var(--font-ui);">'
-            + '<label style="display:block;margin-bottom:6px"><input type="checkbox" id="spec-auto"> ' + escapeHtml(STR.specSettingsAuto) + '</label>'
-            + '<fieldset id="spec-stft-fields" style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
-            + '<legend>' + escapeHtml(STR.specSettingsStftLegend) + '</legend>'
-            + '<label>' + escapeHtml(STR.specSettingsNFft) + ' <select id="spec-nfft">' + nfftOptions + '</select></label><br>'
-            + '<label>' + escapeHtml(STR.specSettingsHopSize) + ' <input type="number" id="spec-hop" min="1" step="1"></label><br>'
-            + '<label>' + escapeHtml(STR.specSettingsWindow) + ' <select id="spec-window">'
-            + '<option value="hann">hann</option><option value="hamming">hamming</option>'
-            + '<option value="blackman">blackman</option><option value="boxcar">boxcar</option>'
-            + '</select></label>'
-            + '<div style="font-size:11px;color:var(--muted)">' + escapeHtml(STR.settingsApplyHint) + '</div>'
-            + '</fieldset>'
-            + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
-            + '<legend>' + escapeHtml(STR.specSettingsDisplayLegend) + '</legend>'
-            + '<label>' + escapeHtml(STR.specSettingsDbMin) + ' <input type="number" id="spec-dbmin" step="1" placeholder="' + escapeHtml(STR.specSettingsPlaceholderAuto) + '"></label><br>'
-            + '<label>' + escapeHtml(STR.specSettingsDbMax) + ' <input type="number" id="spec-dbmax" step="1" placeholder="' + escapeHtml(STR.specSettingsPlaceholderAuto) + '"></label><br>'
-            + '<label>' + escapeHtml(STR.specSettingsMaxFreqHz) + ' <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="' + escapeHtml(STR.specSettingsPlaceholderNyquist) + '"></label>'
-            + '</fieldset>'
-            + '<div style="display:flex;gap:6px;justify-content:flex-end">'
-            + '<button class="tb-btn" id="spec-reset">' + escapeHtml(STR.specSettingsReset) + '</button>'
-            + '<button class="tb-btn" id="spec-apply">' + escapeHtml(STR.specSettingsApply) + '</button>'
-            + '</div>'
-            + '</div>';
-        document.body.insertAdjacentHTML('beforeend', html);
-    })();
-    const __specPopover = document.getElementById('spec-settings-popover');
-    function __syncSpecFormFromState() {
-        document.getElementById('spec-auto').checked = !!__spectrogramSettings.auto;
-        document.getElementById('spec-nfft').value = String(__spectrogramSettings.stft.nFft);
-        document.getElementById('spec-hop').value = String(__spectrogramSettings.stft.hopSize);
-        document.getElementById('spec-window').value = __spectrogramSettings.stft.window;
-        document.getElementById('spec-dbmin').value = __spectrogramSettings.display.dbMin == null ? '' : String(__spectrogramSettings.display.dbMin);
-        document.getElementById('spec-dbmax').value = __spectrogramSettings.display.dbMax == null ? '' : String(__spectrogramSettings.display.dbMax);
-        document.getElementById('spec-maxfreq').value = __spectrogramSettings.display.maxFrequencyHz == null ? '' : String(__spectrogramSettings.display.maxFrequencyHz);
-        __applySpecAutoState();
-    }
-    function __applySpecAutoState() {
-        const auto = document.getElementById('spec-auto').checked;
-        document.getElementById('spec-stft-fields').disabled = auto;
-    }
-    function __readDisplayFromForm() {
-        function n(id: string) {
-            const v = document.getElementById(id).value;
-            return v === '' ? null : Number(v);
-        }
-        return { dbMin: n('spec-dbmin'), dbMax: n('spec-dbmax'), maxFrequencyHz: n('spec-maxfreq') };
-    }
     function __setSpectrogramDisplay(display: SpectrogramDisplaySettings): void {
         function n(v: number | null): number | null { return v == null ? null : Number(v); }
         __spectrogramSettings.display = {
@@ -4233,52 +4182,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
         requestAnimationFrame(function () { publishTestSnapshot(); });
     }
-    function __openSpecPopover() {
-        const btn = document.querySelector('[data-action="spectrogram-settings"]');
-        if (!btn || !__specPopover) {
-            return;
-        }
-        const rect = btn.getBoundingClientRect();
-        __specPopover.style.top = (rect.bottom + 6) + 'px';
-        __specPopover.style.left = Math.max(8, rect.right - 280) + 'px';
-        __specPopover.hidden = false;
-        __syncSpecFormFromState();
-    }
-    function __closeSpecPopover() {
-        if (__specPopover) {
-            __specPopover.hidden = true;
-        }
-    }
-    document.getElementById('spec-auto').addEventListener('change', __applySpecAutoState);
-    ['spec-dbmin', 'spec-dbmax', 'spec-maxfreq'].forEach(function (id: string) {
-        document.getElementById(id).addEventListener('change', function () {
-            __setSpectrogramDisplay(__readDisplayFromForm());
-        });
-    });
-    document.getElementById('spec-reset').addEventListener('click', function () {
-        __spectrogramSettings = { auto: true, stft: { nFft: 1024, hopSize: 256, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
-        __syncSpecFormFromState();
-        messaging.post({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
-        scheduleRender();
-    });
-    document.getElementById('spec-apply').addEventListener('click', function () {
-        const selectedWindow = document.getElementById('spec-window').value;
-        const stftWindow = selectedWindow === 'hamming' || selectedWindow === 'blackman' || selectedWindow === 'boxcar'
-            ? selectedWindow
-            : 'hann';
-        __spectrogramSettings = {
-            auto: document.getElementById('spec-auto').checked,
-            stft: {
-                nFft: Number(document.getElementById('spec-nfft').value),
-                hopSize: Number(document.getElementById('spec-hop').value),
-                window: stftWindow,
-            },
-            display: __readDisplayFromForm()
-        };
-        invalidateDesiredSpectrumSliceRequests();
-        __setReanalyzeBusy(true, STR.reanalyzingStft);
-        messaging.post({ type: 'request-reanalyze', settings: __spectrogramSettings });
-        __closeSpecPopover();
+    var specSettingsPopover = installSpectrogramSettingsPopover(document, {
+        strings: STR,
+        getSettings: () => __spectrogramSettings,
+        onDisplayChange: __setSpectrogramDisplay,
+        onReset() {
+            __spectrogramSettings = { auto: true, stft: { nFft: 1024, hopSize: 256, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
+            messaging.post({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+            scheduleRender();
+        },
+        onApply(settings) {
+            __spectrogramSettings = settings;
+            invalidateDesiredSpectrumSliceRequests();
+            __setReanalyzeBusy(true, STR.reanalyzingStft);
+            messaging.post({ type: 'request-reanalyze', settings: __spectrogramSettings });
+        },
     });
     // 再解析中のオーバーレイ
     (function __buildReanalyzeOverlay() {
@@ -4308,28 +4226,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             applyBtn.disabled = !!busy;
         }
     }
-    document.addEventListener('click', function (ev) {
-        const target = eventTarget(ev);
-        const btn = target && target.closest ? target.closest('[data-action="spectrogram-settings"]') : null;
-        if (btn) {
-            ev.stopPropagation();
-            if (__specPopover.hidden) {
-                __openSpecPopover();
-            }
-            else {
-                __closeSpecPopover();
-            }
-            return;
-        }
-        if (__specPopover && !__specPopover.hidden && !__specPopover.contains(target)) {
-            __closeSpecPopover();
-        }
-    });
-    document.addEventListener('keydown', function (ev) {
-        if (ev.key === 'Escape') {
-            __closeSpecPopover();
-        }
-    });
     installHelpOverlay(document, STR);
     messaging.onMessage(function (msg) {
         if (!msg) {
