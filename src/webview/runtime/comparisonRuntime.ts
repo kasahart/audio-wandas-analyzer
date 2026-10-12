@@ -32,6 +32,7 @@ import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOv
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { toolbarHtml } from './toolbarHtml';
 import { resultsPaneHtml } from './resultsPaneHtml';
+import { selectionLayoutHtml } from './selectionLayoutHtml';
 import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -1092,38 +1093,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return buildResultsPane(STR.emptyAllExcluded);
     }
     function buildDirectorySelectionLayout() {
-        const pythonButtonText = buildPythonButtonText(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.status === 'warning');
-        const pythonButtonTooltip = buildPythonTooltip(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.tooltip);
-        const pythonButtonClass = 'tb-btn' + (pythonEnvironmentState.status === 'warning' ? ' is-warning' : '');
-        return '<div id="directory-selection-layout">'
-            + '  <div id="selection-toolbar">'
-            + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + escapeHtml(STR.selectionHeader) + '</span>'
-            + '    <div class="tb-sep"></div>'
-            + '    <button class="tb-btn" data-action="open-file">' + escapeHtml(STR.btnOpenFile) + '</button>'
-            + '    <button class="tb-btn" data-action="open-folder">' + escapeHtml(STR.btnOpenAnotherFolder) + '</button>'
-            + '    <button class="' + pythonButtonClass + '" id="selection-python-environment" data-action="select-python-environment" title="' + escapeHtml(pythonButtonTooltip) + '">' + escapeHtml(pythonButtonText) + '</button>'
-            + '  </div>'
-            + '  <div id="selection-body">'
-            + '    <div id="selection-sidebar">'
-            + '      <div id="selection-summary">'
-            + '        <div class="selection-count" id="selection-count"></div>'
-            + '        <div class="selection-path">' + escapeHtml(state.rootPath || '') + '</div>'
-            + '      </div>'
-            + '      <div id="tree-filter-wrap">'
-            + '        <input id="tree-filter-input" type="text" value="' + escapeHtml(selectionTreeView.filterQuery) + '" placeholder="' + escapeHtml(STR.treeFilterPlaceholder || 'Filter files...') + '" autocomplete="off" spellcheck="false">'
-            + '      </div>'
-            + '      <div id="selection-actions">'
-            + '        <button class="tb-btn" data-action="selection-select-all">' + escapeHtml(STR.btnSelectAll) + '</button>'
-            + '        <button class="tb-btn" data-action="selection-clear-all">' + escapeHtml(STR.btnClear) + '</button>'
-            + '      </div>'
-            + '      <div id="selection-tree" role="group" aria-label="' + escapeHtml(STR.ariaSelectionTree) + '">' + selectionTreeView.renderTree(__directoryTree, true, 0) + '</div>'
-            + '    </div>'
-            + '    <div class="tree-resizer" id="tree-resizer" role="separator" aria-orientation="vertical"></div>'
-            + '    <div id="selection-results-pane">'
-            + buildResultsPane(STR.emptyNoTracks)
-            + '    </div>'
-            + '  </div>'
-            + '</div>';
+        const warning = pythonEnvironmentState.status === 'warning';
+        return selectionLayoutHtml({
+            rootPath: state.rootPath || '',
+            filterQuery: selectionTreeView.filterQuery,
+            treeHtml: selectionTreeView.renderTree(__directoryTree, true, 0),
+            resultsPaneHtml: buildResultsPane(STR.emptyNoTracks),
+            python: {
+                text: buildPythonButtonText(pythonEnvironmentState.pythonCommand, warning),
+                tooltip: buildPythonTooltip(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.tooltip),
+                warning,
+            },
+        }, STR);
     }
     function buildTrackRowsHtml() {
         return trackStore.displayOrder.map(function (trackId) {
