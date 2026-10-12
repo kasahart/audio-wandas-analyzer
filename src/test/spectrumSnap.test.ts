@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { nearestSpectrumSnap, spectrumBinAtHover, spectrumReadoutText, trackSpectrumReadoutText, type SpectrumPlotFrame } from '../webview/runtime/spectrumRuntime';
+import { nearestSpectrumSnap, spectrumBinAtHover, setSpectrumReadout, spectrumReadoutText, trackSpectrumReadoutText, type SpectrumPlotFrame } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSlice } from '../webview/runtime/types';
 
 function slice(values: number[]): SpectrumSlice {
@@ -44,4 +44,13 @@ test('spectrum readout texts include the label, frequency and level with its uni
     assert.equal(spectrumReadoutText('a.wav / ch1', s, 1500, -12.34), 'a.wav / ch1 / 1500 Hz / -12.3 dB SPL');
     assert.equal(trackSpectrumReadoutText('a.wav', slice([0]), 250, -3), 'a.wav 250 Hz  -3.0 dB');
     assert.equal(trackSpectrumReadoutText('a.wav', slice([0]), 250, undefined), 'a.wav 250 Hz');
+});
+
+test('setSpectrumReadout: 要素のテキストと色を書き換え、要素が無ければ何もしない', () => {
+    const el = { textContent: 'old' as string | null, style: { color: 'red' } };
+    setSpectrumReadout(el, 'a.wav 250 Hz', '#0af');
+    assert.deepEqual(el, { textContent: 'a.wav 250 Hz', style: { color: '#0af' } });
+    setSpectrumReadout(el, '', '');
+    assert.deepEqual(el, { textContent: '', style: { color: '' } });
+    assert.doesNotThrow(() => setSpectrumReadout(null, 'x', 'y'));
 });

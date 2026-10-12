@@ -18,6 +18,7 @@ import {
     drawSpectrumAxes,
     drawSpectrumCrosshair,
     drawSpectrumSelectionBox,
+    drawCanvasMessage,
     strokeSpectrumSeries,
     DEFAULT_THEME,
     type CanvasDrawCtx,
@@ -59,6 +60,7 @@ function makeMockCtx(): CanvasDrawCtx & { _ops: RecordedOp[]; _texts: string[] }
         clip() { ops.push({ op: 'clip', args: [] }); },
         setLineDash(s) { ops.push({ op: 'setLineDash', args: [s] }); },
         stroke() { ops.push({ op: 'stroke', args: [] }); },
+        clearRect(x, y, w, h) { ops.push({ op: 'clearRect', args: [x, y, w, h] }); },
         fillRect(x, y, w, h) { ops.push({ op: 'fillRect', args: [x, y, w, h] }); },
         strokeRect(x, y, w, h) { ops.push({ op: 'strokeRect', args: [x, y, w, h] }); },
         fillText(t, x, y) { texts.push(t); ops.push({ op: 'fillText', args: [t, x, y] }); },
@@ -363,4 +365,16 @@ test('drawSpectrumSelectionBox: 正規化座標の 2 点から左上基準の矩
     ]);
     assert.ok(ctx._ops.some((o) => o.op === 'setLineDash'));
     assert.equal(ctx._ops[ctx._ops.length - 1].op, 'restore');
+});
+
+// ── drawCanvasMessage ──
+
+test('drawCanvasMessage: キャンバスを消去してから中央にメッセージを描く', () => {
+    const ctx = makeMockCtx();
+    drawCanvasMessage(ctx, 200, 80, 'No data', '11px sans-serif', '#888');
+    assert.deepEqual(ctx._ops[0], { op: 'clearRect', args: [0, 0, 200, 80] });
+    assert.deepEqual(ctx._ops[ctx._ops.length - 1], { op: 'fillText', args: ['No data', 100, 40] });
+    assert.equal(ctx.fillStyle, '#888');
+    assert.equal(ctx.font, '11px sans-serif');
+    assert.equal(ctx.textAlign, 'center');
 });

@@ -120,6 +120,19 @@ export function trackSpectrumReadoutText(label: string, slice: SpectrumSlice, fr
     return label + ' ' + formatReadoutHz(freqHz) + (dbVal !== undefined ? '  ' + dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice) : '');
 }
 
+export interface SpectrumReadoutElement {
+    textContent: string | null;
+    style: { color: string };
+}
+
+export function setSpectrumReadout(el: SpectrumReadoutElement | null, text: string, color: string): void {
+    if (!el) {
+        return;
+    }
+    el.textContent = text;
+    el.style.color = color;
+}
+
 export type SpectrumSliceResultMessage = Extract<HostInboundMessage, { type: 'spectrum-slice-result' }>;
 
 export function spectrumSlicesFromResult(msg: SpectrumSliceResultMessage, cursorNorm: number | undefined): Array<SpectrumSlice & { channelIndex: number }> {

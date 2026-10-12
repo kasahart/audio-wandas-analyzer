@@ -34,6 +34,7 @@ export interface CanvasDrawCtx {
     stroke(): void;
     rect(x: number, y: number, w: number, h: number): void;
     clip(): void;
+    clearRect(x: number, y: number, w: number, h: number): void;
     fillRect(x: number, y: number, w: number, h: number): void;
     strokeRect(x: number, y: number, w: number, h: number): void;
     fillText(text: string, x: number, y: number): void;
@@ -256,6 +257,14 @@ export function strokeSpectrumSeries(
         ctx.stroke();
     }
     ctx.restore();
+}
+
+export function drawCanvasMessage(ctx: CanvasDrawCtx, W: number, H: number, text: string, font: string, color: string): void {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = color;
+    ctx.font = font;
+    ctx.textAlign = 'center';
+    ctx.fillText(text, W / 2, H / 2);
 }
 
 export function drawSpectrumSelectionBox(
