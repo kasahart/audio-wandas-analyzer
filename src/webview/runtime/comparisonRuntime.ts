@@ -2041,7 +2041,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (action === 'selection-select-all') {
             clearSelectedFilePaths();
             // 可視状態のチェックボックスのみを対象にする
-            document.querySelectorAll('.selection-file-checkbox').forEach(function (input) {
+            inputsMatching(document, '.selection-file-checkbox').forEach(function (input) {
                 if (selectionTreeView.isVisible(input)) {
                     const filePath = input.getAttribute('data-file-path');
                     if (filePath) {
@@ -2082,7 +2082,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const countEl = document.getElementById('selection-count');
         const count = selectedFilePaths.length;
         // 可視チェックボックスの数を分母にする
-        const visibleCount = Array.from(document.querySelectorAll('.selection-file-checkbox')).filter(function (el: RuntimeElement) {
+        const visibleCount = inputsMatching(document, '.selection-file-checkbox').filter(function (el) {
             return selectionTreeView.isVisible(el);
         }).length;
         if (countEl) {
