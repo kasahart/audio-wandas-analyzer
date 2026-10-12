@@ -30,6 +30,7 @@ import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, 
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
+import { toolbarHtml } from './toolbarHtml';
 import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -1173,43 +1174,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }).join('');
     }
     function buildToolbar() {
-        function toolbarMenu(label: string, content: string) {
-            return '<details class="tb-menu"><summary class="tb-btn">' + escapeHtml(label) + '</summary><div class="tb-menu-popover">' + content + '</div></details>';
-        }
-        const adjustMenu = '<div class="tb-menu-row"><span class="tb-label">' + escapeHtml(STR.toolbarHeightLabel) + '</span></div>'
-            + '<div class="tb-menu-row"><span class="tb-label">' + escapeHtml(STR.heightTrackLabel) + '</span>'
-            + '<input class="tb-number" type="number" min="' + TRACK_HEIGHT_MIN + '" max="' + TRACK_HEIGHT_MAX + '" step="1" value="' + trackHeight + '" data-action="track-height-input" aria-label="' + escapeHtml(STR.heightTrackLabel + ' px') + '">'
-            + '<button class="tb-btn" data-action="track-height-reset" aria-label="' + escapeHtml(STR.ariaTrackHeightReset) + '">' + escapeHtml(STR.heightTrackLabel + ' ' + STR.btnHeightReset) + '</button></div>'
-            + '<div class="tb-menu-row"><span class="tb-label">' + escapeHtml(STR.heightSpectrumLabel) + '</span>'
-            + '<input class="tb-number" type="number" min="' + SPECTRUM_HEIGHT_MIN + '" max="' + SPECTRUM_HEIGHT_MAX + '" step="1" value="' + spectrumOverlayHeight + '" data-action="spectrum-height-input" aria-label="' + escapeHtml(STR.heightSpectrumLabel + ' px') + '">'
-            + '<button class="tb-btn" data-action="spectrum-height-reset" aria-label="' + escapeHtml(STR.ariaSpectrumHeightReset) + '">' + escapeHtml(STR.heightSpectrumLabel + ' ' + STR.btnHeightReset) + '</button></div>';
-        const workflowMenu = '<button class="tb-btn" data-action="run-recipe">' + escapeHtml(STR.btnRunRecipe) + '</button>'
-            + '<button class="tb-btn" data-action="copy-spec">' + escapeHtml(STR.btnCopySpec) + '</button>';
-        const exportMenu = '<button class="tb-btn" data-action="export-png" title="' + escapeHtml(STR.btnExportPngTitle) + '">' + escapeHtml(STR.btnExportPng) + '</button>'
-            + '<button class="tb-btn" data-action="export-csv" title="' + escapeHtml(STR.btnExportCsvTitle) + '">' + escapeHtml(STR.btnExportCsv) + '</button>'
-            + '<button class="tb-btn" data-action="export-wav" title="' + escapeHtml(STR.btnExportWavTitle) + '">' + escapeHtml(STR.btnExportWav) + '</button>'
-            + '<button class="tb-btn" data-action="export-report" title="' + escapeHtml(STR.btnExportReportTitle) + '">' + escapeHtml(STR.btnExportReport) + '</button>';
-        return '<span class="tb-label">' + escapeHtml(STR.toolbarTrackLabel) + '</span>'
-            + '<button class="tb-btn' + (contentType === 'waveform' ? ' is-active' : '') + '" data-action="content-waveform">' + escapeHtml(STR.btnWaveform) + '</button>'
-            + '<button class="tb-btn' + (contentType === 'spectrogram' ? ' is-active' : '') + '" data-action="content-spectrogram">' + escapeHtml(STR.btnSpectrogram) + '</button>'
-            + '<button class="tb-btn" data-action="spectrogram-settings" title="' + escapeHtml(STR.btnSpectrogramSettingsTitle) + '" aria-label="' + escapeHtml(STR.btnSpectrogramSettingsTitle) + '" style="display:none">⚙</button>'
-            + '<div class="tb-sep"></div>'
-            + '<span class="tb-label">' + escapeHtml(STR.toolbarZoomLabel) + '</span>'
-            + '<button class="tb-btn" data-action="zoom-out" aria-label="' + escapeHtml(STR.ariaZoomOut) + '">－</button>'
-            + '<button class="tb-btn" data-action="zoom-in" aria-label="' + escapeHtml(STR.ariaZoomIn) + '">＋</button>'
-            + '<button class="tb-btn" data-action="zoom-reset" aria-label="' + escapeHtml(STR.ariaZoomReset) + '">' + escapeHtml(STR.btnZoomReset) + '</button>'
-            + '<button class="tb-btn" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom" aria-pressed="false">' + escapeHtml(STR.waveModeLabelRectZoom) + '</button>'
-            + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection" title="' + escapeHtml(STR.btnZoomToSelectionTitle) + '" disabled>' + escapeHtml(STR.btnZoomToSelection) + '</button>'
-            + '<button class="tb-btn" data-action="toggle-follow-cursor" title="' + escapeHtml(STR.btnFollowCursorTitle) + '">' + escapeHtml(STR.btnFollowCursor) + '</button>'
-            + '<div class="tb-sep"></div>'
-            + toolbarMenu(STR.toolbarAdjustLabel, adjustMenu)
-            + toolbarMenu(STR.toolbarWorkflowLabel, workflowMenu)
-            + toolbarMenu(STR.toolbarExportLabel, exportMenu)
-            + '<div class="tb-sep"></div>'
-            + '<span id="cursor-display" title="' + escapeHtml(STR.cursorDisplayHint) + '">—</span>'
-            + '<span id="playback-display" title="' + escapeHtml(STR.playbackDisplayTitle) + '"></span>'
-            + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escapeHtml(STR.loopBadge) + '</span>'
-            + '<span id="loop-time-display" title="' + escapeHtml(STR.loopTimeDisplayTitle) + '" style="display:none;"></span>';
+        return toolbarHtml({
+            contentType,
+            trackHeight,
+            trackHeightRange: { min: TRACK_HEIGHT_MIN, max: TRACK_HEIGHT_MAX },
+            spectrumHeight: spectrumOverlayHeight,
+            spectrumHeightRange: { min: SPECTRUM_HEIGHT_MIN, max: SPECTRUM_HEIGHT_MAX },
+        }, STR);
     }
     function buildChannelLane(result: ComparisonTrackState, trackIndex: number, channelIndex: number) {
         const trackId = trackIdAtIndex(trackIndex);
