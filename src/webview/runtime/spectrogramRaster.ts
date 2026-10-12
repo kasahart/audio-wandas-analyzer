@@ -1,5 +1,5 @@
 import { rasterize, viridis, type RasterPlan } from '../../shared/gui-core/index';
-import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
+import type { SpectrogramData, SpectrogramDisplaySettings } from '../../shared/analysis/analysisTypes';
 export interface SpectrogramRasterView {
     zoomStart: number;
     zoomEnd: number;
@@ -9,6 +9,19 @@ export interface SpectrogramRasterView {
     dbHi: number;
     maxFrequencyHz: number;
 }
+export type SpectrogramDisplayBounds = Pick<SpectrogramRasterView, 'dbLo' | 'dbHi' | 'maxFrequencyHz'>;
+
+export function spectrogramDisplayBounds(
+    spec: Pick<SpectrogramData, 'minDb' | 'maxDb' | 'maxFrequencyHz'>,
+    display: SpectrogramDisplaySettings,
+): SpectrogramDisplayBounds {
+    return {
+        dbLo: display.dbMin != null ? display.dbMin : spec.minDb,
+        dbHi: display.dbMax != null ? display.dbMax : spec.maxDb,
+        maxFrequencyHz: display.maxFrequencyHz != null ? Math.min(display.maxFrequencyHz, spec.maxFrequencyHz) : spec.maxFrequencyHz,
+    };
+}
+
 export function paintSpectrogramRaster(spec: SpectrogramData, width: number, height: number, view: SpectrogramRasterView, destination?: Uint8ClampedArray) {
     const columns: RasterPlan['columns'] = Array.from({ length: width }, (_, px) => {
         const globalStart = view.zoomStart + (px / width) * (view.zoomEnd - view.zoomStart);
