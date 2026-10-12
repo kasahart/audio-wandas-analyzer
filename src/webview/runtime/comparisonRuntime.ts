@@ -25,10 +25,10 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
-import { arrowCursorStep, isTextEntryTag, keydownIntent } from './shortcuts';
+import { arrowCursorStep, isTextEntryTag, keydownIntent, type GlobalShortcutAction } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
-import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
+import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
 import {
     channelIndexAttribute,
@@ -2436,18 +2436,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     scheduleSpectrumRefresh('immediate');
                 });
                 overlayCanvas.addEventListener('dblclick', function (e) {
-                    const rect = overlayCanvas.getBoundingClientRect();
-                    const scaleX = overlayCanvas.width / (rect.width || overlayCanvas.width);
-                    const scaleY = overlayCanvas.height / (rect.height || overlayCanvas.height);
                     if (_lastSpectrumMaxF <= 0) {
                         return;
                     } // データ無し
-                    const region = overlaySpectrumRegionAt(
-                        (e.clientX - rect.left) * scaleX,
-                        (e.clientY - rect.top) * scaleY,
-                        overlayCanvas.width,
-                        overlayCanvas.height,
-                    );
+                    const px = clientToCanvasPixels(e.clientX, e.clientY, overlayCanvas.getBoundingClientRect(), overlayCanvas.width, overlayCanvas.height);
+                    const region = overlaySpectrumRegionAt(px.x, px.y, overlayCanvas.width, overlayCanvas.height);
                     if (region === 'db-axis') {
                         openSpectrumRangePopup('db', e.clientX, e.clientY);
                     }
@@ -2624,7 +2617,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'export-csv': exportCsv,
             'export-wav': exportWavLoop,
             'export-report': exportReport,
-        };
+        } satisfies Record<GlobalShortcutAction, () => void> & Record<string, () => void>;
         if (Object.prototype.hasOwnProperty.call(toolbarActions, action)) {
             toolbarActions[action]();
         }
