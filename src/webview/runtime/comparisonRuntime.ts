@@ -22,6 +22,7 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
+import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts } from './testSnapshot';
 import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
 import {
@@ -1027,8 +1028,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return prefix + formatAmplitudeValue(value);
     }
     function publishTestSnapshot(actionId?: string) {
-        const toolbar = document.getElementById('toolbar');
-        const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
         let visibleSpectrumTrackCount = 0;
         const spectrogramPerTrack: string[][] = [];
         const spectrumPerTrack: string[][] = [];
@@ -1067,34 +1066,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             waveformPerTrack.push(waveformAxisLabelsForResult(result, trackIndex));
             const ch = displayedChannel(result, trackIndex);
-            const spec = ch && ch.spectrogram;
-            const dispCfg2 = __spectrogramSettings.display;
-            const fallbackMaxF = result.sampleRateHz ? result.sampleRateHz / 2 : 0;
-            const specDbLo = spec
-                ? ((dispCfg2.dbMin != null) ? dispCfg2.dbMin : spec.minDb)
-                : ((dispCfg2.dbMin != null) ? dispCfg2.dbMin : -120);
-            const specDbHi = spec
-                ? ((dispCfg2.dbMax != null) ? dispCfg2.dbMax : spec.maxDb)
-                : ((dispCfg2.dbMax != null) ? dispCfg2.dbMax : 0);
-            const originalSpecMaxF = spec ? spec.maxFrequencyHz : fallbackMaxF;
-            const specMaxF = dispCfg2.maxFrequencyHz != null
-                ? Math.min(dispCfg2.maxFrequencyHz, originalSpecMaxF)
-                : originalSpecMaxF;
-            spectrogramPerTrack.push(specMaxF > 0
-                ? ['0 Hz', formatHz(specMaxF / 2), formatHz(specMaxF),
-                    formatDbLevel(specDbLo, spec), formatDbLevel(specDbHi, spec), 'Freq']
-                : []);
+            spectrogramPerTrack.push(spectrogramAxisLabelTexts(
+                ch && ch.spectrogram,
+                __spectrogramSettings.display,
+                result.sampleRateHz ? result.sampleRateHz / 2 : 0,
+            ));
             if (slice) {
-                const visSliceDbMin = (specDbMin != null) ? specDbMin : slice.minDb;
-                const visSliceDbMax = (specDbMax != null) ? specDbMax : slice.maxDb;
-                const visSliceFreqMin = specFreqStart * slice.maxFrequencyHz;
-                const visSliceFreqMax = specFreqEnd * slice.maxFrequencyHz;
-                spectrumPerTrack.push([
-                    formatDbLevel(visSliceDbMax, slice),
-                    formatDbLevel((visSliceDbMax + visSliceDbMin) / 2, slice),
-                    formatDbLevel(visSliceDbMin, slice),
-                    formatHz(visSliceFreqMin), formatHz((visSliceFreqMin + visSliceFreqMax) / 2), formatHz(visSliceFreqMax),
-                ]);
+                spectrumPerTrack.push(spectrumAxisLabelTexts(
+                    (specDbMin != null) ? specDbMin : slice.minDb,
+                    (specDbMax != null) ? specDbMax : slice.maxDb,
+                    specFreqStart * slice.maxFrequencyHz,
+                    specFreqEnd * slice.maxFrequencyHz,
+                    slice,
+                ));
             }
             else {
                 spectrumPerTrack.push([]);
@@ -1120,61 +1104,33 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         let latestSpectrogram;
         try {
             const firstChannel = state.results[0] ? displayedChannel(state.results[0], 0) : undefined;
-            const firstSpec = firstChannel?.spectrogram;
-            const settingsForSnapshot = (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings)
-                ? __spectrogramSettings
-                : null;
-            if (firstSpec || settingsForSnapshot) {
-                const disp = settingsForSnapshot && settingsForSnapshot.display
-                    ? settingsForSnapshot.display
-                    : { dbMin: null, dbMax: null, maxFrequencyHz: null };
-                const stft = settingsForSnapshot && settingsForSnapshot.stft
-                    ? settingsForSnapshot.stft
-                    : null;
-                latestSpectrogram = {
-                    windowSize: stft ? Number(stft.nFft) : (firstSpec ? firstSpec.windowSize : null),
-                    hopSize: stft ? Number(stft.hopSize) : (firstSpec ? firstSpec.hopSize : null),
-                    dbMinApplied: disp.dbMin == null ? null : Number(disp.dbMin),
-                    dbMaxApplied: disp.dbMax == null ? null : Number(disp.dbMax),
-                    maxFrequencyHzApplied: disp.maxFrequencyHz == null ? null : Number(disp.maxFrequencyHz),
-                };
-            }
+            latestSpectrogram = latestSpectrogramSnapshot(
+                firstChannel?.spectrogram,
+                (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings) ? __spectrogramSettings : null,
+            );
         }
         catch (e) { /* ignore */ }
         testBridge.publish({
-                hasToolbar: !!toolbar,
-                toolbarActions: Array.from(document.querySelectorAll('#toolbar [data-action]')).map(function (el: RuntimeElement) {
-                    return el.getAttribute('data-action');
-                }).filter((action: string | null): action is string => !!action),
-                trackRowCount: document.querySelectorAll('.track-row').length,
-                audioElementCount: document.querySelectorAll('#audio-host audio').length,
-                hasRulerCanvas: !!document.getElementById('ruler-canvas'),
+                ...domSnapshotBase(document),
                 zoomStart: zoomStart,
                 zoomEnd: zoomEnd,
                 amplitudeZoomMinNorm: amplitudeZoomMinNorm,
                 amplitudeZoomMaxNorm: amplitudeZoomMaxNorm,
                 rectZoomSelection: rectZoomSelection ? Object.assign({}, rectZoomSelection) : null,
                 cursorNorm: cursorNorm,
-                spectrumOverlayPresent: !!overlayCanvas,
-                spectrumTrackCanvasCount: document.querySelectorAll('.track-spectrum-canvas').length,
                 visibleSpectrumTrackCount: visibleSpectrumTrackCount,
                 contentType: contentType,
                 reanalyzeBusy: isReanalyzeBusy(),
                 latestSpectrogram: latestSpectrogram,
                 axisLabels: {
                     spectrumOverlay: visibleSpectrumTrackCount > 0 && isFinite(overlayMinDb)
-                        ? (function () {
-                            const visOvDbMin = (specDbMin != null) ? specDbMin : overlayMinDb;
-                            const visOvDbMax = (specDbMax != null) ? specDbMax : overlayMaxDb;
-                            const visOvFMin = specFreqStart * overlayMaxF;
-                            const visOvFMax = specFreqEnd * overlayMaxF;
-                            return [
-                                formatDbLevel(visOvDbMax, overlayDbSource),
-                                formatDbLevel((visOvDbMax + visOvDbMin) / 2, overlayDbSource),
-                                formatDbLevel(visOvDbMin, overlayDbSource),
-                                formatHz(visOvFMin), formatHz((visOvFMin + visOvFMax) / 2), formatHz(visOvFMax),
-                            ];
-                        })()
+                        ? spectrumAxisLabelTexts(
+                            (specDbMin != null) ? specDbMin : overlayMinDb,
+                            (specDbMax != null) ? specDbMax : overlayMaxDb,
+                            specFreqStart * overlayMaxF,
+                            specFreqEnd * overlayMaxF,
+                            overlayDbSource,
+                        )
                         : [],
                     spectrogramPerTrack: spectrogramPerTrack,
                     spectrumPerTrack: spectrumPerTrack,
@@ -1198,20 +1154,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             publishTestSnapshot(actionId);
         }
         catch (e) {
-            const toolbar = document.getElementById('toolbar');
             testBridge.publish({
-                    hasToolbar: !!toolbar,
-                    toolbarActions: Array.from(document.querySelectorAll('#toolbar [data-action]')).map(function (el: RuntimeElement) {
-                        return el.getAttribute('data-action');
-                    }).filter((action: string | null): action is string => !!action),
-                    trackRowCount: document.querySelectorAll('.track-row').length,
-                    audioElementCount: document.querySelectorAll('#audio-host audio').length,
-                    hasRulerCanvas: !!document.getElementById('ruler-canvas'),
+                    ...domSnapshotBase(document),
                     zoomStart: zoomStart,
                     zoomEnd: zoomEnd,
                     cursorNorm: cursorNorm,
-                    spectrumOverlayPresent: !!document.getElementById('spectrum-overlay-canvas'),
-                    spectrumTrackCanvasCount: document.querySelectorAll('.track-spectrum-canvas').length,
                     visibleSpectrumTrackCount: 0,
                     contentType: contentType,
                     reanalyzeBusy: isReanalyzeBusy(),
