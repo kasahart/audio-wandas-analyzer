@@ -287,6 +287,32 @@ export function steppedSpectrumHoverNorm(slice: SpectrumSlice, binIdx: number, d
     return hoverNormForFrequency(freqHz, frequencyMin, frequencyMax);
 }
 
+const UNIT_PLOT = { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1 };
+
+export function steppedTrackSpectrumHoverNorm(slice: SpectrumSlice, hoverNorm: number, freqStart: number, freqEnd: number, deltaIdx: number): number | null {
+    const frequencyMin = freqStart * slice.maxFrequencyHz;
+    const frequencyMax = freqEnd * slice.maxFrequencyHz;
+    const snap = spectrumBinAtHover(slice, hoverNorm, { ...UNIT_PLOT, frequencyMin, frequencyMax, dbMin: slice.minDb, dbMax: slice.maxDb });
+    return snap ? steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, frequencyMin, frequencyMax) : null;
+}
+
+export function steppedOverlaySpectrumHoverNorm(
+    series: ReadonlyArray<{ slice: SpectrumSlice }>,
+    hoverNorm: number,
+    mouseY: number | null,
+    visible: SpectrumVisibleWindow,
+    deltaIdx: number,
+): number | null {
+    if (series.length === 0) {
+        return null;
+    }
+    const frame = { ...UNIT_PLOT, ...visible };
+    const nearest = nearestSpectrumSnap(series, hoverNorm, mouseY, frame);
+    const chosen = nearest ? nearest.s : series[0];
+    const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, hoverNorm, frame);
+    return snap ? steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax) : null;
+}
+
 export function channelIndexAttribute(el: { getAttribute(name: string): string | null }): number | null {
     const channelIndex = parseInt(el.getAttribute('data-channel-index') ?? '', 10);
     return isNaN(channelIndex) ? null : channelIndex;
