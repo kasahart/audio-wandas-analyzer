@@ -851,14 +851,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 __setSpectrogramDisplay(fillSpectrogramDisplayForm(document, p));
             },
         };
-        const trackAction = trackActions[entry.action];
+        const trackAction = Object.hasOwn(trackActions, entry.action) ? trackActions[entry.action] : undefined;
         if (trackAction) {
             if (actionTrackId && idx >= 0) {
                 trackAction(actionTrackId, idx);
             }
             return;
         }
-        const payloadAction = payloadActions[entry.action];
+        const payloadAction = Object.hasOwn(payloadActions, entry.action) ? payloadActions[entry.action] : undefined;
         if (payloadAction) {
             if (payload) {
                 payloadAction(payload);

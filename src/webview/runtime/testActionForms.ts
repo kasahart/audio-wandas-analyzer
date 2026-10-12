@@ -49,7 +49,6 @@ export function loopRegionFromPayload(payload: ActionPayload): LoopRegion | null
     return end > start ? { start, end } : null;
 }
 
-// An explicit trackId wins only while that track still exists; otherwise fall back to the positional trackIndex.
 export function testActionTrackId(
     entry: TestAction,
     isKnownTrack: (trackId: TrackId) => boolean,
