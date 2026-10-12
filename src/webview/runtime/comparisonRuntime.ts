@@ -32,6 +32,7 @@ import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOv
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
 import { createSpectrumCursorHandlers } from './spectrumCursorHandlers';
+import { attachTrackLaneActions } from './trackLaneActions';
 import { SpectrumHover } from './spectrumHover';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { toolbarHtml } from './toolbarHtml';
@@ -1834,55 +1835,44 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 navigator.clipboard.writeText(formatClockTime(startSec) + ' – ' + formatClockTime(endSec)).catch(function () { });
             });
         }
-        document.getElementById('tracks-wrapper').addEventListener('click', function (e) {
-            const tgt = eventTarget(e);
-            const action = tgt.getAttribute ? tgt.getAttribute('data-action') : null;
-            const trackId = trackIdFromElement(tgt);
-            const idx = trackId ? trackStore.protocolIndexForId(trackId) : null;
-            if (action === 'toggle-playback' && trackId) {
-                togglePlayback(trackId);
-            }
-            if (action === 'toggle-mute' && trackId && idx !== null) {
-                const runtime = trackRuntimeAt(idx);
+        attachTrackLaneActions(document.getElementById('tracks-wrapper'), {
+            trackIdFromElement,
+            trackIndexForId: (trackId) => trackStore.protocolIndexForId(trackId),
+        }, {
+            'toggle-playback': ({ trackId }) => togglePlayback(trackId),
+            'toggle-mute': ({ trackIndex, target }) => {
+                if (trackIndex === null) {
+                    return;
+                }
+                const runtime = trackRuntimeAt(trackIndex);
                 runtime.muted = !runtime.muted;
-                const audio = getTrackAudio(idx);
+                const audio = getTrackAudio(trackIndex);
                 if (audio) audio.muted = runtime.muted;
-                tgt.setAttribute('aria-pressed', String(runtime.muted));
-                tgt.textContent = runtime.muted ? '🔇' : '🔊';
-            }
-            if (action === 'stop-playback' && trackId) {
-                stopPlayback(trackId);
-            }
-            if (action === 'remove-track' && trackId) {
-                removeTrack(trackId);
-            }
-            if (action === 'configure-calibration' && trackId && idx !== null) {
-                e.preventDefault();
-                vscode.postMessage(calibrationRequest(idx, trackStore.require(trackId).result));
-            }
-            if (action === 'offset-up' && idx !== null) {
-                adjustOffset(idx, 0.01);
-            }
-            if (action === 'offset-down' && idx !== null) {
-                adjustOffset(idx, -0.01);
-            }
-            if (action === 'pick-color' && trackId) {
-                var anchor = tgt.closest ? tgt.closest('[data-action="pick-color"]') : tgt;
-                openColorPicker(trackId, anchor);
-            }
-        });
-        document.getElementById('tracks-wrapper').addEventListener('keydown', function (e) {
-            if (e.key !== 'Enter' && e.key !== ' ') {
-                return;
-            }
-            var tgt2 = eventTarget(e);
-            var action2 = tgt2.getAttribute ? tgt2.getAttribute('data-action') : null;
-            const trackId2 = trackIdFromElement(tgt2);
-            if (action2 === 'pick-color' && trackId2) {
-                e.preventDefault();
-                var anchor2 = tgt2.closest ? tgt2.closest('[data-action="pick-color"]') : tgt2;
-                openColorPicker(trackId2, anchor2);
-            }
+                target.setAttribute('aria-pressed', String(runtime.muted));
+                target.textContent = runtime.muted ? '🔇' : '🔊';
+            },
+            'stop-playback': ({ trackId }) => stopPlayback(trackId),
+            'remove-track': ({ trackId }) => removeTrack(trackId),
+            'configure-calibration': ({ trackId, trackIndex, event }) => {
+                if (trackIndex === null) {
+                    return;
+                }
+                event.preventDefault();
+                vscode.postMessage(calibrationRequest(trackIndex, trackStore.require(trackId).result));
+            },
+            'offset-up': ({ trackIndex }) => {
+                if (trackIndex !== null) {
+                    adjustOffset(trackIndex, 0.01);
+                }
+            },
+            'offset-down': ({ trackIndex }) => {
+                if (trackIndex !== null) {
+                    adjustOffset(trackIndex, -0.01);
+                }
+            },
+            'pick-color': ({ trackId, target }) => {
+                openColorPicker(trackId, target.closest ? target.closest('[data-action="pick-color"]') : target);
+            },
         });
         let _offsetEditTimer: number | null = null;
         document.getElementById('tracks-wrapper').addEventListener('dblclick', function (e) {
