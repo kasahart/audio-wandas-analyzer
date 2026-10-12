@@ -77,6 +77,23 @@ export function loopRegionForDrag(kind: LoopDragKind, anchorNorm: number, curren
     return current ? moveLoopEdge(current, kind === 'gripStart' ? 'start' : 'end', norm) : null;
 }
 
+/** Grips are hit within 1.5% of the visible span, so they stay grabbable at any zoom level. */
+const LOOP_GRIP_VIEW_FRACTION = 0.015;
+
+export function loopGripAt(region: NormalizedRange | null, norm: number, viewSpan: number): Exclude<LoopDragKind, 'loop'> | null {
+    if (!region) {
+        return null;
+    }
+    const thresh = viewSpan * LOOP_GRIP_VIEW_FRACTION;
+    if (Math.abs(norm - region.start) < thresh) {
+        return 'gripStart';
+    }
+    if (Math.abs(norm - region.end) < thresh) {
+        return 'gripEnd';
+    }
+    return null;
+}
+
 export interface RectZoomTarget {
     zoomStart: number;
     zoomEnd: number;

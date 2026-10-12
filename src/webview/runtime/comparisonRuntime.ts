@@ -73,6 +73,7 @@ import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
     exceedsDragThreshold,
+    loopGripAt,
     loopRegionClockText,
     loopRegionForDrag,
     rectZoomTarget,
@@ -2613,7 +2614,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const norm = hit.norm;
-        const gripType = getGripType(norm);
+        const gripType = loopGripAt(loopRegion, norm, zoomEnd - zoomStart);
         if (gripType) {
             showTooltip(e, STR.tooltipLoopResize);
         }
@@ -2624,19 +2625,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             showTooltip(e, STR.tooltipLoopOrShift);
         }
         renderWithHoverAt(norm);
-    }
-    function getGripType(norm: number) {
-        if (!loopRegion) {
-            return null;
-        }
-        const GRIP_THRESH = (zoomEnd - zoomStart) * 0.015;
-        if (Math.abs(norm - loopRegion.start) < GRIP_THRESH) {
-            return 'gripStart';
-        }
-        if (Math.abs(norm - loopRegion.end) < GRIP_THRESH) {
-            return 'gripEnd';
-        }
-        return null;
     }
     function handleCanvasMouseDown(e: MouseEvent): void {
         const canvas = eventTarget(e);
@@ -2660,7 +2648,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const y = e.clientY - rect.top;
             const norm = hit.norm;
             const ampNorm = canvasYToAmplitudeNorm(y, canvas.height);
-            const gripType = waveformMode === 'rect-zoom' ? null : getGripType(norm);
+            const gripType = waveformMode === 'rect-zoom' ? null : loopGripAt(loopRegion, norm, zoomEnd - zoomStart);
             dragState = {
                 trackId: trackId,
                 startClientX: e.clientX,

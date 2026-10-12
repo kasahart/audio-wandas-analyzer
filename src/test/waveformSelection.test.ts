@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     exceedsDragThreshold,
+    loopGripAt,
     loopRegionClockText,
     loopRegionForDrag,
     loopRegionFromDrag,
@@ -65,4 +66,14 @@ test('loopRegionForDrag: loop はアンカーから区間を作り、グリッ�
 test('loopRegionClockText: 正規化区間をグローバル時間軸の時刻範囲に変換する', () => {
     assert.equal(loopRegionClockText({ start: 0.25, end: 0.5 }, { startSec: 10, spanSec: 120 }), '0:40.00 – 1:10.00');
     assert.equal(loopRegionClockText({ start: 0, end: 1 }, { startSec: 0, spanSec: 5.5 }), '0:00.00 – 0:05.50');
+});
+
+test('loopGripAt: 表示幅の 1.5% 以内なら端のグリップを返し、ズーム中は判定幅も縮む', () => {
+    const region = { start: 0.2, end: 0.6 };
+    assert.equal(loopGripAt(region, 0.21, 1), 'gripStart');
+    assert.equal(loopGripAt(region, 0.59, 1), 'gripEnd');
+    assert.equal(loopGripAt(region, 0.4, 1), null);
+    assert.equal(loopGripAt(region, 0.21, 0.1), null);
+    assert.equal(loopGripAt(region, 0.2005, 0.1), 'gripStart');
+    assert.equal(loopGripAt(null, 0.2, 1), null);
 });
