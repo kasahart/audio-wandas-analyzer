@@ -266,3 +266,24 @@ export function steppedSpectrumHoverNorm(slice: SpectrumSlice, binIdx: number, d
     const freqHz = (nextIdx / Math.max(slice.frequencyBins - 1, 1)) * originalMaxFreq;
     return hoverNormForFrequency(freqHz, frequencyMin, frequencyMax);
 }
+
+export function channelIndexAttribute(el: { getAttribute(name: string): string | null }): number | null {
+    const channelIndex = parseInt(el.getAttribute('data-channel-index') ?? '', 10);
+    return isNaN(channelIndex) ? null : channelIndex;
+}
+
+export interface SpectrumPointerHover {
+    hoverNorm: number;
+    yFrac: number;
+}
+
+export function spectrumHoverAt(x: number, y: number, width: number, height: number, padLeft: number, padRight: number): SpectrumPointerHover | null {
+    const plotWidth = width - padLeft - padRight;
+    if (plotWidth <= 0) {
+        return null;
+    }
+    return {
+        hoverNorm: Math.max(0, Math.min(1, (x - padLeft) / plotWidth)),
+        yFrac: Math.max(0, Math.min(1, y / (height || 140))),
+    };
+}

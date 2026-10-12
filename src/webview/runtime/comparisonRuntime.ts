@@ -30,12 +30,14 @@ import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, 
 import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
 import {
+    channelIndexAttribute,
     nearestSpectrumSnap,
     OVERLAY_SPECTRUM_PAD,
     overlayPlotPoint,
     overlaySpectrumRegionAt,
     spectrumBinAtHover,
     spectrumBoxZoom,
+    spectrumHoverAt,
     spectrumReadoutText,
     spectrumPlotFrame,
     spectrumSeriesRange,
@@ -2356,8 +2358,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
                 if (el.classList && el.classList.contains('track-spectrum-canvas')) {
                     const idx = trackIndexFromElement(el);
-                    const channelIndex = parseInt(el.getAttribute('data-channel-index'), 10);
-                    return idx === null ? null : { trackIndex: idx, channelIndex: isNaN(channelIndex) ? null : channelIndex };
+                    return idx === null ? null : { trackIndex: idx, channelIndex: channelIndexAttribute(el) };
                 }
                 return null;
             }
@@ -2382,17 +2383,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             function onSpectrumMove(padL: number, padR: number, canvasEl: RuntimeElement, e: MouseEvent, trackIndex: number | null, channelIndex: number | null) {
                 const rect = canvasEl.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                const plotW = canvasEl.width - padL - padR;
-                const canvasH = canvasEl.height || 140;
-                if (plotW <= 0) {
+                const hover = spectrumHoverAt(e.clientX - rect.left, e.clientY - rect.top, canvasEl.width, canvasEl.height, padL, padR);
+                if (!hover) {
                     spectrumHasMouse = false;
                     clearSpectrumFocusTarget();
                     return;
                 }
-                spectrumHoverNorm = Math.max(0, Math.min(1, (x - padL) / plotW));
-                spectrumHoverYFrac = Math.max(0, Math.min(1, y / canvasH));
+                spectrumHoverNorm = hover.hoverNorm;
+                spectrumHoverYFrac = hover.yFrac;
                 spectrumHoverTrackId = trackIndex === null || trackIndex < 0 ? 'overlay' : trackIdAtIndex(trackIndex);
                 spectrumHoverChannelIndex = Number.isInteger(channelIndex) ? channelIndex : null;
                 spectrumHasMouse = true;
@@ -2513,15 +2511,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             function attachTrackSpectrumCursorEvents() {
                 document.querySelectorAll('.track-spectrum-canvas').forEach(function (c) {
                     c.addEventListener('mousemove', function (e) {
-                        const idx = trackIndexFromElement(c);
-                        const channelIndex = parseInt(c.getAttribute('data-channel-index'), 10);
-                        onSpectrumMove(TRACK_SPECTRUM_PAD.left, TRACK_SPECTRUM_PAD.right, c, e, idx, isNaN(channelIndex) ? null : channelIndex);
+                        onSpectrumMove(TRACK_SPECTRUM_PAD.left, TRACK_SPECTRUM_PAD.right, c, e, trackIndexFromElement(c), channelIndexAttribute(c));
                     });
                     c.addEventListener('mouseleave', onSpectrumLeave);
                     c.addEventListener('focus', function () {
-                        const idx = trackIndexFromElement(c);
-                        const channelIndex = parseInt(c.getAttribute('data-channel-index'), 10);
-                        onSpectrumFocus(idx, isNaN(channelIndex) ? null : channelIndex);
+                        onSpectrumFocus(trackIndexFromElement(c), channelIndexAttribute(c));
                     });
                     c.addEventListener('blur', onSpectrumBlur);
                 });
