@@ -29,6 +29,7 @@ import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, 
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
+import { SpectrumBoxDrag } from './spectrumBoxDrag';
 import { SpectrumHover } from './spectrumHover';
 import { toolbarHtml } from './toolbarHtml';
 import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
@@ -73,7 +74,7 @@ import {
     zoomNormalizedRange,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
-import type { ComparisonBootstrap, ComparisonTrackState, DragPoint, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
+import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
@@ -315,8 +316,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let _lastVisDbMin: number | null = null; // 前回レンダリング時の visDbMin キャッシュ
     let _lastVisDbMax: number | null = null;
     let _lastSpectrumMaxF = 0; // overlay の最大周波数(Hz) キャッシュ（freq popover 用）
-    let specDragAnchor: DragPoint | null = null;
-    let specDragCurrent: DragPoint | null = null;
+    const specBoxDrag = new SpectrumBoxDrag();
     // ── 波形モード ────────────────────────────────────────
     let waveformMode: 'loop' | 'rect-zoom' = 'loop';
     let amplitudeZoomMinNorm = -1;
@@ -2232,7 +2232,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const overlayCanvas = document.getElementById('spectrum-overlay-canvas');
             if (overlayCanvas) {
                 overlayCanvas.addEventListener('mousemove', function (e) {
-                    if (specDragAnchor !== null) {
+                    if (specBoxDrag.active) {
                         return;
                     } // ドラッグ中はホバー不要
                     onSpectrumMove(OVERLAY_SPECTRUM_PAD.left, OVERLAY_SPECTRUM_PAD.right, overlayCanvas, e, -1, null);
@@ -2249,12 +2249,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     if (!point) {
                         return;
                     }
-                    specDragAnchor = point;
-                    specDragCurrent = { ...point };
+                    specBoxDrag.begin(point);
                     e.preventDefault();
                 });
                 document.addEventListener('mousemove', function (e) {
-                    if (specDragAnchor === null) {
+                    if (!specBoxDrag.active) {
                         return;
                     }
                     const rect = overlayCanvas.getBoundingClientRect();
@@ -2262,24 +2261,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     if (!point) {
                         return;
                     }
-                    specDragCurrent = point;
+                    specBoxDrag.update(point);
                     scheduleSpectrumRefresh('hover');
                 });
-                document.addEventListener('mouseup', function (e) {
-                    if (specDragAnchor === null) {
-                        return;
-                    }
-                    const anchor = specDragAnchor;
-                    const current = specDragCurrent;
-                    specDragAnchor = null;
-                    specDragCurrent = null;
-                    if (!anchor || !current) {
-                        scheduleSpectrumRefresh('immediate');
+                document.addEventListener('mouseup', function () {
+                    const drag = specBoxDrag.finish();
+                    if (drag === null) {
                         return;
                     }
                     const zoom = spectrumBoxZoom(
-                        anchor,
-                        current,
+                        drag.anchor,
+                        drag.current,
                         overlayCanvas.width,
                         overlayCanvas.height,
                         { freqStart: specFreqStart, freqEnd: specFreqEnd },
@@ -3374,8 +3366,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             setSpectrumReadout(document.getElementById('spectrum-freq-readout'), '', '');
         }
         // ── スペクトルドラッグ選択ゴムバンド ─────────────────────
-        if (specDragAnchor !== null && specDragCurrent !== null) {
-            drawSpectrumSelectionBox(ctx, frame, specDragAnchor, specDragCurrent);
+        const specBox = specBoxDrag.box;
+        if (specBox !== null) {
+            drawSpectrumSelectionBox(ctx, frame, specBox.anchor, specBox.current);
         }
         overlaySpectrumPainted = true;
     }
