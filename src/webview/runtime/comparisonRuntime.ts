@@ -366,7 +366,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         return index;
     }
-    function trackIdFromElement(element: RuntimeElement): TrackId | null {
+    function trackIdFromElement(element: Pick<Element, 'getAttribute'>): TrackId | null {
         const rawId = element.getAttribute('data-track-id');
         if (!rawId) {
             return null;
@@ -374,7 +374,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const trackId = rawId as TrackId;
         return trackStore.protocolIndexForId(trackId) === null ? null : trackId;
     }
-    function trackIndexFromElement(element: RuntimeElement): number | null {
+    function trackIndexFromElement(element: Pick<Element, 'getAttribute'>): number | null {
         const trackId = trackIdFromElement(element);
         return trackId ? trackStore.protocolIndexForId(trackId) : null;
     }
@@ -1611,20 +1611,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function spectrogramPlotWidth(canvasWidth: number) {
         return Math.max(1, canvasWidth - SPECTROGRAM_COLORBAR_WIDTH);
     }
-    function trackCanvasTimeHit(canvas: RuntimeElement, clientX: number) {
+    type CanvasHitTarget = Pick<Element, 'getBoundingClientRect'> & { width: number };
+    function trackCanvasTimeHit(canvas: CanvasHitTarget, clientX: number) {
         const timeWidth = contentType === 'spectrogram' ? spectrogramPlotWidth(canvas.width) : canvas.width;
         return canvasTimeHit(canvas.getBoundingClientRect().left, clientX, timeWidth, { start: zoomStart, end: zoomEnd });
     }
-    function clampedTrackCanvasNorm(canvas: RuntimeElement, clientX: number, timeWidth: number) {
+    function clampedTrackCanvasNorm(canvas: Pick<Element, 'getBoundingClientRect'>, clientX: number, timeWidth: number) {
         return clampedCanvasNorm(canvas.getBoundingClientRect().left, clientX, timeWidth, { start: zoomStart, end: zoomEnd });
-    }
-    function spectrumLevelAxisLabel(result: ComparisonTrackState, channel?: ChannelSummary) {
-        if (channel?.measurement) {
-            return 'Spectrum amplitude level [' + channel.measurement.levelReferenceLabel + ']';
-        }
-        return result && result.units && result.units.spectrumLevel && result.units.spectrumLevel.axisLabel
-            ? result.units.spectrumLevel.axisLabel
-            : 'Spectrum level [dB]';
     }
     function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         drawDashedTimeLine(ctx, cursorNorm, { start: zoomStart, end: zoomEnd }, W, H, CURSOR_LINE_STYLE);
@@ -2300,7 +2293,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         // スペクトルカーソルイベント（オーバーレイ＋各トラック）
         (function attachSpectrumCursorEvents() {
-            function spectrumFocusTargetFromElement(el: RuntimeElement): { trackIndex: number; channelIndex: number | null } | null {
+            function spectrumFocusTargetFromElement(el: Element | null): { trackIndex: number; channelIndex: number | null } | null {
                 if (!el) {
                     return null;
                 }
@@ -2332,7 +2325,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 spectrumHoverChannelIndex = null;
                 scheduleSpectrumRefresh('hover');
             }
-            function onSpectrumMove(padL: number, padR: number, canvasEl: RuntimeElement, e: MouseEvent, trackIndex: number | null, channelIndex: number | null) {
+            function onSpectrumMove(padL: number, padR: number, canvasEl: CanvasHitTarget & { height: number }, e: MouseEvent, trackIndex: number | null, channelIndex: number | null) {
                 const rect = canvasEl.getBoundingClientRect();
                 const hover = spectrumHoverAt(e.clientX - rect.left, e.clientY - rect.top, canvasEl.width, canvasEl.height, padL, padR);
                 if (!hover) {
@@ -3530,7 +3523,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     /** フォーカス中キャンバス → 最後に再生したトラック → 先頭 の順でインデックスを解決 */
-    function resolveActiveTrackIndex(activeEl: RuntimeElement) {
+    function resolveActiveTrackIndex(activeEl: Element | null) {
         if (activeEl && activeEl.classList && activeEl.classList.contains('track-canvas')) {
             const n = trackIndexFromElement(activeEl);
             if (n !== null) {
