@@ -31,6 +31,7 @@ import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
+import { attachCanvasFocusHint, createCanvasTooltip } from './canvasTooltip';
 import { createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { SpectrumHover } from './spectrumHover';
@@ -647,21 +648,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const runtime = trackRuntimeAt(i);
         return (runtime && runtime.color) || (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
     }
+    const canvasTooltip = createCanvasTooltip(document);
     function showTooltip(e: MouseEvent, text: string): void {
-        const el = document.getElementById('canvas-tooltip');
-        if (!el) {
-            return;
-        }
-        el.textContent = text;
-        el.style.display = 'block';
-        el.style.left = (e.clientX + 14) + 'px';
-        el.style.top = (e.clientY + 14) + 'px';
+        canvasTooltip.showAtPointer(e.clientX, e.clientY, text);
     }
     function hideTooltip() {
-        const el = document.getElementById('canvas-tooltip');
-        if (el) {
-            el.style.display = 'none';
-        }
+        canvasTooltip.hide();
     }
     // ── On-demand range cache ──
     let rangeRequestTimer: number | null = null;
@@ -1989,21 +1981,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         updatePlaybackButtons();
         function attachTrackCanvasFocusEvents() {
             document.querySelectorAll('.track-canvas').forEach(function (canvas: RuntimeElement) {
-                canvas.addEventListener('focus', function () {
-                    const el = document.getElementById('canvas-tooltip');
-                    if (el) {
-                        const rect = canvas.getBoundingClientRect();
-                        el.textContent = STR.cursorHelpKeys;
-                        el.style.display = 'block';
-                        el.style.left = (rect.left + 8) + 'px';
-                        el.style.top = (rect.bottom - 36) + 'px';
-                    }
-                    canvas.style.outline = '1px solid rgba(100, 160, 255, 0.4)';
-                });
-                canvas.addEventListener('blur', function () {
-                    hideTooltip();
-                    canvas.style.outline = 'none';
-                });
+                attachCanvasFocusHint(canvas, canvasTooltip, STR.cursorHelpKeys);
             });
         }
         document.addEventListener('keydown', function (e) {
