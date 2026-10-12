@@ -2,6 +2,7 @@ import type {
     ComparisonTrackState,
     LazyRequestState,
     SpectrumSlice,
+    TimelineSpan,
     TrackId,
     TrackRuntimeState,
     WaveformCoverage,
@@ -75,6 +76,27 @@ export class TrackStore {
 
     activeIds(): TrackId[] {
         return this.protocolOrder.filter((id) => this.records.get(id)?.active);
+    }
+
+    globalSpan(): TimelineSpan {
+        let startSec = Infinity, endSec = -Infinity;
+        this.activeIds().forEach((id) => {
+            const record = this.require(id);
+            if (record.runtime.hidden || record.result.error) {
+                return;
+            }
+            const off = record.runtime.offsetSeconds;
+            const dur = record.result.durationSeconds || 0;
+            startSec = Math.min(startSec, off);
+            endSec = Math.max(endSec, off + dur);
+        });
+        if (!isFinite(startSec)) {
+            startSec = 0;
+        }
+        if (!isFinite(endSec) || endSec <= startSec) {
+            endSec = startSec + 1;
+        }
+        return { startSec, endSec, spanSec: endSec - startSec };
     }
 
     remove(id: TrackId): boolean {

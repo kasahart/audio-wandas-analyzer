@@ -236,6 +236,12 @@ export interface WaveformCoverage {
     coversRight: boolean;
 }
 
+export interface TimelineSpan {
+    startSec: number;
+    endSec: number;
+    spanSec: number;
+}
+
 export interface TrackFileView {
     trackStart: number;
     trackDurRatio: number;
