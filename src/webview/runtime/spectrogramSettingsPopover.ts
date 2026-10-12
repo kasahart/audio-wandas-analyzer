@@ -60,12 +60,12 @@ export function stftWindowFromValue(value: string): StftWindow {
 }
 
 export function installSpectrogramSettingsPopover(
-    document: RuntimeDocument,
+    document: Document,
     options: SpectrogramSettingsPopoverOptions,
 ): SpectrogramSettingsPopover {
     document.body.insertAdjacentHTML('beforeend', spectrogramSettingsPopoverHtml(options.strings));
     const popover = document.getElementById('spec-settings-popover');
-    const field = (id: string): RuntimeElement => document.getElementById(id);
+    const field = <T extends HTMLElement = HTMLInputElement>(id: string): T => document.getElementById(id) as T;
 
     function optionalNumber(id: string): number | null {
         const value = field(id).value;
@@ -75,7 +75,7 @@ export function installSpectrogramSettingsPopover(
         return { dbMin: optionalNumber('spec-dbmin'), dbMax: optionalNumber('spec-dbmax'), maxFrequencyHz: optionalNumber('spec-maxfreq') };
     }
     function applyAutoState(): void {
-        field('spec-stft-fields').disabled = field('spec-auto').checked;
+        field<HTMLFieldSetElement>('spec-stft-fields').disabled = field('spec-auto').checked;
     }
     function syncFromSettings(): void {
         const settings = options.getSettings();
@@ -83,7 +83,7 @@ export function installSpectrogramSettingsPopover(
         field('spec-auto').checked = !!settings.auto;
         field('spec-nfft').value = String(settings.stft.nFft);
         field('spec-hop').value = String(settings.stft.hopSize);
-        field('spec-window').value = settings.stft.window;
+        field<HTMLSelectElement>('spec-window').value = settings.stft.window;
         field('spec-dbmin').value = text(settings.display.dbMin);
         field('spec-dbmax').value = text(settings.display.dbMax);
         field('spec-maxfreq').value = text(settings.display.maxFrequencyHz);
@@ -120,7 +120,7 @@ export function installSpectrogramSettingsPopover(
             stft: {
                 nFft: Number(field('spec-nfft').value),
                 hopSize: Number(field('spec-hop').value),
-                window: stftWindowFromValue(field('spec-window').value),
+                window: stftWindowFromValue(field<HTMLSelectElement>('spec-window').value),
             },
             display: readDisplay(),
         });
@@ -131,7 +131,7 @@ export function installSpectrogramSettingsPopover(
         const gear = target && target.closest ? target.closest(GEAR_SELECTOR) : null;
         if (gear) {
             ev.stopPropagation();
-            if (popover.hidden) {
+            if (!popover || popover.hidden) {
                 open();
             }
             else {

@@ -1,12 +1,12 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { SelectionTree } from './directorySelection';
-import { eventTarget } from './domAdapter';
-import type { PersistedWebviewState, RuntimeDocument, RuntimeElement, SelectionTreeNode } from './types';
+import { eventTarget, inputMatching } from './domAdapter';
+import type { PersistedWebviewState, RuntimeElement, SelectionTreeNode } from './types';
 
 /** What the directory-selection tree needs from the comparison runtime. */
 export interface SelectionTreeViewDeps {
-    document: RuntimeDocument;
+    document: Document;
     strings: Pick<UiStrings, 'ariaSelectionTreeDir' | 'selectionNoSupported'>;
     tree: SelectionTree;
     /** The directory the tree lists; persisted collapse and filter state is keyed to it. */
@@ -84,9 +84,9 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
     }
     function isVisible(el: HTMLElement) {
         // el から #selection-tree までの祖先を辿り、display:none が設定された要素があれば非表示と判定する
-        var node: HTMLElement | null = el;
+        let node: HTMLElement | null = el;
         while (node && node.id !== 'selection-tree') {
-            if (node.style && node.style.display === 'none') {
+            if (node.style.display === 'none') {
                 return false;
             }
             node = node.parentElement;
@@ -173,15 +173,15 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
         });
         deps.syncSummary();
         // ── Tree filter ──
-        var treeFilterInput = document.getElementById('tree-filter-input');
+        const treeFilterInput = inputMatching(document, '#tree-filter-input');
         if (treeFilterInput) {
             function applyTreeFilter(query: string) {
                 if (!query) {
                     // フィルタ解除: 全ファイル <li> を表示し、折りたたみ状態を復元する
-                    document.querySelectorAll('#selection-tree li').forEach(function (li) {
+                    document.querySelectorAll<HTMLElement>('#selection-tree li').forEach(function (li) {
                         li.style.display = '';
                     });
-                    document.querySelectorAll('.selection-tree-directory').forEach(function (dirHeader: RuntimeElement) {
+                    document.querySelectorAll<HTMLElement>('.selection-tree-directory').forEach(function (dirHeader) {
                         var relativePath = dirHeader.getAttribute('data-relative-path');
                         var list = dirHeader.nextElementSibling;
                         if (!list || !list.classList.contains('selection-tree-list')) {
@@ -191,7 +191,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                         // 保存済み状態があればそれを、なければ depth=0 かどうかで判断（ルート直下要素は expanded）
                         // data-depth が付いていない場合はデフォルト展開
                         var expanded = (savedExpanded !== undefined) ? savedExpanded : true;
-                        (list as RuntimeElement).style.display = expanded ? '' : 'none';
+                        (list as HTMLElement).style.display = expanded ? '' : 'none';
                         var toggle = dirHeader.querySelector('.dir-toggle');
                         if (toggle) {
                             toggle.textContent = expanded ? '▼' : '▶';
@@ -226,7 +226,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                     });
                 }
                 // フィルタ適用: ファイル名・パスで一致する <li> のみ表示
-                var allLis = document.querySelectorAll('#selection-tree li');
+                var allLis = document.querySelectorAll<HTMLElement>('#selection-tree li');
                 for (var i = 0; i < allLis.length; i++) {
                     var li = allLis[i];
                     var fileRow = li.querySelector('.selection-file-row');
@@ -264,7 +264,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                     }
                 }
                 // 一致ファイルを持たないディレクトリ <li> を非表示にする（葉から順に評価）
-                var dirLis = document.querySelectorAll('#selection-tree li');
+                var dirLis = document.querySelectorAll<HTMLElement>('#selection-tree li');
                 for (var j = dirLis.length - 1; j >= 0; j--) {
                     var dirLi = dirLis[j];
                     var subList = dirLi.querySelector('.selection-tree-list');
@@ -310,26 +310,26 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
             }
         }
         // ── Tree resizer ──
-        var resizerEl = document.getElementById('tree-resizer');
-        var sidebarEl = document.getElementById('selection-sidebar');
+        const resizerEl = document.getElementById('tree-resizer');
+        const sidebarEl = document.getElementById('selection-sidebar');
         if (resizerEl && sidebarEl) {
             var dragStartX = 0;
             var dragStartW = 0;
             var isDragging = false;
-            function onResizerMouseMove(e: MouseEvent): void {
+            const onResizerMouseMove = function (e: MouseEvent): void {
                 if (!isDragging) {
                     return;
                 }
                 var delta = e.clientX - dragStartX;
                 var newW = Math.max(160, Math.min(600, dragStartW + delta));
                 sidebarEl.style.width = newW + 'px';
-            }
-            function onResizerMouseUp() {
+            };
+            const onResizerMouseUp = function (): void {
                 isDragging = false;
                 resizerEl.classList.remove('is-dragging');
                 document.removeEventListener('mousemove', onResizerMouseMove);
                 document.removeEventListener('mouseup', onResizerMouseUp);
-            }
+            };
             resizerEl.addEventListener('mousedown', function (e) {
                 isDragging = true;
                 dragStartX = e.clientX;
