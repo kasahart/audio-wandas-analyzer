@@ -22,6 +22,7 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
+import { arrowCursorStep, globalShortcutAction, isTextEntryTag } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, spectrumAxisLabelTexts } from './testSnapshot';
 import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
@@ -2425,47 +2426,35 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             // ── グローバルショートカット (入力要素以外で有効) ──
-            const activeTag2 = (active && active.tagName) ? active.tagName.toUpperCase() : '';
-            const isInputFocused = activeTag2 === 'INPUT' || activeTag2 === 'TEXTAREA' || activeTag2 === 'SELECT';
-            if (!isInputFocused) {
-                // +/= → zoom in、- → zoom out、0 → zoom reset
-                if (e.key === '+' || e.key === '=') {
-                    e.preventDefault();
+            const isInputFocused = isTextEntryTag(active && active.tagName);
+            const shortcut = isInputFocused ? null : globalShortcutAction(e.key);
+            if (shortcut) {
+                e.preventDefault();
+                if (shortcut === 'zoom-in') {
                     zoomIn();
-                    return;
                 }
-                if (e.key === '-' || e.key === '_') {
-                    e.preventDefault();
+                else if (shortcut === 'zoom-out') {
                     zoomOut();
-                    return;
                 }
-                if (e.key === '0') {
-                    e.preventDefault();
+                else if (shortcut === 'zoom-reset') {
                     resetZoom();
-                    return;
                 }
-                // F → follow-cursor トグル
-                if (e.key === 'f' || e.key === 'F') {
-                    e.preventDefault();
+                else if (shortcut === 'toggle-follow-cursor') {
                     followCursor = !followCursor;
                     const fcBtn = document.querySelector('[data-action="toggle-follow-cursor"]');
                     if (fcBtn) {
                         fcBtn.classList.toggle('is-active', followCursor);
                     }
                     scheduleRender();
-                    return;
                 }
-                // L → zoom-to-selection (ループ選択範囲にズーム)
-                if (e.key === 'l' || e.key === 'L') {
-                    e.preventDefault();
+                else {
                     zoomToSelection();
-                    return;
                 }
+                return;
             }
             // ── Space: グローバル再生/停止トグル (入力要素以外で有効) ──
             if (e.code === 'Space') {
-                const tag = (active && active.tagName) ? active.tagName.toUpperCase() : '';
-                if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+                if (!isInputFocused) {
                     e.preventDefault();
                     if (active && active.classList.contains('track-canvas')) {
                         const trackId = trackIdFromElement(active);
@@ -2488,15 +2477,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
                 e.preventDefault();
-                const W = active.width || 800;
-                let delta;
-                if (e.shiftKey) {
-                    const gs = trackStore.globalSpan();
-                    delta = gs.spanSec > 0 ? (0.1 / gs.spanSec) : 0.001;
-                }
-                else {
-                    delta = (zoomEnd - zoomStart) / W;
-                }
+                let delta = arrowCursorStep(e.shiftKey, trackStore.globalSpan().spanSec, zoomStart, zoomEnd, active.width || 800);
                 if (e.code === 'ArrowLeft') {
                     delta = -delta;
                 }
