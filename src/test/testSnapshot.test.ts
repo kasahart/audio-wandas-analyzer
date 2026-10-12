@@ -7,6 +7,8 @@ import {
     latestSpectrogramSnapshot,
     spectrogramAxisLabelTexts,
     spectrumAxisLabelTexts,
+    visibleFileRange,
+    waveformCoverageSnapshot,
 } from '../webview/runtime/testSnapshot';
 import type { RuntimeDocument } from '../webview/runtime/types';
 
@@ -72,5 +74,27 @@ test('latestSpectrogramSnapshot prefers STFT settings and reports applied displa
         display: { dbMin: -70, dbMax: null, maxFrequencyHz: 12_000 },
     }), {
         windowSize: 4096, hopSize: 1024, dbMinApplied: -70, dbMaxApplied: null, maxFrequencyHzApplied: 12_000,
+    });
+});
+
+test('visibleFileRange: ズーム範囲をファイル内の正規化位置に変換し 0..1 に収める', () => {
+    assert.deepEqual(visibleFileRange(0.25, 0.5, { offsetNorm: 0, trackDurRatio: 0.5 }), { startNorm: 0.5, endNorm: 1 });
+    assert.deepEqual(visibleFileRange(0, 1, { offsetNorm: 0.2, trackDurRatio: 0.4 }), { startNorm: 0, endNorm: 1 });
+});
+
+test('waveformCoverageSnapshot: coverage がなければ false と null を返す', () => {
+    assert.deepEqual(waveformCoverageSnapshot(null), {
+        waveformCoversViewportLeft: false,
+        waveformCoversViewportRight: false,
+        waveformMinDrawX: null,
+        waveformMaxDrawX: null,
+        waveformCanvasWidth: null,
+    });
+    assert.deepEqual(waveformCoverageSnapshot({ minX: 0, maxX: 80, canvasWidth: 100, coversLeft: true, coversRight: false }), {
+        waveformCoversViewportLeft: true,
+        waveformCoversViewportRight: false,
+        waveformMinDrawX: 0,
+        waveformMaxDrawX: 80,
+        waveformCanvasWidth: 100,
     });
 });
