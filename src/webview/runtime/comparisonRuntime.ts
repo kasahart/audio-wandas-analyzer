@@ -36,6 +36,7 @@ import { createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
 import { rulerTicks } from './timeRuler';
+import { createPlaybackDisplay } from './playbackDisplay';
 import { SpectrumHover } from './spectrumHover';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { toolbarHtml } from './toolbarHtml';
@@ -654,6 +655,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return (runtime && runtime.color) || (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
     }
     const canvasTooltip = createCanvasTooltip(document);
+    const updatePlaybackDisplay = createPlaybackDisplay(document, STR.playbackTimePrefix || '▶');
     function showTooltip(e: MouseEvent, text: string): void {
         canvasTooltip.showAtPointer(e.clientX, e.clientY, text);
     }
@@ -2785,33 +2787,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const el = document.getElementById('cursor-display');
         if (el) {
             el.textContent = formatClockTime(t);
-        }
-    }
-    let _playbackDisplayVisible = false;
-    let _playbackDisplayText = '';
-    function updatePlaybackDisplay(timeSec: number | null): void {
-        const el = document.getElementById('playback-display');
-        if (!el) {
-            return;
-        }
-        if (timeSec === null) {
-            if (_playbackDisplayVisible) {
-                el.style.display = 'none';
-                el.textContent = '';
-                _playbackDisplayVisible = false;
-                _playbackDisplayText = '';
-            }
-        }
-        else {
-            const text = (STR.playbackTimePrefix || '▶') + ' ' + formatClockTime(timeSec);
-            if (!_playbackDisplayVisible) {
-                el.style.display = 'inline';
-                _playbackDisplayVisible = true;
-            }
-            if (text !== _playbackDisplayText) {
-                el.textContent = text;
-                _playbackDisplayText = text;
-            }
         }
     }
     function extractSpectrumAtCursor(result: ComparisonTrackState, trackIndex: number, offsetSeconds: number, cursorNormValue: number, channelIndex = 0): SpectrumSlice | null {
