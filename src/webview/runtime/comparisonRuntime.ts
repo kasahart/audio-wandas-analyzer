@@ -11,7 +11,7 @@ import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cu
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { createSelectionTreeView } from './selectionTreeView';
 import { buildSpecSummaryText, buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
-import { audioById, canvasById, eventTarget } from './domAdapter';
+import { audioById, buttonById, buttonMatching, canvasById, eventTarget, inputMatching, inputsMatching } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
@@ -221,11 +221,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         requestAnimationFrame(function () { rafPending = false; renderAll(); });
     }
     function syncHeightInputs() {
-        const trackInput = document.querySelector('[data-action="track-height-input"]');
+        const trackInput = inputMatching(document, '[data-action="track-height-input"]');
         if (trackInput) {
             trackInput.value = String(trackHeight);
         }
-        const spectrumInput = document.querySelector('[data-action="spectrum-height-input"]');
+        const spectrumInput = inputMatching(document, '[data-action="spectrum-height-input"]');
         if (spectrumInput) {
             spectrumInput.value = String(spectrumOverlayHeight);
         }
@@ -1553,8 +1553,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!trackId) {
                 return;
             }
-            const playBtn = document.querySelector('[data-action="toggle-playback"][data-track-id="' + trackId + '"]');
-            const stopBtn = document.querySelector('[data-action="stop-playback"][data-track-id="' + trackId + '"]');
+            const playBtn = buttonMatching(document, '[data-action="toggle-playback"][data-track-id="' + trackId + '"]');
+            const stopBtn = buttonMatching(document, '[data-action="stop-playback"][data-track-id="' + trackId + '"]');
             const isActive = playbackTrackId === trackId && playbackEl !== null;
             const isPlaying = isActive && playbackEl !== null && !playbackEl.paused;
             if (playBtn) {
@@ -2069,7 +2069,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return false;
     }
     function syncSelectionCheckboxes() {
-        document.querySelectorAll('.selection-file-checkbox').forEach(function (input) {
+        inputsMatching(document, '.selection-file-checkbox').forEach(function (input) {
             const filePath = input.getAttribute('data-file-path');
             input.checked = !!filePath && hasSelectedFilePath(filePath);
         });
@@ -2242,7 +2242,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function updateZoomToSelectionBtn() {
-        var btn = document.getElementById('btn-zoom-to-selection');
+        var btn = buttonById(document, 'btn-zoom-to-selection');
         if (btn) {
             btn.disabled = !loopRegion;
         }
@@ -3051,7 +3051,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     });
     function __setReanalyzeBusy(busy: boolean, msg?: string): void {
         reanalyzeOverlay.setBusy(busy, msg);
-        const applyBtn = document.getElementById('spec-apply');
+        const applyBtn = buttonById(document, 'spec-apply');
         if (applyBtn) {
             applyBtn.disabled = !!busy;
         }
