@@ -2,7 +2,7 @@ import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { paintSpectrogramRaster } from './spectrogramRaster';
-import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, traceSpectrumPath, type DrawTheme } from '../draw/canvasDrawers';
+import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawSpectrumSelectionBox, strokeSpectrumSeries, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
@@ -27,7 +27,6 @@ import { domSnapshotBase, latestSpectrogramSnapshot, spectrogramAxisLabelTexts, 
 import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationBadgeHtml, calibrationButtonHtml, calibrationRequest, ensureCalibrationStyles, hasIncompatibleLevelReferences, isClipped, peakText } from './calibrationDecorations';
 import {
-    hoverNormForFrequency as mapHoverNormForFrequency,
     nearestSpectrumSnap,
     OVERLAY_SPECTRUM_PAD,
     overlayPlotPoint,
@@ -3527,9 +3526,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             applyDisplaySettings: applySpectrumDisplaySettings,
         });
     }
-    function hoverNormForFrequency(freqHz: number, visFreqMin: number, visFreqMax: number) {
-        return mapHoverNormForFrequency(freqHz, visFreqMin, visFreqMax);
-    }
     function spectrumSeriesLabel(result: ComparisonTrackState, channelIndex: number) {
         return result.fileName + ' / ' + channelLabel(result, channelIndex);
     }
@@ -3731,68 +3727,37 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         ctx.clearRect(0, 0, W, H);
         const { minDb, maxDb, maxFrequencyHz: maxF } = spectrumSeriesRange(slices);
-        const { left: padL, right: padR, top: padT, bottom: padB } = OVERLAY_SPECTRUM_PAD;
+        const pad = OVERLAY_SPECTRUM_PAD;
         const vis = spectrumVisibleWindow(maxF, minDb, maxDb, spectrumViewState());
-        const visFreqMinO = vis.frequencyMin;
-        const visFreqMaxO = vis.frequencyMax;
-        const visDbMinO = vis.dbMin;
-        const visDbMaxO = vis.dbMax;
         _lastSpectrumMaxF = maxF;
-        _lastVisDbMin = visDbMinO;
-        _lastVisDbMax = visDbMaxO;
+        _lastVisDbMin = vis.dbMin;
+        _lastVisDbMax = vis.dbMax;
         const commonSlice = slices[0].slice;
         const sharedAxis = {
             values: [],
             frequencyBins: 1,
             maxFrequencyHz: maxF,
-            minDb: visDbMinO,
-            maxDb: visDbMaxO,
+            minDb: vis.dbMin,
+            maxDb: vis.dbMax,
             unit: commonSlice.unit,
             axisLabel: commonSlice.axisLabel,
         };
-        drawSpectrumAxes(ctx, W, H, sharedAxis, padL, padR, padT, padB, visFreqMinO, visFreqMaxO, visDbMinO, visDbMaxO, drawTheme());
-        const plotW = W - padL - padR;
-        const plotH = H - padT - padB;
-        const range = visDbMaxO - visDbMinO;
-        const visFreqRangeO = visFreqMaxO - visFreqMinO;
-        if (visFreqRangeO <= 0) {
+        drawSpectrumAxes(ctx, W, H, sharedAxis, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, drawTheme());
+        if (vis.frequencyMax - vis.frequencyMin <= 0) {
             return;
         }
-        const frame = spectrumPlotFrame(W, H, OVERLAY_SPECTRUM_PAD, vis);
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(padL, padT, plotW, plotH);
-        ctx.clip();
-        slices.forEach(function (s: SpectrumSeries) {
-            if (range <= 0) {
-                return;
-            }
-            ctx.strokeStyle = s.color;
-            ctx.lineWidth = 1.4;
-            ctx.beginPath();
-            traceSpectrumPath(ctx, s.slice, frame, maxF);
-            ctx.stroke();
-        });
-        ctx.restore();
+        const frame = spectrumPlotFrame(W, H, pad, vis);
+        strokeSpectrumSeries(ctx, frame, vis.dbMax - vis.dbMin > 0 ? slices : [], 1.4, maxF);
         if (spectrumHoverNorm !== null && spectrumHoverTrackId === 'overlay') {
             const mouseY = spectrumHoverYFrac !== null ? spectrumHoverYFrac * H : null;
             const nearest = nearestSpectrumSnap(slices, spectrumHoverNorm, mouseY, frame);
             if (nearest) {
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(padL, padT, plotW, plotH);
-                ctx.clip();
-                ctx.strokeStyle = nearest.s.color;
-                ctx.lineWidth = 2.5;
-                ctx.beginPath();
-                traceSpectrumPath(ctx, nearest.s.slice, frame, maxF);
-                ctx.stroke();
-                ctx.restore();
+                strokeSpectrumSeries(ctx, frame, [nearest.s], 2.5, maxF);
             }
             drawSpectrumCrosshair(
                 ctx,
                 frame,
-                nearest ? nearest.snap.x : padL + spectrumHoverNorm * plotW,
+                nearest ? nearest.snap.x : frame.padLeft + spectrumHoverNorm * frame.plotWidth,
                 nearest ? nearest.snapY : null,
                 'rgba(255,255,255,0.7)',
                 nearest ? nearest.s.color : '',
@@ -3818,20 +3783,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         // ── スペクトルドラッグ選択ゴムバンド ─────────────────────
         if (specDragAnchor !== null && specDragCurrent !== null) {
-            const ax = padL + specDragAnchor.freqNorm * plotW;
-            const ay = padT + (1 - specDragAnchor.dbNorm) * plotH;
-            const bx = padL + specDragCurrent.freqNorm * plotW;
-            const by = padT + (1 - specDragCurrent.dbNorm) * plotH;
-            ctx.save();
-            ctx.strokeStyle = 'rgba(100,180,255,0.9)';
-            ctx.fillStyle = 'rgba(100,180,255,0.15)';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 3]);
-            const rx = Math.min(ax, bx), ry = Math.min(ay, by);
-            const rw = Math.abs(bx - ax), rh = Math.abs(by - ay);
-            ctx.fillRect(rx, ry, rw, rh);
-            ctx.strokeRect(rx, ry, rw, rh);
-            ctx.restore();
+            drawSpectrumSelectionBox(ctx, frame, specDragAnchor, specDragCurrent);
         }
         overlaySpectrumPainted = true;
     }

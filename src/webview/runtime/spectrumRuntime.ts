@@ -236,14 +236,14 @@ export function spectrumPlotFrame(
     width: number,
     height: number,
     pad: { left: number; right: number; top: number; bottom: number },
-    window: SpectrumVisibleWindow,
+    visible: SpectrumVisibleWindow,
 ): SpectrumPlotFrame {
     return {
         padLeft: pad.left,
         plotWidth: width - pad.left - pad.right,
         padTop: pad.top,
         plotHeight: height - pad.top - pad.bottom,
-        ...window,
+        ...visible,
     };
 }
 

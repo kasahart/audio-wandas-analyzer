@@ -17,6 +17,8 @@ import {
     drawSpectrumLine,
     drawSpectrumAxes,
     drawSpectrumCrosshair,
+    drawSpectrumSelectionBox,
+    strokeSpectrumSeries,
     DEFAULT_THEME,
     type CanvasDrawCtx,
 } from '../webview/draw/canvasDrawers';
@@ -58,6 +60,7 @@ function makeMockCtx(): CanvasDrawCtx & { _ops: RecordedOp[]; _texts: string[] }
         setLineDash(s) { ops.push({ op: 'setLineDash', args: [s] }); },
         stroke() { ops.push({ op: 'stroke', args: [] }); },
         fillRect(x, y, w, h) { ops.push({ op: 'fillRect', args: [x, y, w, h] }); },
+        strokeRect(x, y, w, h) { ops.push({ op: 'strokeRect', args: [x, y, w, h] }); },
         fillText(t, x, y) { texts.push(t); ops.push({ op: 'fillText', args: [t, x, y] }); },
         createImageData(w, h) {
             return { width: w, height: h, data: new Uint8ClampedArray(Math.max(0, w) * Math.max(0, h) * 4) };
@@ -325,4 +328,39 @@ test('drawSpectrumCrosshair: y が null なら縦線だけを描く', () => {
     drawSpectrumCrosshair(ctx, crosshairFrame, 40, null, 'white', 'red');
     assert.equal(ctx._ops.filter((o) => o.op === 'stroke').length, 1);
     assert.ok(!ctx._ops.some((o) => o.op === 'set strokeStyle' && o.args[0] === 'red'));
+});
+
+// ── strokeSpectrumSeries ──
+
+test('strokeSpectrumSeries: プロット領域でクリップし、系列ごとに色を変えて線を引く', () => {
+    const ctx = makeMockCtx();
+    const slice = { values: [-10, -20, -30], frequencyBins: 3, maxFrequencyHz: 1, minDb: -30, maxDb: -10 };
+    strokeSpectrumSeries(ctx, crosshairFrame, [{ slice, color: 'red' }, { slice, color: 'blue' }], 2.5, 1);
+    assert.deepEqual(ctx._ops.slice(0, 4).map((o) => o.op), ['save', 'beginPath', 'rect', 'clip']);
+    assert.deepEqual(ctx._ops[2].args, [10, 5, 100, 50]);
+    assert.equal(ctx.lineWidth, 2.5);
+    const colors = ctx._ops.filter((o) => o.op === 'set strokeStyle').map((o) => o.args[0]);
+    assert.deepEqual(colors, ['red', 'blue']);
+    assert.equal(ctx._ops.filter((o) => o.op === 'stroke').length, 2);
+    assert.equal(ctx._ops[ctx._ops.length - 1].op, 'restore');
+});
+
+test('strokeSpectrumSeries: 系列が空なら線を引かない', () => {
+    const ctx = makeMockCtx();
+    strokeSpectrumSeries(ctx, crosshairFrame, [], 1.4, 1);
+    assert.equal(ctx._ops.filter((o) => o.op === 'stroke').length, 0);
+});
+
+// ── drawSpectrumSelectionBox ──
+
+test('drawSpectrumSelectionBox: 正規化座標の 2 点から左上基準の矩形を塗りと枠で描く', () => {
+    const ctx = makeMockCtx();
+    drawSpectrumSelectionBox(ctx, crosshairFrame, { freqNorm: 0.8, dbNorm: 0.2 }, { freqNorm: 0.3, dbNorm: 0.6 });
+    const rects = ctx._ops.filter((o) => o.op === 'fillRect' || o.op === 'strokeRect');
+    assert.deepEqual(rects, [
+        { op: 'fillRect', args: [40, 25, 50, 20] },
+        { op: 'strokeRect', args: [40, 25, 50, 20] },
+    ]);
+    assert.ok(ctx._ops.some((o) => o.op === 'setLineDash'));
+    assert.equal(ctx._ops[ctx._ops.length - 1].op, 'restore');
 });
