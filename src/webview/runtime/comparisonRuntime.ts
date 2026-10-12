@@ -423,15 +423,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const name = result && result.fileName ? result.fileName : '';
         return channels.length > 1 ? name + ' ' + channelLabel(result, channelIndex) : name;
     }
-    function displayedChannelIndex(result: ComparisonTrackState, trackIndex: number) {
-        return channelsForResult(result).length > 0 ? 0 : -1;
-    }
     function displayedChannel(result: ComparisonTrackState, trackIndex: number) {
         const channels = channelsForResult(result);
         return channels.length > 0 ? channels[0] : null;
-    }
-    function displayedChannelLabel(result: ComparisonTrackState, trackIndex: number) {
-        return channelLabel(result, 0);
     }
     function channelCanvasSuffix(channelIndex: number) {
         return channelIndex === 0 ? '' : '-' + channelIndex;
@@ -1696,10 +1690,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return null;
         }
         return mapTrackTimeFromGlobalNorm(mapping, norm);
-    }
-    function trackStartNorm(idx: number) {
-        const mapping = getTrackTimeMapping(idx);
-        return mapping ? mapping.trackStart : 0;
     }
     function updatePlaybackButtons() {
         state.results.forEach(function (_, i: number) {
@@ -3521,20 +3511,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const gs = trackStore.globalSpan();
             el.textContent = '@ ' + formatClockTime(gs.startSec + spectrumCursorNorm * gs.spanSec);
         }
-    }
-    /** フォーカス中キャンバス → 最後に再生したトラック → 先頭 の順でインデックスを解決 */
-    function resolveActiveTrackIndex(activeEl: Element | null) {
-        if (activeEl && activeEl.classList && activeEl.classList.contains('track-canvas')) {
-            const n = trackIndexFromElement(activeEl);
-            if (n !== null) {
-                return n;
-            }
-        }
-        if (playbackTrackId !== null) {
-            return trackStore.protocolIndexForId(playbackTrackId);
-        }
-        const firstTrackId = trackStore.activeIds()[0];
-        return firstTrackId ? trackStore.protocolIndexForId(firstTrackId) : null;
     }
     function removeTrack(trackId: TrackId) {
         const record = trackStore.get(trackId);
