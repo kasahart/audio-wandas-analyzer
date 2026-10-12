@@ -23,6 +23,16 @@ export function peakText(channel: Channel): string | null {
     return text ? 'Peak ' + text : null;
 }
 
+function levelText(channel: ChannelSummary, levelDb: number | undefined): string {
+    if (!Number.isFinite(levelDb)) { return '—'; }
+    return Number(levelDb).toFixed(1) + ' ' + (channel.measurement?.levelUnit ?? 'dB');
+}
+
+export function channelMetricSummaryHtml(channel: Channel): string {
+    const peakDb = channel ? levelText(channel, channel.peakLevelDb) : '—';
+    return '<span>' + escapeHtml(peakText(channel) ?? 'Peak ' + peakDb) + '</span>';
+}
+
 export function calibrationSummary(channels: Channel[]): CalibrationSummary {
     const calibrated = channels.filter(channel => measurementFor(channel)?.calibrationStatus === 'calibrated') as ChannelSummary[];
     if (calibrated.length === 0) {
