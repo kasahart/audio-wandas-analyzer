@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isCacheSufficient, computeReqBounds } from '../webview/waveform/rangeRequestPolicy';
+import { isCacheSufficient, computeReqBounds, isOverviewSufficient, isRangeCacheDrawable, OVERVIEW_POINTS, rangeCacheCoversView, visibleFileFraction } from '../webview/waveform/rangeRequestPolicy';
 
 const W = 800;
 const points = 1600;
@@ -186,4 +186,45 @@ test('cache density must be sufficient for every channel', () => {
 test('cache point threshold is eighty percent of requested points', () => {
     assert.equal(isCacheSufficient(makeCache(0, 1, 1279), 0, 1, points, W, 0, 1, 1), false);
     assert.equal(isCacheSufficient(makeCache(0, 1, 1280), 0, 1, points, W, 0, 1, 1), true);
+});
+
+test('visibleFileFraction: ファイル範囲 [0, 1] にクリップした可視幅を返し、逆順や範囲外にも対応する', () => {
+    assert.ok(Math.abs(visibleFileFraction(0.25, 0.75) - 0.5) < 1e-12);
+    assert.ok(Math.abs(visibleFileFraction(0.75, 0.25) - 0.5) < 1e-12);
+    assert.equal(visibleFileFraction(-0.5, 0.5), 0.5);
+    assert.equal(visibleFileFraction(1.2, 1.5), 0);
+});
+
+test('isOverviewSufficient: 可視範囲内のオーバービュー点数が canvas 幅以上なら true', () => {
+    const overview = (n: number) => ({ min: Array(n).fill(0), max: Array(n).fill(0) });
+    assert.equal(isOverviewSufficient([overview(4000)], 800, 0, 0.2), true);
+    assert.equal(isOverviewSufficient([overview(4000)], 800, 0, 0.1), false);
+    assert.equal(isOverviewSufficient([overview(4000), overview(2000)], 800, 0, 0.2), false);
+});
+
+test('isOverviewSufficient: 点数が少ない・欠けているオーバービューも OVERVIEW_POINTS 点として扱う', () => {
+    assert.equal(isOverviewSufficient([null], OVERVIEW_POINTS / 2, 0, 0.5), true);
+    assert.equal(isOverviewSufficient([{ samples: [0, 0] }], OVERVIEW_POINTS / 2 + 1, 0, 0.5), false);
+});
+
+test('isOverviewSufficient: 可視範囲がファイル外なら true (リクエスト不要)', () => {
+    assert.equal(isOverviewSufficient([null], 800, 1.1, 1.3), true);
+});
+
+test('isRangeCacheDrawable: 対象チャンネルに点があるときだけ true', () => {
+    const c = makeCache(0, 1, 10);
+    assert.equal(isRangeCacheDrawable(c, 0), true);
+    assert.equal(isRangeCacheDrawable(c, 1), false);
+    assert.equal(isRangeCacheDrawable(makeCache(0, 1, 0), 0), false);
+    assert.equal(isRangeCacheDrawable(null, 0), false);
+});
+
+test('rangeCacheCoversView: 描画可能かつ [0, 1] にクリップした可視範囲を覆うときだけ true', () => {
+    const c = makeCache(0.2, 0.6, 10);
+    assert.equal(rangeCacheCoversView(c, 0, 0.3, 0.5), true);
+    assert.equal(rangeCacheCoversView(c, 0, 0.1, 0.5), false);
+    assert.equal(rangeCacheCoversView(c, 0, 0.3, 0.7), false);
+    assert.equal(rangeCacheCoversView(makeCache(0, 1, 10), 0, -0.2, 1.4), true);
+    assert.equal(rangeCacheCoversView(c, 1, 0.3, 0.5), false);
+    assert.equal(rangeCacheCoversView(null, 0, 0.3, 0.5), false);
 });

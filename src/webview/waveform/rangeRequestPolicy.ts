@@ -7,6 +7,8 @@ export const RANGE_CACHE_MIN_POINT_RATIO = 0.8;
 /** ...and at least this many points per canvas pixel inside the visible range. */
 export const RANGE_CACHE_MIN_POINTS_PER_PIXEL = 0.5;
 
+export const OVERVIEW_POINTS = 1200;
+
 export function rangeRequestPointCount(canvasWidth: number): number {
     return Math.min(canvasWidth * 2, MAX_RANGE_REQUEST_POINTS);
 }
@@ -62,4 +64,34 @@ export function isCacheSufficient(
         const ptsVisible = nPts * ((fileAtZoomEnd - fileAtZoomStart) / cacheDataRange);
         return nPts >= points * RANGE_CACHE_MIN_POINT_RATIO && ptsVisible >= width * RANGE_CACHE_MIN_POINTS_PER_PIXEL;
     });
+}
+
+export function visibleFileFraction(fileAtZoomStart: number, fileAtZoomEnd: number): number {
+    const viewStart = Math.max(0, Math.min(fileAtZoomStart, fileAtZoomEnd));
+    const viewEnd = Math.min(1, Math.max(fileAtZoomStart, fileAtZoomEnd));
+    return Math.max(0, viewEnd - viewStart);
+}
+
+export function isOverviewSufficient(
+    overviews: ReadonlyArray<RangeCacheEntry['channels'][number] | null | undefined>,
+    width: number,
+    fileAtZoomStart: number,
+    fileAtZoomEnd: number,
+): boolean {
+    const visibleFraction = visibleFileFraction(fileAtZoomStart, fileAtZoomEnd);
+    if (visibleFraction <= 0) {
+        return true;
+    }
+    return overviews.every((waveform) => Math.max(waveformPointCount(waveform), OVERVIEW_POINTS) * visibleFraction >= width);
+}
+
+export function isRangeCacheDrawable(cache: RangeCacheEntry | null, channelIndex: number): boolean {
+    const channel = cache && cache.channels ? cache.channels[channelIndex] : null;
+    return waveformPointCount(channel) > 0;
+}
+
+export function rangeCacheCoversView(cache: RangeCacheEntry | null, channelIndex: number, fileAtZoomStart: number, fileAtZoomEnd: number): boolean {
+    return !!cache && isRangeCacheDrawable(cache, channelIndex) &&
+        cache.startNorm <= Math.max(0, fileAtZoomStart) &&
+        cache.endNorm >= Math.min(1, fileAtZoomEnd);
 }

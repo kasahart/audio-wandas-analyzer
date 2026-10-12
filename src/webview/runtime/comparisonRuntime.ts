@@ -6,7 +6,7 @@ import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from
 import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, loopRegionFromPayload, setSelectionFileChecked } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawSpectrumSelectionBox, drawCanvasMessage, strokeSpectrumSeries, type DrawTheme } from '../draw/canvasDrawers';
-import { isCacheSufficient, computeReqBounds, rangeRequestPointCount, waveformPointCount } from '../waveform/rangeRequestPolicy';
+import { isCacheSufficient, computeReqBounds, isOverviewSufficient, rangeCacheCoversView, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { createSelectionTreeView } from './selectionTreeView';
@@ -62,7 +62,7 @@ import {
     zoomNormalizedRange,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
-import type { CanvasSyncOptions, ComparisonBootstrap, ComparisonTrackState, DragPoint, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, WaveformRangeCache, } from './types';
+import type { CanvasSyncOptions, ComparisonBootstrap, ComparisonTrackState, DragPoint, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
@@ -675,7 +675,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     // ── On-demand range cache ──
-    const OVERVIEW_PTS = 1200;
     let rangeRequestTimer: number | null = null;
     // Receive high-res range data from Extension Host
     messaging.onMessage(function (msg) {
@@ -905,25 +904,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             fileAtZoomEnd: fileAtZoomEnd,
         };
     }
-    function isRangeCacheDrawable(cache: WaveformRangeCache | null, channelIndex: number): boolean {
-        const ch = cache && cache.channels ? cache.channels[channelIndex] : null;
-        return waveformPointCount(ch) > 0;
-    }
-    function visibleFileFraction(fileAtZoomStart: number, fileAtZoomEnd: number) {
-        const viewStart = Math.max(0, Math.min(fileAtZoomStart, fileAtZoomEnd));
-        const viewEnd = Math.min(1, Math.max(fileAtZoomStart, fileAtZoomEnd));
-        return Math.max(0, viewEnd - viewStart);
-    }
     function overviewIsSufficient(result: ComparisonTrackState, W: number, fileView: TrackFileView): boolean {
-        const visibleFraction = visibleFileFraction(fileView.fileAtZoomStart, fileView.fileAtZoomEnd);
-        if (visibleFraction <= 0) {
-            return true;
-        }
-        return channelsForResult(result).every(function (ch: ChannelSummary) {
-            const fullWaveform = ch && ch.waveform ? ch.waveform : null;
-            const pointCount = Math.max(waveformPointCount(fullWaveform), OVERVIEW_PTS);
-            return pointCount * visibleFraction >= W * 1.0;
-        });
+        const overviews = channelsForResult(result).map(function (ch: ChannelSummary) { return ch && ch.waveform ? ch.waveform : null; });
+        return isOverviewSufficient(overviews, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd);
     }
     function checkAndRequestRanges() {
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
@@ -1535,9 +1518,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const canvas = document.getElementById(trackCanvasId(trackIndex, channelIndex));
         const W = (canvas ? canvas.width : 0) || 800;
         if (c && cachedChannel && !overviewIsSufficient(result, W, fileView) &&
-            isRangeCacheDrawable(c, channelIndex) &&
-            c.startNorm <= Math.max(0, fileView.fileAtZoomStart) &&
-            c.endNorm >= Math.min(1, fileView.fileAtZoomEnd)) {
+            rangeCacheCoversView(c, channelIndex, fileView.fileAtZoomStart, fileView.fileAtZoomEnd)) {
             return { waveform: cachedChannel, dataStart: c.startNorm, dataEnd: c.endNorm, amplitudeScale: amplitudeScale };
         }
         return fullWaveform
