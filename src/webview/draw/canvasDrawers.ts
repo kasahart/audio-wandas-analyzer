@@ -23,6 +23,7 @@ export interface CanvasDrawCtx {
     textBaseline: CanvasTextBaseline;
     globalAlpha: number;
     lineWidth: number;
+    setLineDash(segments: number[]): void;
     save(): void;
     restore(): void;
     translate(x: number, y: number): void;
@@ -233,6 +234,33 @@ export function traceSpectrumPath(ctx: CanvasDrawCtx, slice: SpectrumSliceLike, 
             ctx.lineTo(x, y);
         }
     }
+}
+
+export function drawSpectrumCrosshair(
+    ctx: CanvasDrawCtx,
+    frame: SpectrumPlotFrame,
+    x: number,
+    y: number | null,
+    verticalColor: string,
+    horizontalColor: string,
+): void {
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = verticalColor;
+    ctx.beginPath();
+    ctx.moveTo(x, frame.padTop);
+    ctx.lineTo(x, frame.padTop + frame.plotHeight);
+    ctx.stroke();
+    if (y !== null) {
+        ctx.strokeStyle = horizontalColor;
+        ctx.beginPath();
+        ctx.moveTo(frame.padLeft, y);
+        ctx.lineTo(frame.padLeft + frame.plotWidth, y);
+        ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
 }
 
 export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, color: string, opts: { padL?: number; padR?: number; padT?: number; padB?: number; lineWidth?: number } = {}, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null): void {

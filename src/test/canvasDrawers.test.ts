@@ -16,6 +16,7 @@ import {
     drawSpectrogramColorbar,
     drawSpectrumLine,
     drawSpectrumAxes,
+    drawSpectrumCrosshair,
     DEFAULT_THEME,
     type CanvasDrawCtx,
 } from '../webview/draw/canvasDrawers';
@@ -54,6 +55,7 @@ function makeMockCtx(): CanvasDrawCtx & { _ops: RecordedOp[]; _texts: string[] }
         lineTo(x, y) { ops.push({ op: 'lineTo', args: [x, y] }); },
         rect(x, y, w, h) { ops.push({ op: 'rect', args: [x, y, w, h] }); },
         clip() { ops.push({ op: 'clip', args: [] }); },
+        setLineDash(s) { ops.push({ op: 'setLineDash', args: [s] }); },
         stroke() { ops.push({ op: 'stroke', args: [] }); },
         fillRect(x, y, w, h) { ops.push({ op: 'fillRect', args: [x, y, w, h] }); },
         fillText(t, x, y) { texts.push(t); ops.push({ op: 'fillText', args: [t, x, y] }); },
@@ -294,4 +296,33 @@ test('spectrum axes display the zoomed physical frequency and calibrated levels'
     const ctx = makeMockCtx();
     drawSpectrumAxes(ctx, 200, 100, { ...sampleSlice, unit: 'dB SPL' }, 30, 5, 5, 15, 1000, 5000, 20, 80);
     assert.deepEqual(ctx._texts, ['80 dB SPL', '50 dB SPL', '20 dB SPL', '1.0 kHz', '3.0 kHz', '5.0 kHz']);
+});
+
+// ── drawSpectrumCrosshair ──
+
+const crosshairFrame = { padLeft: 10, plotWidth: 100, padTop: 5, plotHeight: 50, frequencyMin: 0, frequencyMax: 1, dbMin: -1, dbMax: 0 };
+
+test('drawSpectrumCrosshair: y があれば破線の縦線と横線をプロット領域内に描き、破線を戻す', () => {
+    const ctx = makeMockCtx();
+    drawSpectrumCrosshair(ctx, crosshairFrame, 40, 20, 'white', 'red');
+    const geometry = ctx._ops.filter((o) => ['moveTo', 'lineTo', 'set strokeStyle', 'setLineDash'].includes(o.op));
+    assert.deepEqual(geometry, [
+        { op: 'setLineDash', args: [[3, 3]] },
+        { op: 'set strokeStyle', args: ['white'] },
+        { op: 'moveTo', args: [40, 5] },
+        { op: 'lineTo', args: [40, 55] },
+        { op: 'set strokeStyle', args: ['red'] },
+        { op: 'moveTo', args: [10, 20] },
+        { op: 'lineTo', args: [110, 20] },
+        { op: 'setLineDash', args: [[]] },
+    ]);
+    assert.equal(ctx._ops[0].op, 'save');
+    assert.equal(ctx._ops[ctx._ops.length - 1].op, 'restore');
+});
+
+test('drawSpectrumCrosshair: y が null なら縦線だけを描く', () => {
+    const ctx = makeMockCtx();
+    drawSpectrumCrosshair(ctx, crosshairFrame, 40, null, 'white', 'red');
+    assert.equal(ctx._ops.filter((o) => o.op === 'stroke').length, 1);
+    assert.ok(!ctx._ops.some((o) => o.op === 'set strokeStyle' && o.args[0] === 'red'));
 });

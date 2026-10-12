@@ -206,3 +206,50 @@ export function overlaySpectrumRegionAt(x: number, y: number, width: number, hei
     }
     return y >= pad.top ? 'plot' : null;
 }
+
+export const TRACK_SPECTRUM_PAD = { left: 32, right: 6, top: 4, bottom: 14 } as const;
+
+export interface SpectrumViewState {
+    freqStart: number;
+    freqEnd: number;
+    dbMin: number | null;
+    dbMax: number | null;
+}
+
+export interface SpectrumVisibleWindow {
+    frequencyMin: number;
+    frequencyMax: number;
+    dbMin: number;
+    dbMax: number;
+}
+
+export function spectrumVisibleWindow(maxFrequencyHz: number, minDb: number, maxDb: number, view: SpectrumViewState): SpectrumVisibleWindow {
+    return {
+        frequencyMin: view.freqStart * maxFrequencyHz,
+        frequencyMax: view.freqEnd * maxFrequencyHz,
+        dbMin: view.dbMin != null ? view.dbMin : minDb,
+        dbMax: view.dbMax != null ? view.dbMax : maxDb,
+    };
+}
+
+export function spectrumPlotFrame(
+    width: number,
+    height: number,
+    pad: { left: number; right: number; top: number; bottom: number },
+    window: SpectrumVisibleWindow,
+): SpectrumPlotFrame {
+    return {
+        padLeft: pad.left,
+        plotWidth: width - pad.left - pad.right,
+        padTop: pad.top,
+        plotHeight: height - pad.top - pad.bottom,
+        ...window,
+    };
+}
+
+export function steppedSpectrumHoverNorm(slice: SpectrumSlice, binIdx: number, deltaIdx: number, frequencyMin: number, frequencyMax: number): number {
+    const nextIdx = Math.max(0, Math.min(slice.frequencyBins - 1, binIdx + deltaIdx));
+    const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
+    const freqHz = (nextIdx / Math.max(slice.frequencyBins - 1, 1)) * originalMaxFreq;
+    return hoverNormForFrequency(freqHz, frequencyMin, frequencyMax);
+}
