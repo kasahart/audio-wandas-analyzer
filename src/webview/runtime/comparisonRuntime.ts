@@ -11,7 +11,7 @@ import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cu
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { createSelectionTreeView } from './selectionTreeView';
 import { buildSpecSummaryText, buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
-import { canvasById, eventTarget } from './domAdapter';
+import { audioById, canvasById, eventTarget } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
@@ -196,7 +196,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // ── Runtime state ──
     let rafPending = false;
     const canvasWidthCache: Record<string, string> = {};
-    let playbackEl: RuntimeElement | null = null;
+    let playbackEl: HTMLAudioElement | null = null;
     let playbackRafId: number | null = null;
     let playbackTrackId: TrackId | null = null;
     let followCursor = false;
@@ -1519,7 +1519,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     function getTrackAudio(idx: number) {
-        return document.getElementById('track-audio-' + idx);
+        return audioById(document, 'track-audio-' + idx);
     }
     function getTrackTimeMapping(idx: number) {
         const result = state.results[idx];
