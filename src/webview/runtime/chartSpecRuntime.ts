@@ -3,6 +3,7 @@ import { magma, normalizedColor, rasterize, viridis, type Palette } from '../../
 import { getStrings, rangePopoverStrings } from '../../shared/i18n/strings';
 import type { ChartSpecGlobals } from '../panels/chartSpecDocument';
 import { installRangePopover } from '../rangePopover';
+import { clientToCanvasPixels } from './canvasOverlays';
 import { positionPopover } from './settingsPopover';
 
 type Axis = 'x' | 'y' | 'color';
@@ -200,13 +201,8 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
     }
 
     function toCanvasCoords(e: MouseEvent, canvas: HTMLCanvasElement, cv: CanvasSetup): { cx: number; cy: number } {
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = cv.width / (rect.width || cv.width);
-        const scaleY = cv.height / (rect.height || cv.height);
-        return {
-            cx: (e.clientX - rect.left) * scaleX,
-            cy: (e.clientY - rect.top) * scaleY,
-        };
+        const { x, y } = clientToCanvasPixels(e.clientX, e.clientY, canvas.getBoundingClientRect(), cv.width, cv.height);
+        return { cx: x, cy: y };
     }
 
     function axisBounds(ov: AxisRange | undefined, dataMin: number, dataMax: number): { min: number; max: number } {

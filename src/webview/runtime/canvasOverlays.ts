@@ -24,6 +24,21 @@ export function canvasTimeHit(rectLeft: number, clientX: number, timeWidth: numb
     return { x, timeWidth, norm: view.start + (x / timeWidth) * (view.end - view.start) };
 }
 
+export interface ClientRectLike {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
+/** Converts client coordinates to canvas backing-store pixels, so hit tests stay correct when CSS scales the canvas. */
+export function clientToCanvasPixels(clientX: number, clientY: number, rect: ClientRectLike, width: number, height: number): { x: number; y: number } {
+    return {
+        x: (clientX - rect.left) * (width / (rect.width || width)),
+        y: (clientY - rect.top) * (height / (rect.height || height)),
+    };
+}
+
 export function clampedCanvasNorm(rectLeft: number, clientX: number, timeWidth: number, view: NormalizedRange): number {
     const x = Math.max(0, Math.min(timeWidth, clientX - rectLeft));
     return Math.max(0, Math.min(1, view.start + (x / timeWidth) * (view.end - view.start)));

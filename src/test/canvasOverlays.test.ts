@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
     canvasTimeHit,
     clampedCanvasNorm,
+    clientToCanvasPixels,
     CURSOR_LINE_STYLE,
     drawDashedTimeLine,
     drawRectZoomSelection,
@@ -73,4 +74,14 @@ test('drawRectZoomSelection maps amplitudes through the zoomed amplitude range',
     assert.equal(width, 100);
     assert.ok(Math.abs(top - 20) < 1e-9);
     assert.ok(Math.abs(height - 60) < 1e-9);
+});
+
+test('clientToCanvasPixels scales client offsets to the canvas backing store', () => {
+    const rect = { left: 10, top: 20, width: 200, height: 50 };
+    assert.deepEqual(clientToCanvasPixels(110, 45, rect, 400, 100), { x: 200, y: 50 });
+});
+
+test('clientToCanvasPixels uses a 1:1 scale when the canvas has no layout size', () => {
+    const rect = { left: 10, top: 20, width: 0, height: 0 };
+    assert.deepEqual(clientToCanvasPixels(15, 23, rect, 400, 100), { x: 5, y: 3 });
 });
