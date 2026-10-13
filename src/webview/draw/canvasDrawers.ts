@@ -166,20 +166,21 @@ export function drawSpectrogramFrequencyAxis(ctx: CanvasDrawCtx, W: number, H: n
     ctx.restore();
 }
 
+export const SPECTROGRAM_COLORBAR_WIDTH = 50;
+
 export function drawSpectrogramColorbar(ctx: CanvasDrawCtx, W: number, H: number, spec: SpectrogramSpecLike, opts: { dbLo?: number; dbHi?: number } = {}, theme: DrawTheme = DEFAULT_THEME): void {
     const mutedColor = theme.mutedColor;
     const bgColor = theme.bgColor;
-    const cbStripW = 50;
     const o = opts || {};
     const dbLo = (o.dbLo != null) ? o.dbLo : spec.minDb;
     const dbHi = (o.dbHi != null) ? o.dbHi : spec.maxDb;
     ctx.save();
     ctx.fillStyle = bgColor;
     ctx.globalAlpha = 0.7;
-    ctx.fillRect(W - cbStripW, 0, cbStripW, H);
+    ctx.fillRect(W - SPECTROGRAM_COLORBAR_WIDTH, 0, SPECTROGRAM_COLORBAR_WIDTH, H);
     ctx.globalAlpha = 1;
     const cbW = 10;
-    const cbX = W - cbStripW + 6;
+    const cbX = W - SPECTROGRAM_COLORBAR_WIDTH + 6;
     const cbY = 2;
     const cbH = Math.max(1, H - 4);
     const grad = ctx.createImageData(cbW, cbH);

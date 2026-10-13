@@ -1,10 +1,8 @@
 import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/analysisTypes';
-import { drawSpectrogramColorbar, type DrawTheme } from '../draw/canvasDrawers';
+import { drawSpectrogramColorbar, SPECTROGRAM_COLORBAR_WIDTH, type DrawTheme } from '../draw/canvasDrawers';
 import { paintSpectrogramRaster, type SpectrogramRasterView } from './spectrogramRaster';
 import type { RuntimeWindow, WaveformCoverage } from './types';
 import { traceXExtent, waveformCoverageFromExtent } from './waveformCoverage';
-
-export const SPECTROGRAM_COLORBAR_WIDTH = 50;
 
 export function spectrogramPlotWidth(canvasWidth: number): number {
     return Math.max(1, canvasWidth - SPECTROGRAM_COLORBAR_WIDTH);

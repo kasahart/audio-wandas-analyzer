@@ -148,3 +148,8 @@ test('silent cursor spectrum preserves cached bins and units without a spectrogr
     assert.equal(slice!.maxFrequencyHz, 2000);
     assert.equal(slice!.unit, 'dB SPL');
 });
+
+test('extractSpectrumAtCursor: a non-array channels payload yields no slice instead of throwing', () => {
+    const source = makeSource({ channels: { 0: makeSource().channels![0] } as unknown as SpectrumSource['channels'] });
+    assert.equal(extractSpectrumAtCursor(source, 0, 0.5, { startSec: 0, spanSec: 1 }), null);
+});

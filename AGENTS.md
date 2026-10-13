@@ -106,6 +106,7 @@ TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.
 | `python-backend/analysis_service.py` | Initial summary, detail, spectrum slice, waveform range, WAV export and Recipe |
 | `python-backend/analysis_engine.py` | Cached audio frames and STFT by calibration/settings |
 | `python-backend/backend_server.py` | Persistent NDJSON server; dispatches the seven validated analysis commands |
+| `python-backend/recipe_runner.py` | Recipe evaluation under a restricted AST whitelist; called by `analysis_service` on the persistent backend |
 
 ### Waveform rendering pipeline
 

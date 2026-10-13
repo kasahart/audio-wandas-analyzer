@@ -171,11 +171,11 @@ test('drawWaveformAmplitudeAxis: save/restore はペアで呼ばれる', () => {
     assert.equal(saves, restores);
 });
 
-// ── drawSpectrogramAxes ──
+// ── drawSpectrogramFrequencyAxis + drawSpectrogramColorbar ──
 
 const sampleSpec = { minDb: -90, maxDb: 0, maxFrequencyHz: 22050 };
 
-test('drawSpectrogramAxes: Hz ラベルとカラーバー dB ラベルを描画', () => {
+test('drawSpectrogramFrequencyAxis + drawSpectrogramColorbar: Hz ラベルとカラーバー dB ラベルを描画', () => {
     const ctx = makeMockCtx();
     drawSpectrogramFrequencyAxis(ctx, 64, 80, sampleSpec);
     drawSpectrogramColorbar(ctx, 800, 80, sampleSpec);
@@ -185,7 +185,7 @@ test('drawSpectrogramAxes: Hz ラベルとカラーバー dB ラベルを描画'
     assert.ok(ctx._texts.some((t) => /-?\d+ dB$/.test(t)));
 });
 
-test('drawSpectrogramAxes: 左ラベル領域と右カラーバー領域に fillRect', () => {
+test('drawSpectrogramFrequencyAxis + drawSpectrogramColorbar: 左ラベル領域と右カラーバー領域に fillRect', () => {
     const ctx = makeMockCtx();
     drawSpectrogramFrequencyAxis(ctx, 64, 80, sampleSpec);
     drawSpectrogramColorbar(ctx, 800, 80, sampleSpec);
@@ -214,7 +214,7 @@ test('drawSpectrogramColorbar: 右カラーバー領域だけに fillRect し、
     assert.ok(ctx._texts.includes('-70 dB'));
 });
 
-test('drawSpectrogramAxes: putImageData を 1 回 (カラーバー) 呼ぶ', () => {
+test('drawSpectrogramFrequencyAxis + drawSpectrogramColorbar: putImageData を 1 回 (カラーバー) 呼ぶ', () => {
     const ctx = makeMockCtx();
     drawSpectrogramFrequencyAxis(ctx, 64, 80, sampleSpec);
     drawSpectrogramColorbar(ctx, 800, 80, sampleSpec);
