@@ -34,6 +34,7 @@ import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
 import { attachCanvasFocusHint, createCanvasTooltip } from './canvasTooltip';
 import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
+import { attachTrackAudioListeners } from './trackAudioEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
 import { rulerTicks } from './timeRuler';
 import { createPlaybackDisplay } from './playbackDisplay';
@@ -1735,23 +1736,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!audio) {
                 return;
             }
-            audio.addEventListener('play', function () {
-                playbackEl = audio;
-                playbackTrackId = trackId;
-                updatePlaybackButtons();
-                startPlaybackLoop();
-            });
-            audio.addEventListener('pause', function () {
-                if (playbackTrackId === trackId) {
+            attachTrackAudioListeners(audio, trackId, {
+                isCurrent: (id) => playbackTrackId === id,
+                onPlay(el, id) {
+                    playbackEl = el;
+                    playbackTrackId = id;
+                    updatePlaybackButtons();
+                    startPlaybackLoop();
+                },
+                onPause(id, ended) {
                     invalidateDesiredSpectrumSliceRequests();
                     updatePlaybackButtons();
-                    if (audio.ended) {
-                        stopPlayback(trackId, { keepCursor: true });
+                    if (ended) {
+                        stopPlayback(id, { keepCursor: true });
                     }
-                }
-            });
-            audio.addEventListener('ended', function () {
-                if (playbackTrackId === trackId) {
+                },
+                onEnded() {
                     const endNorm = globalNormFromTrackTime(i, state.results[i].durationSeconds || 0);
                     if (endNorm !== null) {
                         cursorNorm = endNorm;
@@ -1760,13 +1760,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     clearPlaybackState();
                     scheduleRender();
                     scheduleSpectrumRefresh('immediate');
-                }
-            });
-            audio.addEventListener('error', function () {
-                if (playbackTrackId === trackId) {
+                },
+                onError() {
                     invalidateDesiredSpectrumSliceRequests();
                     clearPlaybackState();
-                }
+                },
             });
         });
     }
