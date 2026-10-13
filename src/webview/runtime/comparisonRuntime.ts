@@ -35,6 +35,7 @@ import { attachCanvasFocusHint, createCanvasTooltip } from './canvasTooltip';
 import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { attachTrackAudioListeners } from './trackAudioEvents';
+import { attachOverlaySpectrumDoubleClick } from './overlaySpectrumEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
 import { rulerTicks } from './timeRuler';
 import { createPlaybackDisplay } from './playbackDisplay';
@@ -45,12 +46,11 @@ import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
 import { selectionLayoutHtml } from './selectionLayoutHtml';
-import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
+import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
     OVERLAY_SPECTRUM_PAD,
-    overlaySpectrumRegionAt,
     spectrumBinAtHover,
     spectrumBoxZoom,
     spectrumPlotFrame,
@@ -1980,21 +1980,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         scheduleSpectrumRefresh('immediate');
                     },
                 });
-                overlayCanvas.addEventListener('dblclick', function (e) {
-                    if (_lastSpectrumMaxF <= 0) {
-                        return;
-                    } // データ無し
-                    const px = clientToCanvasPixels(e.clientX, e.clientY, overlayCanvas.getBoundingClientRect(), overlayCanvas.width, overlayCanvas.height);
-                    const region = overlaySpectrumRegionAt(px.x, px.y, overlayCanvas.width, overlayCanvas.height);
-                    if (region === 'db-axis') {
-                        openSpectrumRangePopup('db', e.clientX, e.clientY);
-                    }
-                    else if (region === 'freq-axis') {
-                        openSpectrumRangePopup('freq', e.clientX, e.clientY);
-                    }
-                    else if (region === 'plot') {
-                        specZoomReset();
-                    }
+                attachOverlaySpectrumDoubleClick(overlayCanvas, {
+                    hasData: () => _lastSpectrumMaxF > 0,
+                    openRangePopup: openSpectrumRangePopup,
+                    resetZoom: specZoomReset,
                 });
             }
             function attachTrackSpectrumCursorEvents() {
