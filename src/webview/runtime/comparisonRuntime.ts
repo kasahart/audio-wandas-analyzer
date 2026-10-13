@@ -1,11 +1,12 @@
 import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
-import { paintSpectrogramRaster, spectrogramDisplayBounds } from './spectrogramRaster';
-import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
+import { spectrogramDisplayBounds } from './spectrogramRaster';
+import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
+import { trackTimelinePlacement } from './waveformCoverage';
 import { attachOffsetEditing } from './offsetInlineEditor';
 import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setSelectionFileChecked, testActionTrackId } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
-import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
+import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, isOverviewSufficient, rangeCacheCoversView, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
@@ -83,8 +84,8 @@ import {
     rectZoomTarget,
     ZOOM_IN_FACTOR,
 } from './waveformInteraction';
-import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
-import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SelectionTreeNode, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
+import type { ChannelSummary, SpectrogramDisplaySettings, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
+import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SelectionTreeNode, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformDragState, WaveformDrawOptions, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
@@ -163,7 +164,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     const TRACK_HEADER_W = 130;
     const AXIS_W = 64;
-    const SPECTROGRAM_COLORBAR_WIDTH = 50;
     const TRACK_HEIGHT_DEFAULT = 80;
     const TRACK_HEIGHT_MIN = TRACK_HEIGHT_DEFAULT;
     const TRACK_HEIGHT_MAX = 220;
@@ -188,12 +188,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             requestAnimationFrame(function () { el.textContent = msg; });
         }
     }
-    function hexToRgba(hex: string, alpha: number) {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
-    }
     // ── Runtime state ──
     let rafPending = false;
     const canvasWidthCache: Record<string, string> = {};
@@ -208,10 +202,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let lastSpectrumRequestAt = -Infinity;
     let spectrumAllowsSliceRequests = true;
     let spectrumCursorNorm = 0;
-    interface SpectrogramRasterCacheEntry {
-        source: SpectrogramData;
-        key: string;
-    }
     const spectrogramRasterCache = new Map<string, SpectrogramRasterCacheEntry>();
     let attachRebuiltTrackEvents: () => void = () => undefined;
     function scheduleRender() {
@@ -1341,41 +1331,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (shouldClear) {
             ctx.clearRect(0, 0, W, H);
         }
-        // ゼロライン
-        ctx.strokeStyle = hexToRgba(color, 0.25);
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(0, H / 2);
-        ctx.lineTo(W, H / 2);
-        ctx.stroke();
         const src = resolveWaveformSource(result, trackIndex, channelIndex, offsetSeconds);
         const record = trackRecordAtIndex(trackIndex);
-        let coverage: WaveformCoverage | null = null;
-        if (src && window.renderWaveformPipeline) {
-            const renderPipeline = window.renderWaveformPipeline;
-            const placement = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
-            const extent = traceXExtent(ctx, function () {
-                ctx.save();
-                try {
-                    renderPipeline(ctx, W, H, src.waveform, {
-                        zoomStart: waveformView.start,
-                        zoomEnd: waveformView.end,
-                        offsetNorm: placement.offsetNorm,
-                        trackDurRatio: placement.trackDurRatio,
-                        dataStart: src.dataStart,
-                        dataEnd: src.dataEnd,
-                        color,
-                        amplitudeScale: src.amplitudeScale,
-                        amplitudeMinNorm: waveformView.isAmplitudeZoomed() ? waveformView.amplitudeMin : undefined,
-                        amplitudeMaxNorm: waveformView.isAmplitudeZoomed() ? waveformView.amplitudeMax : undefined,
-                    });
-                }
-                finally {
-                    ctx.restore();
-                }
-            });
-            coverage = waveformCoverageFromExtent(extent, W);
-        }
+        const placement = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
+        const amplitudeZoomed = waveformView.isAmplitudeZoomed();
+        const coverage = paintTrackWaveform(ctx, W, H, color, src, {
+            zoomStart: waveformView.start,
+            zoomEnd: waveformView.end,
+            offsetNorm: placement.offsetNorm,
+            trackDurRatio: placement.trackDurRatio,
+            amplitudeMinNorm: amplitudeZoomed ? waveformView.amplitudeMin : undefined,
+            amplitudeMaxNorm: amplitudeZoomed ? waveformView.amplitudeMax : undefined,
+        }, window.renderWaveformPipeline);
         if (record) {
             record.waveformCoverage = coverage;
         }
@@ -1424,19 +1391,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const { dbLo, dbHi, maxFrequencyHz: maxFreq } = spectrogramDisplayBounds(spec, __spectrogramSettings.display);
         const plotW = spectrogramPlotWidth(W);
         const cacheId = trackRecordAtIndex(trackIndex)!.id + ':' + channelIndex;
-        const rasterKey = [plotW, H, waveformView.start, waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFreq].join(':');
-        let raster = spectrogramRasterCache.get(cacheId);
-        if (!raster || raster.source !== spec || raster.key !== rasterKey) {
-            ctx.clearRect(0, 0, W, H);
-            const imageData = ctx.createImageData(plotW, H);
-            paintSpectrogramRaster(spec, plotW, H, {
-                zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq,
-            }, imageData.data);
-            ctx.putImageData(imageData, 0, 0);
-            drawSpectrogramColorbar(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi }, drawTheme());
-            raster = { source: spec, key: rasterKey };
-            spectrogramRasterCache.set(cacheId, raster);
-        }
+        spectrogramRasterCache.set(cacheId, paintTrackSpectrogram(ctx, W, H, spec, {
+            zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq,
+        }, spectrogramRasterCache.get(cacheId), drawTheme()));
         if (axisCanvas && axisCtx) {
             drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq }, drawTheme());
         }
@@ -1447,9 +1404,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
 
-    function spectrogramPlotWidth(canvasWidth: number) {
-        return Math.max(1, canvasWidth - SPECTROGRAM_COLORBAR_WIDTH);
-    }
     type CanvasHitTarget = Pick<Element, 'getBoundingClientRect'> & { width: number };
     function trackCanvasTimeHit(canvas: CanvasHitTarget, clientX: number) {
         const timeWidth = contentType === 'spectrogram' ? spectrogramPlotWidth(canvas.width) : canvas.width;
