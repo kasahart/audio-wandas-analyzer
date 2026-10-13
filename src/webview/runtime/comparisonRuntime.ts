@@ -43,6 +43,7 @@ import { rulerTicks } from './timeRuler';
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
 import { SpectrumHover } from './spectrumHover';
+import { SpectrumView } from './spectrumView';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
@@ -61,12 +62,9 @@ import {
     steppedOverlaySpectrumHoverNorm,
     steppedTrackSpectrumHoverNorm,
     TRACK_SPECTRUM_PAD,
-    type SpectrumViewState,
     trackSpectrumReadoutText,
     setSpectrumReadout,
     spectrumSlicesFromResult,
-    spectrumDbRangeAfterZoom,
-    zoomSpectrumRange,
 } from './spectrumRuntime';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
@@ -246,12 +244,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return false;
         }
         uiSmokeState.spectrumZoom = {
-            specFreqStart: specFreqStart,
-            specFreqEnd: specFreqEnd,
+            specFreqStart: spectrumView.freqStart,
+            specFreqEnd: spectrumView.freqEnd,
             trackHeight: trackHeight,
             spectrumOverlayHeight: spectrumOverlayHeight,
-            specDbMin: specDbMin,
-            specDbMax: specDbMax,
+            specDbMin: spectrumView.dbMin,
+            specDbMax: spectrumView.dbMax,
         };
         return true;
     }
@@ -326,16 +324,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let trackHeight = TRACK_HEIGHT_DEFAULT;
     let spectrumOverlayHeight = SPECTRUM_HEIGHT_DEFAULT;
     // ── スペクトルズーム ───────────────────────────────────
-    let specFreqStart = 0; // 0..1 正規化周波数（0=0Hz, 1=maxFreq）
-    let specFreqEnd = 1;
-    let specDbMin: number | null = null; // null = データ自動, number = dB 上書き
-    let specDbMax: number | null = null;
-    function spectrumViewState(): SpectrumViewState {
-        return { freqStart: specFreqStart, freqEnd: specFreqEnd, dbMin: specDbMin, dbMax: specDbMax };
-    }
-    let _lastVisDbMin: number | null = null; // 前回レンダリング時の visDbMin キャッシュ
-    let _lastVisDbMax: number | null = null;
-    let _lastSpectrumMaxF = 0; // overlay の最大周波数(Hz) キャッシュ（freq popover 用）
+    const spectrumView = new SpectrumView();
     const specBoxDrag = new SpectrumBoxDrag();
     const heightResize = createHeightResize({
         currentHeight: kind => kind === 'track' ? trackHeight : spectrumOverlayHeight,
@@ -1007,7 +996,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 __spectrogramSettings.display,
                 result.sampleRateHz ? result.sampleRateHz / 2 : 0,
             ));
-            spectrumPerTrack.push(sliceSpectrumAxisLabels(slice, spectrumViewState()));
+            spectrumPerTrack.push(sliceSpectrumAxisLabels(slice, spectrumView.state()));
             return {
                 trackId: trackId,
                 trackIndex: trackIndex,
@@ -1045,14 +1034,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 reanalyzeBusy: isReanalyzeBusy(),
                 latestSpectrogram: latestSpectrogram,
                 axisLabels: {
-                    spectrumOverlay: overlaySpectrumAxisLabels(visibleSlices, spectrumViewState()),
+                    spectrumOverlay: overlaySpectrumAxisLabels(visibleSlices, spectrumView.state()),
                     spectrogramPerTrack: spectrogramPerTrack,
                     spectrumPerTrack: spectrumPerTrack,
                     waveformPerTrack: waveformPerTrack,
                 },
                 displayOrder: trackStore.displayOrder.slice(),
-                specFreqStart: specFreqStart,
-                specFreqEnd: specFreqEnd,
+                specFreqStart: spectrumView.freqStart,
+                specFreqEnd: spectrumView.freqEnd,
                 trackHeight: trackHeight,
                 spectrumOverlayHeight: spectrumOverlayHeight,
                 waveformMode: waveformMode,
@@ -1078,8 +1067,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     reanalyzeBusy: isReanalyzeBusy(),
                     axisLabels: { spectrumOverlay: [], spectrogramPerTrack: [], spectrumPerTrack: [], waveformPerTrack: [] },
                     displayOrder: trackStore.displayOrder.slice(),
-                    specFreqStart: specFreqStart,
-                    specFreqEnd: specFreqEnd,
+                    specFreqStart: spectrumView.freqStart,
+                    specFreqEnd: spectrumView.freqEnd,
                     trackHeight: trackHeight,
                     spectrumOverlayHeight: spectrumOverlayHeight,
                     waveformMode: waveformMode,
@@ -1945,22 +1934,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                             drag.current,
                             overlayCanvas.width,
                             overlayCanvas.height,
-                            { freqStart: specFreqStart, freqEnd: specFreqEnd },
-                            _lastVisDbMin !== null && _lastVisDbMax !== null ? { min: _lastVisDbMin, max: _lastVisDbMax } : null,
+                            { freqStart: spectrumView.freqStart, freqEnd: spectrumView.freqEnd },
+                            spectrumView.paintedDb(),
                         );
                         if (zoom) {
-                            specFreqStart = zoom.freqStart;
-                            specFreqEnd = zoom.freqEnd;
-                            if (zoom.dbMin !== undefined && zoom.dbMax !== undefined) {
-                                specDbMin = zoom.dbMin;
-                                specDbMax = zoom.dbMax;
-                            }
+                            spectrumView.applyBoxZoom(zoom);
                         }
                         scheduleSpectrumRefresh('immediate');
                     },
                 });
                 attachOverlaySpectrumDoubleClick(overlayCanvas, {
-                    hasData: () => _lastSpectrumMaxF > 0,
+                    hasData: () => spectrumView.hasData(),
                     openRangePopup: openSpectrumRangePopup,
                     resetZoom: specZoomReset,
                 });
@@ -2355,25 +2339,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         zoomSpectrumBy(1 / ZOOM_IN_FACTOR);
     }
     function zoomSpectrumBy(factor: number) {
-        const range = zoomSpectrumRange({ start: specFreqStart, end: specFreqEnd }, factor);
-        specFreqStart = range.start;
-        specFreqEnd = range.end;
-        const db = spectrumDbRangeAfterZoom(
-            range,
-            factor,
-            _lastVisDbMin !== null && _lastVisDbMax !== null ? { min: _lastVisDbMin, max: _lastVisDbMax } : null,
-        );
-        if (db) {
-            specDbMin = db.dbMin;
-            specDbMax = db.dbMax;
-        }
+        spectrumView.zoomBy(factor);
         scheduleSpectrumRefresh('immediate');
     }
     function specZoomReset() {
-        specFreqStart = 0;
-        specFreqEnd = 1;
-        specDbMin = null;
-        specDbMax = null;
+        spectrumView.reset();
         scheduleSpectrumRefresh('immediate');
     }
     // ── スペクトル overlay レンジ popover ──
@@ -2389,17 +2359,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             spectrumRangePopover.open({
                 axisLabel: STR.specRangeAxisDb,
                 horizontal: false,
-                min: specDbMin != null ? String(specDbMin) : (_lastVisDbMin != null ? String(Math.round(_lastVisDbMin)) : ''),
-                max: specDbMax != null ? String(specDbMax) : (_lastVisDbMax != null ? String(Math.round(_lastVisDbMax)) : ''),
+                ...spectrumView.dbRangeFields(),
                 clientX, clientY,
                 apply(min, max) {
-                    specDbMin = min;
-                    specDbMax = max;
+                    spectrumView.setDbRange(min, max);
                     scheduleSpectrumRefresh('immediate');
                 },
                 auto() {
-                    specDbMin = null;
-                    specDbMax = null;
+                    spectrumView.setDbRange(null, null);
                     scheduleSpectrumRefresh('immediate');
                 },
             });
@@ -2408,23 +2375,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumRangePopover.open({
             axisLabel: STR.specRangeAxisFreq,
             horizontal: true,
-            min: String(Math.round(specFreqStart * _lastSpectrumMaxF)),
-            max: String(Math.round(specFreqEnd * _lastSpectrumMaxF)),
+            ...spectrumView.frequencyRangeFieldsHz(),
             clientX, clientY,
             apply(min, max) {
-                const mf = _lastSpectrumMaxF || 1;
-                const nextFreqStart = (min === null) ? 0 : Math.max(0, Math.min(1, min / mf));
-                const nextFreqEnd = (max === null) ? 1 : Math.max(0, Math.min(1, max / mf));
-                if (nextFreqStart >= nextFreqEnd) {
+                if (!spectrumView.setFrequencyRangeHz(min, max)) {
                     return STR.specRangeErrorMinMax;
                 }
-                specFreqStart = nextFreqStart;
-                specFreqEnd = nextFreqEnd;
                 scheduleSpectrumRefresh('immediate');
             },
             auto() {
-                specFreqStart = 0;
-                specFreqEnd = 1;
+                spectrumView.resetFrequency();
                 scheduleSpectrumRefresh('immediate');
             },
         });
@@ -2711,7 +2671,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const result = record.result;
             const channelIndex = typeof spectrumHover.channelIndex === 'number' ? spectrumHover.channelIndex : 0;
             const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
-            const nextNorm = slice ? steppedTrackSpectrumHoverNorm(slice, spectrumHover.norm, specFreqStart, specFreqEnd, deltaIdx) : null;
+            const nextNorm = slice ? steppedTrackSpectrumHoverNorm(slice, spectrumHover.norm, spectrumView.freqStart, spectrumView.freqEnd, deltaIdx) : null;
             if (nextNorm !== null) {
                 spectrumHover.norm = nextNorm;
             }
@@ -2722,7 +2682,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const range = spectrumSeriesRange(slices);
-        const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumViewState());
+        const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumView.state());
         const overlayC = canvasById(document, 'spectrum-overlay-canvas');
         const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx);
         if (nextNorm === null) {
@@ -2783,7 +2743,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 ctx.clearRect(0, 0, W, H);
                 const color = trackColor(i);
                 const pad = TRACK_SPECTRUM_PAD;
-                const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, spectrumViewState());
+                const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, spectrumView.state());
                 drawSpectrumAxes(ctx, W, H, slice, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, drawTheme());
                 drawSpectrumLine(ctx, W, H, slice, color, { padL: pad.left, padR: pad.right, padT: pad.top, padB: pad.bottom }, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax);
                 paintedByChannel.set(channelIndex, true);
@@ -2859,10 +2819,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             overlaySpectrumPainted = false;
             return;
         }
-        const paint = paintOverlaySpectrum(ctx, W, H, slices, spectrumViewState(), spectrumHover, specBoxDrag.box, drawTheme());
-        _lastSpectrumMaxF = paint.maxFrequencyHz;
-        _lastVisDbMin = paint.dbMin;
-        _lastVisDbMax = paint.dbMax;
+        const paint = paintOverlaySpectrum(ctx, W, H, slices, spectrumView.state(), spectrumHover, specBoxDrag.box, drawTheme());
+        spectrumView.recordPaint(paint);
         if (paint.readout) {
             setSpectrumReadout(document.getElementById('spectrum-freq-readout'), paint.readout.text, paint.readout.color);
         }
