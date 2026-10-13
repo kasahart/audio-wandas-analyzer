@@ -1,5 +1,5 @@
 import { eventTarget } from './domAdapter';
-import type { RuntimeElement, TrackId } from './types';
+import type { TrackId } from './types';
 
 export type TrackLaneAction =
     | 'toggle-playback'
@@ -14,14 +14,14 @@ export type TrackLaneAction =
 export interface TrackLaneContext {
     trackId: TrackId;
     trackIndex: number | null;
-    target: RuntimeElement;
+    target: HTMLElement;
     event: Event;
 }
 
 export type TrackLaneHandlers = Record<TrackLaneAction, (ctx: TrackLaneContext) => void>;
 
 export interface TrackLaneResolver {
-    trackIdFromElement(element: RuntimeElement): TrackId | null;
+    trackIdFromElement(element: HTMLElement): TrackId | null;
     trackIndexForId(trackId: TrackId): number | null;
 }
 

@@ -1,16 +1,16 @@
 import { eventTarget } from './domAdapter';
-import type { RuntimeDocument, RuntimeElement, TrackId } from './types';
+import type { TrackId } from './types';
 
 export interface TrackReorderDragOptions {
-    trackIdFromElement(element: RuntimeElement): TrackId | null;
+    trackIdFromElement(element: Element): TrackId | null;
     rowFor(trackId: TrackId): HTMLElement | null;
     onReorder(fromTrackId: TrackId, toTrackId: TrackId): void;
 }
 
-export function installTrackReorderDrag(document: RuntimeDocument, wrap: HTMLElement, options: TrackReorderDragOptions): void {
+export function installTrackReorderDrag(document: Document, wrap: HTMLElement, options: TrackReorderDragOptions): void {
     let dragFrom: TrackId | null = null;
 
-    function rowAt(e: Event): RuntimeElement | null {
+    function rowAt(e: Event): HTMLElement | null {
         const target = eventTarget(e);
         return target.closest ? target.closest('.track-row') : null;
     }

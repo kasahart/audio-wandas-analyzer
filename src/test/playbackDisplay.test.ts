@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { createPlaybackDisplay } from '../webview/runtime/playbackDisplay';
-import type { RuntimeDocument } from '../webview/runtime/types';
 
 function setup(withDisplay = true) {
     const dom = new JSDOM(`<!doctype html><body>${withDisplay ? '<span id="playback-display"></span>' : ''}</body>`);
-    const doc = dom.window.document as unknown as RuntimeDocument;
+    const doc = dom.window.document;
     return { doc, el: doc.getElementById('playback-display') as HTMLElement, update: createPlaybackDisplay(doc, '▶') };
 }
 

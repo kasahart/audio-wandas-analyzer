@@ -2,7 +2,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { SelectionTree } from './directorySelection';
 import { eventTarget, inputMatching } from './domAdapter';
-import type { PersistedWebviewState, RuntimeElement, SelectionTreeNode } from './types';
+import type { PersistedWebviewState, SelectionTreeNode } from './types';
 
 /** What the directory-selection tree needs from the comparison runtime. */
 export interface SelectionTreeViewDeps {
@@ -94,17 +94,17 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
         return true;
     }
     function attach(layout: HTMLElement): void {
-        function toggleDirectoryHeader(dirHeader: RuntimeElement) {
+        function toggleDirectoryHeader(dirHeader: HTMLElement) {
             const list = dirHeader.nextElementSibling;
             const toggle = dirHeader.querySelector('.dir-toggle');
             if (list && list.classList && list.classList.contains('selection-tree-list')) {
-                const listElement = list as RuntimeElement;
+                const listElement = list as HTMLElement;
                 const isCollapsed = listElement.style.display === 'none';
                 // 展開時: data-lazy な子要素を初めてレンダリングする (#90)
                 if (isCollapsed && list.getAttribute('data-lazy') === 'true') {
                     const relPath = dirHeader.getAttribute('data-relative-path');
                     const depth = parseInt(dirHeader.getAttribute('data-depth') || '0', 10);
-                    const node = deps.tree.directories[relPath];
+                    const node = relPath === null ? undefined : deps.tree.directories[relPath];
                     if (node && node.children) {
                         listElement.innerHTML = renderItems(node.children, depth + 1);
                         listElement.removeAttribute('data-lazy');
@@ -132,7 +132,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
             if (!target || typeof target.getAttribute !== 'function') {
                 return;
             }
-            const dirHeader = target.closest('.selection-tree-directory');
+            const dirHeader = target.closest<HTMLElement>('.selection-tree-directory');
             if (dirHeader) {
                 toggleDirectoryHeader(dirHeader);
                 return;
@@ -153,7 +153,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
             if (!target || typeof target.closest !== 'function') {
                 return;
             }
-            const dirHeader = target.closest('.selection-tree-directory');
+            const dirHeader = target.closest<HTMLElement>('.selection-tree-directory');
             if (!dirHeader) {
                 return;
             }
@@ -169,7 +169,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
             if (!filePath) {
                 return;
             }
-            deps.onFileToggled(filePath, !!target.checked);
+            deps.onFileToggled(filePath, (target as HTMLInputElement).checked);
         });
         deps.syncSummary();
         // ── Tree filter ──

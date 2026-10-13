@@ -3,10 +3,9 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import type { HeightKind, HeightResize } from '../webview/runtime/heightResize';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from '../webview/runtime/toolbarEvents';
-import type { RuntimeElement } from '../webview/runtime/types';
 
-function el(dom: JSDOM, id: string): RuntimeElement {
-    return dom.window.document.getElementById(id) as unknown as RuntimeElement;
+function el(dom: JSDOM, id: string): HTMLElement {
+    return dom.window.document.getElementById(id) as unknown as HTMLElement;
 }
 
 test('attachToolbarActions dispatches clicked actions but skips the height inputs', () => {

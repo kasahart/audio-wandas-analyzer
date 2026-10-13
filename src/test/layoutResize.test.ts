@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { installLayoutResizeHandling } from '../webview/runtime/layoutResize';
-import type { RuntimeDocument } from '../webview/runtime/types';
 
 function setup() {
     const dom = new JSDOM('<!doctype html><body><div id="a"></div><div id="b"></div></body>');
-    const doc = dom.window.document as unknown as RuntimeDocument;
+    const doc = dom.window.document;
     const observed: string[] = [];
     let trigger: () => void = () => { };
     class FakeObserver {

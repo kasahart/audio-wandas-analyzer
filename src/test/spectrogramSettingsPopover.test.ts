@@ -4,7 +4,6 @@ import { JSDOM } from 'jsdom';
 import type { SpectrogramDisplaySettings, SpectrogramSettings } from '../shared/analysis/analysisTypes';
 import { getStrings } from '../shared/i18n/strings';
 import { installSpectrogramSettingsPopover, stftWindowFromValue } from '../webview/runtime/spectrogramSettingsPopover';
-import type { RuntimeDocument } from '../webview/runtime/types';
 
 function setup(initial: SpectrogramSettings) {
     const dom = new JSDOM('<body><button data-action="spectrogram-settings" id="gear"></button><div id="outside"></div></body>');
@@ -13,7 +12,7 @@ function setup(initial: SpectrogramSettings) {
     const displays: SpectrogramDisplaySettings[] = [];
     const applied: SpectrogramSettings[] = [];
     let resets = 0;
-    const popover = installSpectrogramSettingsPopover(document as unknown as RuntimeDocument, {
+    const popover = installSpectrogramSettingsPopover(document, {
         strings: getStrings('en'),
         getSettings: () => settings,
         onDisplayChange: display => displays.push(display),

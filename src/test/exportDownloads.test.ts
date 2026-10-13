@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from '../webview/runtime/exportDownloads';
-import type { RuntimeElement } from '../webview/runtime/types';
 
 test('triggerAnchorDownload clicks a temporary anchor and removes it', () => {
     const dom = new JSDOM('<body></body>');
@@ -44,7 +43,7 @@ test('composeTrackCanvases stacks tracks below each other behind their axis gutt
     const canvases = [
         { id: 'track-canvas-1', width: 300, height: 40 },
         { id: 'track-canvas-2', width: 200, height: 60 },
-    ] as unknown as RuntimeElement[];
+    ] as unknown as HTMLCanvasElement[];
     const composed = composeTrackCanvases(fakeDocument, canvases, canvas => (canvas.id === 'track-canvas-1' ? { id: 'axis-1' } as unknown as Element : null), 50);
     assert.equal(composed, offscreen);
     assert.equal(offscreen.width, 350);

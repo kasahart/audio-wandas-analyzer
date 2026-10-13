@@ -2,7 +2,6 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type {
     ComparisonBootstrap,
     ComparisonState,
-    RuntimeDocument,
     RuntimeWindow,
     WebviewHostApi,
 } from './types';
@@ -26,6 +25,6 @@ export function readComparisonBootstrap(browserWindow: ComparisonWindow): Compar
         strings,
         host: browserWindow.__AWA_HOST__ ?? acquireHost!(),
         window: browserWindow,
-        document: browserWindow.document as RuntimeDocument,
+        document: browserWindow.document,
     };
 }

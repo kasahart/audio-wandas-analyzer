@@ -12,7 +12,7 @@ import {
     visibleFileRange,
     waveformCoverageSnapshot,
 } from '../webview/runtime/testSnapshot';
-import type { RuntimeDocument, SpectrumSlice } from '../webview/runtime/types';
+import type { SpectrumSlice } from '../webview/runtime/types';
 
 function spectrogram(overrides: Partial<SpectrogramData> = {}): SpectrogramData {
     return {
@@ -29,7 +29,7 @@ test('domSnapshotBase counts the rendered toolbar, rows, audio elements and canv
         <canvas id="ruler-canvas"></canvas>
         <canvas class="track-spectrum-canvas"></canvas>
     </body>`);
-    assert.deepEqual(domSnapshotBase(dom.window.document as unknown as RuntimeDocument), {
+    assert.deepEqual(domSnapshotBase(dom.window.document), {
         hasToolbar: true,
         toolbarActions: ['zoom-in', 'fit'],
         trackRowCount: 2,

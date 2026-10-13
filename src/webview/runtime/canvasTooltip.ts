@@ -1,5 +1,3 @@
-import type { RuntimeDocument, RuntimeElement } from './types';
-
 const POINTER_OFFSET_PX = 14;
 const FOCUS_HINT_INSET_PX = 8;
 const FOCUS_HINT_BOTTOM_OFFSET_PX = 36;
@@ -11,7 +9,7 @@ export interface CanvasTooltip {
     hide(): void;
 }
 
-export function createCanvasTooltip(doc: RuntimeDocument): CanvasTooltip {
+export function createCanvasTooltip(doc: Document): CanvasTooltip {
     function show(left: number, top: number, text: string): void {
         const el = doc.getElementById('canvas-tooltip');
         if (!el) {
@@ -38,7 +36,7 @@ export function createCanvasTooltip(doc: RuntimeDocument): CanvasTooltip {
     };
 }
 
-export function attachCanvasFocusHint(canvas: RuntimeElement, tooltip: CanvasTooltip, text: string): void {
+export function attachCanvasFocusHint(canvas: HTMLElement, tooltip: CanvasTooltip, text: string): void {
     canvas.addEventListener('focus', function () {
         tooltip.showInside(canvas.getBoundingClientRect(), text);
         canvas.style.outline = FOCUS_OUTLINE;

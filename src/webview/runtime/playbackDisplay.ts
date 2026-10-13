@@ -1,11 +1,10 @@
 import { formatClockTime } from '../../shared/utils/format';
-import type { RuntimeDocument } from './types';
 
 /**
  * Shows the playing position in `#playback-display`. The element is looked up on each update because the
  * toolbar can be rebuilt, while the last written state is cached so per-frame updates skip unchanged DOM writes.
  */
-export function createPlaybackDisplay(doc: RuntimeDocument, prefix: string): (timeSec: number | null) => void {
+export function createPlaybackDisplay(doc: Document, prefix: string): (timeSec: number | null) => void {
     let visible = false;
     let shownText = '';
     return function update(timeSec) {

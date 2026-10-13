@@ -1,5 +1,3 @@
-import type { RuntimeElement } from './types';
-
 const EXPORT_BACKGROUND = '#1e1e1e';
 
 export function triggerAnchorDownload(document: Document, href: string, fileName: string): void {
@@ -11,18 +9,18 @@ export function triggerAnchorDownload(document: Document, href: string, fileName
     document.body.removeChild(anchor);
 }
 
-export function visibleExportCanvases(wrapper: Element | null): RuntimeElement[] {
+export function visibleExportCanvases(wrapper: Element | null): HTMLCanvasElement[] {
     if (!wrapper) {
         return [];
     }
-    return Array.from(wrapper.querySelectorAll('canvas:not(.track-axis-canvas)') as NodeListOf<RuntimeElement>).filter(canvas =>
+    return Array.from(wrapper.querySelectorAll<HTMLCanvasElement>('canvas:not(.track-axis-canvas)')).filter(canvas =>
         canvas.offsetParent !== null && canvas.getAttribute('data-calibration-hidden') !== 'true');
 }
 
 export function composeTrackCanvases(
     document: Document,
-    canvases: RuntimeElement[],
-    axisCanvasFor: (canvas: RuntimeElement) => Element | null,
+    canvases: HTMLCanvasElement[],
+    axisCanvasFor: (canvas: HTMLCanvasElement) => Element | null,
     axisWidth: number,
 ): HTMLCanvasElement | null {
     const plotWidth = canvases.reduce((max, canvas) => Math.max(max, canvas.width), 0);
@@ -42,7 +40,7 @@ export function composeTrackCanvases(
         if (axisCanvas) {
             ctx.drawImage(axisCanvas as HTMLCanvasElement, 0, y);
         }
-        ctx.drawImage(canvas as unknown as HTMLCanvasElement, axisWidth, y);
+        ctx.drawImage(canvas, axisWidth, y);
         y += canvas.height;
     });
     return offscreen;
