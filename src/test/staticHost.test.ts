@@ -636,3 +636,22 @@ test('Recipe timeout stops a hanging recovery load and later requests can recove
     assert.deepEqual(app.revoked, []);
     assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 1);
 });
+
+
+test('Recipe timeout during a multi-file load keeps the picker disabled until the batch finishes', async () => {
+    const app = harness(new Map(), 'en', false, 20);
+    await app.load();
+    const original = app.workers[0];
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush(); await flush();
+    original.blockedCommands.add('analyze');
+    app.picker.files = ['a.wav', 'b.wav'].map(name => ({ size: 100, name, arrayBuffer: async () => new ArrayBuffer(100) }));
+    app.picker.onchange!();
+    await flush();
+    assert.equal(app.picker.disabled, true);
+    app.blockedWorkerCommands.add('load');
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(original.terminated, true);
+    assert.equal(app.workers.length, 2, 'the second file restores sources in a new Worker');
+    assert.equal(app.picker.disabled, true);
+});

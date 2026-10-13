@@ -7,8 +7,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import wandas as wd
 
-from recipe_runner import RecipeError, _eval_expr, run_recipe
+from recipe_runner import RecipeError, _eval_expr, evaluate_recipe
+
+
+def run_recipe(recipe: dict, base_dir: Path) -> list:
+    bindings = {str(item["name"]): wd.read(base_dir / str(item["file"])) for item in recipe.get("inputs") or []}
+    return evaluate_recipe(recipe, bindings)
 
 
 def _write_sine_wav(path: Path, freq_hz: float = 440.0, seconds: float = 0.25, sr: int = 16000) -> None:
@@ -171,18 +177,6 @@ def test_run_recipe_missing_display(tmp_path: Path) -> None:
         run_recipe(recipe, base_dir=tmp_path)
 
 
-def test_run_recipe_resolves_relative_paths(tmp_path: Path) -> None:
-    wav = tmp_path / "a.wav"
-    _write_sine_wav(wav)
-    recipe = {
-        "inputs": [{"name": "sig", "file": "a.wav"}],
-        "steps": [{"as": "w", "expr": "sig.welch()"}],
-        "display": ["w"],
-    }
-    charts = run_recipe(recipe, base_dir=tmp_path)
-    assert charts[0]["kind"] == "line"
-
-
 def test_chart_spec_schema_validates_against_kind() -> None:
     # The runner should not invent unknown kinds.
     from chart_spec import dump_schema
@@ -210,25 +204,6 @@ def test_chart_spec_typed_dicts_match_schema() -> None:
         check(typed_dict, schema)
 
 
-def test_run_recipe_accepts_injected_input_loader(tmp_path: Path) -> None:
-    import wandas as wd
-
-    wav = tmp_path / "a.wav"
-    _write_sine_wav(wav)
-    frames = {"/sources/selected.wav": wd.read(wav)}
-    recipe = {
-        "inputs": [{"name": "sig", "file": "/sources/selected.wav"}],
-        "steps": [{"as": "w", "expr": "sig.welch()"}],
-        "display": ["w"],
-        "requires": [],
-    }
-    charts = run_recipe(recipe, base_dir=tmp_path, load=lambda file: frames[file])
-    assert charts[0]["kind"] == "line"
-    missing = {**recipe, "inputs": [{"name": "sig", "file": "missing"}]}
-    with pytest.raises(KeyError):
-        run_recipe(missing, base_dir=tmp_path, load=lambda file: frames[file])
-
-
 @pytest.mark.parametrize("method", ["to_wav", "save", "__class__", "unexpected_method"])
 def test_eval_rejects_methods_before_any_execution(method: str, tmp_path: Path) -> None:
     destination = tmp_path / "forbidden.wav"
@@ -252,14 +227,12 @@ def test_eval_rejects_methods_before_any_execution(method: str, tmp_path: Path) 
     "recipe_path", sorted((Path(__file__).parent / "recipes").glob("*.json")), ids=lambda p: p.stem
 )
 def test_all_bundled_recipes_execute_with_analysis_allowlist(recipe_path: Path, tmp_path: Path) -> None:
-    import wandas as wd
-
     wav = tmp_path / "selected.wav"
     _write_sine_wav(wav, seconds=1.0, sr=48000)
     frame = wd.read(wav).with_calibration({0: wd.ChannelCalibration(factor=1.0, unit="Pa", ref=2e-5)})
     recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
 
-    charts = run_recipe(recipe, base_dir=tmp_path, load=lambda _file: frame)
+    charts = evaluate_recipe(recipe, {str(item["name"]): frame for item in recipe["inputs"]})
 
     assert len(charts) == len(recipe["display"])
     for chart, display in zip(charts, recipe["display"], strict=True):

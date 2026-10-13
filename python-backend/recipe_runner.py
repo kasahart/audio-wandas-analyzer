@@ -53,11 +53,7 @@ typos from silently doing surprising things.
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable
-from pathlib import Path
 from typing import Any
-
-import wandas as wd
 
 from chart_spec import ChartSpec
 from wandas_to_chart import adapt
@@ -160,25 +156,6 @@ def _eval_expr(expr: str, bindings: dict[str, Any]) -> Any:
 # ---- recipe loading & execution -------------------------------------------
 
 
-InputLoader = Callable[[str], Any]
-
-
-def file_input_loader(base_dir: Path) -> InputLoader:
-    """Default loader: read a WAV from disk, resolving relative paths against ``base_dir``."""
-
-    def load(file: str) -> Any:
-        resolved = Path(file)
-        if not resolved.is_absolute():
-            resolved = (base_dir / resolved).resolve()
-        return wd.read(resolved)
-
-    return load
-
-
-def _load_inputs(inputs: list[dict[str, Any]], load: InputLoader) -> dict[str, Any]:
-    return {str(item["name"]): load(str(item["file"])) for item in inputs}
-
-
 def evaluate_recipe(recipe: dict[str, Any], bindings: dict[str, Any]) -> list[ChartSpec]:
     """Run ``steps`` over already-loaded ``bindings`` and adapt ``display`` entries to ChartSpec."""
     steps = recipe.get("steps") or []
@@ -200,18 +177,3 @@ def evaluate_recipe(recipe: dict[str, Any], bindings: dict[str, Any]) -> list[Ch
             raise RecipeError(f"display target '{name}' was not produced by any step")
         charts.append(adapt(bindings[name], title=title, **kwargs))
     return charts
-
-
-def run_recipe(
-    recipe: dict[str, Any],
-    base_dir: Path,
-    load: InputLoader | None = None,
-) -> list[ChartSpec]:
-    """Load ``inputs`` through ``load`` (filesystem by default) and evaluate the recipe.
-
-    Hosts that keep audio in memory (the browser Worker) pass their own loader so
-    ``file`` names resolve to already-decoded frames instead of paths.
-    """
-    inputs = recipe.get("inputs") or []
-    bindings = _load_inputs(inputs, load or file_input_loader(base_dir))
-    return evaluate_recipe(recipe, bindings)

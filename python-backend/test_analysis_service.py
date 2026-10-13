@@ -173,6 +173,19 @@ def test_sparse_stft_time_axes_and_amplitudes_match_scipy(n_fft: int, window: st
     assert frame.channels[0].calibration.factor == 2.0
 
 
+@pytest.mark.parametrize(
+    "inputs",
+    [{"name": "sig"}, [{"name": "sig"}], [{"name": "sig", "file": 3}], ["selected.wav"]],
+)
+def test_recipe_rejects_malformed_inputs_before_loading(inputs: object) -> None:
+    from backend_errors import InputError
+
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=1024 * 1024))
+
+    with pytest.raises(InputError, match="recipe error"):
+        service.run_recipe({"inputs": inputs, "steps": [], "display": []})
+
+
 def test_recipe_uses_calibrated_frames_and_recipe_relative_paths_in_both_hosts(tmp_path):
     from browser_service import create_service
 

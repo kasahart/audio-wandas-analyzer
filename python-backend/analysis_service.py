@@ -304,7 +304,13 @@ class AnalysisService:
 
         base_dir = Path(recipe_path).parent if recipe_path else Path.cwd()
         bindings = {}
-        for item in recipe.get("inputs") or []:
+        inputs = recipe.get("inputs") or []
+        if not isinstance(inputs, list):
+            raise InputError("recipe error: inputs must be a list")
+        for item in inputs:
+            if not isinstance(item, Mapping) or not all(isinstance(item.get(key), str) for key in ("name", "file")):
+                raise InputError("recipe error: each input needs string 'name' and 'file'")
+        for item in inputs:
             file = Path(item["file"])
             if not file.is_absolute():
                 file = base_dir / file
