@@ -5,7 +5,7 @@ import { traceXExtent, trackTimelinePlacement, waveformCoverageFromExtent } from
 import { attachOffsetEditing } from './offsetInlineEditor';
 import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setSelectionFileChecked, testActionTrackId } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
-import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawSpectrumLine, drawSpectrumAxes, drawSpectrumCrosshair, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
+import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawSpectrogramColorbar, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, isOverviewSufficient, rangeCacheCoversView, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
@@ -47,6 +47,8 @@ import { SpectrumHover } from './spectrumHover';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
+import { paintTrackSpectrum } from './trackSpectrumPainter';
+import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
 import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
@@ -56,15 +58,12 @@ import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml
 import {
     channelIndexAttribute,
     OVERLAY_SPECTRUM_PAD,
-    spectrumBinAtHover,
     spectrumBoxZoom,
-    spectrumPlotFrame,
     spectrumSeriesRange,
     spectrumVisibleWindow,
     steppedOverlaySpectrumHoverNorm,
     steppedTrackSpectrumHoverNorm,
     TRACK_SPECTRUM_PAD,
-    trackSpectrumReadoutText,
     setSpectrumReadout,
     spectrumSlicesFromResult,
 } from './spectrumRuntime';
@@ -85,7 +84,7 @@ import {
     ZOOM_IN_FACTOR,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
-import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
+import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SelectionTreeNode, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
@@ -2590,29 +2589,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function spectrumSeriesLabel(result: ComparisonTrackState, channelIndex: number) {
         return result.fileName + ' / ' + channelLabel(result, channelIndex);
     }
-    function visibleSpectrumSlices(): SpectrumSeries[] {
-        const slices: SpectrumSeries[] = [];
-        trackStore.displayOrder.forEach(function (trackId) {
+    const spectrumSeriesSource: SpectrumSeriesSource<ComparisonTrackState> = {
+        channelCount: function (result) { return channelsForResult(result).length; },
+        slice: extractSpectrumAtCursor,
+        isPending: isSpectrumSliceRequestPendingForCursor,
+        color: trackColor,
+        label: spectrumSeriesLabel,
+    };
+    function spectrumSeriesAt(norm: number): CollectedSpectrumSeries {
+        const tracks = trackStore.displayOrder.map(function (trackId) {
             const record = trackStore.require(trackId);
-            const i = record.protocolIndex;
-            const result = record.result;
-            if (record.runtime.hidden) {
-                return;
-            }
-            channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, cursorNorm, channelIndex);
-                if (slice) {
-                    slices.push({
-                        slice: slice,
-                        color: trackColor(i),
-                        index: i,
-                        channelIndex: channelIndex,
-                        label: spectrumSeriesLabel(result, channelIndex),
-                    });
-                }
-            });
+            return { index: record.protocolIndex, result: record.result, hidden: record.runtime.hidden, offsetSeconds: record.runtime.offsetSeconds };
         });
-        return slices;
+        return collectSpectrumSeries(tracks, norm, spectrumSeriesSource);
     }
     function moveSpectrumHoverByBin(deltaIdx: number) {
         if (spectrumHover.norm === null) {
@@ -2633,7 +2622,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             return;
         }
-        const slices = visibleSpectrumSlices();
+        const slices = spectrumSeriesAt(cursorNorm).series;
         if (slices.length === 0) {
             return;
         }
@@ -2696,23 +2685,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     paintedByChannel.set(channelIndex, false);
                     return;
                 }
-                ctx.clearRect(0, 0, W, H);
-                const color = trackColor(i);
-                const pad = TRACK_SPECTRUM_PAD;
-                const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, spectrumView.state());
-                drawSpectrumAxes(ctx, W, H, slice, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, drawTheme());
-                drawSpectrumLine(ctx, W, H, slice, color, { padL: pad.left, padR: pad.right, padT: pad.top, padB: pad.bottom }, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax);
+                const hovered = spectrumHover.target === trackId && spectrumHover.channelIndex === channelIndex ? spectrumHover.norm : null;
+                const readout = paintTrackSpectrum(ctx, W, H, { slice, color: trackColor(i), label: spectrumReadoutTrackLabel(result, channelIndex) }, spectrumView.state(), hovered, drawTheme());
                 paintedByChannel.set(channelIndex, true);
-                if (spectrumHover.norm !== null && spectrumHover.target === trackId && spectrumHover.channelIndex === channelIndex) {
-                    const frame = spectrumPlotFrame(W, H, pad, vis);
-                    const snap = spectrumBinAtHover(slice, spectrumHover.norm, frame);
-                    if (!snap) {
-                        return;
-                    }
-                    drawSpectrumCrosshair(ctx, frame, snap.x, snap.dbVal !== undefined ? snap.y : null, 'rgba(255,255,255,0.75)', color);
-                    if (snap.dbVal !== undefined) {
-                        setSpectrumReadout(document.getElementById('spectrum-freq-readout'), trackSpectrumReadoutText(spectrumReadoutTrackLabel(result, channelIndex), slice, snap.freqHz, snap.dbVal), color);
-                    }
+                if (readout) {
+                    setSpectrumReadout(document.getElementById('spectrum-freq-readout'), readout.text, readout.color);
                 }
             });
         });
@@ -2742,31 +2719,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const W = canvas.width, H = canvas.height;
-        const slices: SpectrumSeries[] = [];
-        let pendingVisibleSlice = false;
-        trackStore.displayOrder.forEach(function (trackId) {
-            const record = trackStore.require(trackId);
-            const i = record.protocolIndex;
-            const result = record.result;
-            if (record.runtime.hidden) {
-                return;
-            }
-            channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, spectrumCursorNorm, channelIndex);
-                if (slice) {
-                    slices.push({
-                        slice: slice,
-                        color: trackColor(i),
-                        index: i,
-                        channelIndex: channelIndex,
-                        label: spectrumSeriesLabel(result, channelIndex),
-                    });
-                }
-                else if (isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) {
-                    pendingVisibleSlice = true;
-                }
-            });
-        });
+        const { series: slices, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
         if (overlaySpectrumPainted && pendingVisibleSlice) {
             return;
         }
