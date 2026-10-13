@@ -1,4 +1,3 @@
-
 export function eventTarget(event: Event): HTMLElement {
     return event.target as HTMLElement;
 }

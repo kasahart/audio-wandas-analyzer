@@ -1,4 +1,3 @@
-
 const EXPORT_BACKGROUND = '#1e1e1e';
 
 export function triggerAnchorDownload(document: Document, href: string, fileName: string): void {

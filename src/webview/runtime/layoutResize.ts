@@ -1,4 +1,3 @@
-
 /**
  * Calls `onResize` when the window or any of the listed elements changes size. Elements are observed
  * individually because a track pane can change width (splitter, sidebar) without a window resize.
