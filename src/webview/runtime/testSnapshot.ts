@@ -2,7 +2,7 @@ import type { SpectrogramData, SpectrogramDisplaySettings, SpectrogramSettings }
 import { formatDbLevel, formatHz } from '../draw/canvasDrawers';
 import { spectrogramDisplayBounds } from './spectrogramRaster';
 import { spectrumSeriesRange, spectrumVisibleWindow, type SpectrumViewState } from './spectrumRuntime';
-import type { RuntimeDocument, RuntimeElement, SpectrumSlice, WaveformCoverage } from './types';
+import type { SpectrumSlice, WaveformCoverage } from './types';
 
 export interface LatestSpectrogramSnapshot {
     windowSize: number | null;
@@ -12,10 +12,10 @@ export interface LatestSpectrogramSnapshot {
     maxFrequencyHzApplied: number | null;
 }
 
-export function domSnapshotBase(document: RuntimeDocument) {
+export function domSnapshotBase(document: Document) {
     return {
         hasToolbar: !!document.getElementById('toolbar'),
-        toolbarActions: Array.from(document.querySelectorAll('#toolbar [data-action]')).map(function (el: RuntimeElement) {
+        toolbarActions: Array.from(document.querySelectorAll('#toolbar [data-action]')).map(function (el: Element) {
             return el.getAttribute('data-action');
         }).filter((action: string | null): action is string => !!action),
         trackRowCount: document.querySelectorAll('.track-row').length,

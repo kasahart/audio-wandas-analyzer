@@ -1,7 +1,11 @@
-import type { RuntimeElement } from './types';
 
-export function eventTarget(event: Event): RuntimeElement {
-    return event.target as RuntimeElement;
+export function eventTarget(event: Event): HTMLElement {
+    return event.target as HTMLElement;
+}
+
+export function canvasTarget(event: Event, className: string): HTMLCanvasElement | null {
+    const target = eventTarget(event);
+    return target.classList.contains(className) ? target as HTMLCanvasElement : null;
 }
 
 export function requiredElementById(doc: { getElementById(elementId: string): HTMLElement | null }, elementId: string): HTMLElement {

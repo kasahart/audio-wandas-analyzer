@@ -9,14 +9,14 @@ import {
     setSelectionFileChecked,
     testActionTrackId,
 } from '../webview/runtime/testActionForms';
-import type { RuntimeDocument, TrackId } from '../webview/runtime/types';
+import type { TrackId } from '../webview/runtime/types';
 
-function field(doc: RuntimeDocument, id: string): HTMLInputElement {
+function field(doc: Document, id: string): HTMLInputElement {
     return doc.getElementById(id) as HTMLInputElement;
 }
 
-function makeDoc(html: string): RuntimeDocument {
-    return new JSDOM(`<!doctype html><body>${html}</body>`).window.document as unknown as RuntimeDocument;
+function makeDoc(html: string): Document {
+    return new JSDOM(`<!doctype html><body>${html}</body>`).window.document;
 }
 
 test('fillSpectrogramSettingsForm: 指定された項目だけを書き換え、auto は常に反映する', () => {
@@ -51,9 +51,9 @@ test('setSelectionFileChecked: 対象のチェックボックスを切り替え�
         <input type="checkbox" class="selection-file-checkbox" data-file-path="/a.wav">
         <input type="checkbox" class="selection-file-checkbox" data-file-path="/b.wav">`);
     const changed: string[] = [];
-    doc.addEventListener('change', (event) => { changed.push(event.target.getAttribute('data-file-path') || ''); });
+    doc.addEventListener('change', (event) => { changed.push((event.target as Element).getAttribute('data-file-path') || ''); });
     setSelectionFileChecked(doc, '/b.wav', true);
-    const boxes = Array.from(doc.querySelectorAll('.selection-file-checkbox'));
+    const boxes = Array.from(doc.querySelectorAll<HTMLInputElement>('.selection-file-checkbox'));
     assert.deepEqual(boxes.map((b) => b.checked), [false, true]);
     assert.deepEqual(changed, ['/b.wav']);
     assert.throws(() => setSelectionFileChecked(doc, '/missing.wav', true), /Selection checkbox not found/);

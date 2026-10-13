@@ -11,7 +11,7 @@ import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cu
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { createSelectionTreeView } from './selectionTreeView';
 import { buildSpecSummaryText, buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
-import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, eventTarget, inputMatching, inputsMatching, requiredElementById } from './domAdapter';
+import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, canvasTarget, eventTarget, inputMatching, inputsMatching, requiredElementById } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
@@ -87,7 +87,7 @@ import {
     zoomNormalizedRange,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
-import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, RuntimeElement, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
+import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
@@ -870,7 +870,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (entry.action === 'open-spectrogram-settings') {
-            const gear = document.querySelector('[data-action="spectrogram-settings"]');
+            const gear = buttonMatching(document, '[data-action="spectrogram-settings"]');
             if (gear) {
                 gear.click();
             }
@@ -1495,7 +1495,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function updateVisibility() {
         // まず各行の display を更新する
-        document.querySelectorAll('.track-row').forEach(function (row) {
+        document.querySelectorAll<HTMLElement>('.track-row').forEach(function (row) {
             const trackId = trackIdFromElement(row);
             if (trackId) {
                 var isMuted = trackStore.require(trackId).runtime.hidden;
@@ -1505,7 +1505,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // 次に空状態を判定する（削除済み or 全非表示）
         const emptyState = document.getElementById('empty-state');
         if (emptyState) {
-            const visibleRows = Array.from(document.querySelectorAll('.track-row')).filter(function (row) {
+            const visibleRows = Array.from(document.querySelectorAll<HTMLElement>('.track-row')).filter(function (row) {
                 return row.style.display !== 'none';
             });
             emptyState.classList.toggle('is-visible', visibleRows.length === 0);
@@ -1834,7 +1834,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
             },
             'pick-color': ({ trackId, target }) => {
-                openColorPicker(trackId, target.closest ? target.closest('[data-action="pick-color"]') : target);
+                openColorPicker(trackId, target.closest<HTMLElement>('[data-action="pick-color"]') ?? target);
             },
         });
         attachOffsetEditing(tracksWrapper, document, { placeholder: STR.offsetEditPlaceholder, ariaLabel: STR.offsetEditAriaLabel }, {
@@ -1889,7 +1889,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         attachAudioEvents();
         updatePlaybackButtons();
         function attachTrackCanvasFocusEvents() {
-            document.querySelectorAll('.track-canvas').forEach(function (canvas: RuntimeElement) {
+            document.querySelectorAll<HTMLElement>('.track-canvas').forEach(function (canvas) {
                 attachCanvasFocusHint(canvas, canvasTooltip, STR.cursorHelpKeys);
             });
         }
@@ -1913,7 +1913,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!active) {
                     return;
                 }
-                const step = arrowCursorStep(shiftKey, trackStore.globalSpan().spanSec, zoomStart, zoomEnd, active.width || 800);
+                const step = arrowCursorStep(shiftKey, trackStore.globalSpan().spanSec, zoomStart, zoomEnd, (active as HTMLCanvasElement).width || 800);
                 invalidateDesiredSpectrumSliceRequests();
                 cursorNorm = Math.max(0, Math.min(1, cursorNorm + direction * step));
                 updateCursorDisplay(cursorNorm);
@@ -2083,8 +2083,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             state.results.forEach(function (_result, index) { releaseTrackDetail(index); });
         }
         persistWebviewState({ contentType: contentType });
-        document.querySelector('[data-action="content-waveform"]').classList.toggle('is-active', next === 'waveform');
-        document.querySelector('[data-action="content-spectrogram"]').classList.toggle('is-active', next === 'spectrogram');
+        buttonMatching(document, '[data-action="content-waveform"]')?.classList.toggle('is-active', next === 'waveform');
+        buttonMatching(document, '[data-action="content-spectrogram"]')?.classList.toggle('is-active', next === 'spectrogram');
         __updateSpecGearVisibility();
         scheduleRender();
     }
@@ -2450,7 +2450,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         let pivotNorm = (zoomStart + zoomEnd) / 2; // fallback: current center
         const target = eventTarget(e);
         const wheelCanvas = target && typeof target.closest === 'function'
-            ? target.closest('.track-canvas')
+            ? target.closest<HTMLCanvasElement>('.track-canvas')
             : null;
         if (contentType === 'spectrogram' && wheelCanvas) {
             const hit = trackCanvasTimeHit(wheelCanvas, e.clientX);
@@ -2508,8 +2508,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             hideTooltip();
             return;
         }
-        const canvas = eventTarget(e);
-        if (!canvas.classList.contains('track-canvas')) {
+        const canvas = canvasTarget(e, 'track-canvas');
+        if (!canvas) {
             return;
         }
         if (dragState) {
@@ -2535,8 +2535,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         renderWithHoverAt(norm);
     }
     function handleCanvasMouseDown(e: MouseEvent): void {
-        const canvas = eventTarget(e);
-        if (!canvas.classList.contains('track-canvas')) {
+        const canvas = canvasTarget(e, 'track-canvas');
+        if (!canvas) {
             return;
         }
         const idx = trackIndexFromElement(canvas);
@@ -2963,7 +2963,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         display: { dbMin: null, dbMax: null, maxFrequencyHz: null }
     };
     function __updateSpecGearVisibility() {
-        const gear = document.querySelector('[data-action="spectrogram-settings"]');
+        const gear = buttonMatching(document, '[data-action="spectrogram-settings"]');
         if (gear) {
             gear.style.display = (contentType === 'spectrogram') ? '' : 'none';
         }
@@ -3088,7 +3088,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         resetLabel: STR.trackColorReset,
         onPick(trackId, color) {
             trackStore.require(trackId).runtime.color = color;
-            var trigger = document.querySelector('[data-action="pick-color"][data-track-id="' + trackId + '"]');
+            var trigger = document.querySelector<HTMLElement>('[data-action="pick-color"][data-track-id="' + trackId + '"]');
             if (trigger) {
                 trigger.style.background = color === null ? trackColor(trackIndexForId(trackId)) : color;
             }
@@ -3096,7 +3096,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleSpectrumRefresh('immediate');
         },
     });
-    function openColorPicker(trackId: TrackId, anchorEl: RuntimeElement) {
+    function openColorPicker(trackId: TrackId, anchorEl: HTMLElement) {
         colorPicker.open(trackId, anchorEl);
     }
     __updateSpecGearVisibility();

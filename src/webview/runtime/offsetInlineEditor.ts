@@ -1,18 +1,17 @@
 import { eventTarget } from './domAdapter';
-import type { RuntimeDocument, RuntimeElement } from './types';
 
 export interface OffsetEditorLabels {
     placeholder: string;
     ariaLabel: string;
 }
 
-export function isOffsetEditorOpen(span: RuntimeElement): boolean {
+export function isOffsetEditorOpen(span: HTMLElement): boolean {
     return span.style.display === 'none';
 }
 
 export function openOffsetEditor(
-    doc: RuntimeDocument,
-    span: RuntimeElement,
+    doc: Document,
+    span: HTMLElement,
     currentMs: number,
     labels: OffsetEditorLabels,
     onCommit: (offsetMs: number | null) => void,
@@ -27,7 +26,7 @@ export function openOffsetEditor(
     input.placeholder = labels.placeholder;
     input.setAttribute('aria-label', labels.ariaLabel);
     span.style.display = 'none';
-    span.parentNode.insertBefore(input, span);
+    span.before(input);
     input.focus();
     input.select();
     let settled = false;
@@ -65,7 +64,7 @@ export function openOffsetEditor(
 export const OFFSET_EDIT_OPEN_DELAY_MS = 200;
 
 export interface OffsetEditingHooks {
-    trackIndexFromElement(element: RuntimeElement): number | null;
+    trackIndexFromElement(element: HTMLElement): number | null;
     currentOffsetMs(trackIndex: number): number;
     onReset(trackIndex: number): void;
     onEdited(trackIndex: number, offsetMs: number | null): void;
@@ -73,7 +72,7 @@ export interface OffsetEditingHooks {
 
 export function attachOffsetEditing(
     wrapper: HTMLElement,
-    doc: RuntimeDocument,
+    doc: Document,
     labels: OffsetEditorLabels,
     hooks: OffsetEditingHooks,
 ): void {

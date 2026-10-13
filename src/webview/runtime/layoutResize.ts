@@ -1,4 +1,3 @@
-import type { RuntimeDocument } from './types';
 
 /**
  * Calls `onResize` when the window or any of the listed elements changes size. Elements are observed
@@ -6,7 +5,7 @@ import type { RuntimeDocument } from './types';
  */
 export function installLayoutResizeHandling(
     win: Pick<Window, 'addEventListener'>,
-    doc: RuntimeDocument,
+    doc: Document,
     elementIds: readonly string[],
     onResize: () => void,
     Observer: typeof ResizeObserver | undefined,

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { installTrackReorderDrag } from '../webview/runtime/trackReorderDrag';
-import type { RuntimeDocument, RuntimeElement, TrackId } from '../webview/runtime/types';
+import type { TrackId } from '../webview/runtime/types';
 
 function setup() {
     const dom = new JSDOM('<div id="wrap">'
@@ -12,12 +12,12 @@ function setup() {
         + '</div>');
     const document = dom.window.document;
     const reorders: Array<[TrackId, TrackId]> = [];
-    installTrackReorderDrag(document as unknown as RuntimeDocument, document.getElementById('wrap') as unknown as RuntimeElement, {
+    installTrackReorderDrag(document, document.getElementById('wrap') as unknown as HTMLElement, {
         trackIdFromElement: el => {
             const id = el.getAttribute('data-track-id');
             return id === 'a' || id === 'b' ? id as TrackId : null;
         },
-        rowFor: id => document.getElementById('row-' + id) as unknown as RuntimeElement | null,
+        rowFor: id => document.getElementById('row-' + id) as unknown as HTMLElement | null,
         onReorder: (from, to) => reorders.push([from, to]),
     });
     const fire = (type: string, id: string) => {

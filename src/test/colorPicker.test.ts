@@ -2,19 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { installColorPicker } from '../webview/runtime/colorPicker';
-import type { RuntimeDocument, RuntimeElement, TrackId } from '../webview/runtime/types';
+import type { TrackId } from '../webview/runtime/types';
 
 function setup() {
     const dom = new JSDOM('<body><button id="anchor" data-action="pick-color" data-track-id="t1"></button><div id="outside"></div></body>');
     const document = dom.window.document;
     const picks: Array<[TrackId, string | null]> = [];
-    const picker = installColorPicker(document as unknown as RuntimeDocument, {
+    const picker = installColorPicker(document, {
         colors: ['#111111', '#222222'],
         resetLabel: 'Reset <default>',
         onPick: (trackId, color) => picks.push([trackId, color]),
     });
     const popover = document.getElementById('color-picker-popover')!;
-    const anchor = document.getElementById('anchor') as unknown as RuntimeElement;
+    const anchor = document.getElementById('anchor') as unknown as HTMLElement;
     const trackId = 't1' as TrackId;
     return { dom, document, picks, picker, popover, anchor, trackId };
 }

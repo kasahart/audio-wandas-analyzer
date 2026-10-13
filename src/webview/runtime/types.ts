@@ -62,57 +62,8 @@ export interface ComparisonBootstrap {
     strings: UiStrings;
     host: WebviewHostApi;
     window: RuntimeWindow;
-    document: RuntimeDocument;
+    document: Document;
 }
-
-export interface RuntimeElement extends HTMLElement {
-    checked: boolean;
-    currentTime: number;
-    disabled: boolean;
-    download: string;
-    duration: number;
-    ended: boolean;
-    height: number;
-    href: string;
-    max: string;
-    min: string;
-    muted: boolean;
-    paused: boolean;
-    parentNode: RuntimeElement;
-    placeholder: string;
-    playbackRate: number;
-    step: string;
-    type: string;
-    value: string;
-    width: number;
-    getContext(contextId: '2d'): CanvasRenderingContext2D;
-    getAttribute(qualifiedName: string): string;
-    pause(): void;
-    play(): Promise<void>;
-    select(): void;
-    toDataURL(type?: string): string;
-    closest(selectors: string): RuntimeElement;
-    querySelector(selectors: string): RuntimeElement;
-    querySelectorAll(selectors: string): NodeListOf<RuntimeElement>;
-    open: boolean;
-}
-
-export interface RuntimeDocument extends Omit<Document,
-    'activeElement' | 'addEventListener' | 'body' | 'createElement' | 'getElementById' | 'querySelector' | 'querySelectorAll'> {
-    activeElement: RuntimeElement;
-    body: RuntimeElement;
-    createElement(tagName: string): RuntimeElement;
-    getElementById(elementId: string): HTMLElement | null;
-    querySelector(selectors: string): RuntimeElement;
-    querySelectorAll(selectors: string): NodeListOf<RuntimeElement>;
-    addEventListener<K extends keyof DocumentEventMap>(
-        type: K,
-        listener: (event: RuntimeEvent<DocumentEventMap[K]>) => void,
-        options?: boolean | AddEventListenerOptions,
-    ): void;
-}
-
-export type RuntimeEvent<T extends Event = Event> = T & { readonly target: RuntimeElement };
 
 export interface UiSmokeState {
     [key: string]: unknown;

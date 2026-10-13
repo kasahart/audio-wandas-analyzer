@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { attachCanvasFocusHint, createCanvasTooltip } from '../webview/runtime/canvasTooltip';
-import type { RuntimeDocument, RuntimeElement } from '../webview/runtime/types';
 
 function setup(withTooltip = true) {
     const dom = new JSDOM(`<!doctype html><body>${withTooltip ? '<div id="canvas-tooltip" style="display:none"></div>' : ''}<canvas class="track-canvas" tabindex="0"></canvas></body>`);
-    const doc = dom.window.document as unknown as RuntimeDocument;
+    const doc = dom.window.document;
     return { dom, doc, tooltipEl: doc.getElementById('canvas-tooltip') as HTMLElement, tooltip: createCanvasTooltip(doc) };
 }
 
@@ -32,7 +31,7 @@ test('tooltip calls are no-ops without the tooltip element', () => {
 
 test('attachCanvasFocusHint shows the key hint inside the canvas on focus and clears it on blur', () => {
     const { dom, doc, tooltip, tooltipEl } = setup();
-    const canvas = doc.querySelector('.track-canvas') as RuntimeElement;
+    const canvas = doc.querySelector('.track-canvas') as HTMLElement;
     canvas.getBoundingClientRect = () => ({ left: 20, bottom: 200 }) as DOMRect;
     attachCanvasFocusHint(canvas, tooltip, 'Arrow keys move the cursor');
     canvas.dispatchEvent(new dom.window.FocusEvent('focus'));

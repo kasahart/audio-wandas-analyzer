@@ -2,13 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { installReanalyzeOverlay, reanalyzeOverlayHtml } from '../webview/runtime/reanalyzeOverlay';
-import type { RuntimeDocument } from '../webview/runtime/types';
 
 function setup() {
     const dom = new JSDOM('<body></body>');
     const document = dom.window.document;
     const shown: string[] = [];
-    const overlay = installReanalyzeOverlay(document as unknown as RuntimeDocument, {
+    const overlay = installReanalyzeOverlay(document, {
         defaultMessage: 'Re-analyzing…',
         onShow: message => shown.push(message),
     });

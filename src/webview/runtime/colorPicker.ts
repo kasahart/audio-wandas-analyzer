@@ -1,6 +1,6 @@
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { eventTarget } from './domAdapter';
-import type { RuntimeDocument, RuntimeElement, TrackId } from './types';
+import type { TrackId } from './types';
 
 export interface ColorPickerOptions {
     colors: readonly string[];
@@ -9,14 +9,14 @@ export interface ColorPickerOptions {
 }
 
 export interface ColorPicker {
-    open(trackId: TrackId, anchor: RuntimeElement): void;
+    open(trackId: TrackId, anchor: HTMLElement): void;
     close(): void;
     target(): TrackId | null;
 }
 
-export function installColorPicker(document: RuntimeDocument, options: ColorPickerOptions): ColorPicker {
+export function installColorPicker(document: Document, options: ColorPickerOptions): ColorPicker {
     let target: TrackId | null = null;
-    let anchor: RuntimeElement | null = null;
+    let anchor: HTMLElement | null = null;
     const swatches = options.colors.map(hex => '<div class="color-palette-swatch" data-color="' + escapeHtml(hex) + '"'
         + ' style="background:' + escapeHtml(hex) + '" role="button" tabindex="0"'
         + ' aria-label="' + escapeHtml(hex) + '"></div>').join('');
@@ -29,7 +29,7 @@ export function installColorPicker(document: RuntimeDocument, options: ColorPick
         + 'background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:2px;cursor:pointer;padding:2px 0">'
         + escapeHtml(options.resetLabel) + '</button>'
         + '</div>';
-    const popover = container.firstChild as RuntimeElement | null;
+    const popover = container.firstChild as HTMLElement | null;
     if (popover) {
         document.body.appendChild(popover);
     }
@@ -59,14 +59,14 @@ export function installColorPicker(document: RuntimeDocument, options: ColorPick
         if (e.key !== 'Enter' && e.key !== ' ') {
             return;
         }
-        const swatch = eventTarget(e).closest ? eventTarget(e).closest('.color-palette-swatch') : null;
+        const swatch = eventTarget(e).closest ? eventTarget(e).closest<HTMLElement>('.color-palette-swatch') : null;
         if (swatch) {
             e.preventDefault();
             swatch.click();
         }
     });
     popover?.addEventListener('click', function (e: MouseEvent) {
-        const swatch = eventTarget(e).closest ? eventTarget(e).closest('.color-palette-swatch') : null;
+        const swatch = eventTarget(e).closest ? eventTarget(e).closest<HTMLElement>('.color-palette-swatch') : null;
         if (swatch) {
             pick(swatch.getAttribute('data-color'));
         }

@@ -1,6 +1,5 @@
 import { eventTarget } from './domAdapter';
 import type { HeightResize } from './heightResize';
-import type { RuntimeElement } from './types';
 
 export interface ToolbarActionHandlers {
     onAction(action: string): void;
@@ -11,7 +10,7 @@ export interface ToolbarActionHandlers {
 const HEIGHT_INPUT_ACTIONS = new Set(['track-height-input', 'spectrum-height-input']);
 const HEIGHT_DRAG_HANDLE_SELECTOR = '[data-action="track-height-drag"], [data-action="spectrum-height-drag"]';
 
-function actionOf(element: RuntimeElement | null): string | null {
+function actionOf(element: Element | null): string | null {
     return element && element.getAttribute ? element.getAttribute('data-action') : null;
 }
 
@@ -29,7 +28,7 @@ export function attachToolbarActions(container: HTMLElement | null, handlers: To
     });
     function onHeightInput(e: Event): void {
         const target = eventTarget(e);
-        handlers.onHeightInput(actionOf(target), target ? target.value : null);
+        handlers.onHeightInput(actionOf(target), target ? (target as HTMLInputElement).value : null);
     }
     container.addEventListener('input', onHeightInput);
     container.addEventListener('change', onHeightInput);

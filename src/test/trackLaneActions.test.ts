@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { attachTrackLaneActions, type TrackLaneAction, type TrackLaneContext, type TrackLaneHandlers } from '../webview/runtime/trackLaneActions';
-import type { RuntimeElement, TrackId } from '../webview/runtime/types';
+import type { TrackId } from '../webview/runtime/types';
 
 function setup() {
     const dom = new JSDOM(`<!doctype html><body><div id="wrap">
@@ -18,7 +18,7 @@ function setup() {
     const actions: TrackLaneAction[] = ['toggle-playback', 'toggle-mute', 'stop-playback', 'remove-track', 'configure-calibration', 'offset-up', 'offset-down', 'pick-color'];
     const handlers = Object.fromEntries(actions.map((a) => [a, record(a)])) as TrackLaneHandlers;
     const indexes = new Map<string, number | null>([['t1', 0], ['t2', null]]);
-    attachTrackLaneActions(doc.getElementById('wrap') as unknown as RuntimeElement, {
+    attachTrackLaneActions(doc.getElementById('wrap') as unknown as HTMLElement, {
         trackIdFromElement: (el) => {
             const id = el.getAttribute('data-track-id');
             return id && indexes.has(id) ? id as TrackId : null;
