@@ -44,6 +44,7 @@ import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
 import { SpectrumHover } from './spectrumHover';
 import { SpectrumView } from './spectrumView';
+import { WaveformView } from './waveformView';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
@@ -74,21 +75,13 @@ import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import {
-    amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
-    centerRangeOn,
-    canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
     exceedsDragThreshold,
     loopGripAt,
     loopRegionClockText,
     loopRegionForDrag,
     normAtPlotX,
-    panNormalizedRange,
-    rangeAroundRegion,
     rectZoomTarget,
     ZOOM_IN_FACTOR,
-    zoomNormalizedRange,
-    zoomRangeAroundPivot,
-    type NormalizedRange,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
 import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
@@ -258,10 +251,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!uiSmokeState) {
             return;
         }
-        uiSmokeState.zoomStart = zoomStart;
-        uiSmokeState.zoomEnd = zoomEnd;
-        uiSmokeState.amplitudeZoomMinNorm = amplitudeZoomMinNorm;
-        uiSmokeState.amplitudeZoomMaxNorm = amplitudeZoomMaxNorm;
+        uiSmokeState.zoomStart = waveformView.start;
+        uiSmokeState.zoomEnd = waveformView.end;
+        uiSmokeState.amplitudeZoomMinNorm = waveformView.amplitudeMin;
+        uiSmokeState.amplitudeZoomMaxNorm = waveformView.amplitudeMax;
         uiSmokeState.rectZoomSelection = rectZoomSelection ? Object.assign({}, rectZoomSelection) : null;
     }
     function spectrumNow() {
@@ -316,8 +309,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumFrame(kind !== 'hover', true);
     }
     let contentType: 'waveform' | 'spectrogram' = persistedWebviewState.contentType === 'spectrogram' ? 'spectrogram' : 'waveform';
-    let zoomStart = 0;
-    let zoomEnd = 1;
+    const waveformView = new WaveformView();
     let cursorNorm = 0; // グローバルカーソル（常に number）
     let hoverNorm: number | null = null; // ホバープレビュー位置（null = 非表示）
     const spectrumHover = new SpectrumHover();
@@ -333,8 +325,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     });
     // ── 波形モード ────────────────────────────────────────
     let waveformMode: 'loop' | 'rect-zoom' = 'loop';
-    let amplitudeZoomMinNorm = -1;
-    let amplitudeZoomMaxNorm = 1;
     let rectZoomSelection: RectZoomSelection | null = null;
     let playbackStartNorm = 0; // 再生開始位置の記憶
     let dragState: WaveformDragState | null = null;
@@ -881,8 +871,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function computeTrackFileView(result: ComparisonTrackState, trackIndex: number, offsetSeconds?: number): TrackFileView {
         const offsetSec = offsetSeconds === undefined ? trackRuntimeAt(trackIndex).offsetSeconds : offsetSeconds;
         const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSec, result.durationSeconds, trackStore.globalSpan());
-        const fileAtZoomStart = (zoomStart - trackStart) / trackDurRatio;
-        const fileAtZoomEnd = (zoomEnd - trackStart) / trackDurRatio;
+        const fileAtZoomStart = (waveformView.start - trackStart) / trackDurRatio;
+        const fileAtZoomEnd = (waveformView.end - trackStart) / trackDurRatio;
         return {
             trackStart: trackStart,
             trackDurRatio: trackDurRatio,
@@ -956,10 +946,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const rawPeak = waveform && typeof waveform.absolutePeak === 'number' ? waveform.absolutePeak : NaN;
         const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
         const unitText = ch && typeof ch.unit === 'string' && ch.unit.trim() ? ch.unit.trim() : null;
-        if (isAmplitudeZoomActive()) {
-            const top = formatSignedAmplitudeValue(amplitudeZoomMaxNorm * peak);
-            const middle = formatSignedAmplitudeValue(((amplitudeZoomMinNorm + amplitudeZoomMaxNorm) / 2) * peak);
-            const bottom = formatSignedAmplitudeValue(amplitudeZoomMinNorm * peak);
+        if (waveformView.isAmplitudeZoomed()) {
+            const top = formatSignedAmplitudeValue(waveformView.amplitudeMax * peak);
+            const middle = formatSignedAmplitudeValue(((waveformView.amplitudeMin + waveformView.amplitudeMax) / 2) * peak);
+            const bottom = formatSignedAmplitudeValue(waveformView.amplitudeMin * peak);
             return [top, middle, bottom, unitText ? 'Amp (' + unitText + ')' : 'Amp'];
         }
         return formatWaveformAxisLabels(waveform && waveform.absolutePeak, ch && ch.unit);
@@ -981,7 +971,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const result = record.result;
             const trackIndex = record.protocolIndex;
             const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
-            const visibleFile = visibleFileRange(zoomStart, zoomEnd, placement);
+            const visibleFile = visibleFileRange(waveformView.start, waveformView.end, placement);
             const spectrumCanvas = canvasById(document, trackSpectrumCanvasId(trackIndex, 0));
             const slice = trackRuntimeAt(trackIndex).hidden
                 ? null
@@ -1023,10 +1013,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         catch (e) { /* ignore */ }
         testBridge.publish({
                 ...domSnapshotBase(document),
-                zoomStart: zoomStart,
-                zoomEnd: zoomEnd,
-                amplitudeZoomMinNorm: amplitudeZoomMinNorm,
-                amplitudeZoomMaxNorm: amplitudeZoomMaxNorm,
+                zoomStart: waveformView.start,
+                zoomEnd: waveformView.end,
+                amplitudeZoomMinNorm: waveformView.amplitudeMin,
+                amplitudeZoomMaxNorm: waveformView.amplitudeMax,
                 rectZoomSelection: rectZoomSelection ? Object.assign({}, rectZoomSelection) : null,
                 cursorNorm: cursorNorm,
                 visibleSpectrumTrackCount: visibleSpectrumTrackCount,
@@ -1059,8 +1049,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         catch (e) {
             testBridge.publish({
                     ...domSnapshotBase(document),
-                    zoomStart: zoomStart,
-                    zoomEnd: zoomEnd,
+                    zoomStart: waveformView.start,
+                    zoomEnd: waveformView.end,
                     cursorNorm: cursorNorm,
                     visibleSpectrumTrackCount: 0,
                     contentType: contentType,
@@ -1247,8 +1237,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const H = canvas.height;
         ctx.clearRect(0, 0, W, H);
         const gs = trackStore.globalSpan();
-        const visStart = gs.startSec + zoomStart * gs.spanSec;
-        const visEnd = gs.startSec + zoomEnd * gs.spanSec;
+        const visStart = gs.startSec + waveformView.start * gs.spanSec;
+        const visEnd = gs.startSec + waveformView.end * gs.spanSec;
         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
         ctx.font = '9px monospace';
         ctx.textAlign = 'left';
@@ -1368,16 +1358,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 ctx.save();
                 try {
                     renderPipeline(ctx, W, H, src.waveform, {
-                        zoomStart,
-                        zoomEnd,
+                        zoomStart: waveformView.start,
+                        zoomEnd: waveformView.end,
                         offsetNorm: placement.offsetNorm,
                         trackDurRatio: placement.trackDurRatio,
                         dataStart: src.dataStart,
                         dataEnd: src.dataEnd,
                         color,
                         amplitudeScale: src.amplitudeScale,
-                        amplitudeMinNorm: isAmplitudeZoomActive() ? amplitudeZoomMinNorm : undefined,
-                        amplitudeMaxNorm: isAmplitudeZoomActive() ? amplitudeZoomMaxNorm : undefined,
+                        amplitudeMinNorm: waveformView.isAmplitudeZoomed() ? waveformView.amplitudeMin : undefined,
+                        amplitudeMaxNorm: waveformView.isAmplitudeZoomed() ? waveformView.amplitudeMax : undefined,
                     });
                 }
                 finally {
@@ -1434,13 +1424,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const { dbLo, dbHi, maxFrequencyHz: maxFreq } = spectrogramDisplayBounds(spec, __spectrogramSettings.display);
         const plotW = spectrogramPlotWidth(W);
         const cacheId = trackRecordAtIndex(trackIndex)!.id + ':' + channelIndex;
-        const rasterKey = [plotW, H, zoomStart, zoomEnd, trackStart, trackDurRatio, dbLo, dbHi, maxFreq].join(':');
+        const rasterKey = [plotW, H, waveformView.start, waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFreq].join(':');
         let raster = spectrogramRasterCache.get(cacheId);
         if (!raster || raster.source !== spec || raster.key !== rasterKey) {
             ctx.clearRect(0, 0, W, H);
             const imageData = ctx.createImageData(plotW, H);
             paintSpectrogramRaster(spec, plotW, H, {
-                zoomStart, zoomEnd, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq,
+                zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq,
             }, imageData.data);
             ctx.putImageData(imageData, 0, 0);
             drawSpectrogramColorbar(ctx, W, H, spec, { dbLo: dbLo, dbHi: dbHi }, drawTheme());
@@ -1463,17 +1453,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     type CanvasHitTarget = Pick<Element, 'getBoundingClientRect'> & { width: number };
     function trackCanvasTimeHit(canvas: CanvasHitTarget, clientX: number) {
         const timeWidth = contentType === 'spectrogram' ? spectrogramPlotWidth(canvas.width) : canvas.width;
-        return canvasTimeHit(canvas.getBoundingClientRect().left, clientX, timeWidth, { start: zoomStart, end: zoomEnd });
+        return canvasTimeHit(canvas.getBoundingClientRect().left, clientX, timeWidth, waveformView.timeRange());
     }
     function clampedTrackCanvasNorm(canvas: Pick<Element, 'getBoundingClientRect'>, clientX: number, timeWidth: number) {
-        return clampedCanvasNorm(canvas.getBoundingClientRect().left, clientX, timeWidth, { start: zoomStart, end: zoomEnd });
+        return clampedCanvasNorm(canvas.getBoundingClientRect().left, clientX, timeWidth, waveformView.timeRange());
     }
     function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
-        drawDashedTimeLine(ctx, cursorNorm, { start: zoomStart, end: zoomEnd }, W, H, CURSOR_LINE_STYLE);
+        drawDashedTimeLine(ctx, cursorNorm, waveformView.timeRange(), W, H, CURSOR_LINE_STYLE);
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (hoverNorm !== null) {
-            drawDashedTimeLine(ctx, hoverNorm, { start: zoomStart, end: zoomEnd }, W, H, HOVER_LINE_STYLE);
+            drawDashedTimeLine(ctx, hoverNorm, waveformView.timeRange(), W, H, HOVER_LINE_STYLE);
         }
     }
     function drawLoopRegionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
@@ -1481,12 +1471,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (typeof window.paintLoopRegion === 'function') {
-            window.paintLoopRegion(ctx, W, H, loopRegion.start, loopRegion.end, zoomStart, zoomEnd);
+            window.paintLoopRegion(ctx, W, H, loopRegion.start, loopRegion.end, waveformView.start, waveformView.end);
         }
     }
     function drawRectZoomSelectionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number) {
         if (rectZoomSelection && rectZoomSelection.trackId === trackIdAtIndex(trackIndex)) {
-            drawRectZoomSelection(ctx, rectZoomSelection, { start: zoomStart, end: zoomEnd }, { start: amplitudeZoomMinNorm, end: amplitudeZoomMaxNorm }, W, H);
+            drawRectZoomSelection(ctx, rectZoomSelection, waveformView.timeRange(), { start: waveformView.amplitudeMin, end: waveformView.amplitudeMax }, W, H);
         }
     }
     function updateVisibility() {
@@ -1620,9 +1610,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (nextCursor !== null) {
                     cursorNorm = nextCursor;
                     if (followCursor) {
-                        const view = centerRangeOn({ start: zoomStart, end: zoomEnd }, nextCursor);
-                        zoomStart = view.start;
-                        zoomEnd = view.end;
+                        waveformView.centerOn(nextCursor);
                     }
                     updateCursorDisplay(nextCursor);
                     scheduleRender();
@@ -1905,7 +1893,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!active) {
                     return;
                 }
-                const step = arrowCursorStep(shiftKey, trackStore.globalSpan().spanSec, zoomStart, zoomEnd, (active as HTMLCanvasElement).width || 800);
+                const step = arrowCursorStep(shiftKey, trackStore.globalSpan().spanSec, waveformView.start, waveformView.end, (active as HTMLCanvasElement).width || 800);
                 invalidateDesiredSpectrumSliceRequests();
                 cursorNorm = Math.max(0, Math.min(1, cursorNorm + direction * step));
                 updateCursorDisplay(cursorNorm);
@@ -2175,7 +2163,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function zoomToSelection() {
         if (loopRegion) {
             disableFollowCursor();
-            setTimeView(rangeAroundRegion(loopRegion, 0.05));
+            waveformView.showRegion(loopRegion, 0.05);
+            scheduleRender();
         }
     }
     function updateZoomToSelectionBtn() {
@@ -2301,34 +2290,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             notebookContent: nbContent,
         });
     }
-    function isAmplitudeZoomActive() {
-        return amplitudeZoomMinNorm > -0.999999 || amplitudeZoomMaxNorm < 0.999999;
-    }
-    function amplitudeNormToCanvasY(norm: number, height: number) {
-        return mapAmplitudeNormToCanvasY(norm, height, amplitudeZoomMinNorm, amplitudeZoomMaxNorm);
-    }
-    function canvasYToAmplitudeNorm(y: number, height: number) {
-        return mapCanvasYToAmplitudeNorm(y, height, amplitudeZoomMinNorm, amplitudeZoomMaxNorm);
-    }
-    function setTimeView(range: NormalizedRange) {
-        zoomStart = range.start;
-        zoomEnd = range.end;
-        scheduleRender();
-    }
     function zoomIn() {
         disableFollowCursor();
-        setTimeView(zoomNormalizedRange({ start: zoomStart, end: zoomEnd }, ZOOM_IN_FACTOR));
+        waveformView.zoomBy(ZOOM_IN_FACTOR);
+        scheduleRender();
     }
     function zoomOut() {
         disableFollowCursor();
-        setTimeView(zoomNormalizedRange({ start: zoomStart, end: zoomEnd }, 1 / ZOOM_IN_FACTOR));
+        waveformView.zoomBy(1 / ZOOM_IN_FACTOR);
+        scheduleRender();
     }
     function resetZoom() {
         disableFollowCursor();
-        zoomStart = 0;
-        zoomEnd = 1;
-        amplitudeZoomMinNorm = -1;
-        amplitudeZoomMaxNorm = 1;
+        waveformView.reset();
         rectZoomSelection = null;
         scheduleRender();
     }
@@ -2403,9 +2377,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function handleZoomWheel(e: WheelEvent): void {
         disableFollowCursor();
         const scaleFactor = e.deltaY > 0 ? 1.15 : 0.85;
-        const view = { start: zoomStart, end: zoomEnd };
+        const view = waveformView.timeRange();
         const wrapper = document.getElementById('tracks-wrapper');
-        let pivotNorm = (zoomStart + zoomEnd) / 2; // fallback: current center
+        let pivotNorm = (view.start + view.end) / 2; // fallback: current center
         const target = eventTarget(e);
         const wheelCanvas = target && typeof target.closest === 'function'
             ? target.closest<HTMLCanvasElement>('.track-canvas')
@@ -2421,11 +2395,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const rect = wrapper.getBoundingClientRect();
             pivotNorm = normAtPlotX(view, e.clientX - rect.left - TRACK_HEADER_W, rect.width - TRACK_HEADER_W) ?? pivotNorm;
         }
-        setTimeView(zoomRangeAroundPivot(view, pivotNorm, scaleFactor));
+        waveformView.zoomAround(pivotNorm, scaleFactor);
+        scheduleRender();
     }
     function handlePanWheel(e: WheelEvent): void {
         disableFollowCursor();
-        setTimeView(panNormalizedRange({ start: zoomStart, end: zoomEnd }, e.deltaY > 0 ? 1 : -1));
+        waveformView.pan(e.deltaY > 0 ? 1 : -1);
+        scheduleRender();
     }
     function handleCanvasMouseMove(e: MouseEvent): void {
         if (dragState && dragState.isDrag) {
@@ -2446,7 +2422,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const norm = hit.norm;
-        const gripType = loopGripAt(loopRegion, norm, zoomEnd - zoomStart);
+        const gripType = loopGripAt(loopRegion, norm, waveformView.span());
         if (gripType) {
             showTooltip(e, STR.tooltipLoopResize);
         }
@@ -2479,8 +2455,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             const y = e.clientY - rect.top;
             const norm = hit.norm;
-            const ampNorm = canvasYToAmplitudeNorm(y, canvas.height);
-            const gripType = waveformMode === 'rect-zoom' ? null : loopGripAt(loopRegion, norm, zoomEnd - zoomStart);
+            const ampNorm = waveformView.canvasYToAmplitude(y, canvas.height);
+            const gripType = waveformMode === 'rect-zoom' ? null : loopGripAt(loopRegion, norm, waveformView.span());
             dragState = {
                 trackId: trackId,
                 startClientX: e.clientX,
@@ -2523,7 +2499,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         hideTooltip();
         if (dragState.dragType === 'offset') {
             const gs = trackStore.globalSpan();
-            const secsPerPx = (zoomEnd - zoomStart) * gs.spanSec / dragState.canvasWidth;
+            const secsPerPx = waveformView.span() * gs.spanSec / dragState.canvasWidth;
             trackRuntimeAt(dragTrackIndex).offsetSeconds = dragState.startOffset + dx * secsPerPx;
             updateOffsetDisplays();
         }
@@ -2538,7 +2514,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         startNorm: dragState.startNorm,
                         endNorm: norm,
                         startAmpNorm: dragState.startAmpNorm,
-                        endAmpNorm: canvasYToAmplitudeNorm(y, dragState.canvasHeight),
+                        endAmpNorm: waveformView.canvasYToAmplitude(y, dragState.canvasHeight),
                     };
                     updateUiSmokeWaveformState();
                 }
@@ -2582,10 +2558,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             rectZoomSelection = null;
             if (target) {
                 disableFollowCursor();
-                zoomStart = target.zoomStart;
-                zoomEnd = target.zoomEnd;
-                amplitudeZoomMinNorm = target.amplitudeMin;
-                amplitudeZoomMaxNorm = target.amplitudeMax;
+                waveformView.applyRectZoom(target);
             }
             loopRegion = null;
             updateZoomToSelectionBtn();
