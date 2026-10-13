@@ -72,7 +72,7 @@ export interface OffsetEditingHooks {
 }
 
 export function attachOffsetEditing(
-    wrapper: RuntimeElement,
+    wrapper: HTMLElement,
     doc: RuntimeDocument,
     labels: OffsetEditorLabels,
     hooks: OffsetEditingHooks,

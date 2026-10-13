@@ -7,7 +7,7 @@ import type { RuntimeDocument } from '../webview/runtime/types';
 function setup(withDisplay = true) {
     const dom = new JSDOM(`<!doctype html><body>${withDisplay ? '<span id="playback-display"></span>' : ''}</body>`);
     const doc = dom.window.document as unknown as RuntimeDocument;
-    return { doc, el: doc.getElementById('playback-display'), update: createPlaybackDisplay(doc, '▶') };
+    return { doc, el: doc.getElementById('playback-display') as HTMLElement, update: createPlaybackDisplay(doc, '▶') };
 }
 
 test('createPlaybackDisplay shows the prefixed clock time while playing and hides it when stopped', () => {

@@ -65,7 +65,7 @@ test('Escape closes without committing, and a second open while editing is ignor
 function setupWrapper() {
     const dom = new JSDOM('<!doctype html><body><div id="wrap"><span class="track-offset-val" data-index="1">+0 ms</span><span class="other">x</span></div></body>');
     const doc = dom.window.document as unknown as RuntimeDocument;
-    const wrapper = doc.getElementById('wrap');
+    const wrapper = doc.getElementById('wrap') as HTMLElement;
     const span = doc.querySelector('.track-offset-val');
     const calls: string[] = [];
     attachOffsetEditing(wrapper, doc, LABELS, {

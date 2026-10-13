@@ -102,7 +102,7 @@ export interface RuntimeDocument extends Omit<Document,
     activeElement: RuntimeElement;
     body: RuntimeElement;
     createElement(tagName: string): RuntimeElement;
-    getElementById(elementId: string): RuntimeElement;
+    getElementById(elementId: string): HTMLElement | null;
     querySelector(selectors: string): RuntimeElement;
     querySelectorAll(selectors: string): NodeListOf<RuntimeElement>;
     addEventListener<K extends keyof DocumentEventMap>(

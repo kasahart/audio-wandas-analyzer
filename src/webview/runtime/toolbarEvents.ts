@@ -15,7 +15,7 @@ function actionOf(element: RuntimeElement | null): string | null {
     return element && element.getAttribute ? element.getAttribute('data-action') : null;
 }
 
-export function attachToolbarActions(container: RuntimeElement | null, handlers: ToolbarActionHandlers): void {
+export function attachToolbarActions(container: HTMLElement | null, handlers: ToolbarActionHandlers): void {
     if (!container) {
         return;
     }
@@ -35,16 +35,16 @@ export function attachToolbarActions(container: RuntimeElement | null, handlers:
     container.addEventListener('change', onHeightInput);
 }
 
-export function attachExclusiveMenus(toolbar: RuntimeElement | null): void {
+export function attachExclusiveMenus(toolbar: HTMLElement | null): void {
     if (!toolbar) {
         return;
     }
-    toolbar.querySelectorAll('details.tb-menu').forEach(function (menu: RuntimeElement) {
+    toolbar.querySelectorAll<HTMLDetailsElement>('details.tb-menu').forEach(function (menu) {
         menu.addEventListener('toggle', function () {
             if (!menu.open) {
                 return;
             }
-            toolbar.querySelectorAll('details.tb-menu[open]').forEach(function (otherMenu: RuntimeElement) {
+            toolbar.querySelectorAll<HTMLDetailsElement>('details.tb-menu[open]').forEach(function (otherMenu) {
                 if (otherMenu !== menu) {
                     otherMenu.open = false;
                 }
@@ -55,7 +55,7 @@ export function attachExclusiveMenus(toolbar: RuntimeElement | null): void {
 
 export function attachHeightResizeListeners(
     heightResize: HeightResize,
-    surfaces: ReadonlyArray<RuntimeElement | null>,
+    surfaces: ReadonlyArray<HTMLElement | null>,
     doc: Document,
     win: Window,
 ): void {
