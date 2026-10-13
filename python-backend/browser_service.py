@@ -13,7 +13,7 @@ import soundfile as sf
 import wandas as wd
 
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
-from analysis_service import AnalysisService
+from analysis_service import AnalysisService, recipe_inputs
 from analyzer import resolve_stft_params, sample_range
 from backend_errors import INTERNAL_ERROR, InputError, error_payload
 from calibration_profile import source_channel_peaks
@@ -181,9 +181,9 @@ class BrowserService(AnalysisService):
     ) -> dict[str, object]:
         # Recipes allocate freely; drop recomputable detail so selected sources keep their budget.
         self.engine.discard_all_spectrograms()
-        for item in recipe.get("inputs") or []:
-            file = item.get("file") if isinstance(item, dict) else item
-            resolved = Path(str(file))
+        for item in recipe_inputs(recipe):
+            file = item["file"]
+            resolved = Path(file)
             if not resolved.is_absolute():
                 resolved = (Path(recipe_path).parent if recipe_path else Path.cwd()) / resolved
             if not self.engine.is_loaded(resolved):
