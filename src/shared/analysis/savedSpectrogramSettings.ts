@@ -29,7 +29,8 @@ function isDisplaySettings(value: unknown): value is SpectrogramSettings['displa
     return isRecord(value)
         && isNullableFinite(value['dbMin'])
         && isNullableFinite(value['dbMax'])
-        && isNullableFinite(value['maxFrequencyHz']);
+        && isNullableFinite(value['maxFrequencyHz'])
+        && (value['maxFrequencyHz'] === null || (value['maxFrequencyHz'] as number) > 0);
 }
 
 export function isSpectrogramSettings(value: unknown): value is SpectrogramSettings {
@@ -43,10 +44,6 @@ function isUsableStft(value: unknown): value is StftOptions {
     return isStftOptions(value) && value.nFft >= 64 && value.nFft <= 16384 && value.hopSize <= value.nFft;
 }
 
-/**
- * Keeps each valid part of a persisted value: an unusable STFT falls back to the default STFT with
- * auto on, without discarding a valid display range, and vice versa.
- */
 export function savedSpectrogramSettings(value: unknown): SpectrogramSettings {
     const record = isRecord(value) ? value : {};
     const stftValid = isUsableStft(record['stft']);

@@ -245,7 +245,8 @@ export class PythonBackendServer extends AnalysisClient {
                 }
             });
 
-            child.on('exit', (code, signal) => {
+            // 'close' waits for the stdio streams, so stderr written just before exit reaches the diagnostic.
+            child.on('close', (code, signal) => {
                 stdout.close();
                 flushStderr();
                 const wasCurrent = this.proc === child;
