@@ -77,14 +77,20 @@ import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover'
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import {
     amplitudeNormToCanvasY as mapAmplitudeNormToCanvasY,
+    centerRangeOn,
     canvasYToAmplitudeNorm as mapCanvasYToAmplitudeNorm,
     exceedsDragThreshold,
     loopGripAt,
     loopRegionClockText,
     loopRegionForDrag,
+    normAtPlotX,
+    panNormalizedRange,
+    rangeAroundRegion,
     rectZoomTarget,
     ZOOM_IN_FACTOR,
     zoomNormalizedRange,
+    zoomRangeAroundPivot,
+    type NormalizedRange,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramDisplaySettings, SpectrogramData, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
 import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SelectionTreeNode, SpectrumSeries, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformCoverage, WaveformDragState, WaveformDrawOptions, } from './types';
@@ -164,6 +170,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             lineColor: style.getPropertyValue('--line').trim() || '#444',
         };
     }
+    const TRACK_HEADER_W = 130;
     const AXIS_W = 64;
     const SPECTROGRAM_COLORBAR_WIDTH = 50;
     const TRACK_HEIGHT_DEFAULT = 80;
@@ -1236,7 +1243,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (rulerCanvas) {
             const row = document.getElementById('ruler-row');
             if (row) {
-                syncCanvasSize(rulerCanvas, row.clientWidth - 130 - AXIS_W, 20);
+                syncCanvasSize(rulerCanvas, row.clientWidth - TRACK_HEADER_W - AXIS_W, 20);
             }
         }
     }
@@ -1624,13 +1631,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (nextCursor !== null) {
                     cursorNorm = nextCursor;
                     if (followCursor) {
-                        const span = zoomEnd - zoomStart;
-                        zoomStart = Math.max(0, nextCursor - span / 2);
-                        zoomEnd = zoomStart + span;
-                        if (zoomEnd > 1) {
-                            zoomEnd = 1;
-                            zoomStart = Math.max(0, 1 - span);
-                        }
+                        const view = centerRangeOn({ start: zoomStart, end: zoomEnd }, nextCursor);
+                        zoomStart = view.start;
+                        zoomEnd = view.end;
                     }
                     updateCursorDisplay(nextCursor);
                     scheduleRender();
@@ -2187,11 +2190,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function zoomToSelection() {
         if (loopRegion) {
-            const pad = (loopRegion.end - loopRegion.start) * 0.05;
             disableFollowCursor();
-            zoomStart = Math.max(0, loopRegion.start - pad);
-            zoomEnd = Math.min(1, loopRegion.end + pad);
-            scheduleRender();
+            setTimeView(rangeAroundRegion(loopRegion, 0.05));
         }
     }
     function updateZoomToSelectionBtn() {
@@ -2326,19 +2326,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function canvasYToAmplitudeNorm(y: number, height: number) {
         return mapCanvasYToAmplitudeNorm(y, height, amplitudeZoomMinNorm, amplitudeZoomMaxNorm);
     }
-    function zoomIn() {
-        disableFollowCursor();
-        const range = zoomNormalizedRange({ start: zoomStart, end: zoomEnd }, ZOOM_IN_FACTOR);
+    function setTimeView(range: NormalizedRange) {
         zoomStart = range.start;
         zoomEnd = range.end;
         scheduleRender();
     }
+    function zoomIn() {
+        disableFollowCursor();
+        setTimeView(zoomNormalizedRange({ start: zoomStart, end: zoomEnd }, ZOOM_IN_FACTOR));
+    }
     function zoomOut() {
         disableFollowCursor();
-        const range = zoomNormalizedRange({ start: zoomStart, end: zoomEnd }, 1 / ZOOM_IN_FACTOR);
-        zoomStart = range.start;
-        zoomEnd = range.end;
-        scheduleRender();
+        setTimeView(zoomNormalizedRange({ start: zoomStart, end: zoomEnd }, 1 / ZOOM_IN_FACTOR));
     }
     function resetZoom() {
         disableFollowCursor();
@@ -2444,8 +2443,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function handleZoomWheel(e: WheelEvent): void {
         disableFollowCursor();
         const scaleFactor = e.deltaY > 0 ? 1.15 : 0.85;
-        const span = (zoomEnd - zoomStart) * scaleFactor;
-        // Compute normalized time under cursor, keeping it pinned
+        const view = { start: zoomStart, end: zoomEnd };
         const wrapper = document.getElementById('tracks-wrapper');
         let pivotNorm = (zoomStart + zoomEnd) / 2; // fallback: current center
         const target = eventTarget(e);
@@ -2461,47 +2459,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         else if (wrapper) {
             const rect = wrapper.getBoundingClientRect();
-            const plotLeft = rect.left + 130; // 130px track header
-            const plotWidth = rect.width - 130;
-            const mouseX = e.clientX - plotLeft;
-            if (plotWidth > 0 && mouseX >= 0 && mouseX <= plotWidth) {
-                pivotNorm = zoomStart + (mouseX / plotWidth) * (zoomEnd - zoomStart);
-            }
+            pivotNorm = normAtPlotX(view, e.clientX - rect.left - TRACK_HEADER_W, rect.width - TRACK_HEADER_W) ?? pivotNorm;
         }
-        // Ratio of pivot within current span → keep same ratio after zoom
-        const pivotRatio = (zoomEnd - zoomStart) > 0
-            ? (pivotNorm - zoomStart) / (zoomEnd - zoomStart)
-            : 0.5;
-        let newStart = pivotNorm - pivotRatio * span;
-        let newEnd = newStart + span;
-        if (newEnd > 1) {
-            newEnd = 1;
-            newStart = Math.max(0, 1 - span);
-        }
-        if (newStart < 0) {
-            newStart = 0;
-            newEnd = Math.min(1, span);
-        }
-        zoomStart = newStart;
-        zoomEnd = newEnd;
-        scheduleRender();
+        setTimeView(zoomRangeAroundPivot(view, pivotNorm, scaleFactor));
     }
     function handlePanWheel(e: WheelEvent): void {
         disableFollowCursor();
-        const shift = (zoomEnd - zoomStart) * 0.1 * (e.deltaY > 0 ? 1 : -1);
-        if (zoomStart + shift < 0) {
-            zoomEnd -= zoomStart;
-            zoomStart = 0;
-        }
-        else if (zoomEnd + shift > 1) {
-            zoomStart += 1 - zoomEnd;
-            zoomEnd = 1;
-        }
-        else {
-            zoomStart += shift;
-            zoomEnd += shift;
-        }
-        scheduleRender();
+        setTimeView(panNormalizedRange({ start: zoomStart, end: zoomEnd }, e.deltaY > 0 ? 1 : -1));
     }
     function handleCanvasMouseMove(e: MouseEvent): void {
         if (dragState && dragState.isDrag) {
