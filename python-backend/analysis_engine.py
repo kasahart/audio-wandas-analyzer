@@ -19,7 +19,9 @@ SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
 
 
 class SparseSpectrogram:
-    """Display-only sparse STFT; Wandas retains spectral levels and calibration."""
+    """Display-only sparse STFT; Wandas retains spectral levels and calibration, and delegated attributes
+    (``plot``, ``to_dataframe``, ...) see the wrapped frame's ``hop = n_fft``, so they describe the sparse frames.
+    """
 
     def __init__(self, spectral_frame: wd.SpectrogramFrame, centers: np.ndarray, hop_length: int) -> None:
         self.spectral_frame = spectral_frame

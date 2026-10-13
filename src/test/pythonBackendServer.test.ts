@@ -14,6 +14,7 @@ import {
     BackendStartupCancelledError,
     formatPythonImportTiming,
     processStdoutLine,
+    StderrLineSplitter,
     type BackendStdoutHandlers,
     waitForBackendStartup,
     type BackendDiagnostic,
@@ -64,6 +65,19 @@ function makePending(
         reject: (error) => { rejected.push(error); },
     };
 }
+
+test('StderrLineSplitter keeps a lone carriage return inside the line', () => {
+    const lines = new StderrLineSplitter();
+    assert.deepEqual(lines.push('progress 10%\rprogress 90%\r[perf] phase=x ms=1\n'), ['progress 10%\rprogress 90%\r[perf] phase=x ms=1']);
+});
+
+test('StderrLineSplitter joins chunks, strips CRLF and returns the unterminated tail on flush', () => {
+    const lines = new StderrLineSplitter();
+    assert.deepEqual(lines.push('[perf] pha'), []);
+    assert.deepEqual(lines.push('se=a ms=1\r\nTraceback'), ['[perf] phase=a ms=1']);
+    assert.equal(lines.flush(), 'Traceback');
+    assert.equal(lines.flush(), null);
+});
 
 test('backendStartupError includes stderr when Python exits before ready', () => {
     const error = backendStartupError(
@@ -524,7 +538,7 @@ for (const fails of [false, true]) {
 }
 
 
-function recipeRestartHarness(preflight: boolean, failRestart = false) {
+function recipeRestartHarness(preflight: boolean, failRestart = false, startup?: (child: { exit(code: number | null, signal: string | null, lateStderr?: string): void }) => void) {
     const fixtures = loadValidResponseFixtures();
     const children: ControlledChild[] = [];
     class ControlledChild extends EventEmitter {
@@ -537,7 +551,13 @@ function recipeRestartHarness(preflight: boolean, failRestart = false) {
         } });
         kill(): void {
             this.killed = true;
-            queueMicrotask(() => { this.emit('exit', null, 'SIGTERM'); this.stdout.end(); this.stderr.end(); });
+            queueMicrotask(() => this.exit(null, 'SIGTERM'));
+        }
+        exit(code: number | null, signal: string | null, lateStderr = ''): void {
+            this.emit('exit', code, signal);
+            this.stderr.end(lateStderr);
+            this.stdout.end();
+            this.stderr.once('close', () => this.emit('close', code, signal));
         }
         reply(command: typeof this.commands[number]): void {
             const response = fixtures.find(fixture => fixture.command === command.cmd)!.response;
@@ -553,7 +573,8 @@ function recipeRestartHarness(preflight: boolean, failRestart = false) {
             if (name === 'child_process') return { spawn: () => {
                 const child = new ControlledChild(); children.push(child);
                 queueMicrotask(() => {
-                    if (failRestart && children.length > 1) child.emit('error', new Error('restart unavailable'));
+                    if (startup) startup(child);
+                    else if (failRestart && children.length > 1) child.emit('error', new Error('restart unavailable'));
                     else child.stdout.write('{"type":"ready"}\n');
                 });
                 return child;
@@ -650,4 +671,9 @@ test('disposing during Recipe interruption prevents replay from restarting a clo
         await new Promise(resolve => setImmediate(resolve));
         assert.equal(children.length, 1);
     } finally { server.dispose(); }
+});
+
+test('startup error keeps an unterminated stderr line written after the process exits', async () => {
+    const { server } = recipeRestartHarness(false, false, child => child.exit(1, null, 'Traceback: late failure'));
+    await assert.rejects(server.warmup(), /Traceback: late failure/);
 });

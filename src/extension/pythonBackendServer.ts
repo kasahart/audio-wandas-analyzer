@@ -9,6 +9,7 @@ import {
     BackendStartupCancelledError,
     formatPythonImportTiming,
     processStdoutLine,
+    StderrLineSplitter,
     waitForBackendStartup,
     type BackendDiagnostic,
 } from './backendIpc';
@@ -144,7 +145,7 @@ export class PythonBackendServer extends AnalysisClient {
                 env: {
                     ...globalThis.process.env,
                     AWA_CACHE_MB: String(cacheMb),
-                    // AWA_PERF_LOG: inherit from env (default '0' = opt-in)
+                    // AWA_PERF_LOG is inherited; perf.py logs unless it is '0'.
                 },
             });
             this.proc = child;
@@ -215,8 +216,7 @@ export class PythonBackendServer extends AnalysisClient {
                 this.onReady();
                 resolve();
             });
-            const stderr = createInterface({ input: child.stderr!, crlfDelay: Infinity });
-            stderr.on('line', (line: string) => {
+            const handleStderrLine = (line: string): void => {
                 if (!startupFinished) { startupStderr += line + '\n'; }
                 if (line.startsWith('[perf]')) {
                     this.onPerfLine(line);
@@ -224,7 +224,14 @@ export class PythonBackendServer extends AnalysisClient {
                     const importTiming = formatPythonImportTiming(line);
                     if (importTiming) { this.onPerfLine(importTiming); }
                 }
-            });
+            };
+            const stderrLines = new StderrLineSplitter();
+            child.stderr!.setEncoding('utf8');
+            child.stderr!.on('data', (chunk: string) => { stderrLines.push(chunk).forEach(handleStderrLine); });
+            const flushStderr = (): void => {
+                const tail = stderrLines.flush();
+                if (tail !== null) { handleStderrLine(tail); }
+            };
 
             child.on('error', (err) => {
                 const error = startupFinished
@@ -238,9 +245,10 @@ export class PythonBackendServer extends AnalysisClient {
                 }
             });
 
-            child.on('exit', (code, signal) => {
+            // 'close' waits for the stdio streams, so stderr written just before exit reaches the diagnostic.
+            child.on('close', (code, signal) => {
                 stdout.close();
-                stderr.close();
+                flushStderr();
                 const wasCurrent = this.proc === child;
                 const suffix = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
                 const error = startupFinished

@@ -44,3 +44,23 @@ test('odd FFT sizes are rejected for incoming and persisted settings', async () 
     assert.equal(isSpectrogramSettings(evenSettings), true);
     assert.deepEqual(savedSpectrogramSettings(evenSettings), evenSettings);
 });
+
+test('an unusable persisted STFT falls back alone and keeps the saved display range', async () => {
+    const { savedSpectrogramSettings } = await import('../shared/analysis/savedSpectrogramSettings');
+    const display = { dbMin: -90, dbMax: -10, maxFrequencyHz: 8000 };
+    const restored = savedSpectrogramSettings({ auto: false, stft: { nFft: 301, hopSize: 32, window: 'hann' }, display });
+    assert.deepEqual(restored, { auto: true, stft: DEFAULT_SPECTROGRAM_SETTINGS.stft, display });
+    const badDisplay = savedSpectrogramSettings({ auto: false, stft: { nFft: 512, hopSize: 128, window: 'hann' }, display: { dbMin: 'x' } });
+    assert.deepEqual(badDisplay, { auto: false, stft: { nFft: 512, hopSize: 128, window: 'hann' }, display: DEFAULT_SPECTROGRAM_SETTINGS.display });
+});
+
+test('a nonpositive persisted frequency limit is not salvaged, but panel messages still accept it', async () => {
+    const { isSpectrogramSettings, savedSpectrogramSettings } = await import('../shared/analysis/savedSpectrogramSettings');
+    for (const maxFrequencyHz of [0, -100]) {
+        const stft = { nFft: 301, hopSize: 32, window: 'hann' };
+        const restored = savedSpectrogramSettings({ auto: false, stft, display: { dbMin: -90, dbMax: -10, maxFrequencyHz } });
+        assert.deepEqual(restored, DEFAULT_SPECTROGRAM_SETTINGS);
+        const message = { auto: false, stft: { nFft: 512, hopSize: 128, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz } };
+        assert.equal(isSpectrogramSettings(message), true);
+    }
+});

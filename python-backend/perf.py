@@ -7,7 +7,7 @@ import time
 _PERF_ENABLED = os.environ.get("AWA_PERF_LOG", "1") != "0"
 
 
-def _perf(phase: str, started: float, **extra: object) -> None:
+def perf_log(phase: str, started: float, **extra: object) -> None:
     if not _PERF_ENABLED:
         return
     ms = (time.perf_counter() - started) * 1000.0
