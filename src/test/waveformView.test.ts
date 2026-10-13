@@ -36,7 +36,6 @@ test('WaveformView rect zoom sets both windows and reset restores them', () => {
     view.applyRectZoom({ zoomStart: 0.1, zoomEnd: 0.2, amplitudeMin: -0.5, amplitudeMax: 0.5 });
     assert.deepEqual(view.timeRange(), { start: 0.1, end: 0.2 });
     assert.equal(view.isAmplitudeZoomed(), true);
-    assert.equal(view.amplitudeToCanvasY(0.5, 100), 0);
     assert.equal(view.canvasYToAmplitude(100, 100), -0.5);
     view.reset();
     assert.deepEqual(view.timeRange(), { start: 0, end: 1 });

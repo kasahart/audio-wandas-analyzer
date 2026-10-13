@@ -1,5 +1,4 @@
 import {
-    amplitudeNormToCanvasY,
     canvasYToAmplitudeNorm,
     centerRangeOn,
     panNormalizedRange,
@@ -64,10 +63,6 @@ export class WaveformView {
 
     isAmplitudeZoomed(): boolean {
         return this.amplitudeMin > -0.999999 || this.amplitudeMax < 0.999999;
-    }
-
-    amplitudeToCanvasY(norm: number, height: number): number {
-        return amplitudeNormToCanvasY(norm, height, this.amplitudeMin, this.amplitudeMax);
     }
 
     canvasYToAmplitude(y: number, height: number): number {
