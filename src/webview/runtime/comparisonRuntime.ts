@@ -16,7 +16,8 @@ import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
     globalNormFromTrackTime as mapGlobalNormFromTrackTime,
-    trackTimeFromGlobalNorm as mapTrackTimeFromGlobalNorm,
+    loopRestartTime,
+    playbackStartTime,
 } from './playback';
 import { positionPopover } from './settingsPopover';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
@@ -1529,13 +1530,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         return mapGlobalNormFromTrackTime(mapping, timeSeconds);
     }
-    function trackTimeFromGlobalNorm(idx: number, norm: number) {
-        const mapping = getTrackTimeMapping(idx);
-        if (!mapping) {
-            return null;
-        }
-        return mapTrackTimeFromGlobalNorm(mapping, norm);
-    }
     function updatePlaybackButtons() {
         state.results.forEach(function (_, i: number) {
             const trackId = trackIdAtIndex(i);
@@ -1593,18 +1587,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         function tick() {
             const playbackTrackIndex = playbackTrackId ? trackStore.protocolIndexForId(playbackTrackId) : null;
             if (playbackEl && playbackTrackIndex !== null && !playbackEl.paused) {
-                if (loopRegion) {
-                    const currentGlobalNorm = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
-                    if (currentGlobalNorm !== null && currentGlobalNorm >= loopRegion.end) {
-                        const loopStartTime = trackTimeFromGlobalNorm(playbackTrackIndex, loopRegion.start);
-                        if (loopStartTime !== null) {
-                            try {
-                                playbackEl.currentTime = loopStartTime;
-                                invalidateDesiredSpectrumSliceRequests();
-                            }
-                            catch (_err) { }
-                        }
+                const loopStartTime = loopRestartTime(getTrackTimeMapping(playbackTrackIndex), playbackEl.currentTime, loopRegion);
+                if (loopStartTime !== null) {
+                    try {
+                        playbackEl.currentTime = loopStartTime;
+                        invalidateDesiredSpectrumSliceRequests();
                     }
+                    catch (_err) { }
                 }
                 const nextCursor = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
                 if (nextCursor !== null) {
@@ -1680,18 +1669,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         invalidateDesiredSpectrumSliceRequests();
         const durationSeconds = audio.duration || state.results[idx].durationSeconds || 0;
         const startNorm = loopRegion ? loopRegion.start : cursorNorm;
-        let startTime = trackTimeFromGlobalNorm(idx, startNorm);
-        if (startTime === null) {
-            startTime = 0;
-        }
-        if (durationSeconds > 0 && startTime >= Math.max(0, durationSeconds - 0.05)) {
-            startTime = 0;
-        }
+        const startTime = playbackStartTime(getTrackTimeMapping(idx), startNorm, durationSeconds);
         try {
             audio.currentTime = startTime;
         }
         catch (_err) { }
-        playbackStartNorm = loopRegion ? loopRegion.start : cursorNorm;
+        playbackStartNorm = startNorm;
         const playPromise = audio.play();
         if (playPromise && typeof playPromise.catch === 'function') {
             playPromise.catch(function () {
