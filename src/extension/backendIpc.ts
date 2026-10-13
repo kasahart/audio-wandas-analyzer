@@ -145,3 +145,28 @@ export function processStdoutLine(
     const diagnostic = settleBackendRequest(pending, requestId, withoutResponseEnvelope(parsed), parsed['error']);
     if (diagnostic) handlers.onDiagnostic?.({ ...diagnostic, rawLine: line });
 }
+
+/**
+ * Splits stderr text into lines on "\n" only. readline also breaks on a lone "\r", which would cut a
+ * carriage-return progress display into fragments.
+ */
+export class StderrLineSplitter {
+    private pending = '';
+
+    push(chunk: string): string[] {
+        const parts = (this.pending + chunk).split('\n');
+        this.pending = parts.pop() ?? '';
+        return parts.map(stripTrailingCarriageReturn);
+    }
+
+    /** Returns the unterminated tail, if any, so a last message without a newline is not lost. */
+    flush(): string | null {
+        const tail = this.pending;
+        this.pending = '';
+        return tail ? stripTrailingCarriageReturn(tail) : null;
+    }
+}
+
+function stripTrailingCarriageReturn(line: string): string {
+    return line.endsWith('\r') ? line.slice(0, -1) : line;
+}

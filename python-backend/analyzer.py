@@ -16,7 +16,7 @@ from calibration_profile import (
     ResolvedChannelCalibration,
 )
 from decimator import decimated_waveform
-from perf import _perf
+from perf import perf_log
 
 WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
@@ -171,7 +171,8 @@ def build_waveform_envelope(
 
 def _pick_window_size(sample_count: int) -> int:
     if sample_count <= 512:
-        return max(32, sample_count)
+        # Odd FFT sizes are rejected everywhere else, so a short file rounds down to an even size.
+        return max(32, sample_count - sample_count % 2)
 
     target = min(2048, sample_count)
     window_size = 256
@@ -333,7 +334,7 @@ def analyze_from_frame(
     if raw_frame is None and not resolved.is_identity:
         for index, channel in enumerate(resolved.channels):
             raw_data[index] = raw_data[index] / channel.factor
-    _perf("read_frame", t_frame, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
+    perf_log("read_frame", t_frame, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
 
     window_size, hop_size, window_name = resolve_stft_params(sample_count, stft_options)
     stft_db: np.ndarray | None = None
@@ -382,7 +383,7 @@ def analyze_from_frame(
             }
         )
 
-    _perf("channels_build", t_channels, count=channel_count)
+    perf_log("channels_build", t_channels, count=channel_count)
 
     result: AnalysisResult = {
         "filePath": str(target),

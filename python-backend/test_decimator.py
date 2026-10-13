@@ -132,3 +132,11 @@ def test_long_waveforms_keep_bounded_scratch_and_cross_block_extrema(monkeypatch
     np.testing.assert_equal(result["maxT"], (17 + np.array(maximum_indices)) / 299999)
     np.testing.assert_equal(result["samples"], [samples[b[len(b) // 2]] for b in buckets])
     assert np.isnan(result["absolutePeak"])
+
+
+def test_all_zero_signal_reports_positive_zero_peak():
+    import math
+
+    result = decimated_waveform(np.zeros(100), 10, 0, 100)
+    assert result["absolutePeak"] == 0.0
+    assert math.copysign(1.0, result["absolutePeak"]) == 1.0

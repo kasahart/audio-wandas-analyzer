@@ -623,7 +623,7 @@ def test_default_service_loader_reports_startup_phases(monkeypatch: pytest.Monke
         "analysis_service": type("ServiceModule", (), {"AnalysisService": FakeService}),
     }
     monkeypatch.setattr(backend_server.importlib, "import_module", modules.__getitem__)
-    monkeypatch.setattr(backend_server, "_perf", lambda phase, _started, **_extra: phases.append(phase))
+    monkeypatch.setattr(backend_server, "perf_log", lambda phase, _started, **_extra: phases.append(phase))
 
     service = backend_server._load_default_service()
 
@@ -983,7 +983,11 @@ def test_shared_perf_preserves_backend_default_and_disable_setting(setting):
     if setting is not None:
         environment["AWA_PERF_LOG"] = setting
     result = subprocess.run(
-        [sys.executable, "-c", "import time; from perf import _perf; _perf('probe', time.perf_counter(), channels=2)"],
+        [
+            sys.executable,
+            "-c",
+            "import time; from perf import perf_log; perf_log('probe', time.perf_counter(), channels=2)",
+        ],
         cwd=ROOT,
         env=environment,
         capture_output=True,

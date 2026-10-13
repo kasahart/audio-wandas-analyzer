@@ -27,6 +27,8 @@ async function initialize() {
         if (!response.ok) throw new Error(`Missing Python module: ${name}`);
         pyodide.FS.writeFile(`/home/pyodide/${name}`, await response.text());
     }
+    // perf.py logs by default; a Worker has no one reading stderr, so it is silenced before the import.
+    pyodide.runPython('import os; os.environ.setdefault("AWA_PERF_LOG", "0")');
     pyodide.runPython('from browser_service import browser_limits_json, load_source, release_source, prepare_export_json, dispatch_json');
 }
 self.onmessage = ({ data }) => {

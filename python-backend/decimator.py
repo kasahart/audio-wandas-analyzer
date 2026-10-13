@@ -8,6 +8,11 @@ from protocol_schema import MAX_WAVEFORM_POINTS
 _DECIMATION_BLOCK_SAMPLES = 65536
 
 
+def _absolute_peak(samples: np.ndarray) -> float:
+    # Adding 0.0 turns the -0.0 that an all-zero signal yields into 0.0.
+    return float(np.maximum(np.max(samples), -np.min(samples))) + 0.0
+
+
 def decimated_waveform(
     samples: np.ndarray,
     point_limit: int,
@@ -32,7 +37,7 @@ def decimated_waveform(
             "minT": [],
             "maxT": [],
             "samples": [],
-            "absolutePeak": float(np.maximum(np.max(samples), -np.min(samples))),
+            "absolutePeak": _absolute_peak(samples),
         }
     denom = max(1, total_samples - 1)
     width, remainder = divmod(n, point_count)
@@ -80,5 +85,5 @@ def decimated_waveform(
         "minT": min_t,
         "maxT": max_t,
         "samples": sample_values,
-        "absolutePeak": float(np.maximum(np.max(samples), -np.min(samples))),
+        "absolutePeak": _absolute_peak(samples),
     }

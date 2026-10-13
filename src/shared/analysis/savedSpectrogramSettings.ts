@@ -2,39 +2,58 @@ import { DEFAULT_SPECTROGRAM_SETTINGS, type StftOptions, type SpectrogramSetting
 
 export const SPECTROGRAM_SETTINGS_KEY = 'audioWandasAnalyzer.spectrogramSettings';
 
-export function isSpectrogramSettings(value: unknown): value is SpectrogramSettings {
-    if (!value || typeof value !== 'object') { return false; }
-    const settings = value as Record<string, unknown>;
-    const stft = settings['stft'];
-    const display = settings['display'];
-    if (typeof settings['auto'] !== 'boolean'
-        || !stft || typeof stft !== 'object'
-        || !display || typeof display !== 'object') {
-        return false;
-    }
-    const stftRecord = stft as Record<string, unknown>;
-    const displayRecord = display as Record<string, unknown>;
-    const nullableNumber = (candidate: unknown): boolean => candidate === null
-        || (typeof candidate === 'number' && Number.isFinite(candidate));
-    return typeof stftRecord['nFft'] === 'number'
-        && Number.isInteger(stftRecord['nFft'])
-        && stftRecord['nFft'] > 0
-        && stftRecord['nFft'] % 2 === 0
-        && typeof stftRecord['hopSize'] === 'number'
-        && Number.isInteger(stftRecord['hopSize'])
-        && stftRecord['hopSize'] > 0
-        && typeof stftRecord['window'] === 'string'
-        && ['hann', 'hamming', 'blackman', 'boxcar'].includes(stftRecord['window'])
-        && nullableNumber(displayRecord['dbMin'])
-        && nullableNumber(displayRecord['dbMax'])
-        && nullableNumber(displayRecord['maxFrequencyHz']);
+const STFT_WINDOWS: ReadonlyArray<StftOptions['window']> = ['hann', 'hamming', 'blackman', 'boxcar'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object';
 }
 
+function isPositiveInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function isNullableFinite(value: unknown): value is number | null {
+    return value === null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function isStftOptions(value: unknown): value is StftOptions {
+    return isRecord(value)
+        && isPositiveInteger(value['nFft'])
+        && value['nFft'] % 2 === 0
+        && isPositiveInteger(value['hopSize'])
+        && typeof value['window'] === 'string'
+        && STFT_WINDOWS.includes(value['window'] as StftOptions['window']);
+}
+
+function isDisplaySettings(value: unknown): value is SpectrogramSettings['display'] {
+    return isRecord(value)
+        && isNullableFinite(value['dbMin'])
+        && isNullableFinite(value['dbMax'])
+        && isNullableFinite(value['maxFrequencyHz']);
+}
+
+export function isSpectrogramSettings(value: unknown): value is SpectrogramSettings {
+    return isRecord(value)
+        && typeof value['auto'] === 'boolean'
+        && isStftOptions(value['stft'])
+        && isDisplaySettings(value['display']);
+}
+
+function isUsableStft(value: unknown): value is StftOptions {
+    return isStftOptions(value) && value.nFft >= 64 && value.nFft <= 16384 && value.hopSize <= value.nFft;
+}
+
+/**
+ * Keeps each valid part of a persisted value: an unusable STFT falls back to the default STFT with
+ * auto on, without discarding a valid display range, and vice versa.
+ */
 export function savedSpectrogramSettings(value: unknown): SpectrogramSettings {
-    if (!isSpectrogramSettings(value) || value.stft.nFft < 64 || value.stft.nFft > 16384 || value.stft.hopSize > value.stft.nFft) {
-        return { ...DEFAULT_SPECTROGRAM_SETTINGS, stft: { ...DEFAULT_SPECTROGRAM_SETTINGS.stft }, display: { ...DEFAULT_SPECTROGRAM_SETTINGS.display } };
-    }
-    return { auto: value.auto, stft: { ...value.stft }, display: { ...value.display } };
+    const record = isRecord(value) ? value : {};
+    const stftValid = isUsableStft(record['stft']);
+    const stft = stftValid ? record['stft'] as StftOptions : DEFAULT_SPECTROGRAM_SETTINGS.stft;
+    const display = isDisplaySettings(record['display']) ? record['display'] : DEFAULT_SPECTROGRAM_SETTINGS.display;
+    const auto = stftValid && typeof record['auto'] === 'boolean' ? record['auto'] : DEFAULT_SPECTROGRAM_SETTINGS.auto;
+    return { auto, stft: { ...stft }, display: { ...display } };
 }
 
 export interface SpectrogramSettingsStore {

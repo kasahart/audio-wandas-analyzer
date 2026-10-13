@@ -365,3 +365,11 @@ def test_sample_range_clamps_normalized_selection(start: float, end: float, expe
     from analyzer import sample_range
 
     assert sample_range(start, end, 100) == expected
+
+
+@pytest.mark.parametrize("sample_count", [65, 300, 301, 511, 512])
+def test_auto_stft_window_is_even_for_short_files(sample_count: int) -> None:
+    from analyzer import resolve_stft_params
+
+    n_fft, _, _ = resolve_stft_params(sample_count, None)
+    assert n_fft % 2 == 0

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from backend_errors import InputError, error_payload
 from command_dispatch import dispatch, validate_request
-from perf import _perf
+from perf import perf_log
 
 if TYPE_CHECKING:
     from analysis_service import AnalysisService
@@ -33,15 +33,15 @@ def _emit(message: dict[str, object], *, ensure_ascii: bool = False) -> None:
 def _load_default_service() -> AnalysisService:
     started = time.perf_counter()
     analysis_engine = importlib.import_module("analysis_engine")
-    _perf("startup_import_analysis_engine", started)
+    perf_log("startup_import_analysis_engine", started)
 
     started = time.perf_counter()
     analysis_service = importlib.import_module("analysis_service")
-    _perf("startup_import_analysis_service", started)
+    perf_log("startup_import_analysis_service", started)
 
     started = time.perf_counter()
     service = analysis_service.AnalysisService(analysis_engine.AnalysisEngine())
-    _perf("startup_create_service", started)
+    perf_log("startup_create_service", started)
     return service
 
 
@@ -52,10 +52,10 @@ def _heartbeat_loop() -> None:
 
 
 def main(service: AnalysisService | None = None) -> None:
-    _perf("startup_begin", _PROCESS_STARTED, pid=os.getpid(), python=sys.executable)
+    perf_log("startup_begin", _PROCESS_STARTED, pid=os.getpid(), python=sys.executable)
     active_service = service or _load_default_service()
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
-    _perf("startup_ready", _PROCESS_STARTED)
+    perf_log("startup_ready", _PROCESS_STARTED)
     _emit({"type": "ready"})
     for raw_line in sys.stdin:
         line = raw_line.strip()
@@ -73,7 +73,7 @@ def main(service: AnalysisService | None = None) -> None:
             started = time.perf_counter()
             result = dispatch(command, active_service)
             name = command.get("cmd")
-            _perf(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
+            perf_log(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
             _emit({**result, "requestId": request_id})
         except Exception as error:
             _emit({"requestId": request_id, "error": error_payload(error)}, ensure_ascii=True)
