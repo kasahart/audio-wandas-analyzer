@@ -139,14 +139,14 @@ flowchart LR
 - 受け取った対象を単一ファイル解析導線または比較ビュー導線へ振り分ける
 - Webview から `select-target`、`analyze-selected-files`、`request-waveform-range` を受け取る
 - 設定値 `pythonCommand`、`cacheMemoryMb`、`debugFilePath` を読み込む
-- Python バックエンドを子プロセスとして起動する
-- 標準出力の JSON を `AnalysisResult` として解釈し、失敗時は `error` 付きの結果へ変換して `AnalysisResultWithError[]` に蓄積する
+- 常駐の `PythonBackendServer` を起動し、`AnalysisClient` 経由で解析要求を送る（詳細は 2 節）
+- `AnalysisClient` から返った `AnalysisResult` を受け取り、失敗時は `error` 付きの結果へ変換して `AnalysisResultWithError[]` に蓄積する
 - ディレクトリ指定時は `ComparisonPanel` を選択モードで開き、チェック変更のたびに同じ panel 内のトラック表示を更新する
 - 失敗時は VS Code 通知にエラーを表示する
 
 特徴:
 
-- バックエンドとの境界はプロセス実行と JSON 入出力だけに限定されている
+- バックエンドとの境界は `AnalysisClient` に限定されている。request ID で応答を対応付ける NDJSON のやり取りは `PythonBackendServer` が受け持つ
 - 解析ロジックを TypeScript 側に持たないため、UI 修正と数値処理修正を独立して進めやすい
 - 単一ファイルと複数ファイルの差は主に入力本数だけで、描画面は共通化されている
 
@@ -196,7 +196,7 @@ flowchart LR
 
 ### 5. Decimator
 
-対象: [python-backend/decimator.py](/workspaces/audio-wandas-analyzer/python-backend/decimator.py)
+対象: [python-backend/decimator.py](../python-backend/decimator.py)
 
 責務:
 
@@ -418,9 +418,9 @@ src/
       waveformRenderer.ts   波形描画パイプライン（Canvas 非依存・TypeScript）
       rangeRequestPolicy.ts 波形レンジ取得ポリシー
   test/
-    waveformRenderer.test.ts
-    rangeRequestPolicy.test.ts
-    renderScript.integration.test.ts
+    *.test.ts               node:test の単体テスト（npm run verify）
+    uiSmoke/                Playwright Chromium のスモークテスト（npm run test:ui）
+    fixtures/, helpers/     テスト用データと共通ヘルパー
   e2e/
     suite/index.ts          VS Code E2E スモークテスト
 python-backend/

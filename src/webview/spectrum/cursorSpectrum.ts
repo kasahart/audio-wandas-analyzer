@@ -79,7 +79,7 @@ export function extractSpectrumAtCursor(
     if (trackLocalSec < 0) {
         return null;
     }
-    const ch = result.channels[chIdx];
+    const ch = Array.isArray(result.channels) ? result.channels[chIdx] : undefined;
     const spec = ch && ch.spectrogram;
     const cached = idx >= 0 ? context?.cached ?? null : null;
     if (trackLocalSec >= dur) {
