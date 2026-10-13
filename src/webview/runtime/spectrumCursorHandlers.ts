@@ -96,3 +96,30 @@ export function createSpectrumCursorHandlers(deps: SpectrumCursorDeps): Spectrum
         },
     };
 }
+
+export interface SpectrumCursorTarget {
+    trackIndex: number | null;
+    channelIndex: number | null;
+}
+
+export function attachSpectrumCursorListeners(
+    canvas: SpectrumCanvas & Pick<HTMLElement, 'addEventListener'>,
+    cursor: SpectrumCursorHandlers,
+    pad: { left: number; right: number },
+    target: () => SpectrumCursorTarget,
+    isSuppressed: () => boolean = () => false,
+): void {
+    canvas.addEventListener('mousemove', function (e) {
+        if (isSuppressed()) {
+            return;
+        }
+        const t = target();
+        cursor.move(canvas, pad.left, pad.right, e, t.trackIndex, t.channelIndex);
+    });
+    canvas.addEventListener('mouseleave', cursor.leave);
+    canvas.addEventListener('focus', function () {
+        const t = target();
+        cursor.focus(t.trackIndex, t.channelIndex);
+    });
+    canvas.addEventListener('blur', cursor.blur);
+}

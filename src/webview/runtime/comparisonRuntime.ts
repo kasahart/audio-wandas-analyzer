@@ -11,7 +11,7 @@ import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cu
 import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
 import { createSelectionTreeView } from './selectionTreeView';
 import { buildSpecSummaryText, buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
-import { audioById, buttonById, buttonMatching, canvasById, eventTarget, inputMatching, inputsMatching, requiredElementById } from './domAdapter';
+import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, eventTarget, inputMatching, inputsMatching, requiredElementById } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
@@ -32,7 +32,7 @@ import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOv
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
 import { attachCanvasFocusHint, createCanvasTooltip } from './canvasTooltip';
-import { createSpectrumCursorHandlers } from './spectrumCursorHandlers';
+import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
 import { rulerTicks } from './timeRuler';
@@ -1958,15 +1958,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             const overlayCanvas = canvasById(document, 'spectrum-overlay-canvas');
             if (overlayCanvas) {
-                overlayCanvas.addEventListener('mousemove', function (e) {
-                    if (specBoxDrag.active) {
-                        return;
-                    } // ドラッグ中はホバー不要
-                    spectrumCursor.move(overlayCanvas, OVERLAY_SPECTRUM_PAD.left, OVERLAY_SPECTRUM_PAD.right, e, -1, null);
-                });
-                overlayCanvas.addEventListener('mouseleave', spectrumCursor.leave);
-                overlayCanvas.addEventListener('focus', function () { spectrumCursor.focus(-1, null); });
-                overlayCanvas.addEventListener('blur', spectrumCursor.blur);
+                // ドラッグ中はホバー不要
+                attachSpectrumCursorListeners(overlayCanvas, spectrumCursor, OVERLAY_SPECTRUM_PAD, () => ({ trackIndex: -1, channelIndex: null }), () => specBoxDrag.active);
                 attachSpectrumBoxDrag(overlayCanvas, document, specBoxDrag, {
                     onUpdate: () => scheduleSpectrumRefresh('hover'),
                     onFinish(drag) {
@@ -2007,15 +2000,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 });
             }
             function attachTrackSpectrumCursorEvents() {
-                document.querySelectorAll('.track-spectrum-canvas').forEach(function (c) {
-                    c.addEventListener('mousemove', function (e) {
-                        spectrumCursor.move(c, TRACK_SPECTRUM_PAD.left, TRACK_SPECTRUM_PAD.right, e, trackIndexFromElement(c), channelIndexAttribute(c));
-                    });
-                    c.addEventListener('mouseleave', spectrumCursor.leave);
-                    c.addEventListener('focus', function () {
-                        spectrumCursor.focus(trackIndexFromElement(c), channelIndexAttribute(c));
-                    });
-                    c.addEventListener('blur', spectrumCursor.blur);
+                canvasesMatching(document, '.track-spectrum-canvas').forEach(function (c) {
+                    attachSpectrumCursorListeners(c, spectrumCursor, TRACK_SPECTRUM_PAD, () => ({
+                        trackIndex: trackIndexFromElement(c),
+                        channelIndex: channelIndexAttribute(c),
+                    }));
                 });
             }
             attachRebuiltTrackEvents = function () {

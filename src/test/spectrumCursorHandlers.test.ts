@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createSpectrumCursorHandlers, spectrumFocusTargetFromElement } from '../webview/runtime/spectrumCursorHandlers';
+import { JSDOM } from 'jsdom';
+import { attachSpectrumCursorListeners, createSpectrumCursorHandlers, spectrumFocusTargetFromElement } from '../webview/runtime/spectrumCursorHandlers';
+import type { SpectrumCursorHandlers } from '../webview/runtime/spectrumCursorHandlers';
 import { SpectrumHover } from '../webview/runtime/spectrumHover';
 import type { TrackId } from '../webview/runtime/types';
 
@@ -88,4 +90,27 @@ test('blur keeps the hover while the mouse is over the canvas', () => {
     assert.equal(hover.target, null);
     handlers.focus(null, null);
     assert.equal(hover.target, null);
+});
+
+test('attachSpectrumCursorListeners routes canvas events to the cursor with the current target', () => {
+    const { window } = new JSDOM('<!doctype html><body><canvas width="220" height="100"></canvas></body>');
+    const el = window.document.querySelector('canvas') as unknown as HTMLCanvasElement;
+    const calls: string[] = [];
+    const cursor: SpectrumCursorHandlers = {
+        move: (_c, padLeft, padRight, pointer, trackIndex, channelIndex) => { calls.push(`move:${padLeft}:${padRight}:${pointer.clientX}:${trackIndex}:${channelIndex}`); },
+        leave: () => { calls.push('leave'); },
+        focus: (trackIndex, channelIndex) => { calls.push(`focus:${trackIndex}:${channelIndex}`); },
+        blur: () => { calls.push('blur'); },
+    };
+    let suppressed = false;
+    let trackIndex = 2;
+    attachSpectrumCursorListeners(el, cursor, { left: 32, right: 6 }, () => ({ trackIndex, channelIndex: 1 }), () => suppressed);
+    el.dispatchEvent(new window.MouseEvent('mousemove', { clientX: 50 }));
+    suppressed = true;
+    el.dispatchEvent(new window.MouseEvent('mousemove', { clientX: 60 }));
+    trackIndex = 3;
+    el.dispatchEvent(new window.FocusEvent('focus'));
+    el.dispatchEvent(new window.MouseEvent('mouseleave'));
+    el.dispatchEvent(new window.FocusEvent('blur'));
+    assert.deepEqual(calls, ['move:32:6:50:2:1', 'focus:3:1', 'leave', 'blur']);
 });
