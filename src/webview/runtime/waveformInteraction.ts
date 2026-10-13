@@ -18,6 +18,58 @@ export function zoomNormalizedRange(range: NormalizedRange, factor: number): Nor
     };
 }
 
+export function zoomRangeAroundPivot(range: NormalizedRange, pivotNorm: number, factor: number): NormalizedRange {
+    const currentSpan = range.end - range.start;
+    const span = currentSpan * factor;
+    const pivotRatio = currentSpan > 0 ? (pivotNorm - range.start) / currentSpan : 0.5;
+    let start = pivotNorm - pivotRatio * span;
+    let end = start + span;
+    if (end > 1) {
+        end = 1;
+        start = Math.max(0, 1 - span);
+    }
+    if (start < 0) {
+        start = 0;
+        end = Math.min(1, span);
+    }
+    return { start, end };
+}
+
+export function normAtPlotX(range: NormalizedRange, plotX: number, plotWidth: number): number | null {
+    if (plotWidth <= 0 || plotX < 0 || plotX > plotWidth) {
+        return null;
+    }
+    return range.start + (plotX / plotWidth) * (range.end - range.start);
+}
+
+/** One wheel pan step moves the view by this fraction of the visible span. */
+export const PAN_STEP_RATIO = 0.1;
+
+export function panNormalizedRange(range: NormalizedRange, direction: -1 | 1): NormalizedRange {
+    const shift = (range.end - range.start) * PAN_STEP_RATIO * direction;
+    if (range.start + shift < 0) {
+        return { start: 0, end: range.end - range.start };
+    }
+    if (range.end + shift > 1) {
+        return { start: range.start + 1 - range.end, end: 1 };
+    }
+    return { start: range.start + shift, end: range.end + shift };
+}
+
+export function centerRangeOn(range: NormalizedRange, norm: number): NormalizedRange {
+    const span = range.end - range.start;
+    const start = Math.max(0, norm - span / 2);
+    if (start + span > 1) {
+        return { start: Math.max(0, 1 - span), end: 1 };
+    }
+    return { start, end: start + span };
+}
+
+export function rangeAroundRegion(region: NormalizedRange, padRatio: number): NormalizedRange {
+    const pad = (region.end - region.start) * padRatio;
+    return { start: Math.max(0, region.start - pad), end: Math.min(1, region.end + pad) };
+}
+
 export function amplitudeNormToCanvasY(
     norm: number,
     height: number,
