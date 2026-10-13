@@ -28,3 +28,20 @@ test('attachTrackAudioListeners forwards play always and pause/ended/error only 
     fire('error');
     assert.deepEqual(calls, ['play:track-a:true', 'pause:track-a:false', 'ended:track-a', 'error:track-a']);
 });
+
+test('attachTrackAudioListeners passes audio.ended to onPause', () => {
+    const { window } = new JSDOM('<!doctype html><body><audio></audio></body>');
+    const audio = window.document.querySelector('audio') as unknown as HTMLAudioElement;
+    Object.defineProperty(audio, 'ended', { get: () => true });
+    const trackId = 'track-a' as TrackId;
+    const paused: boolean[] = [];
+    attachTrackAudioListeners(audio, trackId, {
+        isCurrent: () => true,
+        onPlay: () => {},
+        onPause: (_id, ended) => { paused.push(ended); },
+        onEnded: () => {},
+        onError: () => {},
+    });
+    audio.dispatchEvent(new window.Event('pause'));
+    assert.deepEqual(paused, [true]);
+});

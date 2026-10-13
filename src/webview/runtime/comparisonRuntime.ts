@@ -25,7 +25,7 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
-import { arrowCursorStep, keydownContextFor, keydownIntent, type GlobalShortcutAction } from './shortcuts';
+import { arrowCursorStep, type GlobalShortcutAction } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
@@ -35,6 +35,9 @@ import { attachCanvasFocusHint, createCanvasTooltip } from './canvasTooltip';
 import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { attachTrackAudioListeners } from './trackAudioEvents';
+import { attachOverlaySpectrumDoubleClick } from './overlaySpectrumEvents';
+import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
+import { attachTrackPointerListeners } from './trackPointerEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
 import { rulerTicks } from './timeRuler';
 import { createPlaybackDisplay } from './playbackDisplay';
@@ -45,12 +48,11 @@ import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
 import { selectionLayoutHtml } from './selectionLayoutHtml';
-import { canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
+import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
     OVERLAY_SPECTRUM_PAD,
-    overlaySpectrumRegionAt,
     spectrumBinAtHover,
     spectrumBoxZoom,
     spectrumPlotFrame,
@@ -1853,35 +1855,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleSpectrumRefresh('immediate');
             },
         });
-        // 波形キャンバス・軸キャンバスのダブルクリック → ズームリセット
-        tracksWrapper.addEventListener('dblclick', function (e) {
-            const targetCanvas = eventTarget(e).closest
-                ? (eventTarget(e).closest('.track-canvas') || eventTarget(e).closest('.track-axis-canvas'))
-                : null;
-            if (!targetCanvas) {
-                return;
-            }
-            resetZoom();
+        attachTrackPointerListeners(tracksWrapper, document, {
+            resetZoom,
+            hover: handleCanvasMouseMove,
+            clearHover,
+            press: handleCanvasMouseDown,
+            drag: handleDocMouseMove,
+            release: handleDocMouseUp,
+            zoomWheel: handleZoomWheel,
+            panWheel: handlePanWheel,
         });
-        tracksWrapper.addEventListener('mousemove', function (e) {
-            handleCanvasMouseMove(e);
-        });
-        tracksWrapper.addEventListener('mouseleave', clearHover);
-        tracksWrapper.addEventListener('mousedown', function (e) {
-            handleCanvasMouseDown(e);
-        });
-        document.addEventListener('mousemove', function (e) { handleDocMouseMove(e); });
-        document.addEventListener('mouseup', function (e) { handleDocMouseUp(e); });
-        tracksWrapper.addEventListener('wheel', function (e) {
-            if (e.ctrlKey) {
-                e.preventDefault();
-                handleZoomWheel(e);
-            }
-            else if (e.shiftKey) {
-                e.preventDefault();
-                handlePanWheel(e);
-            }
-        }, { passive: false });
         var stackedWrap = document.getElementById('stacked-wrap');
         if (stackedWrap) {
             installTrackReorderDrag(document, stackedWrap, {
@@ -1910,40 +1893,33 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 attachCanvasFocusHint(canvas, canvasTooltip, STR.cursorHelpKeys);
             });
         }
-        document.addEventListener('keydown', function (e) {
-            const active = document.activeElement;
-            const intent = keydownIntent(e, keydownContextFor(active, document.getElementById('help-overlay'), spectrumHover.hasMouse));
-            if (!intent) {
-                return;
-            }
-            e.preventDefault();
-            if (intent.kind === 'spectrum-step') {
-                moveSpectrumHoverByBin(intent.delta);
+        attachGlobalKeyboardListeners(document, {
+            helpOverlay: () => document.getElementById('help-overlay'),
+            spectrumHasMouse: () => spectrumHover.hasMouse,
+            stepSpectrum(delta) {
+                moveSpectrumHoverByBin(delta);
                 scheduleSpectrumRefresh('hover');
-            }
-            else if (intent.kind === 'shortcut') {
-                handleToolbarAction(intent.action);
-            }
-            else if (intent.kind === 'toggle-playback') {
-                const trackId = intent.target === 'focused-track'
-                    ? trackIdFromElement(active)
+            },
+            runShortcut: handleToolbarAction,
+            togglePlayback(target, active) {
+                const trackId = target === 'focused-track'
+                    ? active && trackIdFromElement(active)
                     : playbackTrackId ?? trackStore.activeIds()[0];
                 if (trackId) {
                     togglePlayback(trackId);
                 }
-            }
-            else {
-                const step = arrowCursorStep(e.shiftKey, trackStore.globalSpan().spanSec, zoomStart, zoomEnd, active.width || 800);
+            },
+            stepCursor(direction, shiftKey, active) {
+                if (!active) {
+                    return;
+                }
+                const step = arrowCursorStep(shiftKey, trackStore.globalSpan().spanSec, zoomStart, zoomEnd, active.width || 800);
                 invalidateDesiredSpectrumSliceRequests();
-                cursorNorm = Math.max(0, Math.min(1, cursorNorm + intent.direction * step));
+                cursorNorm = Math.max(0, Math.min(1, cursorNorm + direction * step));
                 updateCursorDisplay(cursorNorm);
                 scheduleRender();
-            }
-        });
-        document.addEventListener('keyup', function (e) {
-            if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
-                scheduleSpectrumRefresh('immediate');
-            }
+            },
+            arrowReleased: () => scheduleSpectrumRefresh('immediate'),
         });
         // スペクトルカーソルイベント（オーバーレイ＋各トラック）
         (function attachSpectrumCursorEvents() {
@@ -1980,21 +1956,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         scheduleSpectrumRefresh('immediate');
                     },
                 });
-                overlayCanvas.addEventListener('dblclick', function (e) {
-                    if (_lastSpectrumMaxF <= 0) {
-                        return;
-                    } // データ無し
-                    const px = clientToCanvasPixels(e.clientX, e.clientY, overlayCanvas.getBoundingClientRect(), overlayCanvas.width, overlayCanvas.height);
-                    const region = overlaySpectrumRegionAt(px.x, px.y, overlayCanvas.width, overlayCanvas.height);
-                    if (region === 'db-axis') {
-                        openSpectrumRangePopup('db', e.clientX, e.clientY);
-                    }
-                    else if (region === 'freq-axis') {
-                        openSpectrumRangePopup('freq', e.clientX, e.clientY);
-                    }
-                    else if (region === 'plot') {
-                        specZoomReset();
-                    }
+                attachOverlaySpectrumDoubleClick(overlayCanvas, {
+                    hasData: () => _lastSpectrumMaxF > 0,
+                    openRangePopup: openSpectrumRangePopup,
+                    resetZoom: specZoomReset,
                 });
             }
             function attachTrackSpectrumCursorEvents() {
