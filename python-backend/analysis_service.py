@@ -78,6 +78,18 @@ def _analysis_revision(value: object) -> int:
     return int(value)
 
 
+def recipe_inputs(recipe: Mapping[str, object]) -> list[Mapping[str, str]]:
+    inputs = recipe.get("inputs")
+    if inputs is None:
+        return []
+    if not isinstance(inputs, list):
+        raise InputError("recipe error: inputs must be a list")
+    for item in inputs:
+        if not isinstance(item, Mapping) or not all(isinstance(item.get(key), str) for key in ("name", "file")):
+            raise InputError("recipe error: each input needs string 'name' and 'file'")
+    return inputs
+
+
 class AnalysisService:
     def __init__(self, engine: AnalysisEngine) -> None:
         self.engine = engine
@@ -304,7 +316,7 @@ class AnalysisService:
 
         base_dir = Path(recipe_path).parent if recipe_path else Path.cwd()
         bindings = {}
-        for item in recipe.get("inputs") or []:
+        for item in recipe_inputs(recipe):
             file = Path(item["file"])
             if not file.is_absolute():
                 file = base_dir / file
@@ -324,6 +336,7 @@ class AnalysisService:
 __all__ = [
     "AnalysisService",
     "RecipeRunResult",
+    "recipe_inputs",
     "SpectrumSliceResult",
     "StftOptions",
     "TrackDetailResult",

@@ -110,11 +110,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         worker?.terminate(); worker = undefined;
         recovery = undefined;
         rejectPendingRequests(pending, reason);
-        loading = false; pick.disabled = false; pick.value = "";
     }
     function dispose(): void {
         sourceGeneration.advance();
         resetWorker(new Error('Analysis cancelled'));
+        loading = false; pick.disabled = false; pick.value = "";
         sources.clear();
     }
     async function request(
