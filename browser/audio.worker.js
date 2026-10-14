@@ -1,4 +1,3 @@
-let initialization;
 let pyodide;
 let queue = Promise.resolve();
 async function initialize() {
@@ -31,10 +30,14 @@ async function initialize() {
     pyodide.runPython('import os; os.environ.setdefault("AWA_PERF_LOG", "0")');
     pyodide.runPython('from browser_service import browser_limits_json, load_source, release_source, prepare_export_json, dispatch_json');
 }
+// Booting at Worker start (not on the first message) lets the host start Pyodide before any WAV is chosen.
+// A failed boot is reported to each command below, so the rejection is handled here only to keep it out of the console.
+const initialization = initialize();
+initialization.catch(() => {});
 self.onmessage = ({ data }) => {
     queue = queue.then(async () => {
         try {
-            await (initialization ??= initialize());
+            await initialization;
             let output;
             if (data.cmd === 'load') {
                 const sourceBytes = pyodide.toPy(new Uint8Array(data.bytes));

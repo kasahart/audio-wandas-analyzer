@@ -138,33 +138,36 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (cancellation?.isCancellationRequested) throw new Error('Recipe execution cancelled');
         return sendRequest(command, bytes, forcedRequestId);
     }
+    function startWorker(): Worker {
+        const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
+        activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown }>): void => {
+            if (worker !== activeWorker) return;
+            // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
+            const { requestId, result, error } = event.data;
+            const envelope: Record<string, unknown> = withoutResponseEnvelope(event.data);
+            const wellFormed = Object.keys(envelope).every(key => key === 'result' || envelope[key] === undefined);
+            if (error === undefined && !wellFormed) {
+                // Rejected here because browser-only commands (load, unload, export-plan) settle without a result schema.
+                const request = pending.get(requestId);
+                if (!request) return;
+                pending.delete(requestId);
+                request.reject(new BackendProtocolError(`Invalid ${request.command} response envelope`));
+                return;
+            }
+            settleBackendRequest(pending, requestId, error === undefined ? result! : envelope, error);
+        };
+        activeWorker.onerror = (): void => {
+            if (worker !== activeWorker) return;
+            dispose(); snapshot();
+            announce(strings.browserWorkerFailed);
+            emit({ type: 'reanalyze-end' });
+        };
+        return activeWorker;
+    }
     function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
         if (!worker) {
             if (command.cmd !== 'load' && command.cmd !== 'limits') throw new Error('No selected source; choose the WAV again.');
-            const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
-            worker = activeWorker;
-            worker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown }>): void => {
-                if (worker !== activeWorker) return;
-                // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
-                const { requestId, result, error } = event.data;
-                const envelope: Record<string, unknown> = withoutResponseEnvelope(event.data);
-                const wellFormed = Object.keys(envelope).every(key => key === 'result' || envelope[key] === undefined);
-                if (error === undefined && !wellFormed) {
-                    // Rejected here because browser-only commands (load, unload, export-plan) settle without a result schema.
-                    const request = pending.get(requestId);
-                    if (!request) return;
-                    pending.delete(requestId);
-                    request.reject(new BackendProtocolError(`Invalid ${request.command} response envelope`));
-                    return;
-                }
-                settleBackendRequest(pending, requestId, error === undefined ? result! : envelope, error);
-            };
-            worker.onerror = (): void => {
-                if (worker !== activeWorker) return;
-                dispose(); snapshot();
-                announce(strings.browserWorkerFailed);
-                emit({ type: 'reanalyze-end' });
-            };
+            worker = startWorker();
         }
         const requestId = forcedRequestId ?? pending.nextId();
         return pending.dispatch(String(command.cmd), requestId, response => response, () => {
@@ -435,6 +438,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     cancel.onclick = (): void => {
         dispose(); pick.value = ''; snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);
     };
+    // Pyodide boots when its Worker starts, so starting it with the page keeps that wait off the first WAV load.
+    worker = startWorker();
     window.addEventListener('pagehide', dispose);
     return host;
 }
