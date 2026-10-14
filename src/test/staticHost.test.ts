@@ -155,6 +155,15 @@ test('browser preferences restore safely across reloads and use shared Japanese 
     assert.equal(harness(storage, 'en', true).browser.__APP_STATE__.spectrogramSettings.auto, true);
 });
 
+test('the audio Worker starts with the page and serves the first WAV', async () => {
+    const app = harness();
+    assert.equal(app.workers.length, 1);
+    assert.equal(app.workers[0].commands.length, 0);
+    await app.load();
+    assert.equal(app.workers.length, 1);
+    assert.ok(app.workers[0].commands.some(command => command.cmd === 'load'));
+});
+
 test('unrelated detail/export errors do not end a pending reanalysis', async () => {
     const app = harness();
     await app.load();
