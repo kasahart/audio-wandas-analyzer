@@ -12,6 +12,7 @@ export interface ToolbarSpec {
     trackHeightRange: HeightRange;
     spectrumHeight: number;
     spectrumHeightRange: HeightRange;
+    appVersion: string;
 }
 
 export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
@@ -51,5 +52,6 @@ export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
         + '<span id="cursor-display" title="' + escapeHtml(strings.cursorDisplayHint) + '">—</span>'
         + '<span id="playback-display" title="' + escapeHtml(strings.playbackDisplayTitle) + '"></span>'
         + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escapeHtml(strings.loopBadge) + '</span>'
-        + '<span id="loop-time-display" title="' + escapeHtml(strings.loopTimeDisplayTitle) + '" style="display:none;"></span>';
+        + '<span id="loop-time-display" title="' + escapeHtml(strings.loopTimeDisplayTitle) + '" style="display:none;"></span>'
+        + '<span class="tb-label tb-version" id="app-version">v' + escapeHtml(spec.appVersion) + '</span>';
 }

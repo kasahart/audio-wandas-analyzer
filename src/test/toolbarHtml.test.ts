@@ -11,6 +11,7 @@ const spec: ToolbarSpec = {
     trackHeightRange: { min: 80, max: 400 },
     spectrumHeight: 200,
     spectrumHeightRange: { min: 100, max: 320 },
+    appVersion: '1.2.3 (abc1234)',
 };
 
 test('toolbar marks the active content type', () => {
@@ -35,4 +36,8 @@ test('toolbar groups adjust, workflow and export actions into menus', () => {
     }
     assert.ok(html.includes('id="cursor-display"'));
     assert.ok(html.includes('id="loop-time-display"'));
+});
+
+test('toolbar shows the app version', () => {
+    assert.ok(toolbarHtml(spec, strings).includes('<span class="tb-label tb-version" id="app-version">v1.2.3 (abc1234)</span>'));
 });

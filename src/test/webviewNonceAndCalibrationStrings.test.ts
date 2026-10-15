@@ -17,7 +17,7 @@ test('webview CSP nonces are 128-bit random base64 values', () => {
 });
 
 test('comparison document issues a fresh random nonce per render', () => {
-    const assets = { waveformScriptUri: 'w.js', runtimeScriptUri: 'r.js', cspSource: "'self'", language: 'en' };
+    const assets = { waveformScriptUri: 'w.js', runtimeScriptUri: 'r.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0' };
     const nonceOf = (html: string) => {
         const match = /script-src 'nonce-([^']+)'/.exec(html);
         assert.ok(match);

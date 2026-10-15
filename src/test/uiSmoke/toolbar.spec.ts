@@ -87,7 +87,7 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
             }
         };`;
     const html = renderComparisonDocument({ mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS }, {
-        waveformScriptUri: './comparisonWaveform.js', runtimeScriptUri: './comparisonRuntime.js', hostScriptUri: './staticHost.js', cspSource: "'self'", language: 'en',
+        waveformScriptUri: './comparisonWaveform.js', runtimeScriptUri: './comparisonRuntime.js', hostScriptUri: './staticHost.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0',
     });
     await page.route('http://awa.test/**', async route => {
         const name = new URL(route.request().url()).pathname.slice(1);

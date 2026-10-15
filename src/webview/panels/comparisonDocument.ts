@@ -9,6 +9,7 @@ export interface ComparisonAssets {
     hostScriptUri?: string;
     cspSource: string;
     language: string;
+    appVersion: string;
 }
 
 export function renderComparisonDocument(state: ComparisonState, assets: ComparisonAssets): string {
@@ -39,6 +40,7 @@ export function renderComparisonDocument(state: ComparisonState, assets: Compari
         window.__APP_STATE__ = ${serializeForScript(state)};
         window.__APP_STRINGS__ = ${serializeForScript(strings)};
         window.__APP_LOCALE__ = ${serializeForScript(locale)};
+        window.__APP_VERSION__ = ${serializeForScript(assets.appVersion)};
     </script>
     <script src="${assets.waveformScriptUri}"></script>
     ${assets.hostScriptUri ? `<script src="${assets.hostScriptUri}"></script>` : ''}
@@ -142,6 +144,7 @@ export function renderComparisonStyles(): string {
             border-radius: 3px; border: 1px solid var(--line); background: var(--surface);
             color: var(--text); font-family: var(--font-mono); text-align: right;
         }
+        .tb-version { margin-left: auto; font-family: var(--font-mono); }
         .tb-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
         .tb-menu { position: relative; display: inline-flex; }
         .tb-menu > summary { list-style: none; }
