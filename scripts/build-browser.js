@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { renderComparisonDocument } = require('../dist/webview/panels/comparisonDocument');
 const { DEFAULT_SPECTROGRAM_SETTINGS } = require('../dist/shared/analysis/analysisTypes');
 const root = path.resolve(__dirname, '..');
@@ -36,5 +37,6 @@ for (const name of pythonModules) fs.copyFileSync(path.join(root, 'python-backen
 fs.writeFileSync(path.join(out, 'python/manifest.json'), JSON.stringify(pythonModules));
 fs.writeFileSync(path.join(out, 'index.html'), renderComparisonDocument({ mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS }, {
     waveformScriptUri: './comparisonWaveform.js', runtimeScriptUri: './comparisonRuntime.js', hostScriptUri: './staticHost.js', cspSource: "'self'", language: 'en',
+    appVersion: `${require('../package.json').version} (${execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()})`,
 }));
 console.log('Built browser-dist/ (relative URLs, suitable for a GitHub Pages project subpath)');

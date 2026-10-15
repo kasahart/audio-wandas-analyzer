@@ -366,5 +366,6 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
         runtimeScriptUri: webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonRuntime.js')).toString(),
         cspSource: webview.cspSource,
         language: typeof vscode.env?.language === 'string' ? vscode.env.language : 'en',
+        appVersion: (require('../../../package.json') as { version: string }).version,
     });
 }

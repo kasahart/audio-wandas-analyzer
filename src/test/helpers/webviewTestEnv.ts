@@ -170,6 +170,7 @@ export function createWebviewEnv(appStateJson: string, initialVsCodeState: unkno
     const win = dom.window as any;
     win.__APP_STATE__ = JSON.parse(appStateJson);
     win.__APP_STRINGS__ = getStrings('en');
+    win.__APP_VERSION__ = '0.0.0';
 
     // VS Code API スタブ
     win.acquireVsCodeApi = () => ({

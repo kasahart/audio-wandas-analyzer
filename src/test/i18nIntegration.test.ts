@@ -107,6 +107,12 @@ test('i18n: __APP_LOCALE__ も注入される', () => {
     assert.match(renderHtmlWith('fr'), /window\.__APP_LOCALE__\s*=\s*"en";/);
 });
 
+test('VS Code panel injects the extension version from package.json', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { version } = require('../../package.json') as { version: string };
+    assert.ok(renderHtmlWith('en').includes('window.__APP_VERSION__ = ' + JSON.stringify(version) + ';'));
+});
+
 test('i18n: toolbarMain ラベルが "Files" (en) / "ファイル" (ja) であること', () => {
     assert.match(renderHtmlWith('en'), /"toolbarMain":\s*"Files"/);
     assert.match(renderHtmlWith('ja'), /"toolbarMain":\s*"ファイル"/);

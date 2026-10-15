@@ -60,6 +60,7 @@ export interface WebviewHostApi {
 export interface ComparisonBootstrap {
     state: ComparisonState;
     strings: UiStrings;
+    appVersion: string;
     host: WebviewHostApi;
     window: RuntimeWindow;
     document: Document;
