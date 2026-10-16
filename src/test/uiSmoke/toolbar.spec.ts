@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderComparisonDocument } from '../../webview/panels/comparisonDocument';
 import { DEFAULT_SPECTROGRAM_SETTINGS } from '../../shared/analysis/analysisTypes';
@@ -66,13 +67,9 @@ test(clearSources ? 'clearing a pending browser recipe keeps the cleared status'
 });
 }
 
-test('static page CSP allows recipe charts and calibration clicks report unsupported functionality', async ({ page }) => {
-    const cspErrors: string[] = [];
-    page.on('console', message => {
-        if (/Content Security Policy|violates.*directive/i.test(message.text())) cspErrors.push(message.text());
-    });
+function staticWorkerInit(): string {
     const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')).validResponses;
-    const init = `window.prompt = () => '1';
+    return `window.prompt = () => '1';
         const fixtures = ${JSON.stringify(fixtures.map(workerFixture))};
         window.Worker = class {
             terminate() {}
@@ -86,6 +83,11 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
                 queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
             }
         };`;
+}
+
+/** Serves the Pages build (static host + modular runtime) with a fixture Worker in place of Pyodide. */
+async function openStaticPage(page: Page): Promise<void> {
+    const init = staticWorkerInit();
     const html = renderComparisonDocument({ mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS }, {
         waveformScriptUri: './comparisonWaveform.js', runtimeScriptUri: './comparisonRuntime.js', hostScriptUri: './staticHost.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0',
     });
@@ -102,6 +104,14 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
         await route.fulfill({ contentType: 'text/javascript', body });
     });
     await page.goto('http://awa.test/');
+}
+
+test('static page CSP allows recipe charts and calibration clicks report unsupported functionality', async ({ page }) => {
+    const cspErrors: string[] = [];
+    page.on('console', message => {
+        if (/Content Security Policy|violates.*directive/i.test(message.text())) cspErrors.push(message.text());
+    });
+    await openStaticPage(page);
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
     await expect(page.locator('[data-action="configure-calibration"]')).toHaveCount(1);
     await page.locator('[data-action="configure-calibration"]').click();
@@ -113,6 +123,36 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
     await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
     await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toBeVisible();
     expect(cspErrors).toEqual([]);
+});
+
+
+test('static page opens a folder into the shared selection tree and checked files become tracks', async ({ page }) => {
+    const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
+    mkdirSync(join(folder, 'rec', 'day2'), { recursive: true });
+    writeFileSync(join(folder, 'rec', 'first.wav'), Buffer.alloc(100));
+    writeFileSync(join(folder, 'rec', 'day2', 'second.wav'), Buffer.alloc(100));
+    writeFileSync(join(folder, 'rec', 'notes.txt'), 'not audio');
+    await openStaticPage(page);
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('[data-action="browser-open-folder"]').click();
+    await (await chooser).setFiles(join(folder, 'rec'));
+    await expect(page.locator('#selection-sidebar')).toBeVisible();
+    await expect(page.locator('#selection-summary .selection-path')).toHaveText('/sources/rec');
+    await expect(page.locator('.selection-file-checkbox')).toHaveCount(2);
+    await expect(page.locator('#selection-python-environment')).toHaveCount(0);
+    await expect(page.locator('#selection-results-pane #toolbar')).toHaveCount(1);
+    await expect(page.locator('#directory-selection-layout')).toBeInViewport({ ratio: 1 });
+    await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/first.wav"]').check();
+    await expect(page.locator('.track-row')).toHaveCount(1);
+    await expect(page.locator('#selection-count')).toContainText('1 / 2');
+    await page.locator('[data-action="selection-select-all"]').click();
+    await expect(page.locator('.track-row')).toHaveCount(2);
+    await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/first.wav"]').uncheck();
+    await expect(page.locator('.track-row')).toHaveCount(1);
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]')).toBeChecked();
+    await page.locator('[data-action="browser-clear"]').click();
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    await expect(page.locator('.selection-file-checkbox:checked')).toHaveCount(0);
 });
 
 async function getPostedActionTypes(page: Page): Promise<string[]> {

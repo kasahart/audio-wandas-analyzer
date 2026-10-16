@@ -53,6 +53,7 @@ export type HostInboundMessage =
     | { type: 'reanalyze-start'; count: number }
     | { type: 'reanalyze-end' }
     | { type: 'analysis-file-progress'; current: number; total: number; fileName: string }
+    | { type: 'directory-selection'; rootPath: string; filePaths: string[] }
     | AnalysisUpdateMessage;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,6 +110,9 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
             return true;
         case 'analysis-file-progress':
             return hasNumber(value, 'current') && hasNumber(value, 'total') && hasString(value, 'fileName');
+        case 'directory-selection':
+            return hasString(value, 'rootPath') && Array.isArray(value.filePaths)
+                && value.filePaths.every(path => typeof path === 'string');
         case 'analysis-update':
             return Array.isArray(value.results) && (value.selectedFilePaths === undefined
                 || Array.isArray(value.selectedFilePaths) && value.selectedFilePaths.every(path => typeof path === 'string'));

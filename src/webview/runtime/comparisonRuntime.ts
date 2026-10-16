@@ -99,7 +99,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const navigator = window.navigator;
     const ResizeObserver = window.ResizeObserver;
     const getComputedStyle = window.getComputedStyle.bind(window);
-    const isSelectionMode = state.mode === 'directory-selection';
+    let isSelectionMode = state.mode === 'directory-selection';
+    // Only a host that opened the page in selection mode offers a Python environment picker; the Web host enters it later.
+    const hasPythonEnvironmentPicker = isSelectionMode;
     const selection = new OrderedSelection();
     const selectedFilePaths = selection.paths;
     if (Array.isArray(state.selectedFilePaths)) {
@@ -116,23 +118,27 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         persistedStore.update(patch);
         persistedWebviewState = persistedStore.snapshot;
     }
-    const currentTreeFilterRootPath = state.rootPath || '';
     // ─── ファイルパス一覧からディレクトリツリーを webview 側で組み立てる (#91) ───
     const selectionTree = buildSelectionTreeFromPaths(state.rootPath, allSelectableFilePaths);
     var __directoryTree = isSelectionMode ? selectionTree.roots : [];
     // 折りたたみ状態とフィルタ文字列は webview.html 再代入後も vscode.getState() から current rootPath 単位で復元する
+    function savedTreeState(rootPath: string) {
+        return {
+            rootPath,
+            collapseState: persistedWebviewState.directoryCollapseRootPath === rootPath
+                ? (persistedWebviewState.directoryCollapseState || {})
+                : {},
+            filterQuery: persistedWebviewState.treeFilterRootPath === rootPath
+                && typeof persistedWebviewState.treeFilterQuery === 'string'
+                ? persistedWebviewState.treeFilterQuery
+                : '',
+        };
+    }
     const selectionTreeView = createSelectionTreeView({
         document,
         strings: STR,
         tree: selectionTree,
-        rootPath: currentTreeFilterRootPath,
-        collapseState: persistedWebviewState.directoryCollapseRootPath === currentTreeFilterRootPath
-            ? (persistedWebviewState.directoryCollapseState || {})
-            : {},
-        filterQuery: persistedWebviewState.treeFilterRootPath === currentTreeFilterRootPath
-            && typeof persistedWebviewState.treeFilterQuery === 'string'
-            ? persistedWebviewState.treeFilterQuery
-            : '',
+        ...savedTreeState(state.rootPath || ''),
         isSelected: hasSelectedFilePath,
         persist: persistWebviewState,
         onFileToggled(filePath, checked) {
@@ -1063,19 +1069,44 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         return buildResultsPane(STR.emptyAllExcluded);
     }
-    function buildDirectorySelectionLayout() {
+    function buildDirectorySelectionLayout(resultsPaneHtml = buildResultsPane(STR.emptyNoTracks)) {
         const warning = pythonEnvironmentState.status === 'warning';
         return selectionLayoutHtml({
             rootPath: state.rootPath || '',
             filterQuery: selectionTreeView.filterQuery,
             treeHtml: selectionTreeView.renderTree(__directoryTree, true, 0),
-            resultsPaneHtml: buildResultsPane(STR.emptyNoTracks),
-            python: {
+            resultsPaneHtml,
+            python: hasPythonEnvironmentPicker ? {
                 text: buildPythonButtonText(pythonEnvironmentState.pythonCommand, warning),
                 tooltip: buildPythonTooltip(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.tooltip),
                 warning,
-            },
+            } : undefined,
         }, STR);
+    }
+    /** Lists another directory in the tree; a results-mode page wraps its existing results pane in the selection layout. */
+    function showDirectorySelection(rootPath: string, filePaths: string[]) {
+        state.rootPath = rootPath;
+        clearSelectedFilePaths();
+        const tree = buildSelectionTreeFromPaths(rootPath, filePaths);
+        __directoryTree = tree.roots;
+        selectionTreeView.replaceTree({ tree, ...savedTreeState(rootPath) });
+        if (isSelectionMode) {
+            const pathEl = document.querySelector('#selection-summary .selection-path');
+            if (pathEl) {
+                pathEl.textContent = rootPath;
+            }
+            return;
+        }
+        isSelectionMode = true;
+        const resultsNodes = Array.from(app.childNodes);
+        app.innerHTML = buildDirectorySelectionLayout('');
+        requiredElementById(document, 'selection-results-pane').append(...resultsNodes);
+        const emptyMessage = document.querySelector('#empty-state p');
+        if (emptyMessage) {
+            emptyMessage.textContent = STR.emptyNoTracks;
+        }
+        attachDirectorySelectionEvents();
+        scheduleRender();
     }
     function buildTrackRowsHtml() {
         return trackStore.displayOrder.map(function (trackId) {
@@ -2798,6 +2829,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     installHelpOverlay(document, STR);
     messaging.onMessage(function (msg) {
         if (!msg) {
+            return;
+        }
+        if (msg.type === 'directory-selection') {
+            showDirectorySelection(msg.rootPath, msg.filePaths);
             return;
         }
         if (msg.type === 'reanalyze-start') {

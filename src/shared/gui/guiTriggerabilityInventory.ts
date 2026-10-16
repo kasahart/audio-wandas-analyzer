@@ -42,6 +42,7 @@ export const GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS = [
 
 export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'browser-open-wav',
+    'browser-open-folder',
     'browser-clear',
     'browser-recipe-close',
     'open-file',
@@ -264,9 +265,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'static-browser-source',
-        label: 'Open short WAV in a local Python Worker, cancel and clear source memory',
+        label: 'Open short WAV or a folder of them in a local Python Worker, cancel and clear source memory',
         entryPoints: ['dialog', 'results-toolbar'],
-        triggers: ['browser-open-wav', 'browser-clear'],
+        triggers: ['browser-open-wav', 'browser-open-folder', 'browser-clear'],
         regressionLayers: ['ui-smoke'],
     },
 ] as const;

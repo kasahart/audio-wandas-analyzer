@@ -127,7 +127,7 @@ Select one or more WAV files, then use the waveform, spectrogram, cursor, playba
 | WAV export | Uncalibrated PCM16 audio; up to 32 MiB in total |
 <!-- browser-limits:end -->
 
-Folder scanning and calibration settings are available in the VS Code extension only. Use a desktop browser for the full set of mouse controls; dragging to select a loop is not supported on touch screens.
+Use **Open Folder** to list a folder's WAV files in a tree and check the ones to compare, as in the VS Code extension. Calibration settings are available in the VS Code extension only. Use a desktop browser for the full set of mouse controls; dragging to select a loop is not supported on touch screens.
 
 Display and spectrogram settings are remembered between visits. Audio files, cursor position and track offsets are not saved; select your files again after reloading. **Clear** removes all loaded audio. Exported notebooks refer to the audio file names listed in the report, so place copies of your audio beside the notebook using those names.
 
