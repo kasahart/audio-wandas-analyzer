@@ -596,6 +596,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "channels",
                 "frequencyBins",
                 "maxFrequencyHz",
+                "windowStartNorm",
+                "windowEndNorm",
+                "window",
                 "computeMs"
             ],
             "properties": {
@@ -622,6 +625,21 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "maxFrequencyHz": {
                     "type": "number"
+                },
+                "windowStartNorm": {
+                    "type": "number"
+                },
+                "windowEndNorm": {
+                    "type": "number"
+                },
+                "window": {
+                    "type": "string",
+                    "enum": [
+                        "hann",
+                        "hamming",
+                        "blackman",
+                        "boxcar"
+                    ]
                 },
                 "computeMs": {
                     "type": "number"
@@ -987,6 +1005,9 @@ export interface SpectrumSliceResult {
     channels: SpectrumSliceChannel[];
     frequencyBins: number;
     maxFrequencyHz: number;
+    windowStartNorm: number;
+    windowEndNorm: number;
+    window: "hann" | "hamming" | "blackman" | "boxcar";
     computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;

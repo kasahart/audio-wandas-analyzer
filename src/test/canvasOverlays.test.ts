@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    analysisWindowWeight,
     canvasTimeHit,
     clampedCanvasNorm,
     clientToCanvasPixels,
     CURSOR_LINE_STYLE,
+    drawAnalysisWindowBand,
     drawDashedTimeLine,
     drawRectZoomSelection,
     formatReadoutHz,
@@ -84,4 +86,34 @@ test('clientToCanvasPixels scales client offsets to the canvas backing store', (
 test('clientToCanvasPixels uses a 1:1 scale when the canvas has no layout size', () => {
     const rect = { left: 10, top: 20, width: 0, height: 0 };
     assert.deepEqual(clientToCanvasPixels(15, 23, rect, 400, 100), { x: 5, y: 3 });
+});
+
+test('analysisWindowWeight follows the named window and treats boxcar as flat', () => {
+    assert.equal(analysisWindowWeight('hann', 0), 0);
+    assert.equal(analysisWindowWeight('hann', 0.5), 1);
+    assert.ok(Math.abs(analysisWindowWeight('hamming', 0) - 0.08) < 1e-12);
+    assert.ok(Math.abs(analysisWindowWeight('blackman', 0.5) - 1) < 1e-12);
+    assert.equal(analysisWindowWeight('boxcar', 0.1), 1);
+});
+
+test('drawAnalysisWindowBand traces the window shape across the band', () => {
+    const { ctx, calls } = recordingContext();
+    drawAnalysisWindowBand(ctx, { startNorm: 0.25, endNorm: 0.75, window: 'hann' }, { start: 0, end: 1 }, 200, 40);
+    const points = calls.filter(([name]) => name === 'lineTo').map(([, args]) => args as number[]);
+    assert.equal(points[0][0], 50);
+    assert.equal(points[0][1], 40);
+    const peak = points.reduce((best, p) => (p[1] < best[1] ? p : best));
+    assert.equal(peak[0], 100);
+    assert.ok(peak[1] < 5);
+});
+
+test('drawAnalysisWindowBand keeps a visible minimum width and skips bands outside the view', () => {
+    const narrow = recordingContext();
+    drawAnalysisWindowBand(narrow.ctx, { startNorm: 0.5, endNorm: 0.5001, window: 'hann' }, { start: 0, end: 1 }, 200, 40);
+    const fill = narrow.calls.find(([name]) => name === 'fillRect');
+    assert.ok(fill && (fill[1][2] as number) >= 3);
+    assert.equal(narrow.calls.some(([name]) => name === 'lineTo'), false);
+    const outside = recordingContext();
+    drawAnalysisWindowBand(outside.ctx, { startNorm: 0.8, endNorm: 0.9 }, { start: 0, end: 0.5 }, 200, 40);
+    assert.equal(outside.calls.length, 0);
 });

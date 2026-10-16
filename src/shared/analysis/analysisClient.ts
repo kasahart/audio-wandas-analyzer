@@ -218,6 +218,7 @@ export async function executeLazyAnalysis(
     if ('frequencyBins' in result) {
         return { ...identity, analysisRevision: result.analysisRevision, type: 'spectrum-slice-result' as const, channels: result.channels,
             frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, computeMs: result.computeMs,
+            windowStartNorm: result.windowStartNorm, windowEndNorm: result.windowEndNorm, window: result.window,
             ...(message.type === 'request-spectrum-slice' ? { cursorNorm: message.cursorNorm } : {}) };
     }
     return { ...identity, analysisRevision: result.analysisRevision, type: 'track-detail-result' as const, channels: result.channels };

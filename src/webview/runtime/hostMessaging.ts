@@ -40,6 +40,9 @@ export type HostInboundMessage =
         }>;
         frequencyBins: number;
         maxFrequencyHz: number;
+        windowStartNorm?: number;
+        windowEndNorm?: number;
+        window?: string;
         computeMs?: number;
     })
     | (LazyResponseIdentity & { type: 'spectrum-slice-error'; error: string })
@@ -97,6 +100,9 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
                     && channel.values.every((item) => typeof item === 'number' && Number.isFinite(item))
                     && hasNumber(channel, 'minDb') && hasNumber(channel, 'maxDb'))
                 && hasNumber(value, 'frequencyBins') && hasNumber(value, 'maxFrequencyHz')
+                && (value.windowStartNorm === undefined || hasNumber(value, 'windowStartNorm'))
+                && (value.windowEndNorm === undefined || hasNumber(value, 'windowEndNorm'))
+                && (value.window === undefined || hasString(value, 'window'))
                 && (value.computeMs === undefined || hasNumber(value, 'computeMs'));
         case 'python-environment-state':
             return hasString(value, 'pythonCommand') && hasString(value, 'status') && hasString(value, 'tooltip');

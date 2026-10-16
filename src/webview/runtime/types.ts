@@ -125,6 +125,10 @@ export interface SpectrumSlice {
     channelIndex?: number;
     settingsSignature?: string;
     originalMaxFrequencyHz?: number;
+    /** Track-normalized span of the samples the backend actually transformed; may extend past 0..1 where frames are padded. */
+    windowStartNorm?: number;
+    windowEndNorm?: number;
+    window?: string;
 }
 
 export interface WaveformRangeCache {

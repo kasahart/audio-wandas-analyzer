@@ -302,6 +302,26 @@ def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> N
     assert abs(float(channel["maxDb"]) - float(np.max(expected_row))) < 1.0
 
 
+@pytest.mark.parametrize("cached_detail", [False, True])
+def test_spectrum_slice_reports_the_transformed_window(tmp_path: Path, cached_detail: bool) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    opts = {"nFft": 256, "hopSize": 128, "window": "hamming"}
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
+    if cached_detail:
+        handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)
+    resp = handle_spectrum_slice(
+        {"filePath": str(wav), "trackIndex": 0, "cursorNorm": 0.5, "stftOptions": opts}, service
+    )
+
+    assert result_violation("spectrum-slice", resp) is None
+    assert resp["window"] == "hamming"
+    sample_count = 8000
+    assert (resp["windowEndNorm"] - resp["windowStartNorm"]) * sample_count == pytest.approx(256)
+    center = (resp["windowStartNorm"] + resp["windowEndNorm"]) / 2
+    assert abs(center - 0.5) * sample_count <= 16000 / 60 + 1  # live slices snap the cursor to 1/30 s
+
+
 @pytest.mark.parametrize("cursor_norm", [-1.0, 0.0, 1.0, 2.0])
 def test_spectrum_slice_clamps_cursor_to_cached_stft_bounds(tmp_path: Path, cursor_norm: float) -> None:
     wav = tmp_path / "tone.wav"

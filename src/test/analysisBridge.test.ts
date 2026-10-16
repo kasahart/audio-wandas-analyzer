@@ -10,7 +10,7 @@ class RecordingClient extends AnalysisClient {
     calls: Array<{ command: BackendCommand; payload: unknown; requestId?: string }> = [];
     protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>, requestId?: string): Promise<BackendResult<K>> {
         this.calls.push({ command, payload, requestId });
-        return { channels: [], analysisRevision: 7, ...(command === 'spectrum-slice' ? { frequencyBins: 0, maxFrequencyHz: 8000 } : {}) } as unknown as BackendResult<K>;
+        return { channels: [], analysisRevision: 7, ...(command === 'spectrum-slice' ? { frequencyBins: 0, maxFrequencyHz: 8000, windowStartNorm: 0.4, windowEndNorm: 0.6, window: 'hann' } : {}) } as unknown as BackendResult<K>;
     }
 }
 
@@ -28,6 +28,7 @@ test('all analysis paths carry the same settings/calibration context; range carr
     const slice = await executeLazyAnalysis(client, { ...identity, type: 'request-spectrum-slice', cursorNorm: 0.5 }, context);
     assert.equal(slice.type, 'spectrum-slice-result');
     assert.equal('cursorNorm' in slice && slice.cursorNorm, 0.5);
+    assert.deepEqual('windowStartNorm' in slice && [slice.windowStartNorm, slice.windowEndNorm, slice.window], [0.4, 0.6, 'hann']);
     for (const call of client.calls) {
         const payload = call.payload as Record<string, unknown>;
         assert.deepEqual(payload.calibrationProfile, context.calibrationProfile);

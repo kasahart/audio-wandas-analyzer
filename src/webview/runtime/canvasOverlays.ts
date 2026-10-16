@@ -110,3 +110,77 @@ export function drawRectZoomSelection(
     ctx.strokeRect(left, top, right - left, bottom - top);
     ctx.restore();
 }
+
+export interface AnalysisWindowBand {
+    startNorm: number;
+    endNorm: number;
+    window?: string;
+}
+
+const ANALYSIS_WINDOW_COLOR = '255, 190, 70';
+const ANALYSIS_WINDOW_MIN_PX = 3;
+const ANALYSIS_WINDOW_CURVE_MIN_PX = 12;
+
+/** Weight of the named STFT window at phase 0..1, matching the backend's window names. */
+export function analysisWindowWeight(window: string | undefined, phase: number): number {
+    const a = 2 * Math.PI * phase;
+    switch (window) {
+        case 'hann': return 0.5 - 0.5 * Math.cos(a);
+        case 'hamming': return 0.54 - 0.46 * Math.cos(a);
+        case 'blackman': return Math.max(0, 0.42 - 0.5 * Math.cos(a) + 0.08 * Math.cos(2 * a));
+        default: return 1;
+    }
+}
+
+/**
+ * Shades the samples behind the cursor-linked spectrum and draws the window's weighting curve over them,
+ * so the parts of the waveform the window suppresses stay visible. Narrow bands keep a minimum width.
+ */
+export function drawAnalysisWindowBand(
+    ctx: CanvasRenderingContext2D,
+    band: AnalysisWindowBand,
+    view: NormalizedRange,
+    width: number,
+    height: number,
+): void {
+    const span = view.end - view.start;
+    if (span <= 0 || !(band.endNorm > band.startNorm)) {
+        return;
+    }
+    const x0 = (band.startNorm - view.start) / span * width;
+    const x1 = (band.endNorm - view.start) / span * width;
+    if (x1 < 0 || x0 > width) {
+        return;
+    }
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, width, height);
+    ctx.clip();
+    if (x1 - x0 < ANALYSIS_WINDOW_CURVE_MIN_PX) {
+        const mid = (x0 + x1) / 2;
+        const half = Math.max(ANALYSIS_WINDOW_MIN_PX, x1 - x0) / 2;
+        ctx.fillStyle = 'rgba(' + ANALYSIS_WINDOW_COLOR + ', 0.45)';
+        ctx.fillRect(mid - half, 0, half * 2, height);
+        ctx.restore();
+        return;
+    }
+    ctx.fillStyle = 'rgba(' + ANALYSIS_WINDOW_COLOR + ', 0.08)';
+    ctx.fillRect(x0, 0, x1 - x0, height);
+    const steps = Math.max(8, Math.min(256, Math.ceil(x1 - x0)));
+    const top = height * 0.06;
+    const usable = height - top;
+    ctx.beginPath();
+    ctx.moveTo(x0, height);
+    for (let i = 0; i <= steps; i++) {
+        const phase = i / steps;
+        ctx.lineTo(x0 + phase * (x1 - x0), height - analysisWindowWeight(band.window, phase) * usable);
+    }
+    ctx.lineTo(x1, height);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(' + ANALYSIS_WINDOW_COLOR + ', 0.18)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(' + ANALYSIS_WINDOW_COLOR + ', 0.9)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+}
