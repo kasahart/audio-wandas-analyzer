@@ -410,7 +410,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                     sources.delete(path);
                     try { await request({ cmd: 'unload', filePath: path }); }
                     catch (error) {
-                        if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(error instanceof Error ? error.message : String(error)); }
+                        if (!sourceGeneration.isCurrent(myGeneration)) return;
+                        if (error instanceof RecipeWorkerResetError) { snapshot(); return; }
+                        dispose(); snapshot(); announce(error instanceof Error ? error.message : String(error));
                         return;
                     }
                 }

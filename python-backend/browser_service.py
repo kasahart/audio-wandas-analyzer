@@ -77,7 +77,9 @@ class BrowserEngine(AnalysisEngine):
             )
         # Folder picks keep their relative path so the Web tree and the loaded track share one filePath.
         path = Path("/sources") / source_id
-        if path.as_posix() != f"/sources/{source_id}" or ".." in path.parts or not source_id.lower().endswith(".wav"):
+        if path.as_posix() != f"/sources/{source_id}" or ".." in path.parts:
+            raise InputError("Invalid source identity")
+        if not source_id.lower().endswith(".wav"):
             raise InputError("Invalid source identity")
         if path in self._files:
             raise InputError("Source identity is already loaded")
