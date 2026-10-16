@@ -96,10 +96,14 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const cancel = document.createElement('button');
     cancel.setAttribute('data-action', 'browser-clear');
     cancel.textContent = strings.btnClear;
+    const pythonState = document.createElement('span');
+    pythonState.setAttribute('data-python-state', '');
+    pythonState.setAttribute('aria-live', 'polite');
+    pythonState.style.cssText = 'white-space:nowrap';
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
     status.textContent = strings.browserWavHint;
-    bar.append(pick, cancel, status);
+    bar.append(pick, cancel, pythonState, status);
     document.body.prepend(bar);
     const announce = (value: string): void => { status.textContent = value; };
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
@@ -108,6 +112,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function resetWorker(reason: Error): void {
         reanalysisGeneration.advance();
         worker?.terminate(); worker = undefined;
+        pythonState.textContent = strings.browserPythonStopped;
         recovery = undefined;
         rejectPendingRequests(pending, reason);
     }
@@ -140,8 +145,13 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }
     function startWorker(): Worker {
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
-        activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown }>): void => {
+        pythonState.textContent = strings.browserPythonStarting;
+        activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown; ready?: boolean }>): void => {
             if (worker !== activeWorker) return;
+            if (event.data.ready !== undefined) {
+                pythonState.textContent = event.data.ready ? strings.browserPythonReady : strings.browserPythonFailed;
+                return;
+            }
             // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
             const { requestId, result, error } = event.data;
             const envelope: Record<string, unknown> = withoutResponseEnvelope(event.data);

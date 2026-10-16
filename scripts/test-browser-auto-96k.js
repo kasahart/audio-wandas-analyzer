@@ -40,9 +40,10 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
             const worker=new Worker('./audio.worker.js',{type:'module'});
             let id=0;
             const run=command=>new Promise((resolve,reject)=>{
-                worker.onmessage=({data})=>data.error?reject(new Error(data.error.message)):resolve(data.result);
+                const requestId=String(++id);
+                worker.onmessage=({data})=>{ if(data.requestId!==requestId) return; data.error?reject(new Error(data.error.message)):resolve(data.result); };
                 worker.onerror=e=>reject(new Error(e.message));
-                worker.postMessage({...command,requestId:String(++id)});
+                worker.postMessage({...command,requestId});
             });
             try {
                 const bytes=await (await fetch('./auto-96k-fixture.wav')).arrayBuffer();

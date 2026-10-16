@@ -133,7 +133,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     }
     return { host, browser, storage, workers, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served,
         setPromptAnswer(value: string | null) { promptAnswer = value; },
-        get status() { return elements.find(element => element.tag === 'span')!.textContent; },
+        get status() { return elements.find(element => element.attributes.role === 'status')!.textContent; },
         get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -162,6 +162,23 @@ test('the audio Worker starts with the page and serves the first WAV', async () 
     await app.load();
     assert.equal(app.workers.length, 1);
     assert.ok(app.workers[0].commands.some(command => command.cmd === 'load'));
+});
+
+test('the Python indicator follows the Worker boot, a failed boot and a reset', async () => {
+    const app = harness();
+    const indicator = app.elements.find(element => 'data-python-state' in element.attributes)!;
+    assert.equal(indicator.textContent, 'Python: starting…');
+    app.workers[0].onmessage({ data: { ready: true } });
+    assert.equal(indicator.textContent, 'Python: ready');
+    await app.load();
+    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    assert.equal(indicator.textContent, 'Python: stopped (restarts when needed)');
+    await app.load();
+    assert.equal(indicator.textContent, 'Python: starting…');
+    app.workers[1].onmessage({ data: { ready: false } });
+    assert.equal(indicator.textContent, 'Python: failed to start');
+    app.workers[0].onmessage({ data: { ready: true } });
+    assert.equal(indicator.textContent, 'Python: failed to start');
 });
 
 test('unrelated detail/export errors do not end a pending reanalysis', async () => {

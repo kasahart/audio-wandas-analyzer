@@ -106,7 +106,7 @@ const server = http.createServer((req,res) => {
             let id=0;
             const run=command=>new Promise((resolve,reject)=>{
                 const requestId=String(++id);
-                worker.onmessage=({data})=> data.error?reject(new Error(data.error.message)):resolve(data.result);
+                worker.onmessage=({data})=>{ if(data.requestId!==requestId) return; data.error?reject(new Error(data.error.message)):resolve(data.result); };
                 worker.onerror=event=>reject(new Error(event.message));
                 worker.postMessage({...command,requestId});
             });
