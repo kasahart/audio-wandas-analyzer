@@ -88,6 +88,7 @@ export interface UiStrings {
     canvasOutOfRange: string;
     spectrumNoData: string;
     spectrumAnalysisWindow: string;
+    spectrumAnalysisWindowPerTrack: string;
     spectrogramLoading: string;
     settingsApplyHint: string;
     reanalyzingStft: string;
@@ -307,6 +308,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         canvasOutOfRange: 'Out of range',
         spectrumNoData: 'No track has data at the cursor position',
         spectrumAnalysisWindow: 'window',
+        spectrumAnalysisWindowPerTrack: 'window differs per track (see the bands)',
         spectrogramLoading: 'Loading spectrogram...',
         settingsApplyHint: 'Click Apply to commit changes',
         reanalyzingStft: 'Recomputing STFT…',
@@ -523,6 +525,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         canvasOutOfRange: '範囲外',
         spectrumNoData: 'カーソル位置にデータがあるトラックがありません',
         spectrumAnalysisWindow: '解析窓',
+        spectrumAnalysisWindowPerTrack: '解析窓はトラックごとに異なります（帯を参照）',
         spectrogramLoading: 'スペクトログラムを読み込み中...',
         settingsApplyHint: '変更は「適用」で反映',
         reanalyzingStft: 'STFT を再計算中…',

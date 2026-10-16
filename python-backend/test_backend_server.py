@@ -337,6 +337,16 @@ def test_spectrum_slice_reports_the_transformed_window(tmp_path: Path, cached_de
     assert covers_impulse(slice_at(impulse_at))
 
 
+def test_spectrum_slice_window_includes_fft_padding_past_a_short_file(tmp_path: Path) -> None:
+    wav = tmp_path / "short.wav"
+    _write_sine_wav(wav, seconds=200 / 16000)
+    resp = handle_spectrum_slice(
+        {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"}}
+    )
+    assert resp["windowStartNorm"] == 0
+    assert resp["windowEndNorm"] * 200 == pytest.approx(256)
+
+
 @pytest.mark.parametrize("cursor_norm", [-1.0, 0.0, 1.0, 2.0])
 def test_spectrum_slice_clamps_cursor_to_cached_stft_bounds(tmp_path: Path, cursor_norm: float) -> None:
     wav = tmp_path / "tone.wav"

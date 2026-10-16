@@ -1419,7 +1419,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function analysisWindowBand(trackIndex: number, channelIndex: number): AnalysisWindowBand | null {
         const result = state.results[trackIndex];
         const record = trackRecordAtIndex(trackIndex);
-        if (!result || !record || record.runtime.hidden || trackLocalCursorNorm(trackIndex, spectrumCursorNorm) === null) {
+        const localNorm = trackLocalCursorNorm(trackIndex, spectrumCursorNorm);
+        // At the exact track end the spectrum is a synthetic silent slice, not a backend transform.
+        if (!result || !record || record.runtime.hidden || localNorm === null || localNorm >= 1) {
             return null;
         }
         const slice = record.spectrumSliceCache.get(channelIndex) ?? record.spectrumSliceCache.get(0);
@@ -2731,17 +2733,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function analysisWindowCaption() {
+        const gs = trackStore.globalSpan();
+        const captions = new Set<string>();
         for (const trackId of trackStore.displayOrder) {
             const band = analysisWindowBand(trackStore.require(trackId).protocolIndex, 0);
             if (band) {
-                const gs = trackStore.globalSpan();
                 const ms = (band.endNorm - band.startNorm) * gs.spanSec * 1000;
-                return '  ' + STR.spectrumAnalysisWindow + (band.window ? ' ' + band.window : '') + ' '
+                captions.add(STR.spectrumAnalysisWindow + (band.window ? ' ' + band.window : '') + ' '
                     + (gs.startSec + band.startNorm * gs.spanSec).toFixed(3) + '–' + (gs.startSec + band.endNorm * gs.spanSec).toFixed(3)
-                    + ' s (' + ms.toFixed(ms < 10 ? 2 : 1) + ' ms)';
+                    + ' s (' + ms.toFixed(ms < 10 ? 2 : 1) + ' ms)');
             }
         }
-        return '';
+        if (captions.size === 0) {
+            return '';
+        }
+        return '  ' + (captions.size === 1 ? captions.values().next().value : STR.spectrumAnalysisWindowPerTrack);
     }
     function removeTrack(trackId: TrackId) {
         const record = trackStore.get(trackId);
