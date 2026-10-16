@@ -20,6 +20,10 @@ export interface UiStrings {
     browserAggregateLimit: string;
     browserReady: string;
     browserWorkerFailed: string;
+    browserPythonStarting: string;
+    browserPythonReady: string;
+    browserPythonFailed: string;
+    browserPythonStopped: string;
     browserCleared: string;
     browserRemoved: string;
     browserExported: string;
@@ -245,6 +249,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserPreparing: 'Preparing local Python Worker / adding WAV files…',
         browserReady: 'waveform ready. {count} tracks; add more WAV files to compare. No automatic playback.',
         browserWorkerFailed: 'Audio Worker failed; select the WAV files again.',
+        browserPythonStarting: 'Python: starting…',
+        browserPythonReady: 'Python: ready',
+        browserPythonFailed: 'Python: failed to start',
+        browserPythonStopped: 'Python: stopped (starts with the next WAV)',
         browserCleared: 'Worker cleared; audio memory released. Add short WAV files.',
         browserRemoved: 'All tracks removed; audio memory released. Add short WAV files.',
         browserExported: 'Selected regions exported as PCM16 WAV.',
@@ -460,6 +468,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserPreparing: 'ローカルPython Workerを準備・WAVを追加しています…',
         browserReady: '波形の準備完了。{count}トラック。WAVを追加して比較できます。自動再生は行いません。',
         browserWorkerFailed: '音声Workerで障害が発生しました。WAVを選択し直してください。',
+        browserPythonStarting: 'Python: 起動中…',
+        browserPythonReady: 'Python: 準備完了',
+        browserPythonFailed: 'Python: 起動に失敗',
+        browserPythonStopped: 'Python: 停止中（次のWAVで起動）',
         browserCleared: 'Workerを終了し、音声メモリを解放しました。短いWAVを追加できます。',
         browserRemoved: '全トラックを削除し、音声メモリを解放しました。',
         browserExported: '選択区間をPCM16 WAVで書き出しました。',
