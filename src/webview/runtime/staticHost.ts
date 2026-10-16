@@ -98,6 +98,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     cancel.textContent = strings.btnClear;
     const pythonState = document.createElement('span');
     pythonState.setAttribute('data-python-state', '');
+    pythonState.setAttribute('aria-live', 'polite');
     pythonState.style.cssText = 'white-space:nowrap';
     const status = document.createElement('span');
     status.setAttribute('role', 'status');

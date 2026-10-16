@@ -172,7 +172,7 @@ test('the Python indicator follows the Worker boot, a failed boot and a reset', 
     assert.equal(indicator.textContent, 'Python: ready');
     await app.load();
     app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
-    assert.equal(indicator.textContent, 'Python: stopped (starts with the next WAV)');
+    assert.equal(indicator.textContent, 'Python: stopped (restarts when needed)');
     await app.load();
     assert.equal(indicator.textContent, 'Python: starting…');
     app.workers[1].onmessage({ data: { ready: false } });
