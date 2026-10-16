@@ -304,22 +304,37 @@ def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> N
 
 @pytest.mark.parametrize("cached_detail", [False, True])
 def test_spectrum_slice_reports_the_transformed_window(tmp_path: Path, cached_detail: bool) -> None:
-    wav = tmp_path / "tone.wav"
-    _write_sine_wav(wav)
-    opts = {"nFft": 256, "hopSize": 128, "window": "hamming"}
+    sample_count, impulse_at = 8000, 3200
+    samples = np.zeros(sample_count, dtype=np.int16)
+    samples[impulse_at] = 16000
+    wav = tmp_path / "impulse.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(samples.tobytes())
+    opts = {"nFft": 256, "hopSize": 128, "window": "boxcar"}
     service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
     if cached_detail:
         handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)
-    resp = handle_spectrum_slice(
-        {"filePath": str(wav), "trackIndex": 0, "cursorNorm": 0.5, "stftOptions": opts}, service
-    )
 
-    assert result_violation("spectrum-slice", resp) is None
-    assert resp["window"] == "hamming"
-    sample_count = 8000
-    assert (resp["windowEndNorm"] - resp["windowStartNorm"]) * sample_count == pytest.approx(256)
-    center = (resp["windowStartNorm"] + resp["windowEndNorm"]) / 2
-    assert abs(center - 0.5) * sample_count <= 16000 / 60 + 1  # live slices snap the cursor to 1/30 s
+    def slice_at(sample: int) -> dict:
+        command = {"filePath": str(wav), "trackIndex": 0, "cursorNorm": sample / sample_count, "stftOptions": opts}
+        resp = handle_spectrum_slice(command, service)
+        assert result_violation("spectrum-slice", resp) is None
+        assert resp["window"] == "boxcar"
+        assert (resp["windowEndNorm"] - resp["windowStartNorm"]) * sample_count == pytest.approx(256)
+        return resp
+
+    def covers_impulse(resp: dict) -> bool:
+        return resp["windowStartNorm"] * sample_count <= impulse_at < resp["windowEndNorm"] * sample_count
+
+    # The reported span must be the samples the FFT saw: the impulse shows up exactly when the span covers it.
+    for cursor_sample in (2900, 3000, 3200, 3400, 6000):
+        resp = slice_at(cursor_sample)
+        heard = float(resp["channels"][0]["maxDb"]) > -100.0
+        assert heard == covers_impulse(resp)
+    assert covers_impulse(slice_at(impulse_at))
 
 
 @pytest.mark.parametrize("cursor_norm", [-1.0, 0.0, 1.0, 2.0])
