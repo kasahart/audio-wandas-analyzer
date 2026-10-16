@@ -53,6 +53,7 @@ export type HostInboundMessage =
     | { type: 'reanalyze-start'; count: number }
     | { type: 'reanalyze-end' }
     | { type: 'analysis-file-progress'; current: number; total: number; fileName: string }
+    /** Lists a newly picked folder in the selection tree; no files leaves the tree for the plain results layout. */
     | { type: 'directory-selection'; rootPath: string; filePaths: string[] }
     | AnalysisUpdateMessage;
 

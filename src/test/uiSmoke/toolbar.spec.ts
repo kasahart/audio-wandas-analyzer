@@ -153,6 +153,24 @@ test('static page opens a folder into the shared selection tree and checked file
     await page.locator('[data-action="browser-clear"]').click();
     await expect(page.locator('.track-row')).toHaveCount(0);
     await expect(page.locator('.selection-file-checkbox:checked')).toHaveCount(0);
+
+    await page.locator('#tree-filter-input').fill('second');
+    const sameName = mkdtempSync(join(tmpdir(), 'awa-folder-'));
+    mkdirSync(join(sameName, 'rec'));
+    writeFileSync(join(sameName, 'rec', 'third.wav'), Buffer.alloc(100));
+    const nextChooser = page.waitForEvent('filechooser');
+    await page.locator('#selection-toolbar [data-action="open-folder"]').click();
+    await (await nextChooser).setFiles(join(sameName, 'rec'));
+    await expect(page.locator('#tree-filter-input')).toHaveValue('');
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/third.wav"]')).toBeVisible();
+    await page.locator('.selection-file-checkbox').check();
+    await expect(page.locator('.track-row')).toHaveCount(1);
+
+    const fileChooser = page.waitForEvent('filechooser');
+    await page.locator('#selection-toolbar [data-action="open-file"]').click();
+    await (await fileChooser).setFiles({ name: 'single.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
+    await expect(page.locator('#directory-selection-layout')).toHaveCount(0);
+    await expect(page.locator('.track-row')).toHaveCount(2);
 });
 
 async function getPostedActionTypes(page: Page): Promise<string[]> {

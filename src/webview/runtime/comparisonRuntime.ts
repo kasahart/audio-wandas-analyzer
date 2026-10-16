@@ -1083,13 +1083,31 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             } : undefined,
         }, STR);
     }
-    /** Lists another directory in the tree; a results-mode page wraps its existing results pane in the selection layout. */
+    /**
+     * Lists a newly picked directory in the tree, wrapping a results-mode page's results pane in the selection layout;
+     * no files moves the results pane back out. A new pick starts unfiltered and expanded because its root path need not be unique.
+     */
     function showDirectorySelection(rootPath: string, filePaths: string[]) {
         state.rootPath = rootPath;
         clearSelectedFilePaths();
         const tree = buildSelectionTreeFromPaths(rootPath, filePaths);
         __directoryTree = tree.roots;
-        selectionTreeView.replaceTree({ tree, ...savedTreeState(rootPath) });
+        selectionTreeView.replaceTree({ tree, rootPath, collapseState: {}, filterQuery: '' });
+        const emptyMessage = function (text: string) {
+            const el = document.querySelector('#empty-state p');
+            if (el) {
+                el.textContent = text;
+            }
+        };
+        if (!filePaths.length) {
+            if (isSelectionMode) {
+                isSelectionMode = false;
+                app.replaceChildren(...Array.from(requiredElementById(document, 'selection-results-pane').childNodes));
+                emptyMessage(STR.emptyAllExcluded);
+                scheduleRender();
+            }
+            return;
+        }
         if (isSelectionMode) {
             const pathEl = document.querySelector('#selection-summary .selection-path');
             if (pathEl) {
@@ -1101,10 +1119,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const resultsNodes = Array.from(app.childNodes);
         app.innerHTML = buildDirectorySelectionLayout('');
         requiredElementById(document, 'selection-results-pane').append(...resultsNodes);
-        const emptyMessage = document.querySelector('#empty-state p');
-        if (emptyMessage) {
-            emptyMessage.textContent = STR.emptyNoTracks;
-        }
+        emptyMessage(STR.emptyNoTracks);
         attachDirectorySelectionEvents();
         scheduleRender();
     }

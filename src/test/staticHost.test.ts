@@ -724,3 +724,23 @@ test('a load failure unchecks that tree file and keeps the others', async () => 
     assert.deepEqual(update.selectedFilePaths, ['/sources/rec/a.wav']);
     assert.match(app.status, /^big\.wav: /);
 });
+
+test('folder tracks keep their folder path in reports, release unchecks them and a file pick leaves the tree', async () => {
+    const app = harness();
+    const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
+    const file = (path: string) => ({ size: 100, name: path.split('/').pop()!, webkitRelativePath: path, arrayBuffer: async () => new ArrayBuffer(100) });
+    folderPicker.files = [file('rec/a_b/c.wav'), file('rec/a/b/c.wav')];
+    folderPicker.onchange!();
+    app.host.postMessage({ type: 'analyze-selected-files', requestId: 'r1', filePaths: ['/sources/rec/a_b/c.wav', '/sources/rec/a/b/c.wav'] });
+    await flush(); await flush();
+    const lastUpdate = () => app.received.filter(message => message.type === 'analysis-update').at(-1)!;
+    assert.deepEqual((lastUpdate().results as Array<{ reportSourcePath: string }>).map(result => result.reportSourcePath), ['rec/a_b/c.wav', 'rec/a/b/c.wav']);
+
+    app.host.releaseSource!('/sources/rec/a_b/c.wav');
+    assert.deepEqual(lastUpdate().selectedFilePaths, ['/sources/rec/a/b/c.wav']);
+
+    await app.load();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1), { type: 'directory-selection', rootPath: '', filePaths: [] });
+    assert.equal(lastUpdate().selectedFilePaths, undefined);
+    assert.equal((lastUpdate().results as unknown[]).length, 2);
+});

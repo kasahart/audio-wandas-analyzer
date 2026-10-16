@@ -236,7 +236,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             ? { calibrationProfile: result.calibrationProfile, analysisRevision: result.analysisRevision } : {};
     } });
     function resultWithSource(result: AnalysisResult, sourceId: string, name: string, url: string): ComparisonTrackState {
-        const alias = sourceId.replace(/\.wav$/i, '').replace(/\//g, '_') + '-' + name.replace(/[\\/\u0000-\u001f]/g, '_');
+        // A folder file is reported by its unique path inside the picked folder's parent, so the notebook can read it from there.
+        const alias = sourceId.includes('/') ? sourceId
+            : sourceId.replace(/\.wav$/, '') + '-' + name.replace(/[\\/\u0000-\u001f]/g, '_');
         return { ...result, fileName: name, audioSource: url, reportSourcePath: alias } as unknown as ComparisonTrackState;
     }
     function download(bytes: Uint8Array, name: string, type: string): void {
@@ -248,6 +250,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         const source = sources.get(path);
         if (!source) return;
         sources.delete(path);
+        if (folder?.has(path)) snapshot();
         if (!sources.size && !loading) {
             dispose(); emit({ type: 'reanalyze-end' });
             announce(strings.browserRemoved); return;
@@ -512,6 +515,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     pick.onchange = (): void => {
         const files = Array.from(pick.files || []);
         if (!files.length || loading) return;
+        if (folder) {
+            folder = undefined; selectionRequests++;
+            emit({ type: 'directory-selection', rootPath: '', filePaths: [] });
+        }
         loading = true; pick.disabled = true;
         announce(strings.browserPreparing);
         enqueueBatch(() => loadBatch(files.map(file => ({ file }))));
