@@ -102,10 +102,12 @@ test('drawAnalysisWindowBand traces the window shape across the band', () => {
     const points = calls.filter(([name]) => name === 'lineTo').map(([, args]) => args as number[]);
     assert.equal(points[0][0], 50);
     assert.equal(points[0][1], 20);
-    assert.ok(points.every((p) => p[1] <= 20));
     const peak = points.reduce((best, p) => (p[1] < best[1] ? p : best));
+    const trough = points.reduce((best, p) => (p[1] > best[1] ? p : best));
     assert.equal(peak[0], 100);
+    assert.equal(trough[0], 100);
     assert.ok(peak[1] < 5);
+    assert.equal(peak[1] + trough[1], 40);
 });
 
 test('drawAnalysisWindowBand keeps a visible minimum width and skips bands outside the view', () => {
