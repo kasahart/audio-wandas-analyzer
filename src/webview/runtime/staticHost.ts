@@ -21,6 +21,8 @@ import type { AnalysisResult, AnalysisResultWithError } from '../../shared/analy
 
 interface Source {
     path: string;
+    /** The Worker's identity for this source, relative to `/sources`; recovery reloads under the same one. */
+    sourceId: string;
     name: string;
     url: string;
     inputBytes: number;
@@ -96,6 +98,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const cancel = document.createElement('button');
     cancel.setAttribute('data-action', 'browser-clear');
     cancel.textContent = strings.btnClear;
+    const folderPick = document.createElement('input');
+    folderPick.type = 'file'; folderPick.multiple = true; folderPick.setAttribute('webkitdirectory', '');
+    folderPick.style.cssText = 'display:none';
+    const openFolder = document.createElement('button');
+    openFolder.setAttribute('data-action', 'browser-open-folder');
+    openFolder.textContent = strings.btnOpenFolder;
     const pythonState = document.createElement('span');
     pythonState.setAttribute('data-python-state', '');
     pythonState.setAttribute('aria-live', 'polite');
@@ -103,11 +111,29 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
     status.textContent = strings.browserWavHint;
-    bar.append(pick, cancel, pythonState, status);
+    bar.append(pick, openFolder, folderPick, cancel, pythonState, status);
     document.body.prepend(bar);
     const announce = (value: string): void => { status.textContent = value; };
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
-    const snapshot = (): void => { emit({ type: 'analysis-update', results: sources.snapshot(source => source.result) }); };
+    /** The opened folder's WAV files keyed by the `/sources/<relative path>` each one loads under. */
+    let folder: Map<string, File> | undefined;
+    /** Checked tree files that are still loading, so their checkboxes stay checked until they load or fail. */
+    const pendingTreePaths = new Set<string>();
+    let selectionRequests = 0;
+    const snapshot = (): void => {
+        const results = sources.snapshot(source => source.result);
+        emit(folder
+            ? { type: 'analysis-update', results, selectedFilePaths: Array.from(folder.keys()).filter(path => sources.get(path) || pendingTreePaths.has(path)) }
+            : { type: 'analysis-update', results });
+    };
+    let batches: Promise<void> | undefined;
+    /** Runs source loads one batch at a time so picker and tree batches never interleave their pre-checks; an idle queue starts the batch now. */
+    function enqueueBatch(task: () => Promise<void>): void {
+        const settled: Promise<void> = (batches ? batches.then(task) : task())
+            .catch(() => {})
+            .finally(() => { if (batches === settled) batches = undefined; });
+        batches = settled;
+    }
 
     function resetWorker(reason: Error): void {
         reanalysisGeneration.advance();
@@ -119,7 +145,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function dispose(): void {
         sourceGeneration.advance();
         resetWorker(new Error('Analysis cancelled'));
-        loading = false; pick.disabled = false; pick.value = "";
+        loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
+        pendingTreePaths.clear();
         sources.clear();
     }
     async function request(
@@ -133,7 +160,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                     if (!sourceGeneration.isCurrent(generation) || !sources.owns(source.path, source)) {
                         throw new Error('Analysis cancelled');
                     }
-                    await sendRequest({ cmd: 'load', sourceId: source.path.split('/').pop()! }, bytes);
+                    await sendRequest({ cmd: 'load', sourceId: source.sourceId }, bytes);
                 }
             })();
             recovery = restoring;
@@ -208,8 +235,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         return result && !('error' in result)
             ? { calibrationProfile: result.calibrationProfile, analysisRevision: result.analysisRevision } : {};
     } });
-    function resultWithSource(result: AnalysisResult, name: string, url: string): ComparisonTrackState {
-        const alias = String(result.filePath).split('/').pop()!.replace(/\.wav$/, '') + '-' + name.replace(/[\\/\u0000-\u001f]/g, '_');
+    function resultWithSource(result: AnalysisResult, sourceId: string, name: string, url: string): ComparisonTrackState {
+        // A folder file is reported by its unique path inside the picked folder's parent, so the notebook can read it from there.
+        const alias = sourceId.includes('/') ? sourceId
+            : sourceId.replace(/\.wav$/, '') + '-' + name.replace(/[\\/\u0000-\u001f]/g, '_');
         return { ...result, fileName: name, audioSource: url, reportSourcePath: alias } as unknown as ComparisonTrackState;
     }
     function download(bytes: Uint8Array, name: string, type: string): void {
@@ -221,6 +250,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         const source = sources.get(path);
         if (!source) return;
         sources.delete(path);
+        if (folder?.has(path)) snapshot();
         if (!sources.size && !loading) {
             dispose(); emit({ type: 'reanalyze-end' });
             announce(strings.browserRemoved); return;
@@ -328,7 +358,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 isCurrent: () => scope.isCurrent(),
                 isSelected: source => sources.owns(source.path, source),
                 analyze: source => analysisClient.analyze(source.path, stftOptions ? { stftOptions } : {}),
-                commit: (source, result) => { source.result = resultWithSource(result, source.name, source.url); },
+                commit: (source, result) => { source.result = resultWithSource(result, source.sourceId, source.name, source.url); },
             });
             return sources.snapshot(source => source.result);
         },
@@ -367,8 +397,40 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(strings.reportExportedPrefix + artifact.name);
         },
         selectTarget(targetKind): void {
-            if (targetKind === 'directory') { announce(strings.browserDirectoryUnavailable); return; }
-            pick.click();
+            (targetKind === 'directory' ? folderPick : pick).click();
+        },
+        async selection(message): Promise<void> {
+            const tree = folder;
+            if (!tree) return;
+            const myGeneration = sourceGeneration.current;
+            const myRequest = ++selectionRequests;
+            const isLatest = (): boolean => myRequest === selectionRequests;
+            enqueueBatch(async () => {
+                if (!sourceGeneration.isCurrent(myGeneration) || !isLatest()) return;
+                const wanted = new Set(message.filePaths.filter(path => tree.has(path)));
+                for (const path of tree.keys()) {
+                    if (wanted.has(path) || !sources.get(path)) continue;
+                    sources.delete(path);
+                    try { await request({ cmd: 'unload', filePath: path }); }
+                    catch (error) {
+                        if (!sourceGeneration.isCurrent(myGeneration)) return;
+                        if (error instanceof RecipeWorkerResetError) { snapshot(); return; }
+                        dispose(); snapshot(); announce(error instanceof Error ? error.message : String(error));
+                        return;
+                    }
+                }
+                if (!sourceGeneration.isCurrent(myGeneration)) return;
+                const added = Array.from(wanted).filter(path => !sources.get(path));
+                pendingTreePaths.clear();
+                added.forEach(path => pendingTreePaths.add(path));
+                if (!added.length) {
+                    loading = false; pick.disabled = false;
+                    snapshot(); return;
+                }
+                loading = true; pick.disabled = true;
+                announce(strings.browserPreparing);
+                await loadBatch(added.map(path => ({ file: tree.get(path)!, sourceId: path.slice('/sources/'.length) })), isLatest);
+            });
         },
         showInformation: announce,
         showError: announce,
@@ -391,59 +453,87 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType }); },
     };
     browserWindow.__AWA_HOST__ = host;
+    const superseded = new Error('Superseded by a newer tree selection');
+    /**
+     * Loads and analyzes files as new tracks, keeping the tracks already loaded when one file fails.
+     * A newer tree selection stops the batch before its next file and settles the shared loading state itself.
+     */
+    async function loadBatch(files: Array<{ file: File; sourceId?: string }>, isLatest: () => boolean = () => true): Promise<void> {
+        const myGeneration = sourceGeneration.current;
+        const failures: string[] = [];
+        await runAnalysisBatch(files, {
+            isCurrent: () => sourceGeneration.isCurrent(myGeneration),
+            analyze: async ({ file, sourceId = `selected-${++nextSource}.wav` }) => {
+                if (!isLatest()) throw superseded;
+                let loadedPath: string | undefined;
+                try {
+                    const limit = browserLimits ?? await limits();
+                    if (file.size > limit.maxInputBytes) throw new Error(strings.browserInputTooLarge.replace('{mib}', mib(limit.maxInputBytes)));
+                    if (sources.size >= limit.maxSources || Array.from(sources.values()).reduce((sum, source) => sum + source.inputBytes, file.size) > limit.maxTotalInputBytes) {
+                        throw new Error(strings.browserAggregateLimit
+                            .replace('{count}', String(limit.maxSources)).replace('{mib}', mib(limit.maxTotalInputBytes)));
+                    }
+                    const bytes = await file.arrayBuffer();
+                    if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
+                    const loaded = await request({ cmd: 'load', sourceId }, bytes);
+                    if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
+                    loadedPath = String(loaded.filePath);
+                    const result = await analysisClient.analyze(loadedPath, stft());
+                    return { path: loadedPath, sourceId, result };
+                } catch (error) {
+                    if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration) && loadedPath) {
+                        try { await request({ cmd: 'unload', filePath: loadedPath }); }
+                        catch (releaseError) {
+                            if (!(releaseError instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(String(releaseError)); }
+                            throw releaseError;
+                        }
+                    }
+                    throw error;
+                }
+            },
+            commit: ({ file }, loaded) => {
+                pendingTreePaths.delete(loaded.path);
+                const url = URL.createObjectURL(file);
+                sources.set(loaded.path, { path: loaded.path, sourceId: loaded.sourceId, name: file.name, url, inputBytes: file.size, file,
+                    result: resultWithSource(loaded.result, loaded.sourceId, file.name, url) });
+                snapshot();
+            },
+            failed: ({ file, sourceId }, error) => {
+                if (error === superseded) return false;
+                if (sourceId) pendingTreePaths.delete(`/sources/${sourceId}`);
+                failures.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+                return true;
+            },
+        });
+        if (!sourceGeneration.isCurrent(myGeneration) || !isLatest()) return;
+        pendingTreePaths.clear();
+        loading = false; pick.disabled = false; pick.value = '';
+        if (!sources.size) dispose();
+        if (folder) snapshot();
+        announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
+    }
     pick.onchange = (): void => {
         const files = Array.from(pick.files || []);
         if (!files.length || loading) return;
-        const myGeneration = sourceGeneration.current;
+        if (folder) {
+            folder = undefined; selectionRequests++;
+            emit({ type: 'directory-selection', rootPath: '', filePaths: [] });
+        }
         loading = true; pick.disabled = true;
         announce(strings.browserPreparing);
-        void (async () => {
-            const failures: string[] = [];
-            await runAnalysisBatch(files, {
-                isCurrent: () => sourceGeneration.isCurrent(myGeneration),
-                analyze: async file => {
-                    let loadedPath: string | undefined;
-                    try {
-                        const limit = browserLimits ?? await limits();
-                        if (file.size > limit.maxInputBytes) throw new Error(strings.browserInputTooLarge.replace('{mib}', mib(limit.maxInputBytes)));
-                        if (sources.size >= limit.maxSources || Array.from(sources.values()).reduce((sum, source) => sum + source.inputBytes, file.size) > limit.maxTotalInputBytes) {
-                            throw new Error(strings.browserAggregateLimit
-                                .replace('{count}', String(limit.maxSources)).replace('{mib}', mib(limit.maxTotalInputBytes)));
-                        }
-                        const bytes = await file.arrayBuffer();
-                        if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
-                        const loaded = await request({ cmd: 'load', sourceId: `selected-${++nextSource}.wav` }, bytes);
-                        if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
-                        loadedPath = String(loaded.filePath);
-                        const result = await analysisClient.analyze(loadedPath, stft());
-                        return { path: loadedPath, result };
-                    } catch (error) {
-                        if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration) && loadedPath) {
-                            try { await request({ cmd: 'unload', filePath: loadedPath }); }
-                            catch (releaseError) {
-                                if (!(releaseError instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(String(releaseError)); }
-                                throw releaseError;
-                            }
-                        }
-                        throw error;
-                    }
-                },
-                commit: (file, loaded) => {
-                    const url = URL.createObjectURL(file);
-                    sources.set(loaded.path, { path: loaded.path, name: file.name, url, inputBytes: file.size, file,
-                        result: resultWithSource(loaded.result, file.name, url) });
-                    snapshot();
-                },
-                failed: (file, error) => {
-                    failures.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
-                    return true;
-                },
-            });
-            if (!sourceGeneration.isCurrent(myGeneration)) return;
-            loading = false; pick.disabled = false; pick.value = '';
-            if (!sources.size) dispose();
-            announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
-        })();
+        enqueueBatch(() => loadBatch(files.map(file => ({ file }))));
+    };
+    openFolder.onclick = (): void => { folderPick.click(); };
+    folderPick.onchange = (): void => {
+        const files = Array.from(folderPick.files || []).filter(file => /\.wav$/i.test(file.name) && file.webkitRelativePath);
+        folderPick.value = '';
+        if (!files.length) { announce(strings.selectionNoSupported); return; }
+        if (sources.size || loading) dispose();
+        selectionRequests++;
+        folder = new Map(files.map(file => [`/sources/${file.webkitRelativePath}`, file]));
+        emit({ type: 'directory-selection', rootPath: `/sources/${files[0].webkitRelativePath.split('/')[0]}`, filePaths: Array.from(folder.keys()) });
+        snapshot(); emit({ type: 'reanalyze-end' });
+        announce(strings.browserFolderOpened.replace('{count}', String(files.length)));
     };
     cancel.onclick = (): void => {
         dispose(); pick.value = ''; snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);

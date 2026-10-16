@@ -258,3 +258,15 @@ def test_estimated_bytes_counts_session_inputs_and_retained_detail() -> None:
     assert engine.is_loaded("/sources/selected.wav")
     assert not engine.is_loaded("/sources/other.wav")
     assert engine.estimated_bytes(10) == baseline + len(payload) + engine.retained_bytes * 2 + 10
+
+
+@pytest.mark.parametrize("source_id", ["/etc/a.wav", "a/../b.wav", "a//b.wav", "a/./b.wav", "a.txt", "a/"])
+def test_source_identity_rejects_paths_outside_sources(source_id: str) -> None:
+    with pytest.raises(ValueError, match="Invalid source identity"):
+        create_service().engine.load(source_id, FIXTURE.read_bytes())
+
+
+def test_folder_sources_keep_their_relative_path() -> None:
+    service = create_service()
+    assert service.engine.load("rec/day1/A.WAV", FIXTURE.read_bytes()) == {"filePath": "/sources/rec/day1/A.WAV"}
+    assert service.engine.get_file("/sources/rec/day1/A.WAV").path.name == "A.WAV"

@@ -19,7 +19,7 @@ class MockElement {
     attributes: Record<string, string> = {};
     children: MockElement[] = [];
     removed = false;
-    files?: Array<{ size: number; name: string; arrayBuffer(): Promise<ArrayBuffer> }>;
+    files?: Array<{ size: number; name: string; webkitRelativePath?: string; arrayBuffer(): Promise<ArrayBuffer> }>;
     onchange?: () => void;
     onclick?: () => void;
     contentDocument?: MockDocument;
@@ -680,4 +680,67 @@ test('Recipe timeout during a multi-file load keeps the picker disabled until th
     assert.equal(original.terminated, true);
     assert.equal(app.workers.length, 2, 'the second file restores sources in a new Worker');
     assert.equal(app.picker.disabled, true);
+});
+
+test('an opened folder lists its WAV files and checked files load as tracks under their tree paths', async () => {
+    const app = harness();
+    const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
+    const file = (path: string) => ({ size: 100, name: path.split('/').pop()!, webkitRelativePath: path, arrayBuffer: async () => new ArrayBuffer(100) });
+    folderPicker.files = [file('rec/a.wav'), file('rec/sub/b.WAV'), file('rec/notes.txt')];
+    folderPicker.onchange!();
+    assert.deepEqual(app.received.find(message => message.type === 'directory-selection'),
+        { type: 'directory-selection', rootPath: '/sources/rec', filePaths: ['/sources/rec/a.wav', '/sources/rec/sub/b.WAV'] });
+    const lastUpdate = () => app.received.filter(message => message.type === 'analysis-update').at(-1)!;
+    const loadedPaths = () => (lastUpdate().results as Array<{ filePath: string }>).map(result => result.filePath);
+
+    app.host.postMessage({ type: 'analyze-selected-files', requestId: 'r1', filePaths: ['/sources/rec/sub/b.WAV', '/sources/elsewhere.wav'] });
+    await flush(); await flush();
+    assert.deepEqual(app.workers[0].commands.filter(command => command.cmd === 'load').map(command => command.sourceId), ['rec/sub/b.WAV']);
+    assert.deepEqual(loadedPaths(), ['/sources/rec/sub/b.WAV']);
+    assert.deepEqual(lastUpdate().selectedFilePaths, ['/sources/rec/sub/b.WAV']);
+
+    app.host.postMessage({ type: 'analyze-selected-files', requestId: 'r2', filePaths: ['/sources/rec/a.wav'] });
+    app.host.postMessage({ type: 'analyze-selected-files', requestId: 'r3', filePaths: [] });
+    await flush(); await flush();
+    assert.ok(app.workers[0].commands.some(command => command.cmd === 'unload' && command.filePath === '/sources/rec/sub/b.WAV'));
+    assert.ok(!app.workers[0].commands.some(command => command.cmd === 'load' && command.sourceId === 'rec/a.wav'));
+    assert.deepEqual(loadedPaths(), []);
+    assert.deepEqual(lastUpdate().selectedFilePaths, []);
+    assert.equal(app.picker.disabled, false);
+    assert.equal(app.workers[0].terminated, false);
+});
+
+test('a load failure unchecks that tree file and keeps the others', async () => {
+    const app = harness();
+    const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
+    folderPicker.files = [
+        { size: 100, name: 'a.wav', webkitRelativePath: 'rec/a.wav', arrayBuffer: async () => new ArrayBuffer(100) },
+        { size: 64 * 1024 * 1024, name: 'big.wav', webkitRelativePath: 'rec/big.wav', arrayBuffer: async () => new ArrayBuffer(100) },
+    ] as typeof folderPicker.files;
+    folderPicker.onchange!();
+    app.host.postMessage({ type: 'analyze-selected-files', requestId: 'r1', filePaths: ['/sources/rec/a.wav', '/sources/rec/big.wav'] });
+    await flush(); await flush();
+    const update = app.received.filter(message => message.type === 'analysis-update').at(-1)!;
+    assert.deepEqual(update.selectedFilePaths, ['/sources/rec/a.wav']);
+    assert.match(app.status, /^big\.wav: /);
+});
+
+test('folder tracks keep their folder path in reports, release unchecks them and a file pick leaves the tree', async () => {
+    const app = harness();
+    const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
+    const file = (path: string) => ({ size: 100, name: path.split('/').pop()!, webkitRelativePath: path, arrayBuffer: async () => new ArrayBuffer(100) });
+    folderPicker.files = [file('rec/a_b/c.wav'), file('rec/a/b/c.wav')];
+    folderPicker.onchange!();
+    app.host.postMessage({ type: 'analyze-selected-files', requestId: 'r1', filePaths: ['/sources/rec/a_b/c.wav', '/sources/rec/a/b/c.wav'] });
+    await flush(); await flush();
+    const lastUpdate = () => app.received.filter(message => message.type === 'analysis-update').at(-1)!;
+    assert.deepEqual((lastUpdate().results as Array<{ reportSourcePath: string }>).map(result => result.reportSourcePath), ['rec/a_b/c.wav', 'rec/a/b/c.wav']);
+
+    app.host.releaseSource!('/sources/rec/a_b/c.wav');
+    assert.deepEqual(lastUpdate().selectedFilePaths, ['/sources/rec/a/b/c.wav']);
+
+    await app.load();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1), { type: 'directory-selection', rootPath: '', filePaths: [] });
+    assert.equal(lastUpdate().selectedFilePaths, undefined);
+    assert.equal((lastUpdate().results as unknown[]).length, 2);
 });

@@ -30,12 +30,15 @@ export interface SelectionTreeView {
     isVisible(el: HTMLElement): boolean;
     /** Wires folder toggles, checkboxes, the filter box and the sidebar resizer inside the selection layout. */
     attach(layout: HTMLElement): void;
+    /** Swaps in another directory's files and re-renders the attached tree with that directory's saved collapse and filter state. */
+    replaceTree(next: Pick<SelectionTreeViewDeps, 'tree' | 'rootPath' | 'collapseState' | 'filterQuery'>): void;
 }
 
 /** The file tree of the directory-selection layout: lazy folder rendering, collapse state, filter and resizer. */
 export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionTreeView {
-    const { document, strings, collapseState, setTimeout, clearTimeout } = deps;
-    let filterQuery = deps.filterQuery;
+    const { document, strings, setTimeout, clearTimeout } = deps;
+    let { tree, rootPath, collapseState, filterQuery } = deps;
+    let applyAttachedFilter: ((query: string) => void) | undefined;
     function renderItems(nodes: SelectionTreeNode[], depth: number): string {
         return nodes.map(function (node: SelectionTreeNode) {
             if (node.type === 'directory') {
@@ -104,7 +107,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                 if (isCollapsed && list.getAttribute('data-lazy') === 'true') {
                     const relPath = dirHeader.getAttribute('data-relative-path');
                     const depth = parseInt(dirHeader.getAttribute('data-depth') || '0', 10);
-                    const node = relPath === null ? undefined : deps.tree.directories[relPath];
+                    const node = relPath === null ? undefined : tree.directories[relPath];
                     if (node && node.children) {
                         listElement.innerHTML = renderItems(node.children, depth + 1);
                         listElement.removeAttribute('data-lazy');
@@ -122,7 +125,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                     collapseState[relativePath] = isCollapsed;
                     deps.persist({
                         directoryCollapseState: collapseState,
-                        directoryCollapseRootPath: deps.rootPath,
+                        directoryCollapseRootPath: rootPath,
                     });
                 }
             }
@@ -218,7 +221,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                         }
                         var relPath = dh.getAttribute('data-relative-path');
                         var depth = parseInt(dh.getAttribute('data-depth') || '0', 10);
-                        var node = relPath ? deps.tree.directories[relPath] : undefined;
+                        var node = relPath ? tree.directories[relPath] : undefined;
                         if (node && node.children) {
                             lazyList.innerHTML = renderItems(node.children, depth + 1);
                             lazyList.removeAttribute('data-lazy');
@@ -282,6 +285,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                 }
                 deps.syncSummary();
             }
+            applyAttachedFilter = applyTreeFilter;
             // debounce: 150ms (#92)
             var treeFilterTimer: number | null = null;
             treeFilterInput.addEventListener('input', function () {
@@ -291,7 +295,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                 filterQuery = treeFilterInput.value;
                 deps.persist({
                     treeFilterQuery: filterQuery,
-                    treeFilterRootPath: deps.rootPath,
+                    treeFilterRootPath: rootPath,
                 });
                 treeFilterTimer = setTimeout(function () {
                     applyTreeFilter(treeFilterInput.value.toLowerCase());
@@ -346,5 +350,23 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
         renderTree,
         isVisible,
         attach,
+        replaceTree(next) {
+            ({ tree, rootPath, collapseState, filterQuery } = next);
+            const treeEl = document.getElementById('selection-tree');
+            if (!treeEl) {
+                return;
+            }
+            treeEl.innerHTML = renderTree(tree.roots, true, 0);
+            const treeFilterInput = inputMatching(document, '#tree-filter-input');
+            if (treeFilterInput) {
+                treeFilterInput.value = filterQuery;
+            }
+            if (filterQuery && applyAttachedFilter) {
+                applyAttachedFilter(filterQuery.toLowerCase());
+            }
+            else {
+                deps.syncSummary();
+            }
+        },
     };
 }

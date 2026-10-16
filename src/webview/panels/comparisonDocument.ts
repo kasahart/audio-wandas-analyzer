@@ -276,10 +276,17 @@ export function renderComparisonStyles(): string {
         #audio-host { display: none; }
 
         /* ── Directory selection ── */
+        #app:has(> #directory-selection-layout) {
+            display: flex;
+            flex: 1 1 auto;
+            min-height: 0;
+        }
         #directory-selection-layout {
             display: flex;
             flex-direction: column;
-            height: 100vh;
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
         }
         #selection-toolbar {
             display: flex;

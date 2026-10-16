@@ -6,7 +6,7 @@ export interface SelectionLayoutParts {
     filterQuery: string;
     treeHtml: string;
     resultsPaneHtml: string;
-    python: { text: string; tooltip: string; warning: boolean };
+    python?: { text: string; tooltip: string; warning: boolean };
 }
 
 export type SelectionLayoutStrings = Pick<UiStrings,
@@ -14,14 +14,17 @@ export type SelectionLayoutStrings = Pick<UiStrings,
     | 'btnSelectAll' | 'btnClear' | 'ariaSelectionTree'>;
 
 export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: SelectionLayoutStrings): string {
-    const pythonButtonClass = 'tb-btn' + (parts.python.warning ? ' is-warning' : '');
+    const python = parts.python;
+    const pythonButton = python
+        ? '    <button class="tb-btn' + (python.warning ? ' is-warning' : '') + '" id="selection-python-environment" data-action="select-python-environment" title="' + escapeHtml(python.tooltip) + '">' + escapeHtml(python.text) + '</button>'
+        : '';
     return '<div id="directory-selection-layout">'
         + '  <div id="selection-toolbar">'
         + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + escapeHtml(strings.selectionHeader) + '</span>'
         + '    <div class="tb-sep"></div>'
         + '    <button class="tb-btn" data-action="open-file">' + escapeHtml(strings.btnOpenFile) + '</button>'
         + '    <button class="tb-btn" data-action="open-folder">' + escapeHtml(strings.btnOpenAnotherFolder) + '</button>'
-        + '    <button class="' + pythonButtonClass + '" id="selection-python-environment" data-action="select-python-environment" title="' + escapeHtml(parts.python.tooltip) + '">' + escapeHtml(parts.python.text) + '</button>'
+        + pythonButton
         + '  </div>'
         + '  <div id="selection-body">'
         + '    <div id="selection-sidebar">'
