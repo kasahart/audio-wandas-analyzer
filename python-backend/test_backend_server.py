@@ -302,6 +302,51 @@ def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> N
     assert abs(float(channel["maxDb"]) - float(np.max(expected_row))) < 1.0
 
 
+@pytest.mark.parametrize("cached_detail", [False, True])
+def test_spectrum_slice_reports_the_transformed_window(tmp_path: Path, cached_detail: bool) -> None:
+    sample_count, impulse_at = 8000, 3200
+    samples = np.zeros(sample_count, dtype=np.int16)
+    samples[impulse_at] = 16000
+    wav = tmp_path / "impulse.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(samples.tobytes())
+    opts = {"nFft": 256, "hopSize": 128, "window": "boxcar"}
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
+    if cached_detail:
+        handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)
+
+    def slice_at(sample: int) -> dict:
+        command = {"filePath": str(wav), "trackIndex": 0, "cursorNorm": sample / sample_count, "stftOptions": opts}
+        resp = handle_spectrum_slice(command, service)
+        assert result_violation("spectrum-slice", resp) is None
+        assert resp["window"] == "boxcar"
+        assert (resp["windowEndNorm"] - resp["windowStartNorm"]) * sample_count == pytest.approx(256)
+        return resp
+
+    def covers_impulse(resp: dict) -> bool:
+        return resp["windowStartNorm"] * sample_count <= impulse_at < resp["windowEndNorm"] * sample_count
+
+    # The reported span must be the samples the FFT saw: the impulse shows up exactly when the span covers it.
+    for cursor_sample in (2900, 3000, 3200, 3400, 6000):
+        resp = slice_at(cursor_sample)
+        heard = float(resp["channels"][0]["maxDb"]) > -100.0
+        assert heard == covers_impulse(resp)
+    assert covers_impulse(slice_at(impulse_at))
+
+
+def test_spectrum_slice_window_includes_fft_padding_past_a_short_file(tmp_path: Path) -> None:
+    wav = tmp_path / "short.wav"
+    _write_sine_wav(wav, seconds=200 / 16000)
+    resp = handle_spectrum_slice(
+        {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"}}
+    )
+    assert resp["windowStartNorm"] == 0
+    assert resp["windowEndNorm"] * 200 == pytest.approx(256)
+
+
 @pytest.mark.parametrize("cursor_norm", [-1.0, 0.0, 1.0, 2.0])
 def test_spectrum_slice_clamps_cursor_to_cached_stft_bounds(tmp_path: Path, cursor_norm: float) -> None:
     wav = tmp_path / "tone.wav"

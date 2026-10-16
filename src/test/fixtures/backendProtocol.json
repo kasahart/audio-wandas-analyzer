@@ -441,6 +441,9 @@
         ],
         "frequencyBins": 0,
         "maxFrequencyHz": 8000,
+        "windowStartNorm": 0.4,
+        "windowEndNorm": 0.6,
+        "window": "hann",
         "computeMs": 0.1
       }
     },
@@ -586,6 +589,9 @@
         ],
         "frequencyBins": 0,
         "maxFrequencyHz": 8000,
+        "windowStartNorm": 0.4,
+        "windowEndNorm": 0.6,
+        "window": "hann",
         "computeMs": 1
       },
       "violation": "channels[0].referenceValue"
@@ -607,7 +613,10 @@
           }
         ],
         "frequencyBins": 0,
-        "maxFrequencyHz": 8000
+        "maxFrequencyHz": 8000,
+        "windowStartNorm": 0.4,
+        "windowEndNorm": 0.6,
+        "window": "hann"
       },
       "violation": "computeMs"
     },

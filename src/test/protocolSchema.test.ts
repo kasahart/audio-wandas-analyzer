@@ -52,7 +52,7 @@ test('range results are checked by the schema plus the envelope length invariant
 
 test('spectrum-slice results are checked by the schema plus the per-channel bin invariant', () => {
     const channel = { channelIndex: 0, values: [-10, -20], minDb: -20, maxDb: -10, referenceValue: 2e-5 };
-    const result = { trackIndex: 0, analysisId: 'a', settingsSignature: 's', filePath: 'tone.wav', channels: [channel], frequencyBins: 2, maxFrequencyHz: 8000, computeMs: 1 };
+    const result = { trackIndex: 0, analysisId: 'a', settingsSignature: 's', filePath: 'tone.wav', channels: [channel], frequencyBins: 2, maxFrequencyHz: 8000, windowStartNorm: 0.4, windowEndNorm: 0.6, window: 'hann', computeMs: 1 };
     assert.deepEqual(parseBackendResult('spectrum-slice', result), result);
     assert.equal(schemaViolation('SpectrumSliceResult', { ...result, channels: [{ ...channel, referenceValue: 0 }] }), 'channels[0].referenceValue');
     assert.throws(() => parseBackendResult('spectrum-slice', { ...result, channels: [] }), /Invalid spectrum-slice success response/);

@@ -46,6 +46,9 @@ class SpectrumSliceResult(TypedDict):
     channels: list[dict[str, object]]
     frequencyBins: int
     maxFrequencyHz: float
+    windowStartNorm: float
+    windowEndNorm: float
+    window: str
     computeMs: float
     calibrationSignature: str
     analysisRevision: int
@@ -185,6 +188,10 @@ class AnalysisService:
             centers = np.asarray(spectrogram.frame_center_times[0], dtype=np.float64)
             cursor_seconds = clipped_norm * float(analysis_frame.duration) + float(analysis_frame.source_time_offset[0])
             time_index = int(np.argmin(np.abs(centers - cursor_seconds)))
+            frame_center_sample = (centers[time_index] - float(analysis_frame.source_time_offset[0])) * float(
+                analysis_frame.sampling_rate
+            )
+            window_start_sample = float(frame_center_sample) - window_size / 2
             spectrum = spectrogram.get_frame_at(time_index)
             max_frequency_hz = float(spectrogram.freqs[-1])
             values = np.asarray(spectrum.dB, dtype=np.float64)
@@ -199,16 +206,16 @@ class AnalysisService:
                 analysis_frame.n_samples - 1,
                 int(round(center_sample / live_quantum)) * live_quantum,
             )
+            start_sample = max(0, quantized_center - window_size // 2)
+            end_sample = min(analysis_frame.n_samples, start_sample + window_size)
+            start_sample = max(0, end_sample - window_size)
+            window_start_sample = float(start_sample)
             slice_key = (resolved.signature, window_size, window_name, revision, quantized_center)
             cached_slice = self.engine.get_spectrum_slice(cached, slice_key)
             if cached_slice is not None:
                 rows, max_frequency_hz = cached_slice
                 spectrum = None
             else:
-                center_sample = quantized_center
-                start_sample = max(0, center_sample - window_size // 2)
-                end_sample = min(analysis_frame.n_samples, start_sample + window_size)
-                start_sample = max(0, end_sample - window_size)
                 spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
                 max_frequency_hz = float(spectrum.freqs[-1])
                 values = np.asarray(spectrum.dB, dtype=np.float64)
@@ -237,6 +244,10 @@ class AnalysisService:
             "channels": channels,
             "frequencyBins": int(rows.shape[1]),
             "maxFrequencyHz": max_frequency_hz,
+            "windowStartNorm": window_start_sample / analysis_frame.n_samples,
+            # fft() zero-pads short files to window_size before windowing, so the span may pass the file end.
+            "windowEndNorm": (window_start_sample + window_size) / analysis_frame.n_samples,
+            "window": window_name,
             "computeMs": (time.perf_counter() - compute_started) * 1000.0,
             "calibrationSignature": resolved.signature,
             "analysisRevision": revision,

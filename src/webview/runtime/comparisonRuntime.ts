@@ -54,7 +54,7 @@ import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
 import { selectionLayoutHtml } from './selectionLayoutHtml';
-import { canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
+import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
@@ -736,6 +736,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
         scheduleSpectrumFrame(false, false);
+        scheduleRender();
         requestAnimationFrame(function () { publishTestSnapshot(); });
         pumpSpectrumSliceRequests();
     });
@@ -1395,6 +1396,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (shouldDrawCursor) {
             drawLoopRegionOnCanvas(ctx, W, H);
+            drawAnalysisWindowOnCanvas(ctx, W, H, trackIndex, channelIndex);
             drawCursorOnCanvas(ctx, W, H);
             drawHoverLineOnCanvas(ctx, W, H);
             drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
@@ -1446,6 +1448,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (overlayCtx) {
             drawLoopRegionOnCanvas(overlayCtx, plotW, H);
+            drawAnalysisWindowOnCanvas(overlayCtx, plotW, H, trackIndex, channelIndex);
             drawCursorOnCanvas(overlayCtx, plotW, H);
             drawHoverLineOnCanvas(overlayCtx, plotW, H);
         }
@@ -1458,6 +1461,33 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function clampedTrackCanvasNorm(canvas: Pick<Element, 'getBoundingClientRect'>, clientX: number, timeWidth: number) {
         return clampedCanvasNorm(canvas.getBoundingClientRect().left, clientX, timeWidth, waveformView.timeRange());
+    }
+    /** The span behind the spectrum currently shown for this track, in global timeline norms; null when that spectrum is not a backend slice. */
+    function analysisWindowBand(trackIndex: number, channelIndex: number): AnalysisWindowBand | null {
+        const result = state.results[trackIndex];
+        const record = trackRecordAtIndex(trackIndex);
+        const localNorm = trackLocalCursorNorm(trackIndex, spectrumCursorNorm);
+        // At the exact track end the spectrum is a synthetic silent slice, not a backend transform.
+        if (!result || !record || record.runtime.hidden || localNorm === null || localNorm >= 1) {
+            return null;
+        }
+        const slice = record.spectrumSliceCache.get(channelIndex) ?? record.spectrumSliceCache.get(0);
+        if (!slice || slice.settingsSignature !== currentSpectrumDataSignature()
+            || slice.windowStartNorm === undefined || slice.windowEndNorm === undefined) {
+            return null;
+        }
+        const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
+        return {
+            startNorm: placement.offsetNorm + slice.windowStartNorm * placement.trackDurRatio,
+            endNorm: placement.offsetNorm + slice.windowEndNorm * placement.trackDurRatio,
+            window: slice.window,
+        };
+    }
+    function drawAnalysisWindowOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number, channelIndex: number) {
+        const band = analysisWindowBand(trackIndex, channelIndex);
+        if (band) {
+            drawAnalysisWindowBand(ctx, band, waveformView.timeRange(), W, H);
+        }
     }
     function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         drawDashedTimeLine(ctx, cursorNorm, waveformView.timeRange(), W, H, CURSOR_LINE_STYLE);
@@ -2746,8 +2776,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const el = document.getElementById('spectrum-cursor-time');
         if (el) {
             const gs = trackStore.globalSpan();
-            el.textContent = '@ ' + formatClockTime(gs.startSec + spectrumCursorNorm * gs.spanSec);
+            el.textContent = '@ ' + formatClockTime(gs.startSec + spectrumCursorNorm * gs.spanSec) + analysisWindowCaption();
         }
+    }
+    function analysisWindowCaption() {
+        const gs = trackStore.globalSpan();
+        const captions = new Set<string>();
+        for (const trackId of trackStore.displayOrder) {
+            const band = analysisWindowBand(trackStore.require(trackId).protocolIndex, 0);
+            if (band) {
+                const ms = (band.endNorm - band.startNorm) * gs.spanSec * 1000;
+                captions.add(STR.spectrumAnalysisWindow + (band.window ? ' ' + band.window : '') + ' '
+                    + (gs.startSec + band.startNorm * gs.spanSec).toFixed(3) + '–' + (gs.startSec + band.endNorm * gs.spanSec).toFixed(3)
+                    + ' s (' + ms.toFixed(ms < 10 ? 2 : 1) + ' ms)');
+            }
+        }
+        if (captions.size === 0) {
+            return '';
+        }
+        return '  ' + (captions.size === 1 ? captions.values().next().value : STR.spectrumAnalysisWindowPerTrack);
     }
     function removeTrack(trackId: TrackId) {
         const record = trackStore.get(trackId);

@@ -70,6 +70,9 @@ const uiSmokeSpectrumResponse = function(message) {
         filePath: message.filePath,
         frequencyBins: 192,
         maxFrequencyHz: 4000,
+        windowStartNorm: message.cursorNorm - 0.02,
+        windowEndNorm: message.cursorNorm + 0.02,
+        window: 'hann',
     };
     if (Number.isInteger(message.channelIndex)) {
         return Object.assign(identity, {

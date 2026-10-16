@@ -168,6 +168,9 @@ export function spectrumSlicesFromResult(msg: SpectrumSliceResultMessage, cursor
         maxDb: channel.maxDb,
         unit: channel.unit,
         axisLabel: channel.axisLabel,
+        windowStartNorm: msg.windowStartNorm,
+        windowEndNorm: msg.windowEndNorm,
+        window: msg.window,
     }));
 }
 
