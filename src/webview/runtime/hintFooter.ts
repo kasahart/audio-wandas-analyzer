@@ -14,8 +14,8 @@ export function hintAttr(text: string): string {
     return ' data-hint="' + value + '" aria-description="' + value + '"';
 }
 
-export function setHint(el: HTMLElement, text: string): void {
-    el.dataset.hint = text;
+export function setHint(el: Pick<Element, 'setAttribute'>, text: string): void {
+    el.setAttribute('data-hint', text);
     el.setAttribute('aria-description', text);
 }
 

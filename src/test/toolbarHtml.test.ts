@@ -15,10 +15,10 @@ const spec: ToolbarSpec = {
 };
 
 test('toolbar marks the active content type', () => {
-    assert.ok(toolbarHtml(spec, strings).includes('<button class="tb-btn is-active" data-action="content-waveform">'));
+    assert.ok(toolbarHtml(spec, strings).includes('<button class="tb-btn is-active" data-action="content-waveform"'));
     const spectrogram = toolbarHtml({ ...spec, contentType: 'spectrogram' }, strings);
-    assert.ok(spectrogram.includes('<button class="tb-btn is-active" data-action="content-spectrogram">'));
-    assert.ok(spectrogram.includes('<button class="tb-btn" data-action="content-waveform">'));
+    assert.ok(spectrogram.includes('<button class="tb-btn is-active" data-action="content-spectrogram"'));
+    assert.ok(spectrogram.includes('<button class="tb-btn" data-action="content-waveform"'));
 });
 
 test('toolbar height inputs carry the current values and bounds', () => {
@@ -30,7 +30,7 @@ test('toolbar height inputs carry the current values and bounds', () => {
 test('toolbar groups adjust, workflow and export actions into menus', () => {
     const html = toolbarHtml(spec, strings);
     assert.equal(html.match(/<details class="tb-menu">/g)?.length, 3);
-    assert.ok(html.includes('<summary class="tb-btn">' + escapeHtml(strings.toolbarExportLabel) + '</summary>'));
+    assert.ok(html.includes('>' + escapeHtml(strings.toolbarExportLabel) + '</summary>'));
     for (const action of ['run-recipe', 'copy-spec', 'export-png', 'export-csv', 'export-wav', 'export-report', 'zoom-to-selection', 'toggle-follow-cursor']) {
         assert.ok(html.includes('data-action="' + action + '"'), action);
     }
@@ -40,4 +40,12 @@ test('toolbar groups adjust, workflow and export actions into menus', () => {
 
 test('toolbar shows the app version', () => {
     assert.ok(toolbarHtml(spec, strings).includes('<span class="tb-label tb-version" id="app-version">v1.2.3 (abc1234)</span>'));
+});
+
+test('every toolbar control carries a footer hint', () => {
+    const controls = toolbarHtml(spec, strings).match(/<(button|summary|input)\b[^>]*>/g) ?? [];
+    assert.ok(controls.length > 10);
+    for (const control of controls) {
+        assert.match(control, / data-hint="[^"]+"/, control);
+    }
 });
