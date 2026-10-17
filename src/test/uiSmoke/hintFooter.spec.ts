@@ -42,4 +42,9 @@ test('axes, the spectrum and every toolbar control explain their gestures in the
     await expect(footer).toHaveText(STR.hintSpectrumPlot);
     await page.mouse.move(box.x + 4, box.y + box.height / 2);
     await expect(footer).toHaveText(STR.hintSpectrumDbAxis);
+
+    await page.mouse.move(0, 0);
+    await spectrum.focus();
+    await expect(footer).toHaveText(STR.hintSpectrumPlot);
+    await expect(spectrum).toHaveAttribute('aria-description', STR.hintSpectrumPlot);
 });

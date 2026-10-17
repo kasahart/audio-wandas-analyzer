@@ -1951,6 +1951,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     'freq-axis': STR.hintSpectrumFreqAxis,
                     plot: STR.hintSpectrumPlot,
                 });
+                attachCanvasFocusHint(overlayCanvas, hintFooter, STR.hintSpectrumPlot);
             }
             function attachTrackSpectrumCursorEvents() {
                 canvasesMatching(document, '.track-spectrum-canvas').forEach(function (c) {
