@@ -18,6 +18,7 @@ import {
     createTrackTimeMapping,
     globalNormFromTrackTime as mapGlobalNormFromTrackTime,
     loopRestartTime,
+    passFadeSeconds,
     playbackEndFade,
     playbackStartTime,
 } from './playback';
@@ -203,6 +204,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let playbackRafId: number | null = null;
     const audioFader = createAudioFader();
     let endFadeTarget: number | null = null;
+    let passFade = FADE_SECONDS;
+    // Queuing the end fade further ahead would let a media stall silence the track before it reaches the end.
+    const END_FADE_LOOKAHEAD_SECONDS = 0.25;
     let playbackTrackId: TrackId | null = null;
     let followCursor = false;
     const SPECTRUM_PLAYBACK_TARGET_FRAME_MS = 1000 / 32;
@@ -1619,7 +1623,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const mapping = getTrackTimeMapping(playbackTrackIndex);
                 const loopStartTime = loopRestartTime(mapping, playbackEl.currentTime, loopRegion);
                 if (loopStartTime !== null) {
-                    const fadeInSeconds = playbackEndFade(mapping, loopStartTime, loopRegion, playbackDuration(playbackTrackIndex))?.fadeSeconds ?? FADE_SECONDS;
+                    const fadeInSeconds = passFadeSeconds(mapping, loopStartTime, loopRegion, playbackDuration(playbackTrackIndex));
+                    passFade = fadeInSeconds;
                     endFadeTarget = null;
                     try {
                         playbackEl.currentTime = loopStartTime;
@@ -1680,11 +1685,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (endFadeTarget !== null && Math.abs(endFadeTarget - endTime) <= 1e-3) {
             return;
         }
-        if (endFadeTarget !== null && fade.remaining > fade.fadeSeconds) {
-            audioFader.fadeTo(audio, 1, FADE_SECONDS);
+        const fadeSeconds = Math.min(fade.fadeSeconds, passFade);
+        if (endFadeTarget !== null && fade.remaining > fadeSeconds) {
+            audioFader.fadeTo(audio, 1, fadeSeconds);
+            endFadeTarget = null;
+        }
+        if (fade.remaining > fadeSeconds + END_FADE_LOOKAHEAD_SECONDS) {
+            return;
         }
         // Queued on the audio clock so a late animation frame cannot skip the fade.
-        audioFader.fadeTo(audio, 0, Math.max(0, Math.min(fade.fadeSeconds, fade.remaining)), Math.max(0, fade.remaining - fade.fadeSeconds));
+        audioFader.fadeTo(audio, 0, Math.max(0, Math.min(fadeSeconds, fade.remaining)), Math.max(0, fade.remaining - fadeSeconds));
         endFadeTarget = endTime;
     }
     function stopPlaybackLoop() {
@@ -1745,6 +1755,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             updateCursorDisplay(cursorNorm);
             stopPlayback(playbackTrackId, { keepCursor: true });
         }
+        if (playbackEl === audio && audioFader.isPausing(audio)) {
+            // Restarted during the pause fade-out: the element kept advancing, so carry on from where it is now.
+            const liveCursor = globalNormFromTrackTime(idx, audio.currentTime);
+            if (liveCursor !== null) {
+                cursorNorm = liveCursor;
+            }
+        }
         playbackTrackId = trackId;
         playbackEl = audio;
         invalidateDesiredSpectrumSliceRequests();
@@ -1759,7 +1776,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         audioFader.prepare(audio);
         audioFader.fadeTo(audio, 0, 0);
         endFadeTarget = null;
-        const fadeInSeconds = playbackEndFade(getTrackTimeMapping(idx), startTime, loopRegion, durationSeconds)?.fadeSeconds ?? FADE_SECONDS;
+        const fadeInSeconds = passFadeSeconds(getTrackTimeMapping(idx), startTime, loopRegion, durationSeconds);
+        passFade = fadeInSeconds;
         const fadeIn = function () {
             if (playbackEl === audio && !audioFader.isPausing(audio)) {
                 audioFader.fadeTo(audio, 1, fadeInSeconds);
@@ -1795,6 +1813,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!audio) {
                 return;
             }
+            audio.addEventListener('playing', function () {
+                // A stall lets the queued end fade run ahead of the media; restore the gain and queue it again.
+                if (playbackEl === audio && endFadeTarget !== null && !audioFader.isPausing(audio)) {
+                    audioFader.fadeTo(audio, 1, passFade);
+                    endFadeTarget = null;
+                }
+            });
             attachTrackAudioListeners(audio, trackId, {
                 isCurrent: (id) => playbackTrackId === id,
                 onPlay(el, id) {
@@ -3003,7 +3028,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 clearPlaybackState();
                 const audioHost = document.getElementById('audio-host');
                 if (audioHost) {
-                    audioHost.querySelectorAll('audio').forEach(audio => audioFader.release(audio));
+                    audioHost.querySelectorAll('audio').forEach(function (audio) {
+                        // Moving it within the document keeps it playing until its fade-out ends; detaching would cut it off.
+                        audio.removeAttribute('id');
+                        document.body.appendChild(audio);
+                        audioFader.pauseSmoothly(audio, function () {
+                            audio.remove();
+                            audioFader.release(audio);
+                        });
+                    });
                     audioHost.innerHTML = buildAudioElements();
                     attachAudioEvents();
                 }

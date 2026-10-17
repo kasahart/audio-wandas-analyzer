@@ -1,4 +1,4 @@
-import { fadeSecondsForSpan } from './audioFade';
+import { FADE_SECONDS, fadeSecondsForSpan } from './audioFade';
 
 export interface GlobalTimeline {
     startSeconds: number;
@@ -71,4 +71,15 @@ export function playbackEndFade(
         return null;
     }
     return { remaining: end - currentTime, fadeSeconds: fadeSecondsForSpan(end - start) };
+}
+
+/** Fade length for a pass starting at `startTime`: both fades must fit in what is left of the span. */
+export function passFadeSeconds(
+    mapping: TrackTimeMapping | null,
+    startTime: number,
+    loop: { start: number; end: number } | null,
+    durationSeconds: number,
+): number {
+    const fade = playbackEndFade(mapping, startTime, loop, durationSeconds);
+    return fade ? Math.min(fade.fadeSeconds, Math.max(0, fade.remaining) / 2) : FADE_SECONDS;
 }

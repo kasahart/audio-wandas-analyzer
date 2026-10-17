@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createTrackTimeMapping, loopRestartTime, playbackEndFade, playbackStartTime } from '../webview/runtime/playback';
+import { createTrackTimeMapping, loopRestartTime, passFadeSeconds, playbackEndFade, playbackStartTime } from '../webview/runtime/playback';
 
 const mapping = createTrackTimeMapping(4, 0, { startSeconds: 0, spanSeconds: 8 });
 
@@ -31,4 +31,11 @@ test('playbackEndFade measures the distance to the loop end or the track end', (
     assert.ok(shortLoop && Math.abs(shortLoop.fadeSeconds - 0.02) < 1e-9);
     assert.deepEqual(playbackEndFade(mapping, 3, { start: 0.6, end: 0.8 }, 4), { remaining: 1, fadeSeconds: 0.1 });
     assert.equal(playbackEndFade(mapping, 0, null, 0), null);
+});
+
+test('passFadeSeconds fits the fade-in and fade-out into what is left of the span', () => {
+    assert.equal(passFadeSeconds(mapping, 1, null, 4), 0.1);
+    assert.ok(Math.abs(passFadeSeconds(mapping, 3.9, null, 4) - 0.05) < 1e-9);
+    assert.equal(passFadeSeconds(mapping, 4, null, 4), 0);
+    assert.equal(passFadeSeconds(mapping, 1, { start: 0.125, end: 0.25 }, 4), 0.1);
 });
