@@ -12,5 +12,6 @@ export default defineConfig({
         browserName: 'chromium',
         headless: true,
         viewport: { width: 1400, height: 900 },
+        launchOptions: { executablePath: process.env['AWA_CHROMIUM_EXECUTABLE'] || undefined },
     },
 });

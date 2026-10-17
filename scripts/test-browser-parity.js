@@ -96,7 +96,7 @@ const server = http.createServer((req,res) => {
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     let browser;
     try {
-        browser=await chromium.launch({headless:true,args:['--mute-audio']});
+        browser=await chromium.launch({headless:true,executablePath:process.env.AWA_CHROMIUM_EXECUTABLE||undefined,args:['--mute-audio']});
         const page=await browser.newPage();
         const errors=[]; page.on('pageerror',error=>errors.push(error.message));
         const origin=`http://127.0.0.1:${server.address().port}`;
