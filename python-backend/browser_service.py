@@ -238,6 +238,12 @@ def release_source(file_path: str) -> str:
 
 
 @_json_reply
+def release_all_sources() -> str:
+    service.engine.clear()
+    return "{}"
+
+
+@_json_reply
 def prepare_export_json(raw: str) -> str:
     commands = json.loads(raw)
     if not isinstance(commands, list) or not 1 <= len(commands) <= MAX_SOURCES:

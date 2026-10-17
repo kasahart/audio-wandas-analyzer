@@ -52,6 +52,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         './recipes/octave.json': { inputs: [{ name: 'sig', file: '{{selection}}' }], steps: [{ as: 'o', expr: 'sig.noct_spectrum()' }], display: ['o'] },
     };
     const workers: ControlledWorker[] = [];
+    const windowListeners = new Map<string, () => void>();
     const blockedWorkerCommands = new Set<string>();
     let limitsReply: Record<string, unknown> = { maxInputBytes: 16 * 1024 * 1024, maxSources: 8, maxTotalInputBytes: 64 * 1024 * 1024, maxExportBytes: 32 * 1024 * 1024 };
     const received: Record<string, unknown>[] = [];
@@ -78,6 +79,11 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
                 return;
             }
             if (this.blockedCommands.has(String(command.cmd)) || blockedWorkerCommands.has(String(command.cmd))) return;
+            if (command.cmd === 'clear') {
+                this.loadedSources.clear();
+                queueMicrotask(() => this.reply(command));
+                return;
+            }
             if (command.cmd === 'unload' && !this.loadedSources.delete(String(command.filePath))) {
                 queueMicrotask(() => this.reply(command, {}, 'Source is not loaded'));
                 return;
@@ -107,7 +113,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         __APP_STATE__: { spectrogramSettings: { auto: true } },
         __AWA_HOST__: undefined as WebviewHostApi | undefined,
         prompt: (text: string) => { prompts.push(text); return promptAnswer; },
-        addEventListener: () => undefined,
+        addEventListener: (type: string, listener: () => void) => { windowListeners.set(type, listener); },
         dispatchEvent: () => { throw new Error('Static host must not use the window message channel'); },
     };
     createStaticHost({
@@ -131,7 +137,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         picker.onchange!();
         await flush();
     }
-    return { host, browser, storage, workers, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served,
+    return { host, browser, storage, workers, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served,
         setPromptAnswer(value: string | null) { promptAnswer = value; },
         get status() { return elements.find(element => element.attributes.role === 'status')!.textContent; },
         get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
@@ -164,7 +170,7 @@ test('the audio Worker starts with the page and serves the first WAV', async () 
     assert.ok(app.workers[0].commands.some(command => command.cmd === 'load'));
 });
 
-test('the Python indicator and the centred boot card follow the Worker boot, a failed boot and a reset', async () => {
+test('the Python indicator and the centred boot card follow the Worker boot, a kept Worker on clear, a failed boot and a reset', async () => {
     const app = harness();
     const indicator = app.elements.find(element => 'data-python-state' in element.attributes)!;
     const loading = app.elements.find(element => 'data-python-loading' in element.attributes)!;
@@ -176,6 +182,13 @@ test('the Python indicator and the centred boot card follow the Worker boot, a f
     assert.ok(!shown());
     await app.load();
     app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    assert.equal(indicator.textContent, 'Python: ready');
+    assert.ok(!shown());
+    await app.load();
+    assert.equal(app.workers.length, 1, 'clearing keeps the booted Worker');
+    assert.equal(app.workers[0].terminated, false);
+    assert.deepEqual(app.workers[0].commands.map(command => command.cmd).filter(cmd => cmd === 'clear' || cmd === 'load'), ['load', 'clear', 'load']);
+    app.workers[0].onerror();
     assert.equal(indicator.textContent, 'Python: stopped (restarts when needed)');
     assert.ok(!shown());
     await app.load();
@@ -186,6 +199,10 @@ test('the Python indicator and the centred boot card follow the Worker boot, a f
     assert.ok(!shown());
     app.workers[0].onmessage({ data: { ready: true } });
     assert.equal(indicator.textContent, 'Python: failed to start');
+    await app.load();
+    assert.equal(app.workers[1].terminated, true, 'a failed boot is replaced, so the next WAV retries it');
+    assert.equal(app.workers.length, 3);
+    assert.equal(indicator.textContent, 'Python: starting…');
 });
 
 test('unrelated detail/export errors do not end a pending reanalysis', async () => {
@@ -256,6 +273,68 @@ test('a failed release announces the backend message without the error class nam
     assert.equal(app.status, 'Source is not loaded');
 });
 
+test('a boot that fails after an idle clear is retried by the next WAV', async () => {
+    const app = harness();
+    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    assert.equal(app.workers[0].terminated, false);
+    app.workers[0].onmessage({ data: { ready: false } });
+    await app.load();
+    assert.equal(app.workers[0].terminated, true);
+    assert.equal(app.workers.length, 2);
+    assert.ok(app.workers[1].commands.some(command => command.cmd === 'load'));
+});
+
+test('leaving the page stops an idle Worker and a Worker that cannot clear is replaced', async () => {
+    const app = harness();
+    await app.load();
+    app.workers[0].blockedCommands.add('clear');
+    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    const clear = app.workers[0].commands.at(-1)!;
+    assert.equal(clear.cmd, 'clear');
+    app.workers[0].reply(clear, {}, 'Unknown command');
+    await flush();
+    assert.equal(app.workers[0].terminated, true);
+    await app.load();
+    assert.equal(app.workers.length, 2);
+    app.windowListeners.get('pagehide')!();
+    assert.equal(app.workers[1].terminated, true);
+});
+
+test('a failed boot while restoring sources after a Recipe timeout replays them into the next Worker', async () => {
+    const app = harness(new Map(), 'en', false, 20);
+    await app.load(); await app.load();
+    const retainedIds = app.workers[0].commands.filter(command => command.cmd === 'load').map(command => command.sourceId);
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush(); await flush();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(app.workers[0].terminated, true);
+    app.blockedWorkerCommands.add('load');
+    app.host.postMessage({ ...identity, filePath: `/sources/${retainedIds[0]}`, type: 'request-track-detail' });
+    await flush(); await flush();
+    const failed = app.workers[1];
+    failed.onmessage({ data: { ready: false } });
+    failed.reply(failed.commands.find(command => command.cmd === 'load')!, {}, 'Python failed to start');
+    await flush(); await flush();
+    app.blockedWorkerCommands.delete('load');
+    app.host.postMessage({ ...identity, filePath: `/sources/${retainedIds[0]}`, type: 'request-track-detail' });
+    await flush(); await flush(); await flush();
+    assert.equal(failed.terminated, true);
+    assert.equal(app.workers.length, 3);
+    assert.deepEqual(app.workers[2].commands.filter(command => command.cmd === 'load').map(command => command.sourceId), retainedIds);
+});
+
+test('clearing during an analysis restarts the busy Worker instead of queueing behind it', async () => {
+    const app = harness();
+    await app.load();
+    app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
+    await flush();
+    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    assert.equal(app.workers[0].terminated, true);
+    assert.ok(!app.workers[0].commands.some(command => command.cmd === 'clear'));
+    await app.load();
+    assert.equal(app.workers.length, 2);
+});
+
 test('file picker appends multiple sources and per-track release preserves the other source', async () => {
     const app = harness();
     assert.equal(app.picker.multiple, true);
@@ -278,7 +357,8 @@ test('file picker appends multiple sources and per-track release preserves the o
     await flush();
     assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 1);
     app.host.releaseSource!(secondPath);
-    assert.equal(app.workers[0].terminated, true);
+    assert.equal(app.workers[0].terminated, false);
+    assert.equal(app.workers[0].commands.at(-1)!.cmd, 'clear');
     assert.deepEqual(app.revoked, ['blob:fixture-1', 'blob:fixture-2']);
 });
 
@@ -329,7 +409,8 @@ test('cancel during a file read clears all sources and ignores late completion',
     app.elements.find(element => element.tag === 'button')!.onclick!();
     finish(new ArrayBuffer(100)); await flush();
     assert.equal(app.workers.length, 1);
-    assert.equal(app.workers[0].terminated, true);
+    assert.equal(app.workers[0].terminated, false);
+    assert.equal(app.workers[0].commands.at(-1)!.cmd, 'clear', 'the late file is not loaded after the clear');
     assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 0);
     assert.equal(app.picker.disabled, false);
 });

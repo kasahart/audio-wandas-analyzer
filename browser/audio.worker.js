@@ -56,6 +56,9 @@ self.onmessage = ({ data }) => {
                 const release = pyodide.globals.get('release_source');
                 try { output = release(data.filePath); }
                 finally { release.destroy(); }
+            } else if (data.cmd === 'clear') {
+                // Imported on use, so a stale cached browser_service.py without it fails only this command, not the boot.
+                output = pyodide.runPython('import browser_service; browser_service.release_all_sources()');
             } else {
                 const { bytes, ...command } = data;
                 const dispatch = pyodide.globals.get('dispatch_json');
