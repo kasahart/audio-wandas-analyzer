@@ -131,6 +131,9 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     const strings = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: Record<string, string> }).__APP_STRINGS__);
     await expect(page.locator('#empty-state')).toHaveText(strings.browserEmptyPrompt);
     await expect(page.locator('span[role="status"]')).toHaveText('');
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: strings.btnOpenFile, exact: true }).click();
+    expect((await chooser).isMultiple()).toBe(true);
     const panel = page.locator('[data-browser-about] ul');
     await expect(panel).toBeHidden();
     await page.locator('[data-action="browser-about"]').click();

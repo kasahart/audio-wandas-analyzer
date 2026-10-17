@@ -114,7 +114,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const pick = document.createElement('input');
     pick.setAttribute('data-action', 'browser-open-wav');
     pick.type = 'file'; pick.multiple = true; pick.accept = '.wav,audio/wav'; pick.setAttribute('aria-label', strings.btnOpenFile);
-    setHint(pick, strings.hintBrowserOpenWav);
+    // The native file input labels itself in the browser's UI language, so a page-language button opens it instead.
+    pick.style.cssText = 'display:none';
+    const openFile = document.createElement('button');
+    openFile.textContent = strings.btnOpenFile;
+    setHint(openFile, strings.hintBrowserOpenWav);
+    openFile.onclick = (): void => { pick.click(); };
     const cancel = document.createElement('button');
     cancel.setAttribute('data-action', 'browser-clear');
     cancel.textContent = strings.btnClear;
@@ -158,7 +163,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     };
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
-    bar.append(pick, openFolder, folderPick, cancel, pythonState, about, status);
+    bar.append(openFile, pick, openFolder, folderPick, cancel, pythonState, about, status);
     document.body.prepend(bar);
     // The toolbar text alone was easy to miss, so the boot also shows a centred card; it ignores pointer events because commands already wait for the boot.
     const pythonLoading = document.createElement('div');
@@ -218,7 +223,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             // A Worker that cannot clear (a failed boot, or an older cached script) is replaced so no source outlives Clear.
             sendRequest({ cmd: 'clear' }).catch(() => { if (worker === kept) resetWorker(new Error('Analysis cancelled')); });
         }
-        loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
+        loading = false; pick.disabled = openFile.disabled = false; pick.value = ""; folderPick.value = "";
         pendingTreePaths.clear();
         sources.clear();
     }
@@ -504,10 +509,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 pendingTreePaths.clear();
                 added.forEach(path => pendingTreePaths.add(path));
                 if (!added.length) {
-                    loading = false; pick.disabled = false;
+                    loading = false; pick.disabled = openFile.disabled = false;
                     snapshot(); return;
                 }
-                loading = true; pick.disabled = true;
+                loading = true; pick.disabled = openFile.disabled = true;
                 announce(strings.browserPreparing);
                 await loadBatch(added.map(path => ({ file: tree.get(path)!, sourceId: path.slice('/sources/'.length) })), isLatest);
             });
@@ -588,7 +593,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         });
         if (!sourceGeneration.isCurrent(myGeneration) || !isLatest()) return;
         pendingTreePaths.clear();
-        loading = false; pick.disabled = false; pick.value = '';
+        loading = false; pick.disabled = openFile.disabled = false; pick.value = '';
         if (!sources.size) dispose();
         if (folder) snapshot();
         announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
@@ -599,7 +604,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             folder = undefined; selectionRequests++;
             emit({ type: 'directory-selection', rootPath: '', filePaths: [] });
         }
-        loading = true; pick.disabled = true;
+        loading = true; pick.disabled = openFile.disabled = true;
         announce(strings.browserPreparing);
         enqueueBatch(() => loadBatch(files.map(file => ({ file }))));
     }
