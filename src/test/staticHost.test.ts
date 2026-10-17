@@ -164,19 +164,26 @@ test('the audio Worker starts with the page and serves the first WAV', async () 
     assert.ok(app.workers[0].commands.some(command => command.cmd === 'load'));
 });
 
-test('the Python indicator follows the Worker boot, a failed boot and a reset', async () => {
+test('the Python indicator and the centred boot card follow the Worker boot, a failed boot and a reset', async () => {
     const app = harness();
     const indicator = app.elements.find(element => 'data-python-state' in element.attributes)!;
+    const loading = app.elements.find(element => 'data-python-loading' in element.attributes)!;
+    const shown = (): boolean => (loading.style as { display?: string }).display === 'flex';
     assert.equal(indicator.textContent, 'Python: starting…');
+    assert.ok(shown());
     app.workers[0].onmessage({ data: { ready: true } });
     assert.equal(indicator.textContent, 'Python: ready');
+    assert.ok(!shown());
     await app.load();
     app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
     assert.equal(indicator.textContent, 'Python: stopped (restarts when needed)');
+    assert.ok(!shown());
     await app.load();
     assert.equal(indicator.textContent, 'Python: starting…');
+    assert.ok(shown());
     app.workers[1].onmessage({ data: { ready: false } });
     assert.equal(indicator.textContent, 'Python: failed to start');
+    assert.ok(!shown());
     app.workers[0].onmessage({ data: { ready: true } });
     assert.equal(indicator.textContent, 'Python: failed to start');
 });
