@@ -88,6 +88,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
     let worker: Worker | undefined;
     let recovery: Promise<void> | undefined;
+    let bootFailed = false;
     let nextSource = 0;
     const sourceGeneration = new SessionRequests();
     const reanalysisGeneration = new SessionRequests();
@@ -180,8 +181,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     /** Drops every source; an idle Worker only releases them, so Pyodide boots once per page. */
     function dispose(): void {
         sourceGeneration.advance();
-        // Python cannot interrupt a running command, so work still in flight is cancelled by restarting the Worker.
-        if (pending.size || recovery) resetWorker(new Error('Analysis cancelled'));
+        // Python cannot interrupt a running command, so work still in flight is cancelled by restarting the Worker;
+        // a failed boot is also restarted, so the next WAV retries it.
+        if (pending.size || recovery || bootFailed) resetWorker(new Error('Analysis cancelled'));
         else { reanalysisGeneration.advance(); worker?.postMessage({ cmd: 'clear', requestId: pending.nextId() }); }
         loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
         pendingTreePaths.clear();
@@ -210,10 +212,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }
     function startWorker(): Worker {
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
+        bootFailed = false;
         showPythonState(strings.browserPythonStarting, true);
         activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown; ready?: boolean }>): void => {
             if (worker !== activeWorker) return;
             if (event.data.ready !== undefined) {
+                bootFailed = !event.data.ready;
                 showPythonState(event.data.ready ? strings.browserPythonReady : strings.browserPythonFailed);
                 return;
             }

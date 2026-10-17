@@ -198,6 +198,8 @@ test('the Python indicator and the centred boot card follow the Worker boot, a k
     assert.ok(!shown());
     app.workers[0].onmessage({ data: { ready: true } });
     assert.equal(indicator.textContent, 'Python: failed to start');
+    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    assert.equal(app.workers[1].terminated, true, 'a failed boot is not kept, so the next WAV retries it');
 });
 
 test('unrelated detail/export errors do not end a pending reanalysis', async () => {
