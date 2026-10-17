@@ -15,6 +15,8 @@ export interface ChannelLaneSpec {
     fileName: string;
     axisWidth: number;
     spectrumTitle: string;
+    axisHint: string;
+    spectrumHint: string;
 }
 
 export function channelLaneHtml(spec: ChannelLaneSpec): string {
@@ -27,12 +29,12 @@ export function channelLaneHtml(spec: ChannelLaneSpec): string {
         + header
         + '  <div class="track-channel-lane-body">'
         + '    <div class="track-canvas-wrap" id="' + trackCanvasWrapId(trackIndex, channelIndex) + '">'
-        + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + axisWidth + 'px"' + dataAttrs + '></canvas>'
+        + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + axisWidth + 'px"' + dataAttrs + hintAttr(spec.axisHint) + '></canvas>'
         + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="0" style="outline:none;flex:1"></canvas>'
         + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' aria-hidden="true" style="display:none;position:absolute;left:' + axisWidth + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
         + '    </div>'
-        + '    <div class="track-spectrum-wrap" id="' + trackSpectrumWrapId(trackIndex, channelIndex) + '"' + hintAttr(spec.spectrumTitle) + '>'
-        + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="0" aria-label="' + escapeHtml(spec.fileName + ' ' + label + ' ' + spec.spectrumTitle) + '"></canvas>'
+        + '    <div class="track-spectrum-wrap" id="' + trackSpectrumWrapId(trackIndex, channelIndex) + '">'
+        + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="0" aria-label="' + escapeHtml(spec.fileName + ' ' + label + ' ' + spec.spectrumTitle) + '"' + hintAttr(spec.spectrumHint) + '></canvas>'
         + '    </div>'
         + '  </div>'
         + '</div>';
@@ -56,7 +58,8 @@ export type TrackRowStrings = Pick<UiStrings,
     | 'ariaDragHandle' | 'ariaPickColor' | 'trackPickColor' | 'clipBadgeTitle'
     | 'trackPlayTitle' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaTrackMute' | 'ariaRemoveTrack'
     | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'
-    | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'heightTrackLabel'>;
+    | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'heightTrackLabel'
+    | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'>;
 
 export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): string {
     const { trackId, trackIndex: i, channels } = spec;
@@ -78,16 +81,16 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '"' + hintAttr(strings.trackPlayTitle) + ' aria-label="' + escapeHtml(strings.ariaTrackPlay) + '"' + disabled + '>▶</button>'
         + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '"' + hintAttr(strings.trackStopTitle) + ' aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'
         + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaTrackMute) + '" data-hint="' + escapeHtml(strings.ariaTrackMute) + '" aria-pressed="' + spec.muted + '"' + disabled + '>' + (spec.muted ? '🔇' : '🔊') + '</button>'
-        + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaRemoveTrack) + '">✕</button>'
+        + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '"' + hintAttr(strings.hintRemoveTrack) + ' aria-label="' + escapeHtml(strings.ariaRemoveTrack) + '">✕</button>'
         + '    ' + calibrationButtonHtml(trackId, strings)
         + '  </div>'
         + '  <div class="track-offset">'
         + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '"' + hintAttr(strings.trackOffsetResetHint) + ' aria-label="' + escapeHtml(strings.ariaOffsetValue) + '">+0.000s</span>'
-        + '    <button class="track-offset-step" data-action="offset-up" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaOffsetUp) + '">▲</button>'
-        + '    <button class="track-offset-step" data-action="offset-down" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaOffsetDown) + '">▼</button>'
+        + '    <button class="track-offset-step" data-action="offset-up" data-track-id="' + trackId + '"' + hintAttr(strings.hintOffsetUp) + ' aria-label="' + escapeHtml(strings.ariaOffsetUp) + '">▲</button>'
+        + '    <button class="track-offset-step" data-action="offset-down" data-track-id="' + trackId + '"' + hintAttr(strings.hintOffsetDown) + ' aria-label="' + escapeHtml(strings.ariaOffsetDown) + '">▼</button>'
         + '  </div>'
         + '</div>'
         + '<div class="track-channel-lanes">' + spec.lanesHtml + '</div>'
-        + '<div class="height-resizer track-height-resizer" data-action="track-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.heightTrackLabel + ' resize') + '"></div>'
+        + '<div class="height-resizer track-height-resizer" data-action="track-height-drag"' + hintAttr(strings.hintTrackHeightResizer) + ' role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.heightTrackLabel + ' resize') + '"></div>'
         + '</div>';
 }

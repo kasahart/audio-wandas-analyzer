@@ -235,6 +235,52 @@ export interface UiStrings {
     helpRowSpectrumDrag: string;
     helpRowWaveRectZoom: string;
     waveModeLabelRectZoom: string;
+    hintContentWaveform: string;
+    hintContentSpectrogram: string;
+    hintZoomOut: string;
+    hintZoomIn: string;
+    hintZoomReset: string;
+    hintRectZoom: string;
+    hintMenuAdjust: string;
+    hintMenuWorkflow: string;
+    hintMenuExport: string;
+    hintTrackHeightInput: string;
+    hintSpectrumHeightInput: string;
+    hintRunRecipe: string;
+    hintCopySpec: string;
+    hintSpecZoomOut: string;
+    hintSpecZoomIn: string;
+    hintSpecZoomReset: string;
+    hintRemoveTrack: string;
+    hintOffsetUp: string;
+    hintOffsetDown: string;
+    hintTrackHeightResizer: string;
+    hintSpectrumHeightResizer: string;
+    hintTreeResizer: string;
+    hintOpenFile: string;
+    hintOpenFolder: string;
+    hintSelectAll: string;
+    hintClearAll: string;
+    hintTreeFilter: string;
+    hintTreeDirectory: string;
+    hintTreeFile: string;
+    hintWheelGestures: string;
+    hintDoubleClickResetZoom: string;
+    hintRectZoomDrag: string;
+    hintSpectrumPlot: string;
+    hintSpectrumDbAxis: string;
+    hintSpectrumFreqAxis: string;
+    hintSpectrumKeys: string;
+    hintSpecAuto: string;
+    hintSpecNFft: string;
+    hintSpecHopSize: string;
+    hintSpecWindow: string;
+    hintSpecDisplay: string;
+    hintSpecReset: string;
+    hintSpecApply: string;
+    hintBrowserOpenWav: string;
+    hintBrowserOpenFolder: string;
+    hintBrowserClear: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -300,11 +346,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         chartSpecScalarLabelHeader: 'Label',
         chartSpecScalarValueHeader: 'Value',
         chartSpecScalarUnitHeader: 'Unit',
-        cursorDisplayHint: 'Fine-tune with ← →',
+        cursorDisplayHint: 'Cursor time: click a waveform, then fine-tune with ← → (Shift: 100 ms)',
         loopBadge: '🔁 Looping',
         trackPlayTitle: 'Play / pause',
         trackStopTitle: 'Stop',
-        trackOffsetResetHint: 'Double-click to reset',
+        trackOffsetResetHint: 'Click: type an offset in ms / Double-click: reset to 0',
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'Track offset in milliseconds',
         trackSpectrumTitle: 'Power spectrum at main cursor',
@@ -329,8 +375,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpClose: 'Close (Esc / ?)',
         helpRowSpace: 'play / pause',
         helpRowArrow: 'move cursor  (Shift: fast)',
-        helpRowWheel: 'zoom  (Shift: scroll)',
-        helpRowCtrlWheel: 'zoom (alternative)',
+        helpRowWheel: 'scroll tracks  (Shift: scroll in time)',
+        helpRowCtrlWheel: 'zoom in time',
         helpRowDrag: 'create / resize loop',
         helpRowShiftDrag: 'adjust track offset',
         helpRowQuestion: 'toggle this help',
@@ -345,7 +391,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         calibrationOverlayIncompatible: 'Spectrum overlay is unavailable because visible channels use incompatible level references. Per-channel spectra remain available.',
         loopTimeDisplayTitle: 'Click to copy loop range',
         btnFollowCursor: 'Follow',
-        btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback',
+        btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback (key: F)',
         btnCopySpec: 'Copy spec',
         specSettingsAuto: 'Auto (defaults)',
         specSettingsStftLegend: 'STFT',
@@ -459,6 +505,52 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowSpectrumDrag: 'drag zoom (spectrum)',
         helpRowWaveRectZoom: 'drag zoom (waveform zoom mode)',
         waveModeLabelRectZoom: 'Rect Zoom',
+        hintContentWaveform: 'Show tracks as waveforms',
+        hintContentSpectrogram: 'Show tracks as spectrograms (⚙ for STFT settings)',
+        hintZoomOut: 'Zoom out in time (key: −)',
+        hintZoomIn: 'Zoom in in time (key: +)',
+        hintZoomReset: 'Show the whole time range (key: 0, or double-click a waveform)',
+        hintRectZoom: 'Box zoom mode: drag on a waveform to zoom into that box',
+        hintMenuAdjust: 'Change the track and spectrum heights',
+        hintMenuWorkflow: 'Run a recipe or copy the analysis spec',
+        hintMenuExport: 'Export PNG, CSV, WAV or a report',
+        hintTrackHeightInput: 'Track height in px (you can also drag the bottom edge of a track)',
+        hintSpectrumHeightInput: 'Spectrum height in px (you can also drag the edge of the spectrum)',
+        hintRunRecipe: 'Run an analysis recipe on the loaded tracks',
+        hintCopySpec: 'Copy the current analysis spec to the clipboard',
+        hintSpecZoomOut: 'Zoom the spectrum out',
+        hintSpecZoomIn: 'Zoom the spectrum in (or drag a box on the spectrum)',
+        hintSpecZoomReset: 'Show the whole spectrum (or double-click the plot)',
+        hintRemoveTrack: 'Remove this track from the comparison',
+        hintOffsetUp: 'Offset +10 ms',
+        hintOffsetDown: 'Offset −10 ms',
+        hintTrackHeightResizer: 'Drag to change the track height',
+        hintSpectrumHeightResizer: 'Drag to change the spectrum height',
+        hintTreeResizer: 'Drag to change the sidebar width',
+        hintOpenFile: 'Open an audio file',
+        hintOpenFolder: 'Open another folder of audio files',
+        hintSelectAll: 'Check all visible files in the tree',
+        hintClearAll: 'Uncheck all files',
+        hintTreeFilter: 'Type to filter the files by name',
+        hintTreeDirectory: 'Click or Enter / Space: expand or collapse',
+        hintTreeFile: 'Check to show this file as a track',
+        hintWheelGestures: 'Wheel: scroll tracks / Ctrl+Wheel: zoom / Shift+Wheel: scroll in time',
+        hintDoubleClickResetZoom: 'Double-click: reset zoom',
+        hintRectZoomDrag: 'Drag: zoom into the box',
+        hintSpectrumPlot: 'Drag: zoom into the box / Double-click: reset zoom / ← →: step through frequency bins',
+        hintSpectrumDbAxis: 'Double-click: set the dB range',
+        hintSpectrumFreqAxis: 'Double-click: set the frequency range',
+        hintSpectrumKeys: '← →: step through frequency bins',
+        hintSpecAuto: 'Use the default STFT settings',
+        hintSpecNFft: 'FFT length in samples: larger gives finer frequency resolution',
+        hintSpecHopSize: 'Samples between frames: smaller gives finer time resolution',
+        hintSpecWindow: 'Window function applied to each frame',
+        hintSpecDisplay: 'Display range, applied immediately (empty = auto)',
+        hintSpecReset: 'Restore the default settings',
+        hintSpecApply: 'Recompute the spectrogram with these STFT settings',
+        hintBrowserOpenWav: 'Add WAV files as tracks (you can also drop them onto the page)',
+        hintBrowserOpenFolder: 'Open a folder and pick WAV files from the tree',
+        hintBrowserClear: 'Remove all tracks and free the audio memory',
     },
     ja: {
         panelTitle: '比較パネル',
@@ -522,11 +614,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         chartSpecScalarLabelHeader: '項目',
         chartSpecScalarValueHeader: '値',
         chartSpecScalarUnitHeader: '単位',
-        cursorDisplayHint: '← →キーで微調整できます',
+        cursorDisplayHint: 'カーソル時刻: 波形をクリックし、← → で微調整（Shift: 100 ms）',
         loopBadge: '🔁 ループ再生中',
         trackPlayTitle: '再生 / 一時停止',
         trackStopTitle: '停止',
-        trackOffsetResetHint: 'ダブルクリックでリセット',
+        trackOffsetResetHint: 'クリック: オフセットを ms で入力 / ダブルクリック: 0 に戻す',
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'トラックオフセット（ミリ秒）',
         trackSpectrumTitle: 'メインカーソル時刻のパワースペクトル',
@@ -551,8 +643,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpClose: '閉じる (Esc / ?)',
         helpRowSpace: '再生 / 停止',
         helpRowArrow: 'カーソル移動 (Shift: 高速)',
-        helpRowWheel: 'ズーム (Shift: 横スクロール)',
-        helpRowCtrlWheel: 'ズーム (代替)',
+        helpRowWheel: 'トラックをスクロール (Shift: 時間方向にスクロール)',
+        helpRowCtrlWheel: '時間方向にズーム',
         helpRowDrag: 'ループ作成 / リサイズ',
         helpRowShiftDrag: 'トラックのオフセット調整',
         helpRowQuestion: 'このヘルプを開閉',
@@ -567,7 +659,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         calibrationOverlayIncompatible: '表示中のチャンネルのレベル基準が互換でないため、スペクトルの重ね表示は使用できません。チャンネルごとのスペクトルは引き続き表示できます。',
         loopTimeDisplayTitle: 'クリックでループ範囲をコピー',
         btnFollowCursor: '追従',
-        btnFollowCursorTitle: '再生中にカーソルを中央に保つ',
+        btnFollowCursorTitle: '再生中にカーソルを中央に保つ（キー: F）',
         btnCopySpec: 'スペックをコピー',
         specSettingsAuto: '自動 (デフォルト)',
         specSettingsStftLegend: 'STFT',
@@ -681,6 +773,52 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowSpectrumDrag: '矩形ズーム (スペクトル)',
         helpRowWaveRectZoom: '矩形ズーム (波形ズームモード時)',
         waveModeLabelRectZoom: '矩形ズーム',
+        hintContentWaveform: 'トラックを波形で表示',
+        hintContentSpectrogram: 'トラックをスペクトログラムで表示（⚙ で STFT 設定）',
+        hintZoomOut: '時間方向にズームアウト（キー: −）',
+        hintZoomIn: '時間方向にズームイン（キー: +）',
+        hintZoomReset: '全体を表示（キー: 0、または波形をダブルクリック）',
+        hintRectZoom: '矩形ズームモード: 波形上をドラッグした範囲にズーム',
+        hintMenuAdjust: 'トラックとスペクトルの高さを変更',
+        hintMenuWorkflow: 'レシピの実行、解析スペックのコピー',
+        hintMenuExport: 'PNG・CSV・WAV・レポートを書き出す',
+        hintTrackHeightInput: 'トラックの高さ (px)。トラック下端のドラッグでも変更できます',
+        hintSpectrumHeightInput: 'スペクトルの高さ (px)。スペクトルの境界のドラッグでも変更できます',
+        hintRunRecipe: '読み込んだトラックに解析レシピを実行',
+        hintCopySpec: '現在の解析スペックをクリップボードにコピー',
+        hintSpecZoomOut: 'スペクトルをズームアウト',
+        hintSpecZoomIn: 'スペクトルをズームイン（スペクトル上のドラッグでも可）',
+        hintSpecZoomReset: 'スペクトル全体を表示（グラフのダブルクリックでも可）',
+        hintRemoveTrack: 'このトラックを比較から外す',
+        hintOffsetUp: 'オフセット +10 ms',
+        hintOffsetDown: 'オフセット −10 ms',
+        hintTrackHeightResizer: 'ドラッグでトラックの高さを変更',
+        hintSpectrumHeightResizer: 'ドラッグでスペクトルの高さを変更',
+        hintTreeResizer: 'ドラッグでサイドバーの幅を変更',
+        hintOpenFile: '音声ファイルを開く',
+        hintOpenFolder: '別の音声フォルダを開く',
+        hintSelectAll: 'ツリーに表示中のファイルをすべてチェック',
+        hintClearAll: 'すべてのチェックを外す',
+        hintTreeFilter: '入力した文字でファイルを絞り込む',
+        hintTreeDirectory: 'クリックまたは Enter / Space: 開く / 閉じる',
+        hintTreeFile: 'チェックするとトラックとして表示',
+        hintWheelGestures: 'ホイール: トラックをスクロール / Ctrl+ホイール: ズーム / Shift+ホイール: 時間方向にスクロール',
+        hintDoubleClickResetZoom: 'ダブルクリック: ズームをリセット',
+        hintRectZoomDrag: 'ドラッグ: 囲んだ範囲にズーム',
+        hintSpectrumPlot: 'ドラッグ: 囲んだ範囲にズーム / ダブルクリック: ズームをリセット / ← →: 周波数ビンを移動',
+        hintSpectrumDbAxis: 'ダブルクリック: dB 範囲を設定',
+        hintSpectrumFreqAxis: 'ダブルクリック: 周波数範囲を設定',
+        hintSpectrumKeys: '← →: 周波数ビンを移動',
+        hintSpecAuto: 'STFT 設定を既定値にする',
+        hintSpecNFft: 'FFT 長（サンプル）: 大きいほど周波数分解能が細かくなります',
+        hintSpecHopSize: 'フレーム間隔（サンプル）: 小さいほど時間分解能が細かくなります',
+        hintSpecWindow: '各フレームにかける窓関数',
+        hintSpecDisplay: '表示範囲。すぐに反映されます（空欄は自動）',
+        hintSpecReset: '既定の設定に戻す',
+        hintSpecApply: 'この STFT 設定でスペクトログラムを再計算',
+        hintBrowserOpenWav: 'WAV をトラックとして追加（ページへのドロップでも可）',
+        hintBrowserOpenFolder: 'フォルダを開き、ツリーから WAV を選ぶ',
+        hintBrowserClear: '全トラックを削除して音声メモリを解放',
     },
 };
 
