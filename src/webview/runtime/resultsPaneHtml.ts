@@ -21,6 +21,7 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '  <div id="empty-state"><p>' + escapeHtml(parts.emptyMessage) + '</p></div>'
         + '</div>'
         + '<div id="spectrum-section">'
+        + '  <div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.heightSpectrumLabel + ' resize') + '"></div>'
         + '  <div id="spectrum-section-header"><span>' + escapeHtml(strings.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span><span id="spectrum-freq-readout" style="font-family:var(--font-mono);margin-left:14px;"></span></div>'
         + '  <div id="spectrum-zoom-toolbar" style="display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;">'
         + '    <span class="tb-label">' + escapeHtml(strings.spectrumZoomLabel) + '</span>'
@@ -28,7 +29,7 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '    <button class="tb-btn" data-action="spec-zoom-in" aria-label="' + escapeHtml(strings.ariaSpecZoomIn) + '">＋</button>'
         + '    <button class="tb-btn" data-action="spec-zoom-reset" aria-label="' + escapeHtml(strings.ariaSpecZoomReset) + '">' + escapeHtml(strings.btnSpecZoomReset) + '</button>'
         + '  </div>'
-        + '  <div id="spectrum-overlay-wrap"><div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag" role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.heightSpectrumLabel + ' resize') + '"></div><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(strings.spectrumSectionTitle) + '"></canvas></div>'
+        + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(strings.spectrumSectionTitle) + '"></canvas></div>'
         + '</div>'
         + '<div id="audio-host">' + parts.audioHtml + '</div>';
 }

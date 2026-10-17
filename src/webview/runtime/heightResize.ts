@@ -28,7 +28,7 @@ export interface HeightResize {
     isActive(): boolean;
 }
 
-/** Drag-to-resize for track rows and the spectrum overlay; the spectrum handle sits above its panel, so dragging up grows it. */
+/** Drag-to-resize for track rows and the spectrum overlay; the spectrum panel is docked at the bottom with its handle on its top edge, so dragging up grows it. */
 export function createHeightResize(deps: HeightResizeDeps): HeightResize {
     let drag: { kind: HeightKind; startY: number; startHeight: number } | null = null;
     return {
