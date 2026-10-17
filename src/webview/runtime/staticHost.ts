@@ -113,6 +113,24 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     status.textContent = strings.browserWavHint;
     bar.append(pick, openFolder, folderPick, cancel, pythonState, status);
     document.body.prepend(bar);
+    // The toolbar text alone was easy to miss, so the boot also shows a centred card; it ignores pointer events because commands already wait for the boot.
+    const pythonLoading = document.createElement('div');
+    pythonLoading.setAttribute('data-python-loading', '');
+    pythonLoading.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:70;pointer-events:none;'
+        + 'display:flex;align-items:center;gap:12px;padding:16px 24px;background:var(--panel);color:var(--text);border:1px solid var(--line);'
+        + 'border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.35);font-family:var(--font-ui);font-size:14px';
+    const pythonSpinner = document.createElement('span');
+    pythonSpinner.style.cssText = 'width:18px;height:18px;border:3px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:python-loading-spin 0.8s linear infinite';
+    const pythonLoadingText = document.createElement('span');
+    pythonLoadingText.textContent = strings.browserPythonStarting;
+    const pythonSpinnerKeyframes = document.createElement('style');
+    pythonSpinnerKeyframes.textContent = '@keyframes python-loading-spin { to { transform: rotate(360deg); } }';
+    pythonLoading.append(pythonSpinner, pythonLoadingText, pythonSpinnerKeyframes);
+    document.body.prepend(pythonLoading);
+    function showPythonState(text: string, booting = false): void {
+        pythonState.textContent = text;
+        pythonLoading.style.display = booting ? 'flex' : 'none';
+    }
     const announce = (value: string): void => { status.textContent = value; };
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
     /** The opened folder's WAV files keyed by the `/sources/<relative path>` each one loads under. */
@@ -138,7 +156,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function resetWorker(reason: Error): void {
         reanalysisGeneration.advance();
         worker?.terminate(); worker = undefined;
-        pythonState.textContent = strings.browserPythonStopped;
+        showPythonState(strings.browserPythonStopped);
         recovery = undefined;
         rejectPendingRequests(pending, reason);
     }
@@ -172,11 +190,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }
     function startWorker(): Worker {
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
-        pythonState.textContent = strings.browserPythonStarting;
+        showPythonState(strings.browserPythonStarting, true);
         activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown; ready?: boolean }>): void => {
             if (worker !== activeWorker) return;
             if (event.data.ready !== undefined) {
-                pythonState.textContent = event.data.ready ? strings.browserPythonReady : strings.browserPythonFailed;
+                showPythonState(event.data.ready ? strings.browserPythonReady : strings.browserPythonFailed);
                 return;
             }
             // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
