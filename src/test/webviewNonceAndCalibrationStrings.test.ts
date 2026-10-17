@@ -33,7 +33,7 @@ test('comparison document issues a fresh random nonce per render', () => {
 test('calibration button uses localized label, title and aria-label', () => {
     const ja = getStrings('ja');
     const html = calibrationButtonHtml('track-1', ja);
-    assert.ok(html.includes('title="' + ja.calibrationButtonTitle + '"'));
+    assert.ok(html.includes('data-hint="' + ja.calibrationButtonTitle + '"'));
     assert.ok(html.includes('aria-label="' + ja.calibrationButtonAria + '"'));
     assert.ok(html.endsWith('>' + ja.calibrationButtonLabel + '</button>'));
     assert.ok(calibrationButtonHtml('track-1', getStrings('en')).endsWith('>Cal</button>'));

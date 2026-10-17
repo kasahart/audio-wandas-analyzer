@@ -16,7 +16,7 @@ export type SelectionLayoutStrings = Pick<UiStrings,
 export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: SelectionLayoutStrings): string {
     const python = parts.python;
     const pythonButton = python
-        ? '    <button class="tb-btn' + (python.warning ? ' is-warning' : '') + '" id="selection-python-environment" data-action="select-python-environment" title="' + escapeHtml(python.tooltip) + '">' + escapeHtml(python.text) + '</button>'
+        ? '    <button class="tb-btn' + (python.warning ? ' is-warning' : '') + '" id="selection-python-environment" data-action="select-python-environment" data-hint="' + escapeHtml(python.tooltip) + '">' + escapeHtml(python.text) + '</button>'
         : '';
     return '<div id="directory-selection-layout">'
         + '  <div id="selection-toolbar">'
