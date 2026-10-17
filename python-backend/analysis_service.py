@@ -170,60 +170,30 @@ class AnalysisService:
     ) -> SpectrumSliceResult:
         compute_started = time.perf_counter()
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
-        window_size, hop_size, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
+        window_size, _hop_size, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
         clipped_norm = max(0.0, min(1.0, cursor_norm))
         revision = _analysis_revision(analysis_revision)
 
-        spectrogram = self.engine.get_cached_spectrogram(
-            cached.path,
-            window_size,
-            hop_size,
-            window_name,
-            calibration_profile,
-        )
-        if spectrogram is not None:
-            time_bins = int(spectrogram.n_frames)
-            if time_bins <= 0:
-                raise InputError("no spectrogram available for spectrum slice")
-            centers = np.asarray(spectrogram.frame_center_times[0], dtype=np.float64)
-            cursor_seconds = clipped_norm * float(analysis_frame.duration) + float(analysis_frame.source_time_offset[0])
-            time_index = int(np.argmin(np.abs(centers - cursor_seconds)))
-            frame_center_sample = (centers[time_index] - float(analysis_frame.source_time_offset[0])) * float(
-                analysis_frame.sampling_rate
-            )
-            window_start_sample = float(frame_center_sample) - window_size / 2
-            spectrum = spectrogram.get_frame_at(time_index)
-            max_frequency_hz = float(spectrogram.freqs[-1])
+        # Transform the window centred on the cursor itself rather than the nearest STFT frame, so the
+        # spectrum (and the band drawn for it) follows the cursor without hop-sized jumps or gaps.
+        center_sample = min(int(round(clipped_norm * analysis_frame.n_samples)), analysis_frame.n_samples - 1)
+        start_sample = max(0, center_sample - window_size // 2)
+        end_sample = min(analysis_frame.n_samples, start_sample + window_size)
+        start_sample = max(0, end_sample - window_size)
+        window_start_sample = float(start_sample)
+        slice_key = (resolved.signature, window_size, window_name, revision, start_sample)
+        cached_slice = self.engine.get_spectrum_slice(cached, slice_key)
+        if cached_slice is not None:
+            rows, max_frequency_hz = cached_slice
+        else:
+            spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
+            max_frequency_hz = float(spectrum.freqs[-1])
             values = np.asarray(spectrum.dB, dtype=np.float64)
             rows = resample_frequency_bins(
                 values.reshape(analysis_frame.n_channels, -1),
                 SPECTROGRAM_FREQUENCY_BIN_LIMIT,
-            )
-        else:
-            center_sample = min(int(clipped_norm * analysis_frame.n_samples), analysis_frame.n_samples - 1)
-            live_quantum = max(1, int(round(float(analysis_frame.sampling_rate) / 30.0)))
-            quantized_center = min(
-                analysis_frame.n_samples - 1,
-                int(round(center_sample / live_quantum)) * live_quantum,
-            )
-            start_sample = max(0, quantized_center - window_size // 2)
-            end_sample = min(analysis_frame.n_samples, start_sample + window_size)
-            start_sample = max(0, end_sample - window_size)
-            window_start_sample = float(start_sample)
-            slice_key = (resolved.signature, window_size, window_name, revision, quantized_center)
-            cached_slice = self.engine.get_spectrum_slice(cached, slice_key)
-            if cached_slice is not None:
-                rows, max_frequency_hz = cached_slice
-                spectrum = None
-            else:
-                spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
-                max_frequency_hz = float(spectrum.freqs[-1])
-                values = np.asarray(spectrum.dB, dtype=np.float64)
-                rows = resample_frequency_bins(
-                    values.reshape(analysis_frame.n_channels, -1),
-                    SPECTROGRAM_FREQUENCY_BIN_LIMIT,
-                ).astype(np.float32, copy=False)
-                self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
+            ).astype(np.float32, copy=False)
+            self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
         channels: list[dict[str, object]] = []
         for channel_index, row in enumerate(rows):
             reference = analysis_frame.channels[channel_index].level_reference

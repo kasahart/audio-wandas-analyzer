@@ -385,26 +385,23 @@ def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path)
     assert len(resp["channels"][0]["values"]) == resp["frequencyBins"]
 
 
-def test_spectrum_slice_uses_cached_wandas_spectrogram(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("cached_detail", [False, True])
+def test_spectrum_slice_window_is_centred_on_the_cursor(tmp_path: Path, cached_detail: bool) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
-    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
-    service = AnalysisService(engine)
+    n_samples = 8000
+    opts = {"nFft": 256, "hopSize": 256, "window": "hann"}
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
+    if cached_detail:
+        handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)
 
-    command = {
-        "filePath": str(wav),
-        "trackIndex": 0,
-        "cursorNorm": 0.5,
-        "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
-    }
-    first = handle_spectrum_slice(command, service)
-    spectrogram = engine.get_spectrogram(wav, 256, 128, "hann")
-    second = handle_spectrum_slice(command, service)
-    third = handle_spectrum_slice(command, service)
-
-    assert engine.get_spectrogram(wav, 256, 128, "hann") is spectrogram
-    assert first["frequencyBins"] == second["frequencyBins"]
-    assert second["channels"] == third["channels"]
+    # Consecutive cursors get consecutive windows rather than snapping to hop-spaced STFT frames.
+    for cursor_sample in (4000, 4001, 4050, 4500):
+        command = {"filePath": str(wav), "cursorNorm": cursor_sample / n_samples, "stftOptions": opts}
+        resp = handle_spectrum_slice(command, service)
+        assert resp["windowStartNorm"] * n_samples == pytest.approx(cursor_sample - 128)
+        assert resp["windowEndNorm"] * n_samples == pytest.approx(cursor_sample + 128)
+        assert handle_spectrum_slice(command, service)["channels"] == resp["channels"]
 
 
 def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, tmp_path: Path) -> None:
