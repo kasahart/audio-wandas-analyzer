@@ -25,7 +25,7 @@ class MockElement {
     contentDocument?: MockDocument;
     contentWindow?: Record<string, unknown>;
     constructor(readonly tag: string) {
-        if (tag === 'iframe') { this.contentDocument = new MockDocument(); this.contentWindow = {}; }
+        if (tag === 'iframe') { this.contentDocument = new MockDocument(); this.contentWindow = { addEventListener: () => undefined }; }
     }
     setAttribute(name: string, value: string): void { this.attributes[name] = value; }
     append(...nodes: MockElement[]): void { this.children.push(...nodes); }

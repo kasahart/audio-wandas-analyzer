@@ -173,22 +173,35 @@ test('static page opens a folder into the shared selection tree and checked file
     await expect(page.locator('.track-row')).toHaveCount(2);
 });
 
-test('static page loads WAV files dropped onto the page as tracks', async ({ page }) => {
+test('static page loads WAV files dropped onto the page or the recipe charts as tracks', async ({ page }) => {
     await openStaticPage(page);
-    const dropFiles = (type: 'dragover' | 'drop', names: string[]) => page.evaluate(({ type, names }) => {
-        const transfer = new DataTransfer();
-        for (const name of names) transfer.items.add(new File([new Uint8Array(100)], name));
-        document.body.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    }, { type, names });
+    const dropFiles = (type: 'dragover' | 'drop', names: string[], intoRecipe = false) => page.evaluate(({ type, names, intoRecipe }) => {
+        const target = intoRecipe ? document.querySelector('[data-recipe-result] iframe') as HTMLIFrameElement : undefined;
+        const view = target ? target.contentWindow! as typeof window : window;
+        const transfer = new view.DataTransfer();
+        for (const name of names) transfer.items.add(new view.File([new Uint8Array(100)], name));
+        view.document.body.dispatchEvent(new view.DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }, { type, names, intoRecipe });
+    const outline = page.locator('[data-drop-target]');
     await dropFiles('dragover', ['dropped.wav']);
-    await expect(page.locator('body')).toHaveCSS('outline-style', 'dashed');
+    await expect(outline).toBeInViewport({ ratio: 1 });
     await dropFiles('drop', ['notes.txt']);
     const noWav = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserDropNoWav: string } }).__APP_STRINGS__.browserDropNoWav);
     await expect(page.locator('span[role="status"]')).toHaveText(noWav);
-    await expect(page.locator('body')).toHaveCSS('outline-style', 'none');
+    await expect(outline).toBeHidden();
     await dropFiles('drop', ['dropped.wav', 'notes.txt', 'second.WAV']);
     await expect(page.locator('.track-row')).toHaveCount(2);
     await expect(page.locator('span[role="status"]')).toContainText('second.WAV:');
+
+    await page.evaluate(() => {
+        (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
+    });
+    await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
+    await dropFiles('dragover', ['third.wav'], true);
+    await expect(outline).toBeVisible();
+    await dropFiles('drop', ['third.wav'], true);
+    await expect(page.locator('.track-row')).toHaveCount(3);
+    await expect(outline).toBeHidden();
 });
 
 async function getPostedActionTypes(page: Page): Promise<string[]> {
