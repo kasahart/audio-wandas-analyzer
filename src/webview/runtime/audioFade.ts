@@ -9,11 +9,32 @@ export function cosineRampValues(from: number, to: number, steps = RAMP_STEPS): 
     return values;
 }
 
+export interface GainRamp {
+    from: number;
+    to: number;
+    start: number;
+    seconds: number;
+}
+
+/** Gain the scheduled piecewise-linear cosine ramp produces at `time`. */
+export function rampValueAt(ramp: GainRamp, time: number): number {
+    if (ramp.seconds <= 0 || time >= ramp.start + ramp.seconds) {
+        return ramp.to;
+    }
+    if (time <= ramp.start) {
+        return ramp.from;
+    }
+    const points = [ramp.from, ...cosineRampValues(ramp.from, ramp.to)];
+    const position = (time - ramp.start) / ramp.seconds * (points.length - 1);
+    const k = Math.floor(position);
+    return points[k] + (points[k + 1] - points[k]) * (position - k);
+}
+
 export function fadeSecondsForSpan(spanSeconds: number): number {
     return Math.max(0, Math.min(FADE_SECONDS, spanSeconds / 2));
 }
 
-type FadeParam = Pick<AudioParam, 'value' | 'cancelScheduledValues' | 'setValueAtTime' | 'linearRampToValueAtTime'> & Partial<Pick<AudioParam, 'cancelAndHoldAtTime'>>;
+type FadeParam = Pick<AudioParam, 'value' | 'cancelScheduledValues' | 'setValueAtTime' | 'linearRampToValueAtTime'>;
 type FadeGain = { gain: FadeParam; connect(destination: unknown): unknown };
 export interface FadeContext {
     readonly currentTime: number;
@@ -29,7 +50,7 @@ export interface AudioFader {
     /** Routes the element through gain stages; call from a user gesture so the context is allowed to start. */
     prepare(el: FadeMedia): boolean;
     fadeTo(el: FadeMedia, value: number, seconds: number): void;
-    pauseSmoothly(el: FadeMedia, after?: () => void): void;
+    pauseSmoothly(el: FadeMedia, after?: () => void, seconds?: number): void;
     isPausing(el: FadeMedia): boolean;
     setMuted(el: FadeMedia, muted: boolean): void;
 }
@@ -43,6 +64,7 @@ export function createAudioFader(createContext: () => FadeContext | null = defau
     let ctx: FadeContext | null = null;
     const routes = new WeakMap<FadeMedia, { fade: FadeGain; mute: FadeGain }>();
     const pendingMutes = new WeakMap<FadeMedia, unknown>();
+    const ramps = new WeakMap<FadeParam, GainRamp>();
     const pendingPauses = new WeakMap<FadeMedia, { handle: unknown; afters: Array<() => void> }>();
 
     function ramp(param: FadeParam, to: number, seconds: number): void {
@@ -50,14 +72,11 @@ export function createAudioFader(createContext: () => FadeContext | null = defau
             return;
         }
         const now = ctx.currentTime;
-        const from = param.value;
-        // cancelScheduledValues alone would snap an in-flight ramp back to its starting value.
-        if (param.cancelAndHoldAtTime) {
-            param.cancelAndHoldAtTime(now);
-        }
-        else {
-            param.cancelScheduledValues(now);
-        }
+        // AudioParam.value may report the intrinsic value rather than the automated one, so track ramps ourselves.
+        const previous = ramps.get(param);
+        const from = previous ? rampValueAt(previous, now) : param.value;
+        ramps.set(param, { from, to, start: now, seconds });
+        param.cancelScheduledValues(now);
         param.setValueAtTime(from, now);
         if (seconds <= 0) {
             param.setValueAtTime(to, now);
@@ -112,10 +131,13 @@ export function createAudioFader(createContext: () => FadeContext | null = defau
             cancelPendingPause(el);
             ramp(route.fade.gain, value, seconds);
         },
-        pauseSmoothly(el, after) {
+        pauseSmoothly(el, after, seconds = FADE_SECONDS) {
             const route = routes.get(el);
-            if (!route || el.paused) {
+            if (!route || el.paused || seconds <= 0) {
                 cancelPendingPause(el);
+                if (route) {
+                    ramp(route.fade.gain, 0, 0);
+                }
                 el.pause();
                 after?.();
                 return;
@@ -127,7 +149,7 @@ export function createAudioFader(createContext: () => FadeContext | null = defau
                 }
                 return;
             }
-            ramp(route.fade.gain, 0, FADE_SECONDS);
+            ramp(route.fade.gain, 0, seconds);
             const afters = after ? [after] : [];
             pendingPauses.set(el, {
                 afters,
@@ -135,7 +157,7 @@ export function createAudioFader(createContext: () => FadeContext | null = defau
                     pendingPauses.delete(el);
                     el.pause();
                     afters.forEach(fn => fn());
-                }, FADE_SECONDS * 1000),
+                }, seconds * 1000),
             });
         },
         isPausing(el) {

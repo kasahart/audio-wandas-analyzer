@@ -1600,7 +1600,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function clearPlaybackState() {
         if (playbackEl) {
-            audioFader.pauseSmoothly(playbackEl);
+            pauseSmoothly(playbackEl);
         }
         playbackEl = null;
         playbackTrackId = null;
@@ -1656,6 +1656,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function playbackDuration(idx: number): number {
         return (playbackEl && playbackEl.duration) || state.results[idx]?.durationSeconds || 0;
     }
+    function pauseSmoothly(audio: HTMLAudioElement, after?: () => void): void {
+        const idx = audio === playbackEl && playbackTrackId ? trackStore.protocolIndexForId(playbackTrackId) : null;
+        const fade = idx === null ? null : playbackEndFade(getTrackTimeMapping(idx), audio.currentTime, loopRegion, playbackDuration(idx));
+        // Never fade past the point where the track ends or the loop jumps back.
+        audioFader.pauseSmoothly(audio, after, fade ? Math.max(0, Math.min(FADE_SECONDS, fade.remaining)) : FADE_SECONDS);
+    }
     function fadeInOnceSeeked(audio: HTMLAudioElement, seconds: number): void {
         // The seek takes effect asynchronously; fading in before it lands would let the old position through.
         audio.addEventListener('seeked', function () {
@@ -1691,7 +1697,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const trackIndex = trackId ? trackStore.protocolIndexForId(trackId) : null;
         const audio = trackIndex === null ? playbackEl : getTrackAudio(trackIndex);
         if (audio) {
-            audioFader.pauseSmoothly(audio, function () {
+            pauseSmoothly(audio, function () {
                 try {
                     audio.currentTime = 0;
                 }
@@ -1718,7 +1724,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (playbackTrackId === trackId && playbackEl === audio && !audio.paused && !audioFader.isPausing(audio)) {
-            audioFader.pauseSmoothly(audio);
+            pauseSmoothly(audio);
             invalidateDesiredSpectrumSliceRequests();
             updatePlaybackButtons();
             stopPlaybackLoop();

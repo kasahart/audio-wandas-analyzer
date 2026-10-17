@@ -60,8 +60,13 @@ export function playbackEndFade(
     loop: { start: number; end: number } | null,
     durationSeconds: number,
 ): { remaining: number; fadeSeconds: number } | null {
-    const start = mapping && loop ? trackTimeFromGlobalNorm(mapping, loop.start) : 0;
-    const end = mapping && loop ? trackTimeFromGlobalNorm(mapping, loop.end) : durationSeconds;
+    let start = mapping && loop ? trackTimeFromGlobalNorm(mapping, loop.start) : 0;
+    let end = mapping && loop ? trackTimeFromGlobalNorm(mapping, loop.end) : durationSeconds;
+    if (!(end > start)) {
+        // A loop outside this track clamps to one point; the track then simply plays to its end.
+        start = 0;
+        end = durationSeconds;
+    }
     if (!(end > start)) {
         return null;
     }

@@ -29,5 +29,6 @@ test('playbackEndFade measures the distance to the loop end or the track end', (
     assert.deepEqual(playbackEndFade(mapping, 3, null, 4), { remaining: 1, fadeSeconds: 0.1 });
     const shortLoop = playbackEndFade(mapping, 1, { start: 0.125, end: 0.13 }, 4);
     assert.ok(shortLoop && Math.abs(shortLoop.fadeSeconds - 0.02) < 1e-9);
+    assert.deepEqual(playbackEndFade(mapping, 3, { start: 0.6, end: 0.8 }, 4), { remaining: 1, fadeSeconds: 0.1 });
     assert.equal(playbackEndFade(mapping, 0, null, 0), null);
 });

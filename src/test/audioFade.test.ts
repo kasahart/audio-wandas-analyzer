@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cosineRampValues, createAudioFader, fadeSecondsForSpan, type FadeContext } from '../webview/runtime/audioFade';
+import { cosineRampValues, createAudioFader, fadeSecondsForSpan, rampValueAt, type FadeContext } from '../webview/runtime/audioFade';
 
 function fakeParam() {
     const events: Array<[string, number, number?]> = [];
@@ -8,7 +8,6 @@ function fakeParam() {
         value: 1,
         events,
         cancelScheduledValues(time: number) { events.push(['cancel', time]); return this as unknown as AudioParam; },
-        cancelAndHoldAtTime(time: number) { events.push(['hold', time]); return this as unknown as AudioParam; },
         setValueAtTime(value: number, time: number) { events.push(['set', value, time]); return this as unknown as AudioParam; },
         linearRampToValueAtTime(value: number, time: number) { events.push(['ramp', value, time]); return this as unknown as AudioParam; },
     };
@@ -61,7 +60,7 @@ test('pauseSmoothly fades the gain out and pauses only after the fade', () => {
     assert.equal(media.pauseCount, 0);
     assert.equal(fader.isPausing(media), true);
     const fade = gains[0].events;
-    assert.deepEqual(fade.slice(0, 2), [['hold', 2], ['set', 1, 2]]);
+    assert.deepEqual(fade.slice(0, 2), [['cancel', 2], ['set', 1, 2]]);
     assert.deepEqual(fade.at(-1), ['ramp', 0, 2.1]);
     scheduled!();
     assert.equal(media.pauseCount, 1);
@@ -94,6 +93,43 @@ test('restarting at zero gain during a fade-out keeps the element playing', () =
     assert.equal(scheduled, null);
     assert.equal(media.pauseCount, 0);
     assert.equal(stopped, 0);
+});
+
+test('rampValueAt follows the scheduled piecewise-linear cosine', () => {
+    const ramp = { from: 1, to: 0, start: 2, seconds: 0.1 };
+    assert.equal(rampValueAt(ramp, 1.9), 1);
+    assert.ok(Math.abs(rampValueAt(ramp, 2.05) - 0.5) < 1e-9);
+    assert.equal(rampValueAt(ramp, 2.2), 0);
+    assert.equal(rampValueAt({ ...ramp, seconds: 0 }, 2), 0);
+});
+
+test('a ramp starts from the gain the previous automation left, not the intrinsic value', () => {
+    const { ctx, gains } = fakeContext();
+    const fader = createAudioFader(() => ctx);
+    const media = fakeMedia();
+    fader.prepare(media);
+    fader.fadeTo(media, 0, 0);
+    fader.fadeTo(media, 1, 0.1);
+    const fade = gains[0].events;
+    assert.equal(gains[0].value, 1);
+    assert.deepEqual(fade.slice(-18, -16), [['cancel', 2], ['set', 0, 2]]);
+    assert.ok((fade.at(-16)?.[1] ?? 1) < 0.01);
+    assert.deepEqual(fade.at(-1), ['ramp', 1, 2.1]);
+});
+
+test('pauseSmoothly shortens the fade and the pause delay to the given span', () => {
+    const { ctx, gains } = fakeContext();
+    let delay = -1;
+    const fader = createAudioFader(() => ctx, (_fn, ms) => { delay = ms; return 1; }, () => undefined);
+    const media = fakeMedia();
+    fader.prepare(media);
+    fader.pauseSmoothly(media, undefined, 0.03);
+    assert.equal(delay, 30);
+    assert.deepEqual(gains[0].events.at(-1), ['ramp', 0, 2.03]);
+    const other = fakeMedia();
+    fader.prepare(other);
+    fader.pauseSmoothly(other, undefined, 0);
+    assert.equal(other.pauseCount, 1);
 });
 
 test('without Web Audio the element pauses and mutes immediately', () => {
