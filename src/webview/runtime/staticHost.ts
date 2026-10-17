@@ -140,7 +140,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     aboutToggle.style.cssText = 'cursor:pointer;list-style:none;color:var(--muted);white-space:nowrap';
     setHint(aboutToggle, strings.hintBrowserAbout);
     const aboutPanel = document.createElement('ul');
-    aboutPanel.style.cssText = 'position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:max-content;max-width:min(480px,90vw);margin:0;'
+    aboutPanel.style.cssText = 'position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:max-content;max-width:min(480px,calc(100vw - 16px));margin:0;'
         + 'padding:10px 14px 10px 28px;display:grid;gap:4px;background:var(--panel);color:var(--text);border:1px solid var(--line);'
         + 'border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.35);font-size:13px;line-height:1.5';
     for (const text of [strings.browserAboutPrivacy, strings.browserAboutFileLimits, strings.browserAboutSessionLimits, strings.browserAboutRecipes, strings.browserAboutUnsupported]) {
@@ -149,6 +149,13 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         aboutPanel.append(item);
     }
     about.append(aboutToggle, aboutPanel);
+    // The disclosure sits mid-toolbar, so a left-anchored panel would overflow narrow windows; shift it back inside.
+    about.ontoggle = (): void => {
+        if (!about.open) return;
+        aboutPanel.style.left = '0px';
+        const overflow = aboutPanel.getBoundingClientRect().right - (document.documentElement.clientWidth - 8);
+        if (overflow > 0) aboutPanel.style.left = `${-overflow}px`;
+    };
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
     bar.append(pick, openFolder, folderPick, cancel, pythonState, about, status);
@@ -661,9 +668,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     };
     // Pyodide boots when its Worker starts, so starting it with the page keeps that wait off the first WAV load.
     worker = startWorker();
-    // Leaving the page always stops Python, so a back-forward cached page does not keep the runtime resident.
     window.addEventListener('pointerdown', event => { if (about.open && !about.contains(event.target as Node)) about.open = false; });
-    window.addEventListener('keydown', event => { if (about.open && event.key === 'Escape') about.open = false; });
+    window.addEventListener('keydown', event => { if (about.open && event.key === 'Escape') { about.open = false; aboutToggle.focus(); } });
+    // Leaving the page always stops Python, so a back-forward cached page does not keep the runtime resident.
     window.addEventListener('pagehide', () => { resetWorker(new Error('Analysis cancelled')); dispose(); });
     return host;
 }
