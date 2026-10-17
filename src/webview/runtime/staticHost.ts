@@ -88,6 +88,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
     let worker: Worker | undefined;
     let recovery: Promise<void> | undefined;
+    let bootFailed = false;
     let nextSource = 0;
     const sourceGeneration = new SessionRequests();
     const reanalysisGeneration = new SessionRequests();
@@ -177,9 +178,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         recovery = undefined;
         rejectPendingRequests(pending, reason);
     }
+    /** Drops every source; an idle Worker only releases them, so Pyodide boots once per page. */
     function dispose(): void {
         sourceGeneration.advance();
-        resetWorker(new Error('Analysis cancelled'));
+        // Python cannot interrupt a running command, so work still in flight is cancelled by restarting the Worker.
+        if (pending.size || recovery) resetWorker(new Error('Analysis cancelled'));
+        else { reanalysisGeneration.advance(); worker?.postMessage({ cmd: 'clear', requestId: pending.nextId() }); }
         loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
         pendingTreePaths.clear();
         sources.clear();
@@ -207,10 +211,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }
     function startWorker(): Worker {
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
+        bootFailed = false;
         showPythonState(strings.browserPythonStarting, true);
         activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown; ready?: boolean }>): void => {
             if (worker !== activeWorker) return;
             if (event.data.ready !== undefined) {
+                bootFailed = !event.data.ready;
                 showPythonState(event.data.ready ? strings.browserPythonReady : strings.browserPythonFailed);
                 return;
             }
@@ -230,6 +236,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         };
         activeWorker.onerror = (): void => {
             if (worker !== activeWorker) return;
+            resetWorker(new Error('Analysis cancelled'));
             dispose(); snapshot();
             announce(strings.browserWorkerFailed);
             emit({ type: 'reanalyze-end' });
@@ -237,6 +244,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         return activeWorker;
     }
     function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
+        // A Worker whose boot failed is replaced on the next request, so a later WAV retries Python.
+        if (bootFailed) resetWorker(new Error(strings.browserPythonFailed));
         if (!worker) {
             if (command.cmd !== 'load' && command.cmd !== 'limits') throw new Error('No selected source; choose the WAV again.');
             worker = startWorker();

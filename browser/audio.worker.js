@@ -28,7 +28,7 @@ async function initialize() {
     }
     // perf.py logs by default; a Worker has no one reading stderr, so it is silenced before the import.
     pyodide.runPython('import os; os.environ.setdefault("AWA_PERF_LOG", "0")');
-    pyodide.runPython('from browser_service import browser_limits_json, load_source, release_source, prepare_export_json, dispatch_json');
+    pyodide.runPython('from browser_service import browser_limits_json, load_source, release_source, release_all_sources, prepare_export_json, dispatch_json');
 }
 // Booting at Worker start (not on the first message) lets the host start Pyodide before any WAV is chosen.
 // The unsolicited `ready` message only drives the host's Python indicator; each command still reports a failed boot itself.
@@ -56,6 +56,10 @@ self.onmessage = ({ data }) => {
                 const release = pyodide.globals.get('release_source');
                 try { output = release(data.filePath); }
                 finally { release.destroy(); }
+            } else if (data.cmd === 'clear') {
+                const releaseAll = pyodide.globals.get('release_all_sources');
+                try { output = releaseAll(); }
+                finally { releaseAll.destroy(); }
             } else {
                 const { bytes, ...command } = data;
                 const dispatch = pyodide.globals.get('dispatch_json');

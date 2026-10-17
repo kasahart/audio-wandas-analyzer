@@ -136,13 +136,14 @@ const server = http.createServer((req,res) => {
         await page.getByLabel('Open File', { exact: true }).setInputFiles(path.join(root,'src/test/fixtures/short-stereo.wav'));
         await page.getByRole('status').filter({hasText:'waveform ready'}).waitFor({timeout:120000});
         assert.ok(await page.locator('canvas').count()>0);
-        await page.evaluate(() => {
+        const recordHostMessages = () => page.evaluate(() => {
             window.__testInbound = [];
             window.__testOutbound = [];
             const original = window.__AWA_HOST__.postMessage;
             window.__AWA_HOST__.postMessage = message => { window.__testOutbound.push(message); original(message); };
             window.__AWA_HOST__.onMessage(message => window.__testInbound.push(message));
         });
+        await recordHostMessages();
         await page.locator('[data-action="content-spectrogram"]').click();
         await page.waitForFunction(() => document.querySelector('[data-action="content-spectrogram"]')?.classList.contains('is-active'));
         await page.waitForFunction(() => window.__testInbound.some(message => message.type === 'track-detail-result'
@@ -273,18 +274,19 @@ const server = http.createServer((req,res) => {
         assert.doesNotMatch(await page.locator('span[role="status"]').innerText(),/Traceback|PythonError|\n/);
         assert.equal(await page.locator('.track-row').count(),1);
         await page.locator('[data-action="browser-clear"]').click();
+        // Clearing keeps a booted Worker, so a boot failure needs a fresh page; the failed boot is retried by the next WAV.
         await page.route('**/runtime/pyodide.mjs',route=>route.abort());
+        await page.reload();
         await picker.setInputFiles(fixturePath('short-stereo.wav'));
         await status.filter({hasText:/fetch|network/i}).waitFor({timeout:120000});
         await page.unroute('**/runtime/pyodide.mjs');
-        await loadFile('short-stereo.wav');
-        await page.locator('[data-action="browser-clear"]').click();
         await page.route('**/audio.worker.js',route=>route.fulfill({contentType:'text/javascript',body:'throw new Error("intentional-worker-failure")'}));
         await picker.setInputFiles(fixturePath('changing-stereo.wav'));
         await status.filter({hasText:'Audio Worker failed'}).waitFor();
         assert.equal(await page.locator('.track-row').count(),0);
         await page.unroute('**/audio.worker.js');
         await loadFile('changing-stereo.wav');
+        await recordHostMessages();
         await page.locator('[data-action="browser-clear"]').click();
         await picker.setInputFiles(tonePath);
         await status.filter({hasText:'waveform ready'}).waitFor({timeout:120000});
