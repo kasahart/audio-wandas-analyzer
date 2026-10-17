@@ -198,8 +198,10 @@ test('the Python indicator and the centred boot card follow the Worker boot, a k
     assert.ok(!shown());
     app.workers[0].onmessage({ data: { ready: true } });
     assert.equal(indicator.textContent, 'Python: failed to start');
-    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
-    assert.equal(app.workers[1].terminated, true, 'a failed boot is not kept, so the next WAV retries it');
+    await app.load();
+    assert.equal(app.workers[1].terminated, true, 'a failed boot is replaced, so the next WAV retries it');
+    assert.equal(app.workers.length, 3);
+    assert.equal(indicator.textContent, 'Python: starting…');
 });
 
 test('unrelated detail/export errors do not end a pending reanalysis', async () => {
@@ -268,6 +270,17 @@ test('a failed release announces the backend message without the error class nam
     app.host.releaseSource!(firstPath);
     await flush();
     assert.equal(app.status, 'Source is not loaded');
+});
+
+test('a boot that fails after an idle clear is retried by the next WAV', async () => {
+    const app = harness();
+    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    assert.equal(app.workers[0].terminated, false);
+    app.workers[0].onmessage({ data: { ready: false } });
+    await app.load();
+    assert.equal(app.workers[0].terminated, true);
+    assert.equal(app.workers.length, 2);
+    assert.ok(app.workers[1].commands.some(command => command.cmd === 'load'));
 });
 
 test('clearing during an analysis restarts the busy Worker instead of queueing behind it', async () => {

@@ -181,9 +181,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     /** Drops every source; an idle Worker only releases them, so Pyodide boots once per page. */
     function dispose(): void {
         sourceGeneration.advance();
-        // Python cannot interrupt a running command, so work still in flight is cancelled by restarting the Worker;
-        // a failed boot is also restarted, so the next WAV retries it.
-        if (pending.size || recovery || bootFailed) resetWorker(new Error('Analysis cancelled'));
+        // Python cannot interrupt a running command, so work still in flight is cancelled by restarting the Worker.
+        if (pending.size || recovery) resetWorker(new Error('Analysis cancelled'));
         else { reanalysisGeneration.advance(); worker?.postMessage({ cmd: 'clear', requestId: pending.nextId() }); }
         loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
         pendingTreePaths.clear();
@@ -245,6 +244,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         return activeWorker;
     }
     function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
+        // A Worker whose boot failed is replaced on the next request, so a later WAV retries Python.
+        if (bootFailed) resetWorker(new Error(strings.browserPythonFailed));
         if (!worker) {
             if (command.cmd !== 'load' && command.cmd !== 'limits') throw new Error('No selected source; choose the WAV again.');
             worker = startWorker();
