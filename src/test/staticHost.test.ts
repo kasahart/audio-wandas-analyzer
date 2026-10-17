@@ -268,6 +268,18 @@ test('a failed release announces the backend message without the error class nam
     assert.equal(app.status, 'Source is not loaded');
 });
 
+test('clearing during an analysis restarts the busy Worker instead of queueing behind it', async () => {
+    const app = harness();
+    await app.load();
+    app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
+    await flush();
+    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    assert.equal(app.workers[0].terminated, true);
+    assert.ok(!app.workers[0].commands.some(command => command.cmd === 'clear'));
+    await app.load();
+    assert.equal(app.workers.length, 2);
+});
+
 test('file picker appends multiple sources and per-track release preserves the other source', async () => {
     const app = harness();
     assert.equal(app.picker.multiple, true);

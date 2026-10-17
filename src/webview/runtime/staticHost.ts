@@ -177,14 +177,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         recovery = undefined;
         rejectPendingRequests(pending, reason);
     }
-    /** Drops every source but keeps the Worker, so Pyodide boots once per page; only a Worker error or a Recipe timeout restarts it. */
+    /** Drops every source; an idle Worker only releases them, so Pyodide boots once per page. */
     function dispose(): void {
         sourceGeneration.advance();
-        reanalysisGeneration.advance();
-        recovery = undefined;
-        rejectPendingRequests(pending, new Error('Analysis cancelled'));
-        // The Worker runs commands in order, so this clear also drops a load that is still in flight.
-        if (worker) void sendRequest({ cmd: 'clear' }).catch(() => {});
+        // Python cannot interrupt a running command, so work still in flight is cancelled by restarting the Worker.
+        if (pending.size || recovery) resetWorker(new Error('Analysis cancelled'));
+        else { reanalysisGeneration.advance(); worker?.postMessage({ cmd: 'clear', requestId: pending.nextId() }); }
         loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
         pendingTreePaths.clear();
         sources.clear();
