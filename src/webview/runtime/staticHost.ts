@@ -130,10 +130,28 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     pythonState.setAttribute('data-python-state', '');
     pythonState.setAttribute('aria-live', 'polite');
     pythonState.style.cssText = 'white-space:nowrap';
+    // Limits and unavailable features matter only to some visitors, so they sit behind a disclosure instead of a permanent paragraph.
+    const about = document.createElement('details');
+    about.setAttribute('data-browser-about', '');
+    about.style.cssText = 'position:relative';
+    const aboutToggle = document.createElement('summary');
+    aboutToggle.setAttribute('data-action', 'browser-about');
+    aboutToggle.textContent = strings.browserAbout;
+    aboutToggle.style.cssText = 'cursor:pointer;list-style:none;color:var(--muted);white-space:nowrap';
+    setHint(aboutToggle, strings.hintBrowserAbout);
+    const aboutPanel = document.createElement('ul');
+    aboutPanel.style.cssText = 'position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:max-content;max-width:min(480px,90vw);margin:0;'
+        + 'padding:10px 14px 10px 28px;display:grid;gap:4px;background:var(--panel);color:var(--text);border:1px solid var(--line);'
+        + 'border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.35);font-size:13px;line-height:1.5';
+    for (const text of [strings.browserAboutPrivacy, strings.browserAboutFileLimits, strings.browserAboutSessionLimits, strings.browserAboutRecipes, strings.browserAboutUnsupported]) {
+        const item = document.createElement('li');
+        item.textContent = text;
+        aboutPanel.append(item);
+    }
+    about.append(aboutToggle, aboutPanel);
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
-    status.textContent = strings.browserWavHint;
-    bar.append(pick, openFolder, folderPick, cancel, pythonState, status);
+    bar.append(pick, openFolder, folderPick, cancel, pythonState, about, status);
     document.body.prepend(bar);
     // The toolbar text alone was easy to miss, so the boot also shows a centred card; it ignores pointer events because commands already wait for the boot.
     const pythonLoading = document.createElement('div');
@@ -506,6 +524,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         getState: () => persisted,
         setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType }); },
+        emptyMessage: strings.browserEmptyPrompt,
     };
     browserWindow.__AWA_HOST__ = host;
     const superseded = new Error('Superseded by a newer tree selection');
@@ -643,6 +662,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     // Pyodide boots when its Worker starts, so starting it with the page keeps that wait off the first WAV load.
     worker = startWorker();
     // Leaving the page always stops Python, so a back-forward cached page does not keep the runtime resident.
+    window.addEventListener('pointerdown', event => { if (about.open && !about.contains(event.target as Node)) about.open = false; });
+    window.addEventListener('keydown', event => { if (about.open && event.key === 'Escape') about.open = false; });
     window.addEventListener('pagehide', () => { resetWorker(new Error('Analysis cancelled')); dispose(); });
     return host;
 }

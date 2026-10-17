@@ -55,6 +55,8 @@ export interface WebviewHostApi {
     postMessage(message: unknown): void;
     getState(): PersistedWebviewState | undefined;
     setState(state: PersistedWebviewState): void;
+    /** Replaces the results pane's empty-state text while no track is loaded. */
+    emptyMessage?: string;
 }
 
 export interface ComparisonBootstrap {

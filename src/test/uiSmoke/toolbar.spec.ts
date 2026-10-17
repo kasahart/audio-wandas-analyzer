@@ -126,6 +126,29 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
 });
 
 
+test('static page prompts in the empty results pane and keeps limits behind the About disclosure', async ({ page }) => {
+    await openStaticPage(page);
+    const strings = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: Record<string, string> }).__APP_STRINGS__);
+    await expect(page.locator('#empty-state')).toHaveText(strings.browserEmptyPrompt);
+    await expect(page.locator('span[role="status"]')).toHaveText('');
+    const panel = page.locator('[data-browser-about] ul');
+    await expect(panel).toBeHidden();
+    await page.locator('[data-action="browser-about"]').click();
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText(strings.browserAboutFileLimits);
+    await expect(panel).toContainText(strings.browserAboutSessionLimits);
+    await expect(panel).toContainText(strings.browserAboutUnsupported);
+    await page.mouse.click(700, 400);
+    await expect(panel).toBeHidden();
+    await page.locator('[data-action="browser-about"]').click();
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
+    await expect(page.locator('#empty-state')).toBeHidden();
+    await page.locator('[data-action="remove-track"]').click();
+    await expect(page.locator('#empty-state')).toHaveText(strings.browserEmptyPrompt);
+});
+
 test('static page opens a folder into the shared selection tree and checked files become tracks', async ({ page }) => {
     const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
     mkdirSync(join(folder, 'rec', 'day2'), { recursive: true });

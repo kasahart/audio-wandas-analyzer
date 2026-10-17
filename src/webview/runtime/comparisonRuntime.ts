@@ -1527,10 +1527,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // 次に空状態を判定する（削除済み or 全非表示）
         const emptyState = document.getElementById('empty-state');
         if (emptyState) {
-            const visibleRows = Array.from(document.querySelectorAll<HTMLElement>('.track-row')).filter(function (row) {
+            const rows = Array.from(document.querySelectorAll<HTMLElement>('.track-row'));
+            const visibleRows = rows.filter(function (row) {
                 return row.style.display !== 'none';
             });
             emptyState.classList.toggle('is-visible', visibleRows.length === 0);
+            const message = emptyState.querySelector('p');
+            if (message && !isSelectionMode) {
+                const text = rows.length === 0 && vscode.emptyMessage ? vscode.emptyMessage : STR.emptyAllExcluded;
+                if (message.textContent !== text) {
+                    message.textContent = text;
+                }
+            }
         }
     }
     function updateOffsetDisplays() {
