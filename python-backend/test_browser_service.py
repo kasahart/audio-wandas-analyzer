@@ -41,21 +41,21 @@ def test_browser_source_bounds_release_and_stale_identity() -> None:
         service.engine.get_file(source.path)
 
 
-def test_cursor_selects_nearest_actual_frame_center() -> None:
+def test_cursor_spectrum_transforms_the_window_centred_on_the_cursor() -> None:
     service = create_service()
     changing_fixture = FIXTURE.with_name("changing-stereo.wav")
     service.engine.load("selected.wav", changing_fixture.read_bytes())
     path = "/sources/selected.wav"
-    spec = service.engine.get_spectrogram(path, 256, 64, "hann")
+    service.engine.get_spectrogram(path, 256, 64, "hann")
+    _cached, frame, _resolved = service.engine.get_analysis(path, None)
     cursor = 0.437
-    centers = np.asarray(spec.frame_center_times[0])
-    expected_index = int(np.argmin(np.abs(centers - cursor * 2.5)))
-    assert centers[expected_index] > 1.0
-    expected = np.asarray(spec.get_frame_at(expected_index).dB)
+    start = int(round(cursor * frame.n_samples)) - 128
+    expected = np.asarray(frame[:, start : start + 256].fft(n_fft=256, window="hann").dB)
     result = service.spectrum_slice(
         path, cursor_norm=cursor, stft_options={"nFft": 256, "hopSize": 64, "window": "hann"}
     )
-    np.testing.assert_allclose(result["channels"][0]["values"], expected[0], atol=1e-5)
+    assert result["windowStartNorm"] * frame.n_samples == pytest.approx(start)
+    np.testing.assert_allclose(result["channels"][0]["values"], expected[0], atol=1e-4)
 
 
 def test_multiple_sources_add_failure_remove_and_recompute() -> None:
