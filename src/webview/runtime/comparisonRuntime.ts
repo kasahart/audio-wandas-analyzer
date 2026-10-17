@@ -1755,12 +1755,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             updateCursorDisplay(cursorNorm);
             stopPlayback(playbackTrackId, { keepCursor: true });
         }
-        if (playbackEl === audio && audioFader.isPausing(audio)) {
-            // Restarted during the pause fade-out: the element kept advancing, so carry on from where it is now.
-            const liveCursor = globalNormFromTrackTime(idx, audio.currentTime);
-            if (liveCursor !== null) {
-                cursorNorm = liveCursor;
-            }
+        if (playbackTrackId === trackId && playbackEl === audio && audioFader.isPausing(audio)) {
+            // Still playing through the pause fade-out: turn the fade around instead of seeking or zeroing the gain.
+            endFadeTarget = null;
+            audioFader.fadeTo(audio, 1, passFadeSeconds(getTrackTimeMapping(idx), audio.currentTime, loopRegion, playbackDuration(idx)));
+            invalidateDesiredSpectrumSliceRequests();
+            updatePlaybackButtons();
+            startPlaybackLoop();
+            scheduleSpectrumRefresh('immediate');
+            return;
         }
         playbackTrackId = trackId;
         playbackEl = audio;
