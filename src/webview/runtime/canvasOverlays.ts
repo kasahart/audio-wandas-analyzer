@@ -167,15 +167,19 @@ export function drawAnalysisWindowBand(
     ctx.fillStyle = 'rgba(' + ANALYSIS_WINDOW_COLOR + ', 0.08)';
     ctx.fillRect(x0, 0, x1 - x0, height);
     const steps = Math.max(8, Math.min(256, Math.ceil(x1 - x0)));
-    const top = height * 0.06;
-    const usable = height - top;
+    // Mirrored about the centre line, the curve reads as the envelope the window imposes on the waveform.
+    const centre = height / 2;
+    const reach = centre - height * 0.04;
+    const xAt = (i: number) => x0 + (i / steps) * (x1 - x0);
+    const offsetAt = (i: number) => analysisWindowWeight(band.window, i / steps) * reach;
     ctx.beginPath();
-    ctx.moveTo(x0, height);
+    ctx.moveTo(x0, centre);
     for (let i = 0; i <= steps; i++) {
-        const phase = i / steps;
-        ctx.lineTo(x0 + phase * (x1 - x0), height - analysisWindowWeight(band.window, phase) * usable);
+        ctx.lineTo(xAt(i), centre - offsetAt(i));
     }
-    ctx.lineTo(x1, height);
+    for (let i = steps; i >= 0; i--) {
+        ctx.lineTo(xAt(i), centre + offsetAt(i));
+    }
     ctx.closePath();
     ctx.fillStyle = 'rgba(' + ANALYSIS_WINDOW_COLOR + ', 0.18)';
     ctx.fill();
