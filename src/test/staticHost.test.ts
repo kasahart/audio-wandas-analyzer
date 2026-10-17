@@ -406,7 +406,7 @@ test('cancel during a file read clears all sources and ignores late completion',
     let finish!: (bytes: ArrayBuffer) => void;
     app.picker.files = [{ name: 'late.wav', size: 100, arrayBuffer: () => new Promise(resolve => { finish = resolve; }) }];
     app.picker.onchange!();
-    app.elements.find(element => element.tag === 'button')!.onclick!();
+    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
     finish(new ArrayBuffer(100)); await flush();
     assert.equal(app.workers.length, 1);
     assert.equal(app.workers[0].terminated, false);
