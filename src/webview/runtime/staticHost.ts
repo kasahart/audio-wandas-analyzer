@@ -32,6 +32,23 @@ interface Source {
 
 class RecipeWorkerResetError extends Error {}
 
+/** The parts of a File System Access handle the folder picker walks. */
+interface FolderEntryHandle {
+    kind: 'file' | 'directory';
+    name: string;
+    getFile?(): Promise<File>;
+    values?(): AsyncIterable<FolderEntryHandle>;
+}
+type ShowDirectoryPicker = (options: { mode: 'read' }) => Promise<FolderEntryHandle>;
+
+async function collectWavFiles(directory: FolderEntryHandle, prefix: string, found: Array<{ path: string; file: File }>): Promise<void> {
+    for await (const entry of directory.values!()) {
+        const path = `${prefix}/${entry.name}`;
+        if (entry.kind === 'directory') await collectWavFiles(entry, path, found);
+        else if (/\.wav$/i.test(entry.name)) found.push({ path, file: await entry.getFile!() });
+    }
+}
+
 /** Browser globals the static host reaches; tests pass fakes instead of running the bundle in a vm. */
 export interface StaticHostDeps {
     window: Window;
@@ -113,6 +130,24 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     status.textContent = strings.browserWavHint;
     bar.append(pick, openFolder, folderPick, cancel, pythonState, status);
     document.body.prepend(bar);
+    // The toolbar text alone was easy to miss, so the boot also shows a centred card; it ignores pointer events because commands already wait for the boot.
+    const pythonLoading = document.createElement('div');
+    pythonLoading.setAttribute('data-python-loading', '');
+    pythonLoading.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:70;pointer-events:none;'
+        + 'display:flex;align-items:center;gap:12px;padding:16px 24px;background:var(--panel);color:var(--text);border:1px solid var(--line);'
+        + 'border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.35);font-family:var(--font-ui);font-size:14px';
+    const pythonSpinner = document.createElement('span');
+    pythonSpinner.style.cssText = 'width:18px;height:18px;border:3px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:python-loading-spin 0.8s linear infinite';
+    const pythonLoadingText = document.createElement('span');
+    pythonLoadingText.textContent = strings.browserPythonStarting;
+    const pythonSpinnerKeyframes = document.createElement('style');
+    pythonSpinnerKeyframes.textContent = '@keyframes python-loading-spin { to { transform: rotate(360deg); } }';
+    pythonLoading.append(pythonSpinner, pythonLoadingText, pythonSpinnerKeyframes);
+    document.body.prepend(pythonLoading);
+    function showPythonState(text: string, booting = false): void {
+        pythonState.textContent = text;
+        pythonLoading.style.display = booting ? 'flex' : 'none';
+    }
     const announce = (value: string): void => { status.textContent = value; };
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
     /** The opened folder's WAV files keyed by the `/sources/<relative path>` each one loads under. */
@@ -138,7 +173,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function resetWorker(reason: Error): void {
         reanalysisGeneration.advance();
         worker?.terminate(); worker = undefined;
-        pythonState.textContent = strings.browserPythonStopped;
+        showPythonState(strings.browserPythonStopped);
         recovery = undefined;
         rejectPendingRequests(pending, reason);
     }
@@ -172,11 +207,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }
     function startWorker(): Worker {
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
-        pythonState.textContent = strings.browserPythonStarting;
+        showPythonState(strings.browserPythonStarting, true);
         activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown; ready?: boolean }>): void => {
             if (worker !== activeWorker) return;
             if (event.data.ready !== undefined) {
-                pythonState.textContent = event.data.ready ? strings.browserPythonReady : strings.browserPythonFailed;
+                showPythonState(event.data.ready ? strings.browserPythonReady : strings.browserPythonFailed);
                 return;
             }
             // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
@@ -398,7 +433,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(strings.reportExportedPrefix + artifact.name);
         },
         selectTarget(targetKind): void {
-            (targetKind === 'directory' ? folderPick : pick).click();
+            if (targetKind === 'directory') pickFolder();
+            else pick.click();
         },
         async selection(message): Promise<void> {
             const tree = folder;
@@ -550,17 +586,38 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         });
     }
     acceptDrops(window);
-    openFolder.onclick = (): void => { folderPick.click(); };
-    folderPick.onchange = (): void => {
-        const files = Array.from(folderPick.files || []).filter(file => /\.wav$/i.test(file.name) && file.webkitRelativePath);
-        folderPick.value = '';
+    function openFolderFiles(rootName: string, files: Array<{ path: string; file: File }>): void {
         if (!files.length) { announce(strings.selectionNoSupported); return; }
         if (sources.size || loading) dispose();
         selectionRequests++;
-        folder = new Map(files.map(file => [`/sources/${file.webkitRelativePath}`, file]));
-        emit({ type: 'directory-selection', rootPath: `/sources/${files[0].webkitRelativePath.split('/')[0]}`, filePaths: Array.from(folder.keys()) });
+        folder = new Map(files.map(({ path, file }) => [`/sources/${path}`, file]));
+        emit({ type: 'directory-selection', rootPath: `/sources/${rootName}`, filePaths: Array.from(folder.keys()) });
         snapshot(); emit({ type: 'reanalyze-end' });
         announce(strings.browserFolderOpened.replace('{count}', String(files.length)));
+    }
+    /**
+     * Chromium's folder input asks to "upload" the files although they never leave the page, so the
+     * File System Access picker, which asks to view them instead, is preferred where it exists.
+     */
+    function pickFolder(): void {
+        const showDirectoryPicker = (window as unknown as { showDirectoryPicker?: ShowDirectoryPicker }).showDirectoryPicker;
+        if (!showDirectoryPicker) { folderPick.click(); return; }
+        void (async () => {
+            const files: Array<{ path: string; file: File }> = [];
+            try {
+                const root = await showDirectoryPicker.call(window, { mode: 'read' });
+                await collectWavFiles(root, root.name, files);
+                openFolderFiles(root.name, files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
+            } catch (error) {
+                if ((error as { name?: unknown } | null)?.name !== 'AbortError') announce(error instanceof Error ? error.message : String(error));
+            }
+        })();
+    }
+    openFolder.onclick = pickFolder;
+    folderPick.onchange = (): void => {
+        const files = Array.from(folderPick.files || []).filter(file => /\.wav$/i.test(file.name) && file.webkitRelativePath);
+        folderPick.value = '';
+        openFolderFiles(files[0]?.webkitRelativePath.split('/')[0] ?? '', files.map(file => ({ path: file.webkitRelativePath, file })));
     };
     cancel.onclick = (): void => {
         dispose(); pick.value = ''; snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);

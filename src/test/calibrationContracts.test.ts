@@ -99,7 +99,7 @@ test('calibration row helpers draw badges, peak text, requests and the overlay g
     const track = (channels: object[]) => ({ filePath: '/a.wav', fileName: 'a.wav', channels }) as unknown as ComparisonTrackState;
     const pa = measurement('Pa', 'dB SPL re 20 µPa');
 
-    assert.equal(calibrationBadgeHtml([channel({ measurement: measurement('<b>', 'x') })]), '<span class="calibration-badge" title="&lt;b&gt;; factor 2; x">CAL: &lt;b&gt;</span>');
+    assert.equal(calibrationBadgeHtml([channel({ measurement: measurement('<b>', 'x') })]), '<span class="calibration-badge" data-hint="&lt;b&gt;; factor 2; x" aria-description="&lt;b&gt;; factor 2; x">CAL: &lt;b&gt;</span>');
     assert.equal(peakText(channel({})), null, 'uncalibrated channels keep the runtime dBFS text');
     assert.match(peakText(channel({ measurement: pa })) ?? '', /^Peak 5\.00 Pa/);
     assert.equal(channelMetricSummaryHtml(channel({})), '<span>Peak 80.0 dB</span>');

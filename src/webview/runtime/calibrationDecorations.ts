@@ -2,6 +2,7 @@ import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { channelsForResult, formatMeasuredLevel } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
+import { hintAttr } from './hintFooter';
 import type { ComparisonTrackState } from './types';
 
 interface CalibrationSummary {
@@ -77,13 +78,13 @@ export function ensureCalibrationStyles(document: Document): void {
 
 export function calibrationBadgeHtml(channels: Channel[]): string {
     const summary = calibrationSummary(channels);
-    return '<span class="calibration-badge" title="' + escapeHtml(summary.title) + '">' + escapeHtml(summary.text) + '</span>';
+    return '<span class="calibration-badge"' + hintAttr(summary.title) + '>' + escapeHtml(summary.text) + '</span>';
 }
 
 // The button has no listener of its own: the runtime's click delegation posts calibrationRequest().
 export function calibrationButtonHtml(trackId: string, strings: CalibrationButtonStrings): string {
     return '<button class="track-btn" data-action="configure-calibration" data-track-id="' + escapeHtml(trackId) + '"'
-        + ' title="' + escapeHtml(strings.calibrationButtonTitle) + '" aria-label="' + escapeHtml(strings.calibrationButtonAria) + '">'
+        + hintAttr(strings.calibrationButtonTitle) + ' aria-label="' + escapeHtml(strings.calibrationButtonAria) + '">'
         + escapeHtml(strings.calibrationButtonLabel) + '</button>';
 }
 

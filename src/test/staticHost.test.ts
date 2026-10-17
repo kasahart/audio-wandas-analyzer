@@ -164,19 +164,26 @@ test('the audio Worker starts with the page and serves the first WAV', async () 
     assert.ok(app.workers[0].commands.some(command => command.cmd === 'load'));
 });
 
-test('the Python indicator follows the Worker boot, a failed boot and a reset', async () => {
+test('the Python indicator and the centred boot card follow the Worker boot, a failed boot and a reset', async () => {
     const app = harness();
     const indicator = app.elements.find(element => 'data-python-state' in element.attributes)!;
+    const loading = app.elements.find(element => 'data-python-loading' in element.attributes)!;
+    const shown = (): boolean => (loading.style as { display?: string }).display === 'flex';
     assert.equal(indicator.textContent, 'Python: starting…');
+    assert.ok(shown());
     app.workers[0].onmessage({ data: { ready: true } });
     assert.equal(indicator.textContent, 'Python: ready');
+    assert.ok(!shown());
     await app.load();
     app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
     assert.equal(indicator.textContent, 'Python: stopped (restarts when needed)');
+    assert.ok(!shown());
     await app.load();
     assert.equal(indicator.textContent, 'Python: starting…');
+    assert.ok(shown());
     app.workers[1].onmessage({ data: { ready: false } });
     assert.equal(indicator.textContent, 'Python: failed to start');
+    assert.ok(!shown());
     app.workers[0].onmessage({ data: { ready: true } });
     assert.equal(indicator.textContent, 'Python: failed to start');
 });
@@ -743,4 +750,23 @@ test('folder tracks keep their folder path in reports, release unchecks them and
     assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1), { type: 'directory-selection', rootPath: '', filePaths: [] });
     assert.equal(lastUpdate().selectedFilePaths, undefined);
     assert.equal((lastUpdate().results as unknown[]).length, 2);
+});
+
+test('Open Folder walks the File System Access picker and ignores a cancelled pick', async () => {
+    const app = harness();
+    const openFolder = app.elements.find(element => element.attributes['data-action'] === 'browser-open-folder')!;
+    const file = (name: string) => ({ kind: 'file', name, getFile: async () => ({ size: 100, name, arrayBuffer: async () => new ArrayBuffer(100) }) });
+    const dir = (name: string, entries: unknown[]) => ({ kind: 'directory', name, values: async function* () { yield* entries; } });
+    const status = app.status;
+    (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => { throw Object.assign(new Error('cancelled'), { name: 'AbortError' }); };
+    openFolder.onclick!();
+    await flush();
+    assert.equal(app.status, status);
+    assert.equal(app.received.some(message => message.type === 'directory-selection'), false);
+
+    (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => dir('rec', [file('b.wav'), file('notes.txt'), dir('day2', [file('a.WAV')])]);
+    openFolder.onclick!();
+    await flush(); await flush();
+    assert.deepEqual(app.received.find(message => message.type === 'directory-selection'),
+        { type: 'directory-selection', rootPath: '/sources/rec', filePaths: ['/sources/rec/b.wav', '/sources/rec/day2/a.WAV'] });
 });

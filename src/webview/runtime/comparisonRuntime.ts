@@ -33,7 +33,7 @@ import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
-import { attachCanvasFocusHint, createCanvasTooltip } from './canvasTooltip';
+import { attachCanvasFocusHint, attachHoverHints, createHintFooter, setHint } from './hintFooter';
 import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { attachTrackAudioListeners } from './trackAudioEvents';
@@ -640,14 +640,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const runtime = trackRuntimeAt(i);
         return (runtime && runtime.color) || (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
     }
-    const canvasTooltip = createCanvasTooltip(document);
+    const hintFooter = createHintFooter(document);
+    attachHoverHints(document, hintFooter);
     const updatePlaybackDisplay = createPlaybackDisplay(document, STR.playbackTimePrefix || '▶');
-    function showTooltip(e: MouseEvent, text: string): void {
-        canvasTooltip.showAtPointer(e.clientX, e.clientY, text);
-    }
-    function hideTooltip() {
-        canvasTooltip.hide();
-    }
     // ── On-demand range cache ──
     let rangeRequestTimer: number | null = null;
     // Receive high-res range data from Extension Host
@@ -1883,7 +1878,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         updatePlaybackButtons();
         function attachTrackCanvasFocusEvents() {
             document.querySelectorAll<HTMLElement>('.track-canvas').forEach(function (canvas) {
-                attachCanvasFocusHint(canvas, canvasTooltip, STR.cursorHelpKeys);
+                attachCanvasFocusHint(canvas, hintFooter, STR.cursorHelpKeys);
             });
         }
         attachGlobalKeyboardListeners(document, {
@@ -2044,12 +2039,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const tooltip = buildPythonTooltip(pythonCommand, rawTooltip);
         if (selectionButton) {
             selectionButton.textContent = buttonText;
-            selectionButton.title = tooltip;
+            setHint(selectionButton, tooltip);
             selectionButton.classList.toggle('is-warning', !!isWarning);
         }
         if (toolbarButton) {
             toolbarButton.textContent = buttonText;
-            toolbarButton.title = tooltip;
+            setHint(toolbarButton, tooltip);
             toolbarButton.classList.toggle('is-warning', !!isWarning);
         }
     }
@@ -2418,7 +2413,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function handleCanvasMouseMove(e: MouseEvent): void {
         if (dragState && dragState.isDrag) {
-            hideTooltip();
+            hintFooter.clear();
             return;
         }
         const canvas = canvasTarget(e, 'track-canvas');
@@ -2431,19 +2426,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const hit = trackCanvasTimeHit(canvas, e.clientX);
         if (!hit) {
             clearHover();
-            hideTooltip();
+            hintFooter.clear();
             return;
         }
         const norm = hit.norm;
         const gripType = loopGripAt(loopRegion, norm, waveformView.span());
         if (gripType) {
-            showTooltip(e, STR.tooltipLoopResize);
+            hintFooter.show(STR.tooltipLoopResize);
         }
         else if (loopRegion && norm >= loopRegion.start && norm <= loopRegion.end) {
-            showTooltip(e, STR.tooltipLoopClear);
+            hintFooter.show(STR.tooltipLoopClear);
         }
         else {
-            showTooltip(e, STR.tooltipLoopOrShift);
+            hintFooter.show(STR.tooltipLoopOrShift);
         }
         renderWithHoverAt(norm);
     }
@@ -2509,7 +2504,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         disableFollowCursor();
-        hideTooltip();
+        hintFooter.clear();
         if (dragState.dragType === 'offset') {
             const gs = trackStore.globalSpan();
             const secsPerPx = waveformView.span() * gs.spanSec / dragState.canvasWidth;
@@ -2594,7 +2589,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         hoverNorm = null;
-        hideTooltip();
+        hintFooter.clear();
         scheduleRender();
         updateCursorDisplay(cursorNorm);
     }
