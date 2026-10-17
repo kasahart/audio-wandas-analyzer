@@ -98,5 +98,5 @@ test('every track header control and the lane canvases carry a footer hint', () 
     }
     const lane = channelLaneHtml(base);
     assert.match(lane, /class="track-axis-canvas"[^>]* data-hint="Double-click: reset"/);
-    assert.match(lane, /class="track-spectrum-wrap"[^>]* data-hint="Spectrum \/ ← →"/);
+    assert.match(lane, /class="track-spectrum-canvas"[^>]* data-hint="Spectrum \/ ← →"/);
 });

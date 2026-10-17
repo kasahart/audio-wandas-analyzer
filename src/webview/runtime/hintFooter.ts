@@ -14,6 +14,11 @@ export function hintAttr(text: string): string {
     return ' data-hint="' + value + '" aria-description="' + value + '"';
 }
 
+// For a wrapper such as a <label> whose focusable control carries hintAttr, so the description is not announced twice.
+export function hoverHintAttr(text: string): string {
+    return ' data-hint="' + escapeHtml(text) + '"';
+}
+
 export function setHint(el: Pick<Element, 'setAttribute'>, text: string): void {
     el.setAttribute('data-hint', text);
     el.setAttribute('aria-description', text);

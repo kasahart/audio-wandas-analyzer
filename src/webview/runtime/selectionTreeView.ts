@@ -1,6 +1,6 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { hintAttr } from './hintFooter';
+import { hintAttr, hoverHintAttr } from './hintFooter';
 import type { SelectionTree } from './directorySelection';
 import { eventTarget, inputMatching } from './domAdapter';
 import type { PersistedWebviewState, SelectionTreeNode } from './types';
@@ -67,8 +67,8 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
             const filePath = node.filePath || '';
             const checked = deps.isSelected(filePath) ? ' checked' : '';
             return '<li>'
-                + '<label class="selection-file-row"' + hintAttr(strings.hintTreeFile) + '>'
-                + '  <input class="selection-file-checkbox" type="checkbox" data-file-path="' + escapeHtml(filePath) + '"' + checked + '>'
+                + '<label class="selection-file-row"' + hoverHintAttr(strings.hintTreeFile) + '>'
+                + '  <input class="selection-file-checkbox" type="checkbox" data-file-path="' + escapeHtml(filePath) + '"' + checked + hintAttr(strings.hintTreeFile) + '>'
                 + '  <span class="selection-file-label">'
                 + '    <span class="selection-file-name">' + escapeHtml(node.name) + '</span>'
                 + '    <span class="selection-file-path">' + escapeHtml(node.relativePath) + '</span>'

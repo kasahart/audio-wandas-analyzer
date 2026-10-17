@@ -35,7 +35,7 @@ test('selection tree renders top-level folders expanded and deeper folders lazil
     assert.match(html, /data-relative-path="set\/deep" data-depth="1"[^>]*aria-expanded="false"/);
     assert.match(html, /<ul class="selection-tree-list" data-lazy="true" style="display:none"><\/ul>/);
     assert.doesNotMatch(html, /c\.wav/, 'collapsed folders render their files only when opened');
-    assert.match(html, /data-file-path="\/root\/a\.wav" checked>/);
+    assert.match(html, /data-file-path="\/root\/a\.wav" checked[ >]/);
     assert.match(html, /&lt;b&gt;\.wav/);
 });
 

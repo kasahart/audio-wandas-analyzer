@@ -2438,9 +2438,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const norm = hit.norm;
         const gripType = loopGripAt(loopRegion, norm, waveformView.span());
-        const action = gripType ? STR.tooltipLoopResize
+        const action = waveformMode === 'rect-zoom' ? STR.hintRectZoomDrag
+            : gripType ? STR.tooltipLoopResize
             : loopRegion && norm >= loopRegion.start && norm <= loopRegion.end ? STR.tooltipLoopClear
-            : waveformMode === 'rect-zoom' ? STR.hintRectZoomDrag
             : STR.tooltipLoopOrShift;
         hintFooter.show(action + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
         renderWithHoverAt(norm);
