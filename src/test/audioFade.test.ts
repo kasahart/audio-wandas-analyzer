@@ -15,6 +15,7 @@ function fakeParam() {
 
 function fakeContext() {
     const gains: Array<ReturnType<typeof fakeParam>> = [];
+    const disconnected: string[] = [];
     const ctx: FadeContext = {
         currentTime: 2,
         state: 'running',
@@ -23,11 +24,11 @@ function fakeContext() {
         createGain() {
             const gain = fakeParam();
             gains.push(gain);
-            return { gain, connect: () => undefined };
+            return { gain, connect: () => undefined, disconnect: () => { disconnected.push('gain'); } };
         },
-        createMediaElementSource: () => ({ connect: () => undefined }),
+        createMediaElementSource: () => ({ connect: () => undefined, disconnect: () => { disconnected.push('source'); } }),
     };
-    return { ctx, gains };
+    return { ctx, gains, disconnected };
 }
 
 function fakeMedia(muted = false) {
@@ -130,6 +131,36 @@ test('pauseSmoothly shortens the fade and the pause delay to the given span', ()
     fader.prepare(other);
     fader.pauseSmoothly(other, undefined, 0);
     assert.equal(other.pauseCount, 1);
+});
+
+test('a delayed fade is queued behind the running ramp instead of cancelling it', () => {
+    const { ctx, gains } = fakeContext();
+    const fader = createAudioFader(() => ctx);
+    const media = fakeMedia();
+    fader.prepare(media);
+    fader.fadeTo(media, 0, 0);
+    fader.fadeTo(media, 1, 0.1);
+    const fade = gains[0].events;
+    const before = fade.length;
+    fader.fadeTo(media, 0, 0.1, 1);
+    assert.deepEqual(fade.slice(before, before + 2), [['cancel', 3], ['set', 1, 3]]);
+    assert.deepEqual(fade.at(-1), ['ramp', 0, 3.1]);
+    fader.fadeTo(media, 1, 0.1);
+    const restart = fade.slice(-18, -16);
+    assert.deepEqual(restart[0], ['cancel', 2]);
+    assert.equal(restart[1][0], 'set');
+    assert.ok((restart[1][1] as number) < 0.01, 'still at the start of the fade-in at t=2');
+});
+
+test('release disconnects the gain stages of a discarded element', () => {
+    const { ctx, disconnected } = fakeContext();
+    const fader = createAudioFader(() => ctx);
+    const media = fakeMedia();
+    fader.prepare(media);
+    fader.release(media);
+    assert.deepEqual(disconnected, ['source', 'gain', 'gain']);
+    fader.release(media);
+    assert.equal(disconnected.length, 3);
 });
 
 test('without Web Audio the element pauses and mutes immediately', () => {
