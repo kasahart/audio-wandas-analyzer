@@ -209,8 +209,10 @@ def _resample_time_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.nd
     if spectrogram.shape[0] <= target_bin_count:
         return spectrogram
 
+    # Spread the larger groups evenly; np.array_split front-loads them, which drifts display bins off their frame times.
+    boundaries = (np.arange(1, target_bin_count) * spectrogram.shape[0]) // target_bin_count
     reduced = np.empty((target_bin_count, spectrogram.shape[1]), dtype=np.float64)
-    for index, frame_group in enumerate(np.array_split(spectrogram, target_bin_count, axis=0)):
+    for index, frame_group in enumerate(np.split(spectrogram, boundaries, axis=0)):
         reduced[index] = _mean_power_db(frame_group, axis=0)
 
     return reduced

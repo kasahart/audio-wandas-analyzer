@@ -302,6 +302,43 @@ def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> N
     assert abs(float(channel["maxDb"]) - float(np.max(expected_row))) < 1.0
 
 
+def test_track_detail_spectrogram_bins_stay_aligned_with_time(tmp_path: Path) -> None:
+    sr, seconds, burst_start, burst_end = 16000, 10.0, 8.82, 8.93
+    samples = np.zeros(int(sr * seconds), dtype=np.int16)
+    t = np.arange(int(burst_start * sr), int(burst_end * sr))
+    samples[t] = (0.5 * np.sin(2 * math.pi * 1000.0 * t / sr) * 32767).astype(np.int16)
+    wav = tmp_path / "burst.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(samples.tobytes())
+    opts = {"nFft": 256, "hopSize": 64, "window": "hann"}
+    spec = handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts})["channels"][0][
+        "spectrogram"
+    ]
+    loudest = np.asarray(spec["values"]).max(axis=1)
+    loud_bins = np.nonzero(loudest > loudest.min() + 40)[0]
+    bin_seconds = seconds / spec["timeBins"]
+
+    # Many more STFT frames than display bins: every display bin must still sit at its own time.
+    assert spec["timeBins"] == 720
+    assert loud_bins[0] * bin_seconds == pytest.approx(burst_start, abs=2 * bin_seconds)
+    assert (loud_bins[-1] + 1) * bin_seconds == pytest.approx(burst_end, abs=2 * bin_seconds)
+
+
+@pytest.mark.parametrize(("cursor_norm", "expected_start"), [(0.0, 0), (1.0, 8000 - 256)])
+def test_spectrum_slice_window_stays_inside_the_file_at_the_ends(
+    tmp_path: Path, cursor_norm: float, expected_start: int
+) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    opts = {"nFft": 256, "hopSize": 128, "window": "hann"}
+    resp = handle_spectrum_slice({"filePath": str(wav), "cursorNorm": cursor_norm, "stftOptions": opts})
+    assert resp["windowStartNorm"] * 8000 == pytest.approx(expected_start)
+    assert resp["windowEndNorm"] * 8000 == pytest.approx(expected_start + 256)
+
+
 @pytest.mark.parametrize("cached_detail", [False, True])
 def test_spectrum_slice_reports_the_transformed_window(tmp_path: Path, cached_detail: bool) -> None:
     sample_count, impulse_at = 8000, 3200
