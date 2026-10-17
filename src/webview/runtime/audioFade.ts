@@ -109,9 +109,7 @@ export function createAudioFader(createContext: () => FadeContext | null = defau
             if (!route) {
                 return;
             }
-            if (value > 0) {
-                cancelPendingPause(el);
-            }
+            cancelPendingPause(el);
             ramp(route.fade.gain, value, seconds);
         },
         pauseSmoothly(el, after) {

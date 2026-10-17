@@ -1619,13 +1619,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const mapping = getTrackTimeMapping(playbackTrackIndex);
                 const loopStartTime = loopRestartTime(mapping, playbackEl.currentTime, loopRegion);
                 if (loopStartTime !== null) {
+                    const fadeInSeconds = playbackEndFade(mapping, loopStartTime, loopRegion, playbackDuration(playbackTrackIndex))?.fadeSeconds ?? FADE_SECONDS;
+                    endFadeTarget = null;
                     try {
                         playbackEl.currentTime = loopStartTime;
+                        fadeInOnceSeeked(playbackEl, fadeInSeconds);
                         invalidateDesiredSpectrumSliceRequests();
                     }
-                    catch (_err) { }
-                    endFadeTarget = null;
-                    fadeInOnceSeeked(playbackEl, playbackEndFade(mapping, loopStartTime, loopRegion, playbackDuration(playbackTrackIndex))?.fadeSeconds ?? FADE_SECONDS);
+                    catch (_err) {
+                        audioFader.fadeTo(playbackEl, 1, fadeInSeconds);
+                    }
                 }
                 else {
                     fadeBeforePlaybackEnd(playbackEl, playbackTrackIndex);

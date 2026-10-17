@@ -81,6 +81,21 @@ test('fading back in cancels a pending pause', () => {
     assert.equal(fader.isPausing(media), false);
 });
 
+test('restarting at zero gain during a fade-out keeps the element playing', () => {
+    const { ctx } = fakeContext();
+    let scheduled: (() => void) | null = null;
+    const fader = createAudioFader(() => ctx, fn => { scheduled = fn; return 1; }, () => { scheduled = null; });
+    const media = fakeMedia();
+    fader.prepare(media);
+    let stopped = 0;
+    fader.pauseSmoothly(media, () => stopped++);
+    fader.fadeTo(media, 0, 0);
+    assert.equal(fader.isPausing(media), false);
+    assert.equal(scheduled, null);
+    assert.equal(media.pauseCount, 0);
+    assert.equal(stopped, 0);
+});
+
 test('without Web Audio the element pauses and mutes immediately', () => {
     const fader = createAudioFader(() => null);
     const media = fakeMedia();
