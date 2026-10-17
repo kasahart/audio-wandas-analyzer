@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createTrackTimeMapping, loopRestartTime, playbackStartTime } from '../webview/runtime/playback';
+import { createTrackTimeMapping, loopRestartTime, passFadeSeconds, playbackEndFade, playbackStartTime } from '../webview/runtime/playback';
 
 const mapping = createTrackTimeMapping(4, 0, { startSeconds: 0, spanSeconds: 8 });
 
@@ -22,4 +22,20 @@ test('loopRestartTime seeks back to the loop start once playback reaches the loo
     assert.equal(loopRestartTime(mapping, 2, loop), 1);
     assert.equal(loopRestartTime(mapping, 2, null), null);
     assert.equal(loopRestartTime(null, 2, loop), null);
+});
+
+test('playbackEndFade measures the distance to the loop end or the track end', () => {
+    assert.deepEqual(playbackEndFade(mapping, 1.5, { start: 0.125, end: 0.25 }, 4), { remaining: 0.5, fadeSeconds: 0.1 });
+    assert.deepEqual(playbackEndFade(mapping, 3, null, 4), { remaining: 1, fadeSeconds: 0.1 });
+    const shortLoop = playbackEndFade(mapping, 1, { start: 0.125, end: 0.13 }, 4);
+    assert.ok(shortLoop && Math.abs(shortLoop.fadeSeconds - 0.02) < 1e-9);
+    assert.deepEqual(playbackEndFade(mapping, 3, { start: 0.6, end: 0.8 }, 4), { remaining: 1, fadeSeconds: 0.1 });
+    assert.equal(playbackEndFade(mapping, 0, null, 0), null);
+});
+
+test('passFadeSeconds fits the fade-in and fade-out into what is left of the span', () => {
+    assert.equal(passFadeSeconds(mapping, 1, null, 4), 0.1);
+    assert.ok(Math.abs(passFadeSeconds(mapping, 3.9, null, 4) - 0.05) < 1e-9);
+    assert.equal(passFadeSeconds(mapping, 4, null, 4), 0);
+    assert.equal(passFadeSeconds(mapping, 1, { start: 0.125, end: 0.25 }, 4), 0.1);
 });

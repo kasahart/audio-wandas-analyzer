@@ -1,3 +1,5 @@
+import { FADE_SECONDS, fadeSecondsForSpan } from './audioFade';
+
 export interface GlobalTimeline {
     startSeconds: number;
     spanSeconds: number;
@@ -49,4 +51,35 @@ export function loopRestartTime(mapping: TrackTimeMapping | null, currentTime: n
         return null;
     }
     return trackTimeFromGlobalNorm(mapping, loop.start);
+}
+
+/** How far playback is from where it stops or loops back, and how long the fade before that point lasts. */
+export function playbackEndFade(
+    mapping: TrackTimeMapping | null,
+    currentTime: number,
+    loop: { start: number; end: number } | null,
+    durationSeconds: number,
+): { remaining: number; fadeSeconds: number } | null {
+    let start = mapping && loop ? trackTimeFromGlobalNorm(mapping, loop.start) : 0;
+    let end = mapping && loop ? trackTimeFromGlobalNorm(mapping, loop.end) : durationSeconds;
+    if (!(end > start)) {
+        // A loop outside this track clamps to one point; the track then simply plays to its end.
+        start = 0;
+        end = durationSeconds;
+    }
+    if (!(end > start)) {
+        return null;
+    }
+    return { remaining: end - currentTime, fadeSeconds: fadeSecondsForSpan(end - start) };
+}
+
+/** Fade length for a pass starting at `startTime`: both fades must fit in what is left of the span. */
+export function passFadeSeconds(
+    mapping: TrackTimeMapping | null,
+    startTime: number,
+    loop: { start: number; end: number } | null,
+    durationSeconds: number,
+): number {
+    const fade = playbackEndFade(mapping, startTime, loop, durationSeconds);
+    return fade ? Math.min(fade.fadeSeconds, Math.max(0, fade.remaining) / 2) : FADE_SECONDS;
 }
