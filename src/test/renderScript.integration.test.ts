@@ -632,7 +632,7 @@ test('directory selection mode renders a Python environment button only in the s
 
     assert.ok(selectionButton instanceof dom.window.HTMLButtonElement);
     assert.equal(selectionButton.textContent, 'Python: python3');
-    assert.equal(selectionButton.title, 'python3 — Click to select Python environment');
+    assert.equal(selectionButton.dataset.hint, 'python3 — Click to select Python environment');
     assert.equal(mainToolbarButton, null);
 });
 
@@ -663,7 +663,7 @@ test('python-environment-state message updates the selection toolbar button stat
     }));
 
     assert.equal(button.textContent, 'Python: missing-python ⚠');
-    assert.equal(button.title, '/tmp/missing-python — Python interpreter was not found. Click to select another environment.');
+    assert.equal(button.dataset.hint, '/tmp/missing-python — Python interpreter was not found. Click to select another environment.');
     assert.equal(button.classList.contains('is-warning'), true);
 });
 
@@ -683,7 +683,7 @@ test('python-environment-state message shortens Windows-style path in button lab
     }));
 
     assert.equal(button.textContent, 'Python: python.exe');
-    assert.equal(button.title, 'C:\\Python311\\python.exe — Click to select Python environment');
+    assert.equal(button.dataset.hint, 'C:\\Python311\\python.exe — Click to select Python environment');
 });
 
 test('directory selection mode posts analyze-selected-files immediately when a checkbox is checked', () => {

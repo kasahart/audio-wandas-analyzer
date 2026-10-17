@@ -28,7 +28,7 @@ export function renderComparisonDocument(state: ComparisonState, assets: Compari
 <body>
     <div id="a11y-announce" role="status" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
     <div id="app"></div>
-    <div id="canvas-tooltip"></div>
+    <div id="hint-footer" aria-hidden="true"></div>
     <script nonce="${nonce}">
         const __AWA_NATIVE_ACQUIRE_VSCODE_API__ = window.acquireVsCodeApi;
         if (__AWA_NATIVE_ACQUIRE_VSCODE_API__) window.acquireVsCodeApi = function() {
@@ -165,18 +165,11 @@ export function renderComparisonStyles(): string {
         #playback-display { font-size: 11px; font-family: var(--font-mono); color: #64a0ff; min-width: 70px; display: none; }
         #loop-time-display { font-size: 0.85em; font-family: var(--font-mono); color: #64a0ff; margin-left: 6px; cursor: pointer; }
 
-        #canvas-tooltip {
-            position: fixed;
-            background: rgba(30, 30, 30, 0.92);
-            color: #ccc;
-            font-size: 11px;
-            padding: 4px 8px;
-            border-radius: 4px;
-            pointer-events: none;
-            display: none;
-            z-index: 100;
-            white-space: pre;
-            line-height: 1.6;
+        #app { flex: 1 1 auto; min-height: 0; }
+        #hint-footer {
+            flex-shrink: 0; height: 22px; line-height: 22px; padding: 0 10px;
+            font-size: 11px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
 
         /* ── Track layout ── */

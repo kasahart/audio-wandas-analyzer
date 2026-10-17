@@ -65,7 +65,7 @@ test('track row renders header, controls and the given lanes', () => {
     const html = trackRowHtml(baseRow, rowStrings);
     assert.ok(html.startsWith('<div class="track-row" id="track-row-2" data-track-id="track-3">'));
     assert.ok(html.includes('style="background:#123456"'));
-    assert.ok(html.includes('<div class="track-name" title="/x/a&amp;b.wav">a&amp;b.wav</div>'));
+    assert.ok(html.includes('<div class="track-name" data-hint="/x/a&amp;b.wav" aria-description="/x/a&amp;b.wav">a&amp;b.wav</div>'));
     assert.ok(html.includes('Total: 2 ch &nbsp;48.0kHz</div>'));
     assert.ok(html.includes('id="offset-val-2"'));
     assert.ok(html.includes('<div class="track-channel-lanes"><i>lanes</i></div>'));
