@@ -331,6 +331,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         const chartsHost = target.createElement('div'); chartsHost.id = 'charts';
         target.head.append(style); target.body.append(chartsHost);
         Object.assign(frame.contentWindow as unknown as Record<string, unknown>, chartSpecGlobals(charts, strings));
+        acceptDrops(frame.contentWindow!);
         const script = target.createElement('script'); script.src = './chartSpecRuntime.js';
         target.body.append(script);
     }
@@ -548,8 +549,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (folder) snapshot();
         announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
     }
-    pick.onchange = (): void => {
-        const files = Array.from(pick.files || []);
+    function openFiles(files: File[]): void {
         if (!files.length || loading) return;
         if (folder) {
             folder = undefined; selectionRequests++;
@@ -558,7 +558,34 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         loading = true; pick.disabled = true;
         announce(strings.browserPreparing);
         enqueueBatch(() => loadBatch(files.map(file => ({ file }))));
-    };
+    }
+    pick.onchange = (): void => { openFiles(Array.from(pick.files || [])); };
+    const dropTarget = document.createElement('div');
+    dropTarget.setAttribute('data-drop-target', '');
+    dropTarget.style.cssText = 'display:none;position:fixed;inset:0;border:3px dashed #3b82f6;pointer-events:none;z-index:2147483647';
+    bar.append(dropTarget);
+    // Track reordering also drags inside the page, so only drags that carry OS files open sources.
+    const carriesFiles = (event: DragEvent): boolean => Array.from(event.dataTransfer?.types ?? []).includes('Files');
+    const showDropTarget = (active: boolean): void => { dropTarget.style.display = active ? 'block' : 'none'; };
+    /** Drag events inside the recipe chart frame do not reach the top window, so the frame gets the same listeners. */
+    function acceptDrops(target: Window): void {
+        target.addEventListener('dragover', event => {
+            if (!carriesFiles(event)) return;
+            event.preventDefault();
+            event.dataTransfer!.dropEffect = loading ? 'none' : 'copy';
+            showDropTarget(!loading);
+        });
+        target.addEventListener('dragleave', event => { if (!event.relatedTarget) showDropTarget(false); });
+        target.addEventListener('drop', event => {
+            if (!carriesFiles(event)) return;
+            event.preventDefault();
+            showDropTarget(false);
+            const files = Array.from(event.dataTransfer!.files).filter(file => /\.wav$/i.test(file.name));
+            if (!files.length) { announce(strings.browserDropNoWav); return; }
+            openFiles(files);
+        });
+    }
+    acceptDrops(window);
     function openFolderFiles(rootName: string, files: Array<{ path: string; file: File }>): void {
         if (!files.length) { announce(strings.selectionNoSupported); return; }
         if (sources.size || loading) dispose();

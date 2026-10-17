@@ -265,9 +265,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'static-browser-source',
-        label: 'Open short WAV or a folder of them in a local Python Worker, cancel and clear source memory',
-        entryPoints: ['dialog', 'results-toolbar'],
-        triggers: ['browser-open-wav', 'browser-open-folder', 'browser-clear'],
+        label: 'Open short WAV (picked or dropped) or a folder of them in a local Python Worker, cancel and clear source memory',
+        entryPoints: ['dialog', 'drag-and-drop', 'results-toolbar'],
+        triggers: ['browser-open-wav', 'browser-drop-wav', 'browser-open-folder', 'browser-clear'],
         regressionLayers: ['ui-smoke'],
     },
 ] as const;
