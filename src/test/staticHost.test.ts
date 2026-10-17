@@ -744,3 +744,22 @@ test('folder tracks keep their folder path in reports, release unchecks them and
     assert.equal(lastUpdate().selectedFilePaths, undefined);
     assert.equal((lastUpdate().results as unknown[]).length, 2);
 });
+
+test('Open Folder walks the File System Access picker and ignores a cancelled pick', async () => {
+    const app = harness();
+    const openFolder = app.elements.find(element => element.attributes['data-action'] === 'browser-open-folder')!;
+    const file = (name: string) => ({ kind: 'file', name, getFile: async () => ({ size: 100, name, arrayBuffer: async () => new ArrayBuffer(100) }) });
+    const dir = (name: string, entries: unknown[]) => ({ kind: 'directory', name, values: async function* () { yield* entries; } });
+    const status = app.status;
+    (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => { throw Object.assign(new Error('cancelled'), { name: 'AbortError' }); };
+    openFolder.onclick!();
+    await flush();
+    assert.equal(app.status, status);
+    assert.equal(app.received.some(message => message.type === 'directory-selection'), false);
+
+    (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => dir('rec', [file('b.wav'), file('notes.txt'), dir('day2', [file('a.WAV')])]);
+    openFolder.onclick!();
+    await flush(); await flush();
+    assert.deepEqual(app.received.find(message => message.type === 'directory-selection'),
+        { type: 'directory-selection', rootPath: '/sources/rec', filePaths: ['/sources/rec/b.wav', '/sources/rec/day2/a.WAV'] });
+});
