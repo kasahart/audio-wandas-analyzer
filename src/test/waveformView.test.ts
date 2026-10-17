@@ -42,3 +42,23 @@ test('WaveformView rect zoom sets both windows and reset restores them', () => {
     assert.deepEqual([view.amplitudeMin, view.amplitudeMax], [-1, 1]);
     assert.equal(view.isAmplitudeZoomed(), false);
 });
+
+test('WaveformView amplitude range from the axis popover can widen past the peak and resets to auto', () => {
+    const view = new WaveformView();
+    const auto = view.paintedAmplitudeRange();
+    assert.ok(auto.max > 1 && auto.min === -auto.max);
+    assert.equal(view.setAmplitudeRange(-2, 2), true);
+    assert.equal(view.isAmplitudeZoomed(), true);
+    assert.deepEqual(view.paintedAmplitudeRange(), { min: -2, max: 2 });
+    assert.equal(view.setAmplitudeRange(-1, 1), true);
+    assert.equal(view.isAmplitudeZoomed(), true, 'an explicit ±peak range is not the auto margin');
+    assert.equal(view.setAmplitudeRange(null, 0.5), true);
+    assert.deepEqual(view.paintedAmplitudeRange(), { min: auto.min, max: 0.5 });
+    assert.equal(view.setAmplitudeRange(null, -5), false, 'an auto edge beyond the typed one is rejected');
+    assert.deepEqual(view.paintedAmplitudeRange(), { min: auto.min, max: 0.5 });
+    view.resetAmplitude();
+    assert.equal(view.isAmplitudeZoomed(), false);
+    view.setAmplitudeRange(-2, 2);
+    view.reset();
+    assert.equal(view.isAmplitudeZoomed(), false);
+});

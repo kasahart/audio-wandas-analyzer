@@ -958,6 +958,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return waveformAxisLabelsForChannel(result, 0);
     }
     function formatSignedAmplitudeValue(value: number): string {
+        if (value === 0) {
+            return '0';
+        }
         const prefix = value > 0 ? '+' : value < 0 ? '-' : '';
         return prefix + formatAmplitudeValue(value);
     }
@@ -1191,9 +1194,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             fileName: result.fileName,
             axisWidth: AXIS_W,
             spectrumTitle: STR.trackSpectrumTitle,
-            axisHint: STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures,
+            axisHint: trackAxisHint(),
             spectrumHint: STR.trackSpectrumTitle + ' / ' + STR.hintSpectrumKeys,
         });
+    }
+    // Spectrogram lanes have no amplitude axis, so their axis double-click keeps resetting the zoom.
+    function trackAxisHint(): string {
+        return (contentType === 'waveform' ? STR.hintWaveformAmplitudeAxis : STR.hintDoubleClickResetZoom) + ' / ' + STR.hintWheelGestures;
     }
     function buildChannelLanes(result: ComparisonTrackState, i: number) {
         return channelsForResult(result).map(function (_, channelIndex: number) {
@@ -1944,6 +1951,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         attachTrackPointerListeners(tracksWrapper, document, {
             resetZoom,
+            openAxisRange: openWaveformRangePopup,
             hover: handleCanvasMouseMove,
             clearHover,
             press: handleCanvasMouseDown,
@@ -2171,6 +2179,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             state.results.forEach(function (_result, index) { releaseTrackDetail(index); });
         }
         persistWebviewState({ contentType: contentType });
+        canvasesMatching(document, '.track-axis-canvas').forEach(function (axis) { setHint(axis, trackAxisHint()); });
         buttonMatching(document, '[data-action="content-waveform"]')?.classList.toggle('is-active', next === 'waveform');
         buttonMatching(document, '[data-action="content-spectrogram"]')?.classList.toggle('is-active', next === 'spectrogram');
         __updateSpecGearVisibility();
@@ -2475,6 +2484,48 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleSpectrumRefresh('immediate');
             },
         });
+    }
+    const waveformRangePopover = installRangePopover(document, {
+        rootId: 'waveform-range-popover',
+        badgeId: 'wave-range-axis-badge',
+        idPrefix: 'wave-range',
+        strings: rangePopoverStrings(STR),
+        position: positionPopover,
+    });
+    // The popover takes values of the clicked channel; other lanes follow by the same ratio to their own peak.
+    function openWaveformRangePopup(axis: Element, clientX: number, clientY: number): boolean {
+        if (contentType !== 'waveform') {
+            return false;
+        }
+        const trackIndex = trackIndexFromElement(axis);
+        const result = trackIndex === null ? undefined : state.results[trackIndex];
+        const channel = result ? channelsForResult(result)[channelIndexAttribute(axis) ?? 0] : undefined;
+        if (!channel) {
+            return false;
+        }
+        const rawPeak = channel.waveform ? channel.waveform.absolutePeak : NaN;
+        const peak = typeof rawPeak === 'number' && Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
+        const unit = typeof channel.unit === 'string' ? channel.unit.trim() : '';
+        const painted = waveformView.paintedAmplitudeRange();
+        const field = (norm: number) => String(Number((norm * peak).toPrecision(4)));
+        waveformRangePopover.open({
+            axisLabel: unit ? STR.waveRangeAxisAmplitude + ' (' + unit + ')' : STR.waveRangeAxisAmplitude,
+            horizontal: false,
+            min: field(painted.min),
+            max: field(painted.max),
+            clientX, clientY,
+            apply(min, max) {
+                if (!waveformView.setAmplitudeRange(min === null ? null : min / peak, max === null ? null : max / peak)) {
+                    return STR.specRangeErrorMinMax;
+                }
+                scheduleRender();
+            },
+            auto() {
+                waveformView.resetAmplitude();
+                scheduleRender();
+            },
+        });
+        return true;
     }
     function copySpecToClipboard() {
         if (!navigator.clipboard || !navigator.clipboard.writeText) {
