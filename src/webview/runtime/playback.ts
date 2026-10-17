@@ -1,3 +1,5 @@
+import { fadeSecondsForSpan } from './audioFade';
+
 export interface GlobalTimeline {
     startSeconds: number;
     spanSeconds: number;
@@ -49,4 +51,19 @@ export function loopRestartTime(mapping: TrackTimeMapping | null, currentTime: n
         return null;
     }
     return trackTimeFromGlobalNorm(mapping, loop.start);
+}
+
+/** How far playback is from where it stops or loops back, and how long the fade before that point lasts. */
+export function playbackEndFade(
+    mapping: TrackTimeMapping | null,
+    currentTime: number,
+    loop: { start: number; end: number } | null,
+    durationSeconds: number,
+): { remaining: number; fadeSeconds: number } | null {
+    const start = mapping && loop ? trackTimeFromGlobalNorm(mapping, loop.start) : 0;
+    const end = mapping && loop ? trackTimeFromGlobalNorm(mapping, loop.end) : durationSeconds;
+    if (!(end > start)) {
+        return null;
+    }
+    return { remaining: end - currentTime, fadeSeconds: fadeSecondsForSpan(end - start) };
 }

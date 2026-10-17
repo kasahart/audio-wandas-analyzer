@@ -37,7 +37,7 @@ test('results pane renders the spectrum section controls', () => {
 test('track audio element carries the track id, mute state and escaped source', () => {
     assert.equal(
         trackAudioHtml('track-2', 1, 'vscode-resource:/a&b.wav', false),
-        '<audio id="track-audio-1" data-track-id="track-2" preload="metadata" src="vscode-resource:/a&amp;b.wav"></audio>',
+        '<audio id="track-audio-1" data-track-id="track-2" preload="metadata" crossorigin="anonymous" src="vscode-resource:/a&amp;b.wav"></audio>',
     );
-    assert.ok(trackAudioHtml('track-2', 1, 'x.wav', true).includes('preload="metadata" muted src="x.wav"'));
+    assert.ok(trackAudioHtml('track-2', 1, 'x.wav', true).includes('preload="metadata" crossorigin="anonymous" muted src="x.wav"'));
 });

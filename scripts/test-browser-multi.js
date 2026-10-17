@@ -96,7 +96,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await page.locator('[data-action="toggle-playback"]').last().click();
         await page.waitForFunction(()=>!document.querySelectorAll('audio')[1].paused);
         await page.locator('[data-action="stop-playback"]').last().click();
-        assert.equal(await page.locator('audio').evaluateAll(xs=>xs.every(x=>x.paused)),true);
+        await page.waitForFunction(()=>[...document.querySelectorAll('audio')].every(x=>x.paused),null,{timeout:2000});
         const firstUrl=await page.locator('audio').first().getAttribute('src');
         await picker.setInputFiles(fixture('short-stereo.wav'));
         await status.filter({hasText:'3 tracks'}).waitFor();
