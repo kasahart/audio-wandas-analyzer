@@ -238,7 +238,7 @@ export interface UiStrings {
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
     en: {
-        panelTitle: 'Comparison Panel',
+        panelTitle: 'Audio Wandas Analyzer',
         panelTitlePrefix: 'Audio Analyzer: ',
         panelComparePrefix: 'Audio Compare: ',
         emptyAllExcluded: 'All tracks are excluded',
@@ -459,7 +459,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         waveModeLabelRectZoom: 'Rect Zoom',
     },
     ja: {
-        panelTitle: '比較パネル',
+        panelTitle: 'Audio Wandas Analyzer',
         panelTitlePrefix: 'Audio Analyzer: ',
         panelComparePrefix: 'Audio Compare: ',
         emptyAllExcluded: 'すべてのトラックが除外されています',

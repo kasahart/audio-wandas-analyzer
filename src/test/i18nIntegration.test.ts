@@ -80,14 +80,10 @@ test('i18n: env.language="en-US" は HTML lang="en" を出力する', () => {
     assert.match(html, /<html lang="en">/);
 });
 
-test('i18n: 日本語ロケールではタイトルが "比較パネル"', () => {
-    const html = renderHtmlWith('ja');
-    assert.match(html, /<title>比較パネル<\/title>/);
-});
-
-test('i18n: 英語ロケールではタイトルが "Comparison Panel"', () => {
-    const html = renderHtmlWith('en-US');
-    assert.match(html, /<title>Comparison Panel<\/title>/);
+test('i18n: タイトルはどのロケールでもアプリ名 "Audio Wandas Analyzer"', () => {
+    for (const lang of ['ja', 'en-US']) {
+        assert.match(renderHtmlWith(lang), /<title>Audio Wandas Analyzer<\/title>/);
+    }
 });
 
 test('i18n: __APP_STRINGS__ に btnWaveform="波形" (ja) が含まれる', () => {
