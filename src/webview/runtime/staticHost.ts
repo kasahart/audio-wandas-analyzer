@@ -541,7 +541,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         announce(strings.browserPreparing);
         enqueueBatch(() => loadBatch(files.map(file => ({ file }))));
     };
-    /** Lists a picked folder's WAV files, keyed by their path inside the folder's parent. */
     function openFolderFiles(rootName: string, files: Array<{ path: string; file: File }>): void {
         if (!files.length) { announce(strings.selectionNoSupported); return; }
         if (sources.size || loading) dispose();
@@ -560,15 +559,13 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (!showDirectoryPicker) { folderPick.click(); return; }
         void (async () => {
             const files: Array<{ path: string; file: File }> = [];
-            let root: FolderEntryHandle;
             try {
-                root = await showDirectoryPicker.call(window, { mode: 'read' });
+                const root = await showDirectoryPicker.call(window, { mode: 'read' });
                 await collectWavFiles(root, root.name, files);
+                openFolderFiles(root.name, files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
             } catch (error) {
                 if ((error as { name?: unknown } | null)?.name !== 'AbortError') announce(error instanceof Error ? error.message : String(error));
-                return;
             }
-            openFolderFiles(root.name, files.sort((a, b) => a.path.localeCompare(b.path)));
         })();
     }
     openFolder.onclick = pickFolder;
