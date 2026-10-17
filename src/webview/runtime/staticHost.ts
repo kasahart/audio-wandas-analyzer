@@ -183,7 +183,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         sourceGeneration.advance();
         // Python cannot interrupt a running command, so work still in flight is cancelled by restarting the Worker.
         if (pending.size || recovery) resetWorker(new Error('Analysis cancelled'));
-        else { reanalysisGeneration.advance(); worker?.postMessage({ cmd: 'clear', requestId: pending.nextId() }); }
+        else if (worker) {
+            reanalysisGeneration.advance();
+            const kept = worker;
+            // A Worker that cannot clear (a failed boot, or an older cached script) is replaced so no source outlives Clear.
+            sendRequest({ cmd: 'clear' }).catch(() => { if (worker === kept) resetWorker(new Error('Analysis cancelled')); });
+        }
         loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
         pendingTreePaths.clear();
         sources.clear();
@@ -191,6 +196,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     async function request(
         command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string, cancellation?: AnalysisCancellationSignal,
     ): Promise<Record<string, unknown>> {
+        // A Worker whose boot failed is replaced first, so retained sources are replayed into its successor.
+        if (bootFailed) resetWorker(new Error(strings.browserPythonFailed));
         if (!worker && !recovery && sources.size) {
             const generation = sourceGeneration.current;
             const restoring = (async () => {
@@ -244,8 +251,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         return activeWorker;
     }
     function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
-        // A Worker whose boot failed is replaced on the next request, so a later WAV retries Python.
-        if (bootFailed) resetWorker(new Error(strings.browserPythonFailed));
         if (!worker) {
             if (command.cmd !== 'load' && command.cmd !== 'limits') throw new Error('No selected source; choose the WAV again.');
             worker = startWorker();
@@ -633,6 +638,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     };
     // Pyodide boots when its Worker starts, so starting it with the page keeps that wait off the first WAV load.
     worker = startWorker();
-    window.addEventListener('pagehide', dispose);
+    // Leaving the page always stops Python, so a back-forward cached page does not keep the runtime resident.
+    window.addEventListener('pagehide', () => { resetWorker(new Error('Analysis cancelled')); dispose(); });
     return host;
 }
