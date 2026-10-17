@@ -177,9 +177,14 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         recovery = undefined;
         rejectPendingRequests(pending, reason);
     }
+    /** Drops every source but keeps the Worker, so Pyodide boots once per page; only a Worker error or a Recipe timeout restarts it. */
     function dispose(): void {
         sourceGeneration.advance();
-        resetWorker(new Error('Analysis cancelled'));
+        reanalysisGeneration.advance();
+        recovery = undefined;
+        rejectPendingRequests(pending, new Error('Analysis cancelled'));
+        // The Worker runs commands in order, so this clear also drops a load that is still in flight.
+        if (worker) void sendRequest({ cmd: 'clear' }).catch(() => {});
         loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
         pendingTreePaths.clear();
         sources.clear();
@@ -230,6 +235,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         };
         activeWorker.onerror = (): void => {
             if (worker !== activeWorker) return;
+            resetWorker(new Error('Analysis cancelled'));
             dispose(); snapshot();
             announce(strings.browserWorkerFailed);
             emit({ type: 'reanalyze-end' });

@@ -78,6 +78,11 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
                 return;
             }
             if (this.blockedCommands.has(String(command.cmd)) || blockedWorkerCommands.has(String(command.cmd))) return;
+            if (command.cmd === 'clear') {
+                this.loadedSources.clear();
+                queueMicrotask(() => this.reply(command));
+                return;
+            }
             if (command.cmd === 'unload' && !this.loadedSources.delete(String(command.filePath))) {
                 queueMicrotask(() => this.reply(command, {}, 'Source is not loaded'));
                 return;
@@ -164,7 +169,7 @@ test('the audio Worker starts with the page and serves the first WAV', async () 
     assert.ok(app.workers[0].commands.some(command => command.cmd === 'load'));
 });
 
-test('the Python indicator and the centred boot card follow the Worker boot, a failed boot and a reset', async () => {
+test('the Python indicator and the centred boot card follow the Worker boot, a kept Worker on clear, a failed boot and a reset', async () => {
     const app = harness();
     const indicator = app.elements.find(element => 'data-python-state' in element.attributes)!;
     const loading = app.elements.find(element => 'data-python-loading' in element.attributes)!;
@@ -176,6 +181,13 @@ test('the Python indicator and the centred boot card follow the Worker boot, a f
     assert.ok(!shown());
     await app.load();
     app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    assert.equal(indicator.textContent, 'Python: ready');
+    assert.ok(!shown());
+    await app.load();
+    assert.equal(app.workers.length, 1, 'clearing keeps the booted Worker');
+    assert.equal(app.workers[0].terminated, false);
+    assert.deepEqual(app.workers[0].commands.map(command => command.cmd).filter(cmd => cmd === 'clear' || cmd === 'load'), ['load', 'clear', 'load']);
+    app.workers[0].onerror();
     assert.equal(indicator.textContent, 'Python: stopped (restarts when needed)');
     assert.ok(!shown());
     await app.load();
@@ -278,7 +290,8 @@ test('file picker appends multiple sources and per-track release preserves the o
     await flush();
     assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 1);
     app.host.releaseSource!(secondPath);
-    assert.equal(app.workers[0].terminated, true);
+    assert.equal(app.workers[0].terminated, false);
+    assert.equal(app.workers[0].commands.at(-1)!.cmd, 'clear');
     assert.deepEqual(app.revoked, ['blob:fixture-1', 'blob:fixture-2']);
 });
 
@@ -329,7 +342,8 @@ test('cancel during a file read clears all sources and ignores late completion',
     app.elements.find(element => element.tag === 'button')!.onclick!();
     finish(new ArrayBuffer(100)); await flush();
     assert.equal(app.workers.length, 1);
-    assert.equal(app.workers[0].terminated, true);
+    assert.equal(app.workers[0].terminated, false);
+    assert.equal(app.workers[0].commands.at(-1)!.cmd, 'clear', 'the late file is not loaded after the clear');
     assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 0);
     assert.equal(app.picker.disabled, false);
 });

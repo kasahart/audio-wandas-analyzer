@@ -181,6 +181,16 @@ def test_browser_unexpected_load_failure_is_not_hidden(monkeypatch) -> None:
     assert reply == {"error": {"code": "internal-error", "message": "unexpected internal failure"}}
 
 
+def test_release_all_sources_lets_the_same_identity_load_again() -> None:
+    import browser_service
+
+    browser_service.release_all_sources()
+    assert "filePath" in json.loads(browser_service.load_source("selected.wav", FIXTURE.read_bytes()))
+    assert json.loads(browser_service.release_all_sources()) == {}
+    assert "filePath" in json.loads(browser_service.load_source("selected.wav", FIXTURE.read_bytes()))
+    browser_service.release_all_sources()
+
+
 def test_browser_internal_errors_log_the_traceback(monkeypatch, capsys) -> None:
     import browser_service
 
