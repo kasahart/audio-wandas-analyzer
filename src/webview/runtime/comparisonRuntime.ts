@@ -2438,9 +2438,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const norm = hit.norm;
-        const gripType = loopGripAt(loopRegion, norm, waveformView.span());
-        const action = waveformMode === 'rect-zoom' ? STR.hintRectZoomDrag
-            : gripType ? STR.tooltipLoopResize
+        // Same precedence as handleCanvasMouseDown so the hint names the drag that will run.
+        const gripType = waveformMode === 'rect-zoom' ? null : loopGripAt(loopRegion, norm, waveformView.span());
+        const action = gripType ? STR.tooltipLoopResize
+            : e.shiftKey ? STR.tooltipLoopOrShift
+            : waveformMode === 'rect-zoom' ? STR.hintRectZoomDrag
             : loopRegion && norm >= loopRegion.start && norm <= loopRegion.end ? STR.tooltipLoopClear
             : STR.tooltipLoopOrShift;
         hintFooter.show(action + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);

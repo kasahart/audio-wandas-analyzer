@@ -162,6 +162,8 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                 return;
             }
             e.preventDefault();
+            // Space would otherwise reach the document shortcut handler and toggle playback too.
+            e.stopPropagation();
             toggleDirectoryHeader(dirHeader);
         });
         layout.addEventListener('change', function (e) {

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { getStrings } from '../../shared/i18n/strings';
-import { buildUiSmokeHtml } from './buildHtml';
+import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
 
 const STR = getStrings('en');
 
@@ -47,4 +47,18 @@ test('axes, the spectrum and every toolbar control explain their gestures in the
     await spectrum.focus();
     await expect(footer).toHaveText(STR.hintSpectrumPlot);
     await expect(spectrum).toHaveAttribute('aria-description', STR.hintSpectrumPlot);
+});
+
+test('Space on a focused tree folder toggles the folder without reaching the playback shortcut', async ({ page }) => {
+    await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
+    const directory = page.locator('.selection-tree-directory').first();
+    const expanded = await directory.getAttribute('aria-expanded');
+    await page.evaluate(() => {
+        (window as unknown as { __docSpaces: number }).__docSpaces = 0;
+        document.addEventListener('keydown', e => { if (e.key === ' ') (window as unknown as { __docSpaces: number }).__docSpaces++; });
+    });
+    await directory.focus();
+    await page.keyboard.press(' ');
+    await expect(directory).not.toHaveAttribute('aria-expanded', expanded ?? '');
+    expect(await page.evaluate(() => (window as unknown as { __docSpaces: number }).__docSpaces)).toBe(0);
 });
