@@ -35,5 +35,5 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
 }
 
 export function trackAudioHtml(trackId: string, trackIndex: number, audioSource: string, muted: boolean): string {
-    return '<audio id="track-audio-' + trackIndex + '" data-track-id="' + trackId + '" preload="metadata"' + (muted ? ' muted' : '') + ' src="' + escapeHtml(audioSource) + '"></audio>';
+    return '<audio id="track-audio-' + trackIndex + '" data-track-id="' + trackId + '" preload="metadata" crossorigin="anonymous"' + (muted ? ' muted' : '') + ' src="' + escapeHtml(audioSource) + '"></audio>';
 }

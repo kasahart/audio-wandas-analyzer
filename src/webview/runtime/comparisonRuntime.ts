@@ -18,8 +18,10 @@ import {
     createTrackTimeMapping,
     globalNormFromTrackTime as mapGlobalNormFromTrackTime,
     loopRestartTime,
+    playbackEndFade,
     playbackStartTime,
 } from './playback';
+import { createAudioFader, FADE_SECONDS } from './audioFade';
 import { positionPopover } from './settingsPopover';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
 import { clampHeight, createHeightResize, heightInputRequest, type HeightKind } from './heightResize';
@@ -199,6 +201,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const canvasWidthCache: Record<string, string> = {};
     let playbackEl: HTMLAudioElement | null = null;
     let playbackRafId: number | null = null;
+    const audioFader = createAudioFader();
+    let endFadeTarget: number | null = null;
     let playbackTrackId: TrackId | null = null;
     let followCursor = false;
     const SPECTRUM_PLAYBACK_TARGET_FRAME_MS = 1000 / 32;
@@ -1564,7 +1568,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const playBtn = buttonMatching(document, '[data-action="toggle-playback"][data-track-id="' + trackId + '"]');
             const stopBtn = buttonMatching(document, '[data-action="stop-playback"][data-track-id="' + trackId + '"]');
             const isActive = playbackTrackId === trackId && playbackEl !== null;
-            const isPlaying = isActive && playbackEl !== null && !playbackEl.paused;
+            const isPlaying = isActive && playbackEl !== null && !playbackEl.paused && !audioFader.isPausing(playbackEl);
             if (playBtn) {
                 playBtn.textContent = isPlaying ? '⏸' : '▶';
                 playBtn.classList.toggle('is-playing', !!isPlaying);
@@ -1595,8 +1599,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         el.style.display = 'inline';
     }
     function clearPlaybackState() {
-        if (playbackEl && !playbackEl.paused) {
-            playbackEl.pause();
+        if (playbackEl) {
+            audioFader.pauseSmoothly(playbackEl);
         }
         playbackEl = null;
         playbackTrackId = null;
@@ -1611,14 +1615,20 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         function tick() {
             const playbackTrackIndex = playbackTrackId ? trackStore.protocolIndexForId(playbackTrackId) : null;
-            if (playbackEl && playbackTrackIndex !== null && !playbackEl.paused) {
-                const loopStartTime = loopRestartTime(getTrackTimeMapping(playbackTrackIndex), playbackEl.currentTime, loopRegion);
+            if (playbackEl && playbackTrackIndex !== null && !playbackEl.paused && !audioFader.isPausing(playbackEl)) {
+                const mapping = getTrackTimeMapping(playbackTrackIndex);
+                const loopStartTime = loopRestartTime(mapping, playbackEl.currentTime, loopRegion);
                 if (loopStartTime !== null) {
                     try {
                         playbackEl.currentTime = loopStartTime;
                         invalidateDesiredSpectrumSliceRequests();
                     }
                     catch (_err) { }
+                    endFadeTarget = null;
+                    fadeInOnceSeeked(playbackEl, playbackEndFade(mapping, loopStartTime, loopRegion, playbackDuration(playbackTrackIndex))?.fadeSeconds ?? FADE_SECONDS);
+                }
+                else {
+                    fadeBeforePlaybackEnd(playbackEl, playbackTrackIndex);
                 }
                 const nextCursor = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
                 if (nextCursor !== null) {
@@ -1640,6 +1650,34 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         playbackRafId = requestAnimationFrame(tick);
     }
+    function playbackDuration(idx: number): number {
+        return (playbackEl && playbackEl.duration) || state.results[idx]?.durationSeconds || 0;
+    }
+    function fadeInOnceSeeked(audio: HTMLAudioElement, seconds: number): void {
+        // The seek takes effect asynchronously; fading in before it lands would let the old position through.
+        audio.addEventListener('seeked', function () {
+            if (playbackEl === audio && !audioFader.isPausing(audio)) {
+                audioFader.fadeTo(audio, 1, seconds);
+            }
+        }, { once: true });
+    }
+    function fadeBeforePlaybackEnd(audio: HTMLAudioElement, idx: number): void {
+        const fade = playbackEndFade(getTrackTimeMapping(idx), audio.currentTime, loopRegion, playbackDuration(idx));
+        if (!fade) {
+            return;
+        }
+        const endTime = audio.currentTime + fade.remaining;
+        if (fade.remaining <= fade.fadeSeconds) {
+            if (endFadeTarget === null || Math.abs(endFadeTarget - endTime) > 1e-3) {
+                audioFader.fadeTo(audio, 0, Math.max(0, fade.remaining));
+                endFadeTarget = endTime;
+            }
+        }
+        else if (endFadeTarget !== null) {
+            audioFader.fadeTo(audio, 1, FADE_SECONDS);
+            endFadeTarget = null;
+        }
+    }
     function stopPlaybackLoop() {
         if (playbackRafId !== null) {
             cancelAnimationFrame(playbackRafId);
@@ -1650,11 +1688,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const trackIndex = trackId ? trackStore.protocolIndexForId(trackId) : null;
         const audio = trackIndex === null ? playbackEl : getTrackAudio(trackIndex);
         if (audio) {
-            audio.pause();
-            try {
-                audio.currentTime = 0;
-            }
-            catch (_err) { }
+            audioFader.pauseSmoothly(audio, function () {
+                try {
+                    audio.currentTime = 0;
+                }
+                catch (_err) { }
+            });
         }
         if (trackId === playbackTrackId) {
             if (!options || options.keepCursor !== true) {
@@ -1675,8 +1714,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!audio) {
             return;
         }
-        if (playbackTrackId === trackId && playbackEl === audio && !audio.paused) {
-            audio.pause();
+        if (playbackTrackId === trackId && playbackEl === audio && !audio.paused && !audioFader.isPausing(audio)) {
+            audioFader.pauseSmoothly(audio);
             invalidateDesiredSpectrumSliceRequests();
             updatePlaybackButtons();
             stopPlaybackLoop();
@@ -1700,11 +1739,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         catch (_err) { }
         playbackStartNorm = startNorm;
+        audioFader.prepare(audio);
+        audioFader.fadeTo(audio, 0, 0);
+        endFadeTarget = null;
+        const fadeInSeconds = playbackEndFade(getTrackTimeMapping(idx), startTime, loopRegion, durationSeconds)?.fadeSeconds ?? FADE_SECONDS;
+        const fadeIn = function () {
+            if (playbackEl === audio && !audioFader.isPausing(audio)) {
+                audioFader.fadeTo(audio, 1, fadeInSeconds);
+            }
+        };
         const playPromise = audio.play();
-        if (playPromise && typeof playPromise.catch === 'function') {
-            playPromise.catch(function () {
+        if (playPromise && typeof playPromise.then === 'function') {
+            playPromise.then(fadeIn, function () {
                 clearPlaybackState();
             });
+        }
+        else {
+            fadeIn();
         }
         const nextCursor = globalNormFromTrackTime(idx, audio.currentTime);
         if (nextCursor !== null) {
@@ -1798,7 +1849,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const runtime = trackRuntimeAt(trackIndex);
                 runtime.muted = !runtime.muted;
                 const audio = getTrackAudio(trackIndex);
-                if (audio) audio.muted = runtime.muted;
+                if (audio) audioFader.setMuted(audio, runtime.muted);
                 target.setAttribute('aria-pressed', String(runtime.muted));
                 target.textContent = runtime.muted ? '🔇' : '🔊';
             },
@@ -2806,7 +2857,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const audio = getTrackAudio(idx);
         if (audio) {
-            audio.remove();
+            audio.removeAttribute('id');
+            audioFader.pauseSmoothly(audio, function () {
+                audio.remove();
+            });
         }
         releaseTrackDetail(idx);
         channelsForResult(record.result).forEach((_, channelIndex) => spectrogramRasterCache.delete(trackId + ':' + channelIndex));
