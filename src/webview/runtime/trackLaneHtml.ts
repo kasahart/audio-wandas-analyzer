@@ -1,6 +1,7 @@
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
+import { hintAttr } from './hintFooter';
 import { calibrationBadgeHtml, calibrationButtonHtml, channelMetricSummaryHtml, isClipped } from './calibrationDecorations';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 
@@ -30,7 +31,7 @@ export function channelLaneHtml(spec: ChannelLaneSpec): string {
         + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="0" style="outline:none;flex:1"></canvas>'
         + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' aria-hidden="true" style="display:none;position:absolute;left:' + axisWidth + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
         + '    </div>'
-        + '    <div class="track-spectrum-wrap" id="' + trackSpectrumWrapId(trackIndex, channelIndex) + '" data-hint="' + escapeHtml(spec.spectrumTitle) + '">'
+        + '    <div class="track-spectrum-wrap" id="' + trackSpectrumWrapId(trackIndex, channelIndex) + '"' + hintAttr(spec.spectrumTitle) + '>'
         + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="0" aria-label="' + escapeHtml(spec.fileName + ' ' + label + ' ' + spec.spectrumTitle) + '"></canvas>'
         + '    </div>'
         + '  </div>'
@@ -67,21 +68,21 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '<div class="track-header">'
         + '  <div class="track-title-row">'
         + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaDragHandle) + '" data-hint="' + escapeHtml(strings.ariaDragHandle) + '">≡</div>'
-        + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + spec.color + '" role="button" tabindex="0" aria-label="' + escapeHtml(strings.ariaPickColor) + '" data-hint="' + escapeHtml(strings.trackPickColor) + '"></div>'
-        + '    <div class="track-name" data-hint="' + escapeHtml(spec.filePath) + '">' + escapeHtml(spec.fileName) + '</div>'
-        + (isClipped(channels) ? '    <span class="clip-badge" data-hint="' + escapeHtml(strings.clipBadgeTitle) + '">CLIP</span>' : '')
+        + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + spec.color + '" role="button" tabindex="0" aria-label="' + escapeHtml(strings.ariaPickColor) + '"' + hintAttr(strings.trackPickColor) + '></div>'
+        + '    <div class="track-name"' + hintAttr(spec.filePath) + '>' + escapeHtml(spec.fileName) + '</div>'
+        + (isClipped(channels) ? '    <span class="clip-badge"' + hintAttr(strings.clipBadgeTitle) + '>CLIP</span>' : '')
         + '    ' + calibrationBadgeHtml(channels)
         + '  </div>'
         + '  <div class="track-meta">Total: ' + spec.channelCount + ' ch &nbsp;' + (spec.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
         + '  <div class="track-btns">'
-        + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '" data-hint="' + escapeHtml(strings.trackPlayTitle) + '" aria-label="' + escapeHtml(strings.ariaTrackPlay) + '"' + disabled + '>▶</button>'
-        + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '" data-hint="' + escapeHtml(strings.trackStopTitle) + '" aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'
+        + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '"' + hintAttr(strings.trackPlayTitle) + ' aria-label="' + escapeHtml(strings.ariaTrackPlay) + '"' + disabled + '>▶</button>'
+        + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '"' + hintAttr(strings.trackStopTitle) + ' aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'
         + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaTrackMute) + '" data-hint="' + escapeHtml(strings.ariaTrackMute) + '" aria-pressed="' + spec.muted + '"' + disabled + '>' + (spec.muted ? '🔇' : '🔊') + '</button>'
         + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaRemoveTrack) + '">✕</button>'
         + '    ' + calibrationButtonHtml(trackId, strings)
         + '  </div>'
         + '  <div class="track-offset">'
-        + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '" data-hint="' + escapeHtml(strings.trackOffsetResetHint) + '" aria-label="' + escapeHtml(strings.ariaOffsetValue) + '">+0.000s</span>'
+        + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '"' + hintAttr(strings.trackOffsetResetHint) + ' aria-label="' + escapeHtml(strings.ariaOffsetValue) + '">+0.000s</span>'
         + '    <button class="track-offset-step" data-action="offset-up" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaOffsetUp) + '">▲</button>'
         + '    <button class="track-offset-step" data-action="offset-down" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaOffsetDown) + '">▼</button>'
         + '  </div>'

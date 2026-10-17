@@ -33,7 +33,7 @@ import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
-import { attachCanvasFocusHint, attachHoverHints, createHintFooter } from './hintFooter';
+import { attachCanvasFocusHint, attachHoverHints, createHintFooter, setHint } from './hintFooter';
 import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { attachTrackAudioListeners } from './trackAudioEvents';
@@ -2039,12 +2039,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const tooltip = buildPythonTooltip(pythonCommand, rawTooltip);
         if (selectionButton) {
             selectionButton.textContent = buttonText;
-            selectionButton.dataset.hint = tooltip;
+            setHint(selectionButton, tooltip);
             selectionButton.classList.toggle('is-warning', !!isWarning);
         }
         if (toolbarButton) {
             toolbarButton.textContent = buttonText;
-            toolbarButton.dataset.hint = tooltip;
+            setHint(toolbarButton, tooltip);
             toolbarButton.classList.toggle('is-warning', !!isWarning);
         }
     }

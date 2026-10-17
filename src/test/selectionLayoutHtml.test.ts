@@ -23,7 +23,7 @@ test('selection layout embeds the tree and results pane and escapes user text', 
 
 test('selection layout python button reflects the warning state', () => {
     const ok = selectionLayoutHtml(parts, strings);
-    assert.ok(ok.includes('<button class="tb-btn" id="selection-python-environment" data-action="select-python-environment" data-hint="/usr/bin/&lt;py3&gt;">Python: py3</button>'));
+    assert.ok(ok.includes('<button class="tb-btn" id="selection-python-environment" data-action="select-python-environment" data-hint="/usr/bin/&lt;py3&gt;" aria-description="/usr/bin/&lt;py3&gt;">Python: py3</button>'));
     const warn = selectionLayoutHtml({ ...parts, python: { ...parts.python!, warning: true } }, strings);
     assert.ok(warn.includes('<button class="tb-btn is-warning" id="selection-python-environment"'));
     assert.ok(!selectionLayoutHtml({ ...parts, python: undefined }, strings).includes('select-python-environment'));

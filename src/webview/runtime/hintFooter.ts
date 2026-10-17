@@ -1,8 +1,22 @@
+import { escapeHtml } from '../../shared/utils/webviewEscaping';
+
 const FOCUS_OUTLINE = '1px solid rgba(100, 160, 255, 0.4)';
 
 export interface HintFooter {
     show(text: string): void;
     clear(): void;
+    clearIfShowing(text: string): void;
+}
+
+// The footer is pointer-only and aria-hidden, so the hint doubles as the accessible description that title used to provide.
+export function hintAttr(text: string): string {
+    const value = escapeHtml(text);
+    return ' data-hint="' + value + '" aria-description="' + value + '"';
+}
+
+export function setHint(el: HTMLElement, text: string): void {
+    el.dataset.hint = text;
+    el.setAttribute('aria-description', text);
 }
 
 // Hints go to a footer instead of native title tooltips, which cover the waveform next to the pointer.
@@ -17,6 +31,12 @@ export function createHintFooter(doc: Document): HintFooter {
         show: setText,
         clear() {
             setText('');
+        },
+        clearIfShowing(text) {
+            const el = doc.getElementById('hint-footer');
+            if (el && el.textContent === text) {
+                el.textContent = '';
+            }
         },
     };
 }
@@ -44,8 +64,9 @@ export function attachCanvasFocusHint(canvas: HTMLElement, footer: HintFooter, t
         footer.show(text);
         canvas.style.outline = FOCUS_OUTLINE;
     });
+    // A click elsewhere blurs the canvas after the new target's hint is already showing.
     canvas.addEventListener('blur', function () {
-        footer.clear();
+        footer.clearIfShowing(text);
         canvas.style.outline = 'none';
     });
 }
