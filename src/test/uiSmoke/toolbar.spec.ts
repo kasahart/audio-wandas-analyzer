@@ -173,6 +173,24 @@ test('static page opens a folder into the shared selection tree and checked file
     await expect(page.locator('.track-row')).toHaveCount(2);
 });
 
+test('static page loads WAV files dropped onto the page as tracks', async ({ page }) => {
+    await openStaticPage(page);
+    const dropFiles = (type: 'dragover' | 'drop', names: string[]) => page.evaluate(({ type, names }) => {
+        const transfer = new DataTransfer();
+        for (const name of names) transfer.items.add(new File([new Uint8Array(100)], name));
+        document.body.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }, { type, names });
+    await dropFiles('dragover', ['dropped.wav']);
+    await expect(page.locator('body')).toHaveCSS('outline-style', 'dashed');
+    await dropFiles('drop', ['notes.txt']);
+    const noWav = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserDropNoWav: string } }).__APP_STRINGS__.browserDropNoWav);
+    await expect(page.locator('span[role="status"]')).toHaveText(noWav);
+    await expect(page.locator('body')).toHaveCSS('outline-style', 'none');
+    await dropFiles('drop', ['dropped.wav', 'notes.txt', 'second.WAV']);
+    await expect(page.locator('.track-row')).toHaveCount(2);
+    await expect(page.locator('span[role="status"]')).toContainText('second.WAV:');
+});
+
 async function getPostedActionTypes(page: Page): Promise<string[]> {
     return page.evaluate(() => {
         const messages = (window as typeof window & {

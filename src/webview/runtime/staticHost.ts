@@ -512,8 +512,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (folder) snapshot();
         announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
     }
-    pick.onchange = (): void => {
-        const files = Array.from(pick.files || []);
+    function openFiles(files: File[]): void {
         if (!files.length || loading) return;
         if (folder) {
             folder = undefined; selectionRequests++;
@@ -522,7 +521,26 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         loading = true; pick.disabled = true;
         announce(strings.browserPreparing);
         enqueueBatch(() => loadBatch(files.map(file => ({ file }))));
-    };
+    }
+    pick.onchange = (): void => { openFiles(Array.from(pick.files || [])); };
+    // Track reordering also drags inside the page, so only drags that carry OS files open sources.
+    const carriesFiles = (event: DragEvent): boolean => Array.from(event.dataTransfer?.types ?? []).includes('Files');
+    const showDropTarget = (active: boolean): void => { document.body.style.outline = active ? '3px dashed #3b82f6' : ''; };
+    window.addEventListener('dragover', event => {
+        if (!carriesFiles(event)) return;
+        event.preventDefault();
+        event.dataTransfer!.dropEffect = loading ? 'none' : 'copy';
+        showDropTarget(true);
+    });
+    window.addEventListener('dragleave', event => { if (!event.relatedTarget) showDropTarget(false); });
+    window.addEventListener('drop', event => {
+        if (!carriesFiles(event)) return;
+        event.preventDefault();
+        showDropTarget(false);
+        const files = Array.from(event.dataTransfer!.files).filter(file => /\.wav$/i.test(file.name));
+        if (!files.length) { announce(strings.browserDropNoWav); return; }
+        openFiles(files);
+    });
     openFolder.onclick = (): void => { folderPick.click(); };
     folderPick.onchange = (): void => {
         const files = Array.from(folderPick.files || []).filter(file => /\.wav$/i.test(file.name) && file.webkitRelativePath);
