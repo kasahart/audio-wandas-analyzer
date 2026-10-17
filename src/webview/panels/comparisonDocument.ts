@@ -165,7 +165,7 @@ export function renderComparisonStyles(): string {
         #playback-display { font-size: 11px; font-family: var(--font-mono); color: #64a0ff; min-width: 70px; display: none; }
         #loop-time-display { font-size: 0.85em; font-family: var(--font-mono); color: #64a0ff; margin-left: 6px; cursor: pointer; }
 
-        #app { flex: 1 1 auto; min-height: 0; }
+        #app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
         #hint-footer {
             flex-shrink: 0; height: 22px; line-height: 22px; padding: 0 10px;
             font-size: 11px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line);
@@ -242,7 +242,7 @@ export function renderComparisonStyles(): string {
         /* ── Cursor power spectrum section ── */
         #spectrum-section {
             border-top: 1px solid var(--line); background: var(--panel);
-            display: flex; flex-direction: column; flex-shrink: 0;
+            display: flex; flex-direction: column; flex-shrink: 0; position: relative;
         }
         #spectrum-section-header {
             display: flex; align-items: center; gap: 8px; padding: 4px 10px;
@@ -269,11 +269,6 @@ export function renderComparisonStyles(): string {
         #audio-host { display: none; }
 
         /* ── Directory selection ── */
-        #app:has(> #directory-selection-layout) {
-            display: flex;
-            flex: 1 1 auto;
-            min-height: 0;
-        }
         #directory-selection-layout {
             display: flex;
             flex-direction: column;
