@@ -23,7 +23,8 @@ echo "export PATH=\"$CLAUDE_PROJECT_DIR/.venv/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE
 # The cloud network policy may block the Playwright CDN. When the pinned
 # Chromium cannot be downloaded, fall back to the image's preinstalled one.
 if ! npx playwright install chromium; then
-  if [ -x /opt/pw-browsers/chromium ]; then
+  if [ -f /opt/pw-browsers/chromium ] && [ -x /opt/pw-browsers/chromium ]; then
+    echo "session-start: using preinstalled Chromium /opt/pw-browsers/chromium" >&2
     echo "export AWA_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium" >> "$CLAUDE_ENV_FILE"
   else
     echo "session-start: no Chromium available; npm run test:ui will fail" >&2
