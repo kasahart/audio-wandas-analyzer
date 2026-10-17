@@ -2,12 +2,14 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { SpectrogramDisplaySettings, SpectrogramSettings, StftWindow } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { eventTarget } from './domAdapter';
+import { hintAttr } from './hintFooter';
 
 export type SpectrogramSettingsPopoverStrings = Pick<UiStrings,
     'specSettingsAuto' | 'specSettingsStftLegend' | 'specSettingsNFft' | 'specSettingsHopSize' | 'specSettingsWindow'
     | 'specSettingsDisplayLegend' | 'specSettingsDbMin' | 'specSettingsDbMax' | 'specSettingsMaxFreqHz'
     | 'specSettingsReset' | 'specSettingsApply' | 'specSettingsPlaceholderAuto' | 'specSettingsPlaceholderNyquist'
-    | 'settingsApplyHint'>;
+    | 'settingsApplyHint' | 'hintSpecAuto' | 'hintSpecNFft' | 'hintSpecHopSize' | 'hintSpecWindow' | 'hintSpecDisplay'
+    | 'hintSpecReset' | 'hintSpecApply'>;
 
 export interface SpectrogramSettingsPopoverOptions {
     strings: SpectrogramSettingsPopoverStrings;
@@ -30,26 +32,26 @@ const GEAR_SELECTOR = '[data-action="spectrogram-settings"]';
 export function spectrogramSettingsPopoverHtml(strings: SpectrogramSettingsPopoverStrings): string {
     const nfftOptions = NFFT_OPTIONS.map(v => '<option value="' + v + '">' + v + '</option>').join('');
     return '<div id="spec-settings-popover" hidden style="position:absolute;z-index:50;background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:6px;min-width:260px;color:var(--text);font-family:var(--font-ui);">'
-        + '<label style="display:block;margin-bottom:6px"><input type="checkbox" id="spec-auto"> ' + escapeHtml(strings.specSettingsAuto) + '</label>'
+        + '<label style="display:block;margin-bottom:6px"' + hintAttr(strings.hintSpecAuto) + '><input type="checkbox" id="spec-auto"> ' + escapeHtml(strings.specSettingsAuto) + '</label>'
         + '<fieldset id="spec-stft-fields" style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
         + '<legend>' + escapeHtml(strings.specSettingsStftLegend) + '</legend>'
-        + '<label>' + escapeHtml(strings.specSettingsNFft) + ' <select id="spec-nfft">' + nfftOptions + '</select></label><br>'
-        + '<label>' + escapeHtml(strings.specSettingsHopSize) + ' <input type="number" id="spec-hop" min="1" step="1"></label><br>'
-        + '<label>' + escapeHtml(strings.specSettingsWindow) + ' <select id="spec-window">'
+        + '<label' + hintAttr(strings.hintSpecNFft) + '>' + escapeHtml(strings.specSettingsNFft) + ' <select id="spec-nfft">' + nfftOptions + '</select></label><br>'
+        + '<label' + hintAttr(strings.hintSpecHopSize) + '>' + escapeHtml(strings.specSettingsHopSize) + ' <input type="number" id="spec-hop" min="1" step="1"></label><br>'
+        + '<label' + hintAttr(strings.hintSpecWindow) + '>' + escapeHtml(strings.specSettingsWindow) + ' <select id="spec-window">'
         + '<option value="hann">hann</option><option value="hamming">hamming</option>'
         + '<option value="blackman">blackman</option><option value="boxcar">boxcar</option>'
         + '</select></label>'
         + '<div style="font-size:11px;color:var(--muted)">' + escapeHtml(strings.settingsApplyHint) + '</div>'
         + '</fieldset>'
-        + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
+        + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px"' + hintAttr(strings.hintSpecDisplay) + '>'
         + '<legend>' + escapeHtml(strings.specSettingsDisplayLegend) + '</legend>'
         + '<label>' + escapeHtml(strings.specSettingsDbMin) + ' <input type="number" id="spec-dbmin" step="1" placeholder="' + escapeHtml(strings.specSettingsPlaceholderAuto) + '"></label><br>'
         + '<label>' + escapeHtml(strings.specSettingsDbMax) + ' <input type="number" id="spec-dbmax" step="1" placeholder="' + escapeHtml(strings.specSettingsPlaceholderAuto) + '"></label><br>'
         + '<label>' + escapeHtml(strings.specSettingsMaxFreqHz) + ' <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="' + escapeHtml(strings.specSettingsPlaceholderNyquist) + '"></label>'
         + '</fieldset>'
         + '<div style="display:flex;gap:6px;justify-content:flex-end">'
-        + '<button class="tb-btn" id="spec-reset">' + escapeHtml(strings.specSettingsReset) + '</button>'
-        + '<button class="tb-btn" id="spec-apply">' + escapeHtml(strings.specSettingsApply) + '</button>'
+        + '<button class="tb-btn" id="spec-reset"' + hintAttr(strings.hintSpecReset) + '>' + escapeHtml(strings.specSettingsReset) + '</button>'
+        + '<button class="tb-btn" id="spec-apply"' + hintAttr(strings.hintSpecApply) + '>' + escapeHtml(strings.specSettingsApply) + '</button>'
         + '</div>'
         + '</div>';
 }

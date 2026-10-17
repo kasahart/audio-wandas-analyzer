@@ -13,6 +13,7 @@ import { RecipeFlow, type RecipeCatalogEntry } from '../../shared/recipe/recipeF
 import { isRecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { ChartSpec } from '../../shared/chartSpec';
 import { chartSpecGlobals, renderChartSpecStyles } from '../panels/chartSpecDocument';
+import { setHint } from './hintFooter';
 import { zipStore } from './zipStore';
 import type { HostInboundMessage } from './hostMessaging';
 import type { ComparisonWindow } from './browserAdapter';
@@ -112,15 +113,18 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const pick = document.createElement('input');
     pick.setAttribute('data-action', 'browser-open-wav');
     pick.type = 'file'; pick.multiple = true; pick.accept = '.wav,audio/wav'; pick.setAttribute('aria-label', strings.btnOpenFile);
+    setHint(pick, strings.hintBrowserOpenWav);
     const cancel = document.createElement('button');
     cancel.setAttribute('data-action', 'browser-clear');
     cancel.textContent = strings.btnClear;
+    setHint(cancel, strings.hintBrowserClear);
     const folderPick = document.createElement('input');
     folderPick.type = 'file'; folderPick.multiple = true; folderPick.setAttribute('webkitdirectory', '');
     folderPick.style.cssText = 'display:none';
     const openFolder = document.createElement('button');
     openFolder.setAttribute('data-action', 'browser-open-folder');
     openFolder.textContent = strings.btnOpenFolder;
+    setHint(openFolder, strings.hintBrowserOpenFolder);
     const pythonState = document.createElement('span');
     pythonState.setAttribute('data-python-state', '');
     pythonState.setAttribute('aria-live', 'polite');

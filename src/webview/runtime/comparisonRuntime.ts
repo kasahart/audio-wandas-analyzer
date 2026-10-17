@@ -37,7 +37,7 @@ import { attachCanvasFocusHint, attachHoverHints, createHintFooter, setHint } fr
 import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { attachTrackAudioListeners } from './trackAudioEvents';
-import { attachOverlaySpectrumDoubleClick } from './overlaySpectrumEvents';
+import { attachOverlaySpectrumDoubleClick, attachOverlaySpectrumHints } from './overlaySpectrumEvents';
 import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
 import { attachTrackPointerListeners } from './trackPointerEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
@@ -1183,6 +1183,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             fileName: result.fileName,
             axisWidth: AXIS_W,
             spectrumTitle: STR.trackSpectrumTitle,
+            axisHint: STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures,
+            spectrumHint: STR.trackSpectrumTitle + ' / ' + STR.hintSpectrumKeys,
         });
     }
     function buildChannelLanes(result: ComparisonTrackState, i: number) {
@@ -1944,6 +1946,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     openRangePopup: openSpectrumRangePopup,
                     resetZoom: specZoomReset,
                 });
+                attachOverlaySpectrumHints(overlayCanvas, hintFooter, {
+                    'db-axis': STR.hintSpectrumDbAxis,
+                    'freq-axis': STR.hintSpectrumFreqAxis,
+                    plot: STR.hintSpectrumPlot,
+                });
             }
             function attachTrackSpectrumCursorEvents() {
                 canvasesMatching(document, '.track-spectrum-canvas').forEach(function (c) {
@@ -2431,15 +2438,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const norm = hit.norm;
         const gripType = loopGripAt(loopRegion, norm, waveformView.span());
-        if (gripType) {
-            hintFooter.show(STR.tooltipLoopResize);
-        }
-        else if (loopRegion && norm >= loopRegion.start && norm <= loopRegion.end) {
-            hintFooter.show(STR.tooltipLoopClear);
-        }
-        else {
-            hintFooter.show(STR.tooltipLoopOrShift);
-        }
+        const action = gripType ? STR.tooltipLoopResize
+            : loopRegion && norm >= loopRegion.start && norm <= loopRegion.end ? STR.tooltipLoopClear
+            : waveformMode === 'rect-zoom' ? STR.hintRectZoomDrag
+            : STR.tooltipLoopOrShift;
+        hintFooter.show(action + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
         renderWithHoverAt(norm);
     }
     function handleCanvasMouseDown(e: MouseEvent): void {

@@ -13,6 +13,8 @@ const base: ChannelLaneSpec = {
     fileName: 'a<b>.wav',
     axisWidth: 64,
     spectrumTitle: 'Spectrum',
+    axisHint: 'Double-click: reset',
+    spectrumHint: 'Spectrum / ← →',
 };
 
 test('single-channel lane has no header and uses unsuffixed canvas ids', () => {
@@ -45,6 +47,7 @@ const rowStrings = {
     calibrationButtonLabel: 'Cal', calibrationButtonTitle: 'Calibrate', calibrationButtonAria: 'Calibrate track',
     trackOffsetResetHint: 'Reset', ariaOffsetValue: 'Offset', ariaOffsetUp: 'Up', ariaOffsetDown: 'Down',
     heightTrackLabel: 'Track height',
+    hintRemoveTrack: 'Remove this track', hintOffsetUp: '+10 ms', hintOffsetDown: '-10 ms', hintTrackHeightResizer: 'Drag height',
 } satisfies TrackRowStrings;
 
 const baseRow: TrackRowSpec = {
@@ -86,4 +89,14 @@ test('mono track row appends the channel summary to the meta line', () => {
     const html = trackRowHtml({ ...baseRow, channelCount: 1, channels: [channel] }, rowStrings);
     assert.ok(html.includes('Total: 1 ch &nbsp;48.0kHz &nbsp; <span>Peak 80.0 dB</span></div>'));
     assert.ok(html.includes('class="clip-badge"'));
+});
+
+test('every track header control and the lane canvases carry a footer hint', () => {
+    const row = trackRowHtml(baseRow, rowStrings);
+    for (const control of row.match(/<(button|span class="track-offset-val"|div class="height-resizer)\b[^>]*>/g) ?? []) {
+        assert.match(control, / data-hint="[^"]+"/, control);
+    }
+    const lane = channelLaneHtml(base);
+    assert.match(lane, /class="track-axis-canvas"[^>]* data-hint="Double-click: reset"/);
+    assert.match(lane, /class="track-spectrum-wrap"[^>]* data-hint="Spectrum \/ ← →"/);
 });

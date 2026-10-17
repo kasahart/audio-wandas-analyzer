@@ -9,7 +9,7 @@ function view(overrides: Partial<SelectionTreeViewDeps> = {}) {
         tree,
         view: createSelectionTreeView({
             document: {} as SelectionTreeViewDeps['document'],
-            strings: { ariaSelectionTreeDir: 'Folder', selectionNoSupported: 'No audio files' },
+            strings: { ariaSelectionTreeDir: 'Folder', selectionNoSupported: 'No audio files', hintTreeDirectory: 'Expand', hintTreeFile: 'Check' },
             tree,
             rootPath: '/root',
             collapseState: {},

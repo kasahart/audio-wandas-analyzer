@@ -1,5 +1,6 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
+import { hintAttr } from './hintFooter';
 import type { SelectionTree } from './directorySelection';
 import { eventTarget, inputMatching } from './domAdapter';
 import type { PersistedWebviewState, SelectionTreeNode } from './types';
@@ -7,7 +8,7 @@ import type { PersistedWebviewState, SelectionTreeNode } from './types';
 /** What the directory-selection tree needs from the comparison runtime. */
 export interface SelectionTreeViewDeps {
     document: Document;
-    strings: Pick<UiStrings, 'ariaSelectionTreeDir' | 'selectionNoSupported'>;
+    strings: Pick<UiStrings, 'ariaSelectionTreeDir' | 'selectionNoSupported' | 'hintTreeDirectory' | 'hintTreeFile'>;
     tree: SelectionTree;
     /** The directory the tree lists; persisted collapse and filter state is keyed to it. */
     rootPath: string;
@@ -52,7 +53,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                     + '<div class="selection-tree-directory" data-action="toggle-directory"'
                     + ' data-relative-path="' + escapeHtml(node.relativePath) + '"'
                     + ' data-depth="' + depth + '"'
-                    + ' role="button" tabindex="0"'
+                    + ' role="button" tabindex="0"' + hintAttr(strings.hintTreeDirectory)
                     + ' aria-expanded="' + (isExpanded ? 'true' : 'false') + '"'
                     + ' aria-label="' + escapeHtml(strings.ariaSelectionTreeDir) + ': ' + escapeHtml(node.name) + '">'
                     + '<span class="dir-toggle" aria-hidden="true">' + (isExpanded ? '▼' : '▶') + '</span>'
@@ -66,7 +67,7 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
             const filePath = node.filePath || '';
             const checked = deps.isSelected(filePath) ? ' checked' : '';
             return '<li>'
-                + '<label class="selection-file-row">'
+                + '<label class="selection-file-row"' + hintAttr(strings.hintTreeFile) + '>'
                 + '  <input class="selection-file-checkbox" type="checkbox" data-file-path="' + escapeHtml(filePath) + '"' + checked + '>'
                 + '  <span class="selection-file-label">'
                 + '    <span class="selection-file-name">' + escapeHtml(node.name) + '</span>'
