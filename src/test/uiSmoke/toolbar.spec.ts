@@ -86,8 +86,8 @@ function staticWorkerInit(): string {
 }
 
 /** Serves the Pages build (static host + modular runtime) with a fixture Worker in place of Pyodide. */
-async function openStaticPage(page: Page): Promise<void> {
-    const init = staticWorkerInit();
+async function openStaticPage(page: Page, extraInit = ''): Promise<void> {
+    const init = staticWorkerInit() + extraInit;
     const html = renderComparisonDocument({ mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS }, {
         waveformScriptUri: './comparisonWaveform.js', runtimeScriptUri: './comparisonRuntime.js', hostScriptUri: './staticHost.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0',
     });
@@ -132,7 +132,8 @@ test('static page opens a folder into the shared selection tree and checked file
     writeFileSync(join(folder, 'rec', 'first.wav'), Buffer.alloc(100));
     writeFileSync(join(folder, 'rec', 'day2', 'second.wav'), Buffer.alloc(100));
     writeFileSync(join(folder, 'rec', 'notes.txt'), 'not audio');
-    await openStaticPage(page);
+    // Browsers without the File System Access picker fall back to the folder input.
+    await openStaticPage(page, 'window.showDirectoryPicker = undefined;');
     const chooser = page.waitForEvent('filechooser');
     await page.locator('[data-action="browser-open-folder"]').click();
     await (await chooser).setFiles(join(folder, 'rec'));
@@ -243,4 +244,18 @@ test('spectrogram settings apply posts a reanalyze request', async ({ page }) =>
     await page.locator('#spec-apply').click({ force: true });
 
     expect((await getPostedActionTypes(page)).at(-1)).toBe('request-reanalyze');
+});
+
+test('static page opens a folder through the File System Access picker without the input upload prompt', async ({ page }) => {
+    await openStaticPage(page, `window.showDirectoryPicker = async () => {
+        const file = name => ({ kind: 'file', name, getFile: async () => new File([new Uint8Array(100)], name, { type: 'audio/wav' }) });
+        const dir = (name, entries) => ({ kind: 'directory', name, values: async function* () { yield* entries; } });
+        return dir('rec', [file('b.wav'), file('notes.txt'), dir('day2', [file('a.WAV')])]);
+    };`);
+    page.on('filechooser', () => { throw new Error('the folder input must not open when the picker exists'); });
+    await page.locator('[data-action="browser-open-folder"]').click();
+    await expect(page.locator('.selection-file-checkbox')).toHaveCount(2);
+    await expect(page.locator('#selection-summary .selection-path')).toHaveText('/sources/rec');
+    await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/a.WAV"]').check();
+    await expect(page.locator('.track-row')).toHaveCount(1);
 });

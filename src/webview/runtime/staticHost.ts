@@ -32,6 +32,23 @@ interface Source {
 
 class RecipeWorkerResetError extends Error {}
 
+/** The parts of a File System Access handle the folder picker walks. */
+interface FolderEntryHandle {
+    kind: 'file' | 'directory';
+    name: string;
+    getFile?(): Promise<File>;
+    values?(): AsyncIterable<FolderEntryHandle>;
+}
+type ShowDirectoryPicker = (options: { mode: 'read' }) => Promise<FolderEntryHandle>;
+
+async function collectWavFiles(directory: FolderEntryHandle, prefix: string, found: Array<{ path: string; file: File }>): Promise<void> {
+    for await (const entry of directory.values!()) {
+        const path = `${prefix}/${entry.name}`;
+        if (entry.kind === 'directory') await collectWavFiles(entry, path, found);
+        else if (/\.wav$/i.test(entry.name)) found.push({ path, file: await entry.getFile!() });
+    }
+}
+
 /** Browser globals the static host reaches; tests pass fakes instead of running the bundle in a vm. */
 export interface StaticHostDeps {
     window: Window;
@@ -415,7 +432,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(strings.reportExportedPrefix + artifact.name);
         },
         selectTarget(targetKind): void {
-            (targetKind === 'directory' ? folderPick : pick).click();
+            if (targetKind === 'directory') pickFolder();
+            else pick.click();
         },
         async selection(message): Promise<void> {
             const tree = folder;
@@ -541,17 +559,38 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         announce(strings.browserPreparing);
         enqueueBatch(() => loadBatch(files.map(file => ({ file }))));
     };
-    openFolder.onclick = (): void => { folderPick.click(); };
-    folderPick.onchange = (): void => {
-        const files = Array.from(folderPick.files || []).filter(file => /\.wav$/i.test(file.name) && file.webkitRelativePath);
-        folderPick.value = '';
+    function openFolderFiles(rootName: string, files: Array<{ path: string; file: File }>): void {
         if (!files.length) { announce(strings.selectionNoSupported); return; }
         if (sources.size || loading) dispose();
         selectionRequests++;
-        folder = new Map(files.map(file => [`/sources/${file.webkitRelativePath}`, file]));
-        emit({ type: 'directory-selection', rootPath: `/sources/${files[0].webkitRelativePath.split('/')[0]}`, filePaths: Array.from(folder.keys()) });
+        folder = new Map(files.map(({ path, file }) => [`/sources/${path}`, file]));
+        emit({ type: 'directory-selection', rootPath: `/sources/${rootName}`, filePaths: Array.from(folder.keys()) });
         snapshot(); emit({ type: 'reanalyze-end' });
         announce(strings.browserFolderOpened.replace('{count}', String(files.length)));
+    }
+    /**
+     * Chromium's folder input asks to "upload" the files although they never leave the page, so the
+     * File System Access picker, which asks to view them instead, is preferred where it exists.
+     */
+    function pickFolder(): void {
+        const showDirectoryPicker = (window as unknown as { showDirectoryPicker?: ShowDirectoryPicker }).showDirectoryPicker;
+        if (!showDirectoryPicker) { folderPick.click(); return; }
+        void (async () => {
+            const files: Array<{ path: string; file: File }> = [];
+            try {
+                const root = await showDirectoryPicker.call(window, { mode: 'read' });
+                await collectWavFiles(root, root.name, files);
+                openFolderFiles(root.name, files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
+            } catch (error) {
+                if ((error as { name?: unknown } | null)?.name !== 'AbortError') announce(error instanceof Error ? error.message : String(error));
+            }
+        })();
+    }
+    openFolder.onclick = pickFolder;
+    folderPick.onchange = (): void => {
+        const files = Array.from(folderPick.files || []).filter(file => /\.wav$/i.test(file.name) && file.webkitRelativePath);
+        folderPick.value = '';
+        openFolderFiles(files[0]?.webkitRelativePath.split('/')[0] ?? '', files.map(file => ({ path: file.webkitRelativePath, file })));
     };
     cancel.onclick = (): void => {
         dispose(); pick.value = ''; snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);
