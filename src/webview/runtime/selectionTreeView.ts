@@ -355,14 +355,18 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
         isVisible,
         attach,
         collapseStateBelow(nextRootPath) {
+            const prefix = rootPath.replace(/\\/gu, '/').replace(/\/?$/u, '/');
             const kept: Record<string, boolean> = {};
+            const keep = function (relativePath: string, expanded: boolean) {
+                kept[selectionRelativePath(nextRootPath, prefix + relativePath)] = expanded;
+            };
+            // Folders inside a closed one are not drawn, so their saved state is carried over beside the drawn headers.
+            Object.keys(collapseState).forEach(function (relativePath) { keep(relativePath, collapseState[relativePath]); });
             document.querySelectorAll<HTMLElement>('#selection-tree .selection-tree-directory').forEach(function (dirHeader) {
                 const relativePath = dirHeader.getAttribute('data-relative-path');
-                if (!relativePath) {
-                    return;
+                if (relativePath) {
+                    keep(relativePath, dirHeader.getAttribute('aria-expanded') === 'true');
                 }
-                const prefix = rootPath.replace(/\\/gu, '/').replace(/\/?$/u, '/');
-                kept[selectionRelativePath(nextRootPath, prefix + relativePath)] = dirHeader.getAttribute('aria-expanded') === 'true';
             });
             return kept;
         },

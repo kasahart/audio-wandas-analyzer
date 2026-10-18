@@ -257,9 +257,10 @@ test('static page opens a folder into the shared selection tree and checked file
 
 test('static page adds a picked file from an opened folder as its own entry and keeps folders open or closed across listings', async ({ page }) => {
     const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
-    mkdirSync(join(folder, 'rec', 'day2'), { recursive: true });
+    mkdirSync(join(folder, 'rec', 'day2', 'sub'), { recursive: true });
     writeFileSync(join(folder, 'rec', 'first.wav'), Buffer.alloc(100));
     writeFileSync(join(folder, 'rec', 'day2', 'second.wav'), Buffer.alloc(100));
+    writeFileSync(join(folder, 'rec', 'day2', 'sub', 'third.wav'), Buffer.alloc(100));
     await openStaticPage(page, 'window.showDirectoryPicker = undefined;');
     const pick = async (action: 'open-folder' | 'open-file', path: string | { name: string; mimeType: string; buffer: Buffer }) => {
         const chooser = page.waitForEvent('filechooser');
@@ -280,6 +281,15 @@ test('static page adds a picked file from an opened folder as its own entry and 
     await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]')).not.toBeChecked();
     await expect(page.locator('.selection-file-checkbox')).toHaveCount(4);
+    // A folder opened inside a closed one stays open through more than one listing, though it is not drawn meanwhile.
+    await page.locator('.selection-tree-directory[data-relative-path="rec/day2/sub"]').click();
+    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
+    for (const name of ['one.wav', 'two.wav']) {
+        await pick('open-file', { name, mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
+        await expect(page.locator(`.selection-file-checkbox[data-file-path="/sources/${name}"]`)).toBeChecked();
+    }
+    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
+    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2/sub"]')).toHaveAttribute('aria-expanded', 'true');
 });
 
 test('static page loads WAV files dropped onto the page or the recipe charts as tracks', async ({ page }) => {
