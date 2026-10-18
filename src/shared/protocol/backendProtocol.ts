@@ -179,7 +179,8 @@ function isTrackDetailResult(value: unknown): value is TrackDetailResult {
 function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
     if (schemaViolation('SpectrumSliceResult', value) !== null) return false;
     const result = value as SpectrumSliceResult;
-    return result.channels.length > 0 && result.channels.every(channel => channel.values.length === result.frequencyBins);
+    return result.channels.length > 0 && result.channels.every(channel => channel.values.length === result.frequencyBins)
+        && (result.bandCentersHz === undefined || result.bandCentersHz.length === result.frequencyBins);
 }
 
 function isExportWavLoopResult(value: unknown): value is ExportWavLoopResult {

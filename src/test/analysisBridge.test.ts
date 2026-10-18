@@ -292,3 +292,22 @@ test('Recipe deadline covers calibration preflight and prevents a late recipe di
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(commands, ['analyze']);
 });
+
+test('an octave-band slice request reaches the backend and its bands reach the Webview', async () => {
+    const client = new class extends AnalysisClient {
+        payloads: unknown[] = [];
+        protected async request<K extends BackendCommand>(_command: K, payload: BackendPayload<K>): Promise<BackendResult<K>> {
+            this.payloads.push(payload);
+            return { channels: [], analysisRevision: 0, frequencyBins: 2, maxFrequencyHz: 22_387, minFrequencyHz: 22.39,
+                bandsPerOctave: 3, bandCentersHz: [500, 630], windowStartNorm: 0.4, windowEndNorm: 0.6, window: 'boxcar' } as unknown as BackendResult<K>;
+        }
+    }();
+    const request = { type: 'request-spectrum-slice' as const, filePath: 'source', trackIndex: 0, requestId: 'r',
+        analysisId: 'a', settingsSignature: 's', cursorNorm: 0.5, bandsPerOctave: 3 as const };
+    const slice = await executeLazyAnalysis(client, request, {});
+    assert.equal((client.payloads[0] as { bandsPerOctave?: number }).bandsPerOctave, 3);
+    assert.ok('bandCentersHz' in slice);
+    assert.deepEqual([slice.bandsPerOctave, slice.bandCentersHz, slice.minFrequencyHz], [3, [500, 630], 22.39]);
+    await executeLazyAnalysis(client, { ...request, bandsPerOctave: undefined }, {});
+    assert.equal('bandsPerOctave' in (client.payloads[1] as object), false);
+});

@@ -55,7 +55,7 @@ import { paintTrackSpectrum } from './trackSpectrumPainter';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
 import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
-import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
+import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
 import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
@@ -314,6 +314,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumFrame(kind !== 'hover', true);
     }
     let contentType: 'waveform' | 'spectrogram' = persistedWebviewState.contentType === 'spectrogram' ? 'spectrogram' : 'waveform';
+    let spectrumBandsPerOctave: SpectrumBandsSetting = persistedWebviewState.spectrumBandsPerOctave === 1 || persistedWebviewState.spectrumBandsPerOctave === 3
+        ? persistedWebviewState.spectrumBandsPerOctave : 0;
     const waveformView = new WaveformView();
     let cursorNorm = 0; // グローバルカーソル（常に number）
     let hoverNorm: number | null = null; // ホバープレビュー位置（null = 非表示）
@@ -392,6 +394,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let lazyRequestCounter = 0;
     interface DesiredSpectrumSliceRequest extends LazyRequestState {
         trackIndex: number;
+        bandsPerOctave: SpectrumBandsSetting;
         filePath: string;
         generation: number;
         cursorNorm: number;
@@ -406,9 +409,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return prefix + '-' + i + '-' + Date.now() + '-' + lazyRequestCounter.toString(36);
     }
     function currentSettingsSignature() {
-        return currentSpectrumDataSignature();
-    }
-    function currentSpectrumDataSignature() {
         try {
             const settings = __spectrogramSettings;
             return JSON.stringify({ auto: settings.auto, stft: settings.stft });
@@ -416,6 +416,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         catch (e) {
             return 'spectrum-data-settings';
         }
+    }
+    function currentSpectrumDataSignature() {
+        const signature = currentSettingsSignature();
+        return spectrumBandsPerOctave ? signature + '|bands=' + spectrumBandsPerOctave : signature;
     }
     function spectrumSliceRequestKey(trackId: TrackId) {
         return trackId;
@@ -568,6 +572,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             cursorNorm: localNorm,
             globalCursorNorm: cursorNormValue,
             trackIndex: i,
+            bandsPerOctave: spectrumBandsPerOctave,
             filePath: result.filePath,
             generation: spectrumRequestGeneration,
             requestedAt: spectrumNow(),
@@ -625,6 +630,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 trackIndex: request.trackIndex,
                 filePath: request.filePath,
                 cursorNorm: request.cursorNorm,
+                ...(request.bandsPerOctave ? { bandsPerOctave: request.bandsPerOctave } : {}),
             });
             return;
         }
@@ -1025,6 +1031,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 cursorNorm: cursorNorm,
                 visibleSpectrumTrackCount: visibleSpectrumTrackCount,
                 contentType: contentType,
+                spectrumBandsPerOctave: spectrumBandsPerOctave,
                 reanalyzeBusy: isReanalyzeBusy(),
                 latestSpectrogram: latestSpectrogram,
                 axisLabels: {
@@ -1149,6 +1156,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             audioHtml: buildAudioElements(),
             emptyMessage,
             axisWidth: AXIS_W,
+            spectrumBandsPerOctave,
         }, STR);
     }
     function buildAudioElements() {
@@ -2192,6 +2200,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         __updateSpecGearVisibility();
         scheduleRender();
     }
+    function setSpectrumBands(next: SpectrumBandsSetting) {
+        if (next === spectrumBandsPerOctave) {
+            return;
+        }
+        spectrumBandsPerOctave = next;
+        persistWebviewState({ spectrumBandsPerOctave: next });
+        ([['spectrum-fft', 0], ['spectrum-octave-1', 1], ['spectrum-octave-3', 3]] as const).forEach(function ([action, bands]) {
+            const button = buttonMatching(document, '[data-action="' + action + '"]');
+            button?.classList.toggle('is-active', bands === next);
+            button?.setAttribute('aria-pressed', String(bands === next));
+        });
+        // A zoom on the linear FFT axis means a different range on the log band axis, so start from the whole range.
+        spectrumView.reset();
+        invalidateDesiredSpectrumSliceRequests();
+        scheduleSpectrumRefresh('immediate');
+    }
     function toggleFollowCursor() {
         followCursor = !followCursor;
         const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
@@ -2213,6 +2237,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'spec-zoom-in': specZoomIn,
             'spec-zoom-out': specZoomOut,
             'spec-zoom-reset': specZoomReset,
+            'spectrum-fft': () => setSpectrumBands(0),
+            'spectrum-octave-1': () => setSpectrumBands(1),
+            'spectrum-octave-3': () => setSpectrumBands(3),
             'track-height-reset': () => setTrackHeight(TRACK_HEIGHT_DEFAULT),
             'spectrum-height-reset': () => setSpectrumHeight(SPECTRUM_HEIGHT_DEFAULT),
             'wave-mode-rect-zoom': () => {
@@ -2770,6 +2797,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             channelIndex: chIdx,
             cached: trackIndex >= 0 ? trackRecordAtIndex(trackIndex)?.spectrumSliceCache.get(chIdx) ?? null : null,
             settingsSignature: currentSpectrumDataSignature(),
+            bands: spectrumBandsPerOctave !== 0,
             requestSlice: requestSpectrumSlice,
             applyDisplaySettings: applySpectrumDisplaySettings,
         });
@@ -2815,7 +2843,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const range = spectrumSeriesRange(slices);
-        const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumView.state());
+        const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumView.state(), range.logMinFrequencyHz);
         const overlayC = canvasById(document, 'spectrum-overlay-canvas');
         const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx);
         if (nextNorm === null) {

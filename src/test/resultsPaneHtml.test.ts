@@ -10,6 +10,7 @@ const parts: ResultsPaneParts = {
     audioHtml: '<audio></audio>',
     emptyMessage: 'No <tracks>',
     axisWidth: 64,
+    spectrumBandsPerOctave: 0,
 };
 
 test('results pane places the supplied toolbar, tracks and audio markup', () => {
@@ -32,6 +33,13 @@ test('results pane renders the spectrum section controls', () => {
         assert.ok(html.includes('data-action="' + action + '"'), action);
     }
     assert.ok(html.includes('<canvas id="spectrum-overlay-canvas" tabindex="0"'));
+});
+
+test('results pane marks the selected spectrum kind as pressed', () => {
+    const pressed = (html: string) => Array.from(html.matchAll(/aria-pressed="true" data-action="(spectrum-[^"]+)"/g), match => match[1]);
+    assert.deepEqual(pressed(resultsPaneHtml(parts, strings)), ['spectrum-fft']);
+    assert.deepEqual(pressed(resultsPaneHtml({ ...parts, spectrumBandsPerOctave: 3 }, strings)), ['spectrum-octave-3']);
+    assert.ok(resultsPaneHtml(parts, strings).includes('data-action="spectrum-octave-1" data-hint="' + strings.hintSpectrumOctave1 + '"'));
 });
 
 test('track audio element carries the track id, mute state and escaped source', () => {

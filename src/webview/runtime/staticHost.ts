@@ -62,7 +62,8 @@ export interface StaticHostDeps {
     recipeTimeoutMs?: number;
 }
 
-const UNAVAILABLE_ACTIONS = '[data-action="configure-calibration"]';
+// Octave bands need MoSQITo, which the Pyodide runtime does not bundle.
+const UNAVAILABLE_ACTIONS = '[data-action="configure-calibration"], [data-action="spectrum-octave-1"], [data-action="spectrum-octave-3"]';
 
 /** Builds the browser host on top of the given globals and installs it as `window.__AWA_HOST__`. */
 export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {

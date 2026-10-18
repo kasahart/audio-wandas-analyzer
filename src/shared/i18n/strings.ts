@@ -265,6 +265,9 @@ export interface UiStrings {
     hintSpecZoomOut: string;
     hintSpecZoomIn: string;
     hintSpecZoomReset: string;
+    hintSpectrumFft: string;
+    hintSpectrumOctave1: string;
+    hintSpectrumOctave3: string;
     hintRemoveTrack: string;
     hintOffsetUp: string;
     hintOffsetDown: string;
@@ -549,6 +552,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpecZoomOut: 'Zoom the spectrum out',
         hintSpecZoomIn: 'Zoom the spectrum in (or drag a box on the spectrum)',
         hintSpecZoomReset: 'Show the whole spectrum (or double-click the plot)',
+        hintSpectrumFft: 'FFT spectrum at the cursor',
+        hintSpectrumOctave1: '1/1 octave band levels at the cursor (wandas noct_spectrum)',
+        hintSpectrumOctave3: '1/3 octave band levels at the cursor (wandas noct_spectrum)',
         hintRemoveTrack: 'Remove this track from the comparison',
         hintOffsetUp: 'Offset +10 ms',
         hintOffsetDown: 'Offset −10 ms',
@@ -831,6 +837,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpecZoomOut: 'スペクトルをズームアウト',
         hintSpecZoomIn: 'スペクトルをズームイン（スペクトル上のドラッグでも可）',
         hintSpecZoomReset: 'スペクトル全体を表示（グラフのダブルクリックでも可）',
+        hintSpectrumFft: 'カーソル位置の FFT スペクトル',
+        hintSpectrumOctave1: 'カーソル位置の 1/1 オクターブバンドレベル（wandas noct_spectrum）',
+        hintSpectrumOctave3: 'カーソル位置の 1/3 オクターブバンドレベル（wandas noct_spectrum）',
         hintRemoveTrack: 'このトラックを比較から外す',
         hintOffsetUp: 'オフセット +10 ms',
         hintOffsetDown: 'オフセット −10 ms',

@@ -20,6 +20,11 @@ test('spectrum CSV pairs a frequency and a level column per track and pads short
     ]);
 });
 
+test('spectrum CSV lists the band centres of an octave-band slice', () => {
+    const csv = buildSpectrumCsv([{ name: 'a', slice: slice([-10, -20], { bandsPerOctave: 3, bandCentersHz: [31.5, 40], axisLabel: 'Band level [dBFS]' }) }]);
+    assert.deepEqual(csv.split('\n').slice(1), ['31.5000,-10.000000', '40.0000,-20.000000']);
+});
+
 test('WAV loop regions clip to each file and drop files outside the loop', () => {
     const tracks = [
         { filePath: 'a.wav', offsetSeconds: 0, durationSeconds: 10 },

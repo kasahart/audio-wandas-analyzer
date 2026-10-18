@@ -60,7 +60,40 @@ const uiSmokeSpectrumValues = function(cursorNorm, channelIndex) {
         return -100 + Math.max(0, 1 - Math.abs(frequencyNorm - ridge) * 8) * 88;
     });
 };
+const uiSmokeThirdOctaveCentersHz = [25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000,
+    1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000];
+const uiSmokeBandResponse = function(message) {
+    const centers = message.bandsPerOctave === 1 ? uiSmokeThirdOctaveCentersHz.filter(function(_, index) { return index % 3 === 1; }) : uiSmokeThirdOctaveCentersHz;
+    return {
+        type: 'spectrum-slice-result',
+        requestId: message.requestId,
+        analysisId: message.analysisId,
+        settingsSignature: message.settingsSignature,
+        trackIndex: message.trackIndex,
+        filePath: message.filePath,
+        frequencyBins: centers.length,
+        maxFrequencyHz: 22387.2,
+        minFrequencyHz: 22.39,
+        bandsPerOctave: message.bandsPerOctave,
+        bandCentersHz: centers,
+        windowStartNorm: message.cursorNorm - 0.02,
+        windowEndNorm: message.cursorNorm + 0.02,
+        window: 'boxcar',
+        channels: [0, 1].map(function(channelIndex) {
+            return {
+                channelIndex: channelIndex,
+                values: centers.map(function(_, index) { return -60 + index - channelIndex * 6; }),
+                minDb: -66,
+                maxDb: -60 + centers.length,
+            };
+        }),
+        computeMs: 7.1,
+    };
+};
 const uiSmokeSpectrumResponse = function(message) {
+    if (message.bandsPerOctave) {
+        return uiSmokeBandResponse(message);
+    }
     const identity = {
         type: 'spectrum-slice-result',
         requestId: message.requestId,

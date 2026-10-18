@@ -16,6 +16,7 @@ Audio comparison often means bouncing between a DAW, a notebook, a file browser,
 
 - Line up multiple recordings and check timing differences at a glance
 - Move between waveform, spectrogram, and power spectrum views without reloading files
+- Switch the cursor spectrum between the FFT and 1/1 or 1/3 octave bands (wandas `noct_spectrum`)
 - Zoom into a range and fetch high-resolution waveform data only for what is visible
 - Listen, mute, loop, and nudge tracks while you inspect them
 - Export images, CSV spectrum data, loop audio, or a Markdown-friendly report for handoff
@@ -127,7 +128,7 @@ Select one or more WAV files, then use the waveform, spectrogram, cursor, playba
 | WAV export | Uncalibrated PCM16 audio; up to 32 MiB in total |
 <!-- browser-limits:end -->
 
-The left panel lists your WAV files as in the VS Code extension: **Open File**, **Open Folder** or dropping WAV files onto the page adds them to the list, and checked files become tracks. Calibration settings are available in the VS Code extension only. Use a desktop browser for the full set of mouse controls; dragging to select a loop is not supported on touch screens.
+The left panel lists your WAV files as in the VS Code extension: **Open File**, **Open Folder** or dropping WAV files onto the page adds them to the list, and checked files become tracks. Calibration settings and octave-band spectra are available in the VS Code extension only. Use a desktop browser for the full set of mouse controls; dragging to select a loop is not supported on touch screens.
 
 Display and spectrogram settings are remembered between visits. Audio files, cursor position and track offsets are not saved; select your files again after reloading. **Clear** in the left panel removes all loaded audio. Exported notebooks refer to the audio file names listed in the report, so place copies of your audio beside the notebook using those names.
 
