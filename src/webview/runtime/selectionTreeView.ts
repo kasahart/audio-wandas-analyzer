@@ -1,7 +1,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr, hoverHintAttr } from './hintFooter';
-import type { SelectionTree } from './directorySelection';
+import { selectionRelativePath, type SelectionTree } from './directorySelection';
 import { eventTarget, inputMatching } from './domAdapter';
 import type { PersistedWebviewState, SelectionTreeNode } from './types';
 
@@ -33,6 +33,8 @@ export interface SelectionTreeView {
     attach(layout: HTMLElement): void;
     /** Swaps in another directory's files and re-renders the attached tree with that directory's saved collapse and filter state. */
     replaceTree(next: Pick<SelectionTreeViewDeps, 'tree' | 'rootPath' | 'collapseState' | 'filterQuery'>): void;
+    /** The drawn folders' open state, keyed by their path below `nextRootPath`, so a new listing of the same files keeps it. */
+    collapseStateBelow(nextRootPath: string): Record<string, boolean>;
 }
 
 /** The file tree of the directory-selection layout: lazy folder rendering, collapse state, filter and resizer. */
@@ -352,6 +354,22 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
         renderTree,
         isVisible,
         attach,
+        collapseStateBelow(nextRootPath) {
+            const prefix = rootPath.replace(/\\/gu, '/').replace(/\/?$/u, '/');
+            const kept: Record<string, boolean> = {};
+            const keep = function (relativePath: string, expanded: boolean) {
+                kept[selectionRelativePath(nextRootPath, prefix + relativePath)] = expanded;
+            };
+            // Folders inside a closed one are not drawn, so their saved state is carried over beside the drawn headers.
+            Object.keys(collapseState).forEach(function (relativePath) { keep(relativePath, collapseState[relativePath]); });
+            document.querySelectorAll<HTMLElement>('#selection-tree .selection-tree-directory').forEach(function (dirHeader) {
+                const relativePath = dirHeader.getAttribute('data-relative-path');
+                if (relativePath) {
+                    keep(relativePath, dirHeader.getAttribute('aria-expanded') === 'true');
+                }
+            });
+            return kept;
+        },
         replaceTree(next) {
             ({ tree, rootPath, collapseState, filterQuery } = next);
             const treeEl = document.getElementById('selection-tree');

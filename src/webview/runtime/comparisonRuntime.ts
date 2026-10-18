@@ -1110,15 +1110,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     /**
      * Lists the host's sources in the selection panel's tree, which only a `selectionPanel` host shows without a directory.
-     * A new listing starts unfiltered and expanded because its root path need not be unique.
+     * A new listing starts unfiltered and keeps the folders that were open or closed, since it usually adds to the last one.
      */
     function showDirectorySelection(rootPath: string, filePaths: string[], label = rootPath) {
+        const collapseState = selectionTreeView.collapseStateBelow(rootPath);
         state.rootPath = rootPath;
         rootLabel = label;
         clearSelectedFilePaths();
         const tree = buildSelectionTreeFromPaths(rootPath, filePaths);
         __directoryTree = tree.roots;
-        selectionTreeView.replaceTree({ tree, rootPath, collapseState: {}, filterQuery: '' });
+        selectionTreeView.replaceTree({ tree, rootPath, collapseState, filterQuery: '' });
         const emptyMessage = function (text: string) {
             const el = document.querySelector('#empty-state p');
             if (el) {

@@ -5,11 +5,19 @@ export interface SelectionTree {
     directories: Record<string, SelectionTreeNode>;
 }
 
-export function buildSelectionTree(rootPath: string, allFilePaths: readonly string[]): SelectionTree {
+/** The path of a listed file or folder below the tree's root, with `/` separators; a path outside the root is kept whole. */
+export function selectionRelativePath(rootPath: string, path: string): string {
     const normalizedRoot = rootPath ? rootPath.replace(/\\/gu, '/') : '';
     const rootPrefix = normalizedRoot && !normalizedRoot.endsWith('/')
         ? `${normalizedRoot}/`
         : normalizedRoot;
+    const normalizedPath = path.replace(/\\/gu, '/');
+    return rootPrefix && normalizedPath.startsWith(rootPrefix)
+        ? normalizedPath.slice(rootPrefix.length)
+        : normalizedPath;
+}
+
+export function buildSelectionTree(rootPath: string, allFilePaths: readonly string[]): SelectionTree {
     const directories: Record<string, SelectionTreeNode> = {};
     const roots: SelectionTreeNode[] = [];
 
@@ -33,10 +41,7 @@ export function buildSelectionTree(rootPath: string, allFilePaths: readonly stri
     }
 
     for (const filePath of allFilePaths) {
-        const normalizedPath = filePath.replace(/\\/gu, '/');
-        const relativePath = rootPrefix && normalizedPath.startsWith(rootPrefix)
-            ? normalizedPath.slice(rootPrefix.length)
-            : normalizedPath;
+        const relativePath = selectionRelativePath(rootPath, filePath);
         const parts = relativePath.split('/');
         const fileNode: SelectionTreeNode = {
             type: 'file',

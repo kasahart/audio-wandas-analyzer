@@ -242,9 +242,8 @@ test('static page opens a folder into the shared selection tree and checked file
     // A second folder joins the list; its taken name gets a suffix and the header no longer names one folder.
     await expect(page.locator('#tree-filter-input')).toHaveValue('');
     await expect(page.locator('#selection-summary .selection-path')).toBeHidden();
-    // Below the listed folders, subfolders start collapsed and render when opened.
-    const day2 = page.locator('.selection-tree-directory[data-relative-path="rec/day2"]');
-    await expect(day2).toHaveAttribute('aria-expanded', 'false');
+    // day2 was open before the second folder joined, so it stays open below rec.
+    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2"]')).toHaveAttribute('aria-expanded', 'true');
     await page.locator('.selection-file-checkbox[data-file-path="/sources/rec (2)/third.wav"]').check();
     await expect(page.locator('.track-row')).toHaveCount(1);
 
@@ -254,6 +253,43 @@ test('static page opens a folder into the shared selection tree and checked file
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/single.wav"]')).toBeChecked();
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec (2)/third.wav"]')).toBeChecked();
     await expect(page.locator('.track-row')).toHaveCount(2);
+});
+
+test('static page adds a picked file from an opened folder as its own entry and keeps folders open or closed across listings', async ({ page }) => {
+    const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
+    mkdirSync(join(folder, 'rec', 'day2', 'sub'), { recursive: true });
+    writeFileSync(join(folder, 'rec', 'first.wav'), Buffer.alloc(100));
+    writeFileSync(join(folder, 'rec', 'day2', 'second.wav'), Buffer.alloc(100));
+    writeFileSync(join(folder, 'rec', 'day2', 'sub', 'third.wav'), Buffer.alloc(100));
+    await openStaticPage(page, 'window.showDirectoryPicker = undefined;');
+    const pick = async (action: 'open-folder' | 'open-file', path: string | { name: string; mimeType: string; buffer: Buffer }) => {
+        const chooser = page.waitForEvent('filechooser');
+        await page.locator(`#selection-toolbar [data-action="${action}"]`).click();
+        await (await chooser).setFiles(path);
+    };
+    await pick('open-folder', join(folder, 'rec'));
+    await expect(page.locator('.selection-tree-directory[data-relative-path="day2"]')).toHaveAttribute('aria-expanded', 'true');
+    await pick('open-file', { name: 'single.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
+    await expect(page.locator('.track-row')).toHaveCount(1);
+    // The list is now shown from /sources, and day2, which was open, stays open below rec.
+    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2"]')).toHaveAttribute('aria-expanded', 'true');
+    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
+    await pick('open-file', join(folder, 'rec', 'day2', 'second.wav'));
+    await expect(page.locator('.track-row')).toHaveCount(2);
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/second.wav"]')).toBeChecked();
+    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2"]')).toHaveAttribute('aria-expanded', 'false');
+    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]')).not.toBeChecked();
+    await expect(page.locator('.selection-file-checkbox')).toHaveCount(4);
+    // A folder opened inside a closed one stays open through more than one listing, though it is not drawn meanwhile.
+    await page.locator('.selection-tree-directory[data-relative-path="rec/day2/sub"]').click();
+    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
+    for (const name of ['one.wav', 'two.wav']) {
+        await pick('open-file', { name, mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
+        await expect(page.locator(`.selection-file-checkbox[data-file-path="/sources/${name}"]`)).toBeChecked();
+    }
+    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
+    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2/sub"]')).toHaveAttribute('aria-expanded', 'true');
 });
 
 test('static page loads WAV files dropped onto the page or the recipe charts as tracks', async ({ page }) => {
