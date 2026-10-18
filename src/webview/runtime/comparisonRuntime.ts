@@ -106,6 +106,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // Only a host that opened the page with a directory offers a Python environment picker; the Web host lists its sources without one.
     const hasPythonEnvironmentPicker = state.mode === 'directory-selection';
     let rootLabel = state.mode === 'directory-selection' ? state.rootPath : '';
+    /** Checks held when the host last re-listed its files, so the update that restores them does not count them as new. */
+    const selectionBeforeListing = new Set<string>();
     const selection = new OrderedSelection();
     const selectedFilePaths = selection.paths;
     if (Array.isArray(state.selectedFilePaths)) {
@@ -1110,15 +1112,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     /**
      * Lists the host's sources in the selection panel's tree, which only a `selectionPanel` host shows without a directory.
-     * A new listing starts unfiltered and expanded because its root path need not be unique.
+     * A new listing starts unfiltered and keeps the folders that were open or closed, since it usually adds to the last one.
      */
     function showDirectorySelection(rootPath: string, filePaths: string[], label = rootPath) {
+        const collapseState = selectionTreeView.collapseStateBelow(rootPath);
         state.rootPath = rootPath;
         rootLabel = label;
+        selectedFilePaths.forEach(function (filePath: string) { selectionBeforeListing.add(filePath); });
         clearSelectedFilePaths();
         const tree = buildSelectionTreeFromPaths(rootPath, filePaths);
         __directoryTree = tree.roots;
-        selectionTreeView.replaceTree({ tree, rootPath, collapseState: {}, filterQuery: '' });
+        selectionTreeView.replaceTree({ tree, rootPath, collapseState, filterQuery: '' });
         const emptyMessage = function (text: string) {
             const el = document.querySelector('#empty-state p');
             if (el) {
@@ -3108,8 +3112,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
             if (isSelectionMode && msg.selectedFilePaths) {
+                const known = new Set(selectedFilePaths.concat(Array.from(selectionBeforeListing)));
+                selectionBeforeListing.clear();
                 clearSelectedFilePaths();
                 msg.selectedFilePaths.forEach(addSelectedFilePath);
+                // A file the host checked itself (picking a listed file again) may sit in a closed folder.
+                selectionTreeView.reveal(msg.selectedFilePaths.filter(function (filePath) { return !known.has(filePath); }));
                 syncSelectionCheckboxes();
                 syncSelectionSummary();
             }
