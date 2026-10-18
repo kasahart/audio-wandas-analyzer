@@ -280,6 +280,16 @@ const server = http.createServer((req,res) => {
         await picker.setInputFiles(fixturePath('short-stereo.wav'));
         await status.filter({hasText:/fetch|network/i}).waitFor({timeout:120000});
         await page.unroute('**/runtime/pyodide.mjs');
+        // Native wheels are verified only by loadPackage, so a tampered one must still fail the boot.
+        const nativeWheel='six-1.17.0-py2.py3-none-any.whl';
+        const tampered=fs.readFileSync(path.join(base,'runtime',nativeWheel));
+        tampered[tampered.length-1]^=0xff;
+        await page.route(`**/runtime/${nativeWheel}`,route=>route.fulfill({contentType:'application/octet-stream',body:tampered}));
+        await page.reload();
+        await picker.setInputFiles(fixturePath('short-stereo.wav'));
+        await status.filter({hasText:'Failed to load runtime packages'}).waitFor({timeout:120000});
+        assert.equal(await page.locator('.track-row').count(),0);
+        await page.unroute(`**/runtime/${nativeWheel}`);
         await page.route('**/audio.worker.js',route=>route.fulfill({contentType:'text/javascript',body:'throw new Error("intentional-worker-failure")'}));
         await picker.setInputFiles(fixturePath('changing-stereo.wav'));
         await status.filter({hasText:'Audio Worker failed'}).waitFor();

@@ -3,29 +3,45 @@ let queue = Promise.resolve();
 async function initialize() {
     const base = new URL('./runtime/', self.location.href);
     const lock = await (await fetch(new URL('lock.json', base))).json();
-    for (const asset of lock.assets) {
+    const fetchVerified = async asset => {
         const response = await fetch(new URL(asset.path, base));
         if (!response.ok) throw new Error(`Missing runtime asset: ${asset.path}`);
-        const digest = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
+        const bytes = await response.arrayBuffer();
+        const digest = await crypto.subtle.digest('SHA-256', bytes);
         const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
         if (hash !== asset.sha256) throw new Error(`Runtime integrity mismatch: ${asset.path}`);
-    }
-    const module = await import(new URL('pyodide.mjs', base).href);
-    if (module.version !== lock.pyodideVersion) throw new Error('Pyodide version mismatch');
-    pyodide = await module.loadPyodide({ indexURL: base.href, packageBaseUrl: base.href, cdnUrl: base.href });
-    await pyodide.loadPackage(lock.nativePackages);
-    const purelib = pyodide.runPython('import sysconfig; sysconfig.get_path("purelib")');
-    for (const name of lock.pureWheels) {
-        const response = await fetch(new URL(name, base));
-        if (!response.ok) throw new Error(`Missing runtime wheel: ${name}`);
-        pyodide.unpackArchive(new Uint8Array(await response.arrayBuffer()), 'zip', { extractDir: purelib });
-    }
-    const files = await (await fetch('./python/manifest.json')).json();
-    for (const name of files) {
+        return new Uint8Array(bytes);
+    };
+    // Every file is fetched once and concurrently. Native wheels are left to loadPackage, which checks each
+    // against the sha256 in the pyodide-lock.json verified here.
+    const pureWheels = Promise.all(lock.pureWheels.map(name => {
+        const asset = lock.assets.find(candidate => candidate.path === name);
+        if (!asset) throw new Error(`Missing runtime asset: ${name}`);
+        return fetchVerified(asset);
+    }));
+    const sources = fetch('./python/manifest.json').then(response => response.json()).then(files => Promise.all(files.map(async name => {
         const response = await fetch(`./python/${name}`);
         if (!response.ok) throw new Error(`Missing Python module: ${name}`);
-        pyodide.FS.writeFile(`/home/pyodide/${name}`, await response.text());
-    }
+        return [name, await response.text()];
+    })));
+    // A boot that fails earlier would otherwise leave these rejections unhandled.
+    pureWheels.catch(() => {});
+    sources.catch(() => {});
+    const coreAssets = lock.assets.filter(asset => !asset.path.endsWith('.whl'));
+    const coreBytes = await Promise.all(coreAssets.map(fetchVerified));
+    // Handing Pyodide the verified bytes keeps a second, unverified fetch from supplying the wheel hashes.
+    const lockFileContents = new TextDecoder().decode(coreBytes[coreAssets.findIndex(asset => asset.path === 'pyodide-lock.json')]);
+    const module = await import(new URL('pyodide.mjs', base).href);
+    if (module.version !== lock.pyodideVersion) throw new Error('Pyodide version mismatch');
+    pyodide = await module.loadPyodide({ indexURL: base.href, packageBaseUrl: base.href, cdnUrl: base.href, lockFileContents });
+    // loadPackage may only report a wheel that fails to download or verify, so either outcome fails the boot here.
+    const packageErrors = [];
+    await pyodide.loadPackage(lock.nativePackages, { checkIntegrity: true, errorCallback: message => packageErrors.push(message) })
+        .catch(error => packageErrors.push(String(error)));
+    if (packageErrors.length) throw new Error(`Failed to load runtime packages: ${packageErrors.join('; ')}`);
+    const purelib = pyodide.runPython('import sysconfig; sysconfig.get_path("purelib")');
+    for (const wheel of await pureWheels) pyodide.unpackArchive(wheel, 'zip', { extractDir: purelib });
+    for (const [name, text] of await sources) pyodide.FS.writeFile(`/home/pyodide/${name}`, text);
     // perf.py logs by default; a Worker has no one reading stderr, so it is silenced before the import.
     pyodide.runPython('import os; os.environ.setdefault("AWA_PERF_LOG", "0")');
     pyodide.runPython('from browser_service import browser_limits_json, load_source, release_source, prepare_export_json, dispatch_json');
