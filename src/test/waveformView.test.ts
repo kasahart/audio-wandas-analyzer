@@ -55,6 +55,7 @@ test('WaveformView amplitude range from the axis popover can widen past the peak
     assert.equal(view.setAmplitudeRange(null, 0.5), true);
     assert.deepEqual(view.paintedAmplitudeRange(), { min: auto.min, max: 0.5 });
     assert.equal(view.setAmplitudeRange(null, -5), false, 'an auto edge beyond the typed one is rejected');
+    assert.equal(view.setAmplitudeRange(-Infinity, Infinity), false, 'bounds that overflow after normalizing are rejected');
     assert.deepEqual(view.paintedAmplitudeRange(), { min: auto.min, max: 0.5 });
     view.resetAmplitude();
     assert.equal(view.isAmplitudeZoomed(), false);
