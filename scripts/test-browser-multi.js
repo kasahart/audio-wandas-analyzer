@@ -83,7 +83,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
             return fs.readFileSync(await report.path(), 'utf8');
         }
         const markdown = await exportReport('1', 'md');
-        assert.match(markdown, /## Source paths/); assert.match(markdown, /short-stereo.wav/);
+        assert.match(markdown, /## Source paths/); assert.match(markdown, /^- short-stereo\.wav: short-stereo\.wav$/m);
         const notebook = JSON.parse(await exportReport('2', 'ipynb'));
         assert.equal(notebook.nbformat, 4);
         const code = notebook.cells.filter(cell => cell.cell_type === 'code').map(cell => cell.source.join('')).join('\n');

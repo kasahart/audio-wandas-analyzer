@@ -75,6 +75,9 @@ test('host message validation rejects unknown and incomplete payloads', () => {
     assert.equal(isHostInboundMessage({ type: 'analysis-update', results: [], selectedFilePaths: ['/a.wav'] }), true);
     assert.equal(isHostInboundMessage({ type: 'analysis-update', results: [], selectedFilePaths: [3] }), false);
     assert.equal(isHostInboundMessage({ type: 'analysis-update', results: [], selectedFilePaths: '/a.wav' }), false);
+    assert.equal(isHostInboundMessage({ type: 'directory-selection', rootPath: '/sources/rec', filePaths: ['/sources/rec/a.wav'] }), true);
+    assert.equal(isHostInboundMessage({ type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: [] }), true);
+    assert.equal(isHostInboundMessage({ type: 'directory-selection', rootPath: '/sources', rootLabel: 3, filePaths: [] }), false);
 });
 
 
