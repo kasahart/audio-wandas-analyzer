@@ -28,7 +28,7 @@ test('results pane escapes the empty message and sizes the ruler spacer to the a
 
 test('results pane renders the spectrum section controls', () => {
     const html = resultsPaneHtml(parts, strings);
-    for (const action of ['spec-zoom-out', 'spec-zoom-in', 'spec-zoom-reset', 'spectrum-height-drag']) {
+    for (const action of ['spec-zoom-out', 'spec-zoom-in', 'spec-zoom-reset', 'spectrum-settings', 'spectrum-height-drag']) {
         assert.ok(html.includes('data-action="' + action + '"'), action);
     }
     assert.ok(html.includes('<canvas id="spectrum-overlay-canvas" tabindex="0"'));

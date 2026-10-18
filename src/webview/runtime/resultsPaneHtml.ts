@@ -13,7 +13,7 @@ export interface ResultsPaneParts {
 export type ResultsPaneStrings = Pick<UiStrings,
     | 'ariaToolbar' | 'spectrumSectionTitle' | 'spectrumZoomLabel'
     | 'ariaSpecZoomOut' | 'ariaSpecZoomIn' | 'ariaSpecZoomReset' | 'btnSpecZoomReset' | 'heightSpectrumLabel'
-    | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'>;
+    | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'btnSpectrumSettingsTitle' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'>;
 
 export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStrings): string {
     return '<div id="toolbar" role="toolbar" aria-label="' + escapeHtml(strings.ariaToolbar) + '">' + parts.toolbarHtml + '</div>'
@@ -30,6 +30,7 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '    <button class="tb-btn" data-action="spec-zoom-out"' + hintAttr(strings.hintSpecZoomOut) + ' aria-label="' + escapeHtml(strings.ariaSpecZoomOut) + '">－</button>'
         + '    <button class="tb-btn" data-action="spec-zoom-in"' + hintAttr(strings.hintSpecZoomIn) + ' aria-label="' + escapeHtml(strings.ariaSpecZoomIn) + '">＋</button>'
         + '    <button class="tb-btn" data-action="spec-zoom-reset"' + hintAttr(strings.hintSpecZoomReset) + ' aria-label="' + escapeHtml(strings.ariaSpecZoomReset) + '">' + escapeHtml(strings.btnSpecZoomReset) + '</button>'
+        + '    <button class="tb-btn" data-action="spectrum-settings" style="margin-left:auto"' + hintAttr(strings.btnSpectrumSettingsTitle) + ' aria-label="' + escapeHtml(strings.btnSpectrumSettingsTitle) + '">⚙</button>'
         + '  </div>'
         + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(strings.spectrumSectionTitle) + '"' + hintAttr(strings.hintSpectrumPlot) + '></canvas></div>'
         + '</div>'

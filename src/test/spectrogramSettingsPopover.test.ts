@@ -6,7 +6,7 @@ import { getStrings } from '../shared/i18n/strings';
 import { installSpectrogramSettingsPopover, stftWindowFromValue } from '../webview/runtime/spectrogramSettingsPopover';
 
 function setup(initial: SpectrogramSettings) {
-    const dom = new JSDOM('<body><button data-action="spectrogram-settings" id="gear"></button><div id="outside"></div></body>');
+    const dom = new JSDOM('<body><button data-action="spectrogram-settings" id="gear"></button><button data-action="spectrum-settings" id="spectrum-gear"></button><div id="outside"></div></body>');
     const document = dom.window.document;
     let settings = initial;
     const displays: SpectrogramDisplaySettings[] = [];
@@ -52,6 +52,17 @@ test('clicking the gear toggles the popover and syncs the form from the current 
     assert.equal(el('spec-dbmax').value, '');
     assert.equal(el('spec-maxfreq').value, '8000');
     assert.equal(el<HTMLFieldSetElement>('spec-stft-fields').disabled, false);
+    el<HTMLButtonElement>('gear').click();
+    assert.equal(popover.isOpen(), false);
+});
+
+test('the docked spectrum gear opens the same settings, and switching gears keeps the popover open', () => {
+    const { popover, el } = setup(CUSTOM);
+    el<HTMLButtonElement>('spectrum-gear').click();
+    assert.equal(popover.isOpen(), true);
+    assert.equal(el<HTMLSelectElement>('spec-nfft').value, '2048');
+    el<HTMLButtonElement>('gear').click();
+    assert.equal(popover.isOpen(), true);
     el<HTMLButtonElement>('gear').click();
     assert.equal(popover.isOpen(), false);
 });

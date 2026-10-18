@@ -61,6 +61,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'spec-zoom-out',
     'spec-zoom-in',
     'spec-zoom-reset',
+    'spectrum-settings',
     'track-height-input',
     'track-height-reset',
     'track-height-drag',
@@ -157,6 +158,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Zoom the spectrogram frequency range',
         entryPoints: ['results-toolbar', 'canvas-gesture'],
         triggers: ['spec-zoom-out', 'spec-zoom-in', 'spec-zoom-reset', 'Drag (spectrum)'],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'spectrum-analysis-settings',
+        label: 'Open the frequency-analysis settings shared with the spectrogram from the docked spectrum',
+        entryPoints: ['results-toolbar'],
+        triggers: ['spectrum-settings'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

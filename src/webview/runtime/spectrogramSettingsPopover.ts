@@ -20,14 +20,14 @@ export interface SpectrogramSettingsPopoverOptions {
 }
 
 export interface SpectrogramSettingsPopover {
-    open(): void;
+    open(from?: Element): void;
     close(): void;
     isOpen(): boolean;
     applyAutoState(): void;
 }
 
 const NFFT_OPTIONS = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384];
-const GEAR_SELECTOR = '[data-action="spectrogram-settings"]';
+const GEAR_SELECTOR = '[data-action="spectrogram-settings"], [data-action="spectrum-settings"]';
 
 export function spectrogramSettingsPopoverHtml(strings: SpectrogramSettingsPopoverStrings): string {
     const nfftOptions = NFFT_OPTIONS.map(v => '<option value="' + v + '">' + v + '</option>').join('');
@@ -90,16 +90,22 @@ export function installSpectrogramSettingsPopover(
         field('spec-maxfreq').value = text(settings.display.maxFrequencyHz);
         applyAutoState();
     }
-    function open(): void {
-        const gear = document.querySelector(GEAR_SELECTOR);
+    let anchor: Element | null = null;
+    function open(from?: Element): void {
+        const gear = from || document.querySelector(GEAR_SELECTOR);
         if (!gear || !popover) {
             return;
         }
-        const rect = gear.getBoundingClientRect();
-        popover.style.top = (rect.bottom + 6) + 'px';
-        popover.style.left = Math.max(8, rect.right - 280) + 'px';
+        anchor = gear;
         popover.hidden = false;
         syncFromSettings();
+        const rect = gear.getBoundingClientRect();
+        popover.style.left = Math.max(8, rect.right - 280) + 'px';
+        const viewportHeight = document.documentElement.clientHeight;
+        // The docked spectrum gear sits at the page bottom, so open upwards when there is no room below.
+        const below = rect.bottom + 6;
+        const above = rect.top - 6 - popover.offsetHeight;
+        popover.style.top = (below + popover.offsetHeight > viewportHeight && above >= 0 ? above : below) + 'px';
     }
     function close(): void {
         if (popover) {
@@ -132,8 +138,8 @@ export function installSpectrogramSettingsPopover(
         const gear = target && target.closest ? target.closest(GEAR_SELECTOR) : null;
         if (gear) {
             ev.stopPropagation();
-            if (!popover || popover.hidden) {
-                open();
+            if (!popover || popover.hidden || anchor !== gear) {
+                open(gear);
             }
             else {
                 close();
