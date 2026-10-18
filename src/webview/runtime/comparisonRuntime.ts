@@ -4,7 +4,7 @@ import { spectrogramDisplayBounds } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { trackTimelinePlacement } from './waveformCoverage';
 import { attachOffsetEditing } from './offsetInlineEditor';
-import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setSelectionFileChecked, testActionTrackId } from './testActionForms';
+import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setSelectionFileChecked, setTestInputValue, testActionTrackId } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, isOverviewSufficient, rangeCacheCoversView, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
@@ -31,7 +31,7 @@ import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportT
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
 import { arrowCursorStep, type GlobalShortcutAction } from './shortcuts';
-import { domSnapshotBase, latestSpectrogramSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
+import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
@@ -825,6 +825,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleSpectrumRefresh('immediate');
             },
             'set-file-selected': p => setSelectionFileChecked(document, p.filePath, !!p.selected),
+            'mouse-event': p => dispatchTestMouseEvent(document, p),
+            'set-input-value': p => setTestInputValue(document, p),
             'set-loop-region': p => {
                 const region = loopRegionFromPayload(p);
                 if (region) {
@@ -1043,6 +1045,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return el ? (el.textContent || '') : '';
                 })(),
                 tracks: trackInfo,
+                ...shellSnapshot(document, audioFader.contextState()),
             }, actionId);
     }
     function publishTestSnapshotSafe(actionId?: string) {

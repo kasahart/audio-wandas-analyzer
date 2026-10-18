@@ -12,6 +12,11 @@ const SINGLE_TRACK_DEBUG_AUDIO_PATH = 'media/debug/sine-440.wav';
 const MULTI_TRACK_DEBUG_AUDIO_PATH = 'media/debug';
 const COMMAND_TIMEOUT_MS = 60000;
 
+interface VerticalExtent {
+    top: number;
+    bottom: number;
+}
+
 interface TestSnapshot {
     title: string;
     html: string;
@@ -47,6 +52,25 @@ interface TestSnapshot {
         };
         displayOrder: string[];
         lastAnnounce: string;
+        amplitudeZoomMinNorm: number;
+        amplitudeZoomMaxNorm: number;
+        hintFooterText: string | null;
+        layout: {
+            viewportHeight: number;
+            tracksWrapper: VerticalExtent | null;
+            spectrumSection: VerticalExtent | null;
+            hintFooter: VerticalExtent | null;
+        };
+        waveformRangePopover: { open: boolean; min: string | null; max: string | null } | null;
+        audioContextState: string | null;
+        audio: Array<{
+            trackId: string | null;
+            crossOrigin: string | null;
+            readyState: number;
+            paused: boolean;
+            currentTime: number;
+            errorCode: number | null;
+        }>;
         tracks: Array<{
             trackId: string;
             trackIndex: number;
@@ -569,6 +593,86 @@ export async function run(): Promise<void> {
                 }
             },
         },
+        {
+            name: 'hovering a toolbar button shows its hint in the footer',
+            run: async () => {
+                await analyzeSingleTrackInWaveformMode();
+                const hovered = await postActionsAndWait(`hint-hover-${Date.now()}`, [
+                    { action: 'mouse-event', payload: { selector: '#toolbar [data-action="zoom-in"]', type: 'mouseover' } },
+                ], (snapshot) => !!snapshot.renderedUi?.hintFooterText);
+                assert.equal(hovered.renderedUi?.hintFooterText, 'Zoom in in time (key: +)');
+                const left = await postActionsAndWait(`hint-leave-${Date.now()}`, [
+                    { action: 'mouse-event', payload: { selector: '#toolbar [data-action="zoom-in"]', type: 'mouseout' } },
+                ], (snapshot) => snapshot.renderedUi?.hintFooterText === '');
+                assert.equal(left.renderedUi?.hintFooterText, '');
+            },
+        },
+        {
+            name: 'power spectrum is docked between the tracks and the hint footer',
+            run: async () => {
+                const snapshot = await analyzeSingleTrackInWaveformMode();
+                const layout = snapshot.renderedUi?.layout;
+                assert.ok(layout?.tracksWrapper && layout.spectrumSection && layout.hintFooter, `layout boxes missing: ${JSON.stringify(layout)}`);
+                const diag = JSON.stringify(layout);
+                assert.ok(layout.tracksWrapper.bottom <= layout.spectrumSection.top + 1, `tracks overlap the spectrum: ${diag}`);
+                assert.equal(Math.round(layout.spectrumSection.bottom), Math.round(layout.hintFooter.top), `spectrum is not docked on the footer: ${diag}`);
+                assert.ok(Math.abs(layout.hintFooter.bottom - layout.viewportHeight) <= 1, `footer is not at the bottom: ${diag}`);
+            },
+        },
+        {
+            name: 'double-clicking the waveform amplitude axis sets the vertical range',
+            run: async () => {
+                await analyzeSingleTrackInWaveformMode();
+                const opened = await postActionsAndWait(`wave-range-open-${Date.now()}`, [
+                    { action: 'mouse-event', payload: { selector: '.track-axis-canvas', type: 'dblclick' } },
+                ], (snapshot) => snapshot.renderedUi?.waveformRangePopover?.open === true);
+                const peak = Number(opened.renderedUi?.waveformRangePopover?.max);
+                assert.ok(peak > 0, `popover should start at the painted peak: ${JSON.stringify(opened.renderedUi?.waveformRangePopover)}`);
+                const applied = await postActionsAndWait(`wave-range-apply-${Date.now()}`, [
+                    { action: 'set-input-value', payload: { selector: '#wave-range-min', value: String(-peak / 2) } },
+                    { action: 'set-input-value', payload: { selector: '#wave-range-max', value: String(peak / 2) } },
+                    { action: 'mouse-event', payload: { selector: '#wave-range-apply', type: 'click' } },
+                ], (snapshot) => snapshot.renderedUi?.waveformRangePopover?.open === false);
+                const maxNorm = applied.renderedUi?.amplitudeZoomMaxNorm ?? NaN;
+                const minNorm = applied.renderedUi?.amplitudeZoomMinNorm ?? NaN;
+                assert.ok(maxNorm > 0 && maxNorm < 1 && Math.abs(maxNorm + minNorm) < 1e-9, `applied range should narrow symmetrically: ${minNorm}..${maxNorm}`);
+                const reopened = await postActionsAndWait(`wave-range-reopen-${Date.now()}`, [
+                    { action: 'mouse-event', payload: { selector: '.track-axis-canvas', type: 'dblclick' } },
+                ], (snapshot) => snapshot.renderedUi?.waveformRangePopover?.open === true);
+                const shownMax = Number(reopened.renderedUi?.waveformRangePopover?.max);
+                assert.ok(Math.abs(shownMax - peak / 2) <= peak * 1e-3, `reopened popover should show the applied max ${peak / 2}, got ${shownMax}`);
+                const restored = await postActionsAndWait(`wave-range-auto-${Date.now()}`, [
+                    { action: 'mouse-event', payload: { selector: '#wave-range-auto', type: 'click' } },
+                ], (snapshot) => snapshot.renderedUi?.amplitudeZoomMaxNorm === 1);
+                assert.equal(restored.renderedUi?.amplitudeZoomMinNorm, -1);
+            },
+        },
+        {
+            name: 'play button plays the track through Web Audio and pauses it',
+            run: async () => {
+                await analyzeSingleTrackInWaveformMode();
+                await postActionsAndWait(`play-${Date.now()}`, [
+                    { action: 'set-cursor', payload: { cursorNorm: 0 } },
+                    { action: 'mouse-event', payload: { selector: '[data-action="toggle-playback"]', type: 'click' } },
+                ]);
+                const playing = await pollSnapshot('playing', (snapshot) => {
+                    const audio = snapshot.renderedUi?.audio[0];
+                    return !!audio && !audio.paused && audio.currentTime > 0.3;
+                });
+                const audio = playing.renderedUi?.audio[0];
+                const diag = JSON.stringify({ audio, context: playing.renderedUi?.audioContextState });
+                assert.equal(audio?.errorCode, null, `audio failed to load: ${diag}`);
+                assert.equal(audio?.crossOrigin, 'anonymous', diag);
+                assert.ok(audio && !audio.paused && audio.currentTime > 0.3, `playback did not advance: ${diag}`);
+                assert.equal(playing.renderedUi?.audioContextState, 'running', `Web Audio is not running: ${diag}`);
+                await postActionsAndWait(`pause-${Date.now()}`, [
+                    { action: 'mouse-event', payload: { selector: '[data-action="toggle-playback"]', type: 'click' } },
+                ]);
+                const paused = await pollSnapshot('paused', (snapshot) => snapshot.renderedUi?.audio[0]?.paused === true);
+                assert.equal(paused.renderedUi?.audio[0]?.paused, true, `pause did not stop playback: ${JSON.stringify(paused.renderedUi?.audio)}`);
+                invalidateFixtureCache();
+            },
+        },
     ];
     let passedCount = 0;
 
@@ -616,6 +720,32 @@ async function analyzeDebugPath(
     }
 
     return waitForSnapshot();
+}
+
+async function analyzeSingleTrackInWaveformMode(): Promise<TestSnapshot> {
+    invalidateFixtureCache();
+    await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+    return postActionsAndWait(`waveform-mode-${Date.now()}`, ['content-waveform'], (snapshot) => {
+        return snapshot.renderedUi?.contentType === 'waveform' && snapshot.renderedUi.trackRowCount === 1;
+    });
+}
+
+/**
+ * Playback state changes without a render, so ask for fresh snapshots until the predicate holds,
+ * then return the last one for the caller to assert on with its own diagnostics.
+ */
+async function pollSnapshot(label: string, predicate: (snapshot: TestSnapshot) => boolean, timeoutMs = 10000): Promise<TestSnapshot> {
+    const deadline = Date.now() + timeoutMs;
+    let latest: TestSnapshot;
+    let attempt = 0;
+    do {
+        latest = await postActionsAndWait(`${label}-poll-${Date.now()}-${attempt++}`, []);
+        if (predicate(latest)) {
+            return latest;
+        }
+        await delay(250);
+    } while (Date.now() < deadline);
+    return latest;
 }
 
 async function runZoomRecoveryScenario(): Promise<TestSnapshot> {

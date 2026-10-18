@@ -57,6 +57,25 @@ interface ComparisonPanelRenderedUi {
     specFreqEnd: number;
     waveformMode: 'loop' | 'rect-zoom';
     lastAnnounce: string;
+    amplitudeZoomMinNorm: number;
+    amplitudeZoomMaxNorm: number;
+    hintFooterText: string | null;
+    layout: {
+        viewportHeight: number;
+        tracksWrapper: { top: number; bottom: number } | null;
+        spectrumSection: { top: number; bottom: number } | null;
+        hintFooter: { top: number; bottom: number } | null;
+    };
+    waveformRangePopover: { open: boolean; min: string | null; max: string | null } | null;
+    audioContextState: string | null;
+    audio: Array<{
+        trackId: string | null;
+        crossOrigin: string | null;
+        readyState: number;
+        paused: boolean;
+        currentTime: number;
+        errorCode: number | null;
+    }>;
     tracks: Array<{
         trackId: string;
         trackIndex: number;

@@ -84,3 +84,32 @@ export function heightDragFromPayload(payload: ActionPayload): HeightDragRequest
         endY: Number(payload.endY || startY),
     };
 }
+
+function testTarget<T extends Element = Element>(doc: Document, payload: ActionPayload): T {
+    const el = doc.querySelector<T>(String(payload.selector));
+    if (!el) {
+        throw new Error('Test target not found: ' + String(payload.selector));
+    }
+    return el;
+}
+
+// Mouse events land on the element's centre so handlers that read clientX/clientY place popovers as for a real pointer.
+export function dispatchTestMouseEvent(doc: Document, payload: ActionPayload): void {
+    const el = testTarget(doc, payload);
+    const rect = el.getBoundingClientRect();
+    const view = doc.defaultView;
+    if (!view) {
+        return;
+    }
+    el.dispatchEvent(new view.MouseEvent(String(payload.type), {
+        bubbles: true,
+        cancelable: true,
+        view,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+    }));
+}
+
+export function setTestInputValue(doc: Document, payload: ActionPayload): void {
+    testTarget<HTMLInputElement>(doc, payload).value = String(payload.value);
+}

@@ -26,6 +26,49 @@ export function domSnapshotBase(document: Document) {
     };
 }
 
+function verticalExtent(doc: Document, id: string): { top: number; bottom: number } | null {
+    const el = doc.getElementById(id);
+    if (!el) {
+        return null;
+    }
+    const rect = el.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom };
+}
+
+function fieldValue(doc: Document, id: string): string | null {
+    const el = doc.getElementById(id) as HTMLInputElement | null;
+    return el ? el.value : null;
+}
+
+export function shellSnapshot(doc: Document, audioContextState: string | null) {
+    const popover = doc.getElementById('waveform-range-popover');
+    return {
+        hintFooterText: doc.getElementById('hint-footer')?.textContent ?? null,
+        layout: {
+            viewportHeight: doc.documentElement.clientHeight,
+            tracksWrapper: verticalExtent(doc, 'tracks-wrapper'),
+            spectrumSection: verticalExtent(doc, 'spectrum-section'),
+            hintFooter: verticalExtent(doc, 'hint-footer'),
+        },
+        waveformRangePopover: popover ? {
+            open: popover.style.display === 'block',
+            min: fieldValue(doc, 'wave-range-min'),
+            max: fieldValue(doc, 'wave-range-max'),
+        } : null,
+        audioContextState,
+        audio: Array.from(doc.querySelectorAll<HTMLAudioElement>('#audio-host audio')).map(function (audio) {
+            return {
+                trackId: audio.getAttribute('data-track-id'),
+                crossOrigin: audio.crossOrigin,
+                readyState: audio.readyState,
+                paused: audio.paused,
+                currentTime: audio.currentTime,
+                errorCode: audio.error ? audio.error.code : null,
+            };
+        }),
+    };
+}
+
 export function spectrumAxisLabelTexts(
     dbMin: number,
     dbMax: number,
