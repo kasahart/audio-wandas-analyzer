@@ -92,6 +92,9 @@ class OctaveBands(NamedTuple):
     # Edges of the whole nominal range, so every file shares one axis whatever its sample rate.
     min_frequency_hz: float
     max_frequency_hz: float
+    # The band filters restart on every slice, so the slice must be long enough for the lowest
+    # band's start-up transient to stay small next to its steady level.
+    min_duration_s: float
 
 
 def octave_bands(bands_per_octave: int, sampling_rate: float) -> OctaveBands:
@@ -110,7 +113,15 @@ def octave_bands(bands_per_octave: int, sampling_rate: float) -> OctaveBands:
     usable = tuple(c for c in nominal if exact(c) * half_band < nyquist and exact(c) <= 0.88 * nyquist)
     if not usable:
         raise InputError(f"No {bands_per_octave}-band octave filter fits below {nyquist:g} Hz")
-    return OctaveBands(bands_per_octave, usable, exact(nominal[0]) / half_band, exact(nominal[-1]) * half_band)
+    lowest_bandwidth_hz = exact(usable[0]) * (half_band - 1 / half_band)
+    return OctaveBands(
+        bands_per_octave,
+        usable,
+        exact(nominal[0]) / half_band,
+        exact(nominal[-1]) * half_band,
+        # Ten reciprocal bandwidths keep a steady tone in the lowest band within about 0.5 dB.
+        10.0 / lowest_bandwidth_hz,
+    )
 
 
 def _optional_text(value: object) -> str | None:
@@ -217,6 +228,8 @@ class AnalysisService:
         clipped_norm = max(0.0, min(1.0, cursor_norm))
         revision = _analysis_revision(analysis_revision)
         bands = octave_bands(bands_per_octave, analysis_frame.sampling_rate) if bands_per_octave is not None else None
+        if bands is not None:
+            window_size = max(window_size, math.ceil(bands.min_duration_s * analysis_frame.sampling_rate))
 
         # Transform the window centred on the cursor itself rather than the nearest STFT frame, so the
         # spectrum (and the band drawn for it) follows the cursor without hop-sized jumps or gaps.

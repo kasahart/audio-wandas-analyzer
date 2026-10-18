@@ -480,6 +480,26 @@ def test_spectrum_slice_octave_bands_level_the_cursor_samples(
     assert "bandCentersHz" not in fft and fft["window"] == "hann"
 
 
+@pytest.mark.parametrize(("bands_per_octave", "freq_hz"), [(1, 31.5), (3, 25.0)])
+def test_spectrum_slice_octave_bands_lengthen_short_windows_for_the_lowest_band(
+    tmp_path: Path, bands_per_octave: int, freq_hz: float
+) -> None:
+    wav = tmp_path / "low.wav"
+    sr = 48000
+    _write_sine_wav(wav, freq_hz=freq_hz, seconds=4.0, sr=sr)
+    opts = {"nFft": 1024, "hopSize": 256, "window": "hann"}
+    command = {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": opts, "bandsPerOctave": bands_per_octave}
+    resp = handle_spectrum_slice(command, AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000)))
+
+    # 1024 samples are 21 ms, under one period of the lowest band, so the slice grows to fit it.
+    span_s = (resp["windowEndNorm"] - resp["windowStartNorm"]) * 4.0
+    assert span_s > 0.4
+    assert resp["windowStartNorm"] + resp["windowEndNorm"] == pytest.approx(1.0, abs=1e-4)
+    values = resp["channels"][0]["values"]
+    assert resp["bandCentersHz"][int(np.argmax(values))] == freq_hz
+    assert max(values) == pytest.approx(-9.03, abs=0.6)
+
+
 def test_spectrum_slice_rejects_other_band_counts(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
