@@ -13,15 +13,16 @@ interface CalibrationSummary {
 type Channel = ChannelSummary | null | undefined;
 
 type CalibrationButtonStrings = Pick<UiStrings, 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'>;
+export type CalibrationBadgeStrings = Pick<UiStrings, 'calibrationBadgeUncalibratedHint' | 'calibrationBadgePartialHint' | 'calibrationFactorLabel'>;
 
 function measurementFor(channel: Channel) {
     return channel && channel.measurement ? channel.measurement : null;
 }
 
-export function peakText(channel: Channel): string | null {
+export function peakText(channel: Channel, peakLabel: string): string | null {
     const measurement = measurementFor(channel);
     const text = measurement && channel && formatMeasuredLevel(channel.peakAbsolute, Number(channel.peakLevelDb), measurement);
-    return text ? 'Peak ' + text : null;
+    return text ? peakLabel + ' ' + text : null;
 }
 
 function levelText(channel: ChannelSummary, levelDb: number | undefined): string {
@@ -29,25 +30,25 @@ function levelText(channel: ChannelSummary, levelDb: number | undefined): string
     return Number(levelDb).toFixed(1) + ' ' + (channel.measurement?.levelUnit ?? 'dB');
 }
 
-export function channelMetricSummaryHtml(channel: Channel): string {
+export function channelMetricSummaryHtml(channel: Channel, peakLabel: string): string {
     const peakDb = channel ? levelText(channel, channel.peakLevelDb) : '—';
-    return '<span>' + escapeHtml(peakText(channel) ?? 'Peak ' + peakDb) + '</span>';
+    return '<span>' + escapeHtml(peakText(channel, peakLabel) ?? peakLabel + ' ' + peakDb) + '</span>';
 }
 
-export function calibrationSummary(channels: Channel[]): CalibrationSummary {
+export function calibrationSummary(channels: Channel[], strings: CalibrationBadgeStrings): CalibrationSummary {
     const calibrated = channels.filter(channel => measurementFor(channel)?.calibrationStatus === 'calibrated') as ChannelSummary[];
     if (calibrated.length === 0) {
-        return { text: 'FS', title: 'Uncalibrated full scale (dBFS)' };
+        return { text: 'FS', title: strings.calibrationBadgeUncalibratedHint };
     }
     if (calibrated.length !== channels.length) {
-        return { text: 'PARTIAL', title: 'Some channels use physical calibration' };
+        return { text: 'PARTIAL', title: strings.calibrationBadgePartialHint };
     }
     const units = Array.from(new Set(calibrated.map(channel => measurementFor(channel)!.linearUnit)));
     return {
         text: units.length === 1 ? 'CAL: ' + units[0] : 'CAL',
         title: calibrated.map(function (channel) {
             const measurement = measurementFor(channel)!;
-            return measurement.linearUnit + '; factor ' + measurement.factor + '; ' + measurement.levelReferenceLabel;
+            return measurement.linearUnit + '; ' + strings.calibrationFactorLabel + ' ' + measurement.factor + '; ' + measurement.levelReferenceLabel;
         }).join(' | '),
     };
 }
@@ -76,8 +77,8 @@ export function ensureCalibrationStyles(document: Document): void {
     document.head.appendChild(style);
 }
 
-export function calibrationBadgeHtml(channels: Channel[]): string {
-    const summary = calibrationSummary(channels);
+export function calibrationBadgeHtml(channels: Channel[], strings: CalibrationBadgeStrings): string {
+    const summary = calibrationSummary(channels, strings);
     return '<span class="calibration-badge"' + hintAttr(summary.title) + '>' + escapeHtml(summary.text) + '</span>';
 }
 
