@@ -14,19 +14,28 @@ async function initialize() {
     };
     // Every file is fetched once and concurrently. Native wheels are left to loadPackage, which checks each
     // against the sha256 in the pyodide-lock.json verified here.
-    const pureWheels = Promise.all(lock.pureWheels.map(name => fetchVerified(lock.assets.find(asset => asset.path === name))));
+    const pureWheels = Promise.all(lock.pureWheels.map(name => {
+        const asset = lock.assets.find(candidate => candidate.path === name);
+        if (!asset) throw new Error(`Missing runtime asset: ${name}`);
+        return fetchVerified(asset);
+    }));
     const sources = fetch('./python/manifest.json').then(response => response.json()).then(files => Promise.all(files.map(async name => {
         const response = await fetch(`./python/${name}`);
         if (!response.ok) throw new Error(`Missing Python module: ${name}`);
         return [name, await response.text()];
     })));
     // A boot that fails earlier would otherwise leave these rejections unhandled.
-    pureWheels.catch(() => {}); sources.catch(() => {});
+    pureWheels.catch(() => {});
+    sources.catch(() => {});
     await Promise.all(lock.assets.filter(asset => !asset.path.endsWith('.whl')).map(fetchVerified));
     const module = await import(new URL('pyodide.mjs', base).href);
     if (module.version !== lock.pyodideVersion) throw new Error('Pyodide version mismatch');
     pyodide = await module.loadPyodide({ indexURL: base.href, packageBaseUrl: base.href, cdnUrl: base.href });
-    await pyodide.loadPackage(lock.nativePackages);
+    // loadPackage may only report a wheel that fails to download or verify, so either outcome fails the boot here.
+    const packageErrors = [];
+    await pyodide.loadPackage(lock.nativePackages, { checkIntegrity: true, errorCallback: message => packageErrors.push(message) })
+        .catch(error => packageErrors.push(String(error)));
+    if (packageErrors.length) throw new Error(`Failed to load runtime packages: ${packageErrors.join('; ')}`);
     const purelib = pyodide.runPython('import sysconfig; sysconfig.get_path("purelib")');
     for (const wheel of await pureWheels) pyodide.unpackArchive(wheel, 'zip', { extractDir: purelib });
     for (const [name, text] of await sources) pyodide.FS.writeFile(`/home/pyodide/${name}`, text);
