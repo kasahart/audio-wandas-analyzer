@@ -62,6 +62,8 @@ export interface AudioFader {
     setMuted(el: FadeMedia, muted: boolean): void;
     /** Disconnects a discarded element's gain stages, which would otherwise keep it alive. */
     release(el: FadeMedia): void;
+    /** The audio context's state, or null before the first route; tests read it to see the gain stages are live. */
+    contextState(): string | null;
 }
 
 function defaultContext(): FadeContext | null {
@@ -182,6 +184,9 @@ export function createAudioFader(createContext: () => FadeContext | null = defau
         },
         isPausing(el) {
             return pendingPauses.has(el);
+        },
+        contextState() {
+            return ctx ? ctx.state : null;
         },
         setMuted(el, muted) {
             const route = routes.get(el);

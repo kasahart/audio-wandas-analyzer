@@ -120,6 +120,7 @@ jobs:
             libxshmfence1 \
             libxss1 \
             xauth \
+            xdotool \
             xvfb
 
       - name: Install Node dependencies

@@ -4,7 +4,7 @@ import { spectrogramDisplayBounds } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { trackTimelinePlacement } from './waveformCoverage';
 import { attachOffsetEditing } from './offsetInlineEditor';
-import { fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setSelectionFileChecked, testActionTrackId } from './testActionForms';
+import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setSelectionFileChecked, setTestInputValue, testActionTrackId } from './testActionForms';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, isOverviewSufficient, rangeCacheCoversView, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
@@ -31,7 +31,7 @@ import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportT
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
 import { arrowCursorStep, type GlobalShortcutAction } from './shortcuts';
-import { domSnapshotBase, latestSpectrogramSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
+import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
@@ -205,6 +205,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let playbackRafId: number | null = null;
     const audioFader = createAudioFader();
     let endFadeTarget: number | null = null;
+    let lastPlayRejection: string | null = null;
     let passFade = FADE_SECONDS;
     // Queuing the end fade further ahead would let a media stall silence the track before it reaches the end.
     const END_FADE_LOOKAHEAD_SECONDS = 0.25;
@@ -832,6 +833,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleSpectrumRefresh('immediate');
             },
             'set-file-selected': p => setSelectionFileChecked(document, p.filePath, !!p.selected),
+            'mouse-event': p => dispatchTestMouseEvent(document, p),
+            'set-input-value': p => setTestInputValue(document, p),
             'set-loop-region': p => {
                 const region = loopRegionFromPayload(p);
                 if (region) {
@@ -1051,6 +1054,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return el ? (el.textContent || '') : '';
                 })(),
                 tracks: trackInfo,
+                ...shellSnapshot(document, audioFader.contextState()),
+                lastPlayRejection,
             }, actionId);
     }
     function publishTestSnapshotSafe(actionId?: string) {
@@ -1811,7 +1816,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
         const playPromise = audio.play();
         if (playPromise && typeof playPromise.then === 'function') {
-            playPromise.then(fadeIn, function () {
+            playPromise.then(fadeIn, function (err: unknown) {
+                lastPlayRejection = err instanceof Error ? err.name + ': ' + err.message : String(err);
                 clearPlaybackState();
             });
         }
