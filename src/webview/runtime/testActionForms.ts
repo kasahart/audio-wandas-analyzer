@@ -18,8 +18,8 @@ export function fillSpectrogramSettingsForm(doc: Document, payload: ActionPayloa
     if (payload.nFft != null) {
         formField(doc, 'spec-nfft').value = String(payload.nFft);
     }
-    if (payload.hopSize != null) {
-        formField(doc, 'spec-hop').value = String(payload.hopSize);
+    if (payload.overlapPercent != null) {
+        formField<HTMLSelectElement>(doc, 'spec-overlap').value = String(payload.overlapPercent);
     }
     if (payload.window != null) {
         formField<HTMLSelectElement>(doc, 'spec-window').value = String(payload.window);

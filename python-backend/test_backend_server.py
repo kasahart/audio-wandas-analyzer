@@ -196,7 +196,7 @@ def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> 
             "trackIndex": 2,
             "analysisId": "a1",
             "settingsSignature": "sig1",
-            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+            "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"},
         }
     )
 
@@ -277,7 +277,7 @@ def test_handle_range_matches_unsigned_8_bit_wav_overview_scale(tmp_path: Path) 
 def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
-    opts = {"nFft": 256, "hopSize": 128, "window": "hann"}
+    opts = {"nFft": 256, "overlapPercent": 50, "window": "hann"}
     detail = handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts})
     spec = detail["channels"][0]["spectrogram"]
 
@@ -313,7 +313,7 @@ def test_track_detail_spectrogram_bins_stay_aligned_with_time(tmp_path: Path) ->
         w.setsampwidth(2)
         w.setframerate(sr)
         w.writeframes(samples.tobytes())
-    opts = {"nFft": 256, "hopSize": 64, "window": "hann"}
+    opts = {"nFft": 256, "overlapPercent": 75, "window": "hann"}
     spec = handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts})["channels"][0][
         "spectrogram"
     ]
@@ -333,7 +333,7 @@ def test_spectrum_slice_window_stays_inside_the_file_at_the_ends(
 ) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
-    opts = {"nFft": 256, "hopSize": 128, "window": "hann"}
+    opts = {"nFft": 256, "overlapPercent": 50, "window": "hann"}
     resp = handle_spectrum_slice({"filePath": str(wav), "cursorNorm": cursor_norm, "stftOptions": opts})
     assert resp["windowStartNorm"] * 8000 == pytest.approx(expected_start)
     assert resp["windowEndNorm"] * 8000 == pytest.approx(expected_start + 256)
@@ -350,7 +350,7 @@ def test_spectrum_slice_reports_the_transformed_window(tmp_path: Path, cached_de
         w.setsampwidth(2)
         w.setframerate(16000)
         w.writeframes(samples.tobytes())
-    opts = {"nFft": 256, "hopSize": 128, "window": "boxcar"}
+    opts = {"nFft": 256, "overlapPercent": 50, "window": "boxcar"}
     service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
     if cached_detail:
         handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)
@@ -378,7 +378,7 @@ def test_spectrum_slice_window_includes_fft_padding_past_a_short_file(tmp_path: 
     wav = tmp_path / "short.wav"
     _write_sine_wav(wav, seconds=200 / 16000)
     resp = handle_spectrum_slice(
-        {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"}}
+        {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"}}
     )
     assert resp["windowStartNorm"] == 0
     assert resp["windowEndNorm"] * 200 == pytest.approx(256)
@@ -392,7 +392,7 @@ def test_spectrum_slice_clamps_cursor_to_cached_stft_bounds(tmp_path: Path, curs
         {
             "filePath": str(wav),
             "cursorNorm": cursor_norm,
-            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+            "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"},
         }
     )
     assert response["frequencyBins"] > 0
@@ -413,7 +413,7 @@ def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path)
             "filePath": str(wav),
             "trackIndex": 0,
             "cursorNorm": 0.5,
-            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+            "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"},
         },
         service,
     )
@@ -427,7 +427,7 @@ def test_spectrum_slice_window_is_centred_on_the_cursor(tmp_path: Path, cached_d
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     n_samples = 8000
-    opts = {"nFft": 256, "hopSize": 256, "window": "hann"}
+    opts = {"nFft": 256, "overlapPercent": 0, "window": "hann"}
     service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
     if cached_detail:
         handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)
@@ -457,7 +457,7 @@ def test_spectrum_slice_octave_bands_level_the_cursor_samples(
 ) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav, freq_hz=1000.0, sr=sr)
-    opts = {"nFft": 4096, "hopSize": 1024, "window": "hann"}
+    opts = {"nFft": 4096, "overlapPercent": 75, "window": "hann"}
     command = {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": opts, "bandsPerOctave": bands_per_octave}
     service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
     resp = handle_spectrum_slice(command, service)
@@ -487,7 +487,7 @@ def test_spectrum_slice_octave_bands_lengthen_short_windows_for_the_lowest_band(
     wav = tmp_path / "low.wav"
     sr = 48000
     _write_sine_wav(wav, freq_hz=freq_hz, seconds=4.0, sr=sr)
-    opts = {"nFft": 1024, "hopSize": 256, "window": "hann"}
+    opts = {"nFft": 1024, "overlapPercent": 75, "window": "hann"}
     command = {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": opts, "bandsPerOctave": bands_per_octave}
     resp = handle_spectrum_slice(command, AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000)))
 
@@ -547,7 +547,7 @@ def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, 
         {
             "filePath": str(wav),
             "cursorNorm": 0.5,
-            "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+            "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"},
         },
         service,
     )
@@ -572,7 +572,7 @@ def test_spectrum_slice_batches_all_channels(tmp_path: Path) -> None:
         "filePath": str(wav),
         "trackIndex": 0,
         "cursorNorm": 0.5,
-        "stftOptions": {"nFft": 256, "hopSize": 128, "window": "hann"},
+        "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"},
     }
     response = handle_spectrum_slice(command, service)
 

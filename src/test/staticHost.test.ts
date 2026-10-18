@@ -156,7 +156,7 @@ test('browser preferences restore safely across reloads and use shared Japanese 
     const storage = new Map<string, string>();
     const app = harness(storage, 'ja-JP');
     assert.equal(app.browser.__APP_STRINGS__.btnOpenFile, 'ファイルを開く');
-    const settings = { auto: false, stft: { nFft: 256, hopSize: 64, window: 'hann' }, display: { dbMin: -80, dbMax: 0, maxFrequencyHz: 4000 } };
+    const settings = { auto: false, stft: { nFft: 256, overlapPercent: 75, window: 'hann' }, display: { dbMin: -80, dbMax: 0, maxFrequencyHz: 4000 } };
     app.host.postMessage({ type: 'update-spectrogram-settings', settings });
     app.host.setState({ contentType: 'spectrogram', directoryCollapseRootPath: '/private/path' });
     const restored = harness(storage);

@@ -68,7 +68,7 @@ export interface SpecSummaryTrack {
 
 export interface SpecSummaryStft {
     nFft?: number;
-    hopSize?: number;
+    overlapPercent?: number;
     window?: string;
 }
 
@@ -82,6 +82,6 @@ export function buildSpecSummaryText(tracks: readonly SpecSummaryTrack[], stft: 
     });
     lines.push('--- STFT ---');
     const s = stft || {};
-    lines.push('nFft: ' + (s.nFft || '') + '  hopSize: ' + (s.hopSize || '') + '  window: ' + (s.window || ''));
+    lines.push('nFft: ' + (s.nFft || '') + '  overlap: ' + (s.overlapPercent != null ? s.overlapPercent + '%' : '') + '  window: ' + (s.window || ''));
     return lines.join('\n');
 }

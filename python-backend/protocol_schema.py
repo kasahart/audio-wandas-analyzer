@@ -77,13 +77,13 @@ DEFINITIONS: dict[str, Schema] = {
     "SafeCalibrationValue": {"type": "number", "minimum": 1e-150, "maximum": 1e150},
     "AnalysisRevision": {"type": "integer"},
     "ResultAnalysisRevision": {"type": "integer", "minimum": 0},
-    # Ranges and evenness of nFft/hopSize stay in analyzer.normalize_stft_options.
+    # Ranges and evenness of nFft/overlapPercent stay in analyzer.normalize_stft_options.
     "StftOptions": {
         "type": "object",
-        "required": ["nFft", "hopSize", "window"],
+        "required": ["nFft", "overlapPercent", "window"],
         "properties": {
             "nFft": {"type": "integer"},
-            "hopSize": {"type": "integer"},
+            "overlapPercent": {"type": "number"},
             "window": {"type": "string", "enum": ["hann", "hamming", "blackman", "boxcar"]},
         },
     },

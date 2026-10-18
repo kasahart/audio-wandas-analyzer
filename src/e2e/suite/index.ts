@@ -39,7 +39,8 @@ interface TestSnapshot {
         reanalyzeBusy: boolean;
         latestSpectrogram?: {
             windowSize: number;
-            hopSize: number;
+            overlapPercent: number | null;
+            hopSize: number | null;
             dbMinApplied: number | null;
             dbMaxApplied: number | null;
             maxFrequencyHzApplied: number | null;
@@ -299,17 +300,18 @@ export async function run(): Promise<void> {
                 await postActionsAndWait(applyId, [
                     {
                         action: 'apply-spectrogram-settings',
-                        payload: { auto: false, nFft: 512, hopSize: 128, window: 'hamming' },
+                        payload: { auto: false, nFft: 512, overlapPercent: 50, window: 'hamming' },
                     },
                 ]);
                 const applied = await waitForSnapshotWhere((snapshot) => {
                     return !!snapshot.renderedUi?.latestSpectrogram
                         && snapshot.renderedUi.latestSpectrogram.windowSize === 512
-                        && snapshot.renderedUi.latestSpectrogram.hopSize === 128
+                        && snapshot.renderedUi.latestSpectrogram.hopSize === 256
                         && snapshot.renderedUi.reanalyzeBusy === false;
                 });
                 assert.equal(applied.renderedUi?.latestSpectrogram?.windowSize, 512);
-                assert.equal(applied.renderedUi?.latestSpectrogram?.hopSize, 128);
+                assert.equal(applied.renderedUi?.latestSpectrogram?.overlapPercent, 50);
+                assert.equal(applied.renderedUi?.latestSpectrogram?.hopSize, 256);
 
                 const displayId = `spec-display-${Date.now()}`;
                 const displayed = await postActionsAndWait(displayId, [
@@ -336,9 +338,9 @@ export async function run(): Promise<void> {
                     'reopened panel should restore persisted spectrogram window size',
                 );
                 assert.equal(
-                    reopened.renderedUi?.latestSpectrogram?.hopSize,
-                    128,
-                    'reopened panel should restore persisted spectrogram hop size',
+                    reopened.renderedUi?.latestSpectrogram?.overlapPercent,
+                    50,
+                    'reopened panel should restore persisted spectrogram overlap',
                 );
                 assert.equal(
                     reopened.renderedUi?.latestSpectrogram?.dbMinApplied,

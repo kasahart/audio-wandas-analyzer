@@ -16,7 +16,7 @@ class RecordingClient extends AnalysisClient {
 
 test('all analysis paths carry the same settings/calibration context; range carries calibration only', async () => {
     const client = new RecordingClient();
-    const context = { stftOptions: { nFft: 256, hopSize: 64, window: 'hann' as const },
+    const context = { stftOptions: { nFft: 256, overlapPercent: 75, window: 'hann' as const },
         calibrationProfile: identityCalibrationProfile([{ channelIndex: 0, label: 'left' }]), analysisRevision: 7 };
     const identity = { filePath: 'source', trackIndex: 3, requestId: 'ui', analysisId: 'analysis', settingsSignature: 'settings' };
     await client.analyze('source', context);

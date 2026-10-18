@@ -137,7 +137,7 @@ export interface UiStrings {
     specSettingsAuto: string;
     specSettingsStftLegend: string;
     specSettingsNFft: string;
-    specSettingsHopSize: string;
+    specSettingsOverlap: string;
     specSettingsWindow: string;
     specSettingsDisplayLegend: string;
     specSettingsDbMin: string;
@@ -291,7 +291,7 @@ export interface UiStrings {
     hintSpectrumKeys: string;
     hintSpecAuto: string;
     hintSpecNFft: string;
-    hintSpecHopSize: string;
+    hintSpecOverlap: string;
     hintSpecWindow: string;
     hintSpecDisplay: string;
     hintSpecReset: string;
@@ -425,7 +425,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsAuto: 'Auto (defaults)',
         specSettingsStftLegend: 'STFT',
         specSettingsNFft: 'n_fft',
-        specSettingsHopSize: 'hop_size',
+        specSettingsOverlap: 'overlap',
         specSettingsWindow: 'window',
         specSettingsDisplayLegend: 'Display',
         specSettingsDbMin: 'dB min',
@@ -578,7 +578,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrumKeys: '← →: step through frequency bins',
         hintSpecAuto: 'Use the default STFT settings',
         hintSpecNFft: 'FFT length in samples: larger gives finer frequency resolution',
-        hintSpecHopSize: 'Samples between frames: smaller gives finer time resolution',
+        hintSpecOverlap: 'Frame overlap: larger gives finer time resolution',
         hintSpecWindow: 'Window function applied to each frame',
         hintSpecDisplay: 'Display range, applied immediately (empty = auto)',
         hintSpecReset: 'Restore the default settings',
@@ -710,7 +710,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsAuto: '自動 (デフォルト)',
         specSettingsStftLegend: 'STFT',
         specSettingsNFft: 'n_fft',
-        specSettingsHopSize: 'hop_size',
+        specSettingsOverlap: '重なり率',
         specSettingsWindow: 'ウィンドウ',
         specSettingsDisplayLegend: '表示設定',
         specSettingsDbMin: 'dB 最小',
@@ -863,7 +863,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrumKeys: '← →: 周波数ビンを移動',
         hintSpecAuto: 'STFT 設定を既定値にする',
         hintSpecNFft: 'FFT 長（サンプル）: 大きいほど周波数分解能が細かくなります',
-        hintSpecHopSize: 'フレーム間隔（サンプル）: 小さいほど時間分解能が細かくなります',
+        hintSpecOverlap: 'フレームの重なり: 大きいほど時間分解能が細かくなります',
         hintSpecWindow: '各フレームにかける窓関数',
         hintSpecDisplay: '表示範囲。すぐに反映されます（空欄は自動）',
         hintSpecReset: '既定の設定に戻す',

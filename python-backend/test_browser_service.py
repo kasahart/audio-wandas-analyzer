@@ -27,7 +27,7 @@ def test_browser_source_bounds_release_and_stale_identity() -> None:
     service.engine.load("selected.wav", FIXTURE.read_bytes())
     source = service.engine.get_file("/sources/selected.wav")
     assert service.engine.get_file(source.path.as_posix()) is source
-    service.track_detail(source.path, stft_options={"nFft": 256, "hopSize": 64, "window": "hann"})
+    service.track_detail(source.path, stft_options={"nFft": 256, "overlapPercent": 75, "window": "hann"})
     assert source.spectrograms
     service.release_track_detail(source.path)
     assert not source.spectrograms
@@ -52,7 +52,7 @@ def test_cursor_spectrum_transforms_the_window_centred_on_the_cursor() -> None:
     start = int(round(cursor * frame.n_samples)) - 128
     expected = np.asarray(frame[:, start : start + 256].fft(n_fft=256, window="hann").dB)
     result = service.spectrum_slice(
-        path, cursor_norm=cursor, stft_options={"nFft": 256, "hopSize": 64, "window": "hann"}
+        path, cursor_norm=cursor, stft_options={"nFft": 256, "overlapPercent": 75, "window": "hann"}
     )
     assert result["windowStartNorm"] * frame.n_samples == pytest.approx(start)
     np.testing.assert_allclose(result["channels"][0]["values"], expected[0], atol=1e-4)
@@ -220,7 +220,7 @@ def test_run_recipe_uses_loaded_sources_and_rejects_paths() -> None:
     service = create_service()
     service.engine.load("selected.wav", FIXTURE.read_bytes())
     path = "/sources/selected.wav"
-    service.track_detail(path, stft_options={"nFft": 256, "hopSize": 64, "window": "hann"})
+    service.track_detail(path, stft_options={"nFft": 256, "overlapPercent": 75, "window": "hann"})
     recipe = {
         "inputs": [{"name": "sig", "file": path}],
         "steps": [{"as": "w", "expr": "sig.welch(n_fft=256)"}],

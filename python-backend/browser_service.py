@@ -166,7 +166,7 @@ class BrowserEngine(AnalysisEngine):
             return existing
         working = length * channels * 32 + ((length // hop_length) + 5) * channels * (n_fft // 2 + 1) * 56
         if self.estimated_bytes(working) > MAX_ESTIMATED_BYTES:
-            raise InputError("STFT exceeds prototype estimated memory budget; increase hop size")
+            raise InputError("STFT exceeds prototype estimated memory budget; lower the overlap")
         return super().get_spectrogram(file_path, n_fft, hop_length, window, calibration_profile)
 
 

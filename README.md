@@ -80,7 +80,7 @@ When you open a folder, supported audio files appear in a tree. Check a file to 
 - **Loop:** drag on the waveform to create a loop region; clear it with a click
 - **Listen:** use the per-track play button; mute tracks with `M`
 - **Align:** nudge track offsets with the `▲ / ▼` controls or double-click the offset value to reset it
-- **Tune spectrograms:** open the gear popover to change FFT size, hop length, window function, dB range, and max frequency
+- **Tune spectrograms:** open the gear popover to change FFT size, overlap, window function, dB range, and max frequency
 - **Get help:** press `?` inside the panel to see keyboard shortcuts
 
 ## Exports And Recipes
@@ -110,7 +110,7 @@ Recipe inputs use the same calibrated frames as the main analysis. Relative inpu
 - **Python interpreter was not found:** select the venv that has `wandas` installed, or update `audioWandasAnalyzer.pythonCommand`.
 - **Analysis failed:** open **Output: Audio Wandas Analyzer** and check the Python error. Confirm `wandas`, `numpy`, and `soundfile` are installed in the selected environment.
 - **A file does not load:** confirm the extension is one of WAV, FLAC, OGG, AIFF, AIF, or SND. MP3 and M4A are not supported yet.
-- **Large files feel slow:** zoomed waveform requests are fetched only for the visible range. For spectrogram-heavy work, try a smaller FFT size or hop length.
+- **Large files feel slow:** zoomed waveform requests are fetched only for the visible range. For spectrogram-heavy work, try a smaller FFT size or a lower overlap.
 
 ## Browser Version
 

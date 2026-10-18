@@ -18,7 +18,7 @@ function setup(initial: SpectrogramSettings) {
         onDisplayChange: display => displays.push(display),
         onReset: () => {
             resets += 1;
-            settings = { auto: true, stft: { nFft: 1024, hopSize: 256, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
+            settings = { auto: true, stft: { nFft: 1024, overlapPercent: 75, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
         },
         onApply: next => applied.push(next),
     });
@@ -29,7 +29,7 @@ function setup(initial: SpectrogramSettings) {
 
 const CUSTOM: SpectrogramSettings = {
     auto: false,
-    stft: { nFft: 2048, hopSize: 512, window: 'blackman' },
+    stft: { nFft: 2048, overlapPercent: 67, window: 'blackman' },
     display: { dbMin: -90, dbMax: null, maxFrequencyHz: 8000 },
 };
 
@@ -46,7 +46,7 @@ test('clicking the gear toggles the popover and syncs the form from the current 
     assert.equal(popover.isOpen(), true);
     assert.equal(el('spec-auto').checked, false);
     assert.equal(el<HTMLSelectElement>('spec-nfft').value, '2048');
-    assert.equal(el('spec-hop').value, '512');
+    assert.equal(el<HTMLSelectElement>('spec-overlap').value, '67');
     assert.equal(el<HTMLSelectElement>('spec-window').value, 'blackman');
     assert.equal(el('spec-dbmin').value, '-90');
     assert.equal(el('spec-dbmax').value, '');
@@ -70,7 +70,7 @@ test('the docked spectrum gear opens the same settings, and switching gears keep
 test('outside clicks and Escape close the popover', () => {
     const { dom, document, popover, el } = setup(CUSTOM);
     popover.open();
-    el('spec-hop').click();
+    el<HTMLSelectElement>('spec-overlap').click();
     assert.equal(popover.isOpen(), true);
     el<HTMLDivElement>('outside').click();
     assert.equal(popover.isOpen(), false);
@@ -98,9 +98,9 @@ test('display field changes report the parsed display settings', () => {
 test('apply reports the form settings and closes; reset resyncs the form from the new settings', () => {
     const { popover, el, applied, resets } = setup(CUSTOM);
     popover.open();
-    el('spec-hop').value = '128';
+    el<HTMLSelectElement>('spec-overlap').value = '50';
     el<HTMLButtonElement>('spec-apply').click();
-    assert.deepEqual(applied, [{ ...CUSTOM, stft: { ...CUSTOM.stft, hopSize: 128 } }]);
+    assert.deepEqual(applied, [{ ...CUSTOM, stft: { ...CUSTOM.stft, overlapPercent: 50 } }]);
     assert.equal(popover.isOpen(), false);
     popover.open();
     el<HTMLButtonElement>('spec-reset').click();

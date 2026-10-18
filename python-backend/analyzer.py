@@ -284,16 +284,17 @@ def normalize_stft_options(stft_options: Mapping[str, object] | None) -> StftOpt
         return None
 
     n_fft = int(stft_options.get("n_fft", stft_options.get("nFft", 0)))
-    hop_size = int(stft_options.get("hop_size", stft_options.get("hopSize", 0)))
+    overlap_percent = float(stft_options.get("overlap_percent", stft_options.get("overlapPercent", -1)))
     window = str(stft_options.get("window", "hann"))
     if n_fft < 64 or n_fft > 16384:
         raise InputError(f"n_fft must be in [64, 16384], got {n_fft}")
     if n_fft % 2:
         raise InputError(f"n_fft must be even, got {n_fft}")
-    if hop_size < 1 or hop_size > n_fft:
-        raise InputError(f"hop_size must be in [1, n_fft], got {hop_size}")
+    if not 0 <= overlap_percent < 100:
+        raise InputError(f"overlap_percent must be in [0, 100), got {overlap_percent}")
     if window not in _ALLOWED_WINDOWS:
         raise InputError(f"window must be one of {sorted(_ALLOWED_WINDOWS)}, got {window!r}")
+    hop_size = max(1, round(n_fft * (1 - overlap_percent / 100)))
     return {"n_fft": n_fft, "hop_size": hop_size, "window": window}
 
 
