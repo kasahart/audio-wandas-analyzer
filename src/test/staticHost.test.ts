@@ -923,6 +923,18 @@ test('Open Folder walks the File System Access picker and ignores a cancelled pi
     assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1),
         { type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: ['/sources/rec/b.wav', '/sources/rec/day2/a.WAV', '/sources/b.wav'] });
     assert.deepEqual(app.received.filter(message => message.type === 'analysis-update').at(-1)!.selectedFilePaths, ['/sources/b.wav']);
+
+    // A folder still being walked when Clear empties the list is not listed afterwards.
+    let release!: () => void;
+    const walking = new Promise<void>(resolve => { release = resolve; });
+    (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => ({ kind: 'directory', name: 'slow', values: async function* () { await walking; yield file('c.wav'); } });
+    openFolder.onclick!();
+    await flush();
+    app.clear(true);
+    await flush();
+    release();
+    await flush(); await flush();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths, []);
 });
 
 test('picked files are listed in the tree under their own names and load checked; a name taken twice gets a suffix', async () => {
