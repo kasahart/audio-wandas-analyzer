@@ -950,9 +950,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const top = formatSignedAmplitudeValue(waveformView.amplitudeMax * peak);
             const middle = formatSignedAmplitudeValue(((waveformView.amplitudeMin + waveformView.amplitudeMax) / 2) * peak);
             const bottom = formatSignedAmplitudeValue(waveformView.amplitudeMin * peak);
-            return [top, middle, bottom, unitText ? 'Amp (' + unitText + ')' : 'Amp'];
+            return [top, middle, bottom, unitText ? STR.waveformAmplitudeLabel + ' (' + unitText + ')' : STR.waveformAmplitudeLabel];
         }
-        return formatWaveformAxisLabels(waveform && waveform.absolutePeak, ch && ch.unit);
+        return formatWaveformAxisLabels(waveform && waveform.absolutePeak, ch && ch.unit, STR.waveformAmplitudeLabel);
     }
     function waveformAxisLabelsForResult(result: ComparisonTrackState, trackIndex: number) {
         return waveformAxisLabelsForChannel(result, 0);
@@ -1187,7 +1187,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             channelIndex,
             channelCount: channels.length,
             channelLabel: channelLabel(result, channelIndex),
-            metricSummaryHtml: channelMetricSummaryHtml(channels[channelIndex]),
+            metricSummaryHtml: channelMetricSummaryHtml(channels[channelIndex], STR.peakLabel),
             fileName: result.fileName,
             axisWidth: AXIS_W,
             spectrumTitle: STR.trackSpectrumTitle,

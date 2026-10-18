@@ -59,12 +59,13 @@ export type TrackRowStrings = Pick<UiStrings,
     | 'trackPlayTitle' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaTrackMute' | 'ariaRemoveTrack'
     | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'
     | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'heightTrackLabel'
-    | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'>;
+    | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'
+    | 'peakLabel' | 'calibrationBadgeUncalibratedHint' | 'calibrationBadgePartialHint' | 'calibrationFactorLabel'>;
 
 export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): string {
     const { trackId, trackIndex: i, channels } = spec;
     const monoSummary = channels.length === 1
-        ? ' &nbsp; ' + channelMetricSummaryHtml(channels[0])
+        ? ' &nbsp; ' + channelMetricSummaryHtml(channels[0], strings.peakLabel)
         : '';
     const disabled = spec.playable ? '' : ' disabled';
     return '<div class="track-row" id="track-row-' + i + '" data-track-id="' + trackId + '">'
@@ -74,9 +75,9 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + spec.color + '" role="button" tabindex="0" aria-label="' + escapeHtml(strings.ariaPickColor) + '"' + hintAttr(strings.trackPickColor) + '></div>'
         + '    <div class="track-name"' + hintAttr(spec.filePath) + '>' + escapeHtml(spec.fileName) + '</div>'
         + (isClipped(channels) ? '    <span class="clip-badge"' + hintAttr(strings.clipBadgeTitle) + '>CLIP</span>' : '')
-        + '    ' + calibrationBadgeHtml(channels)
+        + '    ' + calibrationBadgeHtml(channels, strings)
         + '  </div>'
-        + '  <div class="track-meta">Total: ' + spec.channelCount + ' ch &nbsp;' + (spec.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
+        + '  <div class="track-meta">' + spec.channelCount + ' ch &nbsp;' + (spec.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
         + '  <div class="track-btns">'
         + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '"' + hintAttr(strings.trackPlayTitle) + ' aria-label="' + escapeHtml(strings.ariaTrackPlay) + '"' + disabled + '>▶</button>'
         + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '"' + hintAttr(strings.trackStopTitle) + ' aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'

@@ -81,12 +81,12 @@ export function formatAmplitudeValue(value: number): string {
     return absValue.toPrecision(2);
 }
 
-export function formatWaveformAxisLabels(absolutePeak: number | null | undefined, unit: string | null | undefined) {
+export function formatWaveformAxisLabels(absolutePeak: number | null | undefined, unit: string | null | undefined, amplitudeLabel: string) {
     const rawPeak = typeof absolutePeak === 'number' ? absolutePeak : NaN;
     const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
     const value = formatAmplitudeValue(peak);
     const unitText = typeof unit === 'string' && unit.trim() ? unit.trim() : null;
-    return ['+' + value, '0', '-' + value, unitText ? 'Amp (' + unitText + ')' : 'Amp'];
+    return ['+' + value, '0', '-' + value, unitText ? amplitudeLabel + ' (' + unitText + ')' : amplitudeLabel];
 }
 
 export function formatHz(hz: number) {
@@ -108,10 +108,10 @@ export function formatDbLevel(value: number, source: { unit?: string } | null): 
     return value.toFixed(0) + ' ' + dbLevelUnitFor(source);
 }
 
-export function drawWaveformAmplitudeAxis(ctx: CanvasDrawCtx, W: number, H: number, labels: string[] = formatWaveformAxisLabels(null, null), theme: DrawTheme = DEFAULT_THEME): void {
+export function drawWaveformAmplitudeAxis(ctx: CanvasDrawCtx, W: number, H: number, labels: string[] = formatWaveformAxisLabels(null, null, 'Amp'), theme: DrawTheme = DEFAULT_THEME): void {
     const mutedColor = theme.mutedColor;
     const bgColor = theme.bgColor;
-    const axisLabels = labels || formatWaveformAxisLabels(null, null);
+    const axisLabels = labels || formatWaveformAxisLabels(null, null, 'Amp');
     const labelW = Math.max(30, Math.min(W, 64));
     ctx.save();
     ctx.fillStyle = bgColor;

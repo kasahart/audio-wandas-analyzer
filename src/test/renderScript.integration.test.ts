@@ -339,7 +339,7 @@ test('renderScript: monaural tracks keep waveform and power spectrum in one body
     assert.equal(row!.querySelector('.track-channel-lane-header'), null);
 
     const meta = row!.querySelector('.track-meta');
-    assert.match(meta?.textContent || '', /Total: 1 ch.*Peak -6\.0 dB/,
+    assert.match(meta?.textContent || '', /^1 ch.*Peak -6\.0 dB/,
         'mono track の概要値は下部凡例ではなく track meta に表示されること');
 
     const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0') as HTMLElement | null;
@@ -2715,7 +2715,7 @@ test('renderScript: multichannel track UI renders all channel sublanes without a
     const metaText = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-meta'))
         .map((el) => el.textContent || '')
         .join(' ');
-    assert.match(metaText, /Total: 2 ch/);
+    assert.match(metaText, /^2 ch/);
     assert.doesNotMatch(metaText, /Displayed:/);
 
     const laneTexts = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-channel-lane-header'))

@@ -120,6 +120,11 @@ export interface UiStrings {
     playbackTimePrefix: string;
     playbackDisplayTitle: string;
     clipBadgeTitle: string;
+    peakLabel: string;
+    waveformAmplitudeLabel: string;
+    calibrationBadgeUncalibratedHint: string;
+    calibrationBadgePartialHint: string;
+    calibrationFactorLabel: string;
     calibrationButtonLabel: string;
     calibrationButtonTitle: string;
     calibrationButtonAria: string;
@@ -398,6 +403,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         playbackTimePrefix: '▶',
         playbackDisplayTitle: 'Playback position',
         clipBadgeTitle: 'Peak ≥ 0.99 — possible clipping',
+        peakLabel: 'Peak',
+        waveformAmplitudeLabel: 'Amp',
+        calibrationBadgeUncalibratedHint: 'Uncalibrated full scale (dBFS)',
+        calibrationBadgePartialHint: 'Some channels use physical calibration',
+        calibrationFactorLabel: 'factor',
         calibrationButtonLabel: 'Cal',
         calibrationButtonTitle: 'Configure per-channel calibration',
         calibrationButtonAria: 'Configure calibration',
@@ -673,6 +683,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         playbackTimePrefix: '▶',
         playbackDisplayTitle: '再生位置',
         clipBadgeTitle: 'ピーク ≥ 0.99 — クリッピングの可能性',
+        peakLabel: 'ピーク',
+        waveformAmplitudeLabel: '振幅',
+        calibrationBadgeUncalibratedHint: '未校正のフルスケール (dBFS)',
+        calibrationBadgePartialHint: '一部のチャンネルのみ物理量に校正済み',
+        calibrationFactorLabel: '係数',
         calibrationButtonLabel: '校正',
         calibrationButtonTitle: 'チャンネルごとの校正を設定',
         calibrationButtonAria: '校正を設定',

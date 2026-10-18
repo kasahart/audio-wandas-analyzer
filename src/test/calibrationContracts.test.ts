@@ -7,6 +7,9 @@ import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
 import { calibrationBadgeHtml, calibrationRequest, calibrationSummary, channelMetricSummaryHtml, hasIncompatibleLevelReferences, isClipped, peakText } from '../webview/runtime/calibrationDecorations';
 import type { ComparisonTrackState } from '../webview/runtime/types';
 import { BackendRequestError } from '../shared/protocol/backendProtocol';
+import { getStrings } from '../shared/i18n/strings';
+
+const STR = getStrings('en');
 
 test('configure-calibration message guard accepts exact channel metadata', () => {
     assert.equal(isConfigureCalibrationMessage({
@@ -80,10 +83,11 @@ test('calibration badges summarize the channel calibration and raw clipping', ()
         referenceValue: 2e-5, referenceUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa',
     });
     const channel = (extra: object) => ({ label: 'ch', peakAbsolute: 0.5, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
-    assert.deepEqual(calibrationSummary([channel({})]), { text: 'FS', title: 'Uncalibrated full scale (dBFS)' });
-    assert.equal(calibrationSummary([channel({ measurement: measurement('Pa') }), channel({})]).text, 'PARTIAL');
-    assert.deepEqual(calibrationSummary([channel({ measurement: measurement('Pa') })]), { text: 'CAL: Pa', title: 'Pa; factor 2; dB SPL re 20 µPa' });
-    assert.equal(calibrationSummary([channel({ measurement: measurement('Pa') }), channel({ measurement: measurement('m/s^2') })]).text, 'CAL');
+    assert.deepEqual(calibrationSummary([channel({})], STR), { text: 'FS', title: 'Uncalibrated full scale (dBFS)' });
+    assert.equal(calibrationSummary([channel({ measurement: measurement('Pa') }), channel({})], STR).text, 'PARTIAL');
+    assert.deepEqual(calibrationSummary([channel({ measurement: measurement('Pa') })], STR), { text: 'CAL: Pa', title: 'Pa; factor 2; dB SPL re 20 µPa' });
+    assert.equal(calibrationSummary([channel({ measurement: measurement('Pa') }), channel({ measurement: measurement('m/s^2') })], STR).text, 'CAL');
+    assert.deepEqual(calibrationSummary([channel({ measurement: measurement('Pa') })], getStrings('ja')), { text: 'CAL: Pa', title: 'Pa; 係数 2; dB SPL re 20 µPa' });
     assert.equal(isClipped([channel({ clipped: false, rawPeakFullScale: 1 })]), false, 'the backend clip flag wins');
     assert.equal(isClipped([channel({ rawPeakFullScale: 0.99 })]), true);
     assert.equal(isClipped([channel({ peakAbsolute: 1 })]), true, 'uncalibrated peaks fall back to the displayed peak');
@@ -99,14 +103,14 @@ test('calibration row helpers draw badges, peak text, requests and the overlay g
     const track = (channels: object[]) => ({ filePath: '/a.wav', fileName: 'a.wav', channels }) as unknown as ComparisonTrackState;
     const pa = measurement('Pa', 'dB SPL re 20 µPa');
 
-    assert.equal(calibrationBadgeHtml([channel({ measurement: measurement('<b>', 'x') })]), '<span class="calibration-badge" data-hint="&lt;b&gt;; factor 2; x" aria-description="&lt;b&gt;; factor 2; x">CAL: &lt;b&gt;</span>');
-    assert.equal(peakText(channel({})), null, 'uncalibrated channels keep the runtime dBFS text');
-    assert.match(peakText(channel({ measurement: pa })) ?? '', /^Peak 5\.00 Pa/);
-    assert.equal(channelMetricSummaryHtml(channel({})), '<span>Peak 80.0 dB</span>');
-    assert.equal(channelMetricSummaryHtml(channel({ peakLevelDb: Number.NEGATIVE_INFINITY })), '<span>Peak —</span>');
-    assert.equal(channelMetricSummaryHtml(channel({ peakLevelDb: Number.NaN })), '<span>Peak —</span>');
-    assert.equal(channelMetricSummaryHtml(undefined), '<span>Peak —</span>');
-    assert.match(channelMetricSummaryHtml(channel({ measurement: pa })), /^<span>Peak 5\.00 Pa/);
+    assert.equal(calibrationBadgeHtml([channel({ measurement: measurement('<b>', 'x') })], STR), '<span class="calibration-badge" data-hint="&lt;b&gt;; factor 2; x" aria-description="&lt;b&gt;; factor 2; x">CAL: &lt;b&gt;</span>');
+    assert.equal(peakText(channel({}), 'Peak'), null, 'uncalibrated channels keep the runtime dBFS text');
+    assert.match(peakText(channel({ measurement: pa }), 'Peak') ?? '', /^Peak 5\.00 Pa/);
+    assert.equal(channelMetricSummaryHtml(channel({}), 'Peak'), '<span>Peak 80.0 dB</span>');
+    assert.equal(channelMetricSummaryHtml(channel({ peakLevelDb: Number.NEGATIVE_INFINITY }), 'Peak'), '<span>Peak —</span>');
+    assert.equal(channelMetricSummaryHtml(channel({ peakLevelDb: Number.NaN }), 'Peak'), '<span>Peak —</span>');
+    assert.equal(channelMetricSummaryHtml(undefined, 'Peak'), '<span>Peak —</span>');
+    assert.match(channelMetricSummaryHtml(channel({ measurement: pa }), 'Peak'), /^<span>Peak 5\.00 Pa/);
     assert.deepEqual(calibrationRequest(3, track([channel({}), channel({ label: '' })])), {
         type: 'configure-calibration', trackIndex: 3, filePath: '/a.wav',
         channels: [{ channelIndex: 0, label: 'L' }, { channelIndex: 1, label: 'Channel 2' }],
