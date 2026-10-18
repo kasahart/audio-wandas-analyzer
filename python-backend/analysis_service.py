@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import base64
 import io
+import math
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TypedDict
+from typing import NamedTuple, NotRequired, TypedDict
 
 import numpy as np
 import soundfile as sf
@@ -46,6 +47,9 @@ class SpectrumSliceResult(TypedDict):
     channels: list[dict[str, object]]
     frequencyBins: int
     maxFrequencyHz: float
+    bandsPerOctave: NotRequired[int]
+    bandCentersHz: NotRequired[list[float]]
+    minFrequencyHz: NotRequired[float]
     windowStartNorm: float
     windowEndNorm: float
     window: str
@@ -69,6 +73,43 @@ class WavLoopExportResult(TypedDict):
 
 class RecipeRunResult(TypedDict):
     charts: list[ChartSpec]
+
+
+# IEC 61260-1 nominal mid-band frequencies, which wandas (MoSQITo) uses to label its bands.
+_NOMINAL_BAND_CENTERS_HZ: dict[int, tuple[float, ...]] = {
+    1: (31.5, 63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0),
+    3: (
+        25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0, 125.0, 160.0, 200.0,
+        250.0, 315.0, 400.0, 500.0, 630.0, 800.0, 1000.0, 1250.0, 1600.0, 2000.0,
+        2500.0, 3150.0, 4000.0, 5000.0, 6300.0, 8000.0, 10000.0, 12500.0, 16000.0, 20000.0,
+    ),
+}  # fmt: skip
+
+
+class OctaveBands(NamedTuple):
+    bands_per_octave: int
+    centers_hz: tuple[float, ...]
+    # Edges of the whole nominal range, so every file shares one axis whatever its sample rate.
+    min_frequency_hz: float
+    max_frequency_hz: float
+
+
+def octave_bands(bands_per_octave: int, sampling_rate: float) -> OctaveBands:
+    """The nominal bands whose MoSQITo filters can be designed at this sample rate."""
+    nominal = _NOMINAL_BAND_CENTERS_HZ.get(bands_per_octave)
+    if nominal is None:
+        raise InputError("bandsPerOctave must be 1 or 3")
+    ratio = 10 ** (3 / (10 * bands_per_octave))
+    half_band = math.sqrt(ratio)
+
+    def exact(center: float) -> float:
+        return 1000.0 * ratio ** round(math.log(center / 1000.0, ratio))
+
+    nyquist = sampling_rate / 2
+    usable = tuple(c for c in nominal if exact(c) * half_band < nyquist and exact(c) <= 0.88 * nyquist)
+    if not usable:
+        raise InputError(f"No {bands_per_octave}-band octave filter fits below {nyquist:g} Hz")
+    return OctaveBands(bands_per_octave, usable, exact(nominal[0]) / half_band, exact(nominal[-1]) * half_band)
 
 
 def _optional_text(value: object) -> str | None:
@@ -167,12 +208,14 @@ class AnalysisService:
         stft_options: Mapping[str, object] | None = None,
         calibration_profile: object = None,
         analysis_revision: object = 0,
+        bands_per_octave: int | None = None,
     ) -> SpectrumSliceResult:
         compute_started = time.perf_counter()
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         window_size, _hop_size, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
         clipped_norm = max(0.0, min(1.0, cursor_norm))
         revision = _analysis_revision(analysis_revision)
+        bands = octave_bands(bands_per_octave, analysis_frame.sampling_rate) if bands_per_octave is not None else None
 
         # Transform the window centred on the cursor itself rather than the nearest STFT frame, so the
         # spectrum (and the band drawn for it) follows the cursor without hop-sized jumps or gaps.
@@ -181,10 +224,17 @@ class AnalysisService:
         end_sample = min(analysis_frame.n_samples, start_sample + window_size)
         start_sample = max(0, end_sample - window_size)
         window_start_sample = float(start_sample)
-        slice_key = (resolved.signature, window_size, window_name, revision, start_sample)
+        slice_key = (resolved.signature, window_size, window_name, revision, start_sample, bands_per_octave)
         cached_slice = self.engine.get_spectrum_slice(cached, slice_key)
         if cached_slice is not None:
             rows, max_frequency_hz = cached_slice
+        elif bands is not None:
+            octave = analysis_frame[:, start_sample:end_sample].noct_spectrum(
+                fmin=bands.centers_hz[0], fmax=bands.centers_hz[-1], n=bands.bands_per_octave
+            )
+            rows = np.asarray(octave.dB, dtype=np.float64).reshape(analysis_frame.n_channels, -1).astype(np.float32)
+            max_frequency_hz = bands.max_frequency_hz
+            self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
         else:
             spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
             max_frequency_hz = float(spectrum.freqs[-1])
@@ -194,6 +244,7 @@ class AnalysisService:
                 SPECTROGRAM_FREQUENCY_BIN_LIMIT,
             ).astype(np.float32, copy=False)
             self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
+        quantity = "Band level" if bands is not None else "Spectrum amplitude level"
         channels: list[dict[str, object]] = []
         for channel_index, row in enumerate(rows):
             reference = analysis_frame.channels[channel_index].level_reference
@@ -203,10 +254,10 @@ class AnalysisService:
                     "values": row.tolist(),
                     "minDb": float(np.min(row)),
                     "maxDb": float(np.max(row)),
-                    **level_scale_metadata(reference, "Spectrum amplitude level"),
+                    **level_scale_metadata(reference, quantity),
                 }
             )
-        return {
+        result: SpectrumSliceResult = {
             "trackIndex": track_index,
             "analysisId": _optional_text(analysis_id),
             "settingsSignature": _optional_text(settings_signature),
@@ -222,6 +273,16 @@ class AnalysisService:
             "calibrationSignature": resolved.signature,
             "analysisRevision": revision,
         }
+        if bands is not None:
+            result.update(
+                bandsPerOctave=bands.bands_per_octave,
+                bandCentersHz=list(bands.centers_hz),
+                minFrequencyHz=bands.min_frequency_hz,
+                # The band filters see the samples as they are: no window and no zero padding.
+                windowEndNorm=end_sample / analysis_frame.n_samples,
+                window="boxcar",
+            )
+        return result
 
     def waveform_range(
         self,

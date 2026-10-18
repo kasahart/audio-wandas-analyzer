@@ -1,5 +1,6 @@
 import { drawSpectrumAxes, drawSpectrumCrosshair, drawSpectrumLine, type CanvasDrawCtx, type DrawTheme } from '../draw/canvasDrawers';
 import {
+    sliceLogMinFrequencyHz,
     spectrumBinAtHover,
     spectrumPlotFrame,
     spectrumVisibleWindow,
@@ -27,9 +28,9 @@ export function paintTrackSpectrum(
     const { slice, color } = series;
     ctx.clearRect(0, 0, W, H);
     const pad = TRACK_SPECTRUM_PAD;
-    const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, view);
-    drawSpectrumAxes(ctx, W, H, slice, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, theme);
-    drawSpectrumLine(ctx, W, H, slice, color, { padL: pad.left, padR: pad.right, padT: pad.top, padB: pad.bottom }, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax);
+    const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, view, sliceLogMinFrequencyHz(slice));
+    drawSpectrumAxes(ctx, W, H, slice, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, theme, vis.logFrequency);
+    drawSpectrumLine(ctx, W, H, slice, color, { padL: pad.left, padR: pad.right, padT: pad.top, padB: pad.bottom }, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, vis.logFrequency);
     if (hoverNorm === null) {
         return null;
     }

@@ -272,6 +272,8 @@ DEFINITIONS: dict[str, Schema] = {
             "analysisId": {"type": "string"},
             "settingsSignature": {"type": "string"},
             "cursorNorm": _NUMBER,
+            # Absent for the FFT spectrum; 1 or 3 asks for 1/1 or 1/3 octave bands of the same samples instead.
+            "bandsPerOctave": {"type": "integer", "enum": [1, 3]},
             "stftOptions": {"$ref": "#/$defs/StftOptions"},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
@@ -326,6 +328,10 @@ DEFINITIONS: dict[str, Schema] = {
             "channels": {"type": "array", "items": {"$ref": "#/$defs/SpectrumSliceChannel"}},
             "frequencyBins": {"type": "integer"},
             "maxFrequencyHz": _NUMBER,
+            # Octave-band results only: the bands' nominal centres and the fixed log axis lower edge.
+            "bandsPerOctave": {"type": "integer", "enum": [1, 3]},
+            "bandCentersHz": _NUMBERS,
+            "minFrequencyHz": _NUMBER,
             "windowStartNorm": _NUMBER,
             "windowEndNorm": _NUMBER,
             "window": {"type": "string", "enum": ["hann", "hamming", "blackman", "boxcar"]},

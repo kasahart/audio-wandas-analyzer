@@ -100,3 +100,12 @@ test('WAV export accepts bounded per-file timeline regions and preserves legacy 
         assert.equal(isExportWavLoopMessage({ ...message, fileRegions: [invalid] }), false);
     }
 });
+
+test('isRequestSpectrumSliceMessage accepts only 1 or 3 bands per octave', () => {
+    const request = { type: 'request-spectrum-slice', requestId: 'slice-1', analysisId: 'analysis-1',
+        settingsSignature: 'settings-1', trackIndex: 0, filePath: '/tmp/a.wav', cursorNorm: 0.25 };
+    assert.equal(isRequestSpectrumSliceMessage({ ...request, bandsPerOctave: 1 }), true);
+    assert.equal(isRequestSpectrumSliceMessage({ ...request, bandsPerOctave: 3 }), true);
+    assert.equal(isRequestSpectrumSliceMessage({ ...request, bandsPerOctave: 6 }), false);
+    assert.equal(isRequestSpectrumSliceMessage({ ...request, bandsPerOctave: '3' }), false);
+});

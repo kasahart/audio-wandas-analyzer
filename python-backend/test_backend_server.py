@@ -441,6 +441,56 @@ def test_spectrum_slice_window_is_centred_on_the_cursor(tmp_path: Path, cached_d
         assert handle_spectrum_slice(command, service)["channels"] == resp["channels"]
 
 
+@pytest.mark.parametrize(
+    ("bands_per_octave", "sr", "first", "last", "peak"),
+    [(1, 16000, 31.5, 4000.0, 1000.0), (3, 16000, 25.0, 6300.0, 1000.0), (3, 48000, 25.0, 20000.0, 1000.0)],
+)
+def test_spectrum_slice_octave_bands_level_the_cursor_samples(
+    tmp_path: Path, bands_per_octave: int, sr: int, first: float, last: float, peak: float
+) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav, freq_hz=1000.0, sr=sr)
+    opts = {"nFft": 4096, "hopSize": 1024, "window": "hann"}
+    command = {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": opts, "bandsPerOctave": bands_per_octave}
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
+    resp = handle_spectrum_slice(command, service)
+
+    assert result_violation("spectrum-slice", resp) is None
+    centers = resp["bandCentersHz"]
+    assert (centers[0], centers[-1]) == (first, last)
+    assert resp["frequencyBins"] == len(centers) == len(resp["channels"][0]["values"])
+    # Every sample rate shares one axis, and the band filters see the samples unwindowed.
+    assert resp["minFrequencyHz"] == pytest.approx(22.39, abs=0.01)
+    assert resp["maxFrequencyHz"] == pytest.approx(22387.2, abs=0.1)
+    assert resp["window"] == "boxcar"
+    assert resp["channels"][0]["axisLabel"].startswith("Band level")
+    values = resp["channels"][0]["values"]
+    assert centers[int(np.argmax(values))] == peak
+    # A 0.5 amplitude sine has an RMS level of 20*log10(0.5/sqrt(2)) dBFS.
+    assert max(values) == pytest.approx(-9.03, abs=0.5)
+    assert handle_spectrum_slice(command, service)["channels"] == resp["channels"]
+    fft = handle_spectrum_slice({key: value for key, value in command.items() if key != "bandsPerOctave"}, service)
+    assert "bandCentersHz" not in fft and fft["window"] == "hann"
+
+
+def test_spectrum_slice_rejects_other_band_counts(tmp_path: Path) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    with pytest.raises(backend_errors.InputError):
+        validate_request(
+            {
+                "cmd": "spectrum-slice",
+                "requestId": "r",
+                "filePath": str(wav),
+                "trackIndex": 0,
+                "analysisId": "a",
+                "settingsSignature": "s",
+                "cursorNorm": 0.5,
+                "bandsPerOctave": 6,
+            }
+        )
+
+
 def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)

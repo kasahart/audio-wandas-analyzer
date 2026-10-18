@@ -60,6 +60,9 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'spec-zoom-in',
     'spec-zoom-reset',
     'spectrum-settings',
+    'spectrum-fft',
+    'spectrum-octave-1',
+    'spectrum-octave-3',
     'track-height-input',
     'track-height-reset',
     'track-height-drag',
@@ -163,6 +166,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Open the frequency-analysis settings shared with the spectrogram from the docked spectrum',
         entryPoints: ['results-toolbar'],
         triggers: ['spectrum-settings'],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'spectrum-octave-bands',
+        label: 'Switch the docked spectrum between the FFT and 1/1 or 1/3 octave bands',
+        entryPoints: ['results-toolbar'],
+        triggers: ['spectrum-fft', 'spectrum-octave-1', 'spectrum-octave-3'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

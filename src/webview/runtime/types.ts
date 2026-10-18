@@ -42,6 +42,7 @@ export type ComparisonState = ComparisonResultsState | DirectorySelectionState;
 
 export interface PersistedWebviewState {
     contentType?: 'waveform' | 'spectrogram';
+    spectrumBandsPerOctave?: 0 | 1 | 3;
     directoryCollapseRootPath?: string;
     directoryCollapseState?: Record<string, boolean>;
     treeFilterRootPath?: string;
@@ -130,6 +131,10 @@ export interface SpectrumSlice {
     channelIndex?: number;
     settingsSignature?: string;
     originalMaxFrequencyHz?: number;
+    /** Octave-band slices only: one value per band centre, drawn on a log axis from minFrequencyHz. */
+    bandsPerOctave?: number;
+    bandCentersHz?: number[];
+    minFrequencyHz?: number;
     /** Track-normalized span of the samples the backend actually transformed; may extend past 0..1 where frames are padded. */
     windowStartNorm?: number;
     windowEndNorm?: number;

@@ -13,7 +13,7 @@ from scipy.signal import ShortTimeFFT, get_window
 from calibration_profile import ResolvedCalibrationProfile, resolve_calibration_profile, source_channel_peaks
 
 StftKey = tuple[str, int, int, str]
-SpectrumSliceKey = tuple[str, int, str, int, int]
+SpectrumSliceKey = tuple[str, int, str, int, int, int | None]
 AUDIO_CACHE_DTYPE = np.dtype("float32")
 SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
 

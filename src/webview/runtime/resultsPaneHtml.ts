@@ -8,12 +8,24 @@ export interface ResultsPaneParts {
     audioHtml: string;
     emptyMessage: string;
     axisWidth: number;
+    spectrumBandsPerOctave: SpectrumBandsSetting;
 }
+
+/** 0 is the FFT spectrum; 1 and 3 are octave bands. */
+export type SpectrumBandsSetting = 0 | 1 | 3;
 
 export type ResultsPaneStrings = Pick<UiStrings,
     | 'ariaToolbar' | 'spectrumSectionTitle' | 'spectrumZoomLabel'
     | 'ariaSpecZoomOut' | 'ariaSpecZoomIn' | 'ariaSpecZoomReset' | 'btnSpecZoomReset' | 'heightSpectrumLabel'
-    | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'btnSpectrumSettingsTitle' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'>;
+    | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'btnSpectrumSettingsTitle' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'
+    | 'hintSpectrumFft' | 'hintSpectrumOctave1' | 'hintSpectrumOctave3'>;
+
+function spectrumBandsButtons(selected: SpectrumBandsSetting, strings: ResultsPaneStrings): string {
+    const state = (bands: SpectrumBandsSetting) => (bands === selected ? ' is-active" aria-pressed="true"' : '" aria-pressed="false"');
+    return '<button class="tb-btn' + state(0) + ' data-action="spectrum-fft"' + hintAttr(strings.hintSpectrumFft) + '>FFT</button>'
+        + '<button class="tb-btn' + state(1) + ' data-action="spectrum-octave-1"' + hintAttr(strings.hintSpectrumOctave1) + '>1/1</button>'
+        + '<button class="tb-btn' + state(3) + ' data-action="spectrum-octave-3"' + hintAttr(strings.hintSpectrumOctave3) + '>1/3</button>';
+}
 
 export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStrings): string {
     return '<div id="toolbar" role="toolbar" aria-label="' + escapeHtml(strings.ariaToolbar) + '">' + parts.toolbarHtml + '</div>'
@@ -30,7 +42,8 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '    <button class="tb-btn" data-action="spec-zoom-out"' + hintAttr(strings.hintSpecZoomOut) + ' aria-label="' + escapeHtml(strings.ariaSpecZoomOut) + '">－</button>'
         + '    <button class="tb-btn" data-action="spec-zoom-in"' + hintAttr(strings.hintSpecZoomIn) + ' aria-label="' + escapeHtml(strings.ariaSpecZoomIn) + '">＋</button>'
         + '    <button class="tb-btn" data-action="spec-zoom-reset"' + hintAttr(strings.hintSpecZoomReset) + ' aria-label="' + escapeHtml(strings.ariaSpecZoomReset) + '">' + escapeHtml(strings.btnSpecZoomReset) + '</button>'
-        + '    <button class="tb-btn" data-action="spectrum-settings" style="margin-left:auto"' + hintAttr(strings.btnSpectrumSettingsTitle) + ' aria-label="' + escapeHtml(strings.btnSpectrumSettingsTitle) + '">⚙</button>'
+        + '    <span style="margin-left:auto;display:flex;gap:2px;">' + spectrumBandsButtons(parts.spectrumBandsPerOctave, strings) + '</span>'
+        + '    <button class="tb-btn" data-action="spectrum-settings"' + hintAttr(strings.btnSpectrumSettingsTitle) + ' aria-label="' + escapeHtml(strings.btnSpectrumSettingsTitle) + '">⚙</button>'
         + '  </div>'
         + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(strings.spectrumSectionTitle) + '"' + hintAttr(strings.hintSpectrumPlot) + '></canvas></div>'
         + '</div>'

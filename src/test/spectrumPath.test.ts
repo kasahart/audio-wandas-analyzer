@@ -40,3 +40,27 @@ test('spectrumSeriesRange spans every series', () => {
         { slice: slice([0], { minDb: -90, maxDb: -20, maxFrequencyHz: 24_000 }) },
     ]), { minDb: -90, maxDb: -10, maxFrequencyHz: 24_000 });
 });
+
+const LOG_FRAME: SpectrumPlotFrame = {
+    padLeft: 0, plotWidth: 100, padTop: 0, plotHeight: 100,
+    frequencyMin: 10, frequencyMax: 10_000, logFrequency: true, dbMin: -100, dbMax: 0,
+};
+
+test('traceSpectrumPath draws octave bands as steps between the band edges on a log axis', () => {
+    const { ctx, calls } = recordingCtx();
+    // 100 Hz and 1 kHz sit a third and two thirds of the way along 10 Hz - 10 kHz.
+    traceSpectrumPath(ctx, slice([-50, 0], { bandsPerOctave: 1, bandCentersHz: [100, 1000], maxFrequencyHz: 10_000 }), LOG_FRAME, 10_000);
+    const round = (v: number) => Math.round(v * 100) / 100;
+    assert.deepEqual(calls.map(([op, x, y]) => [op, round(x), y]), [
+        ['moveTo', round(100 * Math.log10(10 / Math.SQRT2) / 3), 50],
+        ['lineTo', 50, 50],
+        ['lineTo', 50, 0],
+        ['lineTo', round(100 * Math.log10(100 * Math.SQRT2) / 3), 0],
+    ]);
+});
+
+test('spectrumSeriesRange reports the shared log axis edge of octave-band series', () => {
+    const band = slice([0], { bandCentersHz: [1000], bandsPerOctave: 3, minFrequencyHz: 22.39, maxFrequencyHz: 22_387 });
+    assert.equal(spectrumSeriesRange([{ slice: band }]).logMinFrequencyHz, 22.39);
+    assert.equal(spectrumSeriesRange([{ slice: slice([0]) }]).logMinFrequencyHz, undefined);
+});

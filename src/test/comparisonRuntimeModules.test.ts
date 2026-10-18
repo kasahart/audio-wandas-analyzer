@@ -80,6 +80,15 @@ test('host message validation rejects unknown and incomplete payloads', () => {
     assert.equal(isHostInboundMessage({ type: 'directory-selection', rootPath: '/sources', rootLabel: 3, filePaths: [] }), false);
 });
 
+test('host message validation requires octave bands to match the bins they label', () => {
+    const slice = { type: 'spectrum-slice-result', requestId: 'r', analysisId: 'a', settingsSignature: 's', trackIndex: 0, filePath: '/a.wav',
+        channels: [{ channelIndex: 0, values: [-10, -20], minDb: -20, maxDb: -10 }], frequencyBins: 2, maxFrequencyHz: 22387 };
+    const bands = { bandsPerOctave: 3, bandCentersHz: [500, 630], minFrequencyHz: 22.39 };
+    assert.equal(isHostInboundMessage({ ...slice, ...bands }), true);
+    assert.equal(isHostInboundMessage({ ...slice, ...bands, bandCentersHz: [500] }), false);
+    assert.equal(isHostInboundMessage({ ...slice, ...bands, minFrequencyHz: undefined }), false);
+});
+
 
 test('static host subscription ignores window messages and validates its own payloads', () => {
     let subscribed: ((message: unknown) => void) | undefined;

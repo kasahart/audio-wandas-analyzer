@@ -1,7 +1,7 @@
 import type { SpectrogramData, SpectrogramDisplaySettings, SpectrogramSettings } from '../../shared/analysis/analysisTypes';
-import { formatDbLevel, formatHz } from '../draw/canvasDrawers';
+import { formatDbLevel, formatHz, frequencyAxisTicks } from '../draw/canvasDrawers';
 import { spectrogramDisplayBounds } from './spectrogramRaster';
-import { spectrumSeriesRange, spectrumVisibleWindow, type SpectrumViewState } from './spectrumRuntime';
+import { sliceLogMinFrequencyHz, spectrumSeriesRange, spectrumVisibleWindow, type SpectrumViewState } from './spectrumRuntime';
 import type { SpectrumSlice, WaveformCoverage } from './types';
 
 export interface LatestSpectrogramSnapshot {
@@ -32,12 +32,13 @@ export function spectrumAxisLabelTexts(
     freqMin: number,
     freqMax: number,
     source: { unit?: string } | null,
+    logFrequency = false,
 ): string[] {
     return [
         formatDbLevel(dbMax, source),
         formatDbLevel((dbMax + dbMin) / 2, source),
         formatDbLevel(dbMin, source),
-        formatHz(freqMin), formatHz((freqMin + freqMax) / 2), formatHz(freqMax),
+        ...frequencyAxisTicks({ frequencyMin: freqMin, frequencyMax: freqMax, logFrequency }).map(tick => tick.text),
     ];
 }
 
@@ -45,8 +46,8 @@ export function sliceSpectrumAxisLabels(slice: SpectrumSlice | null, view: Spect
     if (!slice) {
         return [];
     }
-    const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, view);
-    return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, slice);
+    const vis = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb, view, sliceLogMinFrequencyHz(slice));
+    return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, slice, vis.logFrequency);
 }
 
 export function overlaySpectrumAxisLabels(slices: readonly SpectrumSlice[], view: SpectrumViewState): string[] {
@@ -54,8 +55,8 @@ export function overlaySpectrumAxisLabels(slices: readonly SpectrumSlice[], view
     if (slices.length === 0 || !isFinite(range.minDb)) {
         return [];
     }
-    const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, view);
-    return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, slices[0]);
+    const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, view, range.logMinFrequencyHz);
+    return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, slices[0], vis.logFrequency);
 }
 
 export function spectrogramAxisLabelTexts(

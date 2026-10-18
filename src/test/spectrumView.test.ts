@@ -56,3 +56,16 @@ test('SpectrumView.applyBoxZoom keeps the dB range when the box carries none', (
     view.applyBoxZoom({ freqStart: 0.1, freqEnd: 0.3, dbMin: -40, dbMax: -20 });
     assert.deepEqual(view.state(), { freqStart: 0.1, freqEnd: 0.3, dbMin: -40, dbMax: -20 });
 });
+
+test('SpectrumView Hz fields follow a painted log axis', () => {
+    const view = new SpectrumView();
+    view.recordPaint({ maxFrequencyHz: 10_000, logMinFrequencyHz: 10, dbMin: -60, dbMax: 0 });
+    view.freqStart = 1 / 3;
+    view.freqEnd = 2 / 3;
+    assert.deepEqual(view.frequencyRangeFieldsHz(), { min: '100', max: '1000' });
+    assert.equal(view.setFrequencyRangeHz(1000, null), true);
+    assert.ok(Math.abs(view.freqStart - 2 / 3) < 1e-9);
+    assert.equal(view.freqEnd, 1);
+    assert.equal(view.setFrequencyRangeHz(0, 100), true);
+    assert.equal(view.freqStart, 0);
+});

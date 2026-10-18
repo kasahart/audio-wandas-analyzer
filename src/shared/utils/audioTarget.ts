@@ -108,7 +108,11 @@ export interface SpectrumSliceRequest {
     trackIndex: number;
     filePath: string;
     cursorNorm: number;
+    /** Absent for the FFT spectrum. */
+    bandsPerOctave?: SpectrumBandsPerOctave;
 }
+
+export type SpectrumBandsPerOctave = 1 | 3;
 
 export function isRequestSpectrumSliceMessage(message: unknown): message is SpectrumSliceRequest {
     if (!message || typeof message !== 'object') {
@@ -122,7 +126,8 @@ export function isRequestSpectrumSliceMessage(message: unknown): message is Spec
         typeof m['settingsSignature'] === 'string' &&
         typeof m['trackIndex'] === 'number' &&
         typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0 &&
-        typeof m['cursorNorm'] === 'number'
+        typeof m['cursorNorm'] === 'number' &&
+        (m['bandsPerOctave'] === undefined || m['bandsPerOctave'] === 1 || m['bandsPerOctave'] === 3)
     );
 }
 
