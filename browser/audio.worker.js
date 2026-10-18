@@ -27,10 +27,13 @@ async function initialize() {
     // A boot that fails earlier would otherwise leave these rejections unhandled.
     pureWheels.catch(() => {});
     sources.catch(() => {});
-    await Promise.all(lock.assets.filter(asset => !asset.path.endsWith('.whl')).map(fetchVerified));
+    const coreAssets = lock.assets.filter(asset => !asset.path.endsWith('.whl'));
+    const coreBytes = await Promise.all(coreAssets.map(fetchVerified));
+    // Handing Pyodide the verified bytes keeps a second, unverified fetch from supplying the wheel hashes.
+    const lockFileContents = new TextDecoder().decode(coreBytes[coreAssets.findIndex(asset => asset.path === 'pyodide-lock.json')]);
     const module = await import(new URL('pyodide.mjs', base).href);
     if (module.version !== lock.pyodideVersion) throw new Error('Pyodide version mismatch');
-    pyodide = await module.loadPyodide({ indexURL: base.href, packageBaseUrl: base.href, cdnUrl: base.href });
+    pyodide = await module.loadPyodide({ indexURL: base.href, packageBaseUrl: base.href, cdnUrl: base.href, lockFileContents });
     // loadPackage may only report a wheel that fails to download or verify, so either outcome fails the boot here.
     const packageErrors = [];
     await pyodide.loadPackage(lock.nativePackages, { checkIntegrity: true, errorCallback: message => packageErrors.push(message) })
