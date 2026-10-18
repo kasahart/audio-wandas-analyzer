@@ -656,18 +656,18 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (!wavs.length) { announce(strings.browserDropNoWav); return; }
         const listed = Array.from(folder);
         const added = wavs.map(file => {
-            // Picking a listed file again checks its entry instead of listing a copy.
-            const same = listed.find(([, entry]) => entry.name === file.name && entry.size === file.size && entry.lastModified === file.lastModified);
-            if (same) return { file, sourceId: same[0].slice('/sources/'.length) };
+            // Picking an unchecked listed file again checks its entry; a file already loaded gets a second entry, so it can be compared with itself.
+            const same = listed.find(([path, entry]) => !sources.get(path) && !pendingTreePaths.has(path)
+                && entry.name === file.name && entry.size === file.size && entry.lastModified === file.lastModified);
+            if (same) { pendingTreePaths.add(same[0]); return { file, sourceId: same[0].slice('/sources/'.length) }; }
             const stem = file.name.replace(/\.wav$/i, '').replace(/[\\/\u0000-\u001f]/g, '_');
             let sourceId = `${stem}.wav`;
             for (let n = 2; folder.has(`/sources/${sourceId}`); n++) sourceId = `${stem} (${n}).wav`;
             folder.set(`/sources/${sourceId}`, file);
             return { file, sourceId };
-        }).filter(({ sourceId }) => !sources.get(`/sources/${sourceId}`));
+        });
         const myRequest = ++selectionRequests;
         emit({ type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: Array.from(folder.keys()) });
-        if (!added.length) { snapshot(); return; }
         added.forEach(({ sourceId }) => pendingTreePaths.add(`/sources/${sourceId}`));
         snapshot();
         loading = true; pick.disabled = true;

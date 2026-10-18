@@ -887,4 +887,10 @@ test('picked files are listed in the tree under their own names and load checked
     await flush(); await flush();
     assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths, ['/sources/a.wav', '/sources/a (2).wav']);
     assert.deepEqual(app.received.filter(message => message.type === 'analysis-update').at(-1)!.selectedFilePaths, ['/sources/a.wav']);
+
+    // A file that is already loaded gets a second entry, so it can be compared with itself.
+    app.picker.files = [wav('a.wav')];
+    app.picker.onchange!();
+    await flush(); await flush();
+    assert.deepEqual(app.received.filter(message => message.type === 'analysis-update').at(-1)!.selectedFilePaths, ['/sources/a.wav', '/sources/a (3).wav']);
 });
