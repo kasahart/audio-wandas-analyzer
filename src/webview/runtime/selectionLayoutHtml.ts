@@ -1,10 +1,12 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
+import { panelToggleHtml, type PanelCollapseStrings } from './panelCollapse';
 
 export interface SelectionLayoutParts {
     rootPath: string;
     isEmpty?: boolean;
+    sidebarCollapsed?: boolean;
     filterQuery: string;
     treeHtml: string;
     resultsPaneHtml: string;
@@ -14,7 +16,7 @@ export interface SelectionLayoutParts {
 export type SelectionLayoutStrings = Pick<UiStrings,
     | 'selectionHeader' | 'btnOpenFile' | 'btnOpenFolder' | 'btnOpenAnotherFolder' | 'treeFilterPlaceholder'
     | 'btnSelectAll' | 'btnClear' | 'ariaSelectionTree'
-    | 'hintOpenFile' | 'hintOpenFolder' | 'hintBrowserOpenFolder' | 'hintSelectAll' | 'hintClearAll' | 'hintTreeFilter' | 'hintTreeResizer'>;
+    | 'hintOpenFile' | 'hintOpenFolder' | 'hintBrowserOpenFolder' | 'hintSelectAll' | 'hintClearAll' | 'hintTreeFilter' | 'hintTreeResizer'> & PanelCollapseStrings;
 
 /** Until the panel lists something there is no "another" folder to open. */
 export function selectionFolderButton(listed: boolean, strings: SelectionLayoutStrings): { text: string; hint: string } {
@@ -29,8 +31,10 @@ export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: Select
     const pythonButton = python
         ? '    <button class="tb-btn' + (python.warning ? ' is-warning' : '') + '" id="selection-python-environment" data-action="select-python-environment"' + hintAttr(python.tooltip) + '>' + escapeHtml(python.text) + '</button>'
         : '';
-    return '<div id="directory-selection-layout"' + (parts.isEmpty ? ' class="is-empty"' : '') + '>'
+    const layoutClasses = [parts.isEmpty ? 'is-empty' : '', parts.sidebarCollapsed ? 'sidebar-collapsed' : ''].filter(Boolean).join(' ');
+    return '<div id="directory-selection-layout"' + (layoutClasses ? ' class="' + layoutClasses + '"' : '') + '>'
         + '  <div id="selection-toolbar">'
+        + '    ' + panelToggleHtml('sidebar', Boolean(parts.sidebarCollapsed), strings)
         + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + escapeHtml(strings.selectionHeader) + '</span>'
         + '    <div class="tb-sep"></div>'
         + '    <button class="tb-btn" data-action="open-file"' + hintAttr(strings.hintOpenFile) + '>' + escapeHtml(strings.btnOpenFile) + '</button>'

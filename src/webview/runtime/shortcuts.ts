@@ -10,6 +10,7 @@ export const SHORTCUT_ROWS = [
     { shortcut: 'Drag (zoom mode)', labelKey: 'helpRowWaveRectZoom' },
     { shortcut: 'Drag', labelKey: 'helpRowDrag' },
     { shortcut: 'Shift+Drag', labelKey: 'helpRowShiftDrag' },
+    { shortcut: 'Double-click (resize edge)', labelKey: 'helpRowDoubleClickEdge' },
     { shortcut: '?', labelKey: 'helpRowQuestion' },
     { shortcut: 'Esc', labelKey: 'helpRowEsc' },
 ] as const;

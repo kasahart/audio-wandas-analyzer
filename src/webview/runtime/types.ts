@@ -43,6 +43,8 @@ export type ComparisonState = ComparisonResultsState | DirectorySelectionState;
 export interface PersistedWebviewState {
     contentType?: 'waveform' | 'spectrogram';
     spectrumBandsPerOctave?: 0 | 1 | 3;
+    sidebarCollapsed?: boolean;
+    spectrumCollapsed?: boolean;
     directoryCollapseRootPath?: string;
     directoryCollapseState?: Record<string, boolean>;
     treeFilterRootPath?: string;

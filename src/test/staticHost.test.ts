@@ -158,8 +158,10 @@ test('browser preferences restore safely across reloads and use shared Japanese 
     assert.equal(app.browser.__APP_STRINGS__.btnOpenFile, 'ファイルを開く');
     const settings = { auto: false, stft: { nFft: 256, overlapPercent: 75, window: 'hann' }, display: { dbMin: -80, dbMax: 0, maxFrequencyHz: 4000 } };
     app.host.postMessage({ type: 'update-spectrogram-settings', settings });
-    app.host.setState({ contentType: 'spectrogram', directoryCollapseRootPath: '/private/path' });
+    app.host.setState({ contentType: 'spectrogram', directoryCollapseRootPath: '/private/path', sidebarCollapsed: true, spectrumCollapsed: true });
     const restored = harness(storage);
+    assert.equal(restored.host.getState()?.sidebarCollapsed, true);
+    assert.equal(restored.host.getState()?.spectrumCollapsed, true);
     assert.equal(JSON.stringify(restored.browser.__APP_STATE__.spectrogramSettings), JSON.stringify(settings));
     assert.equal(restored.host.getState()?.contentType, 'spectrogram');
     assert.ok(!storage.get('audioWandasAnalyzer.viewState')!.includes('/private/path'));

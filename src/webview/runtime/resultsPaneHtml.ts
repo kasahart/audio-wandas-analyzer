@@ -1,6 +1,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
+import { panelToggleHtml, type PanelCollapseStrings } from './panelCollapse';
 
 export interface ResultsPaneParts {
     toolbarHtml: string;
@@ -9,6 +10,7 @@ export interface ResultsPaneParts {
     emptyMessage: string;
     axisWidth: number;
     spectrumBandsPerOctave: SpectrumBandsSetting;
+    spectrumCollapsed?: boolean;
 }
 
 /** 0 is the FFT spectrum; 1 and 3 are octave bands. */
@@ -18,7 +20,7 @@ export type ResultsPaneStrings = Pick<UiStrings,
     | 'ariaToolbar' | 'spectrumSectionTitle' | 'spectrumZoomLabel'
     | 'ariaSpecZoomOut' | 'ariaSpecZoomIn' | 'ariaSpecZoomReset' | 'btnSpecZoomReset' | 'heightSpectrumLabel'
     | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'btnSpectrumSettingsTitle' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'
-    | 'hintSpectrumFft' | 'hintSpectrumOctave1' | 'hintSpectrumOctave3'>;
+    | 'hintSpectrumFft' | 'hintSpectrumOctave1' | 'hintSpectrumOctave3'> & PanelCollapseStrings;
 
 function spectrumBandsButtons(selected: SpectrumBandsSetting, strings: ResultsPaneStrings): string {
     const state = (bands: SpectrumBandsSetting) => (bands === selected ? ' is-active" aria-pressed="true"' : '" aria-pressed="false"');
@@ -34,9 +36,9 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '  <div id="stacked-wrap">' + parts.tracksHtml + '</div>'
         + '  <div id="empty-state"><p>' + escapeHtml(parts.emptyMessage) + '</p></div>'
         + '</div>'
-        + '<div id="spectrum-section">'
+        + '<div id="spectrum-section"' + (parts.spectrumCollapsed ? ' class="is-collapsed"' : '') + '>'
         + '  <div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag"' + hintAttr(strings.hintSpectrumHeightResizer) + ' role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.heightSpectrumLabel + ' resize') + '"></div>'
-        + '  <div id="spectrum-section-header"><span>' + escapeHtml(strings.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span><span id="spectrum-freq-readout" style="font-family:var(--font-mono);margin-left:14px;"></span></div>'
+        + '  <div id="spectrum-section-header"><span>' + escapeHtml(strings.spectrumSectionTitle) + '</span><span id="spectrum-cursor-time" style="font-family:var(--font-mono);"></span><span id="spectrum-freq-readout" style="font-family:var(--font-mono);margin-left:14px;"></span>' + panelToggleHtml('spectrum', Boolean(parts.spectrumCollapsed), strings) + '</div>'
         + '  <div id="spectrum-zoom-toolbar" style="display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;">'
         + '    <span class="tb-label">' + escapeHtml(strings.spectrumZoomLabel) + '</span>'
         + '    <button class="tb-btn" data-action="spec-zoom-out"' + hintAttr(strings.hintSpecZoomOut) + ' aria-label="' + escapeHtml(strings.ariaSpecZoomOut) + '">－</button>'

@@ -17,6 +17,8 @@ export function heightInputRequest(action: string | null, value: string | number
 
 export interface HeightResizeDeps {
     currentHeight(kind: HeightKind): number;
+    /** A collapsed panel has no height to drag; its edge only takes the double-click that unfolds it. */
+    canBegin?(kind: HeightKind): boolean;
     setHeight(kind: HeightKind, height: number): void;
     onActiveChange(active: boolean): void;
 }
@@ -33,6 +35,9 @@ export function createHeightResize(deps: HeightResizeDeps): HeightResize {
     let drag: { kind: HeightKind; startY: number; startHeight: number } | null = null;
     return {
         begin(kind, clientY) {
+            if (deps.canBegin && !deps.canBegin(kind)) {
+                return;
+            }
             drag = { kind, startY: clientY, startHeight: deps.currentHeight(kind) };
             deps.onActiveChange(true);
         },

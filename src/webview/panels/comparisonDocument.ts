@@ -251,6 +251,14 @@ export function renderComparisonStyles(): string {
         #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); position: relative; }
         .spectrum-height-resizer { left: 0; right: 0; top: -3px; height: 6px; }
         #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; cursor: crosshair; }
+        #spectrum-section-header .panel-toggle { margin-left: auto; }
+        /* The zoom toolbar lays itself out with an inline display:flex. */
+        #spectrum-section.is-collapsed #spectrum-zoom-toolbar,
+        #spectrum-section.is-collapsed #spectrum-overlay-wrap { display: none !important; }
+        #spectrum-section.is-collapsed #spectrum-section-header { border-bottom: none; }
+        #spectrum-section.is-collapsed .spectrum-height-resizer { cursor: default; }
+        #directory-selection-layout.sidebar-collapsed #selection-sidebar,
+        #directory-selection-layout.sidebar-collapsed .tree-resizer { display: none; }
         .track-title-row { display: flex; align-items: center; gap: 4px; overflow: hidden; }
         .track-drag-handle { cursor: grab; color: var(--muted); font-size: 12px; user-select: none; flex-shrink: 0; padding: 0 2px; line-height: 1; }
         .track-drag-handle:active { cursor: grabbing; }
