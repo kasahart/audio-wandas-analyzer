@@ -26,10 +26,18 @@ test('the spectrum toggle folds the docked spectrum to its header and gives the 
     await page.mouse.up();
     await expect(plot).toBeHidden();
 
-    await toggle.click();
+    // The folded header itself is the way back.
+    await page.locator('#spectrum-section-header').click({ position: { x: 40, y: 8 } });
     await expect(plot).toBeVisible();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(Math.round((await tracks.boundingBox())!.height)).toBe(Math.round(openTracksHeight));
+
+    await page.locator('#spectrum-section-header').click({ position: { x: 40, y: 8 } });
+    await expect(plot).toBeVisible();
+    await toggle.click();
+    await expect(plot).toBeHidden();
+    await toggle.click();
+    await expect(plot).toBeVisible();
 });
 
 test('double-clicking the spectrum top edge folds and unfolds it', async ({ page }) => {
@@ -55,11 +63,19 @@ test('the selection toggle hides the file list so the results pane takes the ful
     await expect(sidebar).toBeHidden();
     await expect(page.locator('#tree-resizer')).toBeHidden();
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect.poll(async () => Math.round((await results.boundingBox())!.width)).toBe(1200);
-    expect(openWidth).toBeLessThan(1200);
+    const rail = page.locator('#selection-sidebar-rail');
+    await expect(rail).toBeVisible();
+    await expect(page.locator('#selection-rail-count')).toHaveText('0/2');
+    const railWidth = (await rail.boundingBox())!.width;
+    await expect.poll(async () => Math.round((await results.boundingBox())!.width)).toBe(Math.round(1200 - railWidth));
+    expect(openWidth).toBeLessThan(1200 - railWidth);
 
-    await toggle.click();
+    // Clicking anywhere on the rail brings the list back.
+    const railBox = (await rail.boundingBox())!;
+    await page.mouse.click(railBox.x + railBox.width / 2, railBox.y + railBox.height / 2);
     await expect(sidebar).toBeVisible();
+    await expect(rail).toBeHidden();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect.poll(async () => Math.round((await results.boundingBox())!.width)).toBe(Math.round(openWidth));
 
     await page.locator('#tree-resizer').dblclick();

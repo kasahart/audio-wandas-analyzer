@@ -1902,6 +1902,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         attachToolbarActions(document.getElementById('toolbar'), toolbarHandlers);
         attachToolbarActions(document.getElementById('spectrum-zoom-toolbar'), toolbarHandlers);
         attachToolbarActions(document.getElementById('spectrum-section-header'), toolbarHandlers);
+        document.getElementById('spectrum-section-header')?.addEventListener('click', function (e) {
+            const target = eventTarget(e);
+            if (spectrumCollapsed && !(target && typeof target.closest === 'function' && target.closest('[data-action]'))) {
+                setSpectrumCollapsed(false);
+            }
+        });
+        syncSpectrumHeaderHint();
         // Double-clicking a panel's resize edge folds it, the shortcut for its toggle button.
         document.addEventListener('dblclick', function (e) {
             const target = eventTarget(e);
@@ -2183,6 +2190,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (countEl) {
             countEl.textContent = count + ' / ' + visibleCount + ' ' + STR.selectionCountLabel;
         }
+        const railCountEl = document.getElementById('selection-rail-count');
+        if (railCountEl) {
+            railCountEl.textContent = count + '/' + visibleCount;
+        }
     }
     function syncPythonEnvironmentButton() {
         const selectionButton = document.getElementById('selection-python-environment');
@@ -2266,8 +2277,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (button) {
             syncPanelToggle(button, 'spectrum', next, STR);
         }
+        syncSpectrumHeaderHint();
         if (!next) {
             scheduleSpectrumRefresh('immediate');
+        }
+    }
+    // A folded spectrum is only its header, so the whole header is the way back.
+    function syncSpectrumHeaderHint() {
+        const header = document.getElementById('spectrum-section-header');
+        if (!header) {
+            return;
+        }
+        if (spectrumCollapsed) {
+            setHint(header, STR.hintExpandSpectrum);
+        }
+        else {
+            header.removeAttribute('data-hint');
+            header.removeAttribute('aria-description');
         }
     }
     function toggleFollowCursor() {

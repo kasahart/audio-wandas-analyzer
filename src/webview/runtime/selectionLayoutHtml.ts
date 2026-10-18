@@ -42,6 +42,7 @@ export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: Select
         + pythonButton
         + '  </div>'
         + '  <div id="selection-body">'
+        + '    <button id="selection-sidebar-rail" data-action="toggle-selection-sidebar"' + hintAttr(strings.hintExpandSidebar) + ' aria-label="' + escapeHtml(strings.hintExpandSidebar) + '"><span>›</span><span id="selection-rail-count"></span></button>'
         + '    <div id="selection-sidebar">'
         + '      <div id="selection-summary">'
         + '        <div class="selection-count" id="selection-count"></div>'

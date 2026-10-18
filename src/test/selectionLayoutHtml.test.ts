@@ -54,4 +54,5 @@ test('selection layout leads with a sidebar toggle that reflects the collapsed s
     const collapsed = selectionLayoutHtml({ ...parts, isEmpty: true, sidebarCollapsed: true }, strings);
     assert.ok(collapsed.startsWith('<div id="directory-selection-layout" class="is-empty sidebar-collapsed">'));
     assert.ok(collapsed.includes('data-action="toggle-selection-sidebar" aria-expanded="false" data-hint="' + strings.hintExpandSidebar + '"'));
+    assert.ok(collapsed.includes('<button id="selection-sidebar-rail" data-action="toggle-selection-sidebar" data-hint="' + strings.hintExpandSidebar + '"'));
 });
