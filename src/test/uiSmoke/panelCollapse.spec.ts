@@ -81,3 +81,78 @@ test('the selection toggle hides the file list so the results pane takes the ful
     await page.locator('#tree-resizer').dblclick();
     await expect(sidebar).toBeHidden();
 });
+
+test('maximizing the spectrum gives its plot the tracks\' room and Esc restores the layout', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const maximize = page.locator('#spectrum-section-header [data-action="toggle-spectrum-maximize"]');
+    const canvas = page.locator('#spectrum-overlay-canvas');
+    const tracks = page.locator('#tracks-wrapper');
+    const before = (await canvas.boundingBox())!.height;
+
+    await maximize.click();
+    await expect(maximize).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(async () => (await canvas.boundingBox())!.height).toBeGreaterThan(400);
+    const tracksBox = (await tracks.boundingBox())!;
+    expect(tracksBox.height).toBeGreaterThan(40);
+    expect(tracksBox.height).toBeLessThanOrEqual(900 * 0.3 + 1);
+    await expect(page.locator('[data-action="spectrum-height-drag"]')).toBeHidden();
+    const section = (await page.locator('#spectrum-section').boundingBox())!;
+    const footer = (await page.locator('#hint-footer').boundingBox())!;
+    expect(Math.round(section.y + section.height)).toBe(Math.round(footer.y));
+
+    // The plot follows the window while maximized.
+    await page.setViewportSize({ width: 1200, height: 700 });
+    await expect.poll(async () => Math.round((await page.locator('#spectrum-section').boundingBox())!.y + (await page.locator('#spectrum-section').boundingBox())!.height))
+        .toBe(Math.round((await page.locator('#hint-footer').boundingBox())!.y));
+
+    // Esc in a text field belongs to that field.
+    await page.evaluate(() => {
+        document.querySelector('[data-action="track-height-input"]')!
+            .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await expect(maximize).toHaveAttribute('aria-pressed', 'true');
+
+    await page.locator('body').press('Escape');
+    await expect(maximize).toHaveAttribute('aria-pressed', 'false');
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await expect.poll(async () => (await canvas.boundingBox())!.height).toBe(before);
+});
+
+test('collapsing a maximized spectrum leaves maximize, and maximizing a collapsed one unfolds it', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const maximize = page.locator('#spectrum-section-header [data-action="toggle-spectrum-maximize"]');
+    const collapse = page.locator('#spectrum-section-header [data-action="toggle-spectrum-panel"]');
+    const plot = page.locator('#spectrum-overlay-wrap');
+    await maximize.click();
+    await collapse.click();
+    await expect(plot).toBeHidden();
+    await expect(maximize).toHaveAttribute('aria-pressed', 'false');
+    expect((await page.locator('#tracks-wrapper').boundingBox())!.height).toBeGreaterThan(500);
+
+    await maximize.click();
+    await expect(plot).toBeVisible();
+    await expect(collapse).toHaveAttribute('aria-expanded', 'true');
+    await expect(maximize).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('dragging the spectrum edge can go past the old 320 px cap but keeps a strip of tracks', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const handle = (await page.locator('[data-action="spectrum-height-drag"]').boundingBox())!;
+    const x = handle.x + handle.width / 2;
+    await page.mouse.move(x, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, 20, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(async () => (await page.locator('#spectrum-overlay-canvas').boundingBox())!.height).toBeGreaterThan(320);
+    expect((await page.locator('#tracks-wrapper').boundingBox())!.height).toBeGreaterThanOrEqual(119);
+
+    // A smaller window shrinks the tall spectrum again instead of squeezing the tracks out.
+    await page.setViewportSize({ width: 1200, height: 600 });
+    await expect.poll(async () => (await page.locator('#tracks-wrapper').boundingBox())!.height).toBeGreaterThanOrEqual(119);
+    const section = (await page.locator('#spectrum-section').boundingBox())!;
+    const footer = (await page.locator('#hint-footer').boundingBox())!;
+    expect(Math.round(section.y + section.height)).toBe(Math.round(footer.y));
+});

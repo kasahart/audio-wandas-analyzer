@@ -71,6 +71,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'spectrum-height-drag',
     'toggle-selection-sidebar',
     'toggle-spectrum-panel',
+    'toggle-spectrum-maximize',
     'wave-mode-rect-zoom',
     'zoom-to-selection',
     'toggle-follow-cursor',
@@ -267,6 +268,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Collapse and expand the file list and the power spectrum',
         entryPoints: ['selection-toolbar', 'results-toolbar', 'canvas-gesture'],
         triggers: ['toggle-selection-sidebar', 'toggle-spectrum-panel', 'Double-click (resize edge)'],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'spectrum-maximize',
+        label: 'Maximize the power spectrum over the tracks and restore the layout',
+        entryPoints: ['results-toolbar', 'keyboard'],
+        triggers: ['toggle-spectrum-maximize', 'Esc'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

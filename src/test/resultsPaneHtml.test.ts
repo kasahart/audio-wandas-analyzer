@@ -58,3 +58,10 @@ test('results pane puts a collapse toggle in the spectrum header and marks a col
     assert.ok(collapsed.includes('<div id="spectrum-section" class="is-collapsed">'));
     assert.ok(collapsed.includes('data-action="toggle-spectrum-panel" aria-expanded="false" data-hint="' + strings.hintExpandSpectrum + '"'));
 });
+
+test('results pane offers a maximize toggle before the spectrum collapse toggle', () => {
+    const html = resultsPaneHtml(parts, strings);
+    const maximize = html.indexOf('data-action="toggle-spectrum-maximize" aria-pressed="false" data-hint="' + strings.hintMaximizeSpectrum + '"');
+    assert.ok(maximize > 0);
+    assert.ok(maximize < html.indexOf('data-action="toggle-spectrum-panel"'));
+});

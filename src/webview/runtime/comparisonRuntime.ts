@@ -30,7 +30,7 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
-import { arrowCursorStep, type GlobalShortcutAction } from './shortcuts';
+import { arrowCursorStep, isTextEntryTag, type GlobalShortcutAction } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
@@ -47,7 +47,7 @@ import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './p
 import { rulerTicks } from './timeRuler';
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
-import { syncPanelToggle } from './panelCollapse';
+import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
 import { SpectrumHover } from './spectrumHover';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
@@ -181,7 +181,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const TRACK_HEIGHT_STEP = 16;
     const SPECTRUM_HEIGHT_DEFAULT = 140;
     const SPECTRUM_HEIGHT_MIN = 80;
-    const SPECTRUM_HEIGHT_MAX = 320;
+    const SPECTRUM_HEIGHT_MAX = 1200;
+    // A tall spectrum still leaves the tracks this much room so the cursor stays reachable.
+    const TRACKS_MIN_VISIBLE = 120;
     const SPECTRUM_HEIGHT_STEP = 20;
     const TRACK_COLORS = ['#4ec994', '#ff8c4a', '#4a9eff', '#e8637a', '#c084fc',
         '#f0c040', '#40b0d0', '#d09060', '#80c080', '#a0a0ff'];
@@ -320,6 +322,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         ? persistedWebviewState.spectrumBandsPerOctave : 0;
     let sidebarCollapsed = persistedWebviewState.sidebarCollapsed === true;
     let spectrumCollapsed = persistedWebviewState.spectrumCollapsed === true;
+    let spectrumMaximized = false;
     const waveformView = new WaveformView();
     let cursorNorm = 0; // グローバルカーソル（常に number）
     let hoverNorm: number | null = null; // ホバープレビュー位置（null = 非表示）
@@ -331,7 +334,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const specBoxDrag = new SpectrumBoxDrag();
     const heightResize = createHeightResize({
         currentHeight: kind => kind === 'track' ? trackHeight : spectrumOverlayHeight,
-        canBegin: kind => kind === 'track' || !spectrumCollapsed,
+        canBegin: kind => kind === 'track' || (!spectrumCollapsed && !spectrumMaximized),
         setHeight,
         onActiveChange: active => document.body.classList.toggle('is-height-resizing', active),
     });
@@ -1910,6 +1913,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         });
         syncSpectrumHeaderHint();
+        document.addEventListener('keydown', function (e) {
+            // A text field (the offset editor) uses Esc to cancel its own edit.
+            if (e.key === 'Escape' && spectrumMaximized && !hasOpenOverlay() && !isTextEntryTag(eventTarget(e)?.tagName)) {
+                setSpectrumMaximized(false);
+            }
+        }, true);
         // Double-clicking a panel's resize edge folds it, the shortcut for its toggle button.
         document.addEventListener('dblclick', function (e) {
             const target = eventTarget(e);
@@ -2028,6 +2037,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
         });
         installLayoutResizeHandling(window, document, layoutElementIds, function () {
+            // A shrinking window takes its height from the tracks first, so give them back their strip.
+            if (!spectrumCollapsed && !spectrumMaximized && spectrumOverlayHeight > spectrumHeightLimit()) {
+                setSpectrumHeight(spectrumOverlayHeight);
+            }
             scheduleRender();
             scheduleSpectrumRefresh('interactive');
         }, typeof ResizeObserver === 'function' ? ResizeObserver : undefined);
@@ -2271,6 +2284,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function setSpectrumCollapsed(next: boolean) {
+        if (next && spectrumMaximized) {
+            setSpectrumMaximized(false);
+        }
         spectrumCollapsed = next;
         persistWebviewState({ spectrumCollapsed: next });
         const section = document.getElementById('spectrum-section');
@@ -2283,6 +2299,28 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!next) {
             scheduleSpectrumRefresh('immediate');
         }
+    }
+    function setSpectrumMaximized(next: boolean) {
+        if (next && spectrumCollapsed) {
+            setSpectrumCollapsed(false);
+        }
+        spectrumMaximized = next;
+        const section = document.getElementById('spectrum-section');
+        section?.classList.toggle('is-maximized', next);
+        section?.parentElement?.classList.toggle('spectrum-maximized', next);
+        const button = section?.querySelector<HTMLElement>('[data-action="toggle-spectrum-maximize"]');
+        if (button) {
+            syncSpectrumMaximize(button, next, STR);
+        }
+        // Leaving maximize puts back the height the user set before.
+        syncSpectrumCanvasCssHeight();
+        scheduleRender();
+        scheduleSpectrumRefresh('immediate');
+    }
+    // Esc restores a maximized spectrum unless it is closing a popover or the help first.
+    function hasOpenOverlay() {
+        return Array.from(document.querySelectorAll<HTMLElement>('#help-overlay, #spec-settings-popover, #color-picker-popover, [id$="range-popover"]'))
+            .some(function (el) { return !el.hidden && el.getClientRects().length > 0; });
     }
     // A folded spectrum is only its header, so the whole header is the way back.
     function syncSpectrumHeaderHint() {
@@ -2325,6 +2363,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'track-height-reset': () => setTrackHeight(TRACK_HEIGHT_DEFAULT),
             'spectrum-height-reset': () => setSpectrumHeight(SPECTRUM_HEIGHT_DEFAULT),
             'toggle-spectrum-panel': () => setSpectrumCollapsed(!spectrumCollapsed),
+            'toggle-spectrum-maximize': () => setSpectrumMaximized(!spectrumMaximized),
             'wave-mode-rect-zoom': () => {
                 waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
                 syncWaveformModeButton();
@@ -2370,14 +2409,41 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
     }
+    /** Maximized, the plot fills whatever its wrap gets from the flex layout; otherwise it keeps the height the user set. */
+    function effectiveSpectrumHeight(): number {
+        const wrap = spectrumMaximized ? document.getElementById('spectrum-overlay-wrap') : null;
+        if (!wrap || !wrap.clientHeight) {
+            return spectrumOverlayHeight;
+        }
+        const style = window.getComputedStyle(wrap);
+        const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+        return Math.max(SPECTRUM_HEIGHT_MIN, wrap.clientHeight - padding);
+    }
+    /** The pane's height less everything but the tracks and the plot itself, so it holds even when the tracks were squeezed to nothing. */
+    function spectrumHeightLimit(): number {
+        const section = document.getElementById('spectrum-section');
+        const pane = section?.parentElement;
+        const canvas = canvasById(document, 'spectrum-overlay-canvas');
+        if (!section || !pane || !pane.clientHeight || !canvas) {
+            return SPECTRUM_HEIGHT_MAX;
+        }
+        let others = section.offsetHeight - canvas.offsetHeight;
+        Array.from(pane.children).forEach(function (child) {
+            if (child !== section && child.id !== 'tracks-wrapper') {
+                others += (child as HTMLElement).offsetHeight;
+            }
+        });
+        return clampHeight(pane.clientHeight - others - TRACKS_MIN_VISIBLE, SPECTRUM_HEIGHT_MIN, SPECTRUM_HEIGHT_MAX);
+    }
     function syncSpectrumCanvasCssHeight() {
         const canvas = canvasById(document, 'spectrum-overlay-canvas');
-        if (canvas && canvas.style.height !== spectrumOverlayHeight + 'px') {
-            canvas.style.height = spectrumOverlayHeight + 'px';
+        const height = effectiveSpectrumHeight() + 'px';
+        if (canvas && canvas.style.height !== height) {
+            canvas.style.height = height;
         }
     }
     function setSpectrumHeight(value: number): void {
-        const next = clampHeight(value, SPECTRUM_HEIGHT_MIN, SPECTRUM_HEIGHT_MAX);
+        const next = clampHeight(value, SPECTRUM_HEIGHT_MIN, spectrumHeightLimit());
         if (spectrumOverlayHeight === next) {
             syncHeightInputs();
             syncSpectrumCanvasCssHeight();
@@ -3009,7 +3075,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const w = contentBoxWidth(wrap, 800, wrapStyle);
         const prevW = canvas.width;
         const prevH = canvas.height;
-        syncCanvasSize(canvas, w, spectrumOverlayHeight);
+        syncCanvasSize(canvas, w, effectiveSpectrumHeight());
         if (canvas.width !== prevW || canvas.height !== prevH) {
             overlaySpectrumPainted = false;
         }

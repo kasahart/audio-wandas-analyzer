@@ -251,7 +251,12 @@ export function renderComparisonStyles(): string {
         #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); position: relative; }
         .spectrum-height-resizer { left: 0; right: 0; top: -3px; height: 6px; }
         #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; cursor: crosshair; }
-        #spectrum-section-header .panel-toggle { margin-left: auto; }
+        #spectrum-section-header .panel-toggle:first-of-type { margin-left: auto; }
+        /* Maximized: the tracks keep a strip for moving the cursor and the plot takes the rest; flex-basis 0 lets the runtime size the canvas from the wrap. */
+        .spectrum-maximized > #tracks-wrapper { flex: 0 1 auto; max-height: 30%; }
+        .spectrum-maximized > #spectrum-section { flex: 1 1 0; min-height: 0; }
+        #spectrum-section.is-maximized #spectrum-overlay-wrap { flex: 1 1 0; min-height: 0; overflow: hidden; }
+        #spectrum-section.is-maximized .spectrum-height-resizer { display: none; }
         /* The zoom toolbar lays itself out with an inline display:flex. */
         #spectrum-section.is-collapsed #spectrum-zoom-toolbar,
         #spectrum-section.is-collapsed #spectrum-overlay-wrap { display: none !important; }
