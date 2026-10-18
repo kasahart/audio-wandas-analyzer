@@ -769,6 +769,8 @@ test('Recipe timeout during a multi-file load keeps the picker disabled until th
     app.picker.onchange!();
     await flush();
     assert.equal(app.picker.disabled, true);
+    app.host.postMessage({ type: 'select-target', targetKind: 'file' });
+    assert.equal(app.status, 'Preparing local Python Worker / adding WAV files…', 'Open File explains why no chooser opens');
     app.blockedWorkerCommands.add('load');
     await new Promise(resolve => setTimeout(resolve, 40));
     assert.equal(original.terminated, true);

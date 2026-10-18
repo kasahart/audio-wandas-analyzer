@@ -526,6 +526,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         selectTarget(targetKind): void {
             if (targetKind === 'directory') pickFolder();
+            // A disabled input ignores click(), so say why nothing opens.
+            else if (pick.disabled) announce(strings.browserPreparing);
             else pick.click();
         },
         async selection(message): Promise<void> {
