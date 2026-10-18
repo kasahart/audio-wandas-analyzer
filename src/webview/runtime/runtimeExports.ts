@@ -1,3 +1,4 @@
+import { binFrequencyHz } from '../draw/canvasDrawers';
 import type { SpectrumSlice } from './types';
 
 export interface CsvSpectrumTrack {
@@ -39,8 +40,7 @@ export function buildSpectrumCsv(tracks: CsvSpectrumTrack[]): string {
         const cols: string[] = [];
         tracks.forEach(function (t) {
             const fBins = t.slice.frequencyBins || 0;
-            const maxHz = t.slice.originalMaxFrequencyHz || t.slice.maxFrequencyHz || 0;
-            cols.push(bin < fBins ? ((bin / Math.max(fBins - 1, 1)) * maxHz).toFixed(4) : '');
+            cols.push(bin < fBins ? binFrequencyHz(t.slice, bin).toFixed(4) : '');
             const v = t.slice.values[bin];
             cols.push(v !== undefined && v !== null ? v.toFixed(6) : '');
         });

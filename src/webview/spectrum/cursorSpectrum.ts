@@ -10,6 +10,7 @@ export interface SpectrumSlice {
     axisLabel?: string;
     originalMaxFrequencyHz?: number;
     settingsSignature?: string;
+    bandCentersHz?: number[];
 }
 
 export interface SpectrumSource {
@@ -29,6 +30,8 @@ export interface CursorSpectrumContext {
     channelIndex?: number;
     cached: SpectrumSlice | null;
     settingsSignature: string;
+    /** Octave bands come only from the backend; the spectrogram column is an FFT and cannot stand in for them. */
+    bands?: boolean;
     requestSlice(trackIndex: number, cursorNorm: number): void;
     applyDisplaySettings(slice: SpectrumSlice): SpectrumSlice;
 }
@@ -82,14 +85,21 @@ export function extractSpectrumAtCursor(
     const ch = Array.isArray(result.channels) ? result.channels[chIdx] : undefined;
     const spec = ch && ch.spectrogram;
     const cached = idx >= 0 ? context?.cached ?? null : null;
+    const cachedIsCurrent = !!cached && cached.settingsSignature === context?.settingsSignature;
     if (trackLocalSec >= dur) {
+        if (context?.bands) {
+            return cached && cachedIsCurrent ? applySpectrumDisplaySettings({ ...cached, values: cached.values.map(() => cached.minDb) }) : null;
+        }
         return makeSilentSpectrumSlice(result, spec ?? null, cached, applySpectrumDisplaySettings);
     }
     if (idx >= 0) {
         context?.requestSlice(idx, cursorNormValue);
-        if (cached && cached.settingsSignature === context?.settingsSignature) {
+        if (cached && cachedIsCurrent) {
             return applySpectrumDisplaySettings(cached);
         }
+    }
+    if (context?.bands) {
+        return null;
     }
     if (!spec || !spec.values || spec.timeBins <= 0 || spec.frequencyBins <= 0) {
         return null;

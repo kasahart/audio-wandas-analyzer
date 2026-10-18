@@ -153,3 +153,15 @@ test('extractSpectrumAtCursor: a non-array channels payload yields no slice inst
     const source = makeSource({ channels: { 0: makeSource().channels![0] } as unknown as SpectrumSource['channels'] });
     assert.equal(extractSpectrumAtCursor(source, 0, 0.5, { startSec: 0, spanSec: 1 }), null);
 });
+
+test('octave-band cursor spectrum never falls back to the FFT spectrogram column', () => {
+    const cached = { values: [-30, -20], frequencyBins: 2, maxFrequencyHz: 22_387, minDb: -30, maxDb: -20,
+        bandCentersHz: [500, 1000], settingsSignature: 'current|bands=3' };
+    const context = spectrumContext({ bands: true, settingsSignature: 'current|bands=3' });
+    const span = { startSec: 0, spanSec: 1 };
+    assert.equal(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, context), null);
+    assert.equal(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, { ...context, cached: { ...cached, settingsSignature: 'current' } }), null);
+    assert.deepEqual(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, { ...context, cached })!.bandCentersHz, [500, 1000]);
+    assert.deepEqual(extractSpectrumAtCursor(makeSource(), 0, 2, span, { ...context, cached })!.values, [-30, -30]);
+    assert.equal(extractSpectrumAtCursor(makeSource(), 0, 2, span, context), null);
+});

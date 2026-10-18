@@ -54,3 +54,14 @@ test('setSpectrumReadout: 要素のテキストと色を書き換え、要素が
     assert.deepEqual(el, { textContent: '', style: { color: '' } });
     assert.doesNotThrow(() => setSpectrumReadout(null, 'x', 'y'));
 });
+
+test('spectrumBinAtHover on a log band axis snaps to the band nearest in log distance and reports its centre', () => {
+    const bands = { ...slice([-30, -20, -10]), bandsPerOctave: 1, bandCentersHz: [125, 250, 500], maxFrequencyHz: 10_000 };
+    const frame: SpectrumPlotFrame = { ...FRAME, padLeft: 0, frequencyMin: 10, frequencyMax: 10_000, logFrequency: true };
+    // The plot middle is 316 Hz: 250 Hz is nearer than 500 Hz in octaves.
+    const snap = spectrumBinAtHover(bands, 0.5, frame);
+    assert.equal(snap?.binIdx, 1);
+    assert.equal(snap?.freqHz, 250);
+    assert.ok(Math.abs((snap?.x ?? 0) - 100 * Math.log10(25) / 3) < 1e-9);
+    assert.equal(spectrumReadoutText('a.wav', bands, snap!.freqHz, snap!.dbVal!), 'a.wav / 250 Hz / -20.0 dB');
+});

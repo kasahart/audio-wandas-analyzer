@@ -551,6 +551,18 @@ test('static calibration requests explain the unavailable operation and reject m
     assert.equal(app.footer, app.browser.__APP_STRINGS__.browserUnavailable);
 });
 
+test('the octave-band spectrum buttons are unavailable in the browser and their clicks never reach the runtime', () => {
+    const app = harness();
+    const click = app.windowListeners.get('click') as unknown as (event: unknown) => void;
+    for (const action of ['spectrum-octave-1', 'spectrum-octave-3', 'spectrum-fft']) {
+        const calls: string[] = [];
+        const target = { closest: (selector: string) => selector.includes('[data-action="' + action + '"]') ? target : null };
+        click({ target, stopPropagation: () => calls.push('stop'), preventDefault: () => calls.push('prevent') });
+        assert.deepEqual(calls, action === 'spectrum-fft' ? [] : ['stop', 'prevent'], action);
+    }
+    assert.equal(app.footer, app.browser.__APP_STRINGS__.browserUnavailable);
+});
+
 test('removing one recipe input suppresses stale charts and errors while other sources remain', async () => {
     for (const fail of [false, true]) {
         const app = harness();

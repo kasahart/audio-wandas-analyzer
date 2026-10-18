@@ -1,4 +1,4 @@
-import { dbLevelUnitFor, type SpectrumPlotFrame } from '../draw/canvasDrawers';
+import { binFrequencyHz, dbLevelUnitFor, frequencyAtFraction, frequencyFraction, nearestBinIndex, type SpectrumPlotFrame } from '../draw/canvasDrawers';
 import { formatReadoutHz } from './canvasOverlays';
 import type { HostInboundMessage } from './hostMessaging';
 import type { DragPoint, SpectrumSlice, SpectrumSnap } from './types';
@@ -39,6 +39,7 @@ export function spectrumBinAtFrequency(
     visibleFrequencyMax: number,
     visibleDbMin: number,
     visibleDbMax: number,
+    logFrequency = false,
 ): SpectrumSnap | null {
     const frequencyBins = slice.frequencyBins;
     const originalMaxFrequency = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
@@ -48,28 +49,37 @@ export function spectrumBinAtFrequency(
         return null;
     }
     const maxVisibleFrequency = Math.min(visibleFrequencyMax, slice.maxFrequencyHz);
-    let minIndex = Math.ceil((Math.max(0, visibleFrequencyMin) / originalMaxFrequency) * Math.max(frequencyBins - 1, 1));
-    let maxIndex = Math.floor((maxVisibleFrequency / originalMaxFrequency) * Math.max(frequencyBins - 1, 1));
-    minIndex = Math.max(0, Math.min(frequencyBins - 1, minIndex));
-    maxIndex = Math.max(0, Math.min(frequencyBins - 1, maxIndex));
+    let minIndex: number;
+    let maxIndex: number;
+    if (slice.bandCentersHz) {
+        const visible = slice.bandCentersHz.flatMap((centerHz, index) => centerHz >= visibleFrequencyMin && centerHz <= maxVisibleFrequency ? [index] : []);
+        minIndex = visible.length > 0 ? visible[0] : 0;
+        maxIndex = visible.length > 0 ? visible[visible.length - 1] : frequencyBins - 1;
+    }
+    else {
+        minIndex = Math.ceil((Math.max(0, visibleFrequencyMin) / originalMaxFrequency) * Math.max(frequencyBins - 1, 1));
+        maxIndex = Math.floor((maxVisibleFrequency / originalMaxFrequency) * Math.max(frequencyBins - 1, 1));
+        minIndex = Math.max(0, Math.min(frequencyBins - 1, minIndex));
+        maxIndex = Math.max(0, Math.min(frequencyBins - 1, maxIndex));
+    }
     if (maxIndex < minIndex) {
         minIndex = 0;
         maxIndex = frequencyBins - 1;
     }
-    let binIndex = Math.round((targetFreqHz / originalMaxFrequency) * Math.max(frequencyBins - 1, 1));
-    binIndex = Math.max(minIndex, Math.min(maxIndex, binIndex));
-    const frequencyHz = (binIndex / Math.max(frequencyBins - 1, 1)) * originalMaxFrequency;
+    const binIndex = Math.max(minIndex, Math.min(maxIndex, nearestBinIndex(slice, targetFreqHz)));
+    const frequencyHz = binFrequencyHz(slice, binIndex);
     const dbValue = slice.values[binIndex];
-    const x = padLeft + ((frequencyHz - visibleFrequencyMin) / visibleFrequencyRange) * plotWidth;
+    const scale = { frequencyMin: visibleFrequencyMin, frequencyMax: visibleFrequencyMax, logFrequency };
+    const x = padLeft + frequencyFraction(frequencyHz, scale) * plotWidth;
     const y = dbValue === undefined || dbRange <= 0
         ? null
         : padTop + (1 - Math.max(0, Math.min(1, (dbValue - visibleDbMin) / dbRange))) * plotHeight;
     return { binIdx: binIndex, freqHz: frequencyHz, x, dbVal: dbValue, y };
 }
 
-export function hoverNormForFrequency(frequencyHz: number, visibleMin: number, visibleMax: number): number {
+export function hoverNormForFrequency(frequencyHz: number, visibleMin: number, visibleMax: number, logFrequency = false): number {
     const range = visibleMax - visibleMin;
-    return range <= 0 ? 0 : Math.max(0, Math.min(1, (frequencyHz - visibleMin) / range));
+    return range <= 0 ? 0 : Math.max(0, Math.min(1, frequencyFraction(frequencyHz, { frequencyMin: visibleMin, frequencyMax: visibleMax, logFrequency })));
 }
 
 export type { SpectrumPlotFrame };
@@ -78,16 +88,21 @@ export interface SpectrumSeriesRange {
     minDb: number;
     maxDb: number;
     maxFrequencyHz: number;
+    /** Set when the series are octave bands: the lower edge of their shared log axis. */
+    logMinFrequencyHz?: number;
 }
 
 export function spectrumSeriesRange(series: ReadonlyArray<{ slice: SpectrumSlice }>): SpectrumSeriesRange {
-    let minDb = Infinity, maxDb = -Infinity, maxFrequencyHz = 0;
+    let minDb = Infinity, maxDb = -Infinity, maxFrequencyHz = 0, logMinFrequencyHz = Infinity;
     series.forEach(({ slice }) => {
         minDb = Math.min(minDb, slice.minDb);
         maxDb = Math.max(maxDb, slice.maxDb);
         maxFrequencyHz = Math.max(maxFrequencyHz, slice.maxFrequencyHz);
+        // An FFT slice has a 0 Hz bin, so a log axis is used only when every series is octave bands.
+        const bandMin = sliceLogMinFrequencyHz(slice);
+        logMinFrequencyHz = bandMin === undefined ? NaN : Math.min(logMinFrequencyHz, bandMin);
     });
-    return { minDb, maxDb, maxFrequencyHz };
+    return { minDb, maxDb, maxFrequencyHz, ...(isFinite(logMinFrequencyHz) ? { logMinFrequencyHz } : {}) };
 }
 
 export interface SpectrumSnapHit<S> {
@@ -98,9 +113,9 @@ export interface SpectrumSnapHit<S> {
 }
 
 export function spectrumBinAtHover(slice: SpectrumSlice, hoverNorm: number, frame: SpectrumPlotFrame): SpectrumSnap | null {
-    const targetFreqHz = frame.frequencyMin + hoverNorm * (frame.frequencyMax - frame.frequencyMin);
+    const targetFreqHz = frequencyAtFraction(hoverNorm, frame);
     return spectrumBinAtFrequency(slice, targetFreqHz, frame.padLeft, frame.plotWidth, frame.padTop, frame.plotHeight,
-        frame.frequencyMin, frame.frequencyMax, frame.dbMin, frame.dbMax);
+        frame.frequencyMin, frame.frequencyMax, frame.dbMin, frame.dbMax, frame.logFrequency);
 }
 
 export function nearestSpectrumSnap<S extends { slice: SpectrumSlice }>(
@@ -171,6 +186,7 @@ export function spectrumSlicesFromResult(msg: SpectrumSliceResultMessage, cursor
         windowStartNorm: msg.windowStartNorm,
         windowEndNorm: msg.windowEndNorm,
         window: msg.window,
+        ...(msg.bandCentersHz ? { bandsPerOctave: msg.bandsPerOctave, bandCentersHz: msg.bandCentersHz, minFrequencyHz: msg.minFrequencyHz } : {}),
     }));
 }
 
@@ -255,17 +271,19 @@ export interface SpectrumViewState {
 export interface SpectrumVisibleWindow {
     frequencyMin: number;
     frequencyMax: number;
+    logFrequency?: boolean;
     dbMin: number;
     dbMax: number;
 }
 
-export function spectrumVisibleWindow(maxFrequencyHz: number, minDb: number, maxDb: number, view: SpectrumViewState): SpectrumVisibleWindow {
-    return {
-        frequencyMin: view.freqStart * maxFrequencyHz,
-        frequencyMax: view.freqEnd * maxFrequencyHz,
-        dbMin: view.dbMin != null ? view.dbMin : minDb,
-        dbMax: view.dbMax != null ? view.dbMax : maxDb,
-    };
+/** `logMinFrequencyHz` switches the axis to log from that edge (octave bands); otherwise it is linear from 0 Hz. */
+export function spectrumVisibleWindow(maxFrequencyHz: number, minDb: number, maxDb: number, view: SpectrumViewState, logMinFrequencyHz?: number): SpectrumVisibleWindow {
+    const db = { dbMin: view.dbMin != null ? view.dbMin : minDb, dbMax: view.dbMax != null ? view.dbMax : maxDb };
+    if (logMinFrequencyHz === undefined) {
+        return { frequencyMin: view.freqStart * maxFrequencyHz, frequencyMax: view.freqEnd * maxFrequencyHz, ...db };
+    }
+    const axis = { frequencyMin: logMinFrequencyHz, frequencyMax: maxFrequencyHz, logFrequency: true };
+    return { frequencyMin: frequencyAtFraction(view.freqStart, axis), frequencyMax: frequencyAtFraction(view.freqEnd, axis), logFrequency: true, ...db };
 }
 
 export function spectrumPlotFrame(
@@ -283,20 +301,22 @@ export function spectrumPlotFrame(
     };
 }
 
-export function steppedSpectrumHoverNorm(slice: SpectrumSlice, binIdx: number, deltaIdx: number, frequencyMin: number, frequencyMax: number): number {
+export function steppedSpectrumHoverNorm(slice: SpectrumSlice, binIdx: number, deltaIdx: number, frequencyMin: number, frequencyMax: number, logFrequency = false): number {
     const nextIdx = Math.max(0, Math.min(slice.frequencyBins - 1, binIdx + deltaIdx));
-    const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
-    const freqHz = (nextIdx / Math.max(slice.frequencyBins - 1, 1)) * originalMaxFreq;
-    return hoverNormForFrequency(freqHz, frequencyMin, frequencyMax);
+    return hoverNormForFrequency(binFrequencyHz(slice, nextIdx), frequencyMin, frequencyMax, logFrequency);
 }
 
 const UNIT_PLOT = { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1 };
 
 export function steppedTrackSpectrumHoverNorm(slice: SpectrumSlice, hoverNorm: number, freqStart: number, freqEnd: number, deltaIdx: number): number | null {
-    const frequencyMin = freqStart * slice.maxFrequencyHz;
-    const frequencyMax = freqEnd * slice.maxFrequencyHz;
-    const snap = spectrumBinAtHover(slice, hoverNorm, { ...UNIT_PLOT, frequencyMin, frequencyMax, dbMin: slice.minDb, dbMax: slice.maxDb });
-    return snap ? steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, frequencyMin, frequencyMax) : null;
+    const visible = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb,
+        { freqStart, freqEnd, dbMin: null, dbMax: null }, sliceLogMinFrequencyHz(slice));
+    const snap = spectrumBinAtHover(slice, hoverNorm, { ...UNIT_PLOT, ...visible });
+    return snap ? steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax, visible.logFrequency) : null;
+}
+
+export function sliceLogMinFrequencyHz(slice: SpectrumSlice): number | undefined {
+    return slice.bandCentersHz && slice.minFrequencyHz ? slice.minFrequencyHz : undefined;
 }
 
 export function steppedOverlaySpectrumHoverNorm(
@@ -316,7 +336,7 @@ export function steppedOverlaySpectrumHoverNorm(
     const nearest = nearestSpectrumSnap(series, hoverNorm, mouseY, frame);
     const chosen = nearest ? nearest.s : series[0];
     const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, hoverNorm, frame);
-    return snap ? steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax) : null;
+    return snap ? steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax, visible.logFrequency) : null;
 }
 
 export function channelIndexAttribute(el: { getAttribute(name: string): string | null }): number | null {

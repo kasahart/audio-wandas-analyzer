@@ -503,6 +503,13 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "cursorNorm": {
                     "type": "number"
                 },
+                "bandsPerOctave": {
+                    "type": "integer",
+                    "enum": [
+                        1,
+                        3
+                    ]
+                },
                 "stftOptions": {
                     "$ref": "#/$defs/StftOptions"
                 },
@@ -624,6 +631,22 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "type": "integer"
                 },
                 "maxFrequencyHz": {
+                    "type": "number"
+                },
+                "bandsPerOctave": {
+                    "type": "integer",
+                    "enum": [
+                        1,
+                        3
+                    ]
+                },
+                "bandCentersHz": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "minFrequencyHz": {
                     "type": "number"
                 },
                 "windowStartNorm": {
@@ -972,6 +995,7 @@ export interface SpectrumSlicePayload {
     analysisId: string;
     settingsSignature: string;
     cursorNorm: number;
+    bandsPerOctave?: 1 | 3;
     stftOptions?: StftOptions;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
@@ -1005,6 +1029,9 @@ export interface SpectrumSliceResult {
     channels: SpectrumSliceChannel[];
     frequencyBins: number;
     maxFrequencyHz: number;
+    bandsPerOctave?: 1 | 3;
+    bandCentersHz?: number[];
+    minFrequencyHz?: number;
     windowStartNorm: number;
     windowEndNorm: number;
     window: "hann" | "hamming" | "blackman" | "boxcar";

@@ -49,8 +49,79 @@ export interface SpectrumSliceLike {
     minDb: number;
     maxDb: number;
     originalMaxFrequencyHz?: number;
+    bandsPerOctave?: number;
+    bandCentersHz?: number[];
     unit?: string;
     axisLabel?: string;
+}
+
+/** A frequency span along a plot: linear for FFT bins, log for octave bands. */
+export interface FrequencyScale {
+    frequencyMin: number;
+    frequencyMax: number;
+    logFrequency?: boolean;
+}
+
+export function frequencyFraction(frequencyHz: number, scale: FrequencyScale): number {
+    return scale.logFrequency
+        ? Math.log(frequencyHz / scale.frequencyMin) / Math.log(scale.frequencyMax / scale.frequencyMin)
+        : (frequencyHz - scale.frequencyMin) / (scale.frequencyMax - scale.frequencyMin);
+}
+
+export function frequencyAtFraction(fraction: number, scale: FrequencyScale): number {
+    return scale.logFrequency
+        ? scale.frequencyMin * Math.pow(scale.frequencyMax / scale.frequencyMin, fraction)
+        : scale.frequencyMin + fraction * (scale.frequencyMax - scale.frequencyMin);
+}
+
+export function binFrequencyHz(slice: Pick<SpectrumSliceLike, 'frequencyBins' | 'maxFrequencyHz' | 'originalMaxFrequencyHz' | 'bandCentersHz'>, index: number): number {
+    if (slice.bandCentersHz) {
+        return slice.bandCentersHz[index];
+    }
+    return (index / Math.max(slice.frequencyBins - 1, 1)) * (slice.originalMaxFrequencyHz || slice.maxFrequencyHz);
+}
+
+/** The bin closest to a frequency, unclamped on the FFT grid; for bands the centre closest on the log axis. */
+export function nearestBinIndex(slice: Pick<SpectrumSliceLike, 'frequencyBins' | 'maxFrequencyHz' | 'originalMaxFrequencyHz' | 'bandCentersHz'>, frequencyHz: number): number {
+    const centers = slice.bandCentersHz;
+    if (centers) {
+        let best = 0;
+        for (let i = 1; i < centers.length; i++) {
+            if (Math.abs(Math.log(centers[i] / frequencyHz)) < Math.abs(Math.log(centers[best] / frequencyHz))) {
+                best = i;
+            }
+        }
+        return best;
+    }
+    return Math.round((frequencyHz / (slice.originalMaxFrequencyHz || slice.maxFrequencyHz)) * Math.max(slice.frequencyBins - 1, 1));
+}
+
+/** Nominal centres are rounded, so inner edges are the geometric means of neighbours to keep the bands contiguous. */
+export function bandEdgesHz(centers: readonly number[], bandsPerOctave: number, index: number): [number, number] {
+    const halfBand = Math.pow(2, 1 / (2 * bandsPerOctave));
+    const lower = index > 0 ? Math.sqrt(centers[index - 1] * centers[index]) : centers[index] / halfBand;
+    const upper = index < centers.length - 1 ? Math.sqrt(centers[index] * centers[index + 1]) : centers[index] * halfBand;
+    return [lower, upper];
+}
+
+const OCTAVE_TICKS_HZ = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+
+export interface FrequencyAxisTick {
+    fraction: number;
+    text: string;
+}
+
+/** Min / middle / max on a linear axis; on a log axis both edges with the octave centres between them, so a zoom inside one octave keeps its edges labelled. */
+export function frequencyAxisTicks(scale: FrequencyScale): FrequencyAxisTick[] {
+    const edges = scale.logFrequency ? [0, 1] : [0, 0.5, 1];
+    const ticks = edges.map(fraction => ({ fraction, text: formatHz(frequencyAtFraction(fraction, scale)) }));
+    if (!scale.logFrequency) {
+        return ticks;
+    }
+    const octaves = OCTAVE_TICKS_HZ
+        .filter(hz => hz > scale.frequencyMin && hz < scale.frequencyMax)
+        .map(hz => ({ fraction: frequencyFraction(hz, scale), text: hz >= 1000 ? hz / 1000 + 'k' : String(hz) }));
+    return [ticks[0], ...octaves, ticks[1]];
 }
 
 export interface SpectrogramSpecLike {
@@ -214,22 +285,35 @@ export interface SpectrumPlotFrame {
     plotHeight: number;
     frequencyMin: number;
     frequencyMax: number;
+    logFrequency?: boolean;
     dbMin: number;
     dbMax: number;
 }
 
+/** FFT bins are joined by a line; octave bands are drawn as steps spanning each band. */
 export function traceSpectrumPath(ctx: CanvasDrawCtx, slice: SpectrumSliceLike, frame: SpectrumPlotFrame, cutoffHz: number): void {
     const fBins = slice.frequencyBins;
-    const originalMaxFreq = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
-    const freqRange = frame.frequencyMax - frame.frequencyMin;
     const dbRange = frame.dbMax - frame.dbMin;
+    const xAt = (fHz: number) => frame.padLeft + frequencyFraction(fHz, frame) * frame.plotWidth;
+    const centers = slice.bandCentersHz;
     for (let i = 0; i < fBins; i++) {
-        const fHz = (i / Math.max(fBins - 1, 1)) * originalMaxFreq;
+        const fHz = binFrequencyHz(slice, i);
         if (fHz > cutoffHz) {
             break;
         }
-        const x = frame.padLeft + ((fHz - frame.frequencyMin) / freqRange) * frame.plotWidth;
         const y = frame.padTop + (1 - (slice.values[i] - frame.dbMin) / dbRange) * frame.plotHeight;
+        if (centers) {
+            const [lower, upper] = bandEdgesHz(centers, slice.bandsPerOctave || 3, i);
+            if (i === 0) {
+                ctx.moveTo(xAt(lower), y);
+            }
+            else {
+                ctx.lineTo(xAt(lower), y);
+            }
+            ctx.lineTo(xAt(Math.min(upper, cutoffHz)), y);
+            continue;
+        }
+        const x = xAt(fHz);
         if (i === 0) {
             ctx.moveTo(x, y);
         }
@@ -317,7 +401,7 @@ export function drawSpectrumCrosshair(
     ctx.restore();
 }
 
-export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, color: string, opts: { padL?: number; padR?: number; padT?: number; padB?: number; lineWidth?: number } = {}, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null): void {
+export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, color: string, opts: { padL?: number; padR?: number; padT?: number; padB?: number; lineWidth?: number } = {}, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, logFrequency = false): void {
     const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
     const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
     const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
@@ -346,13 +430,13 @@ export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice
     }
     traceSpectrumPath(ctx, slice, {
         padLeft: padL, plotWidth: plotW, padTop: padT, plotHeight: plotH,
-        frequencyMin: _visFreqMin, frequencyMax: _visFreqMax, dbMin: _visDbMin, dbMax: _visDbMax,
+        frequencyMin: _visFreqMin, frequencyMax: _visFreqMax, logFrequency, dbMin: _visDbMin, dbMax: _visDbMax,
     }, slice.maxFrequencyHz);
     ctx.stroke();
     ctx.restore();
 }
 
-export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, padL: number, padR: number, padT: number, padB: number, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, theme: DrawTheme = DEFAULT_THEME) {
+export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, padL: number, padR: number, padT: number, padB: number, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, theme: DrawTheme = DEFAULT_THEME, logFrequency = false) {
     const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
     const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
     const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
@@ -380,7 +464,22 @@ export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice
     ctx.fillText(formatDbLevel(_visDbMin, slice), padL - 2, H - padB);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(formatHz(_visFreqMin), padL, H - 1);
-    ctx.fillText(formatHz((_visFreqMin + _visFreqMax) / 2), padL + plotW / 2, H - 1);
-    ctx.fillText(formatHz(_visFreqMax), W - padR, H - 1);
+    // 9px monospace: about 5.5px per character. The edge labels always show; an inner tick is skipped when it would touch a label.
+    const ticks = frequencyAxisTicks({ frequencyMin: _visFreqMin, frequencyMax: _visFreqMax, logFrequency });
+    const span = (tick: FrequencyAxisTick) => {
+        const x = padL + tick.fraction * plotW;
+        const halfWidth = tick.text.length * 2.75;
+        return { x, left: x - halfWidth, right: x + halfWidth };
+    };
+    const lastLeft = span(ticks[ticks.length - 1]).left;
+    let lastRight = -Infinity;
+    ticks.forEach((tick, index) => {
+        const { x, left, right } = span(tick);
+        const inner = index > 0 && index < ticks.length - 1;
+        if (inner && (left < lastRight + 4 || right + 4 > lastLeft)) {
+            return;
+        }
+        ctx.fillText(tick.text, x, H - 1);
+        lastRight = right;
+    });
 }

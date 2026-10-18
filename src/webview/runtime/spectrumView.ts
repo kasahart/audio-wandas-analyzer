@@ -1,7 +1,10 @@
+import { frequencyAtFraction, frequencyFraction, type FrequencyScale } from '../draw/canvasDrawers';
 import { spectrumDbRangeAfterZoom, zoomSpectrumRange, type SpectrumBoxZoom, type SpectrumViewState } from './spectrumRuntime';
 
 export interface SpectrumPaintedRange {
     maxFrequencyHz: number;
+    /** Set when the painted axis is log (octave bands). */
+    logMinFrequencyHz?: number;
     dbMin: number;
     dbMax: number;
 }
@@ -20,7 +23,7 @@ export class SpectrumView {
     }
 
     recordPaint(painted: SpectrumPaintedRange): void {
-        this.painted = { maxFrequencyHz: painted.maxFrequencyHz, dbMin: painted.dbMin, dbMax: painted.dbMax };
+        this.painted = { maxFrequencyHz: painted.maxFrequencyHz, logMinFrequencyHz: painted.logMinFrequencyHz, dbMin: painted.dbMin, dbMax: painted.dbMax };
     }
 
     hasData(): boolean {
@@ -73,16 +76,26 @@ export class SpectrumView {
         return { min: field(this.dbMin, painted?.min), max: field(this.dbMax, painted?.max) };
     }
 
+    private paintedAxis(): FrequencyScale {
+        const painted = this.painted;
+        if (painted && painted.logMinFrequencyHz !== undefined) {
+            return { frequencyMin: painted.logMinFrequencyHz, frequencyMax: painted.maxFrequencyHz, logFrequency: true };
+        }
+        return { frequencyMin: 0, frequencyMax: (painted && painted.maxFrequencyHz) || 0 };
+    }
+
     frequencyRangeFieldsHz(): { min: string; max: string } {
-        const maxF = this.painted ? this.painted.maxFrequencyHz : 0;
-        return { min: String(Math.round(this.freqStart * maxF)), max: String(Math.round(this.freqEnd * maxF)) };
+        const axis = this.paintedAxis();
+        return { min: String(Math.round(frequencyAtFraction(this.freqStart, axis))), max: String(Math.round(frequencyAtFraction(this.freqEnd, axis))) };
     }
 
     /** Applies a Hz range (`null` = open edge). Returns false and keeps the view when min >= max. */
     setFrequencyRangeHz(minHz: number | null, maxHz: number | null): boolean {
-        const maxF = (this.painted && this.painted.maxFrequencyHz) || 1;
-        const start = minHz === null ? 0 : Math.max(0, Math.min(1, minHz / maxF));
-        const end = maxHz === null ? 1 : Math.max(0, Math.min(1, maxHz / maxF));
+        const axis = this.paintedAxis();
+        const unclamped = (hz: number) => axis.logFrequency ? (hz > 0 ? frequencyFraction(hz, axis) : 0) : hz / (axis.frequencyMax || 1);
+        const fraction = (hz: number) => Math.max(0, Math.min(1, unclamped(hz)));
+        const start = minHz === null ? 0 : fraction(minHz);
+        const end = maxHz === null ? 1 : fraction(maxHz);
         if (start >= end) {
             return false;
         }

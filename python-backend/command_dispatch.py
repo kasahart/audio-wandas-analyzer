@@ -137,6 +137,7 @@ def handle_spectrum_slice(service: AnalysisService, command: Command) -> dict[st
         stft_options=_stft_options(command),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
+        bands_per_octave=int(command["bandsPerOctave"]) if "bandsPerOctave" in command else None,
     )
 
 

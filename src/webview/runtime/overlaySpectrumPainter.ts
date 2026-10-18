@@ -21,6 +21,7 @@ export interface OverlaySpectrumHover {
 
 export interface OverlaySpectrumPaint {
     maxFrequencyHz: number;
+    logMinFrequencyHz?: number;
     dbMin: number;
     dbMax: number;
     /** False when the visible frequency window is empty and only the axes were drawn. */
@@ -49,9 +50,9 @@ export function paintOverlaySpectrum(
     theme: DrawTheme,
 ): OverlaySpectrumPaint {
     ctx.clearRect(0, 0, W, H);
-    const { minDb, maxDb, maxFrequencyHz } = spectrumSeriesRange(slices);
+    const { minDb, maxDb, maxFrequencyHz, logMinFrequencyHz } = spectrumSeriesRange(slices);
     const pad = OVERLAY_SPECTRUM_PAD;
-    const vis = spectrumVisibleWindow(maxFrequencyHz, minDb, maxDb, view);
+    const vis = spectrumVisibleWindow(maxFrequencyHz, minDb, maxDb, view, logMinFrequencyHz);
     const commonSlice = slices[0].slice;
     const sharedAxis = {
         values: [],
@@ -62,8 +63,8 @@ export function paintOverlaySpectrum(
         unit: commonSlice.unit,
         axisLabel: commonSlice.axisLabel,
     };
-    drawSpectrumAxes(ctx, W, H, sharedAxis, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, theme);
-    const result: OverlaySpectrumPaint = { maxFrequencyHz, dbMin: vis.dbMin, dbMax: vis.dbMax, painted: false, readout: null };
+    drawSpectrumAxes(ctx, W, H, sharedAxis, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, theme, vis.logFrequency);
+    const result: OverlaySpectrumPaint = { maxFrequencyHz, logMinFrequencyHz, dbMin: vis.dbMin, dbMax: vis.dbMax, painted: false, readout: null };
     if (vis.frequencyMax - vis.frequencyMin <= 0) {
         return result;
     }
