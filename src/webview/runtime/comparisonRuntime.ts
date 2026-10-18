@@ -30,7 +30,7 @@ import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
-import { arrowCursorStep, type GlobalShortcutAction } from './shortcuts';
+import { arrowCursorStep, isTextEntryTag, type GlobalShortcutAction } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
@@ -1913,7 +1913,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         syncSpectrumHeaderHint();
         document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && spectrumMaximized && !hasOpenOverlay()) {
+            // A text field (the offset editor) uses Esc to cancel its own edit.
+            if (e.key === 'Escape' && spectrumMaximized && !hasOpenOverlay() && !isTextEntryTag(eventTarget(e)?.tagName)) {
                 setSpectrumMaximized(false);
             }
         }, true);

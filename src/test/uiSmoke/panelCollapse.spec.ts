@@ -106,6 +106,13 @@ test('maximizing the spectrum gives its plot the tracks\' room and Esc restores 
     await expect.poll(async () => Math.round((await page.locator('#spectrum-section').boundingBox())!.y + (await page.locator('#spectrum-section').boundingBox())!.height))
         .toBe(Math.round((await page.locator('#hint-footer').boundingBox())!.y));
 
+    // Esc in a text field belongs to that field.
+    await page.evaluate(() => {
+        document.querySelector('[data-action="track-height-input"]')!
+            .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await expect(maximize).toHaveAttribute('aria-pressed', 'true');
+
     await page.locator('body').press('Escape');
     await expect(maximize).toHaveAttribute('aria-pressed', 'false');
     await page.setViewportSize({ width: 1200, height: 900 });
