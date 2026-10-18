@@ -1620,6 +1620,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         updatePlaybackButtons();
         updateLoopBadge();
         updatePlaybackDisplay(null);
+        scheduleRender();
     }
     function startPlaybackLoop() {
         if (playbackRafId !== null) {
