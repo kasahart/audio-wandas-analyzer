@@ -41,6 +41,7 @@ class MockDocument {
 
 function harness(storage = new Map<string, string>(), language = 'en', denied = false, recipeTimeout = 120_000) {
     const elements: MockElement[] = [];
+    const footer = new MockElement('div');
     const fetched: string[] = [];
     const prompts: string[] = [];
     let promptAnswer: string | null = '1';
@@ -120,7 +121,8 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         window: browser,
         document: {
             createElement: (tag: string) => { const element = new MockElement(tag); elements.push(element); return element; },
-            body: { prepend: () => undefined },
+            body: { prepend: () => undefined, append: () => undefined },
+            getElementById: (id: string) => id === 'hint-footer' ? footer : null,
             querySelector: () => elements.find(element => element.tag === 'section' && !element.removed) ?? null,
         },
         fetch: async (url: string) => { fetched.push(url); const body = served[url]; return { ok: body !== undefined, status: body === undefined ? 404 : 200, json: async () => body }; },
@@ -140,6 +142,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     return { host, browser, storage, workers, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served,
         setPromptAnswer(value: string | null) { promptAnswer = value; },
         get status() { return elements.find(element => element.attributes.role === 'status')!.textContent; },
+        get footer() { return footer.textContent; },
         get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -538,11 +541,10 @@ test('static calibration requests explain the unavailable operation and reject m
     await app.load();
     const message = { type: 'configure-calibration', trackIndex: 0, filePath: app.sourcePath,
         channels: [{ channelIndex: 0, label: 'Channel 1' }] };
-    const ready = app.status;
     app.host.postMessage({ ...message, channels: [] });
-    assert.equal(app.status, ready);
+    assert.equal(app.footer, '');
     app.host.postMessage(message);
-    assert.equal(app.status, app.browser.__APP_STRINGS__.browserUnavailable);
+    assert.equal(app.footer, app.browser.__APP_STRINGS__.browserUnavailable);
 });
 
 test('removing one recipe input suppresses stale charts and errors while other sources remain', async () => {

@@ -62,6 +62,8 @@ export interface StaticHostDeps {
     recipeTimeoutMs?: number;
 }
 
+const UNAVAILABLE_ACTIONS = '[data-action="configure-calibration"]';
+
 /** Builds the browser host on top of the given globals and installs it as `window.__AWA_HOST__`. */
 export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     // Shadow the globals so every browser access goes through deps.
@@ -131,10 +133,17 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     openFolder.setAttribute('data-action', 'browser-open-folder');
     openFolder.textContent = strings.btnOpenFolder;
     setHint(openFolder, strings.hintBrowserOpenFolder);
+    // Python's state is a coloured dot at the footer's right end; its text stays for screen readers and the hover hint.
+    const pythonIndicator = document.createElement('span');
+    pythonIndicator.setAttribute('data-python-indicator', '');
+    pythonIndicator.style.cssText = 'position:fixed;right:10px;bottom:0;height:22px;z-index:65;display:flex;align-items:center';
+    const pythonDot = document.createElement('span');
+    pythonDot.style.cssText = 'width:8px;height:8px;border-radius:50%';
     const pythonState = document.createElement('span');
     pythonState.setAttribute('data-python-state', '');
     pythonState.setAttribute('aria-live', 'polite');
-    pythonState.style.cssText = 'white-space:nowrap';
+    pythonState.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap';
+    pythonIndicator.append(pythonDot, pythonState);
     // Limits and unavailable features matter only to some visitors, so they sit behind a disclosure instead of a permanent paragraph.
     const about = document.createElement('details');
     about.setAttribute('data-browser-about', '');
@@ -163,7 +172,13 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     };
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
-    bar.append(openFile, pick, openFolder, folderPick, cancel, pythonState, about, status);
+    // Web-only rules: room for the Python dot in the footer, and greyed-out actions the browser version cannot run.
+    const webStyles = document.createElement('style');
+    webStyles.textContent = '#hint-footer { padding-right: 28px; }'
+        + ` ${UNAVAILABLE_ACTIONS} { opacity: 0.4; cursor: not-allowed; }`
+        + ' @keyframes python-dot-pulse { 50% { opacity: 0.3; } }';
+    bar.append(openFile, pick, openFolder, folderPick, cancel, about, status, webStyles);
+    document.body.append(pythonIndicator);
     document.body.prepend(bar);
     // The toolbar text alone was easy to miss, so the boot also shows a centred card; it ignores pointer events because commands already wait for the boot.
     const pythonLoading = document.createElement('div');
@@ -179,11 +194,32 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     pythonSpinnerKeyframes.textContent = '@keyframes python-loading-spin { to { transform: rotate(360deg); } }';
     pythonLoading.append(pythonSpinner, pythonLoadingText, pythonSpinnerKeyframes);
     document.body.prepend(pythonLoading);
-    function showPythonState(text: string, booting = false): void {
+    const pythonStates = {
+        starting: { text: strings.browserPythonStarting, color: '#d29922' },
+        ready: { text: strings.browserPythonReady, color: '#3fb950' },
+        failed: { text: strings.browserPythonFailed, color: '#e5534b' },
+        stopped: { text: strings.browserPythonStopped, color: 'var(--muted)' },
+    };
+    function showPythonState(state: keyof typeof pythonStates): void {
+        const { text, color } = pythonStates[state];
+        const booting = state === 'starting';
         pythonState.textContent = text;
+        setHint(pythonIndicator, text);
+        pythonDot.style.background = color;
+        pythonDot.style.animation = booting ? 'python-dot-pulse 1.2s ease-in-out infinite' : 'none';
         pythonLoading.style.display = booting ? 'flex' : 'none';
     }
     const announce = (value: string): void => { status.textContent = value; };
+    const showInFooter = (value: string): void => { const footer = document.getElementById('hint-footer'); if (footer) footer.textContent = value; };
+    // Window listeners run around the runtime's document ones: the capture-phase click stops the action first,
+    // and the bubble-phase mouseover replaces the hint the runtime has just shown.
+    const unavailableTarget = (event: Event): boolean => Boolean((event.target as Element | null)?.closest?.(UNAVAILABLE_ACTIONS));
+    window.addEventListener('click', event => {
+        if (!unavailableTarget(event)) return;
+        event.stopPropagation(); event.preventDefault();
+        showInFooter(strings.browserUnavailable);
+    }, true);
+    window.addEventListener('mouseover', event => { if (unavailableTarget(event)) showInFooter(strings.browserUnavailable); });
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
     /** The opened folder's WAV files keyed by the `/sources/<relative path>` each one loads under. */
     let folder: Map<string, File> | undefined;
@@ -208,7 +244,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function resetWorker(reason: Error): void {
         reanalysisGeneration.advance();
         worker?.terminate(); worker = undefined;
-        showPythonState(strings.browserPythonStopped);
+        showPythonState('stopped');
         recovery = undefined;
         rejectPendingRequests(pending, reason);
     }
@@ -253,12 +289,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function startWorker(): Worker {
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
         bootFailed = false;
-        showPythonState(strings.browserPythonStarting, true);
+        showPythonState('starting');
         activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown; ready?: boolean }>): void => {
             if (worker !== activeWorker) return;
             if (event.data.ready !== undefined) {
                 bootFailed = !event.data.ready;
-                showPythonState(event.data.ready ? strings.browserPythonReady : strings.browserPythonFailed);
+                showPythonState(event.data.ready ? 'ready' : 'failed');
                 return;
             }
             // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
@@ -519,7 +555,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         showInformation: announce,
         showError: announce,
-        unsupported: () => announce(strings.browserUnavailable),
+        unsupported: () => showInFooter(strings.browserUnavailable),
         runRecipe: async (scope): Promise<void> => {
             if (!sources.size) { announce(strings.browserRecipeNoSources); return; }
             await recipeFlow.run(sources.snapshot(source => source.path), () => scope.isCurrent());
@@ -531,7 +567,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         releaseSource: (path): void => { void releaseSource(path); },
         onMessage: (listener): (() => void) => { inboundListeners.add(listener); return () => { inboundListeners.delete(listener); }; },
         postMessage: (message: unknown): void => {
-            if (isConfigureCalibrationMessage(message)) { announce(strings.browserUnavailable); return; }
+            if (isConfigureCalibrationMessage(message)) { showInFooter(strings.browserUnavailable); return; }
             void controller.dispatch(message);
         },
         getState: () => persisted,
