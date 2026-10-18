@@ -296,8 +296,31 @@ const server = http.createServer((req,res) => {
         await picker.setInputFiles(fixturePath('short-stereo.wav'));
         await status.filter({hasText:/fetch|network/i}).waitFor({timeout:120000});
         await page.unroute('**/runtime/pyodide.mjs');
-        // Native wheels are verified only by loadPackage, so a tampered one must still fail the boot.
+        // A revisit boots from the runtime cache; Pyodide's own module scripts and the lock still come from HTTP.
         const nativeWheel='six-1.17.0-py2.py3-none-any.whl';
+        const runtimeDownloads=[];
+        const cachedRuntime=/\/runtime\/(?!lock\.json$|pyodide\.mjs$|pyodide\.asm\.mjs$)[^/]+$/;
+        await page.route(cachedRuntime,route=>{runtimeDownloads.push(path.basename(new URL(route.request().url()).pathname));return route.continue();});
+        // Cache writes are not awaited by the boot, so the check waits until every runtime file is stored.
+        const runtimeAssetCount=JSON.parse(fs.readFileSync(path.join(base,'runtime/lock.json'),'utf8')).assets.length;
+        await page.waitForFunction(async count=>(await (await caches.open('awa-runtime')).keys()).length>=count,runtimeAssetCount,{timeout:60000});
+        await page.reload();
+        await picker.setInputFiles(fixturePath('short-stereo.wav'));
+        await status.filter({hasText:'waveform ready'}).waitFor({timeout:120000});
+        assert.deepEqual(runtimeDownloads,[]);
+        // A corrupted cache entry is downloaded again instead of failing the boot.
+        await page.evaluate(async name=>{
+            const cache=await caches.open('awa-runtime');
+            const key=(await cache.keys()).find(request=>request.url.includes(name));
+            await cache.put(key,new Response('corrupted'));
+        },nativeWheel);
+        await page.reload();
+        await picker.setInputFiles(fixturePath('short-stereo.wav'));
+        await status.filter({hasText:'waveform ready'}).waitFor({timeout:120000});
+        assert.deepEqual(runtimeDownloads,[nativeWheel]);
+        await page.unroute(cachedRuntime);
+        // Native wheels are verified only by their locked hash, so a tampered download must still fail the boot.
+        await page.evaluate(()=>caches.delete('awa-runtime'));
         const tampered=fs.readFileSync(path.join(base,'runtime',nativeWheel));
         tampered[tampered.length-1]^=0xff;
         await page.route(`**/runtime/${nativeWheel}`,route=>route.fulfill({contentType:'application/octet-stream',body:tampered}));
