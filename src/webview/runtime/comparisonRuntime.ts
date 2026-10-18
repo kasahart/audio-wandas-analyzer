@@ -1489,6 +1489,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
     }
     function drawAnalysisWindowOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number, channelIndex: number) {
+        if (isPlaybackRunning()) {
+            return;
+        }
         const band = analysisWindowBand(trackIndex, channelIndex);
         if (band) {
             drawAnalysisWindowBand(ctx, band, waveformView.timeRange(), W, H);
@@ -1582,7 +1585,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const playBtn = buttonMatching(document, '[data-action="toggle-playback"][data-track-id="' + trackId + '"]');
             const stopBtn = buttonMatching(document, '[data-action="stop-playback"][data-track-id="' + trackId + '"]');
             const isActive = playbackTrackId === trackId && playbackEl !== null;
-            const isPlaying = isActive && playbackEl !== null && !playbackEl.paused && !audioFader.isPausing(playbackEl);
+            const isPlaying = isActive && isPlaybackRunning();
             if (playBtn) {
                 playBtn.textContent = isPlaying ? '⏸' : '▶';
                 playBtn.classList.toggle('is-playing', !!isPlaying);
@@ -1612,6 +1615,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         el.textContent = loopRegionClockText(loopRegion, trackStore.globalSpan());
         el.style.display = 'inline';
     }
+    function isPlaybackRunning(): boolean {
+        return playbackEl !== null && !playbackEl.paused && !audioFader.isPausing(playbackEl);
+    }
     function clearPlaybackState() {
         if (playbackEl) {
             pauseSmoothly(playbackEl);
@@ -1622,6 +1628,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         updatePlaybackButtons();
         updateLoopBadge();
         updatePlaybackDisplay(null);
+        scheduleRender();
     }
     function startPlaybackLoop() {
         if (playbackRafId !== null) {
@@ -1816,6 +1823,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
     }
+    function finishPlaybackAtEnd(trackIndex: number, trackId: TrackId): void {
+        const endNorm = globalNormFromTrackTime(trackIndex, state.results[trackIndex].durationSeconds || 0);
+        if (endNorm !== null) {
+            cursorNorm = endNorm;
+            updateCursorDisplay(endNorm);
+        }
+        stopPlayback(trackId, { keepCursor: true });
+    }
     function attachAudioEvents() {
         state.results.forEach(function (_, i: number) {
             const trackId = trackIdAtIndex(i);
@@ -1845,18 +1860,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     invalidateDesiredSpectrumSliceRequests();
                     updatePlaybackButtons();
                     if (ended) {
-                        stopPlayback(id, { keepCursor: true });
+                        // 'pause' fires before 'ended' and this clears the current track, so onEnded never runs after it.
+                        finishPlaybackAtEnd(i, id);
                     }
                 },
-                onEnded() {
-                    const endNorm = globalNormFromTrackTime(i, state.results[i].durationSeconds || 0);
-                    if (endNorm !== null) {
-                        cursorNorm = endNorm;
-                        updateCursorDisplay(endNorm);
-                    }
-                    clearPlaybackState();
-                    scheduleRender();
-                    scheduleSpectrumRefresh('immediate');
+                onEnded(id) {
+                    finishPlaybackAtEnd(i, id);
                 },
                 onError() {
                     invalidateDesiredSpectrumSliceRequests();
