@@ -25,21 +25,28 @@ async function initialize() {
         cache?.put(cacheKey(asset), new Response(bytes)).catch(() => {});
         return bytes;
     };
-    const downloads = new Map(lock.assets.map(asset => [new URL(asset.path, base).href, { asset, bytes: download(asset) }]));
+    const assets = new Map(lock.assets.map(asset => [new URL(asset.path, base).href, asset]));
+    const downloads = new Map([...assets].map(([url, asset]) => [url, download(asset)]));
     // Every runtime file starts downloading at once; a boot that fails earlier would otherwise leave these rejections unhandled.
-    for (const { bytes } of downloads.values()) bytes.catch(() => {});
+    for (const bytes of downloads.values()) bytes.catch(() => {});
+    // Each download is handed out once and then released, so the boot does not hold the whole runtime twice.
+    const takeVerified = url => {
+        const bytes = downloads.get(url) ?? download(assets.get(url));
+        downloads.delete(url);
+        return bytes;
+    };
     const fetchVerified = path => {
-        const entry = downloads.get(new URL(path, base).href);
-        if (!entry) throw new Error(`Missing runtime asset: ${path}`);
-        return entry.bytes;
+        const url = new URL(path, base).href;
+        if (!assets.has(url)) throw new Error(`Missing runtime asset: ${path}`);
+        return takeVerified(url);
     };
     // Pyodide fetches the wasm, the stdlib and the native wheels itself; answering from the downloads above hands it
     // the verified, possibly cached bytes instead of a second, unverified request.
     self.fetch = async (input, init) => {
-        const entry = downloads.get(new URL(input instanceof Request ? input.url : input, self.location.href).href);
-        if (!entry) return networkFetch(input, init);
-        const type = entry.asset.path.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream';
-        return new Response(await entry.bytes, { headers: { 'Content-Type': type } });
+        const url = new URL(input instanceof Request ? input.url : input, self.location.href).href;
+        if (!assets.has(url)) return networkFetch(input, init);
+        const type = url.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream';
+        return new Response(await takeVerified(url), { headers: { 'Content-Type': type } });
     };
     const pureWheels = Promise.all(lock.pureWheels.map(fetchVerified));
     const sources = fetch('./python/manifest.json').then(response => response.json()).then(files => Promise.all(files.map(async name => {
@@ -49,7 +56,8 @@ async function initialize() {
     })));
     pureWheels.catch(() => {});
     sources.catch(() => {});
-    await Promise.all(lock.assets.filter(asset => !asset.path.endsWith('.whl')).map(asset => fetchVerified(asset.path)));
+    // Pyodide's module scripts are loaded by import(), not fetch, so their locked hash is checked here first.
+    await Promise.all(lock.assets.filter(asset => asset.path.endsWith('.mjs')).map(asset => fetchVerified(asset.path)));
     // Handing Pyodide the verified bytes keeps a second, unverified fetch from supplying the wheel hashes.
     const lockFileContents = new TextDecoder().decode(await fetchVerified('pyodide-lock.json'));
     const module = await import(new URL('pyodide.mjs', base).href);

@@ -301,6 +301,9 @@ const server = http.createServer((req,res) => {
         const runtimeDownloads=[];
         const cachedRuntime=/\/runtime\/(?!lock\.json$|pyodide\.mjs$|pyodide\.asm\.mjs$)[^/]+$/;
         await page.route(cachedRuntime,route=>{runtimeDownloads.push(path.basename(new URL(route.request().url()).pathname));return route.continue();});
+        // Cache writes are not awaited by the boot, so the check waits until every runtime file is stored.
+        const runtimeAssetCount=JSON.parse(fs.readFileSync(path.join(base,'runtime/lock.json'),'utf8')).assets.length;
+        await page.waitForFunction(async count=>(await (await caches.open('awa-runtime')).keys()).length>=count,runtimeAssetCount,{timeout:60000});
         await page.reload();
         await picker.setInputFiles(fixturePath('short-stereo.wav'));
         await status.filter({hasText:'waveform ready'}).waitFor({timeout:120000});
