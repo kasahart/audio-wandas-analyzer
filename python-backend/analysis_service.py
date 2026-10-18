@@ -86,6 +86,11 @@ _NOMINAL_BAND_CENTERS_HZ: dict[int, tuple[float, ...]] = {
 }  # fmt: skip
 
 
+# SciPy's zero-phase decimator inside MoSQITo rejects inputs of 27 samples or fewer, so shorter
+# clips are zero padded (like fft() pads to n_fft); their band levels are mostly filter transient.
+_MIN_BAND_SLICE_SAMPLES = 64
+
+
 class OctaveBands(NamedTuple):
     bands_per_octave: int
     centers_hz: tuple[float, ...]
@@ -243,7 +248,10 @@ class AnalysisService:
         if cached_slice is not None:
             rows, max_frequency_hz = cached_slice
         elif bands is not None:
-            octave = analysis_frame[:, start_sample:end_sample].noct_spectrum(
+            segment = analysis_frame[:, start_sample:end_sample]
+            if end_sample - start_sample < _MIN_BAND_SLICE_SAMPLES:
+                segment = segment.fix_length(length=_MIN_BAND_SLICE_SAMPLES)
+            octave = segment.noct_spectrum(
                 fmin=bands.centers_hz[0], fmax=bands.centers_hz[-1], n=bands.bands_per_octave
             )
             rows = np.asarray(octave.dB, dtype=np.float64).reshape(analysis_frame.n_channels, -1).astype(np.float32)

@@ -500,6 +500,21 @@ def test_spectrum_slice_octave_bands_lengthen_short_windows_for_the_lowest_band(
     assert max(values) == pytest.approx(-9.03, abs=0.6)
 
 
+@pytest.mark.parametrize("bands_per_octave", [1, 3])
+def test_spectrum_slice_octave_bands_level_clips_shorter_than_the_decimator(
+    tmp_path: Path, bands_per_octave: int
+) -> None:
+    wav = tmp_path / "click.wav"
+    _write_sine_wav(wav, freq_hz=1000.0, seconds=20 / 48000, sr=48000)
+    command = {"filePath": str(wav), "cursorNorm": 0.5, "bandsPerOctave": bands_per_octave}
+    resp = handle_spectrum_slice(command, AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000)))
+
+    assert result_violation("spectrum-slice", resp) is None
+    assert (resp["windowStartNorm"], resp["windowEndNorm"]) == (0.0, 1.0)
+    values = resp["channels"][0]["values"]
+    assert len(values) == len(resp["bandCentersHz"]) and all(math.isfinite(value) for value in values)
+
+
 def test_spectrum_slice_rejects_other_band_counts(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
