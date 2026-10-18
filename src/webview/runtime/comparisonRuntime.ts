@@ -56,7 +56,7 @@ import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSerie
 import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml } from './resultsPaneHtml';
-import { selectionLayoutHtml } from './selectionLayoutHtml';
+import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
 import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -102,9 +102,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const navigator = window.navigator;
     const ResizeObserver = window.ResizeObserver;
     const getComputedStyle = window.getComputedStyle.bind(window);
-    let isSelectionMode = state.mode === 'directory-selection';
-    // Only a host that opened the page in selection mode offers a Python environment picker; the Web host enters it later.
-    const hasPythonEnvironmentPicker = isSelectionMode;
+    const isSelectionMode = state.mode === 'directory-selection' || vscode.selectionPanel === true;
+    // Only a host that opened the page with a directory offers a Python environment picker; the Web host lists its sources without one.
+    const hasPythonEnvironmentPicker = state.mode === 'directory-selection';
+    let rootLabel = state.mode === 'directory-selection' ? state.rootPath : '';
     const selection = new OrderedSelection();
     const selectedFilePaths = selection.paths;
     if (Array.isArray(state.selectedFilePaths)) {
@@ -1076,10 +1077,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         return buildResultsPane(STR.emptyAllExcluded);
     }
-    function buildDirectorySelectionLayout(resultsPaneHtml = buildResultsPane(STR.emptyNoTracks)) {
+    // A host with nothing listed yet shows its own start prompt where the tracks will appear.
+    function selectionEmptyText() {
+        return __directoryTree.length || !vscode.emptyMessage ? STR.emptyNoTracks : vscode.emptyMessage;
+    }
+    function buildDirectorySelectionLayout(resultsPaneHtml = buildResultsPane(selectionEmptyText())) {
         const warning = pythonEnvironmentState.status === 'warning';
         return selectionLayoutHtml({
-            rootPath: state.rootPath || '',
+            rootPath: rootLabel,
+            isEmpty: !__directoryTree.length,
             filterQuery: selectionTreeView.filterQuery,
             treeHtml: selectionTreeView.renderTree(__directoryTree, true, 0),
             resultsPaneHtml,
@@ -1091,11 +1097,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }, STR);
     }
     /**
-     * Lists a newly picked directory in the tree, wrapping a results-mode page's results pane in the selection layout;
-     * no files moves the results pane back out. A new pick starts unfiltered and expanded because its root path need not be unique.
+     * Lists the host's sources in the selection panel's tree, which only a `selectionPanel` host shows without a directory.
+     * A new listing starts unfiltered and expanded because its root path need not be unique.
      */
-    function showDirectorySelection(rootPath: string, filePaths: string[]) {
+    function showDirectorySelection(rootPath: string, filePaths: string[], label = rootPath) {
         state.rootPath = rootPath;
+        rootLabel = label;
         clearSelectedFilePaths();
         const tree = buildSelectionTreeFromPaths(rootPath, filePaths);
         __directoryTree = tree.roots;
@@ -1106,28 +1113,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 el.textContent = text;
             }
         };
-        if (!filePaths.length) {
-            if (isSelectionMode) {
-                isSelectionMode = false;
-                app.replaceChildren(...Array.from(requiredElementById(document, 'selection-results-pane').childNodes));
-                emptyMessage(STR.emptyAllExcluded);
-                scheduleRender();
-            }
-            return;
-        }
-        if (isSelectionMode) {
-            const pathEl = document.querySelector('#selection-summary .selection-path');
-            if (pathEl) {
-                pathEl.textContent = rootPath;
-            }
-            return;
-        }
-        isSelectionMode = true;
-        const resultsNodes = Array.from(app.childNodes);
-        app.innerHTML = buildDirectorySelectionLayout('');
-        requiredElementById(document, 'selection-results-pane').append(...resultsNodes);
-        emptyMessage(STR.emptyNoTracks);
-        attachDirectorySelectionEvents();
+        requiredElementById(document, 'selection-summary').querySelector('.selection-path')!.textContent = rootLabel;
+        const folderButton = requiredElementById(document, 'selection-toolbar').querySelector<HTMLElement>('[data-action="open-folder"]')!;
+        const folder = selectionFolderButton(Boolean(rootLabel) || __directoryTree.length > 0, STR);
+        folderButton.textContent = folder.text;
+        setHint(folderButton, folder.hint);
+        requiredElementById(document, 'directory-selection-layout').classList.toggle('is-empty', !__directoryTree.length);
+        emptyMessage(selectionEmptyText());
+        syncSelectionSummary();
         scheduleRender();
     }
     function buildTrackRowsHtml() {
@@ -1543,11 +1536,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             emptyState.classList.toggle('is-visible', visibleRows.length === 0);
             const message = emptyState.querySelector('p');
-            if (message && !isSelectionMode) {
-                const text = rows.length === 0 && vscode.emptyMessage ? vscode.emptyMessage : STR.emptyAllExcluded;
-                if (message.textContent !== text) {
-                    message.textContent = text;
-                }
+            if (message && !isSelectionMode && message.textContent !== STR.emptyAllExcluded) {
+                message.textContent = STR.emptyAllExcluded;
             }
         }
     }
@@ -3065,7 +3055,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (msg.type === 'directory-selection') {
-            showDirectorySelection(msg.rootPath, msg.filePaths);
+            showDirectorySelection(msg.rootPath, msg.filePaths, msg.rootLabel);
             return;
         }
         if (msg.type === 'reanalyze-start') {

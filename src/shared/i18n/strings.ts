@@ -293,10 +293,8 @@ export interface UiStrings {
     hintSpecDisplay: string;
     hintSpecReset: string;
     hintSpecApply: string;
-    hintBrowserOpenWav: string;
     hintBrowserOpenFolder: string;
     hintBrowserAbout: string;
-    hintBrowserClear: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -579,10 +577,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpecDisplay: 'Display range, applied immediately (empty = auto)',
         hintSpecReset: 'Restore the default settings',
         hintSpecApply: 'Recompute the spectrogram with these STFT settings',
-        hintBrowserOpenWav: 'Add WAV files as tracks (you can also drop them onto the page)',
         hintBrowserOpenFolder: 'Open a folder and pick WAV files from the tree',
         hintBrowserAbout: 'Show limits, unavailable features and how audio is handled',
-        hintBrowserClear: 'Remove all tracks and free the audio memory',
     },
     ja: {
         panelTitle: 'Audio Wandas Analyzer',
@@ -863,10 +859,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpecDisplay: '表示範囲。すぐに反映されます（空欄は自動）',
         hintSpecReset: '既定の設定に戻す',
         hintSpecApply: 'この STFT 設定でスペクトログラムを再計算',
-        hintBrowserOpenWav: 'WAV をトラックとして追加（ページへのドロップでも可）',
         hintBrowserOpenFolder: 'フォルダを開き、ツリーから WAV を選ぶ',
         hintBrowserAbout: '制限・未対応機能・音声の扱いを表示',
-        hintBrowserClear: '全トラックを削除して音声メモリを解放',
     },
 };
 

@@ -57,9 +57,12 @@ test(clearSources ? 'clearing a pending browser recipe keeps the cleared status'
     const expected = clearSources
         ? await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared)
         : await page.locator('[role="status"]').textContent();
-    if (clearSources) await page.locator('[data-action="browser-clear"]').click();
+    if (clearSources) await page.evaluate(() => {
+        (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__
+            .postMessage({ type: 'analyze-selected-files', requestId: 'clear', filePaths: [] });
+    });
     else await page.evaluate(() => {
-        (window as typeof window & { __AWA_HOST__: { releaseSource(path: string): void } }).__AWA_HOST__.releaseSource('/sources/selected-1.wav');
+        (window as typeof window & { __AWA_HOST__: { releaseSource(path: string): void } }).__AWA_HOST__.releaseSource('/sources/selected.wav');
     });
     await page.evaluate(() => (window as typeof window & { __completeRecipe(): void }).__completeRecipe());
     await expect(page.locator('[role="status"]')).toHaveText(expected!);
@@ -142,14 +145,26 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     const strings = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: Record<string, string> }).__APP_STRINGS__);
     await expect(page.locator('#empty-state')).toHaveText(strings.browserEmptyPrompt);
     await expect(page.locator('span[role="status"]')).toHaveText('');
+    // The selection panel is the only place that opens sources, and it shows no summary or filter before anything is listed.
+    await expect(page.locator('#selection-sidebar')).toBeVisible();
+    await expect(page.locator('#selection-summary')).toBeHidden();
+    await expect(page.locator('#tree-filter-input')).toBeHidden();
+    await expect(page.locator('#selection-toolbar [data-action="open-folder"]')).toHaveText(strings.btnOpenFolder);
+    await expect(page.getByRole('button', { name: strings.btnOpenFile, exact: true })).toHaveCount(1);
     const indicator = page.locator('[data-python-indicator]');
     await expect(indicator).toHaveAttribute('data-hint', strings.browserPythonStarting);
-    const footerBox = (await page.locator('#hint-footer').boundingBox())!;
+    // The page has no header row: the status line, About and the Python dot sit in the footer row.
+    const footerBox = (await page.locator('#web-footer').boundingBox())!;
+    for (const part of ['span[role="status"]', '[data-action="browser-about"]']) {
+        const partBox = (await page.locator(part).boundingBox())!;
+        expect(partBox.y).toBeGreaterThanOrEqual(footerBox.y);
+    }
+    expect((await page.locator('#app').boundingBox())!.y).toBeLessThanOrEqual(1);
     const dotBox = (await indicator.boundingBox())!;
     expect(dotBox.y).toBeGreaterThanOrEqual(footerBox.y);
     expect(dotBox.x + dotBox.width).toBeLessThanOrEqual(footerBox.x + footerBox.width);
     const chooser = page.waitForEvent('filechooser');
-    await page.getByRole('button', { name: strings.btnOpenFile, exact: true }).click();
+    await page.locator('#selection-toolbar [data-action="open-file"]').click();
     expect((await chooser).isMultiple()).toBe(true);
     const panel = page.locator('[data-browser-about] ul');
     await expect(panel).toBeHidden();
@@ -169,7 +184,7 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     await page.locator('#empty-state').click();
     await page.setViewportSize({ width: 1400, height: 900 });
     await page.locator('[data-action="browser-about"]').click();
-    await expect(panel).toHaveCSS('left', '0px');
+    await expect.poll(async () => { const opened = (await panel.boundingBox())!; return opened.y + opened.height; }).toBeLessThanOrEqual(footerBox.y);
     await page.setViewportSize({ width: 640, height: 900 });
     await expect.poll(async () => { const resized = (await panel.boundingBox())!; return resized.x + resized.width; }).toBeLessThanOrEqual(640);
     await page.locator('#empty-state').click();
@@ -180,8 +195,11 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     await expect(page.locator('[data-action="browser-about"]')).toBeFocused();
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
     await expect(page.locator('#empty-state')).toBeHidden();
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/selected.wav"]')).toBeChecked();
+    await expect(page.locator('#selection-toolbar [data-action="open-folder"]')).toHaveText(strings.btnOpenAnotherFolder);
     await page.locator('[data-action="remove-track"]').click();
-    await expect(page.locator('#empty-state')).toHaveText(strings.browserEmptyPrompt);
+    await expect(page.locator('#empty-state')).toHaveText(strings.emptyNoTracks);
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/selected.wav"]')).not.toBeChecked();
 });
 
 test('static page opens a folder into the shared selection tree and checked files become tracks', async ({ page }) => {
@@ -193,10 +211,10 @@ test('static page opens a folder into the shared selection tree and checked file
     // Browsers without the File System Access picker fall back to the folder input.
     await openStaticPage(page, 'window.showDirectoryPicker = undefined;');
     const chooser = page.waitForEvent('filechooser');
-    await page.locator('[data-action="browser-open-folder"]').click();
+    await page.locator('#selection-toolbar [data-action="open-folder"]').click();
     await (await chooser).setFiles(join(folder, 'rec'));
     await expect(page.locator('#selection-sidebar')).toBeVisible();
-    await expect(page.locator('#selection-summary .selection-path')).toHaveText('/sources/rec');
+    await expect(page.locator('#selection-summary .selection-path')).toHaveText('rec');
     await expect(page.locator('.selection-file-checkbox')).toHaveCount(2);
     await expect(page.locator('#selection-python-environment')).toHaveCount(0);
     await expect(page.locator('#selection-results-pane #toolbar')).toHaveCount(1);
@@ -209,8 +227,9 @@ test('static page opens a folder into the shared selection tree and checked file
     await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/first.wav"]').uncheck();
     await expect(page.locator('.track-row')).toHaveCount(1);
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]')).toBeChecked();
-    await page.locator('[data-action="browser-clear"]').click();
+    await page.locator('[data-action="selection-clear-all"]').click();
     await expect(page.locator('.track-row')).toHaveCount(0);
+    await expect(page.locator('span[role="status"]')).toHaveText(await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared));
     await expect(page.locator('.selection-file-checkbox:checked')).toHaveCount(0);
 
     await page.locator('#tree-filter-input').fill('second');
@@ -228,7 +247,9 @@ test('static page opens a folder into the shared selection tree and checked file
     const fileChooser = page.waitForEvent('filechooser');
     await page.locator('#selection-toolbar [data-action="open-file"]').click();
     await (await fileChooser).setFiles({ name: 'single.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
-    await expect(page.locator('#directory-selection-layout')).toHaveCount(0);
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/single.wav"]')).toBeChecked();
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/third.wav"]')).toBeChecked();
+    await expect(page.locator('#selection-summary .selection-path')).toBeHidden();
     await expect(page.locator('.track-row')).toHaveCount(2);
 });
 
@@ -342,9 +363,9 @@ test('static page opens a folder through the File System Access picker without t
         return dir('rec', [file('b.wav'), file('notes.txt'), dir('day2', [file('a.WAV')])]);
     };`);
     page.on('filechooser', () => { throw new Error('the folder input must not open when the picker exists'); });
-    await page.locator('[data-action="browser-open-folder"]').click();
+    await page.locator('#selection-toolbar [data-action="open-folder"]').click();
     await expect(page.locator('.selection-file-checkbox')).toHaveCount(2);
-    await expect(page.locator('#selection-summary .selection-path')).toHaveText('/sources/rec');
+    await expect(page.locator('#selection-summary .selection-path')).toHaveText('rec');
     await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/a.WAV"]').check();
     await expect(page.locator('.track-row')).toHaveCount(1);
 });

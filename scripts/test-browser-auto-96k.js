@@ -33,7 +33,7 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
         assert.equal(result.channels[0].spectrogram.hopSize,2134);
         compare(JSON.parse(native.stdout).plain.channels,result.channels,'auto96k.native/Pyodide');
         assert.equal(await page.locator('audio').evaluateAll(xs=>xs.every(x=>x.paused)),true);
-        await page.locator('[data-action="browser-clear"]').click();
+        await page.locator('[data-action="selection-clear-all"]').click();
         const expected=JSON.parse(native.stdout);
         await page.route('**/auto-96k-fixture.wav',route=>route.fulfill({body:bytes,contentType:'audio/wav'}));
         const calibrated=await page.evaluate(async profile=>{

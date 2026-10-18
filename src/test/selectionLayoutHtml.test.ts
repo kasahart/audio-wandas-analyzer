@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getStrings } from '../shared/i18n/strings';
-import { selectionLayoutHtml, type SelectionLayoutParts } from '../webview/runtime/selectionLayoutHtml';
+import { selectionFolderButton, selectionLayoutHtml, type SelectionLayoutParts } from '../webview/runtime/selectionLayoutHtml';
 
 const strings = getStrings('en');
 const parts: SelectionLayoutParts = {
@@ -34,4 +34,15 @@ test('selection layout renders the selection actions', () => {
     for (const action of ['open-file', 'open-folder', 'selection-select-all', 'selection-clear-all']) {
         assert.ok(html.includes('data-action="' + action + '"'), action);
     }
+});
+
+test('selection layout offers "another" folder only while something is listed and marks an empty list', () => {
+    assert.deepEqual(selectionFolderButton(true, strings), { text: strings.btnOpenAnotherFolder, hint: strings.hintOpenFolder });
+    assert.deepEqual(selectionFolderButton(false, strings), { text: strings.btnOpenFolder, hint: strings.hintBrowserOpenFolder });
+    const empty = selectionLayoutHtml({ ...parts, rootPath: '', isEmpty: true }, strings);
+    assert.ok(empty.startsWith('<div id="directory-selection-layout" class="is-empty">'));
+    assert.ok(empty.includes('data-action="open-folder" data-hint="' + strings.hintBrowserOpenFolder + '"'));
+    assert.ok(empty.includes('>' + strings.btnOpenFolder + '</button>'));
+    const picked = selectionLayoutHtml({ ...parts, rootPath: '', isEmpty: false }, strings);
+    assert.ok(picked.includes('>' + strings.btnOpenAnotherFolder + '</button>'));
 });
