@@ -906,11 +906,21 @@ test('Open Folder walks the File System Access picker and ignores a cancelled pi
     assert.equal(app.status, status);
     assert.equal(app.received.some(message => message.type === 'directory-selection'), false);
 
-    (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => dir('rec', [file('b.wav'), file('notes.txt'), dir('day2', [file('a.WAV')])]);
+    const folderBlob = { size: 100, name: 'b.wav', arrayBuffer: async () => new ArrayBuffer(100) };
+    const folderFile = { kind: 'file', name: 'b.wav', getFile: async () => folderBlob };
+    (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => dir('rec', [folderFile, file('notes.txt'), dir('day2', [file('a.WAV')])]);
     openFolder.onclick!();
     await flush(); await flush();
     assert.deepEqual(app.received.find(message => message.type === 'directory-selection'),
         { type: 'directory-selection', rootPath: '/sources/rec', rootLabel: 'rec', filePaths: ['/sources/rec/b.wav', '/sources/rec/day2/a.WAV'] });
+
+    // Picking a file of the opened folder adds it as its own top-level entry and leaves the folder's entry unchecked.
+    app.picker.files = [folderBlob];
+    app.picker.onchange!();
+    await flush(); await flush();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1),
+        { type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: ['/sources/rec/b.wav', '/sources/rec/day2/a.WAV', '/sources/b.wav'] });
+    assert.deepEqual(app.received.filter(message => message.type === 'analysis-update').at(-1)!.selectedFilePaths, ['/sources/b.wav']);
 });
 
 test('picked files are listed in the tree under their own names and load checked; a name taken twice gets a suffix', async () => {

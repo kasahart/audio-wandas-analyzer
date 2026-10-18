@@ -255,7 +255,7 @@ test('static page opens a folder into the shared selection tree and checked file
     await expect(page.locator('.track-row')).toHaveCount(2);
 });
 
-test('static page shows a picked file that is already listed in a closed subfolder and keeps open folders across listings', async ({ page }) => {
+test('static page adds a picked file from an opened folder as its own entry and keeps folders open or closed across listings', async ({ page }) => {
     const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
     mkdirSync(join(folder, 'rec', 'day2'), { recursive: true });
     writeFileSync(join(folder, 'rec', 'first.wav'), Buffer.alloc(100));
@@ -275,9 +275,11 @@ test('static page shows a picked file that is already listed in a closed subfold
     await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
     await pick('open-file', join(folder, 'rec', 'day2', 'second.wav'));
     await expect(page.locator('.track-row')).toHaveCount(2);
-    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2"]')).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]')).toBeChecked();
-    await expect(page.locator('.selection-file-checkbox')).toHaveCount(3);
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/second.wav"]')).toBeChecked();
+    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2"]')).toHaveAttribute('aria-expanded', 'false');
+    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]')).not.toBeChecked();
+    await expect(page.locator('.selection-file-checkbox')).toHaveCount(4);
 });
 
 test('static page loads WAV files dropped onto the page or the recipe charts as tracks', async ({ page }) => {

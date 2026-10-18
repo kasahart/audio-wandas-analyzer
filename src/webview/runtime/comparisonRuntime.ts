@@ -106,8 +106,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // Only a host that opened the page with a directory offers a Python environment picker; the Web host lists its sources without one.
     const hasPythonEnvironmentPicker = state.mode === 'directory-selection';
     let rootLabel = state.mode === 'directory-selection' ? state.rootPath : '';
-    /** Checks held when the host last re-listed its files, so the update that restores them does not count them as new. */
-    const selectionBeforeListing = new Set<string>();
     const selection = new OrderedSelection();
     const selectedFilePaths = selection.paths;
     if (Array.isArray(state.selectedFilePaths)) {
@@ -1118,8 +1116,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const collapseState = selectionTreeView.collapseStateBelow(rootPath);
         state.rootPath = rootPath;
         rootLabel = label;
-        selectionBeforeListing.clear();
-        selectedFilePaths.forEach(function (filePath: string) { selectionBeforeListing.add(filePath); });
         clearSelectedFilePaths();
         const tree = buildSelectionTreeFromPaths(rootPath, filePaths);
         __directoryTree = tree.roots;
@@ -3113,12 +3109,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
             if (isSelectionMode && msg.selectedFilePaths) {
-                const known = new Set(selectedFilePaths.concat(Array.from(selectionBeforeListing)));
-                selectionBeforeListing.clear();
                 clearSelectedFilePaths();
                 msg.selectedFilePaths.forEach(addSelectedFilePath);
-                // A file the host checked itself (picking a listed file again) may sit in a closed folder.
-                selectionTreeView.reveal(msg.selectedFilePaths.filter(function (filePath) { return !known.has(filePath); }));
                 syncSelectionCheckboxes();
                 syncSelectionSummary();
             }

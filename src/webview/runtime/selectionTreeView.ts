@@ -35,8 +35,6 @@ export interface SelectionTreeView {
     replaceTree(next: Pick<SelectionTreeViewDeps, 'tree' | 'rootPath' | 'collapseState' | 'filterQuery'>): void;
     /** The drawn folders' open state, keyed by their path below `nextRootPath`, so a new listing of the same files keeps it. */
     collapseStateBelow(nextRootPath: string): Record<string, boolean>;
-    /** Opens the folders above each file, so a check the host made can be seen. */
-    reveal(filePaths: readonly string[]): void;
 }
 
 /** The file tree of the directory-selection layout: lazy folder rendering, collapse state, filter and resizer. */
@@ -101,40 +99,40 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
         }
         return true;
     }
-    function toggleDirectoryHeader(dirHeader: HTMLElement) {
-        const list = dirHeader.nextElementSibling;
-        const toggle = dirHeader.querySelector('.dir-toggle');
-        if (list && list.classList && list.classList.contains('selection-tree-list')) {
-            const listElement = list as HTMLElement;
-            const isCollapsed = listElement.style.display === 'none';
-            // 展開時: data-lazy な子要素を初めてレンダリングする (#90)
-            if (isCollapsed && list.getAttribute('data-lazy') === 'true') {
-                const relPath = dirHeader.getAttribute('data-relative-path');
-                const depth = parseInt(dirHeader.getAttribute('data-depth') || '0', 10);
-                const node = relPath === null ? undefined : tree.directories[relPath];
-                if (node && node.children) {
-                    listElement.innerHTML = renderItems(node.children, depth + 1);
-                    listElement.removeAttribute('data-lazy');
+    function attach(layout: HTMLElement): void {
+        function toggleDirectoryHeader(dirHeader: HTMLElement) {
+            const list = dirHeader.nextElementSibling;
+            const toggle = dirHeader.querySelector('.dir-toggle');
+            if (list && list.classList && list.classList.contains('selection-tree-list')) {
+                const listElement = list as HTMLElement;
+                const isCollapsed = listElement.style.display === 'none';
+                // 展開時: data-lazy な子要素を初めてレンダリングする (#90)
+                if (isCollapsed && list.getAttribute('data-lazy') === 'true') {
+                    const relPath = dirHeader.getAttribute('data-relative-path');
+                    const depth = parseInt(dirHeader.getAttribute('data-depth') || '0', 10);
+                    const node = relPath === null ? undefined : tree.directories[relPath];
+                    if (node && node.children) {
+                        listElement.innerHTML = renderItems(node.children, depth + 1);
+                        listElement.removeAttribute('data-lazy');
+                    }
+                }
+                listElement.style.display = isCollapsed ? '' : 'none';
+                if (toggle) {
+                    toggle.textContent = isCollapsed ? '▼' : '▶';
+                }
+                dirHeader.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
+                // 折りたたみ状態を保存し vscode.setState() で永続化する
+                // (isCollapsed=true → 展開に戻った → expanded=true)
+                const relativePath = dirHeader.getAttribute('data-relative-path');
+                if (relativePath) {
+                    collapseState[relativePath] = isCollapsed;
+                    deps.persist({
+                        directoryCollapseState: collapseState,
+                        directoryCollapseRootPath: rootPath,
+                    });
                 }
             }
-            listElement.style.display = isCollapsed ? '' : 'none';
-            if (toggle) {
-                toggle.textContent = isCollapsed ? '▼' : '▶';
-            }
-            dirHeader.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
-            // 折りたたみ状態を保存し vscode.setState() で永続化する
-            // (isCollapsed=true → 展開に戻った → expanded=true)
-            const relativePath = dirHeader.getAttribute('data-relative-path');
-            if (relativePath) {
-                collapseState[relativePath] = isCollapsed;
-                deps.persist({
-                    directoryCollapseState: collapseState,
-                    directoryCollapseRootPath: rootPath,
-                });
-            }
         }
-    }
-    function attach(layout: HTMLElement): void {
         layout.addEventListener('click', function (e) {
             const target = eventTarget(e);
             if (!target || typeof target.getAttribute !== 'function') {
@@ -367,19 +365,6 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                 kept[selectionRelativePath(nextRootPath, prefix + relativePath)] = dirHeader.getAttribute('aria-expanded') === 'true';
             });
             return kept;
-        },
-        reveal(filePaths) {
-            filePaths.forEach(function (filePath) {
-                const folders = selectionRelativePath(rootPath, filePath).split('/').slice(0, -1);
-                folders.forEach(function (_name, index) {
-                    const relativePath = folders.slice(0, index + 1).join('/');
-                    const dirHeader = Array.from(document.querySelectorAll<HTMLElement>('#selection-tree .selection-tree-directory'))
-                        .find(function (el) { return el.getAttribute('data-relative-path') === relativePath; });
-                    if (dirHeader && dirHeader.getAttribute('aria-expanded') !== 'true') {
-                        toggleDirectoryHeader(dirHeader);
-                    }
-                });
-            });
         },
         replaceTree(next) {
             ({ tree, rootPath, collapseState, filterQuery } = next);

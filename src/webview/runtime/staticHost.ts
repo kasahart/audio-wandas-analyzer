@@ -674,8 +674,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (!wavs.length) { announce(strings.browserDropNoWav); return; }
         const listed = Array.from(folder);
         const added = wavs.map(file => {
-            // Picking an unchecked listed file again checks its entry; a file already loaded gets a second entry, so it can be compared with itself.
-            const same = listed.find(([path, entry]) => !sources.get(path) && !pendingTreePaths.has(path)
+            // Picking an unchecked top-level file again checks its entry; a file from an opened folder, or one already loaded, gets its own top-level entry.
+            const same = listed.find(([path, entry]) => path.split('/').length === 3 && !sources.get(path) && !pendingTreePaths.has(path)
                 && entry.name === file.name && entry.size === file.size && entry.lastModified === file.lastModified);
             if (same) { pendingTreePaths.add(same[0]); return { file, sourceId: same[0].slice('/sources/'.length) }; }
             const stem = file.name.replace(/\.wav$/i, '').replace(/[\\/\u0000-\u001f]/g, '_');
