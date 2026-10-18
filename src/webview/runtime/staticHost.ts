@@ -62,6 +62,8 @@ export interface StaticHostDeps {
     recipeTimeoutMs?: number;
 }
 
+const UNAVAILABLE_ACTIONS = '[data-action="configure-calibration"]';
+
 /** Builds the browser host on top of the given globals and installs it as `window.__AWA_HOST__`. */
 export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     // Shadow the globals so every browser access goes through deps.
@@ -114,7 +116,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const pick = document.createElement('input');
     pick.setAttribute('data-action', 'browser-open-wav');
     pick.type = 'file'; pick.multiple = true; pick.accept = '.wav,audio/wav'; pick.setAttribute('aria-label', strings.btnOpenFile);
-    setHint(pick, strings.hintBrowserOpenWav);
+    // The native file input labels itself in the browser's UI language, so a page-language button opens it instead.
+    pick.style.cssText = 'display:none';
+    const openFile = document.createElement('button');
+    openFile.textContent = strings.btnOpenFile;
+    setHint(openFile, strings.hintBrowserOpenWav);
+    openFile.onclick = (): void => { pick.click(); };
     const cancel = document.createElement('button');
     cancel.setAttribute('data-action', 'browser-clear');
     cancel.textContent = strings.btnClear;
@@ -126,14 +133,53 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     openFolder.setAttribute('data-action', 'browser-open-folder');
     openFolder.textContent = strings.btnOpenFolder;
     setHint(openFolder, strings.hintBrowserOpenFolder);
+    // Python's state is a coloured dot at the footer's right end; its text stays for screen readers and the hover hint.
+    const pythonIndicator = document.createElement('span');
+    pythonIndicator.setAttribute('data-python-indicator', '');
+    pythonIndicator.style.cssText = 'position:fixed;right:10px;bottom:0;height:22px;z-index:65;display:flex;align-items:center';
+    const pythonDot = document.createElement('span');
+    pythonDot.style.cssText = 'width:8px;height:8px;border-radius:50%';
     const pythonState = document.createElement('span');
     pythonState.setAttribute('data-python-state', '');
     pythonState.setAttribute('aria-live', 'polite');
-    pythonState.style.cssText = 'white-space:nowrap';
+    pythonState.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap';
+    pythonIndicator.append(pythonDot, pythonState);
+    // Limits and unavailable features matter only to some visitors, so they sit behind a disclosure instead of a permanent paragraph.
+    const about = document.createElement('details');
+    about.setAttribute('data-browser-about', '');
+    about.style.cssText = 'position:relative';
+    const aboutToggle = document.createElement('summary');
+    aboutToggle.setAttribute('data-action', 'browser-about');
+    aboutToggle.textContent = strings.browserAbout;
+    aboutToggle.style.cssText = 'cursor:pointer;list-style:none;color:var(--muted);white-space:nowrap';
+    setHint(aboutToggle, strings.hintBrowserAbout);
+    const aboutPanel = document.createElement('ul');
+    aboutPanel.style.cssText = 'position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:max-content;max-width:min(480px,calc(100vw - 16px));margin:0;'
+        + 'padding:10px 14px 10px 28px;display:grid;gap:4px;background:var(--panel);color:var(--text);border:1px solid var(--line);'
+        + 'border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.35);font-size:13px;line-height:1.5';
+    for (const text of [strings.browserAboutPrivacy, strings.browserAboutFileLimits, strings.browserAboutSessionLimits, strings.browserAboutRecipes, strings.browserAboutUnsupported]) {
+        const item = document.createElement('li');
+        item.textContent = text;
+        aboutPanel.append(item);
+    }
+    about.append(aboutToggle, aboutPanel);
+    // The disclosure sits mid-toolbar, so a left-anchored panel would overflow narrow windows; shift it back inside.
+    const clampAbout = (): void => {
+        if (!about.open) return;
+        aboutPanel.style.left = '0px';
+        const overflow = aboutPanel.getBoundingClientRect().right - (document.documentElement.clientWidth - 8);
+        if (overflow > 0) aboutPanel.style.left = `${-overflow}px`;
+    };
+    about.ontoggle = clampAbout;
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
-    status.textContent = strings.browserWavHint;
-    bar.append(pick, openFolder, folderPick, cancel, pythonState, status);
+    // Web-only rules: room for the Python dot in the footer, and greyed-out actions the browser version cannot run.
+    const webStyles = document.createElement('style');
+    webStyles.textContent = '#hint-footer { padding-right: 28px; }'
+        + ` ${UNAVAILABLE_ACTIONS} { opacity: 0.4; cursor: not-allowed; }`
+        + ' @keyframes python-dot-pulse { 50% { opacity: 0.3; } }';
+    bar.append(openFile, pick, openFolder, folderPick, cancel, about, status, webStyles);
+    document.body.append(pythonIndicator);
     document.body.prepend(bar);
     // The toolbar text alone was easy to miss, so the boot also shows a centred card; it ignores pointer events because commands already wait for the boot.
     const pythonLoading = document.createElement('div');
@@ -149,11 +195,48 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     pythonSpinnerKeyframes.textContent = '@keyframes python-loading-spin { to { transform: rotate(360deg); } }';
     pythonLoading.append(pythonSpinner, pythonLoadingText, pythonSpinnerKeyframes);
     document.body.prepend(pythonLoading);
-    function showPythonState(text: string, booting = false): void {
+    const pythonStates = {
+        starting: { text: strings.browserPythonStarting, color: '#d29922' },
+        ready: { text: strings.browserPythonReady, color: '#3fb950' },
+        failed: { text: strings.browserPythonFailed, color: '#e5534b' },
+        stopped: { text: strings.browserPythonStopped, color: 'var(--muted)' },
+    };
+    function showPythonState(state: keyof typeof pythonStates): void {
+        const { text, color } = pythonStates[state];
+        const booting = state === 'starting';
         pythonState.textContent = text;
+        setHint(pythonIndicator, text);
+        pythonDot.style.background = color;
+        pythonDot.style.animation = booting ? 'python-dot-pulse 1.2s ease-in-out infinite' : 'none';
         pythonLoading.style.display = booting ? 'flex' : 'none';
     }
     const announce = (value: string): void => { status.textContent = value; };
+    const showInFooter = (value: string): void => { const footer = document.getElementById('hint-footer'); if (footer) footer.textContent = value; };
+    // Window listeners run around the runtime's document ones: the capture-phase click stops the action first,
+    // and the bubble-phase mouseover replaces the hint the runtime has just shown.
+    const unavailableTarget = (event: Event): Element | null | undefined => (event.target as Element | null)?.closest?.(UNAVAILABLE_ACTIONS);
+    // The footer is aria-hidden, so a visually hidden live region carries the same message to screen readers.
+    const unavailableAnnouncer = document.createElement('span');
+    unavailableAnnouncer.setAttribute('aria-live', 'polite');
+    unavailableAnnouncer.style.cssText = pythonState.style.cssText;
+    bar.append(unavailableAnnouncer);
+    const reportUnavailable = (): void => {
+        showInFooter(strings.browserUnavailable);
+        unavailableAnnouncer.textContent = strings.browserUnavailable;
+    };
+    window.addEventListener('click', event => {
+        if (!unavailableTarget(event)) return;
+        event.stopPropagation(); event.preventDefault();
+        reportUnavailable();
+    }, true);
+    window.addEventListener('mouseover', event => { if (unavailableTarget(event)) showInFooter(strings.browserUnavailable); });
+    // The runtime builds these buttons, so they are marked unavailable for assistive technology when they gain focus.
+    window.addEventListener('focusin', event => {
+        const target = unavailableTarget(event);
+        if (!target) return;
+        target.setAttribute('aria-disabled', 'true');
+        target.setAttribute('aria-description', strings.browserUnavailable);
+    });
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
     /** The opened folder's WAV files keyed by the `/sources/<relative path>` each one loads under. */
     let folder: Map<string, File> | undefined;
@@ -178,7 +261,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function resetWorker(reason: Error): void {
         reanalysisGeneration.advance();
         worker?.terminate(); worker = undefined;
-        showPythonState(strings.browserPythonStopped);
+        showPythonState('stopped');
         recovery = undefined;
         rejectPendingRequests(pending, reason);
     }
@@ -193,7 +276,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             // A Worker that cannot clear (a failed boot, or an older cached script) is replaced so no source outlives Clear.
             sendRequest({ cmd: 'clear' }).catch(() => { if (worker === kept) resetWorker(new Error('Analysis cancelled')); });
         }
-        loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
+        loading = false; pick.disabled = openFile.disabled = false; pick.value = ""; folderPick.value = "";
         pendingTreePaths.clear();
         sources.clear();
     }
@@ -223,12 +306,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function startWorker(): Worker {
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
         bootFailed = false;
-        showPythonState(strings.browserPythonStarting, true);
+        showPythonState('starting');
         activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown; ready?: boolean }>): void => {
             if (worker !== activeWorker) return;
             if (event.data.ready !== undefined) {
                 bootFailed = !event.data.ready;
-                showPythonState(event.data.ready ? strings.browserPythonReady : strings.browserPythonFailed);
+                showPythonState(event.data.ready ? 'ready' : 'failed');
                 return;
             }
             // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
@@ -479,17 +562,17 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 pendingTreePaths.clear();
                 added.forEach(path => pendingTreePaths.add(path));
                 if (!added.length) {
-                    loading = false; pick.disabled = false;
+                    loading = false; pick.disabled = openFile.disabled = false;
                     snapshot(); return;
                 }
-                loading = true; pick.disabled = true;
+                loading = true; pick.disabled = openFile.disabled = true;
                 announce(strings.browserPreparing);
                 await loadBatch(added.map(path => ({ file: tree.get(path)!, sourceId: path.slice('/sources/'.length) })), isLatest);
             });
         },
         showInformation: announce,
         showError: announce,
-        unsupported: () => announce(strings.browserUnavailable),
+        unsupported: reportUnavailable,
         runRecipe: async (scope): Promise<void> => {
             if (!sources.size) { announce(strings.browserRecipeNoSources); return; }
             await recipeFlow.run(sources.snapshot(source => source.path), () => scope.isCurrent());
@@ -501,11 +584,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         releaseSource: (path): void => { void releaseSource(path); },
         onMessage: (listener): (() => void) => { inboundListeners.add(listener); return () => { inboundListeners.delete(listener); }; },
         postMessage: (message: unknown): void => {
-            if (isConfigureCalibrationMessage(message)) { announce(strings.browserUnavailable); return; }
+            if (isConfigureCalibrationMessage(message)) { reportUnavailable(); return; }
             void controller.dispatch(message);
         },
         getState: () => persisted,
         setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType }); },
+        emptyMessage: strings.browserEmptyPrompt,
     };
     browserWindow.__AWA_HOST__ = host;
     const superseded = new Error('Superseded by a newer tree selection');
@@ -562,7 +646,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         });
         if (!sourceGeneration.isCurrent(myGeneration) || !isLatest()) return;
         pendingTreePaths.clear();
-        loading = false; pick.disabled = false; pick.value = '';
+        loading = false; pick.disabled = openFile.disabled = false; pick.value = '';
         if (!sources.size) dispose();
         if (folder) snapshot();
         announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
@@ -573,7 +657,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             folder = undefined; selectionRequests++;
             emit({ type: 'directory-selection', rootPath: '', filePaths: [] });
         }
-        loading = true; pick.disabled = true;
+        loading = true; pick.disabled = openFile.disabled = true;
         announce(strings.browserPreparing);
         enqueueBatch(() => loadBatch(files.map(file => ({ file }))));
     }
@@ -642,6 +726,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     };
     // Pyodide boots when its Worker starts, so starting it with the page keeps that wait off the first WAV load.
     worker = startWorker();
+    window.addEventListener('pointerdown', event => { if (about.open && !about.contains(event.target as Node)) about.open = false; });
+    window.addEventListener('resize', clampAbout);
+    window.addEventListener('keydown', event => { if (about.open && event.key === 'Escape') { about.open = false; aboutToggle.focus(); } });
     // Leaving the page always stops Python, so a back-forward cached page does not keep the runtime resident.
     window.addEventListener('pagehide', () => { resetWorker(new Error('Analysis cancelled')); dispose(); });
     return host;

@@ -113,10 +113,21 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
     });
     await openStaticPage(page);
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
-    await expect(page.locator('[data-action="configure-calibration"]')).toHaveCount(1);
-    await page.locator('[data-action="configure-calibration"]').click();
+    const calibration = page.locator('[data-action="configure-calibration"]');
+    await expect(calibration).toHaveCount(1);
+    await expect(calibration).toHaveCSS('opacity', '0.4');
     const unsupported = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserUnavailable: string } }).__APP_STRINGS__.browserUnavailable);
-    await expect(page.locator('span[role="status"]')).toHaveText(unsupported);
+    await expect(page.locator('span[role="status"]')).toContainText('selected.wav:');
+    const statusBefore = await page.locator('span[role="status"]').textContent();
+    await calibration.hover();
+    await expect(page.locator('#hint-footer')).toHaveText(unsupported);
+    await page.mouse.move(700, 450);
+    await calibration.click();
+    await expect(page.locator('#hint-footer')).toHaveText(unsupported);
+    await expect(page.locator('[aria-live="polite"]', { hasText: unsupported })).toHaveCount(1);
+    await calibration.focus();
+    await expect(calibration).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.locator('span[role="status"]')).toHaveText(statusBefore!);
     await page.evaluate(() => {
         (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
     });
@@ -125,6 +136,53 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
     expect(cspErrors).toEqual([]);
 });
 
+
+test('static page prompts in the empty results pane and keeps limits behind the About disclosure', async ({ page }) => {
+    await openStaticPage(page);
+    const strings = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: Record<string, string> }).__APP_STRINGS__);
+    await expect(page.locator('#empty-state')).toHaveText(strings.browserEmptyPrompt);
+    await expect(page.locator('span[role="status"]')).toHaveText('');
+    const indicator = page.locator('[data-python-indicator]');
+    await expect(indicator).toHaveAttribute('data-hint', strings.browserPythonStarting);
+    const footerBox = (await page.locator('#hint-footer').boundingBox())!;
+    const dotBox = (await indicator.boundingBox())!;
+    expect(dotBox.y).toBeGreaterThanOrEqual(footerBox.y);
+    expect(dotBox.x + dotBox.width).toBeLessThanOrEqual(footerBox.x + footerBox.width);
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: strings.btnOpenFile, exact: true }).click();
+    expect((await chooser).isMultiple()).toBe(true);
+    const panel = page.locator('[data-browser-about] ul');
+    await expect(panel).toBeHidden();
+    await page.locator('[data-action="browser-about"]').click();
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText(strings.browserAboutFileLimits);
+    await expect(panel).toContainText(strings.browserAboutSessionLimits);
+    await expect(panel).toContainText(strings.browserAboutUnsupported);
+    await page.locator('#empty-state').click();
+    await expect(panel).toBeHidden();
+    await page.setViewportSize({ width: 820, height: 900 });
+    await page.locator('[data-action="browser-about"]').click();
+    const box = (await panel.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(820);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(820);
+    await page.locator('#empty-state').click();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.locator('[data-action="browser-about"]').click();
+    await expect(panel).toHaveCSS('left', '0px');
+    await page.setViewportSize({ width: 640, height: 900 });
+    await expect.poll(async () => { const resized = (await panel.boundingBox())!; return resized.x + resized.width; }).toBeLessThanOrEqual(640);
+    await page.locator('#empty-state').click();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.locator('[data-action="browser-about"]').click();
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await expect(page.locator('[data-action="browser-about"]')).toBeFocused();
+    await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
+    await expect(page.locator('#empty-state')).toBeHidden();
+    await page.locator('[data-action="remove-track"]').click();
+    await expect(page.locator('#empty-state')).toHaveText(strings.browserEmptyPrompt);
+});
 
 test('static page opens a folder into the shared selection tree and checked files become tracks', async ({ page }) => {
     const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
