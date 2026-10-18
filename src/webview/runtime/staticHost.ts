@@ -50,6 +50,22 @@ async function collectWavFiles(directory: FolderEntryHandle, prefix: string, fou
     }
 }
 
+const readEntryBatch = (reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> => new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+
+/** A dropped folder arrives as an entry whose reader returns its children in batches until an empty one. */
+async function collectDroppedWavFiles(directory: FileSystemDirectoryEntry, prefix: string, found: Array<{ path: string; file: File }>): Promise<void> {
+    const reader = directory.createReader();
+    for (let batch = await readEntryBatch(reader); batch.length; batch = await readEntryBatch(reader)) {
+        for (const entry of batch) {
+            const path = `${prefix}/${entry.name}`;
+            if (entry.isDirectory) await collectDroppedWavFiles(entry as FileSystemDirectoryEntry, path, found);
+            else if (/\.wav$/i.test(entry.name)) found.push({ path, file: await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject)) });
+        }
+    }
+}
+
+const byPath = (a: { path: string }, b: { path: string }): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+
 /** Browser globals the static host reaches; tests pass fakes instead of running the bundle in a vm. */
 export interface StaticHostDeps {
     window: Window;
@@ -234,7 +250,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     });
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
     /** The listed WAV files keyed by the `/sources/<relative path>` each one loads under. */
-    let folder = new Map<string, File>();
+    const folder = new Map<string, File>();
     /** Checked tree files that are still loading, so their checkboxes stay checked until they load or fail. */
     const pendingTreePaths = new Set<string>();
     let selectionRequests = 0;
@@ -669,7 +685,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             return { file, sourceId };
         });
         const myRequest = ++selectionRequests;
-        emit({ type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: Array.from(folder.keys()) });
+        emitListing();
         added.forEach(({ sourceId }) => pendingTreePaths.add(`/sources/${sourceId}`));
         snapshot();
         loading = true; pick.disabled = true;
@@ -697,17 +713,49 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             if (!carriesFiles(event)) return;
             event.preventDefault();
             showDropTarget(false);
-            openFiles(Array.from(event.dataTransfer!.files));
+            // The transfer is emptied once the handler returns, so folder entries and files are taken out first.
+            const folders = Array.from(event.dataTransfer!.items ?? []).map(item => item.webkitGetAsEntry?.())
+                .filter((entry): entry is FileSystemDirectoryEntry => !!entry?.isDirectory);
+            const files = Array.from(event.dataTransfer!.files).filter(file => !folders.some(entry => entry.name === file.name));
+            if (!folders.length) { openFiles(files); return; }
+            void (async () => {
+                try {
+                    for (const entry of folders) {
+                        const found: Array<{ path: string; file: File }> = [];
+                        await collectDroppedWavFiles(entry, entry.name, found);
+                        openFolderFiles(entry.name, found.sort(byPath));
+                    }
+                    if (files.length) openFiles(files);
+                } catch (error) { announce(error instanceof Error ? error.message : String(error)); }
+            })();
         });
     }
     acceptDrops(window);
+    /** A list that holds one folder and nothing else is shown under that folder's name; any other list is shown from /sources. */
+    function emitListing(): void {
+        const paths = Array.from(folder.keys());
+        const roots = new Set(paths.map(path => path.split('/')[2]));
+        const only = roots.size === 1 && paths.every(path => path.split('/').length > 3) ? Array.from(roots)[0] : '';
+        emit({ type: 'directory-selection', rootPath: only ? `/sources/${only}` : '/sources', rootLabel: only, filePaths: paths });
+    }
+    /** Adds an opened folder to the list beside what is already listed; its files stay unchecked until picked in the tree. */
     function openFolderFiles(rootName: string, files: Array<{ path: string; file: File }>): void {
         if (!files.length) { announce(strings.selectionNoSupported); return; }
-        if (sources.size || loading) dispose();
-        selectionRequests++;
-        folder = new Map(files.map(({ path, file }) => [`/sources/${path}`, file]));
-        emit({ type: 'directory-selection', rootPath: `/sources/${rootName}`, rootLabel: rootName, filePaths: Array.from(folder.keys()) });
-        snapshot(); emit({ type: 'reanalyze-end' });
+        const inFolder = files.map(({ path, file }) => ({ rest: path.slice(rootName.length), file }));
+        const listedUnder = (name: string): string[] => Array.from(folder.keys()).filter(path => path === `/sources/${name}` || path.startsWith(`/sources/${name}/`));
+        // Opening a listed folder again keeps its entries; a different folder with a taken name gets a suffix.
+        let name = rootName;
+        for (let n = 2; listedUnder(name).length; n++) {
+            const same = listedUnder(name).length === inFolder.length && inFolder.every(({ rest, file }) => {
+                const entry = folder.get(`/sources/${name}${rest}`);
+                return entry && entry.name === file.name && entry.size === file.size && entry.lastModified === file.lastModified;
+            });
+            if (same) { announce(strings.browserFolderOpened.replace('{count}', String(files.length))); return; }
+            name = `${rootName} (${n})`;
+        }
+        inFolder.forEach(({ rest, file }) => folder.set(`/sources/${name}${rest}`, file));
+        emitListing();
+        snapshot();
         announce(strings.browserFolderOpened.replace('{count}', String(files.length)));
     }
     /**
@@ -722,7 +770,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             try {
                 const root = await showDirectoryPicker.call(window, { mode: 'read' });
                 await collectWavFiles(root, root.name, files);
-                openFolderFiles(root.name, files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
+                openFolderFiles(root.name, files.sort(byPath));
             } catch (error) {
                 if ((error as { name?: unknown } | null)?.name !== 'AbortError') announce(error instanceof Error ? error.message : String(error));
             }

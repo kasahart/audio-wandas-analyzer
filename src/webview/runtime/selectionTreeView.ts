@@ -194,9 +194,8 @@ export function createSelectionTreeView(deps: SelectionTreeViewDeps): SelectionT
                             return;
                         }
                         var savedExpanded = relativePath ? collapseState[relativePath] : undefined;
-                        // 保存済み状態があればそれを、なければ depth=0 かどうかで判断（ルート直下要素は expanded）
-                        // data-depth が付いていない場合はデフォルト展開
-                        var expanded = (savedExpanded !== undefined) ? savedExpanded : true;
+                        // 保存済み状態がなければ描画時の状態を保つ（未描画のレイジー一覧を空のまま展開しない）
+                        var expanded = (savedExpanded !== undefined) ? savedExpanded : list.getAttribute('data-lazy') !== 'true';
                         (list as HTMLElement).style.display = expanded ? '' : 'none';
                         var toggle = dirHeader.querySelector('.dir-toggle');
                         if (toggle) {

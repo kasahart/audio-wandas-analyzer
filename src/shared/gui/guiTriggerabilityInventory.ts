@@ -279,7 +279,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'static-browser-source',
-        label: 'List short WAV (picked or dropped) or a folder of them in the selection panel and load checked ones in a local Python Worker',
+        label: 'List short WAV and folders of them (picked or dropped) in the selection panel and load checked ones in a local Python Worker',
         entryPoints: ['dialog', 'drag-and-drop', 'selection-toolbar'],
         triggers: ['browser-open-wav', 'browser-drop-wav', 'open-file', 'open-folder', 'selection-clear-all'],
         regressionLayers: ['ui-smoke'],
