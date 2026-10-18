@@ -649,13 +649,15 @@ export async function run(): Promise<void> {
             },
         },
         {
-            name: 'play button plays the track through Web Audio and pauses it',
+            name: 'Space plays the track through Web Audio and pauses it',
             run: async () => {
+                if (!canSendXInput() && !process.env.CI) {
+                    console.log('xdotool or DISPLAY unavailable; playback is only checked under xvfb (CI)');
+                    return;
+                }
                 await analyzeSingleTrackInWaveformMode();
-                await postActionsAndWait(`play-${Date.now()}`, [
-                    { action: 'set-cursor', payload: { cursorNorm: 0 } },
-                    { action: 'mouse-event', payload: { selector: '[data-action="toggle-playback"]', type: 'click' } },
-                ]);
+                await postActionsAndWait(`play-${Date.now()}`, [{ action: 'set-cursor', payload: { cursorNorm: 0 } }]);
+                await pressSpaceInPanel();
                 const playing = await pollSnapshot('playing', (snapshot) => {
                     const audio = snapshot.renderedUi?.audio[0];
                     return !!audio && !audio.paused && audio.currentTime > 0.3;
@@ -666,9 +668,7 @@ export async function run(): Promise<void> {
                 assert.equal(audio?.crossOrigin, 'anonymous', diag);
                 assert.ok(audio && !audio.paused && audio.currentTime > 0.3, `playback did not advance: ${diag}`);
                 assert.equal(playing.renderedUi?.audioContextState, 'running', `Web Audio is not running: ${diag}`);
-                await postActionsAndWait(`pause-${Date.now()}`, [
-                    { action: 'mouse-event', payload: { selector: '[data-action="toggle-playback"]', type: 'click' } },
-                ]);
+                await pressSpaceInPanel();
                 const paused = await pollSnapshot('paused', (snapshot) => snapshot.renderedUi?.audio[0]?.paused === true);
                 assert.equal(paused.renderedUi?.audio[0]?.paused, true, `pause did not stop playback: ${JSON.stringify(paused.renderedUi?.audio)}`);
                 invalidateFixtureCache();
@@ -747,6 +747,25 @@ async function pollSnapshot(label: string, predicate: (snapshot: TestSnapshot) =
         await delay(250);
     } while (Date.now() < deadline);
     return latest;
+}
+
+/**
+ * The webview only lets a trusted input start playback, so the key goes through X (xdotool) rather than a test action.
+ * Without a window manager, windowfocus is what routes the key to VS Code.
+ */
+async function pressSpaceInPanel(): Promise<void> {
+    await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+    await delay(200);
+    execFileSync('xdotool', ['search', '--onlyvisible', '--class', 'code', 'windowfocus', '--sync', 'key', 'space']);
+}
+
+function canSendXInput(): boolean {
+    try {
+        execFileSync('xdotool', ['version'], { stdio: 'ignore' });
+        return !!process.env.DISPLAY;
+    } catch {
+        return false;
+    }
 }
 
 async function runZoomRecoveryScenario(): Promise<TestSnapshot> {

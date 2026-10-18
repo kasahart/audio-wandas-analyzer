@@ -45,8 +45,6 @@ async function main(): Promise<void> {
                 '--new-window',
                 '--no-sandbox',
                 '--disable-gpu',
-                // Test actions are synthetic clicks without user activation; a real click would allow playback.
-                '--autoplay-policy=no-user-gesture-required',
                 '--disable-telemetry',
                 '--disable-updates',
                 '--user-data-dir', userDataDir,
