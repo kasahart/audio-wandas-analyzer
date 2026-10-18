@@ -1,36 +1,57 @@
 let pyodide;
 let queue = Promise.resolve();
+const networkFetch = self.fetch.bind(self);
+const RUNTIME_CACHE = 'awa-runtime';
+async function sha256Hex(bytes) {
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
 async function initialize() {
     const base = new URL('./runtime/', self.location.href);
-    const lock = await (await fetch(new URL('lock.json', base))).json();
-    const fetchVerified = async asset => {
-        const response = await fetch(new URL(asset.path, base));
+    const lock = await (await networkFetch(new URL('lock.json', base))).json();
+    // Entries are keyed by the locked sha256, so a cached runtime file is reused across visits until the lock changes it.
+    const cache = await self.caches?.open(RUNTIME_CACHE).catch(() => undefined);
+    const cacheKey = asset => `${new URL(asset.path, base).href}?sha256=${asset.sha256}`;
+    const download = async asset => {
+        const cached = await cache?.match(cacheKey(asset)).catch(() => undefined);
+        if (cached) {
+            const bytes = new Uint8Array(await cached.arrayBuffer());
+            if (await sha256Hex(bytes) === asset.sha256) return bytes;
+        }
+        const response = await networkFetch(new URL(asset.path, base));
         if (!response.ok) throw new Error(`Missing runtime asset: ${asset.path}`);
-        const bytes = await response.arrayBuffer();
-        const digest = await crypto.subtle.digest('SHA-256', bytes);
-        const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
-        if (hash !== asset.sha256) throw new Error(`Runtime integrity mismatch: ${asset.path}`);
-        return new Uint8Array(bytes);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (await sha256Hex(bytes) !== asset.sha256) throw new Error(`Runtime integrity mismatch: ${asset.path}`);
+        cache?.put(cacheKey(asset), new Response(bytes)).catch(() => {});
+        return bytes;
     };
-    // Every file is fetched once and concurrently. Native wheels are left to loadPackage, which checks each
-    // against the sha256 in the pyodide-lock.json verified here.
-    const pureWheels = Promise.all(lock.pureWheels.map(name => {
-        const asset = lock.assets.find(candidate => candidate.path === name);
-        if (!asset) throw new Error(`Missing runtime asset: ${name}`);
-        return fetchVerified(asset);
-    }));
+    const downloads = new Map(lock.assets.map(asset => [new URL(asset.path, base).href, { asset, bytes: download(asset) }]));
+    // Every runtime file starts downloading at once; a boot that fails earlier would otherwise leave these rejections unhandled.
+    for (const { bytes } of downloads.values()) bytes.catch(() => {});
+    const fetchVerified = path => {
+        const entry = downloads.get(new URL(path, base).href);
+        if (!entry) throw new Error(`Missing runtime asset: ${path}`);
+        return entry.bytes;
+    };
+    // Pyodide fetches the wasm, the stdlib and the native wheels itself; answering from the downloads above hands it
+    // the verified, possibly cached bytes instead of a second, unverified request.
+    self.fetch = async (input, init) => {
+        const entry = downloads.get(new URL(input instanceof Request ? input.url : input, self.location.href).href);
+        if (!entry) return networkFetch(input, init);
+        const type = entry.asset.path.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream';
+        return new Response(await entry.bytes, { headers: { 'Content-Type': type } });
+    };
+    const pureWheels = Promise.all(lock.pureWheels.map(fetchVerified));
     const sources = fetch('./python/manifest.json').then(response => response.json()).then(files => Promise.all(files.map(async name => {
         const response = await fetch(`./python/${name}`);
         if (!response.ok) throw new Error(`Missing Python module: ${name}`);
         return [name, await response.text()];
     })));
-    // A boot that fails earlier would otherwise leave these rejections unhandled.
     pureWheels.catch(() => {});
     sources.catch(() => {});
-    const coreAssets = lock.assets.filter(asset => !asset.path.endsWith('.whl'));
-    const coreBytes = await Promise.all(coreAssets.map(fetchVerified));
+    await Promise.all(lock.assets.filter(asset => !asset.path.endsWith('.whl')).map(asset => fetchVerified(asset.path)));
     // Handing Pyodide the verified bytes keeps a second, unverified fetch from supplying the wheel hashes.
-    const lockFileContents = new TextDecoder().decode(coreBytes[coreAssets.findIndex(asset => asset.path === 'pyodide-lock.json')]);
+    const lockFileContents = new TextDecoder().decode(await fetchVerified('pyodide-lock.json'));
     const module = await import(new URL('pyodide.mjs', base).href);
     if (module.version !== lock.pyodideVersion) throw new Error('Pyodide version mismatch');
     pyodide = await module.loadPyodide({ indexURL: base.href, packageBaseUrl: base.href, cdnUrl: base.href, lockFileContents });
@@ -45,6 +66,10 @@ async function initialize() {
     // perf.py logs by default; a Worker has no one reading stderr, so it is silenced before the import.
     pyodide.runPython('import os; os.environ.setdefault("AWA_PERF_LOG", "0")');
     pyodide.runPython('from browser_service import browser_limits_json, load_source, release_source, prepare_export_json, dispatch_json');
+    downloads.clear();
+    // Files from an earlier lock are dropped so the cache holds one runtime.
+    const current = new Set(lock.assets.map(cacheKey));
+    cache?.keys().then(keys => Promise.all(keys.filter(key => !current.has(key.url)).map(key => cache.delete(key)))).catch(() => {});
 }
 // Booting at Worker start (not on the first message) lets the host start Pyodide before any WAV is chosen.
 // The unsolicited `ready` message only drives the host's Python indicator; each command still reports a failed boot itself.
