@@ -92,7 +92,8 @@ export function installSpectrogramSettingsPopover(
     }
     let anchor: Element | null = null;
     function open(from?: Element): void {
-        const gear = from || document.querySelector(GEAR_SELECTOR);
+        const gears = Array.from(document.querySelectorAll<HTMLElement>(GEAR_SELECTOR));
+        const gear = from || gears.find(g => g.getClientRects().length > 0) || gears[0];
         if (!gear || !popover) {
             return;
         }
