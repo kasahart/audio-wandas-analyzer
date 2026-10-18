@@ -82,7 +82,7 @@ export function drawRectZoomSelection(
     ctx: CanvasRenderingContext2D,
     selection: RectZoomSelection,
     view: NormalizedRange,
-    amplitude: NormalizedRange,
+    amplitude: NormalizedRange & { explicit?: boolean },
     width: number,
     height: number,
 ): void {
@@ -92,8 +92,8 @@ export function drawRectZoomSelection(
     }
     const x0 = (selection.startNorm - view.start) / span * width;
     const x1 = (selection.endNorm - view.start) / span * width;
-    const y0 = amplitudeNormToCanvasY(selection.startAmpNorm, height, amplitude.start, amplitude.end);
-    const y1 = amplitudeNormToCanvasY(selection.endAmpNorm, height, amplitude.start, amplitude.end);
+    const y0 = amplitudeNormToCanvasY(selection.startAmpNorm, height, amplitude.start, amplitude.end, amplitude.explicit);
+    const y1 = amplitudeNormToCanvasY(selection.endAmpNorm, height, amplitude.start, amplitude.end, amplitude.explicit);
     const left = Math.max(0, Math.min(x0, x1));
     const right = Math.min(width, Math.max(x0, x1));
     const top = Math.max(0, Math.min(y0, y1));

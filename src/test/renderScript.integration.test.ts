@@ -3467,8 +3467,9 @@ test('renderScript: 波形キャンバスの dblclick でズームがリセッ�
     env.dom.window.close();
 });
 
-test('renderScript: 軸キャンバスの dblclick でもズームがリセットされる', async () => {
+test('renderScript: スペクトログラム表示では軸キャンバスの dblclick でズームがリセットされる', async () => {
     const env = setupEnv();
+    (env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLElement).click();
 
     // '+' キーでズームイン
     env.dom.window.document.dispatchEvent(
@@ -3504,6 +3505,46 @@ test('renderScript: 軸キャンバスの dblclick でもズームがリセッ�
     assert.strictEqual(post.zoomStart, 0, '軸 dblclick 後 zoomStart が 0 になること');
     assert.strictEqual(post.zoomEnd,   1, '軸 dblclick 後 zoomEnd が 1 になること');
 
+    env.dom.window.close();
+});
+test('renderScript: 波形の振幅軸 dblclick → popover で振幅レンジを設定・Auto で戻せる', async () => {
+    const env = setupEnvWithState(REAL_SCALE_AXIS_APP_STATE);
+    await nextAnimationFrame(env.dom);
+    const doc = env.dom.window.document;
+    const latestWaveformLabels = async (actionId: string) => {
+        env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
+            data: { type: 'comparison-panel-test-action', actions: [], actionId },
+        }));
+        await nextAnimationFrame(env.dom);
+        const snap = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
+        return snap.renderedUi as { zoomStart: number; axisLabels: { waveformPerTrack: string[][] } };
+    };
+    doc.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: '+' }));
+    const zoomed = await latestWaveformLabels('pre-amp-axis');
+    assert.ok(zoomed.zoomStart > 0, '時間方向にズームしていること');
+
+    const axis = doc.getElementById('track-axis-canvas-1') as HTMLElement;
+    assert.match(axis.getAttribute('data-hint') ?? '', /./, '振幅軸にヒントがあること');
+    axis.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 40 }));
+    const pop = doc.getElementById('waveform-range-popover') as HTMLElement;
+    assert.ok(pop, 'popover が存在すること');
+    assert.notStrictEqual(pop.style.display, 'none', 'popover が表示されること');
+    const minI = doc.getElementById('wave-range-min') as HTMLInputElement;
+    const maxI = doc.getElementById('wave-range-max') as HTMLInputElement;
+    assert.ok(Number(maxI.value) > 0.5 && Number(minI.value) === -Number(maxI.value), 'プリフィルは表示中の上下端 (ピーク 0.5 Pa の外側) であること');
+    minI.value = '-0.2'; maxI.value = '0.2';
+    (doc.getElementById('wave-range-apply') as HTMLElement).click();
+    assert.strictEqual(pop.style.display, 'none', 'Apply 後に popover が閉じること');
+    const applied = await latestWaveformLabels('post-amp-apply');
+    assert.ok(applied.zoomStart > 0, '振幅軸 dblclick で時間ズームはリセットされないこと');
+    assert.deepEqual(Array.from(applied.axisLabels.waveformPerTrack[1]), ['+0.20', '0', '-0.20', 'Amp (Pa)']);
+    assert.deepEqual(Array.from(applied.axisLabels.waveformPerTrack[0]), ['+6553', '0', '-6553', 'Amp'], '他トラックは自分のピーク比で同じ倍率になること');
+
+    axis.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 40 }));
+    assert.strictEqual(minI.value, '-0.2', '再オープン時は設定中の値をプリフィルすること');
+    (doc.getElementById('wave-range-auto') as HTMLElement).click();
+    const auto = await latestWaveformLabels('post-amp-auto');
+    assert.deepEqual(Array.from(auto.axisLabels.waveformPerTrack[1]), ['+0.50', '0', '-0.50', 'Amp (Pa)']);
     env.dom.window.close();
 });
 // NOTE: jsdom テスト env (createWebviewEnv) は __APP_STRINGS__ を注入しないため

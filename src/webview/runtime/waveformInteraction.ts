@@ -75,8 +75,9 @@ export function amplitudeNormToCanvasY(
     height: number,
     amplitudeMin: number,
     amplitudeMax: number,
+    explicit = false,
 ): number {
-    if (amplitudeMin > -0.999999 || amplitudeMax < 0.999999) {
+    if (explicit || amplitudeMin > -0.999999 || amplitudeMax < 0.999999) {
         return ((amplitudeMax - norm) / Math.max(amplitudeMax - amplitudeMin, 1e-9)) * height;
     }
     return height / 2 - norm * (height * WAVEFORM_HALF_HEIGHT_RATIO);
@@ -87,12 +88,13 @@ export function canvasYToAmplitudeNorm(
     height: number,
     amplitudeMin: number,
     amplitudeMax: number,
+    explicit = false,
 ): number {
     if (height <= 0) {
         return 0;
     }
     const clampedY = Math.max(0, Math.min(height, y));
-    if (amplitudeMin > -0.999999 || amplitudeMax < 0.999999) {
+    if (explicit || amplitudeMin > -0.999999 || amplitudeMax < 0.999999) {
         return amplitudeMax - (clampedY / Math.max(height, 1)) * (amplitudeMax - amplitudeMin);
     }
     return Math.max(-1, Math.min(1, (height / 2 - clampedY) / (height * WAVEFORM_HALF_HEIGHT_RATIO)));

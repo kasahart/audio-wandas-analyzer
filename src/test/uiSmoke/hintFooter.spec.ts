@@ -33,7 +33,7 @@ test('axes, the spectrum and every toolbar control explain their gestures in the
     await page.locator('[data-action="zoom-in"]').hover();
     await expect(footer).toHaveText(STR.hintZoomIn);
     await page.locator('.track-axis-canvas').first().hover();
-    await expect(footer).toHaveText(STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
+    await expect(footer).toHaveText(STR.hintWaveformAmplitudeAxis + ' / ' + STR.hintWheelGestures);
 
     const spectrum = page.locator('#spectrum-overlay-canvas');
     const box = await spectrum.boundingBox();

@@ -234,6 +234,8 @@ export interface UiStrings {
     specRangeTitle: string;
     specRangeAxisFreq: string;
     specRangeAxisDb: string;
+    waveRangeAxisAmplitude: string;
+    waveRangeErrorTooNarrow: string;
     specRangeMin: string;
     specRangeMax: string;
     specRangeApply: string;
@@ -281,6 +283,7 @@ export interface UiStrings {
     hintSpectrumPlot: string;
     hintSpectrumDbAxis: string;
     hintSpectrumFreqAxis: string;
+    hintWaveformAmplitudeAxis: string;
     hintSpectrumKeys: string;
     hintSpecAuto: string;
     hintSpecNFft: string;
@@ -516,6 +519,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specRangeTitle: 'Range',
         specRangeAxisFreq: 'Frequency (Hz)',
         specRangeAxisDb: 'Level (dB)',
+        waveRangeAxisAmplitude: 'Amplitude',
+        waveRangeErrorTooNarrow: 'Range is too narrow for this channel',
         specRangeMin: 'Min',
         specRangeMax: 'Max',
         specRangeApply: 'Apply',
@@ -563,6 +568,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrumPlot: 'Drag: zoom into the box / Double-click: reset zoom / ← →: step through frequency bins',
         hintSpectrumDbAxis: 'Double-click: set the dB range',
         hintSpectrumFreqAxis: 'Double-click: set the frequency range',
+        hintWaveformAmplitudeAxis: 'Double-click: set the amplitude range',
         hintSpectrumKeys: '← →: step through frequency bins',
         hintSpecAuto: 'Use the default STFT settings',
         hintSpecNFft: 'FFT length in samples: larger gives finer frequency resolution',
@@ -796,6 +802,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specRangeTitle: 'レンジ',
         specRangeAxisFreq: '周波数 (Hz)',
         specRangeAxisDb: 'レベル (dB)',
+        waveRangeAxisAmplitude: '振幅',
+        waveRangeErrorTooNarrow: 'このチャンネルには狭すぎる範囲です',
         specRangeMin: 'Min',
         specRangeMax: 'Max',
         specRangeApply: '適用',
@@ -843,6 +851,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrumPlot: 'ドラッグ: 囲んだ範囲にズーム / ダブルクリック: ズームをリセット / ← →: 周波数ビンを移動',
         hintSpectrumDbAxis: 'ダブルクリック: dB 範囲を設定',
         hintSpectrumFreqAxis: 'ダブルクリック: 周波数範囲を設定',
+        hintWaveformAmplitudeAxis: 'ダブルクリック: 振幅範囲を設定',
         hintSpectrumKeys: '← →: 周波数ビンを移動',
         hintSpecAuto: 'STFT 設定を既定値にする',
         hintSpecNFft: 'FFT 長（サンプル）: 大きいほど周波数分解能が細かくなります',
