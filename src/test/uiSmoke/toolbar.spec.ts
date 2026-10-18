@@ -239,17 +239,20 @@ test('static page opens a folder into the shared selection tree and checked file
     const nextChooser = page.waitForEvent('filechooser');
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
     await (await nextChooser).setFiles(join(sameName, 'rec'));
+    // A second folder joins the list; its taken name gets a suffix and the header no longer names one folder.
     await expect(page.locator('#tree-filter-input')).toHaveValue('');
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/third.wav"]')).toBeVisible();
-    await page.locator('.selection-file-checkbox').check();
+    await expect(page.locator('#selection-summary .selection-path')).toBeHidden();
+    // Below the listed folders, subfolders start collapsed and render when opened.
+    const day2 = page.locator('.selection-tree-directory[data-relative-path="rec/day2"]');
+    await expect(day2).toHaveAttribute('aria-expanded', 'false');
+    await page.locator('.selection-file-checkbox[data-file-path="/sources/rec (2)/third.wav"]').check();
     await expect(page.locator('.track-row')).toHaveCount(1);
 
     const fileChooser = page.waitForEvent('filechooser');
     await page.locator('#selection-toolbar [data-action="open-file"]').click();
     await (await fileChooser).setFiles({ name: 'single.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/single.wav"]')).toBeChecked();
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/third.wav"]')).toBeChecked();
-    await expect(page.locator('#selection-summary .selection-path')).toBeHidden();
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec (2)/third.wav"]')).toBeChecked();
     await expect(page.locator('.track-row')).toHaveCount(2);
 });
 
@@ -282,6 +285,25 @@ test('static page loads WAV files dropped onto the page or the recipe charts as 
     await dropFiles('drop', ['third.wav'], true);
     await expect(page.locator('.track-row')).toHaveCount(3);
     await expect(outline).toBeHidden();
+
+    // A dropped folder is walked through its entry and listed beside the files; its WAV files stay unchecked.
+    await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([], 'rec'));
+        const file = (name: string) => ({ isDirectory: false, name, file: (done: (file: File) => void) => done(new File([new Uint8Array(100)], name)) });
+        const dir = (name: string, entries: unknown[]) => ({ isDirectory: true, name, createReader: () => {
+            let read = false;
+            return { readEntries: (done: (batch: unknown[]) => void) => { done(read ? [] : entries); read = true; } };
+        } });
+        const root = dir('rec', [file('a.wav'), file('notes.txt'), dir('day2', [file('b.WAV')])]);
+        Object.defineProperty(transfer, 'items', { value: [{ webkitGetAsEntry: () => root }] });
+        document.body.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    });
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/a.wav"]')).not.toBeChecked();
+    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
+    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/b.WAV"]')).not.toBeChecked();
+    await expect(page.locator('.selection-file-checkbox:checked')).toHaveCount(3);
+    await expect(page.locator('.track-row')).toHaveCount(3);
 });
 
 async function getPostedActionTypes(page: Page): Promise<string[]> {

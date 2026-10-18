@@ -855,6 +855,45 @@ test('folder tracks keep their folder path in reports, release unchecks them and
     assert.deepEqual((lastUpdate().results as Array<{ reportSourcePath: string }>).map(result => result.reportSourcePath), ['rec/a/b/c.wav', 'selected.wav']);
 });
 
+test('folders join the list, a reopened folder keeps its entries and a different folder with a taken name gets a suffix', async () => {
+    const app = harness();
+    const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
+    const file = (path: string) => ({ size: 100, name: path.split('/').pop()!, webkitRelativePath: path, lastModified: 1, arrayBuffer: async () => new ArrayBuffer(100) });
+    const listings = () => app.received.filter(message => message.type === 'directory-selection');
+    folderPicker.files = [file('rec/a.wav')];
+    folderPicker.onchange!();
+    app.host.postMessage({ type: 'analyze-selected-files', requestId: 'r1', filePaths: ['/sources/rec/a.wav'] });
+    await flush(); await flush();
+    folderPicker.files = [file('rec/a.wav')];
+    folderPicker.onchange!();
+    assert.equal(listings().length, 1);
+    folderPicker.files = [file('rec/b.wav')];
+    folderPicker.onchange!();
+    assert.deepEqual(listings().at(-1), { type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: ['/sources/rec/a.wav', '/sources/rec (2)/b.wav'] });
+    assert.deepEqual(app.received.filter(message => message.type === 'analysis-update').at(-1)!.selectedFilePaths, ['/sources/rec/a.wav']);
+    assert.ok(!app.workers[0].commands.some(command => command.cmd === 'clear'), 'opening a folder keeps the loaded tracks');
+});
+
+test('a dropped folder is walked through its entries and listed beside dropped files', async () => {
+    const app = harness();
+    const wav = (name: string) => ({ size: 100, name, lastModified: 1, arrayBuffer: async () => new ArrayBuffer(100) });
+    const entry = (name: string) => ({ isDirectory: false, name, file: (done: (file: unknown) => void) => done(wav(name)) });
+    const dir = (name: string, entries: unknown[]) => ({ isDirectory: true, name, createReader: () => {
+        let read = false;
+        return { readEntries: (done: (batch: unknown[]) => void) => { done(read ? [] : entries); read = true; } };
+    } });
+    const drop = app.windowListeners.get('drop') as unknown as (event: unknown) => void;
+    drop({ preventDefault: () => undefined, dataTransfer: {
+        types: ['Files'],
+        items: [{ webkitGetAsEntry: () => dir('take', [entry('c.wav'), entry('notes.txt'), dir('sub', [entry('d.WAV')])]) }, { webkitGetAsEntry: () => entry('loose.wav') }],
+        files: [{ name: 'take' }, wav('loose.wav')],
+    } });
+    await flush(); await flush(); await flush();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths,
+        ['/sources/take/c.wav', '/sources/take/sub/d.WAV', '/sources/loose.wav']);
+    assert.deepEqual(app.received.filter(message => message.type === 'analysis-update').at(-1)!.selectedFilePaths, ['/sources/loose.wav']);
+});
+
 test('Open Folder walks the File System Access picker and ignores a cancelled pick', async () => {
     const app = harness();
     const openFolder = { onclick: () => app.host.postMessage({ type: 'select-target', targetKind: 'directory' }) };
