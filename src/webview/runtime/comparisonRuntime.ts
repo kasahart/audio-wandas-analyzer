@@ -1115,7 +1115,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
         requiredElementById(document, 'selection-summary').querySelector('.selection-path')!.textContent = rootLabel;
         const folderButton = requiredElementById(document, 'selection-toolbar').querySelector<HTMLElement>('[data-action="open-folder"]')!;
-        const folder = selectionFolderButton(rootLabel, STR);
+        const folder = selectionFolderButton(Boolean(rootLabel) || __directoryTree.length > 0, STR);
         folderButton.textContent = folder.text;
         setHint(folderButton, folder.hint);
         requiredElementById(document, 'directory-selection-layout').classList.toggle('is-empty', !__directoryTree.length);

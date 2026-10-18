@@ -16,16 +16,16 @@ export type SelectionLayoutStrings = Pick<UiStrings,
     | 'btnSelectAll' | 'btnClear' | 'ariaSelectionTree'
     | 'hintOpenFile' | 'hintOpenFolder' | 'hintBrowserOpenFolder' | 'hintSelectAll' | 'hintClearAll' | 'hintTreeFilter' | 'hintTreeResizer'>;
 
-/** Without a listed folder there is no "another" folder to open. */
-export function selectionFolderButton(rootPath: string, strings: SelectionLayoutStrings): { text: string; hint: string } {
-    return rootPath
+/** Until the panel lists something there is no "another" folder to open. */
+export function selectionFolderButton(listed: boolean, strings: SelectionLayoutStrings): { text: string; hint: string } {
+    return listed
         ? { text: strings.btnOpenAnotherFolder, hint: strings.hintOpenFolder }
         : { text: strings.btnOpenFolder, hint: strings.hintBrowserOpenFolder };
 }
 
 export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: SelectionLayoutStrings): string {
     const python = parts.python;
-    const folder = selectionFolderButton(parts.rootPath, strings);
+    const folder = selectionFolderButton(Boolean(parts.rootPath) || !parts.isEmpty, strings);
     const pythonButton = python
         ? '    <button class="tb-btn' + (python.warning ? ' is-warning' : '') + '" id="selection-python-environment" data-action="select-python-environment"' + hintAttr(python.tooltip) + '>' + escapeHtml(python.text) + '</button>'
         : '';

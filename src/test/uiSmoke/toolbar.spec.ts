@@ -196,6 +196,7 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
     await expect(page.locator('#empty-state')).toBeHidden();
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/selected.wav"]')).toBeChecked();
+    await expect(page.locator('#selection-toolbar [data-action="open-folder"]')).toHaveText(strings.btnOpenAnotherFolder);
     await page.locator('[data-action="remove-track"]').click();
     await expect(page.locator('#empty-state')).toHaveText(strings.emptyNoTracks);
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/selected.wav"]')).not.toBeChecked();
