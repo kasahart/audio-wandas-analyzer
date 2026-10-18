@@ -204,6 +204,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let playbackRafId: number | null = null;
     const audioFader = createAudioFader();
     let endFadeTarget: number | null = null;
+    let lastPlayRejection: string | null = null;
     let passFade = FADE_SECONDS;
     // Queuing the end fade further ahead would let a media stall silence the track before it reaches the end.
     const END_FADE_LOOKAHEAD_SECONDS = 0.25;
@@ -1046,6 +1047,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 })(),
                 tracks: trackInfo,
                 ...shellSnapshot(document, audioFader.contextState()),
+                lastPlayRejection,
             }, actionId);
     }
     function publishTestSnapshotSafe(actionId?: string) {
@@ -1816,7 +1818,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
         const playPromise = audio.play();
         if (playPromise && typeof playPromise.then === 'function') {
-            playPromise.then(fadeIn, function () {
+            playPromise.then(fadeIn, function (err: unknown) {
+                lastPlayRejection = err instanceof Error ? err.name + ': ' + err.message : String(err);
                 clearPlaybackState();
             });
         }

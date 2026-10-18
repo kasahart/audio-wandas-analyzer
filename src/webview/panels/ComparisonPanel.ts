@@ -68,6 +68,7 @@ interface ComparisonPanelRenderedUi {
     };
     waveformRangePopover: { open: boolean; min: string | null; max: string | null } | null;
     audioContextState: string | null;
+    lastPlayRejection: string | null;
     audio: Array<{
         trackId: string | null;
         crossOrigin: string | null;

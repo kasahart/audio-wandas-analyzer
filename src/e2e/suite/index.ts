@@ -63,6 +63,7 @@ interface TestSnapshot {
         };
         waveformRangePopover: { open: boolean; min: string | null; max: string | null } | null;
         audioContextState: string | null;
+        lastPlayRejection: string | null;
         audio: Array<{
             trackId: string | null;
             crossOrigin: string | null;
@@ -660,7 +661,7 @@ export async function run(): Promise<void> {
                     return !!audio && !audio.paused && audio.currentTime > 0.3;
                 });
                 const audio = playing.renderedUi?.audio[0];
-                const diag = JSON.stringify({ audio, context: playing.renderedUi?.audioContextState });
+                const diag = JSON.stringify({ audio, context: playing.renderedUi?.audioContextState, playRejection: playing.renderedUi?.lastPlayRejection });
                 assert.equal(audio?.errorCode, null, `audio failed to load: ${diag}`);
                 assert.equal(audio?.crossOrigin, 'anonymous', diag);
                 assert.ok(audio && !audio.paused && audio.currentTime > 0.3, `playback did not advance: ${diag}`);
