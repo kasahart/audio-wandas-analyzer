@@ -115,6 +115,7 @@ export interface UiStrings {
     helpRowCtrlWheel: string;
     helpRowDrag: string;
     helpRowShiftDrag: string;
+    helpRowDoubleClickEdge: string;
     helpRowQuestion: string;
     helpRowEsc: string;
     helpRowZoomKeys: string;
@@ -274,6 +275,10 @@ export interface UiStrings {
     hintTrackHeightResizer: string;
     hintSpectrumHeightResizer: string;
     hintTreeResizer: string;
+    hintCollapseSidebar: string;
+    hintExpandSidebar: string;
+    hintCollapseSpectrum: string;
+    hintExpandSpectrum: string;
     hintOpenFile: string;
     hintOpenFolder: string;
     hintSelectAll: string;
@@ -403,6 +408,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowCtrlWheel: 'zoom in time',
         helpRowDrag: 'create / resize loop',
         helpRowShiftDrag: 'adjust track offset',
+        helpRowDoubleClickEdge: 'collapse the file list; collapse or expand the spectrum',
         helpRowQuestion: 'toggle this help',
         helpRowEsc: 'close popover / help',
         helpRowZoomKeys: 'zoom in / out / reset',
@@ -559,8 +565,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintOffsetUp: 'Offset +10 ms',
         hintOffsetDown: 'Offset −10 ms',
         hintTrackHeightResizer: 'Drag to change the track height',
-        hintSpectrumHeightResizer: 'Drag to change the spectrum height',
-        hintTreeResizer: 'Drag to change the sidebar width',
+        hintSpectrumHeightResizer: 'Drag to change the spectrum height; double-click to collapse or expand it',
+        hintTreeResizer: 'Drag to change the sidebar width; double-click to collapse it',
+        hintCollapseSidebar: 'Collapse the file list',
+        hintExpandSidebar: 'Show the file list',
+        hintCollapseSpectrum: 'Collapse the power spectrum',
+        hintExpandSpectrum: 'Show the power spectrum',
         hintOpenFile: 'Open an audio file',
         hintOpenFolder: 'Open another folder of audio files',
         hintSelectAll: 'Check all visible files in the tree',
@@ -688,6 +698,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowCtrlWheel: '時間方向にズーム',
         helpRowDrag: 'ループ作成 / リサイズ',
         helpRowShiftDrag: 'トラックのオフセット調整',
+        helpRowDoubleClickEdge: 'ファイル一覧を畳む、スペクトルを畳む/戻す',
         helpRowQuestion: 'このヘルプを開閉',
         helpRowEsc: 'ポップオーバー / ヘルプを閉じる',
         helpRowZoomKeys: 'ズームイン / アウト / リセット',
@@ -844,8 +855,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintOffsetUp: 'オフセット +10 ms',
         hintOffsetDown: 'オフセット −10 ms',
         hintTrackHeightResizer: 'ドラッグでトラックの高さを変更',
-        hintSpectrumHeightResizer: 'ドラッグでスペクトルの高さを変更',
-        hintTreeResizer: 'ドラッグでサイドバーの幅を変更',
+        hintSpectrumHeightResizer: 'ドラッグでスペクトルの高さを変更、ダブルクリックで畳む/戻す',
+        hintTreeResizer: 'ドラッグでサイドバーの幅を変更、ダブルクリックで畳む',
+        hintCollapseSidebar: 'ファイル一覧を畳む',
+        hintExpandSidebar: 'ファイル一覧を表示',
+        hintCollapseSpectrum: 'パワースペクトルを畳む',
+        hintExpandSpectrum: 'パワースペクトルを表示',
         hintOpenFile: '音声ファイルを開く',
         hintOpenFolder: '別の音声フォルダを開く',
         hintSelectAll: 'ツリーに表示中のファイルをすべてチェック',

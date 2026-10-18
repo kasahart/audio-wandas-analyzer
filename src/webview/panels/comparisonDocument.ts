@@ -251,6 +251,26 @@ export function renderComparisonStyles(): string {
         #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); position: relative; }
         .spectrum-height-resizer { left: 0; right: 0; top: -3px; height: 6px; }
         #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; cursor: crosshair; }
+        #spectrum-section-header .panel-toggle { margin-left: auto; }
+        /* The zoom toolbar lays itself out with an inline display:flex. */
+        #spectrum-section.is-collapsed #spectrum-zoom-toolbar,
+        #spectrum-section.is-collapsed #spectrum-overlay-wrap { display: none !important; }
+        #spectrum-section.is-collapsed #spectrum-section-header { border-bottom: none; }
+        #spectrum-section.is-collapsed .spectrum-height-resizer { cursor: default; }
+        #spectrum-section.is-collapsed #spectrum-section-header { cursor: pointer; }
+        #spectrum-section.is-collapsed #spectrum-section-header:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+        #directory-selection-layout.sidebar-collapsed #selection-sidebar,
+        #directory-selection-layout.sidebar-collapsed .tree-resizer { display: none; }
+        #selection-sidebar-rail {
+            display: none; flex-direction: column; align-items: center; gap: 8px; flex-shrink: 0;
+            width: 22px; padding: 8px 0; border: none; border-right: 1px solid var(--line);
+            background: var(--panel); color: var(--muted); font: inherit; font-size: 11px; cursor: pointer;
+        }
+        #selection-sidebar-rail > span { pointer-events: none; }
+        #selection-sidebar-rail > span:first-child { font-size: 14px; color: var(--accent); }
+        #selection-rail-count { writing-mode: vertical-rl; font-family: var(--font-mono); }
+        #selection-sidebar-rail:hover { background: color-mix(in srgb, var(--accent) 18%, var(--panel)); }
+        #directory-selection-layout.sidebar-collapsed #selection-sidebar-rail { display: flex; }
         .track-title-row { display: flex; align-items: center; gap: 4px; overflow: hidden; }
         .track-drag-handle { cursor: grab; color: var(--muted); font-size: 12px; user-select: none; flex-shrink: 0; padding: 0 2px; line-height: 1; }
         .track-drag-handle:active { cursor: grabbing; }
@@ -439,6 +459,17 @@ export function renderComparisonStyles(): string {
         @media (max-width: 900px) {
             #selection-body {
                 flex-direction: column;
+            }
+            #selection-sidebar-rail {
+                width: 100%;
+                flex-direction: row;
+                justify-content: center;
+                padding: 2px 0;
+                border-right: none;
+                border-bottom: 1px solid var(--line);
+            }
+            #selection-rail-count {
+                writing-mode: horizontal-tb;
             }
             #selection-sidebar {
                 width: 100% !important;

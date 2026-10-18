@@ -49,3 +49,12 @@ test('track audio element carries the track id, mute state and escaped source', 
     );
     assert.ok(trackAudioHtml('track-2', 1, 'x.wav', true).includes('preload="metadata" crossorigin="anonymous" muted src="x.wav"'));
 });
+
+test('results pane puts a collapse toggle in the spectrum header and marks a collapsed section', () => {
+    const open = resultsPaneHtml(parts, strings);
+    assert.ok(open.includes('<div id="spectrum-section">'));
+    assert.ok(open.includes('data-action="toggle-spectrum-panel" aria-expanded="true" data-hint="' + strings.hintCollapseSpectrum + '"'));
+    const collapsed = resultsPaneHtml({ ...parts, spectrumCollapsed: true }, strings);
+    assert.ok(collapsed.includes('<div id="spectrum-section" class="is-collapsed">'));
+    assert.ok(collapsed.includes('data-action="toggle-spectrum-panel" aria-expanded="false" data-hint="' + strings.hintExpandSpectrum + '"'));
+});

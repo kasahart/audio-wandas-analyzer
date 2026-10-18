@@ -39,3 +39,17 @@ test('height drag grows tracks downward and the spectrum upward, and toggles the
     assert.equal(resize.isActive(), false);
     assert.deepEqual(active, [true, false, true, false]);
 });
+
+test('height drag does not start on a panel that refuses it', () => {
+    const heights: Record<HeightKind, number> = { track: 100, spectrum: 200 };
+    const resize = createHeightResize({
+        currentHeight: kind => heights[kind],
+        canBegin: kind => kind === 'track',
+        setHeight: (kind, height) => { heights[kind] = height; },
+        onActiveChange: () => {},
+    });
+    resize.begin('spectrum', 100);
+    resize.update(40);
+    assert.equal(resize.isActive(), false);
+    assert.equal(heights.spectrum, 200);
+});

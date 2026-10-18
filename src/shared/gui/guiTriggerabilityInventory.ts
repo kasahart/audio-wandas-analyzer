@@ -69,6 +69,8 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'spectrum-height-input',
     'spectrum-height-reset',
     'spectrum-height-drag',
+    'toggle-selection-sidebar',
+    'toggle-spectrum-panel',
     'wave-mode-rect-zoom',
     'zoom-to-selection',
     'toggle-follow-cursor',
@@ -100,6 +102,7 @@ export const GUI_TRIGGERABILITY_SCOPED_SHORTCUTS = [
     'Drag (zoom mode)',
     'Drag',
     'Shift+Drag',
+    'Double-click (resize edge)',
     '?',
     'Esc',
 ] as const;
@@ -257,6 +260,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
             'spectrum-height-reset',
             'spectrum-height-drag',
         ],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'panel-collapse',
+        label: 'Collapse and expand the file list and the power spectrum',
+        entryPoints: ['selection-toolbar', 'results-toolbar', 'canvas-gesture'],
+        triggers: ['toggle-selection-sidebar', 'toggle-spectrum-panel', 'Double-click (resize edge)'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

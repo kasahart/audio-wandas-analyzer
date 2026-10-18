@@ -103,7 +103,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         update: async (key: string, value: unknown): Promise<void> => { save(key, value); },
     } };
     const restoredView = readSaved(VIEW_STATE_KEY) as PersistedWebviewState | undefined;
-    let persisted: PersistedWebviewState = restoredView?.contentType === 'spectrogram' ? { contentType: 'spectrogram' } : {};
+    let persisted: PersistedWebviewState = {
+        ...(restoredView?.contentType === 'spectrogram' ? { contentType: 'spectrogram' } : {}),
+        ...(restoredView?.sidebarCollapsed === true ? { sidebarCollapsed: true } : {}),
+        ...(restoredView?.spectrumCollapsed === true ? { spectrumCollapsed: true } : {}),
+    };
     browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
     let worker: Worker | undefined;
     let recovery: Promise<void> | undefined;
@@ -603,7 +607,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             void controller.dispatch(message);
         },
         getState: () => persisted,
-        setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType }); },
+        setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType, sidebarCollapsed: state.sidebarCollapsed, spectrumCollapsed: state.spectrumCollapsed }); },
         emptyMessage: strings.browserEmptyPrompt,
         selectionPanel: true,
     };

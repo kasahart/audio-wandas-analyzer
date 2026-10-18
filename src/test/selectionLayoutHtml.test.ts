@@ -46,3 +46,13 @@ test('selection layout offers "another" folder only while something is listed an
     const picked = selectionLayoutHtml({ ...parts, rootPath: '', isEmpty: false }, strings);
     assert.ok(picked.includes('>' + strings.btnOpenAnotherFolder + '</button>'));
 });
+
+test('selection layout leads with a sidebar toggle that reflects the collapsed state', () => {
+    const open = selectionLayoutHtml(parts, strings);
+    assert.ok(open.includes('data-action="toggle-selection-sidebar" aria-expanded="true" data-hint="' + strings.hintCollapseSidebar + '"'));
+    assert.ok(!open.includes('sidebar-collapsed'));
+    const collapsed = selectionLayoutHtml({ ...parts, isEmpty: true, sidebarCollapsed: true }, strings);
+    assert.ok(collapsed.startsWith('<div id="directory-selection-layout" class="is-empty sidebar-collapsed">'));
+    assert.ok(collapsed.includes('data-action="toggle-selection-sidebar" aria-expanded="false" data-hint="' + strings.hintExpandSidebar + '"'));
+    assert.ok(collapsed.includes('<button id="selection-sidebar-rail" data-action="toggle-selection-sidebar" data-hint="' + strings.hintExpandSidebar + '"'));
+});

@@ -47,6 +47,7 @@ import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './p
 import { rulerTicks } from './timeRuler';
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
+import { syncPanelToggle } from './panelCollapse';
 import { SpectrumHover } from './spectrumHover';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
@@ -317,6 +318,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let contentType: 'waveform' | 'spectrogram' = persistedWebviewState.contentType === 'spectrogram' ? 'spectrogram' : 'waveform';
     let spectrumBandsPerOctave: SpectrumBandsSetting = persistedWebviewState.spectrumBandsPerOctave === 1 || persistedWebviewState.spectrumBandsPerOctave === 3
         ? persistedWebviewState.spectrumBandsPerOctave : 0;
+    let sidebarCollapsed = persistedWebviewState.sidebarCollapsed === true;
+    let spectrumCollapsed = persistedWebviewState.spectrumCollapsed === true;
     const waveformView = new WaveformView();
     let cursorNorm = 0; // グローバルカーソル（常に number）
     let hoverNorm: number | null = null; // ホバープレビュー位置（null = 非表示）
@@ -328,6 +331,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const specBoxDrag = new SpectrumBoxDrag();
     const heightResize = createHeightResize({
         currentHeight: kind => kind === 'track' ? trackHeight : spectrumOverlayHeight,
+        canBegin: kind => kind === 'track' || !spectrumCollapsed,
         setHeight,
         onActiveChange: active => document.body.classList.toggle('is-height-resizing', active),
     });
@@ -1098,6 +1102,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return selectionLayoutHtml({
             rootPath: rootLabel,
             isEmpty: !__directoryTree.length,
+            sidebarCollapsed,
             filterQuery: selectionTreeView.filterQuery,
             treeHtml: selectionTreeView.renderTree(__directoryTree, true, 0),
             resultsPaneHtml,
@@ -1163,6 +1168,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             emptyMessage,
             axisWidth: AXIS_W,
             spectrumBandsPerOctave,
+            spectrumCollapsed,
         }, STR);
     }
     function buildAudioElements() {
@@ -1895,6 +1901,27 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const toolbarHandlers = { onAction: handleToolbarAction, onHeightInput: applyHeightInput };
         attachToolbarActions(document.getElementById('toolbar'), toolbarHandlers);
         attachToolbarActions(document.getElementById('spectrum-zoom-toolbar'), toolbarHandlers);
+        attachToolbarActions(document.getElementById('spectrum-section-header'), toolbarHandlers);
+        document.getElementById('spectrum-section-header')?.addEventListener('click', function (e) {
+            const target = eventTarget(e);
+            if (spectrumCollapsed && !(target && typeof target.closest === 'function' && target.closest('[data-action]'))) {
+                setSpectrumCollapsed(false);
+            }
+        });
+        syncSpectrumHeaderHint();
+        // Double-clicking a panel's resize edge folds it, the shortcut for its toggle button.
+        document.addEventListener('dblclick', function (e) {
+            const target = eventTarget(e);
+            if (!target || typeof target.closest !== 'function') {
+                return;
+            }
+            if (target.closest('[data-action="spectrum-height-drag"]')) {
+                setSpectrumCollapsed(!spectrumCollapsed);
+            }
+            else if (target.closest('#tree-resizer')) {
+                setSidebarCollapsed(true);
+            }
+        });
         attachExclusiveMenus(document.getElementById('toolbar'));
         attachHeightResizeListeners(
             heightResize,
@@ -2109,6 +2136,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (action === 'toggle-directory') {
             return true;
         }
+        if (action === 'toggle-selection-sidebar') {
+            setSidebarCollapsed(!sidebarCollapsed);
+            return true;
+        }
         if (action === 'selection-select-all') {
             clearSelectedFilePaths();
             // 可視状態のチェックボックスのみを対象にする
@@ -2158,6 +2189,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }).length;
         if (countEl) {
             countEl.textContent = count + ' / ' + visibleCount + ' ' + STR.selectionCountLabel;
+        }
+        const railCountEl = document.getElementById('selection-rail-count');
+        if (railCountEl) {
+            railCountEl.textContent = count + '/' + visibleCount;
         }
     }
     function syncPythonEnvironmentButton() {
@@ -2223,6 +2258,44 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         invalidateDesiredSpectrumSliceRequests();
         scheduleSpectrumRefresh('immediate');
     }
+    function setSidebarCollapsed(next: boolean) {
+        sidebarCollapsed = next;
+        persistWebviewState({ sidebarCollapsed: next });
+        const layout = document.getElementById('directory-selection-layout');
+        layout?.classList.toggle('sidebar-collapsed', next);
+        const button = layout?.querySelector<HTMLElement>('[data-action="toggle-selection-sidebar"]');
+        if (button) {
+            syncPanelToggle(button, 'sidebar', next, STR);
+        }
+    }
+    function setSpectrumCollapsed(next: boolean) {
+        spectrumCollapsed = next;
+        persistWebviewState({ spectrumCollapsed: next });
+        const section = document.getElementById('spectrum-section');
+        section?.classList.toggle('is-collapsed', next);
+        const button = section?.querySelector<HTMLElement>('[data-action="toggle-spectrum-panel"]');
+        if (button) {
+            syncPanelToggle(button, 'spectrum', next, STR);
+        }
+        syncSpectrumHeaderHint();
+        if (!next) {
+            scheduleSpectrumRefresh('immediate');
+        }
+    }
+    // A folded spectrum is only its header, so the whole header is the way back.
+    function syncSpectrumHeaderHint() {
+        const header = document.getElementById('spectrum-section-header');
+        if (!header) {
+            return;
+        }
+        if (spectrumCollapsed) {
+            setHint(header, STR.hintExpandSpectrum);
+        }
+        else {
+            header.removeAttribute('data-hint');
+            header.removeAttribute('aria-description');
+        }
+    }
     function toggleFollowCursor() {
         followCursor = !followCursor;
         const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
@@ -2249,6 +2322,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'spectrum-octave-3': () => setSpectrumBands(3),
             'track-height-reset': () => setTrackHeight(TRACK_HEIGHT_DEFAULT),
             'spectrum-height-reset': () => setSpectrumHeight(SPECTRUM_HEIGHT_DEFAULT),
+            'toggle-spectrum-panel': () => setSpectrumCollapsed(!spectrumCollapsed),
             'wave-mode-rect-zoom': () => {
                 waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
                 syncWaveformModeButton();
