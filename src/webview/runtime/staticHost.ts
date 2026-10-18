@@ -164,12 +164,13 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }
     about.append(aboutToggle, aboutPanel);
     // The disclosure sits mid-toolbar, so a left-anchored panel would overflow narrow windows; shift it back inside.
-    about.ontoggle = (): void => {
+    const clampAbout = (): void => {
         if (!about.open) return;
         aboutPanel.style.left = '0px';
         const overflow = aboutPanel.getBoundingClientRect().right - (document.documentElement.clientWidth - 8);
         if (overflow > 0) aboutPanel.style.left = `${-overflow}px`;
     };
+    about.ontoggle = clampAbout;
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
     // Web-only rules: room for the Python dot in the footer, and greyed-out actions the browser version cannot run.
@@ -213,13 +214,29 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const showInFooter = (value: string): void => { const footer = document.getElementById('hint-footer'); if (footer) footer.textContent = value; };
     // Window listeners run around the runtime's document ones: the capture-phase click stops the action first,
     // and the bubble-phase mouseover replaces the hint the runtime has just shown.
-    const unavailableTarget = (event: Event): boolean => Boolean((event.target as Element | null)?.closest?.(UNAVAILABLE_ACTIONS));
+    const unavailableTarget = (event: Event): Element | null | undefined => (event.target as Element | null)?.closest?.(UNAVAILABLE_ACTIONS);
+    // The footer is aria-hidden, so a visually hidden live region carries the same message to screen readers.
+    const unavailableAnnouncer = document.createElement('span');
+    unavailableAnnouncer.setAttribute('aria-live', 'polite');
+    unavailableAnnouncer.style.cssText = pythonState.style.cssText;
+    bar.append(unavailableAnnouncer);
+    const reportUnavailable = (): void => {
+        showInFooter(strings.browserUnavailable);
+        unavailableAnnouncer.textContent = strings.browserUnavailable;
+    };
     window.addEventListener('click', event => {
         if (!unavailableTarget(event)) return;
         event.stopPropagation(); event.preventDefault();
-        showInFooter(strings.browserUnavailable);
+        reportUnavailable();
     }, true);
     window.addEventListener('mouseover', event => { if (unavailableTarget(event)) showInFooter(strings.browserUnavailable); });
+    // The runtime builds these buttons, so they are marked unavailable for assistive technology when they gain focus.
+    window.addEventListener('focusin', event => {
+        const target = unavailableTarget(event);
+        if (!target) return;
+        target.setAttribute('aria-disabled', 'true');
+        target.setAttribute('aria-description', strings.browserUnavailable);
+    });
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
     /** The opened folder's WAV files keyed by the `/sources/<relative path>` each one loads under. */
     let folder: Map<string, File> | undefined;
@@ -555,7 +572,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         showInformation: announce,
         showError: announce,
-        unsupported: () => showInFooter(strings.browserUnavailable),
+        unsupported: reportUnavailable,
         runRecipe: async (scope): Promise<void> => {
             if (!sources.size) { announce(strings.browserRecipeNoSources); return; }
             await recipeFlow.run(sources.snapshot(source => source.path), () => scope.isCurrent());
@@ -567,7 +584,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         releaseSource: (path): void => { void releaseSource(path); },
         onMessage: (listener): (() => void) => { inboundListeners.add(listener); return () => { inboundListeners.delete(listener); }; },
         postMessage: (message: unknown): void => {
-            if (isConfigureCalibrationMessage(message)) { showInFooter(strings.browserUnavailable); return; }
+            if (isConfigureCalibrationMessage(message)) { reportUnavailable(); return; }
             void controller.dispatch(message);
         },
         getState: () => persisted,
@@ -710,6 +727,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     // Pyodide boots when its Worker starts, so starting it with the page keeps that wait off the first WAV load.
     worker = startWorker();
     window.addEventListener('pointerdown', event => { if (about.open && !about.contains(event.target as Node)) about.open = false; });
+    window.addEventListener('resize', clampAbout);
     window.addEventListener('keydown', event => { if (about.open && event.key === 'Escape') { about.open = false; aboutToggle.focus(); } });
     // Leaving the page always stops Python, so a back-forward cached page does not keep the runtime resident.
     window.addEventListener('pagehide', () => { resetWorker(new Error('Analysis cancelled')); dispose(); });

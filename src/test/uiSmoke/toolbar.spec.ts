@@ -124,6 +124,9 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
     await page.mouse.move(700, 450);
     await calibration.click();
     await expect(page.locator('#hint-footer')).toHaveText(unsupported);
+    await expect(page.locator('[aria-live="polite"]', { hasText: unsupported })).toHaveCount(1);
+    await calibration.focus();
+    await expect(calibration).toHaveAttribute('aria-disabled', 'true');
     await expect(page.locator('span[role="status"]')).toHaveText(statusBefore!);
     await page.evaluate(() => {
         (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
@@ -163,6 +166,12 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(820);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(820);
+    await page.locator('#empty-state').click();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.locator('[data-action="browser-about"]').click();
+    await expect(panel).toHaveCSS('left', '0px');
+    await page.setViewportSize({ width: 640, height: 900 });
+    await expect.poll(async () => { const resized = (await panel.boundingBox())!; return resized.x + resized.width; }).toBeLessThanOrEqual(640);
     await page.locator('#empty-state').click();
     await page.setViewportSize({ width: 1400, height: 900 });
     await page.locator('[data-action="browser-about"]').click();
