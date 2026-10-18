@@ -1519,7 +1519,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function drawRectZoomSelectionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number) {
         if (rectZoomSelection && rectZoomSelection.trackId === trackIdAtIndex(trackIndex)) {
-            drawRectZoomSelection(ctx, rectZoomSelection, waveformView.timeRange(), { start: waveformView.amplitudeMin, end: waveformView.amplitudeMax }, W, H);
+            drawRectZoomSelection(ctx, rectZoomSelection, waveformView.timeRange(), waveformView.amplitudeViewport(), W, H);
         }
     }
     function updateVisibility() {

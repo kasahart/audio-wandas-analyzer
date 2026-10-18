@@ -77,7 +77,7 @@ function loadInventory(repoRoot) {
 
 const ALLOWED_REGRESSION_LAYERS = ['node:test', 'ui-smoke', 'vscode-e2e'];
 const COVERAGE_DEBT_ISSUE_PATTERN = /^(#\d+|https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/\d+)$/u;
-const EXTRA_INVENTORY_TRIGGERS = ['analyze-selected-files', 'welcome-drop-target', 'browser-drop-wav'];
+const EXTRA_INVENTORY_TRIGGERS = ['analyze-selected-files', 'welcome-drop-target', 'browser-drop-wav', 'waveform-axis-dblclick'];
 
 function collectFeatureTriggers(features) {
     return sortUnique(features.flatMap((feature) => Array.isArray(feature.triggers) ? feature.triggers : []));

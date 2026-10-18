@@ -159,6 +159,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
+        id: 'waveform-amplitude-range',
+        label: 'Set the waveform amplitude range from its axis',
+        entryPoints: ['canvas-gesture'],
+        triggers: ['waveform-axis-dblclick'],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
         id: 'waveform-mode',
         label: 'Switch waveform interaction mode',
         entryPoints: ['results-toolbar'],

@@ -62,3 +62,11 @@ test('WaveformView amplitude range from the axis popover can widen past the peak
     view.reset();
     assert.equal(view.isAmplitudeZoomed(), false);
 });
+
+test('WaveformView maps pointer Y through an amplitude range widened past both peaks', () => {
+    const view = new WaveformView();
+    view.setAmplitudeRange(-2, 2);
+    assert.equal(view.canvasYToAmplitude(0, 100), 2);
+    assert.equal(view.canvasYToAmplitude(25, 100), 1);
+    assert.deepEqual(view.amplitudeViewport(), { start: -2, end: 2, explicit: true });
+});

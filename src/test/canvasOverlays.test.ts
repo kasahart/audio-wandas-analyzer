@@ -120,3 +120,14 @@ test('drawAnalysisWindowBand keeps a visible minimum width and skips bands outsi
     drawAnalysisWindowBand(outside.ctx, { startNorm: 0.8, endNorm: 0.9 }, { start: 0, end: 0.5 }, 200, 40);
     assert.equal(outside.calls.length, 0);
 });
+
+test('drawRectZoomSelection uses the explicit amplitude range even when it spans both peaks', () => {
+    const { ctx, calls } = recordingContext();
+    const selection = { trackId: 't', startNorm: 0, endNorm: 1, startAmpNorm: 1, endAmpNorm: -1 };
+    drawRectZoomSelection(ctx, selection as never, { start: 0, end: 1 }, { start: -2, end: 2, explicit: true }, 100, 100);
+    const fill = calls.find(([name]) => name === 'fillRect');
+    assert.ok(fill);
+    const [, top, , height] = fill[1] as number[];
+    assert.ok(Math.abs(top - 25) < 1e-9);
+    assert.ok(Math.abs(height - 50) < 1e-9);
+});

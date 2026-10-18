@@ -96,6 +96,11 @@ export class WaveformView {
     }
 
     canvasYToAmplitude(y: number, height: number): number {
-        return canvasYToAmplitudeNorm(y, height, this.amplitudeMin, this.amplitudeMax);
+        return canvasYToAmplitudeNorm(y, height, this.amplitudeMin, this.amplitudeMax, this.amplitudeSet);
+    }
+
+    /** The amplitude window for overlays drawn with the same mapping as the waveform. */
+    amplitudeViewport(): { start: number; end: number; explicit: boolean } {
+        return { start: this.amplitudeMin, end: this.amplitudeMax, explicit: this.amplitudeSet };
     }
 }
