@@ -280,7 +280,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         type: 'request-reanalyze',
         settings: {
             auto: true,
-            stft: { nFft: 1024, hopSize: 256, window: 'hann' },
+            stft: { nFft: 1024, overlapPercent: 75, window: 'hann' },
             display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
         },
     });

@@ -146,7 +146,7 @@ def test_service_reports_wandas_db_for_representative_sine(
 
     result = service.track_detail(
         path,
-        stft_options={"n_fft": 256, "hop_size": 128, "window": "boxcar"},
+        stft_options={"n_fft": 256, "overlap_percent": 50, "window": "boxcar"},
     )
 
     expected_db = 20 * math.log10(amplitude)
@@ -192,7 +192,7 @@ def test_service_analyze_with_stft_options(tmp_path: Path, service: AnalysisServ
     _write_sine_wav(wav)
     result = service.track_detail(
         wav,
-        stft_options={"n_fft": 512, "hop_size": 128, "window": "hamming"},
+        stft_options={"n_fft": 512, "overlap_percent": 75, "window": "hamming"},
     )
     spec = result["channels"][0]["spectrogram"]
     assert spec["windowSize"] == 512
@@ -283,9 +283,9 @@ def test_service_analyze_rejects_bad_options(tmp_path: Path, service: AnalysisSe
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     with pytest.raises(ValueError):
-        service.analyze(wav, stft_options={"n_fft": 0, "hop_size": 1, "window": "hann"})
+        service.analyze(wav, stft_options={"n_fft": 0, "overlap_percent": 50, "window": "hann"})
     with pytest.raises(ValueError):
-        service.analyze(wav, stft_options={"n_fft": 256, "hop_size": 512, "window": "hann"})
+        service.analyze(wav, stft_options={"n_fft": 256, "overlap_percent": 100, "window": "hann"})
 
 
 def test_service_analyze_summary_omits_rms_and_full_file_spectrum(tmp_path: Path, service: AnalysisService) -> None:

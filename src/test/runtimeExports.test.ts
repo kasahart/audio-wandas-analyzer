@@ -42,16 +42,16 @@ test('spec summary lists each track and the STFT settings', () => {
     const text = buildSpecSummaryText([
         { fileName: 'a.wav', sampleRateHz: 48000, durationSeconds: 1.5, channelCount: 2 },
         {},
-    ], { nFft: 1024, hopSize: 256, window: 'hann' });
+    ], { nFft: 1024, overlapPercent: 75, window: 'hann' });
     assert.equal(text, [
         '=== Audio Analyzer Spec ===',
         '[Track 1] a.wav  48.0 kHz  1.50 s  2 ch',
         '[Track 2]   0.0 kHz  0.00 s  0 ch',
         '--- STFT ---',
-        'nFft: 1024  hopSize: 256  window: hann',
+        'nFft: 1024  overlap: 75%  window: hann',
     ].join('\n'));
 });
 
 test('spec summary tolerates missing STFT settings', () => {
-    assert.match(buildSpecSummaryText([], undefined), /nFft: {3}hopSize: {3}window: $/);
+    assert.match(buildSpecSummaryText([], undefined), /nFft: {3}overlap: {3}window: $/);
 });

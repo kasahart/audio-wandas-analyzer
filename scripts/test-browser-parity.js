@@ -31,10 +31,10 @@ const commands = [
     { cmd: 'spectrum-slice', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture', cursorNorm: 0.437, bandsPerOctave: 1 },
     { cmd: 'range', startNorm: 0.21, endNorm: 0.63, points: 128 },
     { cmd: 'export-wav-loop', startNorm: 0.21, endNorm: 0.63 },
-].map((command, index) => withStft({ ...command, requestId: String(index), filePath: '/sources/selected.wav' }, { nFft: 256, hopSize: 64, window: 'hann' }));
+].map((command, index) => withStft({ ...command, requestId: String(index), filePath: '/sources/selected.wav' }, { nFft: 256, overlapPercent: 75, window: 'hann' }));
 fixtures.push({ name: 'generated-frequency-tones.wav', path: tonePath, bytes: toneBytes, commands: [
     { ...commands[2], cursorNorm: 0.5 }, ...commands,
-].map(command => withStft(command, { nFft: 2048, hopSize: 512, window: 'hann' })) });
+].map(command => withStft(command, { nFft: 2048, overlapPercent: 75, window: 'hann' })) });
 function nativeResultsFor(fixture) {
 const native = spawnSync(path.join(root, '.venv/bin/python'), ['-c', `
 import sys,json
@@ -189,7 +189,7 @@ const server = http.createServer((req,res) => {
         await page.locator('[data-action="spectrogram-settings"]').click();
         await page.locator('#spec-auto').uncheck();
         await page.locator('#spec-nfft').selectOption('256');
-        await page.locator('#spec-hop').fill('64');
+        await page.locator('#spec-overlap').selectOption('75');
         await page.evaluate(() => { window.__testInbound = []; });
         await page.locator('#spec-apply').click();
         await page.waitForFunction(() => window.__testInbound.some(message => message.type === 'reanalyze-end')
@@ -320,7 +320,7 @@ const server = http.createServer((req,res) => {
         await page.locator('[data-action="spectrogram-settings"]').click();
         await page.locator('#spec-auto').uncheck();
         await page.locator('#spec-nfft').selectOption('2048');
-        await page.locator('#spec-hop').fill('512');
+        await page.locator('#spec-overlap').selectOption('75');
         await page.locator('#spec-maxfreq').fill('2000');
         await page.evaluate(() => {window.__testInbound = [];});
         await page.locator('#spec-apply').click();

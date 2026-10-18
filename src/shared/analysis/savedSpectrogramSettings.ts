@@ -12,6 +12,10 @@ function isPositiveInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
+function isOverlapPercent(value: unknown): value is number {
+    return typeof value === 'number' && value >= 0 && value < 100;
+}
+
 function isNullableFinite(value: unknown): value is number | null {
     return value === null || (typeof value === 'number' && Number.isFinite(value));
 }
@@ -20,7 +24,7 @@ function isStftOptions(value: unknown): value is StftOptions {
     return isRecord(value)
         && isPositiveInteger(value['nFft'])
         && value['nFft'] % 2 === 0
-        && isPositiveInteger(value['hopSize'])
+        && isOverlapPercent(value['overlapPercent'])
         && typeof value['window'] === 'string'
         && STFT_WINDOWS.includes(value['window'] as StftOptions['window']);
 }
@@ -40,7 +44,7 @@ export function isSpectrogramSettings(value: unknown): value is SpectrogramSetti
 }
 
 function isUsableStft(value: unknown): value is StftOptions {
-    return isStftOptions(value) && value.nFft >= 64 && value.nFft <= 16384 && value.hopSize <= value.nFft;
+    return isStftOptions(value) && value.nFft >= 64 && value.nFft <= 16384;
 }
 
 function isUsableDisplay(value: unknown): value is SpectrogramSettings['display'] {

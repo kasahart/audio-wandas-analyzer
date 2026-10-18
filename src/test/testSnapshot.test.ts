@@ -68,14 +68,14 @@ test('spectrogramAxisLabelTexts falls back to the sample-rate limit without spec
 test('latestSpectrogramSnapshot prefers STFT settings and reports applied display limits', () => {
     assert.equal(latestSpectrogramSnapshot(undefined, null), undefined);
     assert.deepEqual(latestSpectrogramSnapshot(spectrogram(), null), {
-        windowSize: 2048, hopSize: 512, dbMinApplied: null, dbMaxApplied: null, maxFrequencyHzApplied: null,
+        windowSize: 2048, overlapPercent: null, hopSize: 512, dbMinApplied: null, dbMaxApplied: null, maxFrequencyHzApplied: null,
     });
     assert.deepEqual(latestSpectrogramSnapshot(spectrogram(), {
         auto: false,
-        stft: { nFft: 4096, hopSize: 1024, window: 'hann' },
+        stft: { nFft: 4096, overlapPercent: 50, window: 'hann' },
         display: { dbMin: -70, dbMax: null, maxFrequencyHz: 12_000 },
     }), {
-        windowSize: 4096, hopSize: 1024, dbMinApplied: -70, dbMaxApplied: null, maxFrequencyHzApplied: 12_000,
+        windowSize: 4096, overlapPercent: 50, hopSize: 512, dbMinApplied: -70, dbMaxApplied: null, maxFrequencyHzApplied: 12_000,
     });
 });
 

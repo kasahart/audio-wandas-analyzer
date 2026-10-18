@@ -25,6 +25,10 @@ def _is_integer(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _is_object(value: object) -> bool:
     return isinstance(value, dict)
 
@@ -43,7 +47,7 @@ def _validate_stft_options(value: object) -> None:
         raise InputError("invalid request field 'stftOptions': expected object")
     fields: dict[str, FieldValidator] = {
         "nFft": _is_integer,
-        "hopSize": _is_integer,
+        "overlapPercent": _is_number,
         "window": _is_string,
     }
     for key, validator in fields.items():

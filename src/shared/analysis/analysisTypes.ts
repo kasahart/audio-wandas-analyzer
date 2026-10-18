@@ -80,7 +80,7 @@ export interface SpectrogramSettings {
 
 export const DEFAULT_SPECTROGRAM_SETTINGS: SpectrogramSettings = {
     auto: true,
-    stft: { nFft: 1024, hopSize: 256, window: 'hann' },
+    stft: { nFft: 1024, overlapPercent: 75, window: 'hann' },
     display: { dbMin: null, dbMax: null, maxFrequencyHz: null },
 };
 

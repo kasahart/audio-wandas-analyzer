@@ -5,10 +5,10 @@ import { eventTarget } from './domAdapter';
 import { hintAttr, hoverHintAttr } from './hintFooter';
 
 export type SpectrogramSettingsPopoverStrings = Pick<UiStrings,
-    'specSettingsAuto' | 'specSettingsStftLegend' | 'specSettingsNFft' | 'specSettingsHopSize' | 'specSettingsWindow'
+    'specSettingsAuto' | 'specSettingsStftLegend' | 'specSettingsNFft' | 'specSettingsOverlap' | 'specSettingsWindow'
     | 'specSettingsDisplayLegend' | 'specSettingsDbMin' | 'specSettingsDbMax' | 'specSettingsMaxFreqHz'
     | 'specSettingsReset' | 'specSettingsApply' | 'specSettingsPlaceholderAuto' | 'specSettingsPlaceholderNyquist'
-    | 'settingsApplyHint' | 'hintSpecAuto' | 'hintSpecNFft' | 'hintSpecHopSize' | 'hintSpecWindow' | 'hintSpecDisplay'
+    | 'settingsApplyHint' | 'hintSpecAuto' | 'hintSpecNFft' | 'hintSpecOverlap' | 'hintSpecWindow' | 'hintSpecDisplay'
     | 'hintSpecReset' | 'hintSpecApply'>;
 
 export interface SpectrogramSettingsPopoverOptions {
@@ -27,16 +27,18 @@ export interface SpectrogramSettingsPopover {
 }
 
 const NFFT_OPTIONS = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384];
+const OVERLAP_PERCENT_OPTIONS = [50, 67, 75];
 const GEAR_SELECTOR = '[data-action="spectrogram-settings"], [data-action="spectrum-settings"]';
 
 export function spectrogramSettingsPopoverHtml(strings: SpectrogramSettingsPopoverStrings): string {
     const nfftOptions = NFFT_OPTIONS.map(v => '<option value="' + v + '">' + v + '</option>').join('');
+    const overlapOptions = OVERLAP_PERCENT_OPTIONS.map(v => '<option value="' + v + '">' + v + '%</option>').join('');
     return '<div id="spec-settings-popover" hidden style="position:absolute;z-index:50;background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:6px;min-width:260px;color:var(--text);font-family:var(--font-ui);">'
         + '<label style="display:block;margin-bottom:6px"' + hoverHintAttr(strings.hintSpecAuto) + '><input type="checkbox" id="spec-auto"' + hintAttr(strings.hintSpecAuto) + '> ' + escapeHtml(strings.specSettingsAuto) + '</label>'
         + '<fieldset id="spec-stft-fields" style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
         + '<legend>' + escapeHtml(strings.specSettingsStftLegend) + '</legend>'
         + '<label' + hoverHintAttr(strings.hintSpecNFft) + '>' + escapeHtml(strings.specSettingsNFft) + ' <select id="spec-nfft"' + hintAttr(strings.hintSpecNFft) + '>' + nfftOptions + '</select></label><br>'
-        + '<label' + hoverHintAttr(strings.hintSpecHopSize) + '>' + escapeHtml(strings.specSettingsHopSize) + ' <input type="number" id="spec-hop" min="1" step="1"' + hintAttr(strings.hintSpecHopSize) + '></label><br>'
+        + '<label' + hoverHintAttr(strings.hintSpecOverlap) + '>' + escapeHtml(strings.specSettingsOverlap) + ' <select id="spec-overlap"' + hintAttr(strings.hintSpecOverlap) + '>' + overlapOptions + '</select></label><br>'
         + '<label' + hoverHintAttr(strings.hintSpecWindow) + '>' + escapeHtml(strings.specSettingsWindow) + ' <select id="spec-window"' + hintAttr(strings.hintSpecWindow) + '>'
         + '<option value="hann">hann</option><option value="hamming">hamming</option>'
         + '<option value="blackman">blackman</option><option value="boxcar">boxcar</option>'
@@ -83,7 +85,7 @@ export function installSpectrogramSettingsPopover(
         const text = (v: number | null) => v == null ? '' : String(v);
         field('spec-auto').checked = !!settings.auto;
         field('spec-nfft').value = String(settings.stft.nFft);
-        field('spec-hop').value = String(settings.stft.hopSize);
+        field<HTMLSelectElement>('spec-overlap').value = String(settings.stft.overlapPercent);
         field<HTMLSelectElement>('spec-window').value = settings.stft.window;
         field('spec-dbmin').value = text(settings.display.dbMin);
         field('spec-dbmax').value = text(settings.display.dbMax);
@@ -132,7 +134,7 @@ export function installSpectrogramSettingsPopover(
             auto: field('spec-auto').checked,
             stft: {
                 nFft: Number(field('spec-nfft').value),
-                hopSize: Number(field('spec-hop').value),
+                overlapPercent: Number(field<HTMLSelectElement>('spec-overlap').value),
                 window: stftWindowFromValue(field<HTMLSelectElement>('spec-window').value),
             },
             display: readDisplay(),

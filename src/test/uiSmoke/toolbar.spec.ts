@@ -372,10 +372,17 @@ test('spectrogram settings apply posts a reanalyze request', async ({ page }) =>
 
     await page.locator('#spec-auto').uncheck();
     await page.locator('#spec-nfft').selectOption('1024');
-    await page.locator('#spec-hop').fill('256');
+    await page.locator('#spec-overlap').selectOption('50');
     await page.locator('#spec-apply').click({ force: true });
 
     expect((await getPostedActionTypes(page)).at(-1)).toBe('request-reanalyze');
+    const stft = await page.evaluate(() => {
+        const messages = (window as typeof window & {
+            __uiSmokePostedMessages?: Array<{ type?: string; settings?: { stft?: unknown } }>;
+        }).__uiSmokePostedMessages ?? [];
+        return messages.filter((message) => message.type === 'request-reanalyze').at(-1)?.settings?.stft;
+    });
+    expect(stft).toMatchObject({ nFft: 1024, overlapPercent: 50 });
 });
 
 test('static page opens a folder through the File System Access picker without the input upload prompt', async ({ page }) => {
