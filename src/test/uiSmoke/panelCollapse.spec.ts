@@ -141,4 +141,11 @@ test('dragging the spectrum edge can go past the old 320 px cap but keeps a stri
     await page.mouse.up();
     await expect.poll(async () => (await page.locator('#spectrum-overlay-canvas').boundingBox())!.height).toBeGreaterThan(320);
     expect((await page.locator('#tracks-wrapper').boundingBox())!.height).toBeGreaterThanOrEqual(119);
+
+    // A smaller window shrinks the tall spectrum again instead of squeezing the tracks out.
+    await page.setViewportSize({ width: 1200, height: 600 });
+    await expect.poll(async () => (await page.locator('#tracks-wrapper').boundingBox())!.height).toBeGreaterThanOrEqual(119);
+    const section = (await page.locator('#spectrum-section').boundingBox())!;
+    const footer = (await page.locator('#hint-footer').boundingBox())!;
+    expect(Math.round(section.y + section.height)).toBe(Math.round(footer.y));
 });

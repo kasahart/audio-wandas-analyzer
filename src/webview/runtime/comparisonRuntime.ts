@@ -2035,6 +2035,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
         });
         installLayoutResizeHandling(window, document, layoutElementIds, function () {
+            // A shrinking window takes its height from the tracks first, so give them back their strip.
+            if (!spectrumCollapsed && !spectrumMaximized && spectrumOverlayHeight > spectrumHeightLimit()) {
+                setSpectrumHeight(spectrumOverlayHeight);
+            }
             scheduleRender();
             scheduleSpectrumRefresh('interactive');
         }, typeof ResizeObserver === 'function' ? ResizeObserver : undefined);
@@ -2412,13 +2416,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
         return Math.max(SPECTRUM_HEIGHT_MIN, wrap.clientHeight - padding);
     }
+    /** The pane's height less everything but the tracks and the plot itself, so it holds even when the tracks were squeezed to nothing. */
     function spectrumHeightLimit(): number {
-        const tracks = document.getElementById('tracks-wrapper');
+        const section = document.getElementById('spectrum-section');
+        const pane = section?.parentElement;
         const canvas = canvasById(document, 'spectrum-overlay-canvas');
-        if (!tracks || !tracks.clientHeight || !canvas) {
+        if (!section || !pane || !pane.clientHeight || !canvas) {
             return SPECTRUM_HEIGHT_MAX;
         }
-        return clampHeight(tracks.clientHeight + canvas.clientHeight - TRACKS_MIN_VISIBLE, SPECTRUM_HEIGHT_MIN, SPECTRUM_HEIGHT_MAX);
+        let others = section.offsetHeight - canvas.offsetHeight;
+        Array.from(pane.children).forEach(function (child) {
+            if (child !== section && child.id !== 'tracks-wrapper') {
+                others += (child as HTMLElement).offsetHeight;
+            }
+        });
+        return clampHeight(pane.clientHeight - others - TRACKS_MIN_VISIBLE, SPECTRUM_HEIGHT_MIN, SPECTRUM_HEIGHT_MAX);
     }
     function syncSpectrumCanvasCssHeight() {
         const canvas = canvasById(document, 'spectrum-overlay-canvas');
