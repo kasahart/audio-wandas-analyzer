@@ -279,6 +279,8 @@ export interface UiStrings {
     hintExpandSidebar: string;
     hintCollapseSpectrum: string;
     hintExpandSpectrum: string;
+    hintMaximizeSpectrum: string;
+    hintRestoreSpectrum: string;
     hintOpenFile: string;
     hintOpenFolder: string;
     hintSelectAll: string;
@@ -410,7 +412,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowShiftDrag: 'adjust track offset',
         helpRowDoubleClickEdge: 'collapse the file list; collapse or expand the spectrum',
         helpRowQuestion: 'toggle this help',
-        helpRowEsc: 'close popover / help',
+        helpRowEsc: 'close popover / help, restore a maximized spectrum',
         helpRowZoomKeys: 'zoom in / out / reset',
         playbackTimePrefix: '▶',
         playbackDisplayTitle: 'Playback position',
@@ -571,6 +573,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintExpandSidebar: 'Show the file list',
         hintCollapseSpectrum: 'Collapse the power spectrum',
         hintExpandSpectrum: 'Show the power spectrum',
+        hintMaximizeSpectrum: 'Maximize the power spectrum (Esc restores)',
+        hintRestoreSpectrum: 'Restore the layout (Esc)',
         hintOpenFile: 'Open an audio file',
         hintOpenFolder: 'Open another folder of audio files',
         hintSelectAll: 'Check all visible files in the tree',
@@ -700,7 +704,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowShiftDrag: 'トラックのオフセット調整',
         helpRowDoubleClickEdge: 'ファイル一覧を畳む、スペクトルを畳む/戻す',
         helpRowQuestion: 'このヘルプを開閉',
-        helpRowEsc: 'ポップオーバー / ヘルプを閉じる',
+        helpRowEsc: 'ポップオーバー / ヘルプを閉じる、最大化を戻す',
         helpRowZoomKeys: 'ズームイン / アウト / リセット',
         playbackTimePrefix: '▶',
         playbackDisplayTitle: '再生位置',
@@ -861,6 +865,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintExpandSidebar: 'ファイル一覧を表示',
         hintCollapseSpectrum: 'パワースペクトルを畳む',
         hintExpandSpectrum: 'パワースペクトルを表示',
+        hintMaximizeSpectrum: 'パワースペクトルを最大化（Esc で戻す）',
+        hintRestoreSpectrum: '元の配置に戻す（Esc）',
         hintOpenFile: '音声ファイルを開く',
         hintOpenFolder: '別の音声フォルダを開く',
         hintSelectAll: 'ツリーに表示中のファイルをすべてチェック',
