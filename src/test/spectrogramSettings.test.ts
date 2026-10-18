@@ -13,7 +13,7 @@ test('default settings are auto', () => {
 test('round-trip via JSON', () => {
     const s: SpectrogramSettings = {
         auto: false,
-        stft: { nFft: 2048, hopSize: 512, window: 'hamming' },
+        stft: { nFft: 2048, overlapPercent: 50, window: 'hamming' },
         display: { dbMin: -80, dbMax: 0, maxFrequencyHz: 8000 },
     };
     const restored = JSON.parse(JSON.stringify(s)) as SpectrogramSettings;
@@ -25,7 +25,7 @@ test('settings load/save use the same narrow store contract without VSCode or br
     const saved = new Map<string, unknown>();
     const context = { workspaceState: { get: (key: string) => saved.get(key), update: async (key: string, value: unknown) => { saved.set(key, value); } } };
     assert.equal(loadPersistedStftOptions(context), undefined);
-    const settings = { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: false, stft: { nFft: 256, hopSize: 64, window: 'hann' as const } };
+    const settings = { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: false, stft: { nFft: 256, overlapPercent: 75, window: 'hann' as const } };
     await saveSpectrogramSettings(context, settings);
     assert.deepEqual(loadPersistedStftOptions(context), settings.stft);
     const restored = loadSpectrogramSettings(context); restored.stft.nFft = 512;
@@ -36,11 +36,11 @@ test('settings load/save use the same narrow store contract without VSCode or br
 test('odd FFT sizes are rejected for incoming and persisted settings', async () => {
     const { isSpectrogramSettings, savedSpectrogramSettings } = await import('../shared/analysis/savedSpectrogramSettings');
     for (const nFft of [65, 255, 16383]) {
-        const settings = { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: false, stft: { nFft, hopSize: 32, window: 'hann' as const } };
+        const settings = { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: false, stft: { nFft, overlapPercent: 75, window: 'hann' as const } };
         assert.equal(isSpectrogramSettings(settings), false);
         assert.deepEqual(savedSpectrogramSettings(settings), DEFAULT_SPECTROGRAM_SETTINGS);
     }
-    const evenSettings = { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: false, stft: { nFft: 254, hopSize: 32, window: 'hann' as const } };
+    const evenSettings = { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: false, stft: { nFft: 254, overlapPercent: 75, window: 'hann' as const } };
     assert.equal(isSpectrogramSettings(evenSettings), true);
     assert.deepEqual(savedSpectrogramSettings(evenSettings), evenSettings);
 });
@@ -48,19 +48,29 @@ test('odd FFT sizes are rejected for incoming and persisted settings', async () 
 test('an unusable persisted STFT falls back alone and keeps the saved display range', async () => {
     const { savedSpectrogramSettings } = await import('../shared/analysis/savedSpectrogramSettings');
     const display = { dbMin: -90, dbMax: -10, maxFrequencyHz: 8000 };
-    const restored = savedSpectrogramSettings({ auto: false, stft: { nFft: 301, hopSize: 32, window: 'hann' }, display });
+    const restored = savedSpectrogramSettings({ auto: false, stft: { nFft: 301, overlapPercent: 75, window: 'hann' }, display });
     assert.deepEqual(restored, { auto: true, stft: DEFAULT_SPECTROGRAM_SETTINGS.stft, display });
-    const badDisplay = savedSpectrogramSettings({ auto: false, stft: { nFft: 512, hopSize: 128, window: 'hann' }, display: { dbMin: 'x' } });
-    assert.deepEqual(badDisplay, { auto: false, stft: { nFft: 512, hopSize: 128, window: 'hann' }, display: DEFAULT_SPECTROGRAM_SETTINGS.display });
+    const badDisplay = savedSpectrogramSettings({ auto: false, stft: { nFft: 512, overlapPercent: 67, window: 'hann' }, display: { dbMin: 'x' } });
+    assert.deepEqual(badDisplay, { auto: false, stft: { nFft: 512, overlapPercent: 67, window: 'hann' }, display: DEFAULT_SPECTROGRAM_SETTINGS.display });
 });
 
 test('a nonpositive persisted frequency limit is not salvaged, but panel messages still accept it', async () => {
     const { isSpectrogramSettings, savedSpectrogramSettings } = await import('../shared/analysis/savedSpectrogramSettings');
     for (const maxFrequencyHz of [0, -100]) {
-        const stft = { nFft: 301, hopSize: 32, window: 'hann' };
+        const stft = { nFft: 301, overlapPercent: 75, window: 'hann' };
         const restored = savedSpectrogramSettings({ auto: false, stft, display: { dbMin: -90, dbMax: -10, maxFrequencyHz } });
         assert.deepEqual(restored, DEFAULT_SPECTROGRAM_SETTINGS);
-        const message = { auto: false, stft: { nFft: 512, hopSize: 128, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz } };
+        const message = { auto: false, stft: { nFft: 512, overlapPercent: 67, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz } };
         assert.equal(isSpectrogramSettings(message), true);
     }
+});
+
+test('an overlap the popover cannot show is rejected, so a saved hop-size STFT falls back to the default', async () => {
+    const { isSpectrogramSettings, savedSpectrogramSettings } = await import('../shared/analysis/savedSpectrogramSettings');
+    for (const overlapPercent of [-1, 0, 60, 100, Number.NaN]) {
+        const settings = { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: false, stft: { nFft: 512, overlapPercent, window: 'hann' as const } };
+        assert.equal(isSpectrogramSettings(settings), false);
+    }
+    const legacy = { auto: false, stft: { nFft: 512, hopSize: 128, window: 'hann' }, display: DEFAULT_SPECTROGRAM_SETTINGS.display };
+    assert.deepEqual(savedSpectrogramSettings(legacy), DEFAULT_SPECTROGRAM_SETTINGS);
 });

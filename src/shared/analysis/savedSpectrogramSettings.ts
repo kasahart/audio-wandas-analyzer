@@ -1,4 +1,4 @@
-import { DEFAULT_SPECTROGRAM_SETTINGS, type StftOptions, type SpectrogramSettings } from './analysisTypes';
+import { DEFAULT_SPECTROGRAM_SETTINGS, STFT_OVERLAP_PERCENT_OPTIONS, type StftOptions, type SpectrogramSettings } from './analysisTypes';
 
 export const SPECTROGRAM_SETTINGS_KEY = 'audioWandasAnalyzer.spectrogramSettings';
 
@@ -12,6 +12,11 @@ function isPositiveInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
+// The popover can only show these, so any other value would be applied as an empty select.
+function isOverlapPercent(value: unknown): value is number {
+    return typeof value === 'number' && STFT_OVERLAP_PERCENT_OPTIONS.includes(value);
+}
+
 function isNullableFinite(value: unknown): value is number | null {
     return value === null || (typeof value === 'number' && Number.isFinite(value));
 }
@@ -20,7 +25,7 @@ function isStftOptions(value: unknown): value is StftOptions {
     return isRecord(value)
         && isPositiveInteger(value['nFft'])
         && value['nFft'] % 2 === 0
-        && isPositiveInteger(value['hopSize'])
+        && isOverlapPercent(value['overlapPercent'])
         && typeof value['window'] === 'string'
         && STFT_WINDOWS.includes(value['window'] as StftOptions['window']);
 }
@@ -40,7 +45,7 @@ export function isSpectrogramSettings(value: unknown): value is SpectrogramSetti
 }
 
 function isUsableStft(value: unknown): value is StftOptions {
-    return isStftOptions(value) && value.nFft >= 64 && value.nFft <= 16384 && value.hopSize <= value.nFft;
+    return isStftOptions(value) && value.nFft >= 64 && value.nFft <= 16384;
 }
 
 function isUsableDisplay(value: unknown): value is SpectrogramSettings['display'] {

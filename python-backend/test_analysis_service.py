@@ -41,7 +41,7 @@ def test_known_tones_keep_physical_frequency_in_live_fft_and_cached_stft(tmp_pat
     browser = create_service()
     browser.engine.load(audio.name, audio.read_bytes())
     native = AnalysisService(AnalysisEngine())
-    options = {"nFft": n_fft, "hopSize": n_fft // 4, "window": "hann"}
+    options = {"nFft": n_fft, "overlapPercent": 75, "window": "hann"}
     for service, path in [(native, audio), (browser, Path("/sources/tones.wav"))]:
         for cached in [False, True]:
             if cached:
@@ -70,7 +70,7 @@ def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> No
     _write_sine_wav(audio)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
     service = AnalysisService(engine)
-    stft_options = {"nFft": 256, "hopSize": 128, "window": "hann"}
+    stft_options = {"nFft": 256, "overlapPercent": 50, "window": "hann"}
 
     overview = service.analyze(audio, stft_options=stft_options)
     detail = service.track_detail(
@@ -117,28 +117,38 @@ def test_service_uses_the_injected_analysis_engine(tmp_path: Path) -> None:
 
 
 def test_stft_options_share_one_normalization_and_validation_api() -> None:
-    assert normalize_stft_options({"nFft": 512, "hopSize": 128, "window": "hann"}) == {
+    assert normalize_stft_options({"nFft": 512, "overlapPercent": 75, "window": "hann"}) == {
         "n_fft": 512,
         "hop_size": 128,
         "window": "hann",
     }
-    assert normalize_stft_options({"n_fft": 512, "hop_size": 128, "window": "hann"}) == {
+    assert normalize_stft_options({"n_fft": 512, "overlap_percent": 75, "window": "hann"}) == {
         "n_fft": 512,
         "hop_size": 128,
         "window": "hann",
     }
-    with pytest.raises(ValueError, match="hop_size"):
-        normalize_stft_options({"nFft": 128, "hopSize": 256, "window": "hann"})
+    for overlap_percent in (-1, 100):
+        with pytest.raises(ValueError, match="overlap_percent"):
+            normalize_stft_options({"nFft": 128, "overlapPercent": overlap_percent, "window": "hann"})
+    with pytest.raises(ValueError, match="overlap_percent"):
+        normalize_stft_options({"nFft": 128, "hopSize": 32, "window": "hann"})
+
+
+@pytest.mark.parametrize(("overlap_percent", "hop_size"), [(0, 1024), (50, 512), (67, 338), (75, 256)])
+def test_overlap_percent_sets_the_hop_from_n_fft(overlap_percent: float, hop_size: int) -> None:
+    normalized = normalize_stft_options({"nFft": 1024, "overlapPercent": overlap_percent, "window": "hann"})
+    assert normalized is not None
+    assert normalized["hop_size"] == hop_size
 
 
 @pytest.mark.parametrize("n_fft", [65, 255, 16383])
-@pytest.mark.parametrize("keys", [("nFft", "hopSize"), ("n_fft", "hop_size")])
+@pytest.mark.parametrize("keys", [("nFft", "overlapPercent"), ("n_fft", "overlap_percent")])
 def test_odd_stft_sizes_are_rejected_at_normalization(n_fft: int, keys: tuple[str, str]) -> None:
     with pytest.raises(ValueError, match="n_fft must be even"):
-        normalize_stft_options({keys[0]: n_fft, keys[1]: 32, "window": "hann"})
-    assert normalize_stft_options({"nFft": 254, "hopSize": 32, "window": "hann"}) == {
+        normalize_stft_options({keys[0]: n_fft, keys[1]: 75, "window": "hann"})
+    assert normalize_stft_options({"nFft": 254, "overlapPercent": 75, "window": "hann"}) == {
         "n_fft": 254,
-        "hop_size": 32,
+        "hop_size": 64,
         "window": "hann",
     }
 

@@ -38,7 +38,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await page.locator('[data-action="content-spectrogram"]').click();
         await page.waitForFunction(()=>new Set(window.__multiIn.filter(m=>m.type==='track-detail-result'&&m.channels.every(c=>c.spectrogram?.timeBins>0)).map(m=>m.filePath)).size===2,undefined,{timeout:120000});
         await page.locator('[data-action="spectrogram-settings"]').click();
-        await page.locator('#spec-auto').uncheck();await page.locator('#spec-nfft').selectOption('256');await page.locator('#spec-hop').fill('64');
+        await page.locator('#spec-auto').uncheck();await page.locator('#spec-nfft').selectOption('256');await page.locator('#spec-overlap').selectOption('75');
         await page.evaluate(()=>window.__multiIn=[]);await page.locator('#spec-apply').click();
         await page.waitForFunction(()=>new Set(window.__multiIn.filter(m=>m.type==='track-detail-result'&&m.channels.every(c=>c.spectrogram?.windowSize===256&&c.spectrogram?.hopSize===64)).map(m=>m.filePath)).size===2,undefined,{timeout:120000});
         const detail = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='track-detail-result'));
@@ -141,7 +141,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await page.reload();
         assert.equal(await page.locator('.track-row').count(),0,'audio is never persisted');
         const preferences = await page.evaluate(() => ({ settings: window.__APP_STATE__.spectrogramSettings, view: window.__AWA_HOST__.getState() }));
-        assert.equal(preferences.settings.stft.nFft,256); assert.equal(preferences.settings.stft.hopSize,64);
+        assert.equal(preferences.settings.stft.nFft,256); assert.equal(preferences.settings.stft.overlapPercent,75);
         assert.equal(preferences.settings.auto,false); assert.equal(preferences.view.contentType,'spectrogram');
         assert.equal(await page.locator('[data-action="content-spectrogram"]').evaluate(button=>button.classList.contains('is-active')),true);
         const context = await browser.newContext({locale:'ja-JP'});

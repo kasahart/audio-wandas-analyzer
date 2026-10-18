@@ -156,7 +156,7 @@ test('browser preferences restore safely across reloads and use shared Japanese 
     const storage = new Map<string, string>();
     const app = harness(storage, 'ja-JP');
     assert.equal(app.browser.__APP_STRINGS__.btnOpenFile, 'ファイルを開く');
-    const settings = { auto: false, stft: { nFft: 256, hopSize: 64, window: 'hann' }, display: { dbMin: -80, dbMax: 0, maxFrequencyHz: 4000 } };
+    const settings = { auto: false, stft: { nFft: 256, overlapPercent: 75, window: 'hann' }, display: { dbMin: -80, dbMax: 0, maxFrequencyHz: 4000 } };
     app.host.postMessage({ type: 'update-spectrogram-settings', settings });
     app.host.setState({ contentType: 'spectrogram', directoryCollapseRootPath: '/private/path' });
     const restored = harness(storage);
@@ -551,16 +551,16 @@ test('static calibration requests explain the unavailable operation and reject m
     assert.equal(app.footer, app.browser.__APP_STRINGS__.browserUnavailable);
 });
 
-test('the octave-band spectrum buttons are unavailable in the browser and their clicks never reach the runtime', () => {
+test('the browser lets the spectrum kind buttons through to the runtime', () => {
     const app = harness();
     const click = app.windowListeners.get('click') as unknown as (event: unknown) => void;
     for (const action of ['spectrum-octave-1', 'spectrum-octave-3', 'spectrum-fft']) {
         const calls: string[] = [];
         const target = { closest: (selector: string) => selector.includes('[data-action="' + action + '"]') ? target : null };
         click({ target, stopPropagation: () => calls.push('stop'), preventDefault: () => calls.push('prevent') });
-        assert.deepEqual(calls, action === 'spectrum-fft' ? [] : ['stop', 'prevent'], action);
+        assert.deepEqual(calls, [], action);
     }
-    assert.equal(app.footer, app.browser.__APP_STRINGS__.browserUnavailable);
+    assert.equal(app.footer, '');
 });
 
 test('removing one recipe input suppresses stale charts and errors while other sources remain', async () => {

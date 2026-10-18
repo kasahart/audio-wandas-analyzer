@@ -63,15 +63,15 @@ test('calibration controls post exact configuration messages', async ({ page }) 
     await page.evaluate(() => {
         const auto = document.querySelector<HTMLInputElement>('#spec-auto');
         const nFft = document.querySelector<HTMLSelectElement>('#spec-nfft');
-        const hop = document.querySelector<HTMLInputElement>('#spec-hop');
+        const overlap = document.querySelector<HTMLSelectElement>('#spec-overlap');
         const windowType = document.querySelector<HTMLSelectElement>('#spec-window');
         const apply = document.querySelector<HTMLButtonElement>('#spec-apply');
-        if (!auto || !nFft || !hop || !windowType || !apply) {
+        if (!auto || !nFft || !overlap || !windowType || !apply) {
             throw new Error('Spectrogram settings controls were not found');
         }
         auto.checked = false;
         nFft.value = '512';
-        hop.value = '128';
+        overlap.value = '75';
         windowType.value = 'hamming';
         apply.click();
     });

@@ -137,7 +137,7 @@ export interface UiStrings {
     specSettingsAuto: string;
     specSettingsStftLegend: string;
     specSettingsNFft: string;
-    specSettingsHopSize: string;
+    specSettingsOverlap: string;
     specSettingsWindow: string;
     specSettingsDisplayLegend: string;
     specSettingsDbMin: string;
@@ -291,7 +291,7 @@ export interface UiStrings {
     hintSpectrumKeys: string;
     hintSpecAuto: string;
     hintSpecNFft: string;
-    hintSpecHopSize: string;
+    hintSpecOverlap: string;
     hintSpecWindow: string;
     hintSpecDisplay: string;
     hintSpecReset: string;
@@ -315,7 +315,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserAboutFileLimits: 'Each file: up to 16 MiB, 30 s and 2 ch.',
         browserAboutSessionLimits: 'Comparison: up to 8 tracks and 64 MiB of input in total.',
         browserAboutRecipes: 'Bundled recipes run on the loaded tracks.',
-        browserAboutUnsupported: 'Not available here: WDF, psychoacoustics, calibration configuration, vscode.dev.',
+        browserAboutUnsupported: 'Not available here: WDF, calibration configuration, vscode.dev.',
         browserInputTooLarge: 'WAV must be {mib} MiB or smaller.',
         browserAggregateLimit: 'Browser session limit: up to {count} WAV files / {mib} MiB total input. Remove a track first.',
         browserPreparing: 'Preparing local Python Worker / adding WAV files…',
@@ -425,7 +425,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsAuto: 'Auto (defaults)',
         specSettingsStftLegend: 'STFT',
         specSettingsNFft: 'n_fft',
-        specSettingsHopSize: 'hop_size',
+        specSettingsOverlap: 'overlap',
         specSettingsWindow: 'window',
         specSettingsDisplayLegend: 'Display',
         specSettingsDbMin: 'dB min',
@@ -578,7 +578,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrumKeys: '← →: step through frequency bins',
         hintSpecAuto: 'Use the default STFT settings',
         hintSpecNFft: 'FFT length in samples: larger gives finer frequency resolution',
-        hintSpecHopSize: 'Samples between frames: smaller gives finer time resolution',
+        hintSpecOverlap: 'Frame overlap: larger gives finer time resolution',
         hintSpecWindow: 'Window function applied to each frame',
         hintSpecDisplay: 'Display range, applied immediately (empty = auto)',
         hintSpecReset: 'Restore the default settings',
@@ -600,7 +600,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserAboutFileLimits: '1ファイル: 16 MiB・30秒・2chまで',
         browserAboutSessionLimits: '比較: 最大8トラック・入力合計64 MiBまで',
         browserAboutRecipes: '同梱レシピは読み込んだトラックに対して実行できます。',
-        browserAboutUnsupported: '未対応: WDF・心理音響・校正設定・vscode.dev',
+        browserAboutUnsupported: '未対応: WDF・校正設定・vscode.dev',
         browserInputTooLarge: 'WAVは{mib} MiB以下を選択してください。',
         browserAggregateLimit: 'ブラウザ上限はWAV {count}件・入力合計{mib} MiBです。先にトラックを削除してください。',
         browserPreparing: 'ローカルPython Workerを準備・WAVを追加しています…',
@@ -710,7 +710,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsAuto: '自動 (デフォルト)',
         specSettingsStftLegend: 'STFT',
         specSettingsNFft: 'n_fft',
-        specSettingsHopSize: 'hop_size',
+        specSettingsOverlap: '重なり率',
         specSettingsWindow: 'ウィンドウ',
         specSettingsDisplayLegend: '表示設定',
         specSettingsDbMin: 'dB 最小',
@@ -863,7 +863,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrumKeys: '← →: 周波数ビンを移動',
         hintSpecAuto: 'STFT 設定を既定値にする',
         hintSpecNFft: 'FFT 長（サンプル）: 大きいほど周波数分解能が細かくなります',
-        hintSpecHopSize: 'フレーム間隔（サンプル）: 小さいほど時間分解能が細かくなります',
+        hintSpecOverlap: 'フレームの重なり: 大きいほど時間分解能が細かくなります',
         hintSpecWindow: '各フレームにかける窓関数',
         hintSpecDisplay: '表示範囲。すぐに反映されます（空欄は自動）',
         hintSpecReset: '既定の設定に戻す',

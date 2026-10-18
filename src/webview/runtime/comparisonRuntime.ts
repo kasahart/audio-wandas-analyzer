@@ -3038,7 +3038,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // ── Spectrogram settings popover ──
     let __spectrogramSettings = state.spectrogramSettings || {
         auto: true,
-        stft: { nFft: 1024, hopSize: 256, window: 'hann' },
+        stft: { nFft: 1024, overlapPercent: 75, window: 'hann' },
         display: { dbMin: null, dbMax: null, maxFrequencyHz: null }
     };
     function __updateSpecGearVisibility() {
@@ -3064,7 +3064,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         getSettings: () => __spectrogramSettings,
         onDisplayChange: __setSpectrogramDisplay,
         onReset() {
-            __spectrogramSettings = { auto: true, stft: { nFft: 1024, hopSize: 256, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
+            __spectrogramSettings = { auto: true, stft: { nFft: 1024, overlapPercent: 75, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
             messaging.post({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
             scheduleRender();
         },

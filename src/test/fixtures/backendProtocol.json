@@ -43,7 +43,7 @@
         "settingsSignature": "settings-1",
         "stftOptions": {
           "nFft": 1024,
-          "hopSize": 256,
+          "overlapPercent": 75,
           "window": "hann"
         }
       }
@@ -114,7 +114,7 @@
         "cursorNorm": 0.5,
         "stftOptions": {
           "nFft": 1024,
-          "hopSize": 256,
+          "overlapPercent": 75,
           "window": "blackman"
         },
         "calibrationProfile": null,
@@ -129,7 +129,7 @@
         "filePath": "tone.wav",
         "stftOptions": {
           "nFft": 2048,
-          "hopSize": 512,
+          "overlapPercent": 75,
           "window": "hamming"
         },
         "calibrationProfile": null,
@@ -175,11 +175,11 @@
         "settingsSignature": "settings-1",
         "stftOptions": {
           "nFft": 1024,
-          "hopSize": "256",
+          "overlapPercent": "75",
           "window": "hann"
         }
       },
-      "errorField": "stftOptions.hopSize"
+      "errorField": "stftOptions.overlapPercent"
     },
     {
       "request": {
@@ -299,7 +299,7 @@
         "cursorNorm": 0.5,
         "stftOptions": {
           "nFft": 1024,
-          "hopSize": 256,
+          "overlapPercent": 75,
           "window": "kaiser"
         }
       },
@@ -375,7 +375,7 @@
         "settingsSignature": "settings-1",
         "stftOptions": {
           "nFft": 256,
-          "hopSize": 64,
+          "overlapPercent": 75,
           "window": "hann",
           "overlap": 0.5
         }

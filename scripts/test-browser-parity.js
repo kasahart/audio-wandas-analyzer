@@ -27,12 +27,14 @@ const commands = [
     { cmd: 'analyze' },
     { cmd: 'track-detail', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture' },
     { cmd: 'spectrum-slice', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture', cursorNorm: 0.437 },
+    { cmd: 'spectrum-slice', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture', cursorNorm: 0.437, bandsPerOctave: 3 },
+    { cmd: 'spectrum-slice', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture', cursorNorm: 0.437, bandsPerOctave: 1 },
     { cmd: 'range', startNorm: 0.21, endNorm: 0.63, points: 128 },
     { cmd: 'export-wav-loop', startNorm: 0.21, endNorm: 0.63 },
-].map((command, index) => withStft({ ...command, requestId: String(index), filePath: '/sources/selected.wav' }, { nFft: 256, hopSize: 64, window: 'hann' }));
+].map((command, index) => withStft({ ...command, requestId: String(index), filePath: '/sources/selected.wav' }, { nFft: 256, overlapPercent: 75, window: 'hann' }));
 fixtures.push({ name: 'generated-frequency-tones.wav', path: tonePath, bytes: toneBytes, commands: [
     { ...commands[2], cursorNorm: 0.5 }, ...commands,
-].map(command => withStft(command, { nFft: 2048, hopSize: 512, window: 'hann' })) });
+].map(command => withStft(command, { nFft: 2048, overlapPercent: 75, window: 'hann' })) });
 function nativeResultsFor(fixture) {
 const native = spawnSync(path.join(root, '.venv/bin/python'), ['-c', `
 import sys,json
@@ -45,6 +47,9 @@ packet=json.loads(sys.stdin.read())
 payload=open(packet['fixture'],'rb').read()
 service.engine.load('selected.wav',payload)
 commands=packet['commands']
+# MoSQITo prints resampling warnings to stdout, which carries only the JSON result here.
+out=sys.stdout
+sys.stdout=sys.stderr
 byte_results=[dispatch(c,service) for c in commands]
 native_service=AnalysisService(AnalysisEngine())
 for c in commands:
@@ -53,7 +58,7 @@ for c in commands:
         c['recipePath']=str(__import__('pathlib').Path(packet['fixture']).resolve().parent / 'custom.json')
         c['recipe']['inputs'][0]['file']=__import__('pathlib').Path(packet['fixture']).name
 native_results=[dispatch(c,native_service) for c in commands]
-print(json.dumps([byte_results,native_results],allow_nan=False))
+print(json.dumps([byte_results,native_results],allow_nan=False),file=out)
 `], { maxBuffer: 32 * 1024 * 1024, cwd: root, input: JSON.stringify({commands:fixture.commands || commands,fixture:fixture.path || `src/test/fixtures/${fixture.name}`}), encoding: 'utf8', env: { ...process.env, MPLBACKEND: 'Agg' } });
 assert.equal(native.status, 0, native.stderr);
 return JSON.parse(native.stdout);
@@ -62,6 +67,12 @@ commands.push({
     cmd: 'run-recipe', requestId: 'recipe-parity', recipePath: '/sources/custom.json',
     recipe: { inputs: [{ name: 'sig', file: 'selected.wav' }],
         steps: [{ as: 'spectrum', expr: 'sig.fft()' }], display: ['sig', 'spectrum'] },
+});
+commands.push({
+    cmd: 'run-recipe', requestId: 'mosqito-parity', recipePath: '/sources/custom.json',
+    recipe: { inputs: [{ name: 'sig', file: 'selected.wav' }],
+        steps: [{ as: 'loudness', expr: 'sig.loudness_zwst()' }, { as: 'sharpness', expr: 'sig.sharpness_din_st()' }],
+        display: ['loudness', 'sharpness'] },
 });
 const nativePairs = fixtures.map(nativeResultsFor);
 const byteResults = nativePairs.map(pair => pair[0]);
@@ -132,6 +143,11 @@ const server = http.createServer((req,res) => {
                     assert.ok(Math.abs(hz - [440, 880][i]) <= 8000 / 191 / 2 + 16000 / 2048, `known tone mapped to ${hz} Hz`);
                 });
             }
+            for (const [slice, bands] of [[runtime[2][4], [400, 800]], [runtime[2][5], [500, 1000]]]) {
+                slice.channels.forEach((channel, i) => {
+                    assert.equal(slice.bandCentersHz[channel.values.indexOf(Math.max(...channel.values))], bands[i]);
+                });
+            }
         }
         await page.getByLabel('Open File', { exact: true }).setInputFiles(path.join(root,'src/test/fixtures/short-stereo.wav'));
         await page.getByRole('status').filter({hasText:'waveform ready'}).waitFor({timeout:120000});
@@ -173,7 +189,7 @@ const server = http.createServer((req,res) => {
         await page.locator('[data-action="spectrogram-settings"]').click();
         await page.locator('#spec-auto').uncheck();
         await page.locator('#spec-nfft').selectOption('256');
-        await page.locator('#spec-hop').fill('64');
+        await page.locator('#spec-overlap').selectOption('75');
         await page.evaluate(() => { window.__testInbound = []; });
         await page.locator('#spec-apply').click();
         await page.waitForFunction(() => window.__testInbound.some(message => message.type === 'reanalyze-end')
@@ -304,7 +320,7 @@ const server = http.createServer((req,res) => {
         await page.locator('[data-action="spectrogram-settings"]').click();
         await page.locator('#spec-auto').uncheck();
         await page.locator('#spec-nfft').selectOption('2048');
-        await page.locator('#spec-hop').fill('512');
+        await page.locator('#spec-overlap').selectOption('75');
         await page.locator('#spec-maxfreq').fill('2000');
         await page.evaluate(() => {window.__testInbound = [];});
         await page.locator('#spec-apply').click();

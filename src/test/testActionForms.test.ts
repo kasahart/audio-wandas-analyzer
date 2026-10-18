@@ -23,12 +23,12 @@ test('fillSpectrogramSettingsForm: 指定された項目だけを書き換え、
     const doc = makeDoc(`
         <input type="checkbox" id="spec-auto" checked>
         <input id="spec-nfft" value="1024">
-        <input id="spec-hop" value="256">
+        <select id="spec-overlap"><option value="50">50%</option><option value="75" selected>75%</option></select>
         <select id="spec-window"><option value="hann">hann</option><option value="hamming">hamming</option></select>`);
     fillSpectrogramSettingsForm(doc, { auto: false, nFft: 2048, window: 'hamming' });
     assert.equal(field(doc, 'spec-auto').checked, false);
     assert.equal(field(doc, 'spec-nfft').value, '2048');
-    assert.equal(field(doc, 'spec-hop').value, '256');
+    assert.equal(field(doc, 'spec-overlap').value, '75');
     assert.equal(field(doc, 'spec-window').value, 'hamming');
 });
 

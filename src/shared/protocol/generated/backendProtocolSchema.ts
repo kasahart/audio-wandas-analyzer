@@ -24,15 +24,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "type": "object",
             "required": [
                 "nFft",
-                "hopSize",
+                "overlapPercent",
                 "window"
             ],
             "properties": {
                 "nFft": {
                     "type": "integer"
                 },
-                "hopSize": {
-                    "type": "integer"
+                "overlapPercent": {
+                    "type": "number"
                 },
                 "window": {
                     "type": "string",
@@ -872,7 +872,7 @@ export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-sli
 
 export interface StftOptions {
     nFft: number;
-    hopSize: number;
+    overlapPercent: number;
     window: "hann" | "hamming" | "blackman" | "boxcar";
 }
 

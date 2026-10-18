@@ -42,7 +42,9 @@
     "cattrs-26.1.0-py3-none-any.whl",
     "dask-2026.7.1-py3-none-any.whl",
     "locket-1.0.0-py2.py3-none-any.whl",
-    "partd-1.4.2-py3-none-any.whl"
+    "partd-1.4.2-py3-none-any.whl",
+    "mosqito-1.2.1-py3-none-any.whl",
+    "pyuff-2.5.8-py3-none-any.whl"
   ],
   "assets": [
     {
@@ -334,6 +336,22 @@
       "bytes": 18905,
       "component": "partd",
       "version": "1.4.2"
+    },
+    {
+      "path": "mosqito-1.2.1-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/4c/6c/3443f0ed85e1091bfad146afb426c30109b765ce15101a6fdc7f9df9e727/mosqito-1.2.1-py3-none-any.whl",
+      "sha256": "c5370a729b12cb986ff39c71499e51201551b445623b5ca86aed66539d3cfe83",
+      "bytes": 158692,
+      "component": "mosqito",
+      "version": "1.2.1"
+    },
+    {
+      "path": "pyuff-2.5.8-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/44/92/bba8fa744fba3f6b84c65841247e7c60b667d2af9f9fcf262aca616723be/pyuff-2.5.8-py3-none-any.whl",
+      "sha256": "d71a86d69c74c6249b3ad2d43adb0ac20e47a6022322af0df6290ebe7486cf78",
+      "bytes": 69617,
+      "component": "pyuff",
+      "version": "2.5.8"
     }
   ],
   "notices": [

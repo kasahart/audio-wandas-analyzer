@@ -215,7 +215,7 @@ function buildResultsPreviewHtmlInternal(options?: {
         ],
         spectrogramSettings: {
             auto: false,
-            stft: { nFft: 512, hopSize: 128, window: 'hamming' },
+            stft: { nFft: 512, overlapPercent: 75, window: 'hamming' },
             display: { dbMin: -60, dbMax: 0, maxFrequencyHz: null },
         },
     }), options);

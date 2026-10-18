@@ -6,6 +6,7 @@ import type { SpectrumSlice, WaveformCoverage } from './types';
 
 export interface LatestSpectrogramSnapshot {
     windowSize: number | null;
+    overlapPercent: number | null;
     hopSize: number | null;
     dbMinApplied: number | null;
     dbMaxApplied: number | null;
@@ -127,7 +128,8 @@ export function latestSpectrogramSnapshot(
     const stft = settings && settings.stft ? settings.stft : null;
     return {
         windowSize: stft ? Number(stft.nFft) : (firstSpec ? firstSpec.windowSize : null),
-        hopSize: stft ? Number(stft.hopSize) : (firstSpec ? firstSpec.hopSize : null),
+        overlapPercent: stft ? Number(stft.overlapPercent) : null,
+        hopSize: firstSpec ? firstSpec.hopSize : null,
         dbMinApplied: disp.dbMin == null ? null : Number(disp.dbMin),
         dbMaxApplied: disp.dbMax == null ? null : Number(disp.dbMax),
         maxFrequencyHzApplied: disp.maxFrequencyHz == null ? null : Number(disp.maxFrequencyHz),

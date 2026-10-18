@@ -41,7 +41,8 @@ interface ComparisonPanelRenderedUi {
     reanalyzeBusy: boolean;
     latestSpectrogram?: {
         windowSize: number;
-        hopSize: number;
+        overlapPercent: number | null;
+        hopSize: number | null;
         dbMinApplied: number | null;
         dbMaxApplied: number | null;
         maxFrequencyHzApplied: number | null;
