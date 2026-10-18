@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSelectionTree } from '../webview/runtime/directorySelection';
+import { buildSelectionTree, selectionRelativePath } from '../webview/runtime/directorySelection';
 import { createSelectionTreeView, type SelectionTreeViewDeps } from '../webview/runtime/selectionTreeView';
 
 function view(overrides: Partial<SelectionTreeViewDeps> = {}) {
@@ -45,4 +45,11 @@ test('selection tree honors saved collapse state, the restored filter and an emp
     assert.match(html, /data-relative-path="set" data-depth="0"[^>]*aria-expanded="false"/);
     assert.equal(subject.filterQuery, 'deep');
     assert.equal(subject.renderTree([], true, 0), '<div class="selection-path">No audio files</div>');
+});
+
+test('selection relative paths use slashes below the root and keep outside paths whole', () => {
+    assert.equal(selectionRelativePath('/sources/rec', '/sources/rec/day2/a.wav'), 'day2/a.wav');
+    assert.equal(selectionRelativePath('/sources/', '/sources/rec/a.wav'), 'rec/a.wav');
+    assert.equal(selectionRelativePath('C:\\data', 'C:\\data\\day2\\a.wav'), 'day2/a.wav');
+    assert.equal(selectionRelativePath('/sources/rec', '/sources/record/a.wav'), '/sources/record/a.wav');
 });

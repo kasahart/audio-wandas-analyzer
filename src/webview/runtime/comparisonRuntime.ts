@@ -1118,6 +1118,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const collapseState = selectionTreeView.collapseStateBelow(rootPath);
         state.rootPath = rootPath;
         rootLabel = label;
+        selectionBeforeListing.clear();
         selectedFilePaths.forEach(function (filePath: string) { selectionBeforeListing.add(filePath); });
         clearSelectedFilePaths();
         const tree = buildSelectionTreeFromPaths(rootPath, filePaths);
