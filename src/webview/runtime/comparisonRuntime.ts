@@ -2515,8 +2515,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             max: field(painted.max),
             clientX, clientY,
             apply(min, max) {
-                if (!waveformView.setAmplitudeRange(min === null ? null : min / peak, max === null ? null : max / peak)) {
-                    return STR.specRangeErrorMinMax;
+                const error = waveformView.setAmplitudeRange(min === null ? null : min / peak, max === null ? null : max / peak);
+                if (error) {
+                    return error === 'narrow' ? STR.waveRangeErrorTooNarrow : STR.specRangeErrorMinMax;
                 }
                 scheduleRender();
             },

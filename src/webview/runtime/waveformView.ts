@@ -2,6 +2,7 @@ import {
     canvasYToAmplitudeNorm,
     centerRangeOn,
     panNormalizedRange,
+    MIN_SELECTION_SPAN,
     rangeAroundRegion,
     zoomNormalizedRange,
     zoomRangeAroundPivot,
@@ -12,6 +13,8 @@ import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
 
 // The unzoomed lane keeps ±1 (the channel peak) inside a margin, so its edges sit slightly beyond ±1.
 const AUTO_AMPLITUDE_EDGE = 1 / (2 * WAVEFORM_HALF_HEIGHT_RATIO);
+
+export type AmplitudeRangeError = 'order' | 'narrow';
 
 /** Visible time window (normalized over the global span) and amplitude window of the waveform lanes. */
 export class WaveformView {
@@ -66,17 +69,21 @@ export class WaveformView {
     }
 
     /** Peak-normalized bounds typed into the axis popover; `null` keeps that edge where the unzoomed lane has it. */
-    setAmplitudeRange(min: number | null, max: number | null): boolean {
+    setAmplitudeRange(min: number | null, max: number | null): AmplitudeRangeError | null {
         const lo = min ?? -AUTO_AMPLITUDE_EDGE;
         const hi = max ?? AUTO_AMPLITUDE_EDGE;
         // Checking the span also rejects infinite edges and finite edges whose difference overflows.
         if (!(hi > lo && Number.isFinite(hi - lo))) {
-            return false;
+            return 'order';
+        }
+        // Rect Zoom ignores boxes this thin, so a narrower window could never be zoomed further.
+        if (hi - lo <= MIN_SELECTION_SPAN) {
+            return 'narrow';
         }
         this.amplitudeMin = lo;
         this.amplitudeMax = hi;
         this.amplitudeSet = true;
-        return true;
+        return null;
     }
 
     resetAmplitude(): void {

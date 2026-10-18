@@ -224,6 +224,7 @@ export interface UiStrings {
     specRangeAxisFreq: string;
     specRangeAxisDb: string;
     waveRangeAxisAmplitude: string;
+    waveRangeErrorTooNarrow: string;
     specRangeMin: string;
     specRangeMax: string;
     specRangeApply: string;
@@ -496,6 +497,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specRangeAxisFreq: 'Frequency (Hz)',
         specRangeAxisDb: 'Level (dB)',
         waveRangeAxisAmplitude: 'Amplitude',
+        waveRangeErrorTooNarrow: 'Range is too narrow for this channel',
         specRangeMin: 'Min',
         specRangeMax: 'Max',
         specRangeApply: 'Apply',
@@ -766,6 +768,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specRangeAxisFreq: '周波数 (Hz)',
         specRangeAxisDb: 'レベル (dB)',
         waveRangeAxisAmplitude: '振幅',
+        waveRangeErrorTooNarrow: 'このチャンネルには狭すぎる範囲です',
         specRangeMin: 'Min',
         specRangeMax: 'Max',
         specRangeApply: '適用',
