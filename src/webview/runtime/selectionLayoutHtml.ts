@@ -11,12 +11,14 @@ export interface SelectionLayoutParts {
     treeHtml: string;
     resultsPaneHtml: string;
     python?: { text: string; tooltip: string; warning: boolean };
+    /** The Web host's Clear also empties the list, since it keeps no folder to list again. */
+    clearEmptiesList?: boolean;
 }
 
 export type SelectionLayoutStrings = Pick<UiStrings,
     | 'selectionHeader' | 'btnOpenFile' | 'btnOpenFolder' | 'btnOpenAnotherFolder' | 'treeFilterPlaceholder'
     | 'btnSelectAll' | 'btnClear' | 'ariaSelectionTree'
-    | 'hintOpenFile' | 'hintOpenFolder' | 'hintBrowserOpenFolder' | 'hintSelectAll' | 'hintClearAll' | 'hintTreeFilter' | 'hintTreeResizer'> & PanelCollapseStrings;
+    | 'hintOpenFile' | 'hintOpenFolder' | 'hintBrowserOpenFolder' | 'hintSelectAll' | 'hintClearAll' | 'hintClearList' | 'hintTreeFilter' | 'hintTreeResizer'> & PanelCollapseStrings;
 
 /** Until the panel lists something there is no "another" folder to open. */
 export function selectionFolderButton(listed: boolean, strings: SelectionLayoutStrings): { text: string; hint: string } {
@@ -53,7 +55,7 @@ export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: Select
         + '      </div>'
         + '      <div id="selection-actions">'
         + '        <button class="tb-btn" data-action="selection-select-all"' + hintAttr(strings.hintSelectAll) + '>' + escapeHtml(strings.btnSelectAll) + '</button>'
-        + '        <button class="tb-btn" data-action="selection-clear-all"' + hintAttr(strings.hintClearAll) + '>' + escapeHtml(strings.btnClear) + '</button>'
+        + '        <button class="tb-btn" data-action="selection-clear-all"' + hintAttr(parts.clearEmptiesList ? strings.hintClearList : strings.hintClearAll) + '>' + escapeHtml(strings.btnClear) + '</button>'
         + '      </div>'
         + '      <div id="selection-tree" role="group" aria-label="' + escapeHtml(strings.ariaSelectionTree) + '">' + parts.treeHtml + '</div>'
         + '    </div>'

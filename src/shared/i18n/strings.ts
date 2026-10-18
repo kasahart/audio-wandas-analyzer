@@ -283,6 +283,7 @@ export interface UiStrings {
     hintOpenFolder: string;
     hintSelectAll: string;
     hintClearAll: string;
+    hintClearList: string;
     hintTreeFilter: string;
     hintTreeDirectory: string;
     hintTreeFile: string;
@@ -575,6 +576,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintOpenFolder: 'Open another folder of audio files',
         hintSelectAll: 'Check all visible files in the tree',
         hintClearAll: 'Uncheck all files',
+        hintClearList: 'Remove all files from the list and release their audio',
         hintTreeFilter: 'Type to filter the files by name',
         hintTreeDirectory: 'Click or Enter / Space: expand or collapse',
         hintTreeFile: 'Check to show this file as a track',
@@ -865,6 +867,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintOpenFolder: '別の音声フォルダを開く',
         hintSelectAll: 'ツリーに表示中のファイルをすべてチェック',
         hintClearAll: 'すべてのチェックを外す',
+        hintClearList: '一覧のファイルをすべて削除し、音声メモリを解放する',
         hintTreeFilter: '入力した文字でファイルを絞り込む',
         hintTreeDirectory: 'クリックまたは Enter / Space: 開く / 閉じる',
         hintTreeFile: 'チェックするとトラックとして表示',

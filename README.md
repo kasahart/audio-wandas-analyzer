@@ -130,7 +130,7 @@ Select one or more WAV files, then use the waveform, spectrogram, cursor, playba
 
 The left panel lists your WAV files as in the VS Code extension: **Open File**, **Open Folder** or dropping WAV files or folders onto the page adds them to the list, and checked files become tracks. Calibration settings are available in the VS Code extension only. Use a desktop browser for the full set of mouse controls; dragging to select a loop is not supported on touch screens.
 
-Display and spectrogram settings are remembered between visits. Audio files, cursor position and track offsets are not saved; select your files again after reloading. **Clear** in the left panel removes all loaded audio. Exported notebooks refer to the audio file names listed in the report, so place copies of your audio beside the notebook using those names.
+Display and spectrogram settings are remembered between visits. Audio files, cursor position and track offsets are not saved; select your files again after reloading. **Clear** in the left panel empties the list and removes all loaded audio. Exported notebooks refer to the audio file names listed in the report, so place copies of your audio beside the notebook using those names.
 
 ## Links
 

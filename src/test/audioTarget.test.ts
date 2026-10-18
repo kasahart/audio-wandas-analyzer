@@ -25,9 +25,11 @@ test('isSelectTargetMessage only accepts supported target kinds', () => {
     assert.equal(isSelectTargetMessage(undefined), false);
 });
 
-test('isAnalyzeSelectedFilesMessage only accepts string file path arrays', () => {
+test('isAnalyzeSelectedFilesMessage only accepts string file path arrays and a true clearAll', () => {
     assert.equal(isAnalyzeSelectedFilesMessage({ type: 'analyze-selected-files', requestId: 'req-1', filePaths: ['/tmp/a.wav'] }), true);
     assert.equal(isAnalyzeSelectedFilesMessage({ type: 'analyze-selected-files', requestId: 'req-2', filePaths: [] }), true);
+    assert.equal(isAnalyzeSelectedFilesMessage({ type: 'analyze-selected-files', requestId: 'req-4', filePaths: [], clearAll: true }), true);
+    assert.equal(isAnalyzeSelectedFilesMessage({ type: 'analyze-selected-files', requestId: 'req-5', filePaths: [], clearAll: false }), false);
     assert.equal(isAnalyzeSelectedFilesMessage({ type: 'analyze-selected-files', filePaths: ['/tmp/a.wav'] }), false);
     assert.equal(isAnalyzeSelectedFilesMessage({ type: 'analyze-selected-files', requestId: 'req-3', filePaths: ['/tmp/a.wav', 42] }), false);
     assert.equal(isAnalyzeSelectedFilesMessage({ type: 'select-target', filePaths: ['/tmp/a.wav'] }), false);

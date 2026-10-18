@@ -1106,6 +1106,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             filterQuery: selectionTreeView.filterQuery,
             treeHtml: selectionTreeView.renderTree(__directoryTree, true, 0),
             resultsPaneHtml,
+            clearEmptiesList: vscode.selectionPanel === true,
             python: hasPythonEnvironmentPicker ? {
                 text: buildPythonButtonText(pythonEnvironmentState.pythonCommand, warning),
                 tooltip: buildPythonTooltip(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.tooltip),
@@ -2161,7 +2162,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             clearSelectedFilePaths();
             syncSelectionCheckboxes();
             syncSelectionSummary();
-            postSelectedFiles();
+            postSelectedFiles(true);
             return true;
         }
         if (action === 'selection-submit') {
@@ -2218,7 +2219,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             toolbarButton.classList.toggle('is-warning', !!isWarning);
         }
     }
-    function postSelectedFiles() {
+    function postSelectedFiles(clearAll = false) {
         const orderedSelection = allSelectableFilePaths.slice(0, 0);
         selectedFilePaths.forEach(function (filePath: string) {
             orderedSelection.push(filePath);
@@ -2228,6 +2229,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             type: 'analyze-selected-files',
             requestId: 'selection-' + runtimeSessionId + '-' + selectionMessageSeq,
             filePaths: orderedSelection,
+            ...(clearAll ? { clearAll: true as const } : {}),
         });
     }
     function setContentType(next: 'waveform' | 'spectrogram') {

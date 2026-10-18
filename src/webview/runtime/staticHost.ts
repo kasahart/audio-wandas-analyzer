@@ -552,10 +552,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         async selection(message): Promise<void> {
             const tree = folder;
-            // Clearing every check is the Web's Clear: it cancels in-flight loads and frees the Worker's audio memory at once.
+            // Clearing every check cancels in-flight loads and frees the Worker's audio memory at once; the panel's Clear also empties the list.
             if (!message.filePaths.length) {
                 selectionRequests++;
-                dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);
+                dispose();
+                if (message.clearAll) { folder.clear(); emitListing(); }
+                snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);
                 return;
             }
             if (!tree.size) return;
