@@ -443,7 +443,14 @@ def test_spectrum_slice_window_is_centred_on_the_cursor(tmp_path: Path, cached_d
 
 @pytest.mark.parametrize(
     ("bands_per_octave", "sr", "first", "last", "peak"),
-    [(1, 16000, 31.5, 4000.0, 1000.0), (3, 16000, 25.0, 6300.0, 1000.0), (3, 48000, 25.0, 20000.0, 1000.0)],
+    [
+        (1, 8000, 31.5, 2000.0, 1000.0),
+        (3, 8000, 25.0, 3150.0, 1000.0),
+        (1, 16000, 31.5, 4000.0, 1000.0),
+        (3, 16000, 25.0, 6300.0, 1000.0),
+        (1, 44100, 31.5, 8000.0, 1000.0),
+        (3, 48000, 25.0, 20000.0, 1000.0),
+    ],
 )
 def test_spectrum_slice_octave_bands_level_the_cursor_samples(
     tmp_path: Path, bands_per_octave: int, sr: int, first: float, last: float, peak: float

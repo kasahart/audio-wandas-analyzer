@@ -106,6 +106,7 @@ def octave_bands(bands_per_octave: int, sampling_rate: float) -> OctaveBands:
         return 1000.0 * ratio ** round(math.log(center / 1000.0, ratio))
 
     nyquist = sampling_rate / 2
+    # MoSQITo rejects centres above 0.88 * Nyquist, and scipy's band-pass design needs the upper edge below Nyquist.
     usable = tuple(c for c in nominal if exact(c) * half_band < nyquist and exact(c) <= 0.88 * nyquist)
     if not usable:
         raise InputError(f"No {bands_per_octave}-band octave filter fits below {nyquist:g} Hz")
