@@ -224,14 +224,14 @@ const server = http.createServer((req,res) => {
         });
         assert.equal(await page.locator('.track-row').count(), trackCount);
         assert.equal(await page.locator('audio').evaluateAll(nodes=>nodes.every(audio=>audio.paused)),true);
-        await page.locator('[data-action="browser-clear"]').click();
+        await page.locator('[data-action="selection-clear-all"]').click();
         await page.getByRole('status').filter({hasText:'Worker cleared'}).waitFor();
         assert.deepEqual(errors,[]);
         const picker = page.getByLabel('Open File', { exact: true });
         const status = page.getByRole('status');
         const fixturePath = name => path.join(root,'src/test/fixtures',name);
         async function loadFile(name) {
-            if (await page.locator('.track-row').count()) await page.locator('[data-action="browser-clear"]').click();
+            if (await page.locator('.track-row').count()) await page.locator('[data-action="selection-clear-all"]').click();
             await picker.setInputFiles(fixturePath(name));
             await status.filter({hasText:`${name}: waveform ready`}).waitFor({timeout:120000});
             await page.waitForFunction(() => {
@@ -273,7 +273,7 @@ const server = http.createServer((req,res) => {
         await status.filter({hasText:'up to 30 seconds'}).waitFor();
         assert.doesNotMatch(await page.locator('span[role="status"]').innerText(),/Traceback|PythonError|\n/);
         assert.equal(await page.locator('.track-row').count(),1);
-        await page.locator('[data-action="browser-clear"]').click();
+        await page.locator('[data-action="selection-clear-all"]').click();
         // Clearing keeps a booted Worker, so a boot failure needs a fresh page; the failed boot is retried by the next WAV.
         await page.route('**/runtime/pyodide.mjs',route=>route.abort());
         await page.reload();
@@ -287,7 +287,7 @@ const server = http.createServer((req,res) => {
         await page.unroute('**/audio.worker.js');
         await loadFile('changing-stereo.wav');
         await recordHostMessages();
-        await page.locator('[data-action="browser-clear"]').click();
+        await page.locator('[data-action="selection-clear-all"]').click();
         await picker.setInputFiles(tonePath);
         await status.filter({hasText:'waveform ready'}).waitFor({timeout:120000});
         await page.locator('[data-action="content-spectrogram"]').click();
@@ -338,7 +338,7 @@ const server = http.createServer((req,res) => {
         }
         await page.screenshot({path:path.join(root,'test-results/frequency-tones.png')});
         assert.equal(await page.locator('audio').evaluateAll(xs=>xs.every(x=>x.paused)),true);
-        await page.locator('[data-action="browser-clear"]').click();
+        await page.locator('[data-action="selection-clear-all"]').click();
         const mobile=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
         await mobile.goto(origin+'/analyzer/');
         await mobile.getByLabel('Open File', { exact: true }).setInputFiles(fixturePath('short-stereo.wav'));
@@ -362,7 +362,7 @@ const server = http.createServer((req,res) => {
             && message.channels.every(channel=>channel.spectrogram?.timeBins>0)),undefined,{timeout:120000});
         assert.equal(await mobile.locator('[data-action="content-spectrogram"]').evaluate(node=>node.classList.contains('is-active')),true);
         await mobile.screenshot({path:path.join(root,'test-results/static-mobile.png')});
-        await mobile.locator('[data-action="browser-clear"]').tap();
+        await mobile.locator('[data-action="selection-clear-all"]').tap();
         await mobile.close();
         await require('./test-browser-multi')({browser,origin,root,nativeResults,compare});
         await require('./test-browser-auto-96k')({browser,origin,root,compare});

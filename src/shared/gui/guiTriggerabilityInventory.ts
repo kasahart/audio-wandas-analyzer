@@ -42,8 +42,6 @@ export const GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS = [
 
 export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'browser-open-wav',
-    'browser-open-folder',
-    'browser-clear',
     'browser-about',
     'browser-recipe-close',
     'open-file',
@@ -273,9 +271,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'static-browser-source',
-        label: 'Open short WAV (picked or dropped) or a folder of them in a local Python Worker, cancel and clear source memory',
-        entryPoints: ['dialog', 'drag-and-drop', 'results-toolbar'],
-        triggers: ['browser-open-wav', 'browser-drop-wav', 'browser-open-folder', 'browser-clear'],
+        label: 'List short WAV (picked or dropped) or a folder of them in the selection panel and load checked ones in a local Python Worker',
+        entryPoints: ['dialog', 'drag-and-drop', 'selection-toolbar'],
+        triggers: ['browser-open-wav', 'browser-drop-wav', 'open-file', 'open-folder', 'selection-clear-all'],
         regressionLayers: ['ui-smoke'],
     },
     {

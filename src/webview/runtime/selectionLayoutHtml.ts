@@ -4,6 +4,7 @@ import { hintAttr } from './hintFooter';
 
 export interface SelectionLayoutParts {
     rootPath: string;
+    isEmpty?: boolean;
     filterQuery: string;
     treeHtml: string;
     resultsPaneHtml: string;
@@ -11,21 +12,29 @@ export interface SelectionLayoutParts {
 }
 
 export type SelectionLayoutStrings = Pick<UiStrings,
-    | 'selectionHeader' | 'btnOpenFile' | 'btnOpenAnotherFolder' | 'treeFilterPlaceholder'
+    | 'selectionHeader' | 'btnOpenFile' | 'btnOpenFolder' | 'btnOpenAnotherFolder' | 'treeFilterPlaceholder'
     | 'btnSelectAll' | 'btnClear' | 'ariaSelectionTree'
-    | 'hintOpenFile' | 'hintOpenFolder' | 'hintSelectAll' | 'hintClearAll' | 'hintTreeFilter' | 'hintTreeResizer'>;
+    | 'hintOpenFile' | 'hintOpenFolder' | 'hintBrowserOpenFolder' | 'hintSelectAll' | 'hintClearAll' | 'hintTreeFilter' | 'hintTreeResizer'>;
+
+/** Without a listed folder there is no "another" folder to open. */
+export function selectionFolderButton(rootPath: string, strings: SelectionLayoutStrings): { text: string; hint: string } {
+    return rootPath
+        ? { text: strings.btnOpenAnotherFolder, hint: strings.hintOpenFolder }
+        : { text: strings.btnOpenFolder, hint: strings.hintBrowserOpenFolder };
+}
 
 export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: SelectionLayoutStrings): string {
     const python = parts.python;
+    const folder = selectionFolderButton(parts.rootPath, strings);
     const pythonButton = python
         ? '    <button class="tb-btn' + (python.warning ? ' is-warning' : '') + '" id="selection-python-environment" data-action="select-python-environment"' + hintAttr(python.tooltip) + '>' + escapeHtml(python.text) + '</button>'
         : '';
-    return '<div id="directory-selection-layout">'
+    return '<div id="directory-selection-layout"' + (parts.isEmpty ? ' class="is-empty"' : '') + '>'
         + '  <div id="selection-toolbar">'
         + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + escapeHtml(strings.selectionHeader) + '</span>'
         + '    <div class="tb-sep"></div>'
         + '    <button class="tb-btn" data-action="open-file"' + hintAttr(strings.hintOpenFile) + '>' + escapeHtml(strings.btnOpenFile) + '</button>'
-        + '    <button class="tb-btn" data-action="open-folder"' + hintAttr(strings.hintOpenFolder) + '>' + escapeHtml(strings.btnOpenAnotherFolder) + '</button>'
+        + '    <button class="tb-btn" data-action="open-folder"' + hintAttr(folder.hint) + '>' + escapeHtml(folder.text) + '</button>'
         + pythonButton
         + '  </div>'
         + '  <div id="selection-body">'

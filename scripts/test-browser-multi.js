@@ -83,11 +83,11 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
             return fs.readFileSync(await report.path(), 'utf8');
         }
         const markdown = await exportReport('1', 'md');
-        assert.match(markdown, /## Source paths/); assert.match(markdown, /selected-1-short-stereo.wav/);
+        assert.match(markdown, /## Source paths/); assert.match(markdown, /short-stereo.wav/);
         const notebook = JSON.parse(await exportReport('2', 'ipynb'));
         assert.equal(notebook.nbformat, 4);
         const code = notebook.cells.filter(cell => cell.cell_type === 'code').map(cell => cell.source.join('')).join('\n');
-        assert.match(code, /wd.read\("selected-1-short-stereo.wav"\)/); assert.ok(!code.includes('/sources/'));
+        assert.match(code, /wd.read\("short-stereo.wav"\)/); assert.ok(!code.includes('/sources/'));
         const syntax = spawnSync(path.join(root,'.venv/bin/python'), ['-c', 'import sys; compile(sys.stdin.read(), "export.ipynb", "exec")'], {input:code,encoding:'utf8'});
         assert.equal(syntax.status, 0, syntax.stderr);
         page.once('dialog', dialog => dialog.dismiss());
@@ -135,7 +135,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await status.filter({hasText:'Audio Worker failed'}).waitFor();assert.equal(await page.locator('.track-row').count(),0);
         assert.equal(await page.evaluate(async u=>{try{await fetch(u);return true;}catch{return false;}},firstUrl),false);
         await picker.setInputFiles(fixture('changing-stereo.wav'));await status.filter({hasText:'1 tracks'}).waitFor({timeout:120000});
-        await page.locator('[data-action="browser-clear"]').click();assert.equal(await page.locator('.track-row').count(),0);
+        await page.locator('[data-action="selection-clear-all"]').click();assert.equal(await page.locator('.track-row').count(),0);
         assert.ok(errors.every(error=>error.includes('intentional-multi-worker-failure')),errors.join('\n'));
         await page.locator('[data-action="content-spectrogram"]').click();
         await page.reload();
@@ -156,7 +156,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
             japanese.once('dialog',dialog=>{assert.match(dialog.message(),/レポート形式を選択/);return dialog.accept('1');});
             const [report] = await Promise.all([japanese.waitForEvent('download'),japanese.locator('[data-action="export-report"]').click()]);
             assert.equal(report.suggestedFilename(),'測定.md'); assert.match(fs.readFileSync(await report.path(),'utf8'),/測定.wav/);
-            await japanese.locator('[data-action="browser-clear"]').click();
+            await japanese.locator('[data-action="selection-clear-all"]').click();
         } finally { await context.close(); }
         console.log('Multi-track lifecycle, shared WAV names, real Markdown/notebook downloads and Python syntax, report cancel, persisted STFT/display mode and Japanese browser locale/Unicode report passed.');
     } finally { await page.close(); }

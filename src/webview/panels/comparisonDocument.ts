@@ -344,6 +344,13 @@ export function renderComparisonStyles(): string {
             flex-direction: column;
             gap: 4px;
         }
+        #directory-selection-layout.is-empty #selection-summary,
+        #directory-selection-layout.is-empty #tree-filter-wrap,
+        #directory-selection-layout.is-empty #selection-actions,
+        #directory-selection-layout.is-empty #selection-tree,
+        .selection-path:empty {
+            display: none;
+        }
         .selection-path {
             font-size: 11px;
             color: var(--muted);

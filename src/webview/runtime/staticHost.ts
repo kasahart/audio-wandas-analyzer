@@ -92,7 +92,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     let worker: Worker | undefined;
     let recovery: Promise<void> | undefined;
     let bootFailed = false;
-    let nextSource = 0;
     const sourceGeneration = new SessionRequests();
     const reanalysisGeneration = new SessionRequests();
     const sources = new SourceResults<Source>(new Map(), source => URL.revokeObjectURL(source.url));
@@ -118,21 +117,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     pick.type = 'file'; pick.multiple = true; pick.accept = '.wav,audio/wav'; pick.setAttribute('aria-label', strings.btnOpenFile);
     // The native file input labels itself in the browser's UI language, so a page-language button opens it instead.
     pick.style.cssText = 'display:none';
-    const openFile = document.createElement('button');
-    openFile.textContent = strings.btnOpenFile;
-    setHint(openFile, strings.hintBrowserOpenWav);
-    openFile.onclick = (): void => { pick.click(); };
-    const cancel = document.createElement('button');
-    cancel.setAttribute('data-action', 'browser-clear');
-    cancel.textContent = strings.btnClear;
-    setHint(cancel, strings.hintBrowserClear);
     const folderPick = document.createElement('input');
     folderPick.type = 'file'; folderPick.multiple = true; folderPick.setAttribute('webkitdirectory', '');
     folderPick.style.cssText = 'display:none';
-    const openFolder = document.createElement('button');
-    openFolder.setAttribute('data-action', 'browser-open-folder');
-    openFolder.textContent = strings.btnOpenFolder;
-    setHint(openFolder, strings.hintBrowserOpenFolder);
     // Python's state is a coloured dot at the footer's right end; its text stays for screen readers and the hover hint.
     const pythonIndicator = document.createElement('span');
     pythonIndicator.setAttribute('data-python-indicator', '');
@@ -178,7 +165,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     webStyles.textContent = '#hint-footer { padding-right: 28px; }'
         + ` ${UNAVAILABLE_ACTIONS} { opacity: 0.4; cursor: not-allowed; }`
         + ' @keyframes python-dot-pulse { 50% { opacity: 0.3; } }';
-    bar.append(openFile, pick, openFolder, folderPick, cancel, about, status, webStyles);
+    bar.append(pick, folderPick, about, status, webStyles);
     document.body.append(pythonIndicator);
     document.body.prepend(bar);
     // The toolbar text alone was easy to miss, so the boot also shows a centred card; it ignores pointer events because commands already wait for the boot.
@@ -238,16 +225,14 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         target.setAttribute('aria-description', strings.browserUnavailable);
     });
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
-    /** The opened folder's WAV files keyed by the `/sources/<relative path>` each one loads under. */
-    let folder: Map<string, File> | undefined;
+    /** The listed WAV files keyed by the `/sources/<relative path>` each one loads under. */
+    let folder = new Map<string, File>();
     /** Checked tree files that are still loading, so their checkboxes stay checked until they load or fail. */
     const pendingTreePaths = new Set<string>();
     let selectionRequests = 0;
     const snapshot = (): void => {
         const results = sources.snapshot(source => source.result);
-        emit(folder
-            ? { type: 'analysis-update', results, selectedFilePaths: Array.from(folder.keys()).filter(path => sources.get(path) || pendingTreePaths.has(path)) }
-            : { type: 'analysis-update', results });
+        emit({ type: 'analysis-update', results, selectedFilePaths: Array.from(folder.keys()).filter(path => sources.get(path) || pendingTreePaths.has(path)) });
     };
     let batches: Promise<void> | undefined;
     /** Runs source loads one batch at a time so picker and tree batches never interleave their pre-checks; an idle queue starts the batch now. */
@@ -276,7 +261,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             // A Worker that cannot clear (a failed boot, or an older cached script) is replaced so no source outlives Clear.
             sendRequest({ cmd: 'clear' }).catch(() => { if (worker === kept) resetWorker(new Error('Analysis cancelled')); });
         }
-        loading = false; pick.disabled = openFile.disabled = false; pick.value = ""; folderPick.value = "";
+        loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
         pendingTreePaths.clear();
         sources.clear();
     }
@@ -372,10 +357,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             ? { calibrationProfile: result.calibrationProfile, analysisRevision: result.analysisRevision } : {};
     } });
     function resultWithSource(result: AnalysisResult, sourceId: string, name: string, url: string): ComparisonTrackState {
-        // A folder file is reported by its unique path inside the picked folder's parent, so the notebook can read it from there.
-        const alias = sourceId.includes('/') ? sourceId
-            : sourceId.replace(/\.wav$/, '') + '-' + name.replace(/[\\/\u0000-\u001f]/g, '_');
-        return { ...result, fileName: name, audioSource: url, reportSourcePath: alias } as unknown as ComparisonTrackState;
+        // A source is reported by its unique path under /sources, so the notebook can read it from there.
+        return { ...result, fileName: name, audioSource: url, reportSourcePath: sourceId } as unknown as ComparisonTrackState;
     }
     function download(bytes: Uint8Array, name: string, type: string): void {
         const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type }));
@@ -386,7 +369,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         const source = sources.get(path);
         if (!source) return;
         sources.delete(path);
-        if (folder?.has(path)) snapshot();
+        if (folder.has(path)) snapshot();
         if (!sources.size && !loading) {
             dispose(); emit({ type: 'reanalyze-end' });
             announce(strings.browserRemoved); return;
@@ -539,7 +522,13 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         async selection(message): Promise<void> {
             const tree = folder;
-            if (!tree) return;
+            // Clearing every check is the Web's Clear: it cancels in-flight loads and frees the Worker's audio memory at once.
+            if (!message.filePaths.length) {
+                selectionRequests++;
+                dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);
+                return;
+            }
+            if (!tree.size) return;
             const myGeneration = sourceGeneration.current;
             const myRequest = ++selectionRequests;
             const isLatest = (): boolean => myRequest === selectionRequests;
@@ -562,10 +551,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 pendingTreePaths.clear();
                 added.forEach(path => pendingTreePaths.add(path));
                 if (!added.length) {
-                    loading = false; pick.disabled = openFile.disabled = false;
+                    loading = false; pick.disabled = false;
                     snapshot(); return;
                 }
-                loading = true; pick.disabled = openFile.disabled = true;
+                loading = true; pick.disabled = true;
                 announce(strings.browserPreparing);
                 await loadBatch(added.map(path => ({ file: tree.get(path)!, sourceId: path.slice('/sources/'.length) })), isLatest);
             });
@@ -590,6 +579,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         getState: () => persisted,
         setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType }); },
         emptyMessage: strings.browserEmptyPrompt,
+        selectionPanel: true,
     };
     browserWindow.__AWA_HOST__ = host;
     const superseded = new Error('Superseded by a newer tree selection');
@@ -597,12 +587,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
      * Loads and analyzes files as new tracks, keeping the tracks already loaded when one file fails.
      * A newer tree selection stops the batch before its next file and settles the shared loading state itself.
      */
-    async function loadBatch(files: Array<{ file: File; sourceId?: string }>, isLatest: () => boolean = () => true): Promise<void> {
+    async function loadBatch(files: Array<{ file: File; sourceId: string }>, isLatest: () => boolean): Promise<void> {
         const myGeneration = sourceGeneration.current;
         const failures: string[] = [];
         await runAnalysisBatch(files, {
             isCurrent: () => sourceGeneration.isCurrent(myGeneration),
-            analyze: async ({ file, sourceId = `selected-${++nextSource}.wav` }) => {
+            analyze: async ({ file, sourceId }) => {
                 if (!isLatest()) throw superseded;
                 let loadedPath: string | undefined;
                 try {
@@ -639,27 +629,37 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             },
             failed: ({ file, sourceId }, error) => {
                 if (error === superseded) return false;
-                if (sourceId) pendingTreePaths.delete(`/sources/${sourceId}`);
+                pendingTreePaths.delete(`/sources/${sourceId}`);
                 failures.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
                 return true;
             },
         });
         if (!sourceGeneration.isCurrent(myGeneration) || !isLatest()) return;
         pendingTreePaths.clear();
-        loading = false; pick.disabled = openFile.disabled = false; pick.value = '';
+        loading = false; pick.disabled = false; pick.value = '';
         if (!sources.size) dispose();
-        if (folder) snapshot();
+        snapshot();
         announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
     }
+    /** Adds individually opened files to the list beside what is already listed and loads them as checked tracks. */
     function openFiles(files: File[]): void {
-        if (!files.length || loading) return;
-        if (folder) {
-            folder = undefined; selectionRequests++;
-            emit({ type: 'directory-selection', rootPath: '', filePaths: [] });
-        }
-        loading = true; pick.disabled = openFile.disabled = true;
+        if (loading) return;
+        const wavs = files.filter(file => /\.wav$/i.test(file.name));
+        if (!wavs.length) { announce(strings.browserDropNoWav); return; }
+        const added = wavs.map(file => {
+            const stem = file.name.replace(/\.wav$/i, '').replace(/[\\/\u0000-\u001f]/g, '_');
+            let sourceId = `${stem}.wav`;
+            for (let n = 2; folder.has(`/sources/${sourceId}`); n++) sourceId = `${stem} (${n}).wav`;
+            folder.set(`/sources/${sourceId}`, file);
+            return { file, sourceId };
+        });
+        const myRequest = ++selectionRequests;
+        emit({ type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: Array.from(folder.keys()) });
+        added.forEach(({ sourceId }) => pendingTreePaths.add(`/sources/${sourceId}`));
+        snapshot();
+        loading = true; pick.disabled = true;
         announce(strings.browserPreparing);
-        enqueueBatch(() => loadBatch(files.map(file => ({ file }))));
+        enqueueBatch(() => loadBatch(added, () => myRequest === selectionRequests));
     }
     pick.onchange = (): void => { openFiles(Array.from(pick.files || [])); };
     const dropTarget = document.createElement('div');
@@ -682,9 +682,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             if (!carriesFiles(event)) return;
             event.preventDefault();
             showDropTarget(false);
-            const files = Array.from(event.dataTransfer!.files).filter(file => /\.wav$/i.test(file.name));
-            if (!files.length) { announce(strings.browserDropNoWav); return; }
-            openFiles(files);
+            openFiles(Array.from(event.dataTransfer!.files));
         });
     }
     acceptDrops(window);
@@ -693,7 +691,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (sources.size || loading) dispose();
         selectionRequests++;
         folder = new Map(files.map(({ path, file }) => [`/sources/${path}`, file]));
-        emit({ type: 'directory-selection', rootPath: `/sources/${rootName}`, filePaths: Array.from(folder.keys()) });
+        emit({ type: 'directory-selection', rootPath: `/sources/${rootName}`, rootLabel: rootName, filePaths: Array.from(folder.keys()) });
         snapshot(); emit({ type: 'reanalyze-end' });
         announce(strings.browserFolderOpened.replace('{count}', String(files.length)));
     }
@@ -715,14 +713,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             }
         })();
     }
-    openFolder.onclick = pickFolder;
     folderPick.onchange = (): void => {
         const files = Array.from(folderPick.files || []).filter(file => /\.wav$/i.test(file.name) && file.webkitRelativePath);
         folderPick.value = '';
         openFolderFiles(files[0]?.webkitRelativePath.split('/')[0] ?? '', files.map(file => ({ path: file.webkitRelativePath, file })));
-    };
-    cancel.onclick = (): void => {
-        dispose(); pick.value = ''; snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);
     };
     // Pyodide boots when its Worker starts, so starting it with the page keeps that wait off the first WAV load.
     worker = startWorker();

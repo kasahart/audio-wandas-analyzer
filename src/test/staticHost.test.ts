@@ -139,7 +139,9 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         picker.onchange!();
         await flush();
     }
-    return { host, browser, storage, workers, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served,
+    // The selection panel's Clear posts an empty selection.
+    const clear = (): void => { host.postMessage({ type: 'analyze-selected-files', requestId: 'clear', filePaths: [] }); };
+    return { host, browser, storage, workers, clear, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served,
         setPromptAnswer(value: string | null) { promptAnswer = value; },
         get status() { return elements.find(element => element.attributes.role === 'status')!.textContent; },
         get footer() { return footer.textContent; },
@@ -184,7 +186,7 @@ test('the Python indicator and the centred boot card follow the Worker boot, a k
     assert.equal(indicator.textContent, 'Python: ready');
     assert.ok(!shown());
     await app.load();
-    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    app.clear();
     assert.equal(indicator.textContent, 'Python: ready');
     assert.ok(!shown());
     await app.load();
@@ -278,7 +280,7 @@ test('a failed release announces the backend message without the error class nam
 
 test('a boot that fails after an idle clear is retried by the next WAV', async () => {
     const app = harness();
-    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    app.clear();
     assert.equal(app.workers[0].terminated, false);
     app.workers[0].onmessage({ data: { ready: false } });
     await app.load();
@@ -291,7 +293,7 @@ test('leaving the page stops an idle Worker and a Worker that cannot clear is re
     const app = harness();
     await app.load();
     app.workers[0].blockedCommands.add('clear');
-    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    app.clear();
     const clear = app.workers[0].commands.at(-1)!;
     assert.equal(clear.cmd, 'clear');
     app.workers[0].reply(clear, {}, 'Unknown command');
@@ -331,7 +333,7 @@ test('clearing during an analysis restarts the busy Worker instead of queueing b
     await app.load();
     app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
     await flush();
-    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    app.clear();
     assert.equal(app.workers[0].terminated, true);
     assert.ok(!app.workers[0].commands.some(command => command.cmd === 'clear'));
     await app.load();
@@ -409,7 +411,7 @@ test('cancel during a file read clears all sources and ignores late completion',
     let finish!: (bytes: ArrayBuffer) => void;
     app.picker.files = [{ name: 'late.wav', size: 100, arrayBuffer: () => new Promise(resolve => { finish = resolve; }) }];
     app.picker.onchange!();
-    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    app.clear();
     finish(new ArrayBuffer(100)); await flush();
     assert.equal(app.workers.length, 1);
     assert.equal(app.workers[0].terminated, false);
@@ -527,7 +529,7 @@ test('clearing sources during a recipe preserves the new status and ignores late
     const worker = app.workers[0];
     const command = worker.commands.at(-1)!;
     assert.equal(command.cmd, 'run-recipe');
-    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    app.clear();
     await flush();
     assert.equal(app.status, app.browser.__APP_STRINGS__.browserCleared);
     worker.reply(command, { charts: [{ kind: 'scalar', title: 'Late', rows: [] }] });
@@ -599,7 +601,7 @@ test('Recipe timeout preserves tracks and URLs and reloads the Worker for the ne
     const originalResults = before.results as Array<{ audioSource: string }>;
     assert.equal(results.length, 2);
     assert.deepEqual(results.map(result => result.audioSource), originalResults.map(result => result.audioSource));
-    app.elements.find(element => element.attributes['data-action'] === 'browser-clear')!.onclick!();
+    app.clear();
     assert.equal(app.revoked.length, 2);
 });
 
@@ -779,7 +781,7 @@ test('an opened folder lists its WAV files and checked files load as tracks unde
     folderPicker.files = [file('rec/a.wav'), file('rec/sub/b.WAV'), file('rec/notes.txt')];
     folderPicker.onchange!();
     assert.deepEqual(app.received.find(message => message.type === 'directory-selection'),
-        { type: 'directory-selection', rootPath: '/sources/rec', filePaths: ['/sources/rec/a.wav', '/sources/rec/sub/b.WAV'] });
+        { type: 'directory-selection', rootPath: '/sources/rec', rootLabel: 'rec', filePaths: ['/sources/rec/a.wav', '/sources/rec/sub/b.WAV'] });
     const lastUpdate = () => app.received.filter(message => message.type === 'analysis-update').at(-1)!;
     const loadedPaths = () => (lastUpdate().results as Array<{ filePath: string }>).map(result => result.filePath);
 
@@ -790,14 +792,15 @@ test('an opened folder lists its WAV files and checked files load as tracks unde
     assert.deepEqual(lastUpdate().selectedFilePaths, ['/sources/rec/sub/b.WAV']);
 
     app.host.postMessage({ type: 'analyze-selected-files', requestId: 'r2', filePaths: ['/sources/rec/a.wav'] });
+    // Clearing every check while that change is still in flight cancels it by restarting the busy Worker.
     app.host.postMessage({ type: 'analyze-selected-files', requestId: 'r3', filePaths: [] });
     await flush(); await flush();
-    assert.ok(app.workers[0].commands.some(command => command.cmd === 'unload' && command.filePath === '/sources/rec/sub/b.WAV'));
     assert.ok(!app.workers[0].commands.some(command => command.cmd === 'load' && command.sourceId === 'rec/a.wav'));
     assert.deepEqual(loadedPaths(), []);
     assert.deepEqual(lastUpdate().selectedFilePaths, []);
     assert.equal(app.picker.disabled, false);
-    assert.equal(app.workers[0].terminated, false);
+    assert.equal(app.workers[0].terminated, true);
+    assert.equal(app.status, app.browser.__APP_STRINGS__.browserCleared);
 });
 
 test('a load failure unchecks that tree file and keeps the others', async () => {
@@ -815,7 +818,7 @@ test('a load failure unchecks that tree file and keeps the others', async () => 
     assert.match(app.status, /^big\.wav: /);
 });
 
-test('folder tracks keep their folder path in reports, release unchecks them and a file pick leaves the tree', async () => {
+test('folder tracks keep their folder path in reports, release unchecks them and a file pick joins the list', async () => {
     const app = harness();
     const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
     const file = (path: string) => ({ size: 100, name: path.split('/').pop()!, webkitRelativePath: path, arrayBuffer: async () => new ArrayBuffer(100) });
@@ -830,14 +833,15 @@ test('folder tracks keep their folder path in reports, release unchecks them and
     assert.deepEqual(lastUpdate().selectedFilePaths, ['/sources/rec/a/b/c.wav']);
 
     await app.load();
-    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1), { type: 'directory-selection', rootPath: '', filePaths: [] });
-    assert.equal(lastUpdate().selectedFilePaths, undefined);
-    assert.equal((lastUpdate().results as unknown[]).length, 2);
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1),
+        { type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: ['/sources/rec/a_b/c.wav', '/sources/rec/a/b/c.wav', '/sources/selected.wav'] });
+    assert.deepEqual(lastUpdate().selectedFilePaths, ['/sources/rec/a/b/c.wav', '/sources/selected.wav']);
+    assert.deepEqual((lastUpdate().results as Array<{ reportSourcePath: string }>).map(result => result.reportSourcePath), ['rec/a/b/c.wav', 'selected.wav']);
 });
 
 test('Open Folder walks the File System Access picker and ignores a cancelled pick', async () => {
     const app = harness();
-    const openFolder = app.elements.find(element => element.attributes['data-action'] === 'browser-open-folder')!;
+    const openFolder = { onclick: () => app.host.postMessage({ type: 'select-target', targetKind: 'directory' }) };
     const file = (name: string) => ({ kind: 'file', name, getFile: async () => ({ size: 100, name, arrayBuffer: async () => new ArrayBuffer(100) }) });
     const dir = (name: string, entries: unknown[]) => ({ kind: 'directory', name, values: async function* () { yield* entries; } });
     const status = app.status;
@@ -851,5 +855,25 @@ test('Open Folder walks the File System Access picker and ignores a cancelled pi
     openFolder.onclick!();
     await flush(); await flush();
     assert.deepEqual(app.received.find(message => message.type === 'directory-selection'),
-        { type: 'directory-selection', rootPath: '/sources/rec', filePaths: ['/sources/rec/b.wav', '/sources/rec/day2/a.WAV'] });
+        { type: 'directory-selection', rootPath: '/sources/rec', rootLabel: 'rec', filePaths: ['/sources/rec/b.wav', '/sources/rec/day2/a.WAV'] });
+});
+
+test('picked files are listed in the tree under their own names and load checked; a name taken twice gets a suffix', async () => {
+    const app = harness();
+    const wav = (name: string) => ({ size: 100, name, arrayBuffer: async () => new ArrayBuffer(100) });
+    app.picker.files = [wav('a.wav'), wav('notes.txt')];
+    app.picker.onchange!();
+    await flush(); await flush();
+    app.picker.files = [wav('a.wav')];
+    app.picker.onchange!();
+    await flush(); await flush();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1),
+        { type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: ['/sources/a.wav', '/sources/a (2).wav'] });
+    const lastUpdate = app.received.filter(message => message.type === 'analysis-update').at(-1)!;
+    assert.deepEqual(lastUpdate.selectedFilePaths, ['/sources/a.wav', '/sources/a (2).wav']);
+    assert.deepEqual((lastUpdate.results as Array<{ fileName: string }>).map(result => result.fileName), ['a.wav', 'a.wav']);
+
+    app.picker.files = [wav('notes.txt')];
+    app.picker.onchange!();
+    assert.equal(app.status, app.browser.__APP_STRINGS__.browserDropNoWav);
 });

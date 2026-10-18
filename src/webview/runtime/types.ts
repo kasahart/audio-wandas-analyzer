@@ -55,8 +55,10 @@ export interface WebviewHostApi {
     postMessage(message: unknown): void;
     getState(): PersistedWebviewState | undefined;
     setState(state: PersistedWebviewState): void;
-    /** Replaces the results pane's empty-state text while no track is loaded. */
+    /** Replaces the results pane's empty-state text while the selection panel lists nothing. */
     emptyMessage?: string;
+    /** Shows the selection panel from the start; the host fills it with `directory-selection` messages. */
+    selectionPanel?: boolean;
 }
 
 export interface ComparisonBootstrap {
