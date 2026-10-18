@@ -69,7 +69,8 @@ export class WaveformView {
     setAmplitudeRange(min: number | null, max: number | null): boolean {
         const lo = min ?? -AUTO_AMPLITUDE_EDGE;
         const hi = max ?? AUTO_AMPLITUDE_EDGE;
-        if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(lo < hi)) {
+        // Checking the span also rejects infinite edges and finite edges whose difference overflows.
+        if (!(hi > lo && Number.isFinite(hi - lo))) {
             return false;
         }
         this.amplitudeMin = lo;
