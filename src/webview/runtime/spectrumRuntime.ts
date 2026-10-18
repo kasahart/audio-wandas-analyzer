@@ -98,9 +98,9 @@ export function spectrumSeriesRange(series: ReadonlyArray<{ slice: SpectrumSlice
         minDb = Math.min(minDb, slice.minDb);
         maxDb = Math.max(maxDb, slice.maxDb);
         maxFrequencyHz = Math.max(maxFrequencyHz, slice.maxFrequencyHz);
-        if (slice.bandCentersHz && slice.minFrequencyHz) {
-            logMinFrequencyHz = Math.min(logMinFrequencyHz, slice.minFrequencyHz);
-        }
+        // An FFT slice has a 0 Hz bin, so a log axis is used only when every series is octave bands.
+        const bandMin = sliceLogMinFrequencyHz(slice);
+        logMinFrequencyHz = bandMin === undefined ? NaN : Math.min(logMinFrequencyHz, bandMin);
     });
     return { minDb, maxDb, maxFrequencyHz, ...(isFinite(logMinFrequencyHz) ? { logMinFrequencyHz } : {}) };
 }

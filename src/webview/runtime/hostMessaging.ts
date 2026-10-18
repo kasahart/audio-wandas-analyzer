@@ -105,7 +105,8 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
                     && channel.values.every((item) => typeof item === 'number' && Number.isFinite(item))
                     && hasNumber(channel, 'minDb') && hasNumber(channel, 'maxDb'))
                 && hasNumber(value, 'frequencyBins') && hasNumber(value, 'maxFrequencyHz')
-                && (value.bandCentersHz === undefined || (hasNumber(value, 'bandsPerOctave') && hasNumber(value, 'minFrequencyHz')
+                && (value.bandCentersHz === undefined || ((value.bandsPerOctave === 1 || value.bandsPerOctave === 3)
+                    && hasNumber(value, 'minFrequencyHz') && (value.minFrequencyHz as number) > 0
                     && Array.isArray(value.bandCentersHz) && value.bandCentersHz.length === value.frequencyBins
                     && value.bandCentersHz.every((item) => typeof item === 'number' && item > 0)))
                 && (value.windowStartNorm === undefined || hasNumber(value, 'windowStartNorm'))

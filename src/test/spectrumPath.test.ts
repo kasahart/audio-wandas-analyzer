@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { traceSpectrumPath, type CanvasDrawCtx, type SpectrumPlotFrame } from '../webview/draw/canvasDrawers';
+import { frequencyAxisTicks, traceSpectrumPath, type CanvasDrawCtx, type SpectrumPlotFrame } from '../webview/draw/canvasDrawers';
 import { spectrumSeriesRange } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSlice } from '../webview/runtime/types';
 
@@ -63,4 +63,11 @@ test('spectrumSeriesRange reports the shared log axis edge of octave-band series
     const band = slice([0], { bandCentersHz: [1000], bandsPerOctave: 3, minFrequencyHz: 22.39, maxFrequencyHz: 22_387 });
     assert.equal(spectrumSeriesRange([{ slice: band }]).logMinFrequencyHz, 22.39);
     assert.equal(spectrumSeriesRange([{ slice: slice([0]) }]).logMinFrequencyHz, undefined);
+    assert.equal(spectrumSeriesRange([{ slice: band }, { slice: slice([0]) }]).logMinFrequencyHz, undefined);
+});
+
+test('frequencyAxisTicks labels both edges of a log axis even when no octave centre is in view', () => {
+    assert.deepEqual(frequencyAxisTicks({ frequencyMin: 300, frequencyMax: 400, logFrequency: true }).map(tick => tick.text), ['300 Hz', '400 Hz']);
+    assert.deepEqual(frequencyAxisTicks({ frequencyMin: 100, frequencyMax: 1000, logFrequency: true }).map(tick => tick.text),
+        ['100 Hz', '125', '250', '500', '1.0 kHz']);
 });

@@ -111,14 +111,17 @@ export interface FrequencyAxisTick {
     text: string;
 }
 
-/** Min / middle / max on a linear axis; the octave centres in view on a log axis. */
+/** Min / middle / max on a linear axis; on a log axis both edges with the octave centres between them, so a zoom inside one octave keeps its edges labelled. */
 export function frequencyAxisTicks(scale: FrequencyScale): FrequencyAxisTick[] {
+    const edges = scale.logFrequency ? [0, 1] : [0, 0.5, 1];
+    const ticks = edges.map(fraction => ({ fraction, text: formatHz(frequencyAtFraction(fraction, scale)) }));
     if (!scale.logFrequency) {
-        return [0, 0.5, 1].map(fraction => ({ fraction, text: formatHz(frequencyAtFraction(fraction, scale)) }));
+        return ticks;
     }
-    return OCTAVE_TICKS_HZ
-        .filter(hz => hz >= scale.frequencyMin && hz <= scale.frequencyMax)
+    const octaves = OCTAVE_TICKS_HZ
+        .filter(hz => hz > scale.frequencyMin && hz < scale.frequencyMax)
         .map(hz => ({ fraction: frequencyFraction(hz, scale), text: hz >= 1000 ? hz / 1000 + 'k' : String(hz) }));
+    return [ticks[0], ...octaves, ticks[1]];
 }
 
 export interface SpectrogramSpecLike {
@@ -461,15 +464,22 @@ export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice
     ctx.fillText(formatDbLevel(_visDbMin, slice), padL - 2, H - padB);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    // 9px monospace: about 5.5px per character, so a tick is skipped when it would touch the previous label.
-    let lastRight = -Infinity;
-    for (const tick of frequencyAxisTicks({ frequencyMin: _visFreqMin, frequencyMax: _visFreqMax, logFrequency })) {
+    // 9px monospace: about 5.5px per character. The edge labels always show; an inner tick is skipped when it would touch a label.
+    const ticks = frequencyAxisTicks({ frequencyMin: _visFreqMin, frequencyMax: _visFreqMax, logFrequency });
+    const span = (tick: FrequencyAxisTick) => {
         const x = padL + tick.fraction * plotW;
         const halfWidth = tick.text.length * 2.75;
-        if (logFrequency && x - halfWidth < lastRight + 4) {
-            continue;
+        return { x, left: x - halfWidth, right: x + halfWidth };
+    };
+    const lastLeft = span(ticks[ticks.length - 1]).left;
+    let lastRight = -Infinity;
+    ticks.forEach((tick, index) => {
+        const { x, left, right } = span(tick);
+        const inner = index > 0 && index < ticks.length - 1;
+        if (inner && (left < lastRight + 4 || right + 4 > lastLeft)) {
+            return;
         }
         ctx.fillText(tick.text, x, H - 1);
-        lastRight = x + halfWidth;
-    }
+        lastRight = right;
+    });
 }
