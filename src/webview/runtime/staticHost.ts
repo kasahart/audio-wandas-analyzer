@@ -110,8 +110,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         return browserLimits = reply as unknown as BrowserLimits;
     }
     const mib = (bytes: number): string => String(bytes / (1024 * 1024));
+    // The status line, About and the Python dot share the footer row with the hint text, so the page has no header row.
     const bar = document.createElement('div');
-    bar.style.cssText = 'padding:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+    bar.style.cssText = 'display:flex;gap:10px;align-items:center;min-width:0;max-width:60%;padding-right:8px';
     const pick = document.createElement('input');
     pick.setAttribute('data-action', 'browser-open-wav');
     pick.type = 'file'; pick.multiple = true; pick.accept = '.wav,audio/wav'; pick.setAttribute('aria-label', strings.btnOpenFile);
@@ -123,7 +124,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     // Python's state is a coloured dot at the footer's right end; its text stays for screen readers and the hover hint.
     const pythonIndicator = document.createElement('span');
     pythonIndicator.setAttribute('data-python-indicator', '');
-    pythonIndicator.style.cssText = 'position:fixed;right:10px;bottom:0;height:22px;z-index:65;display:flex;align-items:center';
+    pythonIndicator.style.cssText = 'display:flex;align-items:center;flex-shrink:0;padding-right:10px';
     const pythonDot = document.createElement('span');
     pythonDot.style.cssText = 'width:8px;height:8px;border-radius:50%';
     const pythonState = document.createElement('span');
@@ -141,7 +142,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     aboutToggle.style.cssText = 'cursor:pointer;list-style:none;color:var(--muted);white-space:nowrap';
     setHint(aboutToggle, strings.hintBrowserAbout);
     const aboutPanel = document.createElement('ul');
-    aboutPanel.style.cssText = 'position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:max-content;max-width:min(480px,calc(100vw - 16px));margin:0;'
+    aboutPanel.style.cssText = 'position:absolute;bottom:calc(100% + 6px);right:0;z-index:60;width:max-content;max-width:min(480px,calc(100vw - 16px));margin:0;'
         + 'padding:10px 14px 10px 28px;display:grid;gap:4px;background:var(--panel);color:var(--text);border:1px solid var(--line);'
         + 'border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.35);font-size:13px;line-height:1.5';
     for (const text of [strings.browserAboutPrivacy, strings.browserAboutFileLimits, strings.browserAboutSessionLimits, strings.browserAboutRecipes, strings.browserAboutUnsupported]) {
@@ -150,24 +151,31 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         aboutPanel.append(item);
     }
     about.append(aboutToggle, aboutPanel);
-    // The disclosure sits mid-toolbar, so a left-anchored panel would overflow narrow windows; shift it back inside.
+    // The disclosure sits at the footer's right end, so the panel opens leftwards and shifts back inside a window narrower than it.
     const clampAbout = (): void => {
         if (!about.open) return;
-        aboutPanel.style.left = '0px';
-        const overflow = aboutPanel.getBoundingClientRect().right - (document.documentElement.clientWidth - 8);
-        if (overflow > 0) aboutPanel.style.left = `${-overflow}px`;
+        aboutPanel.style.right = '0px';
+        const overflow = 8 - aboutPanel.getBoundingClientRect().left;
+        if (overflow > 0) aboutPanel.style.right = `${-overflow}px`;
     };
     about.ontoggle = clampAbout;
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
+    status.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     // Web-only rules: room for the Python dot in the footer, and greyed-out actions the browser version cannot run.
     const webStyles = document.createElement('style');
-    webStyles.textContent = '#hint-footer { padding-right: 28px; }'
+    webStyles.textContent = '#web-footer { display: flex; align-items: center; flex-shrink: 0; height: 22px; font-size: 11px; color: var(--muted);'
+        + ' background: var(--panel); border-top: 1px solid var(--line); }'
+        + ' #web-footer > #hint-footer { flex: 1; min-width: 0; border-top: 0; }'
         + ` ${UNAVAILABLE_ACTIONS} { opacity: 0.4; cursor: not-allowed; }`
         + ' @keyframes python-dot-pulse { 50% { opacity: 0.3; } }';
-    bar.append(pick, folderPick, about, status, webStyles);
-    document.body.append(pythonIndicator);
-    document.body.prepend(bar);
+    bar.append(pick, folderPick, status, about, webStyles);
+    const footerRow = document.createElement('div');
+    footerRow.id = 'web-footer';
+    const hintFooter = document.getElementById('hint-footer');
+    if (hintFooter?.parentElement) { hintFooter.before(footerRow); footerRow.append(hintFooter); }
+    else document.body.append(footerRow);
+    footerRow.append(bar, pythonIndicator);
     // The toolbar text alone was easy to miss, so the boot also shows a centred card; it ignores pointer events because commands already wait for the boot.
     const pythonLoading = document.createElement('div');
     pythonLoading.setAttribute('data-python-loading', '');
@@ -409,7 +417,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         frame.setAttribute('title', title);
         frame.style.cssText = 'display:block;width:100%;height:60vh;border:0;background:#1e1e1e';
         panel.append(header, frame);
-        bar.insertAdjacentElement('afterend', panel);
+        document.body.prepend(panel);
         const target = frame.contentDocument!;
         const style = target.createElement('style'); style.textContent = renderChartSpecStyles();
         const chartsHost = target.createElement('div'); chartsHost.id = 'charts';
@@ -646,15 +654,20 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (loading) return;
         const wavs = files.filter(file => /\.wav$/i.test(file.name));
         if (!wavs.length) { announce(strings.browserDropNoWav); return; }
+        const listed = Array.from(folder);
         const added = wavs.map(file => {
+            // Picking a listed file again checks its entry instead of listing a copy.
+            const same = listed.find(([, entry]) => entry.name === file.name && entry.size === file.size && entry.lastModified === file.lastModified);
+            if (same) return { file, sourceId: same[0].slice('/sources/'.length) };
             const stem = file.name.replace(/\.wav$/i, '').replace(/[\\/\u0000-\u001f]/g, '_');
             let sourceId = `${stem}.wav`;
             for (let n = 2; folder.has(`/sources/${sourceId}`); n++) sourceId = `${stem} (${n}).wav`;
             folder.set(`/sources/${sourceId}`, file);
             return { file, sourceId };
-        });
+        }).filter(({ sourceId }) => !sources.get(`/sources/${sourceId}`));
         const myRequest = ++selectionRequests;
         emit({ type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: Array.from(folder.keys()) });
+        if (!added.length) { snapshot(); return; }
         added.forEach(({ sourceId }) => pendingTreePaths.add(`/sources/${sourceId}`));
         snapshot();
         loading = true; pick.disabled = true;

@@ -153,7 +153,13 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     await expect(page.getByRole('button', { name: strings.btnOpenFile, exact: true })).toHaveCount(1);
     const indicator = page.locator('[data-python-indicator]');
     await expect(indicator).toHaveAttribute('data-hint', strings.browserPythonStarting);
-    const footerBox = (await page.locator('#hint-footer').boundingBox())!;
+    // The page has no header row: the status line, About and the Python dot sit in the footer row.
+    const footerBox = (await page.locator('#web-footer').boundingBox())!;
+    for (const part of ['span[role="status"]', '[data-action="browser-about"]']) {
+        const partBox = (await page.locator(part).boundingBox())!;
+        expect(partBox.y).toBeGreaterThanOrEqual(footerBox.y);
+    }
+    expect((await page.locator('#app').boundingBox())!.y).toBeLessThanOrEqual(1);
     const dotBox = (await indicator.boundingBox())!;
     expect(dotBox.y).toBeGreaterThanOrEqual(footerBox.y);
     expect(dotBox.x + dotBox.width).toBeLessThanOrEqual(footerBox.x + footerBox.width);
@@ -178,7 +184,7 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     await page.locator('#empty-state').click();
     await page.setViewportSize({ width: 1400, height: 900 });
     await page.locator('[data-action="browser-about"]').click();
-    await expect(panel).toHaveCSS('left', '0px');
+    await expect.poll(async () => { const opened = (await panel.boundingBox())!; return opened.y + opened.height; }).toBeLessThanOrEqual(footerBox.y);
     await page.setViewportSize({ width: 640, height: 900 });
     await expect.poll(async () => { const resized = (await panel.boundingBox())!; return resized.x + resized.width; }).toBeLessThanOrEqual(640);
     await page.locator('#empty-state').click();
@@ -222,6 +228,7 @@ test('static page opens a folder into the shared selection tree and checked file
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]')).toBeChecked();
     await page.locator('[data-action="selection-clear-all"]').click();
     await expect(page.locator('.track-row')).toHaveCount(0);
+    await expect(page.locator('span[role="status"]')).toHaveText(await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared));
     await expect(page.locator('.selection-file-checkbox:checked')).toHaveCount(0);
 
     await page.locator('#tree-filter-input').fill('second');

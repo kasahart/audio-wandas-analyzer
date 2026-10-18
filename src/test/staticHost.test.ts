@@ -19,7 +19,7 @@ class MockElement {
     attributes: Record<string, string> = {};
     children: MockElement[] = [];
     removed = false;
-    files?: Array<{ size: number; name: string; webkitRelativePath?: string; arrayBuffer(): Promise<ArrayBuffer> }>;
+    files?: Array<{ size: number; name: string; webkitRelativePath?: string; lastModified?: number; arrayBuffer(): Promise<ArrayBuffer> }>;
     onchange?: () => void;
     onclick?: () => void;
     contentDocument?: MockDocument;
@@ -134,8 +134,10 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     const host = browser.__AWA_HOST__!;
     host.onMessage!(message => received.push(message as Record<string, unknown>));
     const picker = elements.find(element => element.tag === 'input')!;
+    let picks = 0;
     async function load(): Promise<void> {
-        picker.files = [{ size: 100, name: 'selected.wav', arrayBuffer: async () => new ArrayBuffer(100) }];
+        // Each call stands for a different file that happens to share the name.
+        picker.files = [{ size: 100, name: 'selected.wav', lastModified: ++picks, arrayBuffer: async () => new ArrayBuffer(100) }];
         picker.onchange!();
         await flush();
     }
@@ -860,11 +862,11 @@ test('Open Folder walks the File System Access picker and ignores a cancelled pi
 
 test('picked files are listed in the tree under their own names and load checked; a name taken twice gets a suffix', async () => {
     const app = harness();
-    const wav = (name: string) => ({ size: 100, name, arrayBuffer: async () => new ArrayBuffer(100) });
+    const wav = (name: string, lastModified = 1) => ({ size: 100, name, lastModified, arrayBuffer: async () => new ArrayBuffer(100) });
     app.picker.files = [wav('a.wav'), wav('notes.txt')];
     app.picker.onchange!();
     await flush(); await flush();
-    app.picker.files = [wav('a.wav')];
+    app.picker.files = [wav('a.wav', 2)];
     app.picker.onchange!();
     await flush(); await flush();
     assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1),
@@ -876,4 +878,13 @@ test('picked files are listed in the tree under their own names and load checked
     app.picker.files = [wav('notes.txt')];
     app.picker.onchange!();
     assert.equal(app.status, app.browser.__APP_STRINGS__.browserDropNoWav);
+
+    // After Clear, picking the same file again checks its existing entry instead of listing a copy.
+    app.clear();
+    await flush(); await flush();
+    app.picker.files = [wav('a.wav')];
+    app.picker.onchange!();
+    await flush(); await flush();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths, ['/sources/a.wav', '/sources/a (2).wav']);
+    assert.deepEqual(app.received.filter(message => message.type === 'analysis-update').at(-1)!.selectedFilePaths, ['/sources/a.wav']);
 });
