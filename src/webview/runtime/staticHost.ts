@@ -258,6 +258,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     /** Checked tree files that are still loading, so their checkboxes stay checked until they load or fail. */
     const pendingTreePaths = new Set<string>();
     let selectionRequests = 0;
+    /** Advanced by Clear, so a folder walk that started before it does not list its files afterwards. */
+    let listGeneration = 0;
     const snapshot = (): void => {
         const results = sources.snapshot(source => source.result);
         emit({ type: 'analysis-update', results, selectedFilePaths: Array.from(folder.keys()).filter(path => sources.get(path) || pendingTreePaths.has(path)) });
@@ -552,10 +554,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         async selection(message): Promise<void> {
             const tree = folder;
-            // Clearing every check is the Web's Clear: it cancels in-flight loads and frees the Worker's audio memory at once.
+            // Clearing every check cancels in-flight loads and frees the Worker's audio memory at once; the panel's Clear also empties the list.
             if (!message.filePaths.length) {
                 selectionRequests++;
-                dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);
+                dispose();
+                if (message.clearAll) { listGeneration++; folder.clear(); emitListing(); }
+                snapshot(); emit({ type: 'reanalyze-end' }); announce(strings.browserCleared);
                 return;
             }
             if (!tree.size) return;
@@ -722,11 +726,13 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 .filter((entry): entry is FileSystemDirectoryEntry => !!entry?.isDirectory);
             const files = Array.from(event.dataTransfer!.files).filter(file => !folders.some(entry => entry.name === file.name));
             if (!folders.length) { openFiles(files); return; }
+            const myList = listGeneration;
             void (async () => {
                 try {
                     for (const entry of folders) {
                         const found: Array<{ path: string; file: File }> = [];
                         await collectDroppedWavFiles(entry, entry.name, found);
+                        if (myList !== listGeneration) return;
                         openFolderFiles(entry.name, found.sort(byPath));
                     }
                     if (files.length) openFiles(files);
@@ -773,7 +779,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             const files: Array<{ path: string; file: File }> = [];
             try {
                 const root = await showDirectoryPicker.call(window, { mode: 'read' });
+                const myList = listGeneration;
                 await collectWavFiles(root, root.name, files);
+                if (myList !== listGeneration) return;
                 openFolderFiles(root.name, files.sort(byPath));
             } catch (error) {
                 if ((error as { name?: unknown } | null)?.name !== 'AbortError') announce(error instanceof Error ? error.message : String(error));

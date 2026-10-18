@@ -36,6 +36,8 @@ export interface AnalyzeSelectedFilesMessage {
     type: 'analyze-selected-files';
     requestId: string;
     filePaths: string[];
+    /** Sent by the panel's Clear, so a host can tell it from unchecking the last file. */
+    clearAll?: true;
 }
 
 export function isAnalyzeSelectedFilesMessage(message: unknown): message is AnalyzeSelectedFilesMessage {
@@ -43,9 +45,10 @@ export function isAnalyzeSelectedFilesMessage(message: unknown): message is Anal
         return false;
     }
 
-    const candidate = message as { type?: unknown; requestId?: unknown; filePaths?: unknown };
+    const candidate = message as { type?: unknown; requestId?: unknown; filePaths?: unknown; clearAll?: unknown };
     return candidate.type === 'analyze-selected-files'
         && typeof candidate.requestId === 'string'
+        && (candidate.clearAll === undefined || candidate.clearAll === true)
         && Array.isArray(candidate.filePaths)
         && candidate.filePaths.every((filePath) => typeof filePath === 'string');
 }

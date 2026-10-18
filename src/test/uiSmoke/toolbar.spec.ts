@@ -227,10 +227,11 @@ test('static page opens a folder into the shared selection tree and checked file
     await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/first.wav"]').uncheck();
     await expect(page.locator('.track-row')).toHaveCount(1);
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]')).toBeChecked();
-    await page.locator('[data-action="selection-clear-all"]').click();
+    // Unchecking the last file frees the audio but keeps the list.
+    await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]').uncheck();
     await expect(page.locator('.track-row')).toHaveCount(0);
     await expect(page.locator('span[role="status"]')).toHaveText(await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared));
-    await expect(page.locator('.selection-file-checkbox:checked')).toHaveCount(0);
+    await expect(page.locator('.selection-file-checkbox')).toHaveCount(2);
 
     await page.locator('#tree-filter-input').fill('second');
     const sameName = mkdtempSync(join(tmpdir(), 'awa-folder-'));
@@ -253,6 +254,15 @@ test('static page opens a folder into the shared selection tree and checked file
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/single.wav"]')).toBeChecked();
     await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec (2)/third.wav"]')).toBeChecked();
     await expect(page.locator('.track-row')).toHaveCount(2);
+
+    // Clear empties the list as well as freeing the audio.
+    await page.locator('[data-action="selection-clear-all"]').click();
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    await expect(page.locator('.selection-file-checkbox')).toHaveCount(0);
+    await expect(page.locator('#directory-selection-layout')).toHaveClass(/is-empty/);
+    const strings = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { hintClearList: string; btnOpenFolder: string } }).__APP_STRINGS__);
+    await expect(page.locator('[data-action="selection-clear-all"]')).toHaveAttribute('data-hint', strings.hintClearList);
+    await expect(page.locator('#selection-toolbar [data-action="open-folder"]')).toHaveText(strings.btnOpenFolder);
 });
 
 test('static page adds a picked file from an opened folder as its own entry and keeps folders open or closed across listings', async ({ page }) => {

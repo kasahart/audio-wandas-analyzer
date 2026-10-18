@@ -141,8 +141,8 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         picker.onchange!();
         await flush();
     }
-    // The selection panel's Clear posts an empty selection.
-    const clear = (): void => { host.postMessage({ type: 'analyze-selected-files', requestId: 'clear', filePaths: [] }); };
+    // Unchecking every file posts an empty selection; the panel's Clear also marks it clearAll.
+    const clear = (clearAll = false): void => { host.postMessage({ type: 'analyze-selected-files', requestId: 'clear', filePaths: [], ...(clearAll ? { clearAll: true } : {}) }); };
     return { host, browser, storage, workers, clear, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served,
         setPromptAnswer(value: string | null) { promptAnswer = value; },
         get status() { return elements.find(element => element.attributes.role === 'status')!.textContent; },
@@ -923,6 +923,18 @@ test('Open Folder walks the File System Access picker and ignores a cancelled pi
     assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1),
         { type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: ['/sources/rec/b.wav', '/sources/rec/day2/a.WAV', '/sources/b.wav'] });
     assert.deepEqual(app.received.filter(message => message.type === 'analysis-update').at(-1)!.selectedFilePaths, ['/sources/b.wav']);
+
+    // A folder still being walked when Clear empties the list is not listed afterwards.
+    let release!: () => void;
+    const walking = new Promise<void>(resolve => { release = resolve; });
+    (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => ({ kind: 'directory', name: 'slow', values: async function* () { await walking; yield file('c.wav'); } });
+    openFolder.onclick!();
+    await flush();
+    app.clear(true);
+    await flush();
+    release();
+    await flush(); await flush();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths, []);
 });
 
 test('picked files are listed in the tree under their own names and load checked; a name taken twice gets a suffix', async () => {
@@ -944,7 +956,7 @@ test('picked files are listed in the tree under their own names and load checked
     app.picker.onchange!();
     assert.equal(app.status, app.browser.__APP_STRINGS__.browserDropNoWav);
 
-    // After Clear, picking the same file again checks its existing entry instead of listing a copy.
+    // After unchecking every file, picking the same file again checks its existing entry instead of listing a copy.
     app.clear();
     await flush(); await flush();
     app.picker.files = [wav('a.wav')];
@@ -958,4 +970,15 @@ test('picked files are listed in the tree under their own names and load checked
     app.picker.onchange!();
     await flush(); await flush();
     assert.deepEqual(app.received.filter(message => message.type === 'analysis-update').at(-1)!.selectedFilePaths, ['/sources/a.wav', '/sources/a (3).wav']);
+
+    // The panel's Clear empties the list, so the next pick starts it again without a suffix.
+    app.clear(true);
+    await flush(); await flush();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1),
+        { type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: [] });
+    assert.equal(app.status, app.browser.__APP_STRINGS__.browserCleared);
+    app.picker.files = [wav('a.wav', 2)];
+    app.picker.onchange!();
+    await flush(); await flush();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths, ['/sources/a.wav']);
 });
