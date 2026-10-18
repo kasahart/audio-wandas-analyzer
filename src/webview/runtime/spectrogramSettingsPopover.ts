@@ -1,5 +1,5 @@
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import type { SpectrogramDisplaySettings, SpectrogramSettings, StftWindow } from '../../shared/analysis/analysisTypes';
+import { STFT_OVERLAP_PERCENT_OPTIONS, type SpectrogramDisplaySettings, type SpectrogramSettings, type StftWindow } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { eventTarget } from './domAdapter';
 import { hintAttr, hoverHintAttr } from './hintFooter';
@@ -27,12 +27,11 @@ export interface SpectrogramSettingsPopover {
 }
 
 const NFFT_OPTIONS = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384];
-const OVERLAP_PERCENT_OPTIONS = [50, 67, 75];
 const GEAR_SELECTOR = '[data-action="spectrogram-settings"], [data-action="spectrum-settings"]';
 
 export function spectrogramSettingsPopoverHtml(strings: SpectrogramSettingsPopoverStrings): string {
     const nfftOptions = NFFT_OPTIONS.map(v => '<option value="' + v + '">' + v + '</option>').join('');
-    const overlapOptions = OVERLAP_PERCENT_OPTIONS.map(v => '<option value="' + v + '">' + v + '%</option>').join('');
+    const overlapOptions = STFT_OVERLAP_PERCENT_OPTIONS.map(v => '<option value="' + v + '">' + v + '%</option>').join('');
     return '<div id="spec-settings-popover" hidden style="position:absolute;z-index:50;background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:6px;min-width:260px;color:var(--text);font-family:var(--font-ui);">'
         + '<label style="display:block;margin-bottom:6px"' + hoverHintAttr(strings.hintSpecAuto) + '><input type="checkbox" id="spec-auto"' + hintAttr(strings.hintSpecAuto) + '> ' + escapeHtml(strings.specSettingsAuto) + '</label>'
         + '<fieldset id="spec-stft-fields" style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'

@@ -78,6 +78,8 @@ export interface SpectrogramSettings {
     display: SpectrogramDisplaySettings;
 }
 
+export const STFT_OVERLAP_PERCENT_OPTIONS: readonly number[] = [50, 67, 75];
+
 export const DEFAULT_SPECTROGRAM_SETTINGS: SpectrogramSettings = {
     auto: true,
     stft: { nFft: 1024, overlapPercent: 75, window: 'hann' },

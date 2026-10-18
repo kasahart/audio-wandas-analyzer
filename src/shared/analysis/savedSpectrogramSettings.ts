@@ -1,4 +1,4 @@
-import { DEFAULT_SPECTROGRAM_SETTINGS, type StftOptions, type SpectrogramSettings } from './analysisTypes';
+import { DEFAULT_SPECTROGRAM_SETTINGS, STFT_OVERLAP_PERCENT_OPTIONS, type StftOptions, type SpectrogramSettings } from './analysisTypes';
 
 export const SPECTROGRAM_SETTINGS_KEY = 'audioWandasAnalyzer.spectrogramSettings';
 
@@ -12,8 +12,9 @@ function isPositiveInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
+// The popover can only show these, so any other value would be applied as an empty select.
 function isOverlapPercent(value: unknown): value is number {
-    return typeof value === 'number' && value >= 0 && value < 100;
+    return typeof value === 'number' && STFT_OVERLAP_PERCENT_OPTIONS.includes(value);
 }
 
 function isNullableFinite(value: unknown): value is number | null {

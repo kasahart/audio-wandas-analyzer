@@ -65,9 +65,9 @@ test('a nonpositive persisted frequency limit is not salvaged, but panel message
     }
 });
 
-test('an overlap outside [0, 100) is rejected, so a saved hop-size STFT falls back to the default', async () => {
+test('an overlap the popover cannot show is rejected, so a saved hop-size STFT falls back to the default', async () => {
     const { isSpectrogramSettings, savedSpectrogramSettings } = await import('../shared/analysis/savedSpectrogramSettings');
-    for (const overlapPercent of [-1, 100, Number.NaN]) {
+    for (const overlapPercent of [-1, 0, 60, 100, Number.NaN]) {
         const settings = { ...DEFAULT_SPECTROGRAM_SETTINGS, auto: false, stft: { nFft: 512, overlapPercent, window: 'hann' as const } };
         assert.equal(isSpectrogramSettings(settings), false);
     }
