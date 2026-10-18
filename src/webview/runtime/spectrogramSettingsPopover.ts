@@ -103,10 +103,15 @@ export function installSpectrogramSettingsPopover(
         const rect = gear.getBoundingClientRect();
         popover.style.left = Math.max(8, rect.right - 280) + 'px';
         const viewportHeight = document.documentElement.clientHeight;
+        // The body does not scroll, so a popover taller than the Webview must scroll internally to keep Apply reachable.
+        popover.style.maxHeight = Math.max(0, viewportHeight - 16) + 'px';
+        popover.style.overflowY = 'auto';
+        const height = popover.offsetHeight;
         // The docked spectrum gear sits at the page bottom, so open upwards when there is no room below.
         const below = rect.bottom + 6;
-        const above = rect.top - 6 - popover.offsetHeight;
-        popover.style.top = (below + popover.offsetHeight > viewportHeight && above >= 0 ? above : below) + 'px';
+        const above = rect.top - 6 - height;
+        const top = below + height <= viewportHeight ? below : above >= 0 ? above : Math.max(8, viewportHeight - height - 8);
+        popover.style.top = top + 'px';
     }
     function close(): void {
         if (popover) {

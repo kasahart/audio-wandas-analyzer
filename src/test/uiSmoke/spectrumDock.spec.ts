@@ -66,3 +66,16 @@ test('the spectrum gear opens the shared frequency-analysis settings above itsel
     await expect(popover).toBeHidden();
     await expect(page.locator('#reanalyze-overlay')).toBeVisible();
 });
+
+test('in a short Webview the settings popover stays on screen and Apply is reachable', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 500 });
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.locator('#spectrum-zoom-toolbar [data-action="spectrum-settings"]').click();
+    const popover = page.locator('#spec-settings-popover');
+    await expect(popover).toBeVisible();
+    const box = (await popover.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(500);
+    await page.locator('#spec-apply').click();
+    await expect(popover).toBeHidden();
+});
