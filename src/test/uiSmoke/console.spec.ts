@@ -19,7 +19,7 @@ test('webview smoke renders without console or page errors', async ({ page }) =>
     await page.mouse.click(20, 20);
     await page.keyboard.press('?');
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Spectrogram' }).click({ force: true });
+    await page.getByRole('button', { name: 'Spectrogram', exact: true }).click({ force: true });
     await page.locator('[data-action="spectrogram-settings"]').click({ force: true });
     await expect(page.locator('#spec-settings-popover')).toBeVisible();
 

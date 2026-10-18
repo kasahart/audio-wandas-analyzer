@@ -61,6 +61,7 @@ export interface UiStrings {
     btnWaveform: string;
     btnSpectrogram: string;
     btnSpectrogramSettingsTitle: string;
+    btnSpectrumSettingsTitle: string;
     toolbarZoomLabel: string;
     btnZoomReset: string;
     toolbarAdjustLabel: string;
@@ -347,6 +348,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnWaveform: 'Waveform',
         btnSpectrogram: 'Spectrogram',
         btnSpectrogramSettingsTitle: 'Spectrogram settings',
+        btnSpectrumSettingsTitle: 'Frequency analysis settings (shared with the spectrogram)',
         toolbarZoomLabel: 'Zoom:',
         btnZoomReset: 'Reset',
         toolbarAdjustLabel: 'Adjust',
@@ -630,6 +632,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnWaveform: '波形',
         btnSpectrogram: 'スペクトログラム',
         btnSpectrogramSettingsTitle: 'スペクトログラム設定',
+        btnSpectrumSettingsTitle: '周波数解析の設定（スペクトログラムと共通）',
         toolbarZoomLabel: 'ズーム:',
         btnZoomReset: 'リセット',
         toolbarAdjustLabel: '調整',

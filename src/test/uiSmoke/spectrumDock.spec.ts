@@ -48,3 +48,34 @@ test('dragging the spectrum top edge up makes it taller and down makes it shorte
     await page.mouse.up();
     await expect.poll(async () => (await canvas.boundingBox())!.height).toBe(before + 10);
 });
+
+test('the spectrum gear opens the shared frequency-analysis settings above itself', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const gear = page.locator('#spectrum-zoom-toolbar [data-action="spectrum-settings"]');
+    const popover = page.locator('#spec-settings-popover');
+    await gear.click();
+    await expect(popover).toBeVisible();
+    const gearBox = (await gear.boundingBox())!;
+    const popoverBox = (await popover.boundingBox())!;
+    expect(popoverBox.y).toBeGreaterThanOrEqual(0);
+    expect(popoverBox.y + popoverBox.height).toBeLessThanOrEqual(gearBox.y);
+    await expect(page.locator('#spec-nfft')).toBeVisible();
+
+    await page.locator('#spec-apply').click();
+    await expect(popover).toBeHidden();
+    await expect(page.locator('#reanalyze-overlay')).toBeVisible();
+});
+
+test('in a short Webview the settings popover stays on screen and Apply is reachable', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 500 });
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.locator('#spectrum-zoom-toolbar [data-action="spectrum-settings"]').click();
+    const popover = page.locator('#spec-settings-popover');
+    await expect(popover).toBeVisible();
+    const box = (await popover.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(500);
+    await page.locator('#spec-apply').click();
+    await expect(popover).toBeHidden();
+});
