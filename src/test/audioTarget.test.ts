@@ -18,9 +18,11 @@ test('isSupportedAudioFile accepts supported extensions case-insensitively', () 
     assert.equal(isSupportedAudioFile('no-extension'), false);
 });
 
-test('hasPlayableAudio excludes CSV, which holds samples rather than audio', () => {
+test('hasPlayableAudio excludes formats Chromium cannot decode', () => {
     assert.equal(hasPlayableAudio('take.flac'), true);
     assert.equal(hasPlayableAudio('accel.CSV'), false);
+    assert.equal(hasPlayableAudio('take.aif'), false);
+    assert.equal(hasPlayableAudio('take.snd'), false);
     assert.equal(hasPlayableAudio('notes.txt'), false);
 });
 

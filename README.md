@@ -22,7 +22,7 @@ Audio comparison often means bouncing between a DAW, a notebook, a file browser,
 - Export images, CSV spectrum data, loop audio, or a Markdown-friendly report for handoff
 - Run bundled or custom [wandas](https://github.com/kasahart/wandas) recipes for deeper analysis
 
-Supported formats: **WAV / FLAC / OGG / AIFF / AIF / SND / CSV** (whatever the bundled wandas reads; a CSV's first column is time)
+Supported formats: **WAV / FLAC / OGG / AIFF / AIF / SND / CSV** (whatever the bundled wandas reads; a CSV's first column is time). Playback covers WAV, FLAC and OGG only.
 
 The UI follows VS Code's display language. Japanese is used for `ja*`; all other languages fall back to English.
 

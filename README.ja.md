@@ -22,7 +22,7 @@ VS Code を、そのまま音声確認の作業台に。Audio Wandas Analyzer �
 - 画像、CSV スペクトル、ループ音声、Markdown 向けレポートを出力
 - [wandas](https://github.com/kasahart/wandas) の同梱 / カスタムレシピでさらに深い解析を実行
 
-対応フォーマット: **WAV / FLAC / OGG / AIFF / AIF / SND / CSV**（同梱の wandas が読める形式。CSV は 1 列目を時刻として読みます）
+対応フォーマット: **WAV / FLAC / OGG / AIFF / AIF / SND / CSV**（同梱の wandas が読める形式。CSV は 1 列目を時刻として読みます）。再生できるのは WAV、FLAC、OGG のみです。
 
 UI は VS Code の表示言語に追従します。`ja*` では日本語、それ以外では英語で表示されます。
 

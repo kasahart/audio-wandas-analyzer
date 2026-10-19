@@ -5,15 +5,21 @@ export const SUPPORTED_AUDIO_DIALOG_EXTENSIONS = Array.from(SUPPORTED_AUDIO_FILE
 
 export type SelectionTargetKind = 'file' | 'directory';
 
-export function isSupportedAudioFile(fileName: string): boolean {
+function extensionOf(fileName: string): string {
     const leaf = fileName.split(/[\\/]/).pop() ?? '';
     const dot = leaf.lastIndexOf('.');
-    return dot > 0 && SUPPORTED_AUDIO_FILE_EXTENSIONS.has(leaf.slice(dot).toLowerCase());
+    return dot > 0 ? leaf.slice(dot).toLowerCase() : '';
 }
 
-/** CSV holds samples rather than encoded audio, so the webview cannot play it. */
+export function isSupportedAudioFile(fileName: string): boolean {
+    return SUPPORTED_AUDIO_FILE_EXTENSIONS.has(extensionOf(fileName));
+}
+
+/** Chromium has no AIFF or AU decoder and CSV holds samples rather than encoded audio, so the webview plays only these. */
+const PLAYABLE_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg']);
+
 export function hasPlayableAudio(fileName: string): boolean {
-    return isSupportedAudioFile(fileName) && !fileName.toLowerCase().endsWith('.csv');
+    return PLAYABLE_AUDIO_FILE_EXTENSIONS.has(extensionOf(fileName));
 }
 
 export function isSelectTargetMessage(message: unknown): message is { type: 'select-target'; targetKind: SelectionTargetKind } {
