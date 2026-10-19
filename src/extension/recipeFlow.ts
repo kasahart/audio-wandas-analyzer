@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import type { RecipeRunnerResult } from '../shared/chartSpec';
 import { RecipeFlow as SharedRecipeFlow, type RecipeCatalogEntry, type RecipeFlowPorts, type RecipePickItem } from '../shared/recipe/recipeFlow';
-import { isRecipeDocument, type RecipeDocument } from '../shared/recipe/recipeSelection';
+import { describeInputs, isRecipeDocument, type RecipeDocument } from '../shared/recipe/recipeSelection';
 import { SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../shared/utils/audioTarget';
 import { ChartSpecPanel } from '../webview/panels/ChartSpecPanel';
 import type { AnalysisClient, AnalysisCancellationSignal } from '../shared/analysis/analysisClient';
@@ -13,7 +13,7 @@ export interface RecipeFlowHost {
     pickRecipe(items: RecipePickItem[]): Promise<string | undefined>;
     pickInputFiles(): Promise<string[] | undefined>;
     runWithProgress<T>(title: string, task: (cancellation: AnalysisCancellationSignal) => Thenable<T>): Thenable<T>;
-    showCharts(extensionUri: vscode.Uri, title: string, result: RecipeRunnerResult): void;
+    showCharts(extensionUri: vscode.Uri, title: string, result: RecipeRunnerResult, caption: string): void;
     showError(message: string): void;
 }
 
@@ -45,8 +45,8 @@ const defaultHost: RecipeFlowHost = {
         { location: vscode.ProgressLocation.Notification, title, cancellable: true },
         (_progress, cancellation) => task(cancellation),
     ),
-    showCharts: (extensionUri, title, result) => {
-        ChartSpecPanel.show(extensionUri, title, result.charts);
+    showCharts: (extensionUri, title, result, caption) => {
+        ChartSpecPanel.show(extensionUri, title, result.charts, caption);
     },
     showError: (message) => { void vscode.window.showErrorMessage(message); },
 };
@@ -95,8 +95,8 @@ export class RecipeFlow {
                 return task();
             })),
             execute: (recipe, inputs, location) => this.backend.runRecipe(recipe, inputs, { recipePath: location, ...(cancellation ? { cancellation } : {}) }),
-            showCharts: (title, charts) => {
-                if (!cancellation?.isCancellationRequested) this.host.showCharts(this.extensionUri, title, { charts });
+            showCharts: (title, charts, inputs) => {
+                if (!cancellation?.isCancellationRequested) this.host.showCharts(this.extensionUri, title, { charts }, describeInputs(inputs, filePath => path.basename(filePath)));
             },
             showError: (message) => {
                 if (!cancellation?.isCancellationRequested) this.host.showError(message);

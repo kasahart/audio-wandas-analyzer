@@ -55,7 +55,7 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
 - Recipe は wandas の `RecipePlan` JSON（`*.recipe.json`）。`src/shared/recipe/` の `RecipeFlow` が一覧・選択・
   チェック中ファイルの入力名への割り当て（Recipe の入力順）・実行・表示の手順を持つ。
   native は recipes ディレクトリ、QuickPick、常駐 `AnalysisClient.runRecipe`、ChartSpec Panel を port で渡す。
-  Web は build 時の `recipes/manifest.json`、prompt、Worker の `run-recipe` command、同一 origin の
+  Web は build 時の `recipes/manifest.json`、Workflow メニュー下の選択メニュー（同梱 Recipe と手元の `.recipe.json`）、Worker の `run-recipe` command、同一 origin の
   `chartSpecRuntime.js` を読み込む frame を渡す。両 host の `AnalysisClient.runRecipe` は入力名→ファイルの対応、
   入力ごとの校正 context と Recipe の場所を送信し、共通の120秒 timeout・cancel を管理する。native は古い校正を通常解析と同じ規則で
   破棄・再試行する。Python 側の `AnalysisService.run_recipe` は `RecipePlan.from_dict()` で検証し、

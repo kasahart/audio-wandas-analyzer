@@ -16,8 +16,8 @@ export interface RecipePickItem {
 /**
  * Host-specific ports behind the recipe workflow. VS Code binds them to the
  * recipes directory, QuickPick/open dialogs, a Python child process and a
- * Webview panel; the static Web host binds them to the built manifest, a
- * prompt, the Pyodide Worker and an in-page frame.
+ * Webview panel; the static Web host binds them to the built manifest, an
+ * in-page menu, the Pyodide Worker and an in-page frame.
  */
 export interface RecipeFlowPorts {
     listRecipes(): Promise<RecipeCatalogEntry[]>;
@@ -29,12 +29,20 @@ export interface RecipeFlowPorts {
     runWithProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
     /** `inputs` maps each Recipe input name to a checked file. */
     execute(recipe: RecipeDocument, inputs: Record<string, string>, location: string): Promise<{ charts: ChartSpec[] }>;
-    showCharts(title: string, charts: ChartSpec[]): void;
+    /** `inputs` is the same mapping `execute` received, so the result can say which file filled which input. */
+    showCharts(title: string, charts: ChartSpec[], inputs: Record<string, string>): void;
     showError(message: string): void;
 }
 
 export function recipeBaseName(location: string): string {
     return location.split(/[\\/]/).pop() || location;
+}
+
+/** Recipe name without its `.recipe.json` / `.json` suffix, matching the backend's chart titles. */
+export function recipeTitle(location: string): string {
+    const name = recipeBaseName(location);
+    const suffix = ['.recipe.json', '.json'].find(candidate => name.toLowerCase().endsWith(candidate));
+    return suffix ? name.slice(0, -suffix.length) : name;
 }
 
 /**
@@ -62,14 +70,15 @@ export class RecipeFlow {
             : await this.ports.pickInputFiles();
         if (!isCurrent() || !selected || selected.length === 0) return;
 
-        const title = recipeBaseName(location);
+        const title = recipeTitle(location);
         await this.ports.runWithProgress(`Running recipe ${title}…`, async () => {
             if (!isCurrent()) return;
             try {
                 const document = await this.ports.readRecipe(location);
                 if (!isCurrent()) return;
-                const result = await this.ports.execute(document, bindSelection(document, selected), location);
-                if (isCurrent()) this.ports.showCharts(title, result.charts);
+                const inputs = bindSelection(document, selected);
+                const result = await this.ports.execute(document, inputs, location);
+                if (isCurrent()) this.ports.showCharts(title, result.charts, inputs);
             } catch (error) {
                 if (isCurrent()) this.ports.showError(`Recipe execution failed: ${error instanceof Error ? error.message : String(error)}`);
             }
