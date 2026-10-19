@@ -135,6 +135,29 @@
         "calibrationProfile": null,
         "analysisRevision": 2
       }
+    },
+    {
+      "command": "pair-spectrum",
+      "request": {
+        "cmd": "pair-spectrum",
+        "requestId": "r1",
+        "analysisId": "analysis-1",
+        "settingsSignature": "settings-1",
+        "reference": {
+          "filePath": "tone.wav",
+          "channelIndex": 0,
+          "offsetSeconds": 0
+        },
+        "responses": [
+          {
+            "filePath": "tone.wav",
+            "channelIndex": 1,
+            "offsetSeconds": 0.5
+          }
+        ],
+        "startSeconds": 1,
+        "endSeconds": 3
+      }
     }
   ],
   "invalidRequests": [
@@ -381,6 +404,30 @@
         }
       },
       "errorField": "stftOptions.overlap"
+    },
+    {
+      "command": "pair-spectrum",
+      "request": {
+        "cmd": "pair-spectrum",
+        "requestId": "r1",
+        "analysisId": "analysis-1",
+        "settingsSignature": "settings-1",
+        "reference": {
+          "filePath": "tone.wav",
+          "channelIndex": -1,
+          "offsetSeconds": 0
+        },
+        "responses": [
+          {
+            "filePath": "tone.wav",
+            "channelIndex": 1,
+            "offsetSeconds": 0.5
+          }
+        ],
+        "startSeconds": 1,
+        "endSeconds": 3
+      },
+      "errorField": "reference.channelIndex"
     }
   ],
   "validResponses": [
@@ -544,6 +591,61 @@
             "referenceValue": 1
           }
         }
+      }
+    },
+    {
+      "command": "pair-spectrum",
+      "response": {
+        "requestId": "pair-spectrum",
+        "analysisId": "analysis-1",
+        "settingsSignature": "settings-1",
+        "filePath": "tone.wav",
+        "channelIndex": 0,
+        "frequencyBins": 2,
+        "maxFrequencyHz": 8000,
+        "nFft": 4096,
+        "hopLength": 2048,
+        "window": "hann",
+        "computeMs": 1,
+        "responses": [
+          {
+            "filePath": "tone.wav",
+            "channelIndex": 1,
+            "status": "ok",
+            "startSeconds": 1,
+            "endSeconds": 3,
+            "averages": 14,
+            "resampled": false,
+            "gainDb": [
+              0,
+              null
+            ],
+            "phaseRad": [
+              0,
+              0.5
+            ],
+            "coherence": [
+              1,
+              0.9
+            ],
+            "unit": "dB",
+            "axisLabel": "Gain [dB]"
+          },
+          {
+            "filePath": "tone.wav",
+            "channelIndex": 0,
+            "status": "no-overlap",
+            "startSeconds": 4,
+            "endSeconds": 4,
+            "averages": 0,
+            "resampled": false,
+            "gainDb": [],
+            "phaseRad": [],
+            "coherence": [],
+            "unit": "dB",
+            "axisLabel": "Gain [dB]"
+          }
+        ]
       }
     }
   ],
@@ -810,6 +912,62 @@
         "channels": 2
       },
       "violation": "channels"
+    },
+    {
+      "command": "pair-spectrum",
+      "response": {
+        "requestId": "pair-spectrum",
+        "analysisId": "analysis-1",
+        "settingsSignature": "settings-1",
+        "filePath": "tone.wav",
+        "channelIndex": 0,
+        "frequencyBins": 2,
+        "maxFrequencyHz": 8000,
+        "nFft": 4096,
+        "hopLength": 2048,
+        "window": "hann",
+        "computeMs": 1,
+        "responses": [
+          {
+            "filePath": "tone.wav",
+            "channelIndex": 1,
+            "status": "partial",
+            "startSeconds": 1,
+            "endSeconds": 3,
+            "averages": 14,
+            "resampled": false,
+            "gainDb": [
+              0,
+              null
+            ],
+            "phaseRad": [
+              0,
+              0.5
+            ],
+            "coherence": [
+              1,
+              0.9
+            ],
+            "unit": "dB",
+            "axisLabel": "Gain [dB]"
+          },
+          {
+            "filePath": "tone.wav",
+            "channelIndex": 0,
+            "status": "no-overlap",
+            "startSeconds": 4,
+            "endSeconds": 4,
+            "averages": 0,
+            "resampled": false,
+            "gainDb": [],
+            "phaseRad": [],
+            "coherence": [],
+            "unit": "dB",
+            "axisLabel": "Gain [dB]"
+          }
+        ]
+      },
+      "violation": "responses[0].status"
     }
   ],
   "errorCodes": [

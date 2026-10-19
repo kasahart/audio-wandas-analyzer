@@ -13,7 +13,7 @@ import soundfile as sf
 import wandas as wd
 
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
-from analysis_service import AnalysisService, recipe_inputs
+from analysis_service import AnalysisService, PairSpectrumResult, pair_stft_params, recipe_inputs
 from analyzer import resolve_stft_params, sample_range
 from backend_errors import INTERNAL_ERROR, InputError, error_payload
 from calibration_profile import source_channel_peaks
@@ -174,6 +174,22 @@ class BrowserService(AnalysisService):
     def release_track_detail(self, file_path: str | Path) -> dict[str, object]:
         self.engine.discard_spectrograms(file_path)
         return {}
+
+    def pair_spectrum(
+        self,
+        reference: Mapping[str, object],
+        responses: list[Mapping[str, object]],
+        *,
+        stft_options: Mapping[str, object] | None = None,
+        **options: object,
+    ) -> PairSpectrumResult:
+        # Peak memory follows the two-channel STFT and its cross spectra, measured near 64 bytes per bin.
+        length = self.engine.get_file(str(reference["filePath"])).frame.n_samples
+        n_fft, hop_length, _ = pair_stft_params(length, stft_options)
+        working = ((length // hop_length) + 5) * 2 * (n_fft // 2 + 1) * 64
+        if self.engine.estimated_bytes(working) > MAX_ESTIMATED_BYTES:
+            raise InputError("Pair spectrum exceeds browser estimated memory budget; lower the overlap")
+        return super().pair_spectrum(reference, responses, stft_options=stft_options, **options)
 
     def run_recipe(
         self,

@@ -10,8 +10,9 @@ from typing import NamedTuple, NotRequired, TypedDict
 
 import numpy as np
 import soundfile as sf
+import wandas as wd
 
-from analysis_engine import AnalysisEngine
+from analysis_engine import AnalysisEngine, CachedAnalysis
 from analyzer import (
     SPECTROGRAM_FREQUENCY_BIN_LIMIT,
     AnalysisResult,
@@ -56,6 +57,65 @@ class SpectrumSliceResult(TypedDict):
     computeMs: float
     calibrationSignature: str
     analysisRevision: int
+
+
+class PairSpectrumResponse(TypedDict):
+    filePath: str
+    channelIndex: int
+    status: str
+    startSeconds: float
+    endSeconds: float
+    averages: int
+    resampled: bool
+    gainDb: list[float | None]
+    phaseRad: list[float | None]
+    coherence: list[float | None]
+    unit: str
+    axisLabel: str
+    referenceValue: NotRequired[float]
+    referenceUnit: NotRequired[str]
+    levelReferenceLabel: NotRequired[str]
+    calibrationSignature: str
+    analysisRevision: int
+
+
+class PairSpectrumResult(TypedDict):
+    analysisId: str | None
+    settingsSignature: str | None
+    filePath: str
+    channelIndex: int
+    frequencyBins: int
+    maxFrequencyHz: float
+    nFft: int
+    hopLength: int
+    window: str
+    computeMs: float
+    calibrationSignature: str
+    analysisRevision: int
+    responses: list[PairSpectrumResponse]
+
+
+# Bounds the Web Worker's memory; longer averaging ranges use their first ten minutes.
+MAX_PAIR_SECONDS = 600.0
+
+
+class _PairSource(NamedTuple):
+    cached: CachedAnalysis
+    frame: wd.ChannelFrame
+    signature: str
+    channel: int
+    offset: float
+    revision: int
+
+
+class _PairSpectrum(NamedTuple):
+    status: str
+    start: float
+    end: float
+    averages: int
+    resampled: bool
+    rows: np.ndarray
+    level: Mapping[str, object]
 
 
 class WaveformRangeResult(TypedDict):
@@ -306,6 +366,91 @@ class AnalysisService:
             )
         return result
 
+    def pair_spectrum(
+        self,
+        reference: Mapping[str, object],
+        responses: list[Mapping[str, object]],
+        *,
+        start_seconds: float | None = None,
+        end_seconds: float | None = None,
+        stft_options: Mapping[str, object] | None = None,
+        analysis_id: object = None,
+        settings_signature: object = None,
+    ) -> PairSpectrumResult:
+        compute_started = time.perf_counter()
+        x = self._pair_source(reference)
+        sources = [self._pair_source(response) for response in responses]
+        n_fft, hop_length, window = pair_stft_params(x.frame.n_samples, stft_options)
+        bins = _display_bins(n_fft // 2 + 1)
+        replies: list[PairSpectrumResponse] = []
+        for y in sources:
+            key = (
+                "pair",
+                x.signature,
+                x.channel,
+                x.offset,
+                y.cached.path,
+                y.cached.identity,
+                y.signature,
+                y.channel,
+                y.offset,
+                start_seconds,
+                end_seconds,
+                n_fft,
+                hop_length,
+                window,
+            )
+            pair = self.engine.get_pair_spectrum(x.cached, key)
+            if not isinstance(pair, _PairSpectrum):
+                pair = _compute_pair(x, y, start_seconds, end_seconds, n_fft, hop_length, window, bins)
+                self.engine.put_pair_spectrum(x.cached, key, pair)
+            replies.append(
+                {
+                    "filePath": str(y.cached.path),
+                    "channelIndex": y.channel,
+                    "status": pair.status,
+                    "startSeconds": pair.start,
+                    "endSeconds": pair.end,
+                    "averages": pair.averages,
+                    "resampled": pair.resampled,
+                    "gainDb": _finite_values(pair.rows[0]),
+                    "phaseRad": _finite_values(pair.rows[1]),
+                    "coherence": _finite_values(pair.rows[2]),
+                    **pair.level,  # type: ignore[typeddict-item]
+                    "calibrationSignature": y.signature,
+                    "analysisRevision": y.revision,
+                }
+            )
+        return {
+            "analysisId": _optional_text(analysis_id),
+            "settingsSignature": _optional_text(settings_signature),
+            "filePath": str(x.cached.path),
+            "channelIndex": x.channel,
+            "frequencyBins": int(bins.size),
+            "maxFrequencyHz": float(x.frame.sampling_rate) / 2.0,
+            "nFft": n_fft,
+            "hopLength": hop_length,
+            "window": window,
+            "computeMs": (time.perf_counter() - compute_started) * 1000.0,
+            "calibrationSignature": x.signature,
+            "analysisRevision": x.revision,
+            "responses": replies,
+        }
+
+    def _pair_source(self, source: Mapping[str, object]) -> _PairSource:
+        cached, frame, resolved = self.engine.get_analysis(str(source["filePath"]), source.get("calibrationProfile"))
+        channel = int(source["channelIndex"])  # type: ignore[call-overload]
+        if not 0 <= channel < frame.n_channels:
+            raise InputError(f"channelIndex {channel} is out of range for {cached.path.name}")
+        return _PairSource(
+            cached,
+            frame,
+            resolved.signature,
+            channel,
+            float(source["offsetSeconds"]),  # type: ignore[arg-type]
+            _analysis_revision(source.get("analysisRevision", 0)),
+        )
+
     def waveform_range(
         self,
         file_path: str | Path,
@@ -397,8 +542,91 @@ class AnalysisService:
         return {}
 
 
+def pair_stft_params(sample_count: int, stft_options: Mapping[str, object] | None) -> tuple[int, int, str]:
+    n_fft, hop_length, window = resolve_stft_params(sample_count, stft_options)
+    # Auto mode picks its hop for the spectrogram's time bins; Welch averaging wants the usual half overlap.
+    return (n_fft, n_fft // 2, window) if stft_options is None else (n_fft, hop_length, window)
+
+
+def _display_bins(bin_count: int) -> np.ndarray:
+    # Pick representative bins instead of averaging so wrapped phase never averages across ±π.
+    count = min(bin_count, SPECTROGRAM_FREQUENCY_BIN_LIMIT)
+    return np.round(np.linspace(0, bin_count - 1, count)).astype(int)
+
+
+def _finite_values(row: np.ndarray) -> list[float | None]:
+    return [float(value) if math.isfinite(value) else None for value in row.tolist()]
+
+
+def _compute_pair(
+    x: _PairSource,
+    y: _PairSource,
+    start_seconds: float | None,
+    end_seconds: float | None,
+    n_fft: int,
+    hop_length: int,
+    window: str,
+    bins: np.ndarray,
+) -> _PairSpectrum:
+    rate = float(x.frame.sampling_rate)
+    y_rate = float(y.frame.sampling_rate)
+    start = max(x.offset, y.offset, -math.inf if start_seconds is None else start_seconds)
+    end = min(
+        x.offset + x.frame.n_samples / rate,
+        y.offset + y.frame.n_samples / y_rate,
+        math.inf if end_seconds is None else end_seconds,
+    )
+    end = min(end, start + MAX_PAIR_SECONDS)
+    empty = np.empty((3, 0))
+    level: dict[str, object] = {"unit": "dB", "axisLabel": "Gain [dB]"}
+    if end <= start:
+        return _PairSpectrum("no-overlap", start, max(start, end), 0, False, empty, level)
+    length = int(math.floor((end - start) * rate))
+    if length < n_fft:
+        return _PairSpectrum("too-short", start, start + length / rate, 0, y_rate != rate, empty, level)
+    x_start = min(int(round((start - x.offset) * rate)), x.frame.n_samples - length)
+    y_start = int(round((start - y.offset) * y_rate))
+    y_length = int(math.ceil((end - start) * y_rate))
+    reference = x.frame.get_channel(x.channel)[:, x_start : x_start + length]
+    response = y.frame.get_channel(y.channel)[:, y_start : y_start + y_length]
+    resampled = y_rate != rate
+    if resampled:
+        response = response.resampling(target_sr=rate)
+    response = response.fix_length(length=length)
+    spectrogram = (
+        reference.concat_frame(response, suffix_on_dup="_y")
+        .stft(n_fft=n_fft, hop_length=hop_length, window=window, detrend="constant")
+        .cache()
+    )
+    # The STFT pads the edges; averaging only frames inside the range matches Welch's segments.
+    first_window = -(n_fft // 2)
+    frame_starts = np.arange(spectrogram.n_frames) * hop_length + first_window
+    inside = np.flatnonzero((frame_starts >= 0) & (frame_starts + n_fft <= length))
+    end = start + length / rate
+    if inside.size == 0:
+        return _PairSpectrum("too-short", start, end, 0, resampled, empty, level)
+    csd = spectrogram[:, :, int(inside[0]) : int(inside[-1]) + 1].csd().cache()
+    transfer = csd.transfer_function().select_pair(1, 0)
+    coherence = csd.coherence().select_pair(1, 0)
+    if transfer.pair_domains[0].unit == "1":
+        gain = transfer.gain_db
+    else:
+        gain = transfer.transfer_level_db
+        level = dict(level_scale_metadata(transfer.channels[0].level_reference, "Transfer level"))
+    rows = np.vstack(
+        [
+            np.asarray(gain, dtype=np.float64).reshape(-1)[bins],
+            np.asarray(transfer.phase, dtype=np.float64).reshape(-1)[bins],
+            np.asarray(coherence.coherence, dtype=np.float64).reshape(-1)[bins],
+        ]
+    )
+    return _PairSpectrum("ok", start, end, int(inside.size), resampled, rows, level)
+
+
 __all__ = [
     "AnalysisService",
+    "PairSpectrumResult",
+    "pair_stft_params",
     "RecipeRunResult",
     "recipe_inputs",
     "SpectrumSliceResult",

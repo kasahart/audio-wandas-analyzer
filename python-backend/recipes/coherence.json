@@ -4,10 +4,10 @@
     { "name": "b", "file": "{{selection}}" }
   ],
   "steps": [
-    { "as": "pair", "expr": "a.concat_frame(b.get_channel(0), suffix_on_dup='_b')" },
-    { "as": "coh", "expr": "pair.coherence(n_fft=4096)" }
+    { "as": "pair", "expr": "a.get_channel(0).concat_frame(b.get_channel(0), suffix_on_dup='_b')" },
+    { "as": "coh", "expr": "pair.coherence(n_fft=4096).select_pair(1, 0)" }
   ],
   "display": [
-    { "name": "coh", "title": "Coherence (cross-channel)" }
+    { "name": "coh", "title": "Coherence (first selection → second)" }
   ]
 }

@@ -1264,3 +1264,29 @@ def test_surrogate_error_response_keeps_utf8_backend_alive(monkeypatch, field):
     assert messages[1]["requestId"] == requests[0]["requestId"]
     assert "error" in messages[1]
     assert messages[2] == {"requestId": "next", "filePath": "tone.wav"}
+
+
+def test_pair_spectrum_result_satisfies_the_shared_schema(tmp_path: Path) -> None:
+    first = tmp_path / "first.wav"
+    second = tmp_path / "second.wav"
+    _write_sine_wav(first, seconds=1.0)
+    _write_sine_wav(second, freq_hz=880.0, seconds=1.0)
+    command = validate_request(
+        {
+            "requestId": "pair-1",
+            "cmd": "pair-spectrum",
+            "analysisId": "a1",
+            "settingsSignature": "sig1",
+            "reference": {"filePath": str(first), "channelIndex": 0, "offsetSeconds": 0.0},
+            "responses": [
+                {"filePath": str(second), "channelIndex": 0, "offsetSeconds": 0.25},
+                {"filePath": str(second), "channelIndex": 0, "offsetSeconds": 5.0},
+            ],
+            "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"},
+        }
+    )
+
+    resp = _dispatch(command)
+
+    assert result_violation("pair-spectrum", resp) is None
+    assert [response["status"] for response in resp["responses"]] == ["ok", "no-overlap"]

@@ -296,3 +296,179 @@ def test_calibrated_pairwise_recipe_matches_desktop_and_browser(tmp_path, transf
     ]
     for chart in native["charts"]:
         assert any("Pa" in series["unit"] and "V" in series["unit"] for series in chart["series"])
+
+
+def _write_pair_wav(path: Path, channels: np.ndarray, rate: int) -> None:
+    sf.write(path, np.asarray(channels).T, rate, subtype="FLOAT")
+
+
+def _pair_source(path: Path, channel: int, offset: float = 0.0) -> dict[str, object]:
+    return {"filePath": str(path), "channelIndex": channel, "offsetSeconds": offset}
+
+
+_PAIR_OPTIONS = {"nFft": 1024, "overlapPercent": 50, "window": "hann"}
+
+
+def test_pair_spectrum_recovers_a_known_filter(tmp_path: Path) -> None:
+    from scipy.signal import butter, freqz, lfilter
+
+    rate = 16000
+    excitation = np.random.default_rng(0).standard_normal(rate * 8) * 0.1
+    b, a = butter(2, 1000, fs=rate)
+    audio = tmp_path / "system.wav"
+    _write_pair_wav(audio, [excitation, lfilter(b, a, excitation)], rate)
+
+    result = AnalysisService(AnalysisEngine()).pair_spectrum(
+        _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS
+    )
+
+    response = result["responses"][0]
+    assert response["status"] == "ok"
+    # Welch segments inside 8 s: (128000 - 1024) // 512 + 1.
+    assert response["averages"] == 249
+    bins = np.round(np.linspace(0, 512, result["frequencyBins"])).astype(int)
+    _, expected = freqz(b, a, worN=bins * rate / 1024, fs=rate)
+    coherence = np.asarray(response["coherence"], dtype=float)
+    reliable = coherence > 0.99
+    assert reliable.sum() > 20
+    gain = np.asarray(response["gainDb"], dtype=float)
+    phase = np.asarray(response["phaseRad"], dtype=float)
+    assert np.max(np.abs(gain[reliable] - 20 * np.log10(np.abs(expected[reliable])))) < 0.1
+    phase_error = np.angle(np.exp(1j * (phase[reliable] - np.angle(expected[reliable]))))
+    assert np.degrees(np.max(np.abs(phase_error))) < 1.0
+    assert response["axisLabel"] == "Gain [dB]"
+    assert result["nFft"] == 1024 and result["hopLength"] == 512
+
+
+def test_pair_spectrum_uses_offsets_and_the_requested_range(tmp_path: Path) -> None:
+    rate = 8000
+    signal = np.random.default_rng(1).standard_normal(rate * 4) * 0.1
+    reference = tmp_path / "reference.wav"
+    response = tmp_path / "response.wav"
+    _write_pair_wav(reference, [signal], rate)
+    # The response recording starts 1 s later; its offset puts both on the same timeline.
+    _write_pair_wav(response, [signal[rate:] * 0.5], rate)
+    service = AnalysisService(AnalysisEngine())
+
+    aligned = service.pair_spectrum(
+        _pair_source(reference, 0),
+        [_pair_source(response, 0, offset=1.0)],
+        start_seconds=1.5,
+        end_seconds=3.5,
+        stft_options=_PAIR_OPTIONS,
+    )["responses"][0]
+    shifted = service.pair_spectrum(
+        _pair_source(reference, 0), [_pair_source(response, 0)], stft_options=_PAIR_OPTIONS
+    )["responses"][0]
+
+    assert (aligned["startSeconds"], aligned["endSeconds"]) == pytest.approx((1.5, 3.5))
+    assert aligned["averages"] == (2 * rate - 1024) // 512 + 1
+    coherence = np.asarray(aligned["coherence"][1:-1], dtype=float)
+    assert np.min(coherence) > 0.999
+    assert np.asarray(aligned["gainDb"][1:-1], dtype=float) == pytest.approx(20 * np.log10(0.5), abs=0.01)
+    assert np.median(np.asarray(shifted["coherence"], dtype=float)) < 0.2
+
+
+def test_pair_spectrum_reports_responses_it_cannot_average(tmp_path: Path) -> None:
+    rate = 8000
+    audio = tmp_path / "short.wav"
+    _write_pair_wav(audio, np.random.default_rng(2).standard_normal((2, rate)), rate)
+    service = AnalysisService(AnalysisEngine())
+
+    result = service.pair_spectrum(
+        _pair_source(audio, 0),
+        [_pair_source(audio, 1, offset=2.0), _pair_source(audio, 1, offset=0.95)],
+        stft_options=_PAIR_OPTIONS,
+    )
+
+    assert [response["status"] for response in result["responses"]] == ["no-overlap", "too-short"]
+    assert all(response["gainDb"] == [] and response["averages"] == 0 for response in result["responses"])
+    with pytest.raises(ValueError, match="channelIndex 2"):
+        service.pair_spectrum(_pair_source(audio, 0), [_pair_source(audio, 2)])
+
+
+def test_pair_spectrum_resamples_responses_to_the_reference_rate(tmp_path: Path) -> None:
+    from scipy.signal import resample_poly
+
+    signal = np.random.default_rng(3).standard_normal(16000 * 2) * 0.1
+    reference = tmp_path / "reference.wav"
+    response = tmp_path / "response.wav"
+    _write_pair_wav(reference, [signal], 16000)
+    _write_pair_wav(response, [resample_poly(signal, 2, 1)], 32000)
+
+    result = AnalysisService(AnalysisEngine()).pair_spectrum(
+        _pair_source(reference, 0), [_pair_source(response, 0)], stft_options=_PAIR_OPTIONS
+    )
+
+    pair = result["responses"][0]
+    assert pair["resampled"] is True
+    assert result["maxFrequencyHz"] == 8000
+    coherence = np.asarray(pair["coherence"], dtype=float)
+    assert np.median(coherence[: len(coherence) // 2]) > 0.99
+
+
+def test_pair_spectrum_reuses_cached_pairs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import analysis_service
+
+    rate = 8000
+    audio = tmp_path / "pair.wav"
+    _write_pair_wav(audio, np.random.default_rng(4).standard_normal((2, rate * 2)), rate)
+    service = AnalysisService(AnalysisEngine())
+    calls = []
+    compute = analysis_service._compute_pair
+    monkeypatch.setattr(analysis_service, "_compute_pair", lambda *args: calls.append(args) or compute(*args))
+
+    first = service.pair_spectrum(_pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS)
+    second = service.pair_spectrum(_pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS)
+
+    assert len(calls) == 1
+    assert second["responses"] == first["responses"]
+
+
+def test_pair_spectrum_labels_transfer_levels_between_units(tmp_path: Path) -> None:
+    rate = 8000
+    audio = tmp_path / "pair.wav"
+    _write_pair_wav(audio, np.random.default_rng(5).standard_normal((2, rate * 2)) * 0.1, rate)
+    labels = list(AnalysisEngine().get_file(audio).frame.labels)
+    profile = {
+        "schemaVersion": 1,
+        "channels": [
+            {
+                "channelIndex": index,
+                "expectedLabel": labels[index],
+                "status": "calibrated",
+                "factor": 1.0,
+                "unit": unit,
+                "referenceValue": 1.0,
+            }
+            for index, unit in enumerate(["m/s^2", "Pa"])
+        ],
+    }
+    source = {**_pair_source(audio, 0), "calibrationProfile": profile}
+
+    result = AnalysisService(AnalysisEngine()).pair_spectrum(
+        source, [{**_pair_source(audio, 1), "calibrationProfile": profile}], stft_options=_PAIR_OPTIONS
+    )
+
+    response = result["responses"][0]
+    assert response["status"] == "ok"
+    assert response["axisLabel"].startswith("Transfer level [")
+    assert "Pa" in response["axisLabel"]
+
+
+def test_browser_pair_spectrum_refuses_work_beyond_the_memory_budget(tmp_path: Path) -> None:
+    from browser_service import create_service
+
+    browser = create_service()
+    sources = []
+    for rate, name in [(96000, "fine.wav"), (48000, "reference.wav"), (48000, "response.wav")]:
+        audio = tmp_path / name
+        _write_pair_wav(audio, np.random.default_rng(rate).standard_normal((1, rate * 30)) * 0.1, rate)
+        browser.engine.load(name, audio.read_bytes())
+        sources.append({"filePath": f"/sources/{name}", "channelIndex": 0, "offsetSeconds": 0.0})
+
+    with pytest.raises(ValueError, match="memory budget"):
+        browser.pair_spectrum(sources[0], sources[1:2])
+    # Thirty seconds at 48 kHz with the default settings is the common case and must fit.
+    result = browser.pair_spectrum(sources[1], sources[2:])
+    assert result["responses"][0]["status"] == "ok"

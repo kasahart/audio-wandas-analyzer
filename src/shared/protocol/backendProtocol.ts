@@ -9,6 +9,8 @@ import type {
     BackendReadyNotification,
     ExportWavLoopPayload,
     ExportWavLoopResult,
+    PairSpectrumPayload,
+    PairSpectrumResult,
     RangePayload,
     RangeResult,
     ReleaseTrackDetailPayload,
@@ -33,6 +35,8 @@ export type {
     BackendReadyNotification,
     ExportWavLoopPayload,
     ExportWavLoopResult,
+    PairSpectrumPayload,
+    PairSpectrumResult,
     RangePayload,
     RangeResult,
     ReleaseTrackDetailPayload,
@@ -65,6 +69,7 @@ export interface BackendCommandMap {
     'track-detail': { payload: TrackDetailPayload; result: TrackDetailResult };
     'release-track-detail': { payload: ReleaseTrackDetailPayload; result: ReleaseTrackDetailResult };
     'spectrum-slice': { payload: SpectrumSlicePayload; result: SpectrumSliceResult };
+    'pair-spectrum': { payload: PairSpectrumPayload; result: PairSpectrumResult };
     'export-wav-loop': { payload: ExportWavLoopPayload; result: ExportWavLoopResult };
     'run-recipe': { payload: RunRecipePayload; result: RunRecipeResult };
 }
@@ -75,6 +80,7 @@ export const BACKEND_COMMANDS = [
     'track-detail',
     'release-track-detail',
     'spectrum-slice',
+    'pair-spectrum',
     'export-wav-loop',
     'run-recipe',
 ] as const satisfies ReadonlyArray<keyof BackendCommandMap>;
@@ -183,6 +189,15 @@ function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
         && (result.bandCentersHz === undefined || result.bandCentersHz.length === result.frequencyBins);
 }
 
+function isPairSpectrumResult(value: unknown): value is PairSpectrumResult {
+    if (schemaViolation('PairSpectrumResult', value) !== null) return false;
+    const result = value as PairSpectrumResult;
+    return result.responses.every(response => {
+        const bins = response.status === 'ok' ? result.frequencyBins : 0;
+        return [response.gainDb, response.phaseRad, response.coherence].every(values => values.length === bins);
+    });
+}
+
 function isExportWavLoopResult(value: unknown): value is ExportWavLoopResult {
     return schemaViolation('ExportWavLoopResult', value) === null;
 }
@@ -209,6 +224,7 @@ const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
     'track-detail': isTrackDetailResult,
     'release-track-detail': isReleaseTrackDetailResult,
     'spectrum-slice': isSpectrumSliceResult,
+    'pair-spectrum': isPairSpectrumResult,
     'export-wav-loop': isExportWavLoopResult,
     'run-recipe': isRunRecipeResult,
 };

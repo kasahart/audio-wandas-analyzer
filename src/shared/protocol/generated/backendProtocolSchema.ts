@@ -676,6 +676,243 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             },
             "additionalProperties": false
         },
+        "PairSource": {
+            "type": "object",
+            "required": [
+                "filePath",
+                "channelIndex",
+                "offsetSeconds"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                },
+                "channelIndex": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "offsetSeconds": {
+                    "type": "number"
+                },
+                "calibrationProfile": {
+                    "$ref": "#/$defs/CalibrationProfile"
+                },
+                "analysisRevision": {
+                    "$ref": "#/$defs/AnalysisRevision"
+                }
+            },
+            "additionalProperties": false
+        },
+        "PairSpectrumPayload": {
+            "type": "object",
+            "required": [
+                "analysisId",
+                "settingsSignature",
+                "reference",
+                "responses"
+            ],
+            "properties": {
+                "analysisId": {
+                    "type": "string"
+                },
+                "settingsSignature": {
+                    "type": "string"
+                },
+                "reference": {
+                    "$ref": "#/$defs/PairSource"
+                },
+                "responses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PairSource"
+                    }
+                },
+                "startSeconds": {
+                    "type": "number"
+                },
+                "endSeconds": {
+                    "type": "number"
+                },
+                "stftOptions": {
+                    "$ref": "#/$defs/StftOptions"
+                }
+            },
+            "additionalProperties": false
+        },
+        "PairSpectrumResponse": {
+            "type": "object",
+            "required": [
+                "filePath",
+                "channelIndex",
+                "status",
+                "startSeconds",
+                "endSeconds",
+                "averages",
+                "resampled",
+                "gainDb",
+                "phaseRad",
+                "coherence",
+                "unit",
+                "axisLabel"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                },
+                "channelIndex": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "ok",
+                        "no-overlap",
+                        "too-short"
+                    ]
+                },
+                "startSeconds": {
+                    "type": "number"
+                },
+                "endSeconds": {
+                    "type": "number"
+                },
+                "averages": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "resampled": {
+                    "type": "boolean"
+                },
+                "gainDb": {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "phaseRad": {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "coherence": {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "axisLabel": {
+                    "type": "string"
+                },
+                "referenceValue": {
+                    "$ref": "#/$defs/SafeCalibrationValue"
+                },
+                "referenceUnit": {
+                    "type": "string"
+                },
+                "levelReferenceLabel": {
+                    "type": "string"
+                },
+                "calibrationSignature": {
+                    "type": "string"
+                },
+                "analysisRevision": {
+                    "$ref": "#/$defs/ResultAnalysisRevision"
+                }
+            },
+            "additionalProperties": false
+        },
+        "PairSpectrumResult": {
+            "type": "object",
+            "required": [
+                "analysisId",
+                "settingsSignature",
+                "filePath",
+                "channelIndex",
+                "frequencyBins",
+                "maxFrequencyHz",
+                "nFft",
+                "hopLength",
+                "window",
+                "computeMs",
+                "responses"
+            ],
+            "properties": {
+                "analysisId": {
+                    "type": "string"
+                },
+                "settingsSignature": {
+                    "type": "string"
+                },
+                "filePath": {
+                    "type": "string"
+                },
+                "channelIndex": {
+                    "type": "integer"
+                },
+                "frequencyBins": {
+                    "type": "integer"
+                },
+                "maxFrequencyHz": {
+                    "type": "number"
+                },
+                "nFft": {
+                    "type": "integer"
+                },
+                "hopLength": {
+                    "type": "integer"
+                },
+                "window": {
+                    "type": "string",
+                    "enum": [
+                        "hann",
+                        "hamming",
+                        "blackman",
+                        "boxcar"
+                    ]
+                },
+                "computeMs": {
+                    "type": "number"
+                },
+                "calibrationSignature": {
+                    "type": "string"
+                },
+                "analysisRevision": {
+                    "$ref": "#/$defs/ResultAnalysisRevision"
+                },
+                "responses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/PairSpectrumResponse"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
         "ExportWavLoopPayload": {
             "type": "object",
             "required": [
@@ -850,6 +1087,10 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "payload": "SpectrumSlicePayload",
             "result": "SpectrumSliceResult"
         },
+        "pair-spectrum": {
+            "payload": "PairSpectrumPayload",
+            "result": "PairSpectrumResult"
+        },
         "export-wav-loop": {
             "payload": "ExportWavLoopPayload",
             "result": "ExportWavLoopResult"
@@ -868,7 +1109,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
     ]
 } as const;
 
-export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'export-wav-loop' | 'release-track-detail';
+export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail';
 
 export interface StftOptions {
     nFft: number;
@@ -1038,6 +1279,60 @@ export interface SpectrumSliceResult {
     computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;
+}
+
+export interface PairSource {
+    filePath: string;
+    channelIndex: number;
+    offsetSeconds: number;
+    calibrationProfile?: CalibrationProfile;
+    analysisRevision?: number;
+}
+
+export interface PairSpectrumPayload {
+    analysisId: string;
+    settingsSignature: string;
+    reference: PairSource;
+    responses: PairSource[];
+    startSeconds?: number;
+    endSeconds?: number;
+    stftOptions?: StftOptions;
+}
+
+export interface PairSpectrumResponse {
+    filePath: string;
+    channelIndex: number;
+    status: "ok" | "no-overlap" | "too-short";
+    startSeconds: number;
+    endSeconds: number;
+    averages: number;
+    resampled: boolean;
+    gainDb: (number | null)[];
+    phaseRad: (number | null)[];
+    coherence: (number | null)[];
+    unit: string;
+    axisLabel: string;
+    referenceValue?: number;
+    referenceUnit?: string;
+    levelReferenceLabel?: string;
+    calibrationSignature?: string;
+    analysisRevision?: number;
+}
+
+export interface PairSpectrumResult {
+    analysisId: string;
+    settingsSignature: string;
+    filePath: string;
+    channelIndex: number;
+    frequencyBins: number;
+    maxFrequencyHz: number;
+    nFft: number;
+    hopLength: number;
+    window: "hann" | "hamming" | "blackman" | "boxcar";
+    computeMs: number;
+    calibrationSignature?: string;
+    analysisRevision?: number;
+    responses: PairSpectrumResponse[];
 }
 
 export interface ExportWavLoopPayload {

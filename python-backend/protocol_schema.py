@@ -66,6 +66,7 @@ _BROWSER_LIMIT_KEYS = (
 
 _NUMBER: Schema = {"type": "number"}
 _NUMBERS: Schema = {"type": "array", "items": _NUMBER}
+_NULLABLE_NUMBERS: Schema = {"type": "array", "items": {"anyOf": [_NUMBER, _NULL]}}
 
 DEFINITIONS: dict[str, Schema] = {
     # Deep calibration validation stays in calibration_profile.py / calibrationModel.ts.
@@ -340,6 +341,101 @@ DEFINITIONS: dict[str, Schema] = {
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
         },
     },
+    "PairSource": {
+        "type": "object",
+        "required": ["filePath", "channelIndex", "offsetSeconds"],
+        "properties": {
+            "filePath": {"type": "string"},
+            "channelIndex": {"type": "integer", "minimum": 0},
+            "offsetSeconds": _NUMBER,
+            "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
+            "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+        },
+    },
+    # Averages the reference against each response over their overlap on the global timeline,
+    # narrowed to [startSeconds, endSeconds] when given.
+    "PairSpectrumPayload": {
+        "type": "object",
+        "required": ["analysisId", "settingsSignature", "reference", "responses"],
+        "properties": {
+            "analysisId": {"type": "string"},
+            "settingsSignature": {"type": "string"},
+            "reference": {"$ref": "#/$defs/PairSource"},
+            "responses": {"type": "array", "items": {"$ref": "#/$defs/PairSource"}},
+            "startSeconds": _NUMBER,
+            "endSeconds": _NUMBER,
+            "stftOptions": {"$ref": "#/$defs/StftOptions"},
+        },
+    },
+    "PairSpectrumResponse": {
+        "type": "object",
+        "required": [
+            "filePath",
+            "channelIndex",
+            "status",
+            "startSeconds",
+            "endSeconds",
+            "averages",
+            "resampled",
+            "gainDb",
+            "phaseRad",
+            "coherence",
+            "unit",
+            "axisLabel",
+        ],
+        "properties": {
+            "filePath": {"type": "string"},
+            "channelIndex": {"type": "integer"},
+            # Empty value arrays unless "ok": the tracks do not overlap, or the overlap is shorter than one window.
+            "status": {"type": "string", "enum": ["ok", "no-overlap", "too-short"]},
+            "startSeconds": _NUMBER,
+            "endSeconds": _NUMBER,
+            "averages": {"type": "integer", "minimum": 0},
+            "resampled": {"type": "boolean"},
+            # null where a quantity is undefined, e.g. the gain where the reference has no power.
+            "gainDb": _NULLABLE_NUMBERS,
+            "phaseRad": _NULLABLE_NUMBERS,
+            "coherence": _NULLABLE_NUMBERS,
+            "unit": {"type": "string"},
+            "axisLabel": {"type": "string"},
+            "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
+            "referenceUnit": {"type": "string"},
+            "levelReferenceLabel": {"type": "string"},
+            "calibrationSignature": {"type": "string"},
+            "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+        },
+    },
+    "PairSpectrumResult": {
+        "type": "object",
+        "required": [
+            "analysisId",
+            "settingsSignature",
+            "filePath",
+            "channelIndex",
+            "frequencyBins",
+            "maxFrequencyHz",
+            "nFft",
+            "hopLength",
+            "window",
+            "computeMs",
+            "responses",
+        ],
+        "properties": {
+            "analysisId": {"type": "string"},
+            "settingsSignature": {"type": "string"},
+            "filePath": {"type": "string"},
+            "channelIndex": {"type": "integer"},
+            "frequencyBins": {"type": "integer"},
+            "maxFrequencyHz": _NUMBER,
+            "nFft": {"type": "integer"},
+            "hopLength": {"type": "integer"},
+            "window": {"type": "string", "enum": ["hann", "hamming", "blackman", "boxcar"]},
+            "computeMs": _NUMBER,
+            "calibrationSignature": {"type": "string"},
+            "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "responses": {"type": "array", "items": {"$ref": "#/$defs/PairSpectrumResponse"}},
+        },
+    },
     "ExportWavLoopPayload": {
         "type": "object",
         "required": ["filePath", "startNorm", "endNorm"],
@@ -412,6 +508,7 @@ COMMANDS: dict[str, dict[str, str]] = {
     "track-detail": {"payload": "TrackDetailPayload", "result": "TrackDetailResult"},
     "range": {"payload": "RangePayload", "result": "RangeResult"},
     "spectrum-slice": {"payload": "SpectrumSlicePayload", "result": "SpectrumSliceResult"},
+    "pair-spectrum": {"payload": "PairSpectrumPayload", "result": "PairSpectrumResult"},
     "export-wav-loop": {"payload": "ExportWavLoopPayload", "result": "ExportWavLoopResult"},
     "release-track-detail": {"payload": "ReleaseTrackDetailPayload", "result": "ReleaseTrackDetailResult"},
 }

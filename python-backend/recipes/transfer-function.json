@@ -1,0 +1,14 @@
+{
+  "inputs": [
+    { "name": "a", "file": "{{selection}}" },
+    { "name": "b", "file": "{{selection}}" }
+  ],
+  "steps": [
+    { "as": "pair", "expr": "a.get_channel(0).concat_frame(b.get_channel(0), suffix_on_dup='_b')" },
+    { "as": "h", "expr": "pair.transfer_function(n_fft=4096).select_pair(1, 0)" }
+  ],
+  "display": [
+    { "name": "h", "title": "Transfer function H1 (first selection → second)" },
+    { "name": "h", "title": "Phase (first selection → second)", "value": "phase" }
+  ]
+}
