@@ -210,7 +210,7 @@ function panelFixture() {
         settingsSignature: () => 's',
         nextRequestId: () => 'pair-' + (++requestCount),
         post: request => { posted.push(request); },
-        visibleFraction: () => ({ start: 0, end: 1 }),
+        visibleFrequencyHz: () => null,
         plotHeight: () => 140,
         theme: () => DEFAULT_THEME,
         onReferenceChange: reference => { references.push(reference); },
@@ -247,18 +247,24 @@ test('the pair panel requests once per change of sources or range, never for a r
         mock.timers.tick(PAIR_REQUEST_DELAY_MS);
         assert.equal(fixture.posted.length, 1);
 
+        fixture.panel.handleMessage(resultFor('pair-1'));
+        assert.equal(fixture.doc.getElementById('pair-spectrum-wrap')?.classList.contains('is-stale'), false);
+
         fixture.setRange({ startSeconds: 1, endSeconds: 3 });
         fixture.panel.sync();
         mock.timers.tick(PAIR_REQUEST_DELAY_MS);
         assert.equal(fixture.posted.length, 2);
+        // The first range's plot stays up, dimmed, until the new one arrives.
+        assert.equal(fixture.doc.getElementById('pair-spectrum-wrap')?.classList.contains('is-stale'), true);
         assert.equal(fixture.posted[1].startSeconds, 1);
         assert.equal(fixture.posted[1].endSeconds, 3);
 
-        // The first answer arrives after the second request went out.
+        // A late answer to the first request is ignored.
         fixture.panel.handleMessage(resultFor('pair-1'));
         assert.equal(fixture.panel.waiting, true);
         fixture.panel.handleMessage(resultFor('pair-2'));
         assert.equal(fixture.panel.lastResult?.requestId, 'pair-2');
+        assert.equal(fixture.doc.getElementById('pair-spectrum-wrap')?.classList.contains('is-stale'), false);
         assert.equal(fixture.doc.getElementById('pair-spectrum-summary')?.textContent, 'H1 · 32 avg · 1.00–3.00 s');
         assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, '');
     }

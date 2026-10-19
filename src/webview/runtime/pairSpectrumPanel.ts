@@ -1,5 +1,5 @@
 import type { PairSpectrumRequest } from '../../shared/utils/audioTarget';
-import type { CanvasDrawCtx, DrawTheme } from '../draw/canvasDrawers';
+import type { CanvasDrawCtx, DrawTheme, FrequencyScale } from '../draw/canvasDrawers';
 import { syncCanvasSize } from './canvasSizing';
 import type { HostInboundMessage } from './hostMessaging';
 import {
@@ -33,8 +33,8 @@ export interface PairPanelHost {
     settingsSignature(): string;
     nextRequestId(): string;
     post(request: PairSpectrumRequest): void;
-    /** Visible fraction of the frequency axis, shared with the power spectrum zoom. */
-    visibleFraction(): { start: number; end: number };
+    /** The power spectrum's visible Hz window, or null before it painted an FFT axis. */
+    visibleFrequencyHz(): FrequencyScale | null;
     /** The plot height the power spectrum next to it has. */
     plotHeight(): number;
     theme(): DrawTheme;
@@ -254,6 +254,7 @@ export class PairSpectrumPanel {
         if (!canvas || !plot) {
             return;
         }
+        this.doc.getElementById('pair-spectrum-wrap')?.classList.toggle('is-stale', this.waiting && !!this.result);
         const curves = this.curves();
         const header = pairHeader(curves, this.strings);
         if (summary) {
@@ -290,8 +291,8 @@ export class PairSpectrumPanel {
             this.setReadout(null);
             return;
         }
-        const fraction = this.host.visibleFraction();
-        const visible = { frequencyMin: fraction.start * result.maxFrequencyHz, frequencyMax: fraction.end * result.maxFrequencyHz };
+        // The power spectrum's Hz window, not its zoom fractions: they scale to the fastest track's Nyquist, the pair view's to the reference's.
+        const visible = this.host.visibleFrequencyHz() ?? { frequencyMin: 0, frequencyMax: result.maxFrequencyHz };
         const plotWidth = canvas.width - PAIR_SPECTRUM_PAD.left - PAIR_SPECTRUM_PAD.right;
         const hoverHz = this.hoverX === null || plotWidth <= 0 ? null
             : visible.frequencyMin + (this.hoverX - PAIR_SPECTRUM_PAD.left) / plotWidth * (visible.frequencyMax - visible.frequencyMin);

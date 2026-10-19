@@ -430,7 +430,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         settingsSignature: currentSettingsSignature,
         nextRequestId: () => nextLazyRequestId('pair', 0),
         post: request => messaging.post(request),
-        visibleFraction: () => ({ start: spectrumView.freqStart, end: spectrumView.freqEnd }),
+        visibleFrequencyHz: () => spectrumView.visibleFrequencyHz(),
         plotHeight: effectiveSpectrumHeight,
         theme: drawTheme,
         onReferenceChange(reference) {

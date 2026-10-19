@@ -275,6 +275,9 @@ export function renderComparisonStyles(): string {
         .pair-legend-mark { margin-left: 1px; }
         #pair-spectrum-readout { margin-left: auto; font-family: var(--font-mono); }
         #pair-spectrum-plot { position: relative; flex: 1 1 auto; min-height: 0; }
+        /* A replacement request is computing; the plot still shows the previous inputs. */
+        #pair-spectrum-wrap.is-stale #pair-spectrum-plot,
+        #pair-spectrum-wrap.is-stale #pair-spectrum-summary { opacity: 0.45; }
         #pair-spectrum-canvas { display: block; width: 100%; cursor: crosshair; }
         #pair-spectrum-message {
             position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
