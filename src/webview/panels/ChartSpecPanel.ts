@@ -4,7 +4,7 @@ import { renderChartSpecDocument } from './chartSpecDocument';
 import { createNonce } from './nonce';
 
 export class ChartSpecPanel {
-    public static show(extensionUri: vscode.Uri, title: string, charts: ChartSpec[]): vscode.WebviewPanel {
+    public static show(extensionUri: vscode.Uri, title: string, charts: ChartSpec[], caption?: string): vscode.WebviewPanel {
         const panel = vscode.window.createWebviewPanel(
             'audioWandasAnalyzer.chartSpec',
             title,
@@ -20,6 +20,7 @@ export class ChartSpecPanel {
             nonce: createNonce(),
             rendererScriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'chartSpecRuntime.js')).toString(),
             cspSource: panel.webview.cspSource,
+            ...(caption ? { caption } : {}),
         });
         return panel;
     }

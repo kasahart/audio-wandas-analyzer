@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { RecipeFlow, type RecipeFlowPorts } from '../shared/recipe/recipeFlow';
-import { bindSelection, isRecipeDocument, type RecipeDocument } from '../shared/recipe/recipeSelection';
+import { RecipeFlow, recipeTitle, type RecipeFlowPorts } from '../shared/recipe/recipeFlow';
+import { bindSelection, describeInputs, isRecipeDocument, type RecipeDocument } from '../shared/recipe/recipeSelection';
 
 function recipeOf(...names: string[]): RecipeDocument {
     return {
@@ -25,7 +25,7 @@ function ports(overrides: Partial<RecipeFlowPorts> = {}) {
         pickInputFiles: async () => { log.push('pickInputs'); return ['/picked.wav']; },
         runWithProgress: async (title, task) => { log.push(`progress:${title}`); return task(); },
         execute: async (document, inputs) => { executed.push({ recipe: document, inputs }); return { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] }; },
-        showCharts: (title, charts) => { log.push(`charts:${title}:${charts.length}`); },
+        showCharts: (title, charts, inputs) => { log.push(`charts:${title}:${charts.length}:${Object.keys(inputs).join(',')}`); },
         showError: (message) => { log.push(`error:${message}`); },
         ...overrides,
     };
@@ -39,8 +39,8 @@ test('recipe flow assigns the panel selection to the Recipe inputs in order and 
     assert.equal(executed[0].recipe.schema, 'wandas.recipe');
     assert.deepEqual(log, [
         'pick:/recipes/octave.json|/recipes/coherence.recipe.json',
-        'progress:Running recipe octave.json…',
-        'charts:octave.json:1',
+        'progress:Running recipe octave…',
+        'charts:octave:1:reference,response',
     ]);
 });
 
@@ -97,4 +97,11 @@ test('recipe documents must be wandas Recipes and inputs must be frames', () => 
     assert.equal(isRecipeDocument([]), false);
     const withArray: RecipeDocument = { ...recipeOf('a'), inputs: [{ id: 'input-0', name: 'offset', kind: 'array' }] };
     assert.throws(() => bindSelection(withArray, ['/a.wav']), /offset needs an array/);
+});
+
+test('recipe titles drop the Recipe suffix and captions name the file behind each input', () => {
+    assert.equal(recipeTitle('/recipes/coherence.recipe.json'), 'coherence');
+    assert.equal(recipeTitle('C:\\recipes\\Mine.JSON'), 'Mine');
+    assert.equal(recipeTitle('./recipes/notes'), 'notes');
+    assert.equal(describeInputs({ reference: '/x/a.wav', response: '/y/b.wav' }, path => path.split('/').pop()!), 'reference: a.wav · response: b.wav');
 });

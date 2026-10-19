@@ -9,11 +9,12 @@ import { hasPlayableAudio, isConfigureCalibrationMessage, isSupportedAudioFile, 
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../../shared/session/comparisonSessionController';
-import { RecipeFlow, type RecipeCatalogEntry } from '../../shared/recipe/recipeFlow';
-import { isRecipeDocument } from '../../shared/recipe/recipeSelection';
+import { RecipeFlow, recipeBaseName, type RecipeCatalogEntry } from '../../shared/recipe/recipeFlow';
+import { describeInputs, isRecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { ChartSpec } from '../../shared/chartSpec';
 import { chartSpecGlobals, renderChartSpecStyles } from '../panels/chartSpecDocument';
 import { setHint } from './hintFooter';
+import { createRecipePicker } from './recipePicker';
 import { zipStore } from './zipStore';
 import type { HostInboundMessage } from './hostMessaging';
 import type { ComparisonWindow } from './browserAdapter';
@@ -413,23 +414,23 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
         return response.json();
     }
-    function promptIndex(title: string, labels: string[]): number | undefined {
-        const choice = window.prompt(`${title}\n${labels.map((label, index) => `${index + 1}: ${label}`).join('\n')}`, '1');
-        if (choice === null) return undefined;
-        const index = Number(choice) - 1;
-        if (!Number.isInteger(index) || index < 0 || index >= labels.length) { announce(title); return undefined; }
-        return index;
-    }
+    const pickRecipe = createRecipePicker(document, strings);
+    // A recipe opened from disk is run by its file name, so the backend titles its charts after the file.
+    const localRecipes = new Map<string, File>();
     // Recipe charts render in a same-origin frame: the bundled ChartSpec renderer arrives as ./chartSpecRuntime.js under the page CSP,
     // and a fresh document per run keeps the renderer's one-shot range popup and listeners isolated.
-    function showRecipeCharts(title: string, charts: ChartSpec[]): void {
+    function showRecipeCharts(title: string, charts: ChartSpec[], caption: string): void {
         document.querySelector('[data-recipe-result]')?.remove();
         const panel = document.createElement('section');
         panel.setAttribute('data-recipe-result', title);
         panel.style.cssText = 'margin:8px;border:1px solid #444;border-radius:4px;background:#1e1e1e;color:#ddd';
         const header = document.createElement('div');
         header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid #444';
-        const heading = document.createElement('strong'); heading.textContent = title;
+        const heading = document.createElement('div');
+        const name = document.createElement('strong'); name.textContent = title;
+        const inputs = document.createElement('span'); inputs.textContent = caption;
+        inputs.style.cssText = 'margin-left:8px;font-size:11px;color:#999';
+        heading.append(name, inputs);
         const close = document.createElement('button');
         close.setAttribute('data-action', 'browser-recipe-close');
         close.textContent = strings.btnCloseRecipeResult;
@@ -455,12 +456,16 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             if (!Array.isArray(manifest)) throw new Error('Invalid recipe manifest');
             return manifest as RecipeCatalogEntry[];
         },
-        pickRecipe: async (items, entries) => {
-            const index = promptIndex(strings.browserRecipePick, items.map(item => item.label));
-            return index === undefined ? undefined : entries[index].location;
+        pickRecipe: async (_items, entries) => {
+            const pick = await pickRecipe(entries);
+            localRecipes.clear();
+            if (!pick || 'location' in pick) return pick?.location;
+            localRecipes.set(pick.file.name, pick.file);
+            return pick.file.name;
         },
         readRecipe: async location => {
-            const recipe = await fetchJson(location);
+            const local = localRecipes.get(location);
+            const recipe: unknown = local ? JSON.parse(await local.text()) : await fetchJson(location);
             if (!isRecipeDocument(recipe)) throw new Error(`${location} is not a recipe document`);
             return recipe;
         },
@@ -470,7 +475,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             if (!sources.size) throw new Error(strings.browserRecipeNoSources);
             return analysisClient.runRecipe(recipe, inputs, { recipePath: location });
         },
-        showCharts: (title, charts) => { showRecipeCharts(title, charts); announce(strings.browserRecipeDone + title); },
+        showCharts: (title, charts, inputs) => {
+            showRecipeCharts(title, charts, describeInputs(inputs, filePath => sources.get(filePath)?.name ?? recipeBaseName(filePath)));
+            announce(strings.browserRecipeDone + title);
+        },
         showError: announce,
     });
     // Browser host: owned sources, Worker transport, localStorage and downloads behind the shared session contract.

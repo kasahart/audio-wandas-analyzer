@@ -34,6 +34,7 @@ export function renderChartSpecStyles(): string {
 }
 body { background: var(--bg); color: var(--text); font-family: var(--vscode-font-family, sans-serif); padding: 12px; margin: 0; }
 h2 { font-size: 14px; margin: 0 0 12px; color: var(--accent); }
+.chart-caption { font-size: 11px; margin: -8px 0 12px; color: var(--muted); }
 .chart-card { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; margin-bottom: 12px; }
 .chart-title { font-size: 12px; margin: 0 0 6px; color: var(--text); font-weight: 600; }
 .scalar-table { border-collapse: collapse; font-size: 12px; }
@@ -49,6 +50,8 @@ export interface ChartSpecDocumentOptions {
     /** Webview URI of dist/webview/chartSpecRuntime.js. */
     rendererScriptUri: string;
     cspSource: string;
+    /** Shown under the title, e.g. which file filled each Recipe input. */
+    caption?: string;
 }
 
 /** Complete HTML document for a recipe result: used by the VS Code panel; the Web host mounts the same pieces in a frame. */
@@ -68,7 +71,7 @@ ${renderChartSpecStyles()}
 </head>
 <body>
 <h2>${escapeHtml(title)}</h2>
-<div id="charts"></div>
+${options.caption ? `<p class="chart-caption">${escapeHtml(options.caption)}</p>\n` : ''}<div id="charts"></div>
 <script nonce="${options.nonce}">
 window.__CHART_SPECS__ = ${serializeForScript(globals.__CHART_SPECS__)};
 window.__CHART_NO_RESULTS_LABEL__ = ${serializeForScript(globals.__CHART_NO_RESULTS_LABEL__)};
