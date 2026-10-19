@@ -1,6 +1,6 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { recipeTitle, type RecipeCatalogEntry } from '../../shared/recipe/recipeFlow';
-import { setHint } from './hintFooter';
+import { createHintFooter, setHint } from './hintFooter';
 
 export type RecipePick = { location: string } | { file: File };
 
@@ -28,6 +28,8 @@ export function createRecipePicker(document: Document, strings: UiStrings): (ent
             function finish(pick: RecipePick | undefined): void {
                 cancelOpen = undefined;
                 menu.remove();
+                // The removed menu fires no mouseout, so its hint would otherwise stay until the pointer moves.
+                createHintFooter(document).clearIfShowing(strings.hintRecipeOpenFile);
                 document.removeEventListener('keydown', onKey, true);
                 document.removeEventListener('pointerdown', onPointer, true);
                 resolve(pick);
