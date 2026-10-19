@@ -11,6 +11,11 @@ export function isSupportedAudioFile(fileName: string): boolean {
     return dot > 0 && SUPPORTED_AUDIO_FILE_EXTENSIONS.has(leaf.slice(dot).toLowerCase());
 }
 
+/** CSV holds samples rather than encoded audio, so the webview cannot play it. */
+export function hasPlayableAudio(fileName: string): boolean {
+    return isSupportedAudioFile(fileName) && !fileName.toLowerCase().endsWith('.csv');
+}
+
 export function isSelectTargetMessage(message: unknown): message is { type: 'select-target'; targetKind: SelectionTargetKind } {
     if (!message || typeof message !== 'object') {
         return false;

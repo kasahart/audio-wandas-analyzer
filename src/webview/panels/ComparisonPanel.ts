@@ -11,6 +11,7 @@ import type {
     ComparisonState,
     DirectorySelectionState,
 } from '../runtime/types';
+import { hasPlayableAudio } from '../../shared/utils/audioTarget';
 import { renderComparisonDocument } from './comparisonDocument';
 export { renderComparisonStyles } from './comparisonDocument';
 
@@ -109,6 +110,10 @@ interface ComparisonPanelTestActionMessage {
     actions: Array<string | { action: string; trackIndex?: number; payload?: Record<string, unknown> }>;
 }
 
+function audioSourceFor(panel: vscode.WebviewPanel, filePath: string): string {
+    return hasPlayableAudio(filePath) ? panel.webview.asWebviewUri(vscode.Uri.file(filePath)).toString() : '';
+}
+
 export class ComparisonPanel {
     private static testSnapshot: ComparisonPanelTestSnapshot | undefined;
     private static testSnapshotsByActionId = new Map<string, ComparisonPanelTestSnapshot>();
@@ -148,7 +153,7 @@ export class ComparisonPanel {
             selectedFilePaths,
             results: results.map((result) => ({
                 ...result,
-                audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
+                audioSource: audioSourceFor(panel, result.filePath),
             })),
         } satisfies AnalysisUpdateMessage);
     }
@@ -213,7 +218,7 @@ export class ComparisonPanel {
             mode: 'results',
             results: results.map((result) => ({
                 ...result,
-                audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
+                audioSource: audioSourceFor(panel, result.filePath),
             })),
             spectrogramSettings,
         };
@@ -274,7 +279,7 @@ export class ComparisonPanel {
             mode: 'directory-selection',
             results: results.map((result) => ({
                 ...result,
-                audioSource: panel.webview.asWebviewUri(vscode.Uri.file(result.filePath)).toString(),
+                audioSource: audioSourceFor(panel, result.filePath),
             })),
             rootPath,
             allFilePaths,

@@ -5,7 +5,7 @@ import { BackendProtocolError, parseBackendResult, PendingBackendRequests, rejec
 import type { BrowserLimits } from '../../shared/protocol/generated/backendProtocolSchema';
 import { schemaViolation, withoutResponseEnvelope } from '../../shared/protocol/schemaValidation';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
-import { isConfigureCalibrationMessage, isSupportedAudioFile, SUPPORTED_AUDIO_FILE_EXTENSIONS } from '../../shared/utils/audioTarget';
+import { hasPlayableAudio, isConfigureCalibrationMessage, isSupportedAudioFile, SUPPORTED_AUDIO_FILE_EXTENSIONS } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../../shared/session/comparisonSessionController';
@@ -388,7 +388,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     } });
     function resultWithSource(result: AnalysisResult, sourceId: string, name: string, url: string): ComparisonTrackState {
         // A source is reported by its unique path under /sources, so the notebook can read it from there.
-        return { ...result, fileName: name, audioSource: url, reportSourcePath: sourceId } as unknown as ComparisonTrackState;
+        return { ...result, fileName: name, audioSource: hasPlayableAudio(name) ? url : '', reportSourcePath: sourceId } as unknown as ComparisonTrackState;
     }
     function download(bytes: Uint8Array, name: string, type: string): void {
         const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type }));

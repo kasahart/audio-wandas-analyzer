@@ -276,6 +276,9 @@ const server = http.createServer((req,res) => {
         await picker.setInputFiles([{name:'take.flac',mimeType:'audio/flac',buffer:flac.stdout},{name:'accel.csv',mimeType:'text/csv',buffer:Buffer.from(accelCsv)}]);
         await status.filter({hasText:'accel.csv: waveform ready'}).waitFor({timeout:120000});
         assert.equal(await page.locator('.track-row').count(),2);
+        // Chromium cannot decode a CSV blob, so only the FLAC track gets transport audio.
+        assert.equal(await page.locator('audio').count(),1);
+        assert.ok(await page.locator('.track-row',{hasText:'accel.csv'}).locator('.track-btns [disabled]').count()>0);
         await page.locator('[data-action="selection-clear-all"]').click();
         await status.filter({hasText:'Worker cleared'}).waitFor();
         await loadFile('short-stereo.wav');
