@@ -4,8 +4,8 @@ import {
     spectrumBinAtHover,
     spectrumPlotFrame,
     spectrumVisibleWindow,
+    spectrumReadoutText,
     TRACK_SPECTRUM_PAD,
-    trackSpectrumReadoutText,
     type SpectrumViewState,
 } from './spectrumRuntime';
 import type { SpectrumSlice } from './types';
@@ -41,6 +41,6 @@ export function paintTrackSpectrum(
     }
     drawSpectrumCrosshair(ctx, frame, snap.x, snap.dbVal !== undefined ? snap.y : null, 'rgba(255,255,255,0.75)', color);
     return snap.dbVal !== undefined
-        ? { text: trackSpectrumReadoutText(series.label, slice, snap.freqHz, snap.dbVal), color }
+        ? { text: spectrumReadoutText(series.label, slice, snap.freqHz, snap.dbVal), color }
         : null;
 }

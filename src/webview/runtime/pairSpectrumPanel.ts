@@ -37,6 +37,10 @@ export interface PairPanelHost {
     visibleFrequencyHz(): FrequencyScale | null;
     /** The plot height the power spectrum next to it has. */
     plotHeight(): number;
+    /** The frequency under the cursor on the power spectrum, or null when the cursor is elsewhere. */
+    hoverFrequencyHz(): number | null;
+    /** The cursor on the pair plot moved to this frequency, or left it with null, so the power spectrum can follow. */
+    onHoverFrequency(frequencyHz: number | null): void;
     theme(): DrawTheme;
     onReferenceChange(reference: PairReference | null): void;
     /** The split moved, so the power spectrum next to it needs repainting. */
@@ -46,7 +50,6 @@ export interface PairPanelHost {
 export const PAIR_REQUEST_DELAY_MS = 150;
 const PAIR_SPLIT_MIN = 0.25;
 const PAIR_SPLIT_MAX = 0.75;
-const PAIR_HEADER_HEIGHT = 18;
 
 /**
  * The pair view next to the power spectrum: which lane is the reference, the request for its
@@ -61,7 +64,7 @@ export class PairSpectrumPanel {
     private result: PairSpectrumResultMessage | null = null;
     private error: string | null = null;
     private timer: ReturnType<typeof setTimeout> | null = null;
-    private hoverX: number | null = null;
+    private hoverPoint: { x: number; y: number } | null = null;
     private splitFraction = 0.5;
 
     constructor(private readonly doc: Document, private readonly host: PairPanelHost, private readonly strings: PairPanelStrings) { }
@@ -80,17 +83,22 @@ export class PairSpectrumPanel {
     }
 
     setReference(next: PairReference | null): void {
+        const hadHover = this.hoverPoint !== null;
         this.referenceState = next;
         this.sentKey = null;
         this.observedKey = null;
         this.pendingRequestId = null;
         this.result = null;
         this.error = null;
-        this.hoverX = null;
+        this.hoverPoint = null;
         this.doc.getElementById('spectrum-section')?.classList.toggle('has-pair', next !== null);
         this.applySplit();
         syncReferenceButtons(this.doc, next, this.strings);
         this.host.onReferenceChange(next);
+        if (hadHover) {
+            // The pointer may still be over a pane that is closing, so no mouseleave will clear the power spectrum cursor.
+            this.host.onHoverFrequency(null);
+        }
         this.schedule(0);
     }
 
@@ -211,6 +219,9 @@ export class PairSpectrumPanel {
             this.error = null;
         }
         this.render();
+        if (this.hoverPoint) {
+            this.syncHostHover();
+        }
         return true;
     }
 
@@ -280,7 +291,7 @@ export class PairSpectrumPanel {
             message.style.display = text ? '' : 'none';
         }
         const width = plot.clientWidth || 400;
-        syncCanvasSize(canvas, width, Math.max(60, this.host.plotHeight() - PAIR_HEADER_HEIGHT));
+        syncCanvasSize(canvas, width, Math.max(60, this.host.plotHeight()));
         const ctx = canvas.getContext('2d') as CanvasDrawCtx | null;
         if (!ctx) {
             return;
@@ -292,14 +303,36 @@ export class PairSpectrumPanel {
             return;
         }
         // The power spectrum's Hz window, not its zoom fractions: they scale to the fastest track's Nyquist, the pair view's to the reference's.
-        const visible = this.host.visibleFrequencyHz() ?? { frequencyMin: 0, frequencyMax: result.maxFrequencyHz };
-        const plotWidth = canvas.width - PAIR_SPECTRUM_PAD.left - PAIR_SPECTRUM_PAD.right;
-        const hoverHz = this.hoverX === null || plotWidth <= 0 ? null
-            : visible.frequencyMin + (this.hoverX - PAIR_SPECTRUM_PAD.left) / plotWidth * (visible.frequencyMax - visible.frequencyMin);
+        const visible = this.visibleFrequencyHz(result);
+        const own = this.hoverPoint ? this.frequencyAt(this.hoverPoint.x, canvas.width, visible) : null;
+        const synced = own === null ? this.host.hoverFrequencyHz() : null;
+        const hover = own !== null ? { frequencyHz: own, y: this.hoverPoint!.y } : synced !== null ? { frequencyHz: synced, y: null } : null;
         const readout = paintPairSpectrum(ctx, canvas.width, canvas.height,
             { frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, curves },
-            visible, hoverHz, this.strings, this.host.theme());
+            visible, hover, this.strings, this.host.theme());
         this.setReadout(readout);
+    }
+
+    private visibleFrequencyHz(result: PairSpectrumResultMessage): FrequencyScale {
+        return this.host.visibleFrequencyHz() ?? { frequencyMin: 0, frequencyMax: result.maxFrequencyHz };
+    }
+
+    private frequencyAt(x: number, canvasWidth: number, visible: FrequencyScale): number | null {
+        const plotWidth = canvasWidth - PAIR_SPECTRUM_PAD.left - PAIR_SPECTRUM_PAD.right;
+        if (plotWidth <= 0) {
+            return null;
+        }
+        const fraction = Math.max(0, Math.min(1, (x - PAIR_SPECTRUM_PAD.left) / plotWidth));
+        return visible.frequencyMin + fraction * (visible.frequencyMax - visible.frequencyMin);
+    }
+
+    private syncHostHover(): void {
+        const canvas = this.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement | null;
+        const result = this.result;
+        const frequencyHz = canvas && result && this.hoverPoint
+            ? this.frequencyAt(this.hoverPoint.x, canvas.width, this.visibleFrequencyHz(result)) : null;
+        // The power spectrum may reach past the reference's Nyquist, where the pair cursor stops at its last bin.
+        this.host.onHoverFrequency(frequencyHz === null || !result ? null : Math.min(frequencyHz, result.maxFrequencyHz));
     }
 
     private setReadout(readout: { text: string; color: string } | null): void {
@@ -315,13 +348,17 @@ export class PairSpectrumPanel {
         const canvas = this.doc.getElementById('pair-spectrum-canvas');
         canvas?.addEventListener('mousemove', event => {
             const rect = canvas.getBoundingClientRect();
-            const scale = rect.width > 0 ? (canvas as HTMLCanvasElement).width / rect.width : 1;
-            this.hoverX = (event.clientX - rect.left) * scale;
+            const element = canvas as HTMLCanvasElement;
+            const scaleX = rect.width > 0 ? element.width / rect.width : 1;
+            const scaleY = rect.height > 0 ? element.height / rect.height : 1;
+            this.hoverPoint = { x: (event.clientX - rect.left) * scaleX, y: (event.clientY - rect.top) * scaleY };
             this.render();
+            this.syncHostHover();
         });
         canvas?.addEventListener('mouseleave', () => {
-            this.hoverX = null;
+            this.hoverPoint = null;
             this.render();
+            this.host.onHoverFrequency(null);
         });
         const divider = this.doc.getElementById('pair-divider');
         const split = this.doc.getElementById('spectrum-split');

@@ -9,7 +9,7 @@ import { isRequestPairSpectrumMessage, type PairSpectrumRequest } from '../share
 import { DEFAULT_THEME, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
 import { isHostInboundMessage } from '../webview/runtime/hostMessaging';
 import {
-    paintPairSpectrum, pairHeader, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
+    PAIR_SPECTRUM_PAD, paintPairSpectrum, pairLaneFrames, pairHeader, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
     type PairCurve, type PairSpectrumResponse, type PairSpectrumResultMessage,
 } from '../webview/runtime/pairSpectrum';
 import { PAIR_REQUEST_DELAY_MS, PairSpectrumPanel, type PairChannelSource, type PairPanelHost } from '../webview/runtime/pairSpectrumPanel';
@@ -78,16 +78,18 @@ test('a response calibrated to another unit is listed but not drawn on the share
     assert.equal(ctx.lines, 3 * 2);
 });
 
-function recordingContext(): CanvasDrawCtx & { lines: number } {
+function recordingContext(): CanvasDrawCtx & { lines: number; texts: string[] } {
     const ctx = {
         lines: 0,
+        texts: [] as string[],
         fillStyle: '', strokeStyle: '', font: '', textAlign: 'left', textBaseline: 'top', globalAlpha: 1, lineWidth: 1,
         setLineDash() { }, save() { }, restore() { }, translate() { }, rotate() { }, beginPath() { }, moveTo() { },
-        lineTo() { ctx.lines += 1; }, stroke() { }, rect() { }, clip() { }, clearRect() { }, fillRect() { }, strokeRect() { }, fillText() { },
+        lineTo() { ctx.lines += 1; }, stroke() { }, rect() { }, clip() { }, clearRect() { }, fillRect() { }, strokeRect() { },
+        fillText(text: string) { ctx.texts.push(text); }, measureText: (text: string) => ({ width: text.length * 5 }),
         createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
         putImageData() { },
     };
-    return ctx as unknown as CanvasDrawCtx & { lines: number };
+    return ctx as unknown as CanvasDrawCtx & { lines: number; texts: string[] };
 }
 
 test('the pair plot draws ok responses only and reads out the hovered bin', () => {
@@ -95,11 +97,46 @@ test('the pair plot draws ok responses only and reads out the hovered bin', () =
     const readout = paintPairSpectrum(ctx, 400, 180, {
         frequencyBins: 3, maxFrequencyHz: 1000,
         curves: [curve(), curve({ status: 'no-overlap', gainDb: [], phaseRad: [], coherence: [] }, 'c.wav')],
-    }, { frequencyMin: 0, frequencyMax: 1000 }, 520, en, DEFAULT_THEME);
-    // Two segments in each of the three rows for the one drawn response, plus the crosshair.
-    assert.equal(ctx.lines, 3 * 2 + 1);
-    assert.equal(readout?.frequencyHz, 500);
-    assert.equal(readout?.text, 'b.wav / 500 Hz / -6.0 dB / 90° / γ² 0.99');
+    }, { frequencyMin: 0, frequencyMax: 1000 }, { frequencyHz: 520, y: null }, en, DEFAULT_THEME);
+    // Two segments in each of the three rows for the one drawn response, plus a vertical cursor line in each row; with no pointer height no line is picked.
+    assert.equal(ctx.lines, 3 * 2 + 3);
+    assert.equal(readout, null);
+    // Units sit in the turned axis titles; the ticks are bare numbers.
+    assert.ok(ctx.texts.includes('Gain [dB]') && ctx.texts.includes('Phase [°]') && ctx.texts.includes('γ²'));
+    assert.ok(ctx.texts.includes('180') && !ctx.texts.some(text => text.endsWith('°') && text !== 'Phase [°]'));
+});
+
+test('a cursor synced from past the reference Nyquist is not drawn on the pair plot', () => {
+    const input = { frequencyBins: 3, maxFrequencyHz: 1000, curves: [curve()] };
+    const visible = { frequencyMin: 0, frequencyMax: 4000 };
+    const lines = (frequencyHz: number) => {
+        const ctx = recordingContext();
+        paintPairSpectrum(ctx, 400, 180, input, visible, { frequencyHz, y: null }, en, DEFAULT_THEME);
+        return ctx.lines;
+    };
+    assert.equal(lines(3000), 3 * 2);
+    assert.equal(lines(1100), 3 * 2 + 3);
+});
+
+test('the pointer picks the line nearest it and reads that lane only', () => {
+    const curves = [curve({}, 'b.wav'), curve({ gainDb: [10, 10, 10], phaseRad: [-Math.PI / 2, -Math.PI / 2, -Math.PI / 2], coherence: [0.3, 0.3, 0.3] }, 'c.wav')];
+    const input = { frequencyBins: 3, maxFrequencyHz: 1000, curves };
+    const visible = { frequencyMin: 0, frequencyMax: 1000 };
+    const [gain, phase, coherence] = pairLaneFrames(400, 180);
+    const at = (y: number) => {
+        const ctx = recordingContext();
+        const readout = paintPairSpectrum(ctx, 400, 180, input, visible, { frequencyHz: 500, y }, en, DEFAULT_THEME);
+        return { text: readout?.text, lines: ctx.lines };
+    };
+    // -90° sits three quarters of the way down the phase lane.
+    assert.equal(at(phase.top + phase.height * 0.75).text, 'c.wav / 500 Hz / -90°');
+    assert.equal(at(phase.top + phase.height * 0.25).text, 'b.wav / 500 Hz / 90°');
+    assert.equal(at(coherence.top + coherence.height * 0.6).text, 'c.wav / 500 Hz / γ² 0.30');
+    assert.equal(at(gain.top).text, 'c.wav / 500 Hz / 10.0 dB');
+    // In the gap between two lanes the nearer lane answers.
+    assert.equal(at(phase.top + phase.height + 1).text, 'c.wav / 500 Hz / -90°');
+    // Two responses × two segments × three rows, the picked line again thicker in its row, three vertical lines and one horizontal line.
+    assert.equal(at(gain.top).lines, 2 * 2 * 3 + 2 + 3 + 1);
 });
 
 test('pair requests and results pass their validators', () => {
@@ -207,11 +244,13 @@ function panelFixture() {
     (doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement).getContext = (() => null) as never;
     const posted: PairSpectrumRequest[] = [];
     const references: Array<unknown> = [];
+    const hoverFrequencies: Array<number | null> = [];
     let channels: PairChannelSource[] = [
         { trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
         { trackId: 't2' as TrackId, filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5, label: 'b.wav', color: '#f00' },
     ];
     let range: { startSeconds: number; endSeconds: number } | null = null;
+    let visible: { frequencyMin: number; frequencyMax: number } | null = null;
     let requestCount = 0;
     const host: PairPanelHost = {
         channels: () => channels,
@@ -220,17 +259,20 @@ function panelFixture() {
         settingsSignature: () => 's',
         nextRequestId: () => 'pair-' + (++requestCount),
         post: request => { posted.push(request); },
-        visibleFrequencyHz: () => null,
+        visibleFrequencyHz: () => visible,
         plotHeight: () => 140,
+        hoverFrequencyHz: () => null,
+        onHoverFrequency: hz => { hoverFrequencies.push(hz); },
         theme: () => DEFAULT_THEME,
         onReferenceChange: reference => { references.push(reference); },
         onLayoutChange: () => undefined,
     };
     const panel = new PairSpectrumPanel(doc, host, en);
     return {
-        doc, panel, posted, references,
+        doc, panel, posted, references, hoverFrequencies,
         setChannels(next: PairChannelSource[]) { channels = next; },
         setRange(next: typeof range) { range = next; },
+        setVisible(next: typeof visible) { visible = next; },
     };
 }
 
@@ -329,6 +371,66 @@ test('the pair panel clears the reference with its lane and reports failures', (
         assert.equal(fixture.panel.reference, null);
         assert.deepEqual(fixture.references, [{ trackId: 't1', channelIndex: 0 }, null]);
         assert.equal(fixture.doc.getElementById('spectrum-section')?.classList.contains('has-pair'), false);
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
+test('closing the pair pane under the pointer clears the synced power spectrum cursor', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        fixture.panel.attach();
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        const canvas = fixture.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement;
+        canvas.dispatchEvent(new fixture.doc.defaultView!.MouseEvent('mousemove', { clientX: 10, clientY: 10 }));
+        fixture.hoverFrequencies.length = 0;
+
+        fixture.setChannels([]);
+        fixture.panel.sync();
+        mock.timers.tick(PAIR_REQUEST_DELAY_MS);
+        assert.equal(fixture.panel.reference, null);
+        assert.deepEqual(fixture.hoverFrequencies, [null]);
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
+test('hovering past the reference Nyquist syncs the power spectrum to the last pair frequency', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        fixture.panel.attach();
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        fixture.panel.handleMessage(resultFor('pair-1'));
+        fixture.setVisible({ frequencyMin: 0, frequencyMax: 4000 });
+        const canvas = fixture.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement;
+        const mouseEvent = fixture.doc.defaultView!.MouseEvent;
+        canvas.dispatchEvent(new mouseEvent('mousemove', { clientX: canvas.width, clientY: 10 }));
+        canvas.dispatchEvent(new mouseEvent('mousemove', { clientX: PAIR_SPECTRUM_PAD.left, clientY: 10 }));
+        assert.deepEqual(fixture.hoverFrequencies, [1000, 0]);
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
+test('a pointer resting on the pair plot syncs the power spectrum once the result arrives', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        fixture.panel.attach();
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        const canvas = fixture.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement;
+        canvas.dispatchEvent(new fixture.doc.defaultView!.MouseEvent('mousemove', { clientX: PAIR_SPECTRUM_PAD.left, clientY: 10 }));
+        assert.deepEqual(fixture.hoverFrequencies, [null]);
+        fixture.panel.handleMessage(resultFor('pair-1'));
+        assert.deepEqual(fixture.hoverFrequencies, [null, 0]);
     }
     finally {
         mock.timers.reset();

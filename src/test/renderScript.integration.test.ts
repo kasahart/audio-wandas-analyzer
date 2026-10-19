@@ -1150,7 +1150,7 @@ test('analysis-update rebinds rebuilt waveform and spectrum canvases', async () 
 
     assert.match(
         env.dom.window.document.getElementById('spectrum-freq-readout')?.textContent ?? '',
-        /^high\.wav\s+1200 Hz\s+-60\.0 dB$/,
+        /^high\.wav \/ 1200 Hz \/ -60\.0 dB$/,
     );
     env.dom.window.close();
 });
@@ -2205,7 +2205,7 @@ test('spectrum cursor: per-track readout formats focused frequency in Hz', async
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^high\.wav\s+1200 Hz\s+-60\.0 dB$/,
+    assert.match(readout!.textContent || '', /^high\.wav \/ 1200 Hz \/ -60\.0 dB$/,
         'カーソル読み値はトラック名、Hz固定の周波数、dBをヘッダーに表示すること');
     assert.doesNotMatch(readout!.textContent || '', /kHz/);
     env.dom.window.close();
@@ -2287,7 +2287,7 @@ test('spectrum cursor: per-track readout snaps to the hovered track frequency bi
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^coarse\.wav\s+200 Hz\s+-60\.0 dB$/,
+    assert.match(readout!.textContent || '', /^coarse\.wav \/ 200 Hz \/ -60\.0 dB$/,
         'coarse track ΔF=200 Hz の最寄りbinへ吸着すること');
     env.dom.window.close();
 });
@@ -2305,7 +2305,7 @@ test('spectrum cursor: per-track keyboard focus updates the header readout', asy
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.match(readout!.textContent || '', /^coarse\.wav\s+200 Hz\s+-60\.0 dB$/,
+    assert.match(readout!.textContent || '', /^coarse\.wav \/ 200 Hz \/ -60\.0 dB$/,
         'マウス hover なしでも focus と矢印キーでヘッダー readout が更新されること');
     env.dom.window.close();
 });
@@ -2339,7 +2339,7 @@ test('spectrum cursor: per-track keyboard stepping uses the hovered channel bins
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^stereo\.wav Channel 2 \/ 2 \(Right\)\s+3000 Hz\s+-20\.0 dB$/,
+    assert.match(readout!.textContent || '', /^stereo\.wav Channel 2 \/ 2 \(Right\) \/ 3000 Hz \/ -20\.0 dB$/,
         'ch1 の ΔF=1000 Hz の次binへ移動すること');
     env.dom.window.close();
 });
@@ -2358,7 +2358,7 @@ test('spectrum cursor: narrow canvas hover clears stale spectrum target', async 
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.match(readout!.textContent || '', /^coarse\.wav\s+200 Hz\s+-60\.0 dB$/,
+    assert.match(readout!.textContent || '', /^coarse\.wav \/ 200 Hz \/ -60\.0 dB$/,
         '事前条件としてper-track hoverのreadoutが表示されること');
 
     const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;

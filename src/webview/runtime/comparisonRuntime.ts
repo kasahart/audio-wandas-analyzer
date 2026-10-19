@@ -64,6 +64,7 @@ import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
+    hoverNormForFrequency,
     OVERLAY_SPECTRUM_PAD,
     spectrumBoxZoom,
     spectrumSeriesRange,
@@ -432,6 +433,30 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         post: request => messaging.post(request),
         visibleFrequencyHz: () => spectrumView.visibleFrequencyHz(),
         plotHeight: effectiveSpectrumHeight,
+        hoverFrequencyHz() {
+            const visible = spectrumView.visibleFrequencyHz();
+            if (spectrumHover.target !== 'overlay' || spectrumHover.norm === null || !visible) {
+                return null;
+            }
+            return visible.frequencyMin + spectrumHover.norm * (visible.frequencyMax - visible.frequencyMin);
+        },
+        onHoverFrequency(frequencyHz) {
+            const visible = spectrumView.visibleFrequencyHz();
+            if (frequencyHz === null || !visible) {
+                if (spectrumHover.target === 'overlay') {
+                    spectrumHover.clear();
+                }
+            }
+            else {
+                // The pointer is on the pair plot, so the power spectrum's line follows its frequency with no pointer height of its own.
+                spectrumHover.norm = hoverNormForFrequency(frequencyHz, visible.frequencyMin, visible.frequencyMax);
+                spectrumHover.yFrac = null;
+                spectrumHover.target = 'overlay';
+                spectrumHover.channelIndex = null;
+                spectrumHover.hasMouse = false;
+            }
+            scheduleSpectrumRefresh('hover');
+        },
         theme: drawTheme,
         onReferenceChange(reference) {
             if (reference && spectrumBandsPerOctave !== 0) {
@@ -2493,7 +2518,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const style = window.getComputedStyle(wrap);
         const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
-        return Math.max(SPECTRUM_HEIGHT_MIN, wrap.clientHeight - padding);
+        const header = document.getElementById('spectrum-overlay-header')?.offsetHeight ?? 0;
+        return Math.max(SPECTRUM_HEIGHT_MIN, wrap.clientHeight - padding - header);
     }
     /** The pane's height less everything but the tracks and the plot itself, so it holds even when the tracks were squeezed to nothing. */
     function spectrumHeightLimit(): number {

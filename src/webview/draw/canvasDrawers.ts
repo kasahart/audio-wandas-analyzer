@@ -1,4 +1,4 @@
-import { normalizedColor, viridis } from '../../shared/gui-core/index';
+import { drawCrosshair, drawValueAxis, normalizedColor, viridis } from '../../shared/gui-core/index';
 
 export interface DrawTheme {
     /** 軸ラベル文字色 (--muted) */
@@ -38,6 +38,7 @@ export interface CanvasDrawCtx {
     fillRect(x: number, y: number, w: number, h: number): void;
     strokeRect(x: number, y: number, w: number, h: number): void;
     fillText(text: string, x: number, y: number): void;
+    measureText(text: string): { width: number };
     createImageData(w: number, h: number): { data: Uint8ClampedArray; width: number; height: number };
     putImageData(img: { data: Uint8ClampedArray; width: number; height: number }, x: number, y: number): void;
 }
@@ -382,24 +383,11 @@ export function drawSpectrumCrosshair(
     verticalColor: string,
     horizontalColor: string,
 ): void {
-    ctx.save();
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    ctx.strokeStyle = verticalColor;
-    ctx.beginPath();
-    ctx.moveTo(x, frame.padTop);
-    ctx.lineTo(x, frame.padTop + frame.plotHeight);
-    ctx.stroke();
-    if (y !== null) {
-        ctx.strokeStyle = horizontalColor;
-        ctx.beginPath();
-        ctx.moveTo(frame.padLeft, y);
-        ctx.lineTo(frame.padLeft + frame.plotWidth, y);
-        ctx.stroke();
-    }
-    ctx.setLineDash([]);
-    ctx.restore();
+    drawCrosshair(ctx, { left: frame.padLeft, top: frame.padTop, width: frame.plotWidth, height: frame.plotHeight }, x, y, verticalColor, horizontalColor);
 }
+
+/** Canvas x of a turned value-axis title, so every titled plot puts it at the same place. */
+export const AXIS_TITLE_X = 7;
 
 export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, color: string, opts: { padL?: number; padR?: number; padT?: number; padB?: number; lineWidth?: number } = {}, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, logFrequency = false): void {
     const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
@@ -436,7 +424,7 @@ export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice
     ctx.restore();
 }
 
-export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, padL: number, padR: number, padT: number, padB: number, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, theme: DrawTheme = DEFAULT_THEME, logFrequency = false) {
+export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, padL: number, padR: number, padT: number, padB: number, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, theme: DrawTheme = DEFAULT_THEME, logFrequency = false, axisTitle?: string) {
     const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
     const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
     const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
@@ -453,15 +441,15 @@ export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice
     ctx.moveTo(padL, H - padB);
     ctx.lineTo(W - padR, H - padB);
     ctx.stroke();
+    // A titled axis carries the unit once in its title, as the time-series lanes do; an untitled one repeats it on each tick.
+    const tickText = (value: number) => axisTitle === undefined ? formatDbLevel(value, slice) : value.toFixed(0);
+    drawValueAxis(ctx, { left: padL, top: padT, width: plotW, height: plotH }, [
+        { text: tickText(_visDbMax), fraction: 1 },
+        { text: tickText((_visDbMax + _visDbMin) / 2), fraction: 0.5 },
+        { text: tickText(_visDbMin), fraction: 0 },
+    ], axisTitle ?? '', { color: mutedColor, titleX: AXIS_TITLE_X });
     ctx.fillStyle = mutedColor;
     ctx.font = '9px monospace';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'top';
-    ctx.fillText(formatDbLevel(_visDbMax, slice), padL - 2, padT);
-    ctx.textBaseline = 'middle';
-    ctx.fillText(formatDbLevel((_visDbMax + _visDbMin) / 2, slice), padL - 2, padT + plotH / 2);
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(formatDbLevel(_visDbMin, slice), padL - 2, H - padB);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     // 9px monospace: about 5.5px per character. The edge labels always show; an inner tick is skipped when it would touch a label.

@@ -249,7 +249,18 @@ export function renderComparisonStyles(): string {
             font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line);
         }
         #spectrum-split { display: flex; align-items: stretch; }
-        #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); position: relative; flex: 1 1 0; min-width: 0; }
+        /* Both halves share one layout: a header row (what was analysed, then the cursor readout at its right end) over the plot. */
+        #spectrum-overlay-wrap, #spectrum-section.has-pair #pair-spectrum-wrap {
+            display: flex; flex-direction: column; flex: 1 1 0; min-width: 0;
+            padding: 2px 10px 6px; background: var(--track-bg); position: relative; overflow: hidden;
+        }
+        .spectrum-pane-header {
+            display: flex; align-items: center; gap: 10px; height: 18px; flex: none;
+            font-size: 10px; font-family: var(--font-mono); color: var(--muted); white-space: nowrap; overflow: hidden;
+        }
+        /* The readout keeps its full width; what was analysed gives way to it. */
+        .spectrum-pane-header > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .spectrum-pane-header > .spectrum-readout { flex: none; margin-left: auto; }
         /* The pair view against a reference lane takes the right part of the spectrum section. */
         #pair-divider, #pair-spectrum-wrap { display: none; }
         #spectrum-section.has-pair #pair-divider { display: block; flex: none; width: 6px; cursor: col-resize; background: var(--line); }
@@ -257,23 +268,13 @@ export function renderComparisonStyles(): string {
         body.is-pair-resizing #pair-divider { background: color-mix(in srgb, var(--accent) 45%, transparent); }
         body.is-pair-resizing { cursor: col-resize; user-select: none; }
         #spectrum-section.has-pair #spectrum-overlay-wrap { flex: 0 0 50%; }
-        #spectrum-section.has-pair #pair-spectrum-wrap {
-            display: flex; flex-direction: column; flex: 1 1 0; min-width: 0;
-            padding: 2px 10px 6px; background: var(--track-bg); overflow: hidden;
-        }
-        #pair-spectrum-header {
-            display: flex; align-items: center; gap: 10px; height: 18px; flex: none;
-            font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden;
-        }
-        #pair-spectrum-summary { font-family: var(--font-mono); }
         #pair-spectrum-summary.is-warning { color: var(--vscode-editorWarning-foreground, #c98a00); }
-        #pair-spectrum-legend { display: flex; gap: 8px; overflow: hidden; }
+        #pair-spectrum-legend { display: flex; gap: 8px; overflow: hidden; font-family: var(--font-ui); }
         .pair-legend-item { display: inline-flex; align-items: center; gap: 3px; }
         .pair-legend-item.is-empty { opacity: 0.45; }
         .pair-legend-swatch { width: 10px; height: 2px; border-radius: 1px; }
         .pair-legend-item.is-empty .pair-legend-swatch { background: var(--muted) !important; }
         .pair-legend-mark { margin-left: 1px; }
-        #pair-spectrum-readout { margin-left: auto; font-family: var(--font-mono); }
         #pair-spectrum-plot { position: relative; flex: 1 1 auto; min-height: 0; }
         /* A replacement request is computing; the plot still shows the previous inputs. */
         #pair-spectrum-wrap.is-stale #pair-spectrum-plot,

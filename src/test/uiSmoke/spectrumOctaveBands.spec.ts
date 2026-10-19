@@ -16,8 +16,8 @@ async function hoverOverlayAt(page: Page, fraction: number): Promise<void> {
     const box = await overlay.boundingBox();
     const width = await overlay.evaluate(canvas => (canvas as HTMLCanvasElement).width);
     if (!box) throw new Error('spectrum overlay has no layout box');
-    // OVERLAY_SPECTRUM_PAD: 36 px left and 8 px right of the plot, in canvas pixels.
-    const x = (36 + fraction * (width - 44)) * box.width / width;
+    // OVERLAY_SPECTRUM_PAD: 48 px left and 8 px right of the plot, in canvas pixels.
+    const x = (48 + fraction * (width - 56)) * box.width / width;
     await page.mouse.move(box.x + x, box.y + box.height / 2);
 }
 
