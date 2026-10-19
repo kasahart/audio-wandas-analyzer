@@ -106,6 +106,18 @@ test('the pair plot draws ok responses only and reads out the hovered bin', () =
     assert.ok(ctx.texts.includes('180') && !ctx.texts.some(text => text.endsWith('°') && text !== 'Phase [°]'));
 });
 
+test('a cursor synced from past the reference Nyquist is not drawn on the pair plot', () => {
+    const input = { frequencyBins: 3, maxFrequencyHz: 1000, curves: [curve()] };
+    const visible = { frequencyMin: 0, frequencyMax: 4000 };
+    const lines = (frequencyHz: number) => {
+        const ctx = recordingContext();
+        paintPairSpectrum(ctx, 400, 180, input, visible, { frequencyHz, y: null }, en, DEFAULT_THEME);
+        return ctx.lines;
+    };
+    assert.equal(lines(3000), 3 * 2);
+    assert.equal(lines(1100), 3 * 2 + 3);
+});
+
 test('the pointer picks the line nearest it and reads that lane only', () => {
     const curves = [curve({}, 'b.wav'), curve({ gainDb: [10, 10, 10], phaseRad: [-Math.PI / 2, -Math.PI / 2, -Math.PI / 2], coherence: [0.3, 0.3, 0.3] }, 'c.wav')];
     const input = { frequencyBins: 3, maxFrequencyHz: 1000, curves };

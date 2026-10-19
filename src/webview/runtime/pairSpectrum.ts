@@ -214,7 +214,10 @@ export function paintPairSpectrum(
     const rows = pairRows(drawn, bins, strings);
     const yOf = (row: PairRow, frame: PlotFrame, value: number) =>
         frame.top + (1 - Math.max(0, Math.min(1, (value - row.min) / (row.max - row.min)))) * frame.height;
-    const hoverBin = hover === null || bins.length === 0 ? null : bins.reduce((best, candidate) =>
+    // A cursor that only follows the power spectrum is dropped past the reference's Nyquist rather than pinned to the last bin, away from it.
+    const halfBin = input.maxFrequencyHz / Math.max(input.frequencyBins - 1, 1) / 2;
+    const outOfRange = hover !== null && hover.y === null && hover.frequencyHz > input.maxFrequencyHz + halfBin;
+    const hoverBin = hover === null || outOfRange || bins.length === 0 ? null : bins.reduce((best, candidate) =>
         Math.abs(binFrequency(input, candidate) - hover.frequencyHz) < Math.abs(binFrequency(input, best) - hover.frequencyHz) ? candidate : best, bins[0]);
     // The line nearest the pointer in the lane under it; none when the cursor only follows the power spectrum.
     let picked: { curve: PairCurve; lane: number; value: number } | null = null;
