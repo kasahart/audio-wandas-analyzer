@@ -17,13 +17,14 @@ guardrails. Write every comment in Japanese.
    isolation.
 2. For every changed behaviour, try to break it. Walk the checklist below and,
    for each item, either name a concrete failing input or state, or move on.
-3. When a claim depends on runtime behaviour, verify it. Node and Python
-   dependencies are installed. Compile with `npm run compile` and run unit
-   tests with `node --test dist/test/...`, or put a short probe script under
-   `review-scratch/` (gitignored) and run it with `node` or `python`.
-   Run backend tests with `python -m pytest`. Browsers are not installed, so
-   Playwright specs cannot run. Say in the finding what you ran and what it
-   printed.
+3. Run `npm run verify`, the repository's correctness gate; a failure there is
+   blocking. When a claim depends on runtime behaviour, verify it as well:
+   compile with `npm run compile` and run unit tests with
+   `node --test dist/test/...`, or put a short probe script under
+   `/tmp/review-scratch/` (outside the checkout) and run it with `node` or
+   `python`. Run backend tests with `python -m pytest`. Node and Python
+   dependencies are installed; browsers are not, so Playwright specs cannot
+   run. Say in the finding what you ran and what it printed.
 4. Dependencies may have been installed from the default branch. If the PR
    changes dependency files, say which results could differ with the PR's
    own dependencies.

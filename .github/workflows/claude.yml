@@ -40,9 +40,17 @@ jobs:
         env:
           OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
         run: |
+          # Checked here, before installing dependencies, because the action
+          # itself only rejects non-writers once it starts.
+          PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/$ACTOR/permission" --jq .permission 2>/dev/null || echo none)
           if [ -z "$OAUTH$API_KEY" ]; then
             echo "::notice::CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY is not set; skipping Claude."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          elif [ "$PERMISSION" != admin ] && [ "$PERMISSION" != maintain ] && [ "$PERMISSION" != write ]; then
+            echo "::notice::$ACTOR has '$PERMISSION' permission; skipping Claude."
             echo "ok=false" >> "$GITHUB_OUTPUT"
           else
             echo "ok=true" >> "$GITHUB_OUTPUT"
@@ -86,5 +94,5 @@ jobs:
             actions: read
           claude_args: |
             --model opus
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(npm run compile:*),Bash(node:*),Bash(python:*)"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(npm run verify:*),Bash(npm run compile:*),Bash(node:*),Bash(python:*)"
             --append-system-prompt "Reply in Japanese. Follow AGENTS.md and CLAUDE.md in this repository. When asked to review a pull request, follow .claude/review.md, but put the summary in your progress comment instead of a separate gh pr comment."

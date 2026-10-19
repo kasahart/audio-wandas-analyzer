@@ -20,6 +20,3 @@ UX_AUDIT_REPORT.md
 .ruff_cache/
 
 browser-dist/
-
-# Claude review probe scripts (.claude/review.md)
-review-scratch/
