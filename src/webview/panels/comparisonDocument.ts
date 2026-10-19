@@ -523,6 +523,8 @@ export function renderComparisonStyles(): string {
             #selection-sidebar {
                 width: 100% !important;
                 min-width: 0;
+                /* Stacked and empty, the panel would have no height left for its absolutely placed toggle. */
+                min-height: 34px;
                 border-right: none;
                 border-bottom: 1px solid var(--line);
             }

@@ -87,6 +87,16 @@ test('the selection toggle hides the file list so the results pane takes the ful
     await expect(sidebar).toBeHidden();
 });
 
+test('the stacked, empty file list still holds its collapse button', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 700 });
+    await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => document.getElementById('directory-selection-layout')!.classList.add('is-empty'));
+    const sidebar = (await page.locator('#selection-sidebar').boundingBox())!;
+    const toggle = (await page.locator('#selection-sidebar [data-action="toggle-selection-sidebar"]').boundingBox())!;
+    expect(toggle.y).toBeGreaterThanOrEqual(sidebar.y);
+    expect(toggle.y + toggle.height).toBeLessThanOrEqual(sidebar.y + sidebar.height);
+});
+
 test('maximizing the spectrum gives its plot the tracks\' room and Esc restores the layout', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
