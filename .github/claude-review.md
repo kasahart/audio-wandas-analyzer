@@ -18,7 +18,7 @@ guardrails. Write every comment in Japanese.
 3. When a claim depends on runtime behaviour, verify it. Node and Python
    dependencies are installed. Compile with `npm run compile` and run unit
    tests with `node --test dist/test/...`, or put a short probe script under
-   `review-scratch/` (never commit it) and run it with `node` or `python`.
+   `review-scratch/` (gitignored) and run it with `node` or `python`.
    Run backend tests with `python -m pytest`. Browsers are not installed, so
    Playwright specs cannot run. Say in the finding what you ran and what it
    printed.
