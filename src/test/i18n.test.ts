@@ -61,7 +61,7 @@ test('browser input limits have Japanese wording in the shared dictionary', () =
     const ja = getStrings('ja');
     assert.match(ja.browserInputTooLarge, /選択/);
     assert.match(ja.browserAggregateLimit, /削除/);
-    assert.match(getStrings('en').browserAggregateLimit, /\{count\} WAV files \/ \{mib\} MiB/);
+    assert.match(getStrings('en').browserAggregateLimit, /\{count\} files \/ \{mib\} MiB/);
     assert.match(getStrings('en').browserInputTooLarge, /\{mib\} MiB/);
 });
 

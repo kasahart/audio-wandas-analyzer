@@ -1,4 +1,5 @@
-export const SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.aiff', '.aif', '.snd']);
+/** Mirrors `wandas.supported_formats()` of the pinned wandas; python-backend/test_supported_formats.py keeps them equal. */
+export const SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.aiff', '.aif', '.snd', '.csv']);
 /** The same extensions without the leading dot, as VS Code open-dialog filters expect. */
 export const SUPPORTED_AUDIO_DIALOG_EXTENSIONS = Array.from(SUPPORTED_AUDIO_FILE_EXTENSIONS, extension => extension.slice(1));
 

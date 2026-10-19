@@ -5,7 +5,7 @@ import { BackendProtocolError, parseBackendResult, PendingBackendRequests, rejec
 import type { BrowserLimits } from '../../shared/protocol/generated/backendProtocolSchema';
 import { schemaViolation, withoutResponseEnvelope } from '../../shared/protocol/schemaValidation';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
-import { isConfigureCalibrationMessage } from '../../shared/utils/audioTarget';
+import { isConfigureCalibrationMessage, isSupportedAudioFile, SUPPORTED_AUDIO_FILE_EXTENSIONS } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../../shared/session/comparisonSessionController';
@@ -42,24 +42,24 @@ interface FolderEntryHandle {
 }
 type ShowDirectoryPicker = (options: { mode: 'read' }) => Promise<FolderEntryHandle>;
 
-async function collectWavFiles(directory: FolderEntryHandle, prefix: string, found: Array<{ path: string; file: File }>): Promise<void> {
+async function collectSourceFiles(directory: FolderEntryHandle, prefix: string, found: Array<{ path: string; file: File }>): Promise<void> {
     for await (const entry of directory.values!()) {
         const path = `${prefix}/${entry.name}`;
-        if (entry.kind === 'directory') await collectWavFiles(entry, path, found);
-        else if (/\.wav$/i.test(entry.name)) found.push({ path, file: await entry.getFile!() });
+        if (entry.kind === 'directory') await collectSourceFiles(entry, path, found);
+        else if (isSupportedAudioFile(entry.name)) found.push({ path, file: await entry.getFile!() });
     }
 }
 
 const readEntryBatch = (reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> => new Promise((resolve, reject) => reader.readEntries(resolve, reject));
 
 /** A dropped folder arrives as an entry whose reader returns its children in batches until an empty one. */
-async function collectDroppedWavFiles(directory: FileSystemDirectoryEntry, prefix: string, found: Array<{ path: string; file: File }>): Promise<void> {
+async function collectDroppedSourceFiles(directory: FileSystemDirectoryEntry, prefix: string, found: Array<{ path: string; file: File }>): Promise<void> {
     const reader = directory.createReader();
     for (let batch = await readEntryBatch(reader); batch.length; batch = await readEntryBatch(reader)) {
         for (const entry of batch) {
             const path = `${prefix}/${entry.name}`;
-            if (entry.isDirectory) await collectDroppedWavFiles(entry as FileSystemDirectoryEntry, path, found);
-            else if (/\.wav$/i.test(entry.name)) found.push({ path, file: await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject)) });
+            if (entry.isDirectory) await collectDroppedSourceFiles(entry as FileSystemDirectoryEntry, path, found);
+            else if (isSupportedAudioFile(entry.name)) found.push({ path, file: await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject)) });
         }
     }
 }
@@ -135,7 +135,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     bar.style.cssText = 'display:flex;gap:10px;align-items:center;min-width:0;max-width:60%;padding-right:8px';
     const pick = document.createElement('input');
     pick.setAttribute('data-action', 'browser-open-wav');
-    pick.type = 'file'; pick.multiple = true; pick.accept = '.wav,audio/wav'; pick.setAttribute('aria-label', strings.btnOpenFile);
+    pick.type = 'file'; pick.multiple = true; pick.accept = Array.from(SUPPORTED_AUDIO_FILE_EXTENSIONS).join(','); pick.setAttribute('aria-label', strings.btnOpenFile);
     // The native file input labels itself in the browser's UI language, so a page-language button opens it instead.
     pick.style.cssText = 'display:none';
     const folderPick = document.createElement('input');
@@ -253,7 +253,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         target.setAttribute('aria-description', strings.browserUnavailable);
     });
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
-    /** The listed WAV files keyed by the `/sources/<relative path>` each one loads under. */
+    /** The listed source files keyed by the `/sources/<relative path>` each one loads under. */
     const folder = new Map<string, File>();
     /** Checked tree files that are still loading, so their checkboxes stay checked until they load or fail. */
     const pendingTreePaths = new Set<string>();
@@ -354,7 +354,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }
     function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
         if (!worker) {
-            if (command.cmd !== 'load' && command.cmd !== 'limits') throw new Error('No selected source; choose the WAV again.');
+            if (command.cmd !== 'load' && command.cmd !== 'limits') throw new Error('No selected source; choose the file again.');
             worker = startWorker();
         }
         const requestId = forcedRequestId ?? pending.nextId();
@@ -495,7 +495,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         stftOptions: () => stft().stftOptions,
         client: analysisClient,
         lazyContext(filePath) {
-            if (!sources.get(filePath)) throw new Error('Source is no longer selected; choose the WAV again.');
+            if (!sources.get(filePath)) throw new Error('Source is no longer selected; choose the file again.');
             return {};
         },
         lazyFailed: (_request, reason) => announce(reason),
@@ -678,17 +678,18 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     /** Adds individually opened files to the list beside what is already listed and loads them as checked tracks. */
     function openFiles(files: File[]): void {
         if (loading) return;
-        const wavs = files.filter(file => /\.wav$/i.test(file.name));
-        if (!wavs.length) { announce(strings.browserDropNoWav); return; }
+        const readable = files.filter(file => isSupportedAudioFile(file.name));
+        if (!readable.length) { announce(strings.browserDropNoWav); return; }
         const listed = Array.from(folder);
-        const added = wavs.map(file => {
+        const added = readable.map(file => {
             // Picking an unchecked top-level file again checks its entry; a file from an opened folder, or one already loaded, gets its own top-level entry.
             const same = listed.find(([path, entry]) => path.split('/').length === 3 && !sources.get(path) && !pendingTreePaths.has(path)
                 && entry.name === file.name && entry.size === file.size && entry.lastModified === file.lastModified);
             if (same) { pendingTreePaths.add(same[0]); return { file, sourceId: same[0].slice('/sources/'.length) }; }
-            const stem = file.name.replace(/\.wav$/i, '').replace(/[\\/\u0000-\u001f]/g, '_');
-            let sourceId = `${stem}.wav`;
-            for (let n = 2; folder.has(`/sources/${sourceId}`); n++) sourceId = `${stem} (${n}).wav`;
+            const extension = file.name.slice(file.name.lastIndexOf('.'));
+            const stem = file.name.slice(0, -extension.length).replace(/[\\/\u0000-\u001f]/g, '_');
+            let sourceId = `${stem}${extension}`;
+            for (let n = 2; folder.has(`/sources/${sourceId}`); n++) sourceId = `${stem} (${n})${extension}`;
             folder.set(`/sources/${sourceId}`, file);
             return { file, sourceId };
         });
@@ -731,7 +732,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 try {
                     for (const entry of folders) {
                         const found: Array<{ path: string; file: File }> = [];
-                        await collectDroppedWavFiles(entry, entry.name, found);
+                        await collectDroppedSourceFiles(entry, entry.name, found);
                         if (myList !== listGeneration) return;
                         openFolderFiles(entry.name, found.sort(byPath));
                     }
@@ -780,7 +781,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             try {
                 const root = await showDirectoryPicker.call(window, { mode: 'read' });
                 const myList = listGeneration;
-                await collectWavFiles(root, root.name, files);
+                await collectSourceFiles(root, root.name, files);
                 if (myList !== listGeneration) return;
                 openFolderFiles(root.name, files.sort(byPath));
             } catch (error) {
@@ -789,11 +790,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         })();
     }
     folderPick.onchange = (): void => {
-        const files = Array.from(folderPick.files || []).filter(file => /\.wav$/i.test(file.name) && file.webkitRelativePath);
+        const files = Array.from(folderPick.files || []).filter(file => isSupportedAudioFile(file.name) && file.webkitRelativePath);
         folderPick.value = '';
         openFolderFiles(files[0]?.webkitRelativePath.split('/')[0] ?? '', files.map(file => ({ path: file.webkitRelativePath, file })));
     };
-    // Pyodide boots when its Worker starts, so starting it with the page keeps that wait off the first WAV load.
+    // Pyodide boots when its Worker starts, so starting it with the page keeps that wait off the first file load.
     worker = startWorker();
     window.addEventListener('pointerdown', event => { if (about.open && !about.contains(event.target as Node)) about.open = false; });
     window.addEventListener('resize', clampAbout);

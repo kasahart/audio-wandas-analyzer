@@ -13,6 +13,7 @@ class MockElement {
     value = '';
     disabled = false;
     multiple = false;
+    accept = '';
     textContent = '';
     id = '';
     src = '';
@@ -385,7 +386,7 @@ test('invalid additions preserve existing tracks, batch continues and count cap 
     app.picker.files = [{ name: 'ninth.wav', size: 100, arrayBuffer: async () => { reads++; return new ArrayBuffer(100); } }];
     app.picker.onchange!(); await flush();
     assert.equal(reads, 0);
-    assert.match(app.status, /up to 8 WAV files \/ 64 MiB total input/);
+    assert.match(app.status, /up to 8 files \/ 64 MiB total input/);
     assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 8);
     assert.equal(app.revoked.length, 0);
 });
@@ -394,7 +395,7 @@ test('file pre-checks use the session limits published by the Worker once', asyn
     const app = harness();
     app.picker.files = [{ name: 'huge.wav', size: 16 * 1024 * 1024 + 1, arrayBuffer: async () => { throw new Error('must not read'); } }];
     app.picker.onchange!(); await flush();
-    assert.match(app.status, /huge\.wav: WAV must be 16 MiB or smaller\./);
+    assert.match(app.status, /huge\.wav: Each file must be 16 MiB or smaller\./);
     await app.load(); await app.load();
     assert.deepEqual(app.workers.flatMap(worker => worker.commands).filter(command => command.cmd === 'limits').length, 1);
 });
@@ -784,7 +785,7 @@ test('Recipe timeout during a multi-file load keeps the picker disabled until th
     await flush();
     assert.equal(app.picker.disabled, true);
     app.host.postMessage({ type: 'select-target', targetKind: 'file' });
-    assert.equal(app.status, 'Preparing local Python Worker / adding WAV files…', 'Open File explains why no chooser opens');
+    assert.equal(app.status, 'Preparing local Python Worker / adding files…', 'Open File explains why no chooser opens');
     app.blockedWorkerCommands.add('load');
     await new Promise(resolve => setTimeout(resolve, 40));
     assert.equal(original.terminated, true);
@@ -935,6 +936,17 @@ test('Open Folder walks the File System Access picker and ignores a cancelled pi
     release();
     await flush(); await flush();
     assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths, []);
+});
+
+test('every format wandas reads is offered and keeps its extension when listed', async () => {
+    const app = harness();
+    const file = (name: string) => ({ size: 100, name, lastModified: 1, arrayBuffer: async () => new ArrayBuffer(100) });
+    assert.equal(app.picker.accept, '.wav,.flac,.ogg,.aiff,.aif,.snd,.csv');
+    app.picker.files = [file('take.FLAC'), file('accel.csv'), file('take.flac'), file('clip.mp3')];
+    app.picker.onchange!();
+    await flush(); await flush();
+    assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths,
+        ['/sources/take.FLAC', '/sources/accel.csv', '/sources/take.flac']);
 });
 
 test('picked files are listed in the tree under their own names and load checked; a name taken twice gets a suffix', async () => {

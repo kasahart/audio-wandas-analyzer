@@ -266,9 +266,18 @@ const server = http.createServer((req,res) => {
             assert.equal(await page.locator('audio').evaluateAll(nodes=>nodes.every(audio=>audio.paused)),true);
         }
         await picker.setInputFiles({name:'bad.wav',mimeType:'audio/wav',buffer:Buffer.from('not a WAV')});
-        await status.filter({hasText:'WAV only'}).waitFor();
+        await status.filter({hasText:'Unable to read audio'}).waitFor();
         assert.doesNotMatch(await page.locator('span[role="status"]').innerText(),/Traceback|PythonError|\n/);
         assert.equal(await page.locator('.track-row').count(),0);
+        // Non-WAV formats decode in Pyodide through the same wandas readers as the desktop backend.
+        const flac = spawnSync(path.join(root,'.venv/bin/python'),['-c','import sys,io,soundfile as sf; d,r=sf.read(sys.argv[1]); b=io.BytesIO(); sf.write(b,d,r,format="FLAC"); sys.stdout.buffer.write(b.getvalue())',fixturePath('short-stereo.wav')]);
+        assert.equal(flac.status,0,String(flac.stderr));
+        const accelCsv = 'time,x\n' + Array.from({length:2000},(_,i)=>`${i/1000},${Math.sin(2*Math.PI*50*i/1000)}`).join('\n') + '\n';
+        await picker.setInputFiles([{name:'take.flac',mimeType:'audio/flac',buffer:flac.stdout},{name:'accel.csv',mimeType:'text/csv',buffer:Buffer.from(accelCsv)}]);
+        await status.filter({hasText:'accel.csv: waveform ready'}).waitFor({timeout:120000});
+        assert.equal(await page.locator('.track-row').count(),2);
+        await page.locator('[data-action="selection-clear-all"]').click();
+        await status.filter({hasText:'Worker cleared'}).waitFor();
         await loadFile('short-stereo.wav');
         const firstUrl = await page.locator('audio').first().getAttribute('src');
         await loadFile('changing-stereo.wav');
