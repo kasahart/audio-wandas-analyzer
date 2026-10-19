@@ -388,7 +388,7 @@ const server = http.createServer((req,res) => {
             await page.mouse.move(spectrumBox.x+32+(spectrumBox.width-38)*peakHz/2000,spectrumBox.y+spectrumBox.height*.5);
             await page.waitForFunction(expected=>{
                 const text=document.getElementById('spectrum-freq-readout')?.textContent || '';
-                const match=text.match(/(\d+(?:\.\d+)?) Hz\s+(-?\d+(?:\.\d+)?)/);
+                const match=text.match(/(\d+(?:\.\d+)?) Hz \/ (-?\d+(?:\.\d+)?)/);
                 return match && Math.abs(Number(match[1])-expected.hz)<.11 && Math.abs(Number(match[2])-expected.db)<.11;
             },{hz:peakHz,db:peakDb});
             const stftId = '#track-canvas-0' + (channel ? '-1' : '');
