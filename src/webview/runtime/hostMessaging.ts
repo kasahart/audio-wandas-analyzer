@@ -77,6 +77,10 @@ function hasNumber(value: Record<string, unknown>, key: string): boolean {
     return typeof value[key] === 'number' && Number.isFinite(value[key]);
 }
 
+function hasIndex(value: Record<string, unknown>, key: string): boolean {
+    return Number.isInteger(value[key]) && (value[key] as number) >= 0;
+}
+
 function isNullableNumberArray(value: unknown, length: number): boolean {
     return Array.isArray(value) && value.length === length
         && value.every(item => item === null || (typeof item === 'number' && Number.isFinite(item)));
@@ -87,9 +91,9 @@ function isPairResponse(value: unknown, frequencyBins: number): boolean {
         return false;
     }
     const length = value.status === 'ok' ? frequencyBins : 0;
-    return hasString(value, 'filePath') && hasNumber(value, 'channelIndex')
+    return hasString(value, 'filePath') && hasIndex(value, 'channelIndex')
         && (value.status === 'ok' || value.status === 'no-overlap' || value.status === 'too-short')
-        && hasNumber(value, 'startSeconds') && hasNumber(value, 'endSeconds') && hasNumber(value, 'averages')
+        && hasNumber(value, 'startSeconds') && hasNumber(value, 'endSeconds') && hasIndex(value, 'averages')
         && typeof value.resampled === 'boolean' && hasString(value, 'unit') && hasString(value, 'axisLabel')
         && isNullableNumberArray(value.gainDb, length) && isNullableNumberArray(value.phaseRad, length)
         && isNullableNumberArray(value.coherence, length);
@@ -139,8 +143,8 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
         case 'pair-spectrum-result':
             return hasString(value, 'requestId') && hasString(value, 'analysisId')
                 && hasString(value, 'settingsSignature') && hasString(value, 'filePath')
-                && hasNumber(value, 'frequencyBins') && hasNumber(value, 'maxFrequencyHz')
-                && hasNumber(value, 'nFft') && hasNumber(value, 'hopLength')
+                && hasIndex(value, 'channelIndex') && hasIndex(value, 'frequencyBins') && hasNumber(value, 'maxFrequencyHz')
+                && hasIndex(value, 'nFft') && hasIndex(value, 'hopLength')
                 && Array.isArray(value.responses) && value.responses.every(response => isPairResponse(response, value.frequencyBins as number));
         case 'python-environment-state':
             return hasString(value, 'pythonCommand') && hasString(value, 'status') && hasString(value, 'tooltip');

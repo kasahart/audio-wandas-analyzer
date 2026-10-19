@@ -109,6 +109,9 @@ test('pair requests and results pass their validators', () => {
         frequencyBins: 3, maxFrequencyHz: 1000, nFft: 4, hopLength: 1, window: 'hann', computeMs: 1, responses: [response()] };
     assert.equal(isHostInboundMessage(result), true);
     assert.equal(isHostInboundMessage({ ...result, responses: [response({ gainDb: [0] })] }), false);
+    assert.equal(isHostInboundMessage({ ...result, responses: [response({ averages: 0.5 })] }), false);
+    assert.equal(isHostInboundMessage({ ...result, responses: [response({ channelIndex: -1 })] }), false);
+    assert.equal(isHostInboundMessage({ ...result, nFft: 4.5 }), false);
     assert.equal(isHostInboundMessage({ ...result, responses: [response({ status: 'too-short', gainDb: [], phaseRad: [], coherence: [] })] }), true);
     assert.equal(isHostInboundMessage({ type: 'pair-spectrum-error', requestId: 'r', analysisId: 'a', settingsSignature: 's', error: 'x' }), true);
     assert.equal(isHostInboundMessage({ type: 'pair-spectrum-error', requestId: 'r', analysisId: 'a', settingsSignature: 's' }), false);
@@ -258,6 +261,31 @@ test('the pair panel requests once per change of sources or range, never for a r
         assert.equal(fixture.panel.lastResult?.requestId, 'pair-2');
         assert.equal(fixture.doc.getElementById('pair-spectrum-summary')?.textContent, 'H1 · 32 avg · 1.00–3.00 s');
         assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, '');
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
+test('the pair panel waits for a dragged offset to rest before it requests', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        assert.equal(fixture.posted.length, 1);
+        for (let step = 1; step <= 10; step++) {
+            fixture.setChannels([
+                { trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
+                { trackId: 't2' as TrackId, filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5 + step * 0.01, label: 'b.wav', color: '#f00' },
+            ]);
+            fixture.panel.sync();
+            mock.timers.tick(PAIR_REQUEST_DELAY_MS - 50);
+        }
+        assert.equal(fixture.posted.length, 1);
+        mock.timers.tick(50);
+        assert.equal(fixture.posted.length, 2);
+        assert.equal(fixture.posted[1].responses[0].offsetSeconds, 0.6);
     }
     finally {
         mock.timers.reset();

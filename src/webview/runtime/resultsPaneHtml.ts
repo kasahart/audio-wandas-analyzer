@@ -50,7 +50,7 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '  </div>'
         + '  <div id="spectrum-split">'
         + '    <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(strings.spectrumSectionTitle) + '"' + hintAttr(strings.hintSpectrumPlot) + '></canvas></div>'
-        + '    <div id="pair-divider" class="pair-divider" data-action="pair-divider-drag"' + hintAttr(strings.hintPairDivider) + ' role="separator" aria-orientation="vertical"></div>'
+        + '    <div id="pair-divider" class="pair-divider" data-action="pair-divider-drag"' + hintAttr(strings.hintPairDivider) + ' role="separator" aria-orientation="vertical" aria-label="' + escapeHtml(strings.hintPairDivider) + '"></div>'
         + '    <div id="pair-spectrum-wrap" aria-label="' + escapeHtml(strings.pairSectionTitle) + '">'
         + '      <div id="pair-spectrum-header"><span id="pair-spectrum-summary"></span><span id="pair-spectrum-legend"></span><span id="pair-spectrum-readout"></span></div>'
         + '      <div id="pair-spectrum-plot"><canvas id="pair-spectrum-canvas" aria-label="' + escapeHtml(strings.pairSectionTitle) + '"' + hintAttr(strings.hintPairPlot) + '></canvas><div id="pair-spectrum-message" style="display:none"></div></div>'

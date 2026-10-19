@@ -56,6 +56,7 @@ const PAIR_HEADER_HEIGHT = 18;
 export class PairSpectrumPanel {
     private referenceState: PairReference | null = null;
     private sentKey: string | null = null;
+    private observedKey: string | null = null;
     private pendingRequestId: string | null = null;
     private result: PairSpectrumResultMessage | null = null;
     private error: string | null = null;
@@ -81,6 +82,7 @@ export class PairSpectrumPanel {
     setReference(next: PairReference | null): void {
         this.referenceState = next;
         this.sentKey = null;
+        this.observedKey = null;
         this.pendingRequestId = null;
         this.result = null;
         this.error = null;
@@ -105,9 +107,25 @@ export class PairSpectrumPanel {
         }
     }
 
-    /** Called on every render; posts a request only once the sources or the range settle on something new. */
+    /**
+     * Called on every render. Each change of the sources or the range restarts the delay, so a drag
+     * of a loop edge or an offset sends one request once it rests, and a cursor move sends none.
+     */
     sync(): void {
+        if (!this.referenceState) {
+            return;
+        }
+        const key = this.inputKey();
+        if (key === this.observedKey) {
+            return;
+        }
+        this.observedKey = key;
         this.schedule(PAIR_REQUEST_DELAY_MS);
+    }
+
+    private inputKey(): string {
+        const channels = this.host.channels().map(channel => [channel.trackId, channel.filePath, channel.channelIndex, channel.offsetSeconds]);
+        return JSON.stringify([this.referenceState, this.host.analysisId(), this.host.settingsSignature(), this.host.range(), channels]);
     }
 
     private schedule(delayMs: number): void {
@@ -115,9 +133,6 @@ export class PairSpectrumPanel {
             return;
         }
         if (this.timer !== null) {
-            if (delayMs > 0) {
-                return;
-            }
             clearTimeout(this.timer);
         }
         this.timer = setTimeout(() => {
