@@ -93,6 +93,16 @@ def test_array_inputs_are_rejected_because_the_panel_supplies_frames() -> None:
         frame_input_names(plan)
 
 
+def test_outputs_without_a_chart_are_rejected_instead_of_shown_as_repr(tmp_path: Path) -> None:
+    wav = tmp_path / "a.wav"
+    _write_sine_wav(wav)
+    signal = wd.read(wav)
+    recipe = wd.pipeline.RecipePlan.from_frame(signal.cepstrum(), input_names=("signal",)).to_dict()
+
+    with pytest.raises(RecipeError, match="cannot chart a CepstralFrame output"):
+        _run(recipe, {"signal": signal})
+
+
 def test_replay_failures_become_recipe_errors(tmp_path: Path) -> None:
     wav = tmp_path / "a.wav"
     _write_sine_wav(wav)

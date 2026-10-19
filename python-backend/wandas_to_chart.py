@@ -295,6 +295,19 @@ def _adapt_ndarray(arr: np.ndarray, *, title: str, unit: str | None = None) -> S
 # ---- public entry ----------------------------------------------------------
 
 
+# Frame outputs ``adapt`` draws as charts; any other frame would fall back to its ``repr``.
+CHART_FRAME_TYPES = (
+    ChannelFrame,
+    SpectralFrame,
+    CoherenceFrame,
+    CrossSpectralFrame,
+    TransferFunctionFrame,
+    SpectrogramFrame,
+    NOctFrame,
+    RoughnessFrame,
+)
+
+
 def adapt(obj: Any, *, title: str | None = None, **kwargs: Any) -> ChartSpec:
     """Adapt a wandas frame (or ndarray scalar metric) to a ChartSpec dict.
 
