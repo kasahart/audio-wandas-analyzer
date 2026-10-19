@@ -47,6 +47,21 @@ test('a reference lane splits the spectrum section into the power spectrum and t
     // Moving the cursor or hovering the pair plot reads values without asking the host again.
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await expect(page.locator('#pair-spectrum-readout')).toContainText(/Hz \/ .* dB \/ .*° \/ γ² /u);
+    // The power spectrum follows the pair plot's cursor frequency, and the other way round.
+    await expect(page.locator('#spectrum-freq-readout')).toContainText(/ \/ \d+(\.\d)? Hz \/ .* dB$/u);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height + 40);
+    await expect(page.locator('#pair-spectrum-readout')).toHaveText('');
+    await expect(page.locator('#spectrum-freq-readout')).toHaveText('');
+    const overlay = await page.locator('#spectrum-overlay-canvas').boundingBox();
+    if (!overlay) throw new Error('power spectrum canvas has no layout box');
+    await page.mouse.move(overlay.x + overlay.width / 2, overlay.y + overlay.height / 2);
+    await expect(page.locator('#pair-spectrum-readout')).toContainText(/Hz \/ .* dB \/ .*° \/ γ² /u);
+    // Both readouts sit at the right end of their own half's header row.
+    const readoutRight = async (id: string, pane: string) => {
+        const [readout, half] = await Promise.all([page.locator(id).boundingBox(), page.locator(pane).boundingBox()]);
+        return Math.round((half!.x + half!.width) - (readout!.x + readout!.width));
+    };
+    expect(await readoutRight('#spectrum-freq-readout', '#spectrum-overlay-wrap')).toBe(await readoutRight('#pair-spectrum-readout', '#pair-spectrum-wrap'));
     const track = page.locator('.track-canvas').first();
     const trackBox = await track.boundingBox();
     if (!trackBox) throw new Error('track canvas has no layout box');

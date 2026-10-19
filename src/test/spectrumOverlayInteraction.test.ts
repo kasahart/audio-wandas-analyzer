@@ -6,8 +6,8 @@ const W = 144;
 const H = 126;
 
 test('overlayPlotPoint normalizes a canvas point inside the padded plot and clamps outside it', () => {
-    assert.deepEqual(overlayPlotPoint(36, 8, W, H), { freqNorm: 0, dbNorm: 1 });
-    assert.deepEqual(overlayPlotPoint(86, 58, W, H), { freqNorm: 0.5, dbNorm: 0.5 });
+    assert.deepEqual(overlayPlotPoint(48, 8, W, H), { freqNorm: 0, dbNorm: 1 });
+    assert.deepEqual(overlayPlotPoint(92, 58, W, H), { freqNorm: 0.5, dbNorm: 0.5 });
     assert.deepEqual(overlayPlotPoint(0, 500, W, H), { freqNorm: 0, dbNorm: 0 });
     assert.equal(overlayPlotPoint(10, 10, 40, H), null);
 });

@@ -53,6 +53,7 @@ function makeMockCtx(): CanvasDrawCtx & { _ops: RecordedOp[]; _texts: string[] }
         restore() { ops.push({ op: 'restore', args: [] }); },
         translate(x, y) { ops.push({ op: 'translate', args: [x, y] }); },
         rotate(a) { ops.push({ op: 'rotate', args: [a] }); },
+        measureText(text) { return { width: text.length * 5 }; },
         beginPath() { ops.push({ op: 'beginPath', args: [] }); },
         moveTo(x, y) { ops.push({ op: 'moveTo', args: [x, y] }); },
         lineTo(x, y) { ops.push({ op: 'lineTo', args: [x, y] }); },
@@ -319,7 +320,6 @@ test('drawSpectrumCrosshair: y があれば破線の縦線と横線をプロッ�
         { op: 'set strokeStyle', args: ['red'] },
         { op: 'moveTo', args: [10, 20] },
         { op: 'lineTo', args: [110, 20] },
-        { op: 'setLineDash', args: [[]] },
     ]);
     assert.equal(ctx._ops[0].op, 'save');
     assert.equal(ctx._ops[ctx._ops.length - 1].op, 'restore');

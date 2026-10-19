@@ -32,7 +32,7 @@ test('spectrumPlotFrame: パディングを除いたプロット領域と表示�
         padLeft: 32, plotWidth: 162, padTop: 4, plotHeight: 82, ...vis,
     });
     const overlay = spectrumPlotFrame(300, 120, OVERLAY_SPECTRUM_PAD, vis);
-    assert.equal(overlay.plotWidth, 256);
+    assert.equal(overlay.plotWidth, 244);
     assert.equal(overlay.plotHeight, 94);
 });
 

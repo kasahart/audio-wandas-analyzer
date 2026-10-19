@@ -101,3 +101,97 @@ export function normalizedColor(norm: number, palette: Palette): [
         number
     ];
 }
+// Plot chrome shared by the consumers' canvas plots. Drawing goes through the structural context below, so the kernel still needs no DOM types.
+export type PlotContext = {
+    fillStyle: unknown;
+    strokeStyle: unknown;
+    font: string;
+    lineWidth: number;
+    textAlign: 'left' | 'right' | 'center' | 'start' | 'end';
+    textBaseline: 'top' | 'hanging' | 'middle' | 'alphabetic' | 'ideographic' | 'bottom';
+    save(): void;
+    restore(): void;
+    translate(x: number, y: number): void;
+    rotate(angle: number): void;
+    beginPath(): void;
+    moveTo(x: number, y: number): void;
+    lineTo(x: number, y: number): void;
+    stroke(): void;
+    setLineDash(segments: number[]): void;
+    fillText(text: string, x: number, y: number): void;
+    measureText(text: string): {
+        width: number;
+    };
+};
+export type PlotFrame = Readonly<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}>;
+/** `fraction` runs from 0 at the bottom edge of the frame to 1 at its top edge. */
+export type AxisTick = Readonly<{
+    text: string;
+    fraction: number;
+}>;
+export type ValueAxisStyle = Readonly<{
+    color: string;
+    font?: string;
+    /** Canvas x the turned title is centred on, inside the gutter left of the tick labels. */
+    titleX: number;
+}>;
+export const PLOT_FONT = '9px monospace';
+/** `count` frames of equal height stacked top to bottom inside `frame`, `gap` apart. */
+export function stackFrames(frame: PlotFrame, count: number, gap: number): PlotFrame[] {
+    const height = (frame.height - gap * Math.max(count - 1, 0)) / Math.max(count, 1);
+    return Array.from({ length: count }, (_, i) => ({ left: frame.left, top: frame.top + i * (height + gap), width: frame.width, height }));
+}
+/** The title itself when it fits along `length`, else its bracketed unit, so `Phase [°]` becomes `°` in a short lane. */
+export function fittedAxisTitle(title: string, length: number, measure: (text: string) => number): string {
+    if (measure(title) <= length)
+        return title;
+    const unit = /\[([^\]]+)\]\s*$/.exec(title);
+    return unit ? unit[1] : title;
+}
+/** Tick labels right-aligned against the frame's left edge and the quantity title turned along the gutter, as on a time-series lane. */
+export function drawValueAxis(ctx: PlotContext, frame: PlotFrame, ticks: readonly AxisTick[], title: string, style: ValueAxisStyle): void {
+    ctx.save();
+    ctx.fillStyle = style.color;
+    ctx.font = style.font ?? PLOT_FONT;
+    ctx.textAlign = 'right';
+    for (const tick of ticks) {
+        ctx.textBaseline = tick.fraction >= 1 ? 'top' : tick.fraction <= 0 ? 'bottom' : 'middle';
+        ctx.fillText(tick.text, frame.left - 2, frame.top + (1 - tick.fraction) * frame.height);
+    }
+    if (title) {
+        ctx.translate(style.titleX, frame.top + frame.height / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(fittedAxisTitle(title, frame.height, text => ctx.measureText(text).width), 0, 0);
+    }
+    ctx.restore();
+}
+/** Dashed cursor lines across a frame; `y` null draws only the vertical one. */
+export function drawCrosshair(ctx: PlotContext, frame: PlotFrame, x: number, y: number | null, verticalColor: string, horizontalColor: string): void {
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = verticalColor;
+    ctx.beginPath();
+    ctx.moveTo(x, frame.top);
+    ctx.lineTo(x, frame.top + frame.height);
+    ctx.stroke();
+    if (y !== null) {
+        ctx.strokeStyle = horizontalColor;
+        ctx.beginPath();
+        ctx.moveTo(frame.left, y);
+        ctx.lineTo(frame.left + frame.width, y);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+/** One cursor readout line: series, frequency or time, then each value, in the same order on every plot. */
+export function readoutText(parts: readonly string[]): string {
+    return parts.join(' / ');
+}

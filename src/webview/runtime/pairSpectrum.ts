@@ -1,7 +1,9 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { PairSpectrumPublication } from '../../shared/session/comparisonSessionController';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { formatHz, frequencyAxisTicks, type CanvasDrawCtx, type DrawTheme, type FrequencyScale } from '../draw/canvasDrawers';
+import { drawCrosshair, drawValueAxis, readoutText, stackFrames, type PlotFrame } from '../../shared/gui-core/index';
+import { AXIS_TITLE_X, frequencyAxisTicks, type CanvasDrawCtx, type DrawTheme, type FrequencyScale } from '../draw/canvasDrawers';
+import { formatReadoutHz } from './canvasOverlays';
 import { hintAttr } from './hintFooter';
 import type { TrackId } from './types';
 
@@ -105,14 +107,18 @@ export function pairLegendHtml(curves: readonly PairCurve[], strings: PairString
     }).join('');
 }
 
-export const PAIR_SPECTRUM_PAD = { left: 40, right: 8, top: 6, bottom: 16, gap: 6 } as const;
+/** The same margins as the power spectrum beside it, so both plots and their axes line up. */
+export const PAIR_SPECTRUM_PAD = { left: 48, right: 8, top: 8, bottom: 18, gap: 6 } as const;
 
 interface PairRow {
     label: string;
     min: number;
     max: number;
     values(response: PairSpectrumResponse): readonly (number | null)[];
+    /** Tick text; the unit is in the axis title. */
     format(value: number): string;
+    /** Readout text, with its unit. */
+    readout(value: number): string;
 }
 
 const DEGREES = 180 / Math.PI;
@@ -139,9 +145,9 @@ function pairRows(curves: readonly PairCurve[], bins: readonly number[], strings
     const gain = gainRange(curves, bins);
     const gainLabel = curves[0]?.response.axisLabel ?? 'Gain [dB]';
     return [
-        { label: gainLabel, ...gain, values: response => response.gainDb, format: value => value.toFixed(1) },
-        { label: strings.pairPhaseLabel, min: -180, max: 180, values: response => response.phaseRad.map(value => value === null ? null : value * DEGREES), format: value => value.toFixed(0) + '°' },
-        { label: strings.pairCoherenceLabel, min: 0, max: 1, values: response => response.coherence, format: value => value.toFixed(2) },
+        { label: gainLabel, ...gain, values: response => response.gainDb, format: value => value.toFixed(1), readout: value => value.toFixed(1) + ' dB' },
+        { label: strings.pairPhaseLabel, min: -180, max: 180, values: response => response.phaseRad.map(value => value === null ? null : value * DEGREES), format: value => value.toFixed(0), readout: value => value.toFixed(0) + '°' },
+        { label: strings.pairCoherenceLabel, min: 0, max: 1, values: response => response.coherence, format: value => value.toFixed(2), readout: value => 'γ² ' + value.toFixed(2) },
     ];
 }
 
@@ -149,6 +155,12 @@ export interface PairPaintInput {
     frequencyBins: number;
     maxFrequencyHz: number;
     curves: readonly PairCurve[];
+}
+
+/** The cursor: a frequency, and the canvas y of the pointer when it is over the pair plot itself. */
+export interface PairHover {
+    frequencyHz: number;
+    y: number | null;
 }
 
 export interface PairHoverReadout {
@@ -161,9 +173,16 @@ function binFrequency(input: PairPaintInput, bin: number): number {
     return bin / Math.max(input.frequencyBins - 1, 1) * input.maxFrequencyHz;
 }
 
+/** The plot frames of the gain, phase and γ² lanes in a canvas of that size. */
+export function pairLaneFrames(W: number, H: number): PlotFrame[] {
+    const pad = PAIR_SPECTRUM_PAD;
+    return stackFrames({ left: pad.left, top: pad.top, width: W - pad.left - pad.right, height: H - pad.top - pad.bottom }, 3, pad.gap);
+}
+
 /**
- * Gain, phase and γ² stacked on one shared frequency axis. `hoverFrequencyHz` draws a crosshair at
- * the nearest bin and returns the values of the first drawn response there.
+ * Gain, phase and γ² stacked on one shared frequency axis, each with its unit as a turned axis title.
+ * At the hover frequency every lane gets a crosshair whose horizontal line marks one response: the one
+ * nearest the pointer in the lane under it, else the first drawn. Returns that response's values there.
  */
 export function paintPairSpectrum(
     ctx: CanvasDrawCtx,
@@ -171,16 +190,16 @@ export function paintPairSpectrum(
     H: number,
     input: PairPaintInput,
     visible: FrequencyScale,
-    hoverFrequencyHz: number | null,
+    hover: PairHover | null,
     strings: PairStrings,
     theme: DrawTheme,
 ): PairHoverReadout | null {
     ctx.clearRect(0, 0, W, H);
     const pad = PAIR_SPECTRUM_PAD;
-    const plotW = W - pad.left - pad.right;
-    const rowH = (H - pad.top - pad.bottom - pad.gap * 2) / 3;
+    const frames = pairLaneFrames(W, H);
+    const plotW = frames[0].width;
     const span = visible.frequencyMax - visible.frequencyMin;
-    if (plotW <= 0 || rowH <= 4 || span <= 0 || input.frequencyBins <= 0) {
+    if (plotW <= 0 || frames[0].height <= 4 || span <= 0 || input.frequencyBins <= 0) {
         return null;
     }
     const xOf = (hz: number) => pad.left + (hz - visible.frequencyMin) / span * plotW;
@@ -193,83 +212,93 @@ export function paintPairSpectrum(
     }
     const drawn = drawnPairCurves(input.curves);
     const rows = pairRows(drawn, bins, strings);
-    ctx.font = '9px monospace';
-    rows.forEach((row, index) => {
-        const top = pad.top + index * (rowH + pad.gap);
-        const yOf = (value: number) => top + (1 - Math.max(0, Math.min(1, (value - row.min) / (row.max - row.min)))) * rowH;
-        ctx.strokeStyle = theme.lineColor;
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(pad.left, top, plotW, rowH);
-        ctx.fillStyle = theme.mutedColor;
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'top';
-        ctx.fillText(row.format(row.max), pad.left - 2, top);
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(row.format(row.min), pad.left - 2, top + rowH);
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText(row.label, pad.left + 3, top + 2);
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(pad.left, top, plotW, rowH);
-        ctx.clip();
-        drawn.forEach(curve => {
-            const values = row.values(curve.response);
-            ctx.strokeStyle = curve.color;
-            ctx.lineWidth = 1.2;
-            ctx.setLineDash(curve.dashed ? [4, 2] : []);
-            ctx.beginPath();
-            let pen = false;
-            bins.forEach(bin => {
-                const value = values[bin];
-                if (value === null || value === undefined) {
-                    pen = false;
-                    return;
-                }
-                const x = xOf(binFrequency(input, bin));
-                const y = yOf(value);
-                if (pen) {
-                    ctx.lineTo(x, y);
-                }
-                else {
-                    ctx.moveTo(x, y);
-                    pen = true;
+    const yOf = (row: PairRow, frame: PlotFrame, value: number) =>
+        frame.top + (1 - Math.max(0, Math.min(1, (value - row.min) / (row.max - row.min)))) * frame.height;
+    const hoverBin = hover === null || bins.length === 0 ? null : bins.reduce((best, candidate) =>
+        Math.abs(binFrequency(input, candidate) - hover.frequencyHz) < Math.abs(binFrequency(input, best) - hover.frequencyHz) ? candidate : best, bins[0]);
+    let chosen = drawn[0];
+    if (hoverBin !== null && hover?.y != null) {
+        const pointerY = hover.y;
+        const lane = frames.findIndex(frame => pointerY >= frame.top && pointerY <= frame.top + frame.height);
+        if (lane >= 0) {
+            let best = Infinity;
+            drawn.forEach(curve => {
+                const value = rows[lane].values(curve.response)[hoverBin];
+                const distance = value === null || value === undefined ? Infinity : Math.abs(yOf(rows[lane], frames[lane], value) - pointerY);
+                if (distance < best) {
+                    best = distance;
+                    chosen = curve;
                 }
             });
-            ctx.stroke();
+        }
+    }
+    const strokeCurve = (row: PairRow, frame: PlotFrame, curve: PairCurve, lineWidth: number) => {
+        const values = row.values(curve.response);
+        ctx.strokeStyle = curve.color;
+        ctx.lineWidth = lineWidth;
+        ctx.setLineDash(curve.dashed ? [4, 2] : []);
+        ctx.beginPath();
+        let pen = false;
+        bins.forEach(bin => {
+            const value = values[bin];
+            if (value === null || value === undefined) {
+                pen = false;
+                return;
+            }
+            const x = xOf(binFrequency(input, bin));
+            const y = yOf(row, frame, value);
+            if (pen) {
+                ctx.lineTo(x, y);
+            }
+            else {
+                ctx.moveTo(x, y);
+                pen = true;
+            }
         });
+        ctx.stroke();
+    };
+    ctx.font = '9px monospace';
+    rows.forEach((row, index) => {
+        const frame = frames[index];
+        ctx.strokeStyle = theme.lineColor;
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(frame.left, frame.top, frame.width, frame.height);
+        drawValueAxis(ctx, frame, [{ text: row.format(row.max), fraction: 1 }, { text: row.format(row.min), fraction: 0 }], row.label,
+            { color: theme.mutedColor, titleX: AXIS_TITLE_X });
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(frame.left, frame.top, frame.width, frame.height);
+        ctx.clip();
+        drawn.forEach(curve => strokeCurve(row, frame, curve, 1.2));
+        if (hoverBin !== null && chosen && drawn.length > 1) {
+            strokeCurve(row, frame, chosen, 2.5);
+        }
         ctx.setLineDash([]);
         ctx.restore();
     });
     ctx.fillStyle = theme.mutedColor;
-    ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     frequencyAxisTicks(visible).forEach((tick, index, ticks) => {
         ctx.textAlign = index === 0 ? 'left' : index === ticks.length - 1 ? 'right' : 'center';
         ctx.fillText(tick.text, pad.left + tick.fraction * plotW, H - 1);
     });
-    if (hoverFrequencyHz === null || bins.length === 0) {
+    if (hoverBin === null) {
         return null;
     }
-    const bin = bins.reduce((best, candidate) =>
-        Math.abs(binFrequency(input, candidate) - hoverFrequencyHz) < Math.abs(binFrequency(input, best) - hoverFrequencyHz) ? candidate : best, bins[0]);
-    const frequencyHz = binFrequency(input, bin);
+    const frequencyHz = binFrequency(input, hoverBin);
     const x = xOf(frequencyHz);
-    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo(x, pad.top);
-    ctx.lineTo(x, H - pad.bottom);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    const first = drawn[0];
-    if (!first) {
+    const values = rows.map(row => chosen ? row.values(chosen.response)[hoverBin] : null);
+    rows.forEach((row, index) => {
+        const value = values[index];
+        const y = value === null || value === undefined ? null : yOf(row, frames[index], value);
+        drawCrosshair(ctx, frames[index], x, y, 'rgba(255,255,255,0.7)', chosen ? chosen.color : '');
+    });
+    if (!chosen) {
         return null;
     }
-    const parts = rows.map(row => {
-        const value = row.values(first.response)[bin];
-        return value === null || value === undefined ? '–' : row.format(value);
+    const parts = rows.map((row, index) => {
+        const value = values[index];
+        return value === null || value === undefined ? '–' : row.readout(value);
     });
-    return { frequencyHz, text: first.label + ' / ' + formatHz(frequencyHz) + ' / ' + parts[0] + ' dB / ' + parts[1] + ' / γ² ' + parts[2], color: first.color };
+    return { frequencyHz, text: readoutText([chosen.label, formatReadoutHz(frequencyHz), ...parts]), color: chosen.color };
 }

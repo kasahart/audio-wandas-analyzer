@@ -9,7 +9,7 @@ import { isRequestPairSpectrumMessage, type PairSpectrumRequest } from '../share
 import { DEFAULT_THEME, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
 import { isHostInboundMessage } from '../webview/runtime/hostMessaging';
 import {
-    paintPairSpectrum, pairHeader, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
+    paintPairSpectrum, pairLaneFrames, pairHeader, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
     type PairCurve, type PairSpectrumResponse, type PairSpectrumResultMessage,
 } from '../webview/runtime/pairSpectrum';
 import { PAIR_REQUEST_DELAY_MS, PairSpectrumPanel, type PairChannelSource, type PairPanelHost } from '../webview/runtime/pairSpectrumPanel';
@@ -78,16 +78,18 @@ test('a response calibrated to another unit is listed but not drawn on the share
     assert.equal(ctx.lines, 3 * 2);
 });
 
-function recordingContext(): CanvasDrawCtx & { lines: number } {
+function recordingContext(): CanvasDrawCtx & { lines: number; texts: string[] } {
     const ctx = {
         lines: 0,
+        texts: [] as string[],
         fillStyle: '', strokeStyle: '', font: '', textAlign: 'left', textBaseline: 'top', globalAlpha: 1, lineWidth: 1,
         setLineDash() { }, save() { }, restore() { }, translate() { }, rotate() { }, beginPath() { }, moveTo() { },
-        lineTo() { ctx.lines += 1; }, stroke() { }, rect() { }, clip() { }, clearRect() { }, fillRect() { }, strokeRect() { }, fillText() { },
+        lineTo() { ctx.lines += 1; }, stroke() { }, rect() { }, clip() { }, clearRect() { }, fillRect() { }, strokeRect() { },
+        fillText(text: string) { ctx.texts.push(text); }, measureText: (text: string) => ({ width: text.length * 5 }),
         createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
         putImageData() { },
     };
-    return ctx as unknown as CanvasDrawCtx & { lines: number };
+    return ctx as unknown as CanvasDrawCtx & { lines: number; texts: string[] };
 }
 
 test('the pair plot draws ok responses only and reads out the hovered bin', () => {
@@ -95,11 +97,27 @@ test('the pair plot draws ok responses only and reads out the hovered bin', () =
     const readout = paintPairSpectrum(ctx, 400, 180, {
         frequencyBins: 3, maxFrequencyHz: 1000,
         curves: [curve(), curve({ status: 'no-overlap', gainDb: [], phaseRad: [], coherence: [] }, 'c.wav')],
-    }, { frequencyMin: 0, frequencyMax: 1000 }, 520, en, DEFAULT_THEME);
-    // Two segments in each of the three rows for the one drawn response, plus the crosshair.
-    assert.equal(ctx.lines, 3 * 2 + 1);
+    }, { frequencyMin: 0, frequencyMax: 1000 }, { frequencyHz: 520, y: null }, en, DEFAULT_THEME);
+    // Two segments in each of the three rows for the one drawn response, plus a vertical and a horizontal cursor line in each row.
+    assert.equal(ctx.lines, 3 * 2 + 3 * 2);
     assert.equal(readout?.frequencyHz, 500);
     assert.equal(readout?.text, 'b.wav / 500 Hz / -6.0 dB / 90° / γ² 0.99');
+    // Units sit in the turned axis titles; the ticks are bare numbers.
+    assert.ok(ctx.texts.includes('Gain [dB]') && ctx.texts.includes('Phase [°]') && ctx.texts.includes('γ²'));
+    assert.ok(ctx.texts.includes('180') && !ctx.texts.some(text => text.endsWith('°') && text !== 'Phase [°]'));
+});
+
+test('the pointer picks the response nearest it in the lane under it', () => {
+    const curves = [curve({}, 'b.wav'), curve({ gainDb: [10, 10, 10], phaseRad: [-Math.PI / 2, -Math.PI / 2, -Math.PI / 2] }, 'c.wav')];
+    const input = { frequencyBins: 3, maxFrequencyHz: 1000, curves };
+    const visible = { frequencyMin: 0, frequencyMax: 1000 };
+    const [, phase] = pairLaneFrames(400, 180);
+    // -90° sits three quarters of the way down the phase lane.
+    const lowY = phase.top + phase.height * 0.75;
+    assert.equal(paintPairSpectrum(recordingContext(), 400, 180, input, visible, { frequencyHz: 500, y: lowY }, en, DEFAULT_THEME)?.text,
+        'c.wav / 500 Hz / 10.0 dB / -90° / γ² 0.99');
+    assert.equal(paintPairSpectrum(recordingContext(), 400, 180, input, visible, { frequencyHz: 500, y: null }, en, DEFAULT_THEME)?.text,
+        'b.wav / 500 Hz / -6.0 dB / 90° / γ² 0.99');
 });
 
 test('pair requests and results pass their validators', () => {
@@ -222,6 +240,8 @@ function panelFixture() {
         post: request => { posted.push(request); },
         visibleFrequencyHz: () => null,
         plotHeight: () => 140,
+        hoverFrequencyHz: () => null,
+        onHoverFrequency: () => undefined,
         theme: () => DEFAULT_THEME,
         onReferenceChange: reference => { references.push(reference); },
         onLayoutChange: () => undefined,

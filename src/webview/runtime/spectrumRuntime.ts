@@ -1,3 +1,4 @@
+import { readoutText } from '../../shared/gui-core/index';
 import { binFrequencyHz, dbLevelUnitFor, frequencyAtFraction, frequencyFraction, nearestBinIndex, type SpectrumPlotFrame } from '../draw/canvasDrawers';
 import { formatReadoutHz } from './canvasOverlays';
 import type { HostInboundMessage } from './hostMessaging';
@@ -148,11 +149,7 @@ export function nearestSpectrumSnap<S extends { slice: SpectrumSlice }>(
 }
 
 export function spectrumReadoutText(label: string, slice: SpectrumSlice, freqHz: number, dbVal: number): string {
-    return label + ' / ' + formatReadoutHz(freqHz) + ' / ' + dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice);
-}
-
-export function trackSpectrumReadoutText(label: string, slice: SpectrumSlice, freqHz: number, dbVal: number | undefined): string {
-    return label + ' ' + formatReadoutHz(freqHz) + (dbVal !== undefined ? '  ' + dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice) : '');
+    return readoutText([label, formatReadoutHz(freqHz), dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice)]);
 }
 
 export interface SpectrumReadoutElement {
@@ -190,7 +187,7 @@ export function spectrumSlicesFromResult(msg: SpectrumSliceResultMessage, cursor
     }));
 }
 
-export const OVERLAY_SPECTRUM_PAD = { left: 36, right: 8, top: 8, bottom: 18 } as const;
+export const OVERLAY_SPECTRUM_PAD = { left: 48, right: 8, top: 8, bottom: 18 } as const;
 
 export function overlayPlotPoint(x: number, y: number, width: number, height: number): DragPoint | null {
     const pad = OVERLAY_SPECTRUM_PAD;
