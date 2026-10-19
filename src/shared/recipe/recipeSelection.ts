@@ -32,6 +32,11 @@ export function bindSelection(recipe: RecipeDocument, selectionFilePaths: string
     return Object.fromEntries(recipe.inputs.map((input, index) => [input.name, selectionFilePaths[index]]));
 }
 
+/** A single input fed by the only checked file needs no confirmation; any other case could be assigned differently. */
+export function needsAssignment(recipe: RecipeDocument, selectionFilePaths: string[]): boolean {
+    return recipe.inputs.length > 1 || selectionFilePaths.length > recipe.inputs.length;
+}
+
 /** One line naming the file behind each Recipe input, e.g. `reference: a.wav · response: b.wav`. */
 export function describeInputs(inputs: Record<string, string>, fileName: (filePath: string) => string): string {
     return Object.entries(inputs).map(([name, filePath]) => `${name}: ${fileName(filePath)}`).join(' · ');

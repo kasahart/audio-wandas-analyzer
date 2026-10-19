@@ -161,6 +161,10 @@ export function renderComparisonStyles(): string {
         .tb-menu-row { display: flex; align-items: center; gap: 6px; }
         .tb-menu-row .tb-label:first-child { width: 58px; }
         .tb-menu-row .tb-btn { width: auto; }
+        .tb-menu-row select {
+            flex: 1; min-width: 0; font-size: 11px; padding: 2px 4px; border-radius: 3px;
+            border: 1px solid var(--line); background: var(--surface); color: var(--text);
+        }
         #cursor-display { font-size: 11px; font-family: var(--font-mono); color: var(--muted); min-width: 80px; }
         #playback-display { font-size: 11px; font-family: var(--font-mono); color: #64a0ff; min-width: 70px; display: none; }
         #loop-time-display { font-size: 0.85em; font-family: var(--font-mono); color: #64a0ff; margin-left: 6px; cursor: pointer; }

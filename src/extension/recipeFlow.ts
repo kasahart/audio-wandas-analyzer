@@ -12,6 +12,7 @@ export interface RecipeFlowHost {
     readFile(uri: vscode.Uri): Thenable<Uint8Array>;
     pickRecipe(items: RecipePickItem[]): Promise<string | undefined>;
     pickInputFiles(): Promise<string[] | undefined>;
+    assignInputs(names: string[], files: string[], proposed: Record<string, string>): Promise<Record<string, string> | undefined>;
     runWithProgress<T>(title: string, task: (cancellation: AnalysisCancellationSignal) => Thenable<T>): Thenable<T>;
     showCharts(extensionUri: vscode.Uri, title: string, result: RecipeRunnerResult, caption: string): void;
     showError(message: string): void;
@@ -40,6 +41,20 @@ const defaultHost: RecipeFlowHost = {
             openLabel: 'Use as recipe input',
         });
         return uris?.map((uri) => uri.fsPath);
+    },
+    async assignInputs(names, files, proposed) {
+        // One QuickPick per input, the proposed file first so Enter keeps the selection order.
+        const assigned: Record<string, string> = {};
+        for (const [index, name] of names.entries()) {
+            const ordered = [proposed[name], ...files.filter(file => file !== proposed[name])];
+            const picked = await vscode.window.showQuickPick(
+                ordered.map(file => ({ label: path.basename(file), description: file })),
+                { placeHolder: `Recipe input "${name}" (${index + 1}/${names.length})` },
+            );
+            if (!picked) { return undefined; }
+            assigned[name] = picked.description;
+        }
+        return assigned;
     },
     runWithProgress: (title, task) => vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title, cancellable: true },
@@ -90,6 +105,7 @@ export class RecipeFlow {
                 return parsed;
             },
             pickInputFiles: () => this.host.pickInputFiles(),
+            assignInputs: (names, files, proposed) => this.host.assignInputs(names, files, proposed),
             runWithProgress: (title, task) => Promise.resolve(this.host.runWithProgress(title, token => {
                 cancellation = token;
                 return task();

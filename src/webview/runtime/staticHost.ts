@@ -14,7 +14,7 @@ import { describeInputs, isRecipeDocument } from '../../shared/recipe/recipeSele
 import type { ChartSpec } from '../../shared/chartSpec';
 import { chartSpecGlobals, renderChartSpecStyles } from '../panels/chartSpecDocument';
 import { setHint } from './hintFooter';
-import { createRecipePicker } from './recipePicker';
+import { createRecipeMenus } from './recipePicker';
 import { zipStore } from './zipStore';
 import type { HostInboundMessage } from './hostMessaging';
 import type { ComparisonWindow } from './browserAdapter';
@@ -414,7 +414,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
         return response.json();
     }
-    const pickRecipe = createRecipePicker(document, strings);
+    const recipeMenus = createRecipeMenus(document, strings);
     // A recipe opened from disk is run by its file name, so the backend titles its charts after the file.
     const localRecipes = new Map<string, File>();
     // Recipe charts render in a same-origin frame: the bundled ChartSpec renderer arrives as ./chartSpecRuntime.js under the page CSP,
@@ -457,7 +457,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             return manifest as RecipeCatalogEntry[];
         },
         pickRecipe: async (_items, entries) => {
-            const pick = await pickRecipe(entries);
+            const pick = await recipeMenus.pickRecipe(entries);
             localRecipes.clear();
             if (!pick || 'location' in pick) return pick?.location;
             localRecipes.set(pick.file.name, pick.file);
@@ -470,6 +470,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             return recipe;
         },
         pickInputFiles: async () => { announce(strings.browserRecipeNoSources); return undefined; },
+        assignInputs: (names, files, proposed) => recipeMenus.assignInputs(names, files.map(path => ({ path, name: sources.get(path)?.name ?? recipeBaseName(path) })), proposed),
         runWithProgress: async (title, task) => { announce(title); return task(); },
         execute: async (recipe, inputs, location) => {
             if (!sources.size) throw new Error(strings.browserRecipeNoSources);

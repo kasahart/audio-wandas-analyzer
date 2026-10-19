@@ -23,6 +23,7 @@ function ports(overrides: Partial<RecipeFlowPorts> = {}) {
         pickRecipe: async (items) => { log.push(`pick:${items.map(item => item.description).join('|')}`); return '/recipes/octave.json'; },
         readRecipe: async () => recipe,
         pickInputFiles: async () => { log.push('pickInputs'); return ['/picked.wav']; },
+        assignInputs: async (names, files, proposed) => { log.push(`assign:${names.join(',')}:${files.join(',')}`); return proposed; },
         runWithProgress: async (title, task) => { log.push(`progress:${title}`); return task(); },
         execute: async (document, inputs) => { executed.push({ recipe: document, inputs }); return { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] }; },
         showCharts: (title, charts, inputs) => { log.push(`charts:${title}:${charts.length}:${Object.keys(inputs).join(',')}`); },
@@ -39,6 +40,7 @@ test('recipe flow assigns the panel selection to the Recipe inputs in order and 
     assert.equal(executed[0].recipe.schema, 'wandas.recipe');
     assert.deepEqual(log, [
         'pick:/recipes/octave.json|/recipes/coherence.recipe.json',
+        'assign:reference,response:/a.wav,/b.wav,/c.wav',
         'progress:Running recipe octave…',
         'charts:octave:1:reference,response',
     ]);
@@ -104,4 +106,25 @@ test('recipe titles drop the Recipe suffix and captions name the file behind eac
     assert.equal(recipeTitle('C:\\recipes\\Mine.JSON'), 'Mine');
     assert.equal(recipeTitle('./recipes/notes'), 'notes');
     assert.equal(describeInputs({ reference: '/x/a.wav', response: '/y/b.wav' }, path => path.split('/').pop()!), 'reference: a.wav · response: b.wav');
+});
+
+test('recipe flow asks for the input assignment only when the selection order could be a guess', async () => {
+    const single = ports({ readRecipe: async () => recipeOf('signal') });
+    await single.flow.run(['/a.wav']);
+    assert.equal(single.log.some(entry => entry.startsWith('assign:')), false, 'one input fed by the only file runs at once');
+    assert.deepEqual(single.executed[0].inputs, { signal: '/a.wav' });
+    const extra = ports({ readRecipe: async () => recipeOf('signal') });
+    await extra.flow.run(['/a.wav', '/b.wav']);
+    assert.ok(extra.log.includes('assign:signal:/a.wav,/b.wav'));
+});
+
+test('recipe flow runs the reassigned inputs and treats a dismissed assignment as a cancel', async () => {
+    const swapped = ports({ assignInputs: async () => ({ reference: '/b.wav', response: '/a.wav' }) });
+    await swapped.flow.run(['/a.wav', '/b.wav']);
+    assert.deepEqual(swapped.executed[0].inputs, { reference: '/b.wav', response: '/a.wav' });
+    assert.equal(swapped.log.at(-1), 'charts:octave:1:reference,response');
+    const dismissed = ports({ assignInputs: async () => undefined });
+    await dismissed.flow.run(['/a.wav', '/b.wav']);
+    assert.equal(dismissed.executed.length, 0);
+    assert.equal(dismissed.log.some(entry => entry.startsWith('progress:') || entry.startsWith('error:')), false);
 });

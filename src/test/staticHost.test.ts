@@ -55,8 +55,17 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     // How the recipe menu is answered once it opens: an entry index, a local file, or Escape.
     let recipeAnswer: number | { name: string; text: string } | 'escape' = 0;
     const recipeMenus: string[][] = [];
+    const assignMenus: string[][] = [];
+    let assignAnswer: ((menu: MockElement) => void) | undefined;
     const documentListeners = new Map<string, (event: unknown) => void>();
     function answerRecipeMenu(menu: MockElement): void {
+        const run = menu.children.find(child => child.attributes['data-action'] === 'browser-recipe-run');
+        if (run) {
+            // The input assignment keeps the proposed files unless a test changes the selects first.
+            assignMenus.push(menu.children.filter(child => child.tag === 'label').map(row => `${row.children[0].textContent}=${row.children[1].value}`));
+            queueMicrotask(() => { assignAnswer?.(menu); run.onclick!(); });
+            return;
+        }
         const entries = menu.children.filter(child => child.attributes['data-action'] === 'browser-recipe-pick');
         recipeMenus.push(menu.children.filter(child => child.tag === 'button').map(child => child.textContent));
         queueMicrotask(() => {
@@ -171,7 +180,8 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     }
     // Unchecking every file posts an empty selection; the panel's Clear also marks it clearAll.
     const clear = (clearAll = false): void => { host.postMessage({ type: 'analyze-selected-files', requestId: 'clear', filePaths: [], ...(clearAll ? { clearAll: true } : {}) }); };
-    return { host, browser, storage, workers, clear, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served, recipeMenus, documentListeners,
+    return { host, browser, storage, workers, clear, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served, recipeMenus, assignMenus, documentListeners,
+        setAssignAnswer(value: typeof assignAnswer) { assignAnswer = value; },
         setPromptAnswer(value: string | null) { promptAnswer = value; },
         setRecipeAnswer(value: typeof recipeAnswer) { recipeAnswer = value; },
         get status() { return elements.find(element => element.attributes.role === 'status')!.textContent; },
@@ -559,6 +569,28 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     worker.reply(worker.commands.at(-1)!, {}, 'recipe error: Unknown name');
     await flush();
     assert.equal(app.status, 'Recipe execution failed: recipe error: Unknown name');
+});
+
+test('a two-input browser recipe lets the user swap which track fills each input before it runs', async () => {
+    const app = harness();
+    await app.load();
+    await app.load();
+    const worker = app.workers[0];
+    const [first, second] = worker.commands.filter(command => command.cmd === 'load').map(command => `/sources/${command.sourceId}`);
+    app.setRecipeAnswer(1);
+    app.setAssignAnswer(menu => {
+        const [reference, response] = menu.children.filter(child => child.tag === 'label').map(row => row.children[1]);
+        [reference.value, response.value] = [response.value, reference.value];
+    });
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush();
+    assert.deepEqual(app.assignMenus[0], [`reference=${first}`, `response=${second}`], 'the menu proposes the selection order');
+    const command = worker.commands.at(-1)!;
+    assert.equal(command.cmd, 'run-recipe');
+    assert.deepEqual(command.inputs, { reference: second, response: first });
+    worker.reply(command, { charts: [] });
+    await flush();
+    assert.ok(app.elements.some(element => element.tag === 'span' && element.textContent === 'reference: selected.wav · response: selected.wav'));
 });
 
 test('a browser recipe opened from disk runs under its file name and reports unreadable files', async () => {

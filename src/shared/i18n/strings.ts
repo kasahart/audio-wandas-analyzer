@@ -38,6 +38,7 @@ export interface UiStrings {
     browserUnavailable: string;
     browserRecipePick: string;
     browserRecipeOpenFile: string;
+    browserRecipeRun: string;
     hintRecipeOpenFile: string;
     browserRecipeNoSources: string;
     browserRecipeDone: string;
@@ -361,6 +362,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserUnavailable: 'Not available in the browser version.',
         browserRecipePick: 'Recipes',
         browserRecipeOpenFile: 'From file…',
+        browserRecipeRun: 'Run',
         hintRecipeOpenFile: 'Run a wandas .recipe.json from your computer',
         browserRecipeNoSources: 'Add files first; recipes run on the loaded tracks.',
         browserRecipeDone: 'Recipe finished: ',
@@ -674,6 +676,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserUnavailable: 'Web版では未対応です。',
         browserRecipePick: 'レシピ',
         browserRecipeOpenFile: 'ファイルから…',
+        browserRecipeRun: '実行',
         hintRecipeOpenFile: '手元の wandas .recipe.json を実行',
         browserRecipeNoSources: '先にファイルを追加してください。レシピは読み込んだトラックに対して実行します。',
         browserRecipeDone: 'レシピ実行完了: ',

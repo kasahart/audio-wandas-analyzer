@@ -53,6 +53,7 @@ test(clearSources ? 'clearing a pending browser recipe keeps the cleared status'
         (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
     });
     await page.locator('[data-recipe-picker] [data-action="browser-recipe-pick"]').first().click();
+    if (!clearSources) await page.locator('[data-recipe-picker] [data-action="browser-recipe-run"]').click();
     await expect.poll(() => page.evaluate(() => Boolean((window as typeof window & { __pendingRecipe?: unknown }).__pendingRecipe))).toBe(true);
     const expected = clearSources
         ? await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared)
@@ -374,6 +375,15 @@ test('static page loads WAV files dropped onto the page or the recipe charts as 
         (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
     });
     await page.locator('[data-recipe-picker] [data-action="browser-recipe-pick"]').first().click();
+    // Two tracks for one input: the menu proposes the first and the user can pick the other before running.
+    const input = page.locator('[data-recipe-picker] select[data-recipe-input="signal"]');
+    await expect(input).toBeFocused();
+    await expect(input.locator('option')).toHaveText(['dropped.wav', 'second.WAV']);
+    await expect(input.locator('option:checked')).toHaveText('dropped.wav');
+    await input.selectOption({ label: 'second.WAV' });
+    await page.locator('[data-recipe-picker] [data-action="browser-recipe-run"]').click();
+    await expect(page.locator('[data-recipe-picker]')).toHaveCount(0);
+    await expect(page.locator('[data-recipe-result]')).toContainText('signal: second.WAV');
     await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
     await dropFiles('dragover', ['third.wav'], true);
     await expect(outline).toBeVisible();
