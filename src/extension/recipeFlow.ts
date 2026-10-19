@@ -44,7 +44,7 @@ const defaultHost: RecipeFlowHost = {
     },
     async assignInputs(names, files, proposed) {
         // One QuickPick per input, the proposed file first so Enter keeps the selection order.
-        const assigned: Record<string, string> = {};
+        const assigned: Array<[string, string]> = [];
         for (const [index, name] of names.entries()) {
             const ordered = [proposed[name], ...files.filter(file => file !== proposed[name])];
             const picked = await vscode.window.showQuickPick(
@@ -52,9 +52,10 @@ const defaultHost: RecipeFlowHost = {
                 { placeHolder: `Recipe input "${name}" (${index + 1}/${names.length})` },
             );
             if (!picked) { return undefined; }
-            assigned[name] = picked.description;
+            assigned.push([name, picked.description]);
         }
-        return assigned;
+        // fromEntries keeps any input name, even `__proto__`, as data.
+        return Object.fromEntries(assigned);
     },
     runWithProgress: (title, task) => vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title, cancellable: true },

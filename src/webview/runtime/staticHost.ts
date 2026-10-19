@@ -486,7 +486,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             return analysisClient.runRecipe(recipe, inputs, { recipePath: location });
         },
         showCharts: (title, charts, inputs) => {
-            showRecipeCharts(title, charts, describeInputs(inputs, trackLabels(Object.values(inputs))));
+            showRecipeCharts(title, charts, describeInputs(inputs, trackLabels(sources.snapshot(source => source.path))));
             announce(strings.browserRecipeDone + title);
         },
         showError: announce,
