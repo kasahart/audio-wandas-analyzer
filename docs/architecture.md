@@ -52,17 +52,17 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   `backend_server.py` は native 起動・heartbeat・NDJSON、`browser_service.py` は
   virtual source と Web 上限を担当する。Web 配布物には native transport を含めない。
 
-- Recipe は `src/shared/recipe/` の `RecipeFlow` が一覧・選択・`{{selection}}` 置換・実行・表示の手順を持つ。
+- Recipe は wandas の `RecipePlan` JSON（`*.recipe.json`）。`src/shared/recipe/` の `RecipeFlow` が一覧・選択・
+  チェック中ファイルの入力名への割り当て（Recipe の入力順）・実行・表示の手順を持つ。
   native は recipes ディレクトリ、QuickPick、常駐 `AnalysisClient.runRecipe`、ChartSpec Panel を port で渡す。
   Web は build 時の `recipes/manifest.json`、prompt、Worker の `run-recipe` command、同一 origin の
-  `chartSpecRuntime.js` を読み込む frame を渡す。両 host の `AnalysisClient.runRecipe` は入力ごとの校正 context と
-  Recipe の場所を送信し、共通の120秒 timeout・cancel を管理する。native は古い校正を通常解析と同じ規則で
-  破棄・再試行する。Python 側の `AnalysisService.run_recipe` は Recipe ファイルの親を相対パスの基準とし、
-  `engine.get_analysis(file, profile)` の校正済み frame を `recipe_runner.evaluate_recipe` に渡す。
+  `chartSpecRuntime.js` を読み込む frame を渡す。両 host の `AnalysisClient.runRecipe` は入力名→ファイルの対応、
+  入力ごとの校正 context と Recipe の場所を送信し、共通の120秒 timeout・cancel を管理する。native は古い校正を通常解析と同じ規則で
+  破棄・再試行する。Python 側の `AnalysisService.run_recipe` は `RecipePlan.from_dict()` で検証し、
+  `engine.get_analysis(file, profile)` の校正済み frame を `RecipePlan.apply()` に渡して出力 Frame をグラフにする（伝達関数は位相も出す）。
   cancel・timeout は実行中の backend/Worker を終了する。native の他の pending request は
   再起動後に自動で再送し、Recipe の失敗をパネルの解析エラーにしない。Web は読み込んだ File と表示を保持し、
-  次の要求で新しい Worker に再ロードする。`requires` を宣言した recipe は
-  runtime lock に無い配布物（mosqito）を欠くと Web 一覧で実行不可と表示する。
+  次の要求で新しい Worker に再ロードする。
   ChartSpec 文書の CSS と globals は `chartSpecDocument.ts` に置き、renderer は `chartSpecRuntime.ts` の
   `startChartSpecRenderer` を bundle した `dist/webview/chartSpecRuntime.js` を両 host が読み込む。
 

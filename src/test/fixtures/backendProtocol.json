@@ -84,21 +84,20 @@
         "cmd": "run-recipe",
         "requestId": "r1",
         "recipe": {
+          "schema": "wandas.recipe",
+          "version": 2,
           "inputs": [
             {
-              "name": "sig",
-              "file": "tone.wav"
+              "id": "input-0",
+              "name": "signal",
+              "kind": "frame"
             }
           ],
-          "steps": [
-            {
-              "as": "w",
-              "expr": "sig.welch()"
-            }
-          ],
-          "display": [
-            "w"
-          ]
+          "nodes": [],
+          "output": "input-0"
+        },
+        "inputs": {
+          "signal": "tone.wav"
         }
       }
     },
@@ -216,9 +215,22 @@
       "request": {
         "cmd": "run-recipe",
         "requestId": "r1",
-        "recipe": "not an object"
+        "recipe": "not an object",
+        "inputs": {}
       },
       "errorField": "recipe"
+    },
+    {
+      "command": "run-recipe",
+      "request": {
+        "cmd": "run-recipe",
+        "requestId": "r1",
+        "recipe": {},
+        "inputs": {
+          "signal": 1
+        }
+      },
+      "errorField": "inputs"
     },
     {
       "command": "range",

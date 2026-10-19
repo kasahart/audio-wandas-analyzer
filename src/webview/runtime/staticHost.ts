@@ -465,11 +465,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             return recipe;
         },
         pickInputFiles: async () => { announce(strings.browserRecipeNoSources); return undefined; },
-        resolveRelative: (file) => { throw new Error(`Recipe input ${file} must be a loaded track in the browser`); },
         runWithProgress: async (title, task) => { announce(title); return task(); },
-        execute: async (recipe, location) => {
+        execute: async (recipe, inputs, location) => {
             if (!sources.size) throw new Error(strings.browserRecipeNoSources);
-            return analysisClient.runRecipe(recipe, { recipePath: location });
+            return analysisClient.runRecipe(recipe, inputs, { recipePath: location });
         },
         showCharts: (title, charts) => { showRecipeCharts(title, charts); announce(strings.browserRecipeDone + title); },
         showError: announce,

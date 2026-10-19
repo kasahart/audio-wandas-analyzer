@@ -199,18 +199,6 @@ def _analysis_revision(value: object) -> int:
     return int(value)
 
 
-def recipe_inputs(recipe: Mapping[str, object]) -> list[Mapping[str, str]]:
-    inputs = recipe.get("inputs")
-    if inputs is None:
-        return []
-    if not isinstance(inputs, list):
-        raise InputError("recipe error: inputs must be a list")
-    for item in inputs:
-        if not isinstance(item, Mapping) or not all(isinstance(item.get(key), str) for key in ("name", "file")):
-            raise InputError("recipe error: each input needs string 'name' and 'file'")
-    return inputs
-
-
 class AnalysisService:
     def __init__(self, engine: AnalysisEngine) -> None:
         self.engine = engine
@@ -518,22 +506,23 @@ class AnalysisService:
         self,
         recipe: Mapping[str, object],
         *,
+        inputs: Mapping[str, str],
         recipe_path: str | None = None,
         input_contexts: Mapping[str, object] | None = None,
     ) -> RecipeRunResult:
-        from recipe_runner import RecipeError, evaluate_recipe
+        from recipe_runner import RecipeError, evaluate_recipe, frame_input_names, load_plan, recipe_title
 
-        base_dir = Path(recipe_path).parent if recipe_path else Path.cwd()
-        bindings = {}
-        for item in recipe_inputs(recipe):
-            file = Path(item["file"])
-            if not file.is_absolute():
-                file = base_dir / file
-            context = (input_contexts or {}).get(item["name"], {})
-            _, frame, _ = self.engine.get_analysis(str(file), context.get("calibrationProfile"))
-            bindings[item["name"]] = frame
         try:
-            charts = evaluate_recipe(dict(recipe), bindings)
+            plan = load_plan(recipe)
+            names = frame_input_names(plan)
+            missing = [name for name in names if name not in inputs]
+            if missing:
+                raise RecipeError(f"no file for recipe input {missing[0]!r}")
+            frames = {}
+            for name in names:
+                context = (input_contexts or {}).get(name, {})
+                _, frames[name], _ = self.engine.get_analysis(inputs[name], context.get("calibrationProfile"))
+            charts = evaluate_recipe(plan, frames, title=recipe_title(recipe_path))
         except RecipeError as error:
             raise InputError(f"recipe error: {error}") from error
         return {"charts": charts}
@@ -636,7 +625,6 @@ __all__ = [
     "pair_overlap",
     "pair_stft_params",
     "RecipeRunResult",
-    "recipe_inputs",
     "SpectrumSliceResult",
     "StftOptions",
     "TrackDetailResult",

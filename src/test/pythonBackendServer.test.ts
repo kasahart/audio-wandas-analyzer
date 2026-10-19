@@ -613,7 +613,7 @@ for (const stage of ['queued', 'running', 'preflight'] as const) {
             try {
                 await server.warmup();
                 let recipe: Promise<unknown> | undefined;
-                const run = () => server.runRecipe({ inputs: [{ name: 'sig', file: '/recipe.wav' }] }, { cancellation });
+                const run = () => server.runRecipe({ schema: 'wandas.recipe', inputs: [] }, { sig: '/recipe.wav' }, { cancellation });
                 if (stage === 'running') recipe = run();
                 const analysis = server.analyze('/panel.wav', {});
                 const range = server.requestRange('/panel.wav', 0, 1, 4, 'panel-range');
@@ -649,7 +649,7 @@ test('panel recovery reports a restart failure rather than a Recipe timeout', as
     try {
         const panel = server.analyze('/panel.wav', {});
         const failed = assert.rejects(panel, /restart unavailable/);
-        const recipe = assert.rejects(server.runRecipe({}), /timed out/);
+        const recipe = assert.rejects(server.runRecipe({ schema: 'wandas.recipe', inputs: [] }, {}), /timed out/);
         await Promise.all([failed, recipe]);
         assert.equal(children.length, 2);
     } finally { server.dispose(); }
@@ -661,7 +661,7 @@ test('disposing during Recipe interruption prevents replay from restarting a clo
     try {
         const panel = server.requestRange('/panel.wav', 0, 1, 4);
         const failed = assert.rejects(panel, /backend restarting/i);
-        const recipe = assert.rejects(server.runRecipe({}, { cancellation: {
+        const recipe = assert.rejects(server.runRecipe({ schema: 'wandas.recipe', inputs: [] }, {}, { cancellation: {
             isCancellationRequested: false,
             onCancellationRequested: listener => { cancel = listener; return { dispose() {} }; },
         } }), /cancelled/);

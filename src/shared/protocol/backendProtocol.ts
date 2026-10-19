@@ -55,6 +55,8 @@ export type ReleaseTrackDetailResult = Record<never, never>;
 
 export interface RunRecipePayload {
     recipe: RecipeDocument;
+    /** Recipe input name → file path of a loaded track. */
+    inputs: Record<string, string>;
     recipePath?: string;
     inputContexts?: Record<string, CalibrationRequestContext>;
 }

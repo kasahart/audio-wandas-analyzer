@@ -14,7 +14,7 @@ import soundfile as sf
 import wandas as wd
 
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
-from analysis_service import AnalysisService, PairSpectrumResult, pair_overlap, pair_stft_params, recipe_inputs
+from analysis_service import AnalysisService, PairSpectrumResult, pair_overlap, pair_stft_params
 from analyzer import resolve_stft_params, sample_range
 from backend_errors import INTERNAL_ERROR, InputError, error_payload
 from calibration_profile import source_channel_peaks
@@ -233,19 +233,16 @@ class BrowserService(AnalysisService):
         self,
         recipe: Mapping[str, object],
         *,
+        inputs: Mapping[str, str],
         recipe_path: str | None = None,
         input_contexts: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         # Recipes allocate freely; drop recomputable detail so selected sources keep their budget.
         self.engine.discard_all_spectrograms()
-        for item in recipe_inputs(recipe):
-            file = item["file"]
-            resolved = Path(file)
-            if not resolved.is_absolute():
-                resolved = (Path(recipe_path).parent if recipe_path else Path.cwd()) / resolved
-            if not self.engine.is_loaded(resolved):
+        for file in inputs.values():
+            if not self.engine.is_loaded(Path(file)):
                 raise InputError(f"Recipe input {file!r} is not a loaded source")
-        return super().run_recipe(recipe, recipe_path=recipe_path, input_contexts=input_contexts)
+        return super().run_recipe(recipe, inputs=inputs, recipe_path=recipe_path, input_contexts=input_contexts)
 
 
 def create_service() -> AnalysisService:

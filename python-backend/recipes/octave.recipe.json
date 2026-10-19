@@ -1,0 +1,39 @@
+{
+  "schema": "wandas.recipe",
+  "version": 2,
+  "inputs": [
+    {
+      "id": "input-0",
+      "name": "signal",
+      "kind": "frame"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node-0",
+      "operation": "wandas.audio.noct_spectrum",
+      "version": 1,
+      "inputs": [
+        "input-0"
+      ],
+      "params": {
+        "$type": "map",
+        "entries": [
+          [
+            "fmax",
+            4000
+          ],
+          [
+            "fmin",
+            63
+          ],
+          [
+            "n",
+            3
+          ]
+        ]
+      }
+    }
+  ],
+  "output": "node-0"
+}

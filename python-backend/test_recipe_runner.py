@@ -9,15 +9,13 @@ import numpy as np
 import pytest
 import wandas as wd
 
-from recipe_runner import RecipeError, _eval_expr, evaluate_recipe
+from recipe_runner import RecipeError, evaluate_recipe, frame_input_names, load_plan, recipe_title
+from wandas_to_chart import adapt
+
+RECIPES = Path(__file__).parent / "recipes"
 
 
-def run_recipe(recipe: dict, base_dir: Path) -> list:
-    bindings = {str(item["name"]): wd.read(base_dir / str(item["file"])) for item in recipe.get("inputs") or []}
-    return evaluate_recipe(recipe, bindings)
-
-
-def _write_sine_wav(path: Path, freq_hz: float = 440.0, seconds: float = 0.25, sr: int = 16000) -> None:
+def _write_sine_wav(path: Path, freq_hz: float = 440.0, seconds: float = 1.0, sr: int = 48000) -> None:
     t = np.linspace(0, seconds, int(seconds * sr), endpoint=False)
     samples = (0.5 * np.sin(2 * math.pi * freq_hz * t) * 32767).astype(np.int16)
     with wave.open(str(path), "wb") as w:
@@ -27,191 +25,106 @@ def _write_sine_wav(path: Path, freq_hz: float = 440.0, seconds: float = 0.25, s
         w.writeframes(samples.tobytes())
 
 
-# ---- AST whitelist --------------------------------------------------------
+def _run(recipe: dict, frames: dict, title: str = "result") -> list:
+    return evaluate_recipe(load_plan(recipe), frames, title=title)
 
 
-def test_eval_simple_literal() -> None:
-    assert _eval_expr("1 + 2", {}) == 3
-    assert _eval_expr("-3.5", {}) == -3.5
+@pytest.mark.parametrize("recipe_path", sorted(RECIPES.glob("*.recipe.json")), ids=lambda p: p.name)
+def test_bundled_recipes_replay_on_calibrated_selections_of_different_lengths(
+    recipe_path: Path, tmp_path: Path
+) -> None:
+    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    names = frame_input_names(load_plan(recipe))
+    frames = {}
+    for index, name in enumerate(names):
+        wav = tmp_path / f"{name}.wav"
+        _write_sine_wav(wav, freq_hz=440.0 * (index + 1), seconds=1.0 + 0.5 * index)
+        frames[name] = wd.read(wav).with_calibration({0: wd.ChannelCalibration(factor=1.0, unit="Pa", ref=2e-5)})
+
+    charts = _run(recipe, frames, title=recipe_title(str(recipe_path)))
+
+    assert charts[0]["title"] == recipe_path.name.removesuffix(".recipe.json")
+    assert all(chart["kind"] in {"line", "heatmap", "bar", "scalar"} for chart in charts)
+    assert all(len(chart.get("series", [None])) == 1 for chart in charts if chart["kind"] == "line")
 
 
-def test_eval_method_chain() -> None:
-    class Stub:
-        def normalize(self, n: int) -> Stub:
-            return Stub()
+def test_transfer_function_recipe_shows_gain_and_phase(tmp_path: Path) -> None:
+    recipe = json.loads((RECIPES / "transfer-function.recipe.json").read_text(encoding="utf-8"))
+    frames = {}
+    for name, freq in (("reference", 440.0), ("response", 880.0)):
+        _write_sine_wav(tmp_path / f"{name}.wav", freq_hz=freq)
+        frames[name] = wd.read(tmp_path / f"{name}.wav")
 
-        def fft(self) -> int:
-            return 42
+    charts = _run(recipe, frames, title="transfer-function")
 
-    assert _eval_expr("x.normalize(1).normalize(2).fft()", {"x": Stub()}) == 42
-
-
-def test_eval_rejects_unknown_name() -> None:
-    with pytest.raises(RecipeError):
-        _eval_expr("os.system('echo hi')", {})
-
-
-def test_eval_rejects_subscript() -> None:
-    with pytest.raises(RecipeError):
-        _eval_expr("x[0]", {"x": [1, 2, 3]})
-
-
-def test_eval_rejects_dunder_attribute() -> None:
-    with pytest.raises(RecipeError):
-        _eval_expr("x.__class__", {"x": object()})
-
-
-def test_eval_rejects_import() -> None:
-    with pytest.raises(RecipeError):
-        _eval_expr("__import__('os')", {})
-
-
-def test_eval_rejects_double_star_kwargs() -> None:
-    with pytest.raises(RecipeError):
-        _eval_expr("f(**d)", {"f": lambda **kw: kw, "d": {}})
-
-
-def test_eval_allows_list_arg() -> None:
-    class F:
-        def get_channel(self, xs: list[int]) -> int:
-            return sum(xs)
-
-    assert _eval_expr("x.get_channel([1, 2, 3])", {"x": F()}) == 6
-
-
-# ---- end-to-end recipe execution -----------------------------------------
-
-
-def test_run_recipe_welch(tmp_path: Path) -> None:
-    wav = tmp_path / "a.wav"
-    _write_sine_wav(wav)
-    recipe = {
-        "inputs": [{"name": "sig", "file": str(wav)}],
-        "steps": [{"as": "w", "expr": "sig.welch()"}],
-        "display": [{"name": "w", "title": "PSD"}],
-    }
-    charts = run_recipe(recipe, base_dir=tmp_path)
-    assert len(charts) == 1
-    assert charts[0]["kind"] == "line"
-    assert charts[0]["title"] == "PSD"
-
-
-def test_run_recipe_chain(tmp_path: Path) -> None:
-    wav = tmp_path / "a.wav"
-    _write_sine_wav(wav)
-    recipe = {
-        "inputs": [{"name": "sig", "file": str(wav)}],
-        "steps": [
-            {"as": "filt", "expr": "sig.band_pass_filter(low_cutoff=100, high_cutoff=2000)"},
-            {"as": "w", "expr": "filt.welch()"},
-        ],
-        "display": ["w"],
-    }
-    charts = run_recipe(recipe, base_dir=tmp_path)
-    assert charts[0]["kind"] == "line"
-    assert len(charts[0]["series"]) == 1
-
-
-def test_bundled_coherence_recipe_runs(tmp_path: Path) -> None:
-    first = tmp_path / "a.wav"
-    second = tmp_path / "b.wav"
-    _write_sine_wav(first, freq_hz=440.0, seconds=1.0)
-    _write_sine_wav(second, freq_hz=880.0, seconds=1.0)
-    recipe_path = Path(__file__).parent / "recipes" / "coherence.json"
-    recipe = json.loads(recipe_path.read_text())
-    for input_spec, selected in zip(recipe["inputs"], (first, second), strict=True):
-        input_spec["file"] = str(selected)
-
-    charts = run_recipe(recipe, base_dir=tmp_path)
-
-    assert len(charts) == 1
-    assert charts[0]["kind"] == "line"
-    assert charts[0]["yLabel"] == "Coherence"
-    assert len(charts[0]["series"]) == 1
-
-
-@pytest.mark.parametrize("name", ["coherence.json", "transfer-function.json"])
-def test_bundled_pair_recipes_accept_selections_of_different_lengths(tmp_path: Path, name: str) -> None:
-    first = tmp_path / "a.wav"
-    second = tmp_path / "b.wav"
-    _write_sine_wav(first, freq_hz=440.0, seconds=1.0)
-    _write_sine_wav(second, freq_hz=880.0, seconds=1.5)
-    recipe = json.loads((Path(__file__).parent / "recipes" / name).read_text())
-    for input_spec, selected in zip(recipe["inputs"], (first, second), strict=True):
-        input_spec["file"] = str(selected)
-
-    charts = run_recipe(recipe, base_dir=tmp_path)
-
-    assert charts and all(len(chart["series"]) == 1 for chart in charts)
-
-
-def test_bundled_transfer_function_recipe_shows_gain_and_phase(tmp_path: Path) -> None:
-    first = tmp_path / "a.wav"
-    second = tmp_path / "b.wav"
-    _write_sine_wav(first, freq_hz=440.0, seconds=1.0)
-    _write_sine_wav(second, freq_hz=880.0, seconds=1.0)
-    recipe_path = Path(__file__).parent / "recipes" / "transfer-function.json"
-    recipe = json.loads(recipe_path.read_text())
-    for input_spec, selected in zip(recipe["inputs"], (first, second), strict=True):
-        input_spec["file"] = str(selected)
-
-    charts = run_recipe(recipe, base_dir=tmp_path)
-
-    assert [chart["kind"] for chart in charts] == ["line", "line"]
-    assert all(len(chart["series"]) == 1 for chart in charts)
+    assert [chart["title"] for chart in charts] == ["transfer-function", "transfer-function (phase)"]
     assert charts[0]["yLabel"] != charts[1]["yLabel"]
 
 
-@pytest.mark.parametrize(
-    ("expression", "kind"),
-    [
-        ("sig.fft()", "line"),
-        ("sig.stft(n_fft=1024, hop_length=256)", "heatmap"),
-        ("sig.welch(n_fft=1024)", "line"),
-        ("sig.resampling(48000).fix_length(duration=0.5).roughness_dw_spec()", "heatmap"),
-        ("sig.low_pass_filter(cutoff=2000)", "line"),
-        ("sig.loudness_zwtv()", "line"),
-        ("sig.roughness_dw()", "line"),
-        ("sig.roughness_dw_spec()", "heatmap"),
-        ("sig.sharpness_din()", "line"),
-    ],
-)
-def test_v04_recipe_objects_adapt_to_chart(tmp_path: Path, expression: str, kind: str) -> None:
-    wav = tmp_path / "a.wav"
-    _write_sine_wav(wav, seconds=1.0, sr=48000)
-    if any(metric in expression for metric in ("loudness", "roughness", "sharpness")):
-        time_axis = np.arange(48000, dtype=np.float64) / 48000
-        calibrated_pa = np.rint(np.sin(2 * math.pi * 440 * time_axis)).astype(np.int16)
-        with wave.open(str(wav), "wb") as output:
-            output.setnchannels(1)
-            output.setsampwidth(2)
-            output.setframerate(48000)
-            output.writeframes(calibrated_pa.tobytes())
-    charts = run_recipe(
-        {
-            "inputs": [{"name": "sig", "file": str(wav)}],
-            "steps": [{"as": "result", "expr": expression}],
-            "display": ["result"],
-        },
-        base_dir=tmp_path,
-    )
-    assert charts[0]["kind"] == kind
-
-
-def test_run_recipe_missing_display(tmp_path: Path) -> None:
+def test_recipe_replays_what_a_notebook_saved(tmp_path: Path) -> None:
     wav = tmp_path / "a.wav"
     _write_sine_wav(wav)
-    recipe = {
-        "inputs": [{"name": "sig", "file": str(wav)}],
-        "steps": [],
-        "display": ["never_defined"],
-    }
+    signal = wd.read(wav)
+    processed = signal.low_pass_filter(cutoff=2000).welch(n_fft=1024)
+    path = wd.pipeline.RecipePlan.from_frame(processed, input_names=("signal",)).save(tmp_path / "notebook")
+
+    (chart,) = _run(json.loads(path.read_text(encoding="utf-8")), {"signal": signal})
+
+    assert chart == adapt(processed, title="result")
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    [
+        {"inputs": [{"name": "sig", "file": "a.wav"}], "steps": [], "display": []},
+        {"schema": "wandas.recipe", "version": 2, "inputs": [], "nodes": [], "output": "missing"},
+    ],
+)
+def test_documents_that_are_not_wandas_recipes_are_rejected(recipe: dict) -> None:
     with pytest.raises(RecipeError):
-        run_recipe(recipe, base_dir=tmp_path)
+        load_plan(recipe)
+
+
+def test_array_inputs_are_rejected_because_the_panel_supplies_frames() -> None:
+    signal = wd.from_numpy(np.zeros((1, 16)), sampling_rate=16000)
+    recipe = wd.pipeline.RecipePlan.from_frame(signal + np.ones((1, 16)), input_names=("signal", "offset")).to_dict()
+    plan = load_plan(recipe)
+    with pytest.raises(RecipeError, match="'offset' needs an array"):
+        frame_input_names(plan)
+
+
+def test_outputs_without_a_chart_are_rejected_instead_of_shown_as_repr(tmp_path: Path) -> None:
+    wav = tmp_path / "a.wav"
+    _write_sine_wav(wav)
+    signal = wd.read(wav)
+    recipe = wd.pipeline.RecipePlan.from_frame(signal.cepstrum(), input_names=("signal",)).to_dict()
+
+    with pytest.raises(RecipeError, match="cannot chart a CepstralFrame output"):
+        _run(recipe, {"signal": signal})
+
+
+def test_replay_failures_become_recipe_errors(tmp_path: Path) -> None:
+    wav = tmp_path / "a.wav"
+    _write_sine_wav(wav)
+    recipe = json.loads((RECIPES / "octave.recipe.json").read_text(encoding="utf-8"))
+    with pytest.raises(RecipeError):
+        _run(recipe, {"other": wd.read(wav)})
+
+
+@pytest.mark.parametrize(
+    ("path", "title"),
+    [
+        (None, "Recipe"),
+        ("./recipes/octave.recipe.json", "octave"),
+        ("C:\\recipes\\custom.json", "custom"),
+        ("/tmp/plain", "plain"),
+    ],
+)
+def test_recipe_title_is_the_file_name_without_its_extension(path: str | None, title: str) -> None:
+    assert recipe_title(path) == title
 
 
 def test_chart_spec_schema_validates_against_kind() -> None:
-    # The runner should not invent unknown kinds.
     from chart_spec import dump_schema
 
     schema = dump_schema()
@@ -235,62 +148,3 @@ def test_chart_spec_typed_dicts_match_schema() -> None:
 
     for typed_dict, schema in zip(get_args(ChartSpec), dump_schema()["oneOf"], strict=True):
         check(typed_dict, schema)
-
-
-@pytest.mark.parametrize("method", ["to_wav", "save", "__class__", "unexpected_method"])
-def test_eval_rejects_methods_before_any_execution(method: str, tmp_path: Path) -> None:
-    destination = tmp_path / "forbidden.wav"
-
-    class Stub:
-        def normalize(self) -> Stub:
-            raise AssertionError("no method should run before the full AST is validated")
-
-        def to_wav(self, _path: str) -> None:
-            raise AssertionError("recipe must not write files")
-
-        def save(self, _path: str) -> None:
-            raise AssertionError("recipe must not write files")
-
-    with pytest.raises(RecipeError, match=f"Method '{method}' is not allowed"):
-        _eval_expr(f"sig.normalize().{method}({str(destination)!r})", {"sig": Stub()})
-    assert not destination.exists()
-
-
-@pytest.mark.parametrize(
-    "recipe_path", sorted((Path(__file__).parent / "recipes").glob("*.json")), ids=lambda p: p.stem
-)
-def test_all_bundled_recipes_execute_with_analysis_allowlist(recipe_path: Path, tmp_path: Path) -> None:
-    wav = tmp_path / "selected.wav"
-    _write_sine_wav(wav, seconds=1.0, sr=48000)
-    frame = wd.read(wav).with_calibration({0: wd.ChannelCalibration(factor=1.0, unit="Pa", ref=2e-5)})
-    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
-
-    charts = evaluate_recipe(recipe, {str(item["name"]): frame for item in recipe["inputs"]})
-
-    assert len(charts) == len(recipe["display"])
-    for chart, display in zip(charts, recipe["display"], strict=True):
-        assert chart["title"] == display["title"]
-        assert chart["kind"] in {"line", "heatmap", "bar", "scalar"}
-
-
-@pytest.mark.parametrize("method", ["csd", "transfer_function"])
-def test_cross_spectral_recipe_methods_adapt_to_chart(tmp_path: Path, method: str) -> None:
-    first = tmp_path / "a.wav"
-    second = tmp_path / "b.wav"
-    _write_sine_wav(first, seconds=1.0)
-    _write_sine_wav(second, seconds=1.0)
-    charts = run_recipe(
-        {
-            "inputs": [
-                {"name": "first", "file": str(first)},
-                {"name": "second", "file": str(second)},
-            ],
-            "steps": [
-                {"as": "result", "expr": f"first.concat_frame(second, label_prefix='second').{method}()"},
-            ],
-            "display": ["result"],
-        },
-        base_dir=tmp_path,
-    )
-    assert charts[0]["kind"] == "line"
-    assert charts[0]["series"]

@@ -13,20 +13,13 @@ for (const name of ['comparisonWaveform.js', 'comparisonRuntime.js', 'staticHost
 }
 fs.copyFileSync(path.join(root, 'browser/audio.worker.js'), path.join(out, 'audio.worker.js'));
 fs.copyFileSync(path.join(root, 'runtime/lock.json'), path.join(out, 'runtime/lock.json'));
-const lock = JSON.parse(fs.readFileSync(path.join(root, 'runtime/lock.json'), 'utf8'));
-const bundledDistributions = new Set([
-    ...lock.nativePackages.map(name => name.toLowerCase()),
-    ...lock.pureWheels.map(name => name.split('-')[0].toLowerCase()),
-]);
 const recipeNames = fs.readdirSync(path.join(root, 'python-backend/recipes')).filter(name => name.endsWith('.json')).sort();
 for (const name of fs.readdirSync(path.join(out, 'recipes'))) {
     if (!recipeNames.includes(name) && name !== 'manifest.json') fs.unlinkSync(path.join(out, 'recipes', name));
 }
 const recipeManifest = recipeNames.map(name => {
     fs.copyFileSync(path.join(root, 'python-backend/recipes', name), path.join(out, 'recipes', name));
-    const recipe = JSON.parse(fs.readFileSync(path.join(root, 'python-backend/recipes', name), 'utf8'));
-    const missing = (recipe.requires ?? []).filter(dist => !bundledDistributions.has(String(dist).toLowerCase()));
-    return { name, location: `./recipes/${name}`, ...(missing.length ? { missing } : {}) };
+    return { name, location: `./recipes/${name}` };
 });
 fs.writeFileSync(path.join(out, 'recipes/manifest.json'), JSON.stringify(recipeManifest));
 const pythonModules = ['analysis_engine.py', 'analysis_service.py', 'analyzer.py', 'backend_errors.py', 'command_dispatch.py', 'browser_service.py', 'calibration_profile.py', 'chart_spec.py', 'decimator.py', 'perf.py', 'protocol_schema.py', 'recipe_runner.py', 'wandas_to_chart.py'];

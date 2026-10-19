@@ -49,9 +49,10 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     const served: Record<string, unknown> = {
         './recipes/manifest.json': [
             { name: 'octave.json', location: './recipes/octave.json' },
-            { name: 'loudness.json', location: './recipes/loudness.json', missing: ['mosqito'] },
+            { name: 'coherence.recipe.json', location: './recipes/coherence.recipe.json' },
         ],
-        './recipes/octave.json': { inputs: [{ name: 'sig', file: '{{selection}}' }], steps: [{ as: 'o', expr: 'sig.noct_spectrum()' }], display: ['o'] },
+        './recipes/coherence.recipe.json': { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'reference', kind: 'frame' }, { id: 'input-1', name: 'response', kind: 'frame' }], nodes: [], output: 'input-0' },
+        './recipes/octave.json': { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' },
     };
     const workers: ControlledWorker[] = [];
     const windowListeners = new Map<string, () => void>();
@@ -495,14 +496,14 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     app.host.postMessage({ type: 'run-recipe' });
     await flush();
     assert.deepEqual(app.fetched, ['./recipes/manifest.json', './recipes/octave.json']);
-    assert.match(app.prompts[0], /1: octave.json\n2: loudness.json/);
+    assert.match(app.prompts[0], /1: octave.json\n2: coherence.recipe.json/);
     const worker = app.workers[0];
     const command = worker.commands.at(-1)!;
     assert.equal(command.cmd, 'run-recipe');
     assert.equal(command.requestId, 'recipe-1');
     assert.equal(command.recipePath, './recipes/octave.json');
-    assert.equal(JSON.stringify(command.inputContexts), JSON.stringify({ sig: { analysisRevision: 0 } }));
-    assert.equal(JSON.stringify((command.recipe as { inputs: unknown }).inputs), JSON.stringify([{ name: 'sig', file: app.sourcePath }]));
+    assert.equal(JSON.stringify(command.inputContexts), JSON.stringify({ signal: { analysisRevision: 0 } }));
+    assert.deepEqual(command.inputs, { signal: app.sourcePath });
     worker.reply(command, { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] });
     await flush();
     const frame = app.elements.find(element => element.tag === 'iframe')!;
@@ -516,7 +517,7 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     app.setPromptAnswer('2');
     app.host.postMessage({ type: 'run-recipe' });
     await flush();
-    assert.match(app.status, /loudness.json needs mosqito/);
+    assert.match(app.status, /Recipe expects 2 file\(s\) from the panel selection but 1 is checked/);
     assert.equal(worker.commands.filter(entry => entry.cmd === 'run-recipe').length, 1);
     app.setPromptAnswer('1');
     app.host.postMessage({ type: 'run-recipe' });

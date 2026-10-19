@@ -33,12 +33,16 @@ def _is_object(value: object) -> bool:
     return isinstance(value, dict)
 
 
+def _is_string_map(value: object) -> bool:
+    return isinstance(value, dict) and all(isinstance(item, str) for item in value.values())
+
+
 _REQUEST_FIELDS: dict[str, dict[str, FieldValidator]] = {
-    "run-recipe": {"recipe": _is_object},
+    "run-recipe": {"recipe": _is_object, "inputs": _is_string_map},
 }
 # ``run-recipe`` is outside the generated schema, so its keys are closed here. The nested Recipe
-# document stays open; it is validated by the recipe runner.
-_RUN_RECIPE_KEYS = REQUEST_ENVELOPE_KEYS | {"recipe", "recipePath", "inputContexts"}
+# document stays open; wandas validates it when loading the RecipePlan.
+_RUN_RECIPE_KEYS = REQUEST_ENVELOPE_KEYS | {"recipe", "inputs", "recipePath", "inputContexts"}
 _INPUT_CONTEXT_KEYS = frozenset({"calibrationProfile", "analysisRevision"})
 
 
@@ -182,7 +186,10 @@ def handle_release_track_detail(service: AnalysisService, command: Command) -> d
 
 def handle_run_recipe(service: AnalysisService, command: Command) -> dict[str, object]:
     return service.run_recipe(
-        command["recipe"], recipe_path=command.get("recipePath"), input_contexts=command.get("inputContexts")
+        command["recipe"],
+        inputs=command["inputs"],
+        recipe_path=command.get("recipePath"),
+        input_contexts=command.get("inputContexts"),
     )
 
 

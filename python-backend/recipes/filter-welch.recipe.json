@@ -1,0 +1,64 @@
+{
+  "schema": "wandas.recipe",
+  "version": 2,
+  "inputs": [
+    {
+      "id": "input-0",
+      "name": "signal",
+      "kind": "frame"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node-0",
+      "operation": "wandas.audio.bandpass_filter",
+      "version": 1,
+      "inputs": [
+        "input-0"
+      ],
+      "params": {
+        "$type": "map",
+        "entries": [
+          [
+            "high_cutoff",
+            4000
+          ],
+          [
+            "low_cutoff",
+            100
+          ]
+        ]
+      }
+    },
+    {
+      "id": "node-1",
+      "operation": "wandas.audio.normalize",
+      "version": 1,
+      "inputs": [
+        "node-0"
+      ],
+      "params": {
+        "$type": "map",
+        "entries": []
+      }
+    },
+    {
+      "id": "node-2",
+      "operation": "wandas.audio.welch",
+      "version": 2,
+      "inputs": [
+        "node-1"
+      ],
+      "params": {
+        "$type": "map",
+        "entries": [
+          [
+            "n_fft",
+            4096
+          ]
+        ]
+      }
+    }
+  ],
+  "output": "node-2"
+}

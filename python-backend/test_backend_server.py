@@ -724,7 +724,7 @@ def test_validate_request_rejects_invalid_payloads(payload: object, message: str
     ],
 )
 def test_validate_request_rejects_unknown_run_recipe_keys(extra: dict, message: str) -> None:
-    base = {"cmd": "run-recipe", "requestId": "r", "recipe": {"version": 1, "extension": {"open": True}}}
+    base = {"cmd": "run-recipe", "requestId": "r", "recipe": {"version": 1, "extension": {"open": True}}, "inputs": {}}
     validate_request({**base, "recipePath": "/r.json", "inputContexts": {"tone": {"analysisRevision": 0}}})
     with pytest.raises(ValueError, match=message):
         validate_request({**base, **extra})

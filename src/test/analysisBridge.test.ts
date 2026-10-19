@@ -5,6 +5,7 @@ import { RequestGeneration, runAnalysisBatch } from '../shared/analysis/analysis
 import type { BackendCommand, BackendPayload, BackendResult } from '../shared/protocol/backendProtocol';
 import { exportWavRegions } from '../shared/utils/exportArtifact';
 import { identityCalibrationProfile } from '../shared/analysis/calibrationModel';
+import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 
 class RecordingClient extends AnalysisClient {
     calls: Array<{ command: BackendCommand; payload: unknown; requestId?: string }> = [];
@@ -148,15 +149,18 @@ test('host current context replaces analyze options; absence of a stored profile
 });
 
 
-test('recipes send each input calibration context and their source location', async () => {
+const RECIPE: RecipeDocument = { schema: 'wandas.recipe', inputs: [] };
+
+test('recipes send each input file, its calibration context and their source location', async () => {
     const profile = identityCalibrationProfile([{ channelIndex: 0, label: 'left' }]);
     const client = new RecordingClient({ current: file => ({
         calibrationProfile: profile, analysisRevision: file === '/first.wav' ? 2 : 5,
     }) });
-    const recipe = { inputs: [{ name: 'left', file: '/first.wav' }, { name: 'right', file: '/second.wav' }] };
-    await client.runRecipe(recipe, { recipePath: '/recipes/custom.json' });
+    const recipe = RECIPE;
+    const inputs = { left: '/first.wav', right: '/second.wav' };
+    await client.runRecipe(recipe, inputs, { recipePath: '/recipes/custom.json' });
     assert.deepEqual(client.calls[0], { command: 'run-recipe', requestId: 'recipe-1', payload: {
-        recipe, recipePath: '/recipes/custom.json', inputContexts: {
+        recipe, inputs, recipePath: '/recipes/custom.json', inputContexts: {
             left: { calibrationProfile: profile, analysisRevision: 2 },
             right: { calibrationProfile: profile, analysisRevision: 5 },
         },
@@ -177,7 +181,7 @@ for (const kind of ['cancel', 'timeout'] as const) {
             protected override cancelRequest(requestId: string): void { this.aborted.push(requestId); }
         }
         const client = new WaitingClient();
-        const waiting = client.runRecipe({ inputs: [] }, { cancellation: {
+        const waiting = client.runRecipe(RECIPE, {}, { cancellation: {
             isCancellationRequested: false,
             onCancellationRequested: listener => { cancel = listener; return { dispose: () => { disposed++; } }; },
         } });
@@ -190,7 +194,7 @@ for (const kind of ['cancel', 'timeout'] as const) {
 
 test('already cancelled Recipe does not dispatch a backend request', async () => {
     const client = new RecordingClient();
-    await assert.rejects(client.runRecipe({ inputs: [] }, { cancellation: {
+    await assert.rejects(client.runRecipe(RECIPE, {}, { cancellation: {
         isCancellationRequested: true,
         onCancellationRequested: () => { throw new Error('must not subscribe'); },
     } }), /cancelled/);
@@ -215,7 +219,7 @@ test('cancelling Recipe while its transport starts prevents a late dispatch', as
             return { charts: [] } as unknown as BackendResult<K>;
         }
     }();
-    const waiting = client.runRecipe({ inputs: [] }, { cancellation: {
+    const waiting = client.runRecipe(RECIPE, {}, { cancellation: {
         isCancellationRequested: false,
         onCancellationRequested: listener => { cancel = listener; return { dispose() {} }; },
     } });
@@ -253,7 +257,7 @@ test('Recipe preflight discards only the stale input profile and sends refreshed
             return {} as BackendResult<K>;
         }
     }();
-    await client.runRecipe({ inputs: [{ name: 'old', file: '/old.wav' }, { name: 'valid', file: '/valid.wav' }] });
+    await client.runRecipe(RECIPE, { old: '/old.wav', valid: '/valid.wav' });
     assert.deepEqual(discarded, ['/old.wav']);
     assert.deepEqual(calls.map(call => call.command), ['analyze', 'analyze', 'analyze', 'run-recipe']);
     assert.deepEqual((calls.at(-1)!.payload as BackendPayload<'run-recipe'>).inputContexts, {
@@ -270,7 +274,7 @@ test('Recipe preflight does not run a recipe when the host declines stale-profil
             commands.push(command); throw failure;
         }
     }();
-    await assert.rejects(client.runRecipe({ inputs: [{ name: 'signal', file: '/signal.wav' }] }), error => error === failure);
+    await assert.rejects(client.runRecipe(RECIPE, { signal: '/signal.wav' }), error => error === failure);
     assert.deepEqual(commands, ['analyze']);
 });
 
@@ -287,7 +291,7 @@ test('Recipe deadline covers calibration preflight and prevents a late recipe di
             return {} as BackendResult<K>;
         }
     }();
-    await assert.rejects(client.runRecipe({ inputs: [{ name: 'signal', file: '/signal.wav' }] }), /timed out/);
+    await assert.rejects(client.runRecipe(RECIPE, { signal: '/signal.wav' }), /timed out/);
     finish();
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(commands, ['analyze']);

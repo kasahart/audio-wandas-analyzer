@@ -63,25 +63,21 @@ for c in commands:
         continue
     c['filePath']=packet['fixture']
     if c['cmd']=='run-recipe':
-        c['recipePath']=str(__import__('pathlib').Path(packet['fixture']).resolve().parent / 'custom.json')
-        c['recipe']['inputs'][0]['file']=__import__('pathlib').Path(packet['fixture']).name
+        c['inputs']={name: packet['fixture'] for name in c['inputs']}
 native_results=[dispatch(c,native_service) for c in commands]
 print(json.dumps([byte_results,native_results],allow_nan=False),file=out)
 `], { maxBuffer: 32 * 1024 * 1024, cwd: root, input: JSON.stringify({commands:fixture.commands || commands,fixture:fixture.path || `src/test/fixtures/${fixture.name}`}), encoding: 'utf8', env: { ...process.env, MPLBACKEND: 'Agg' } });
 assert.equal(native.status, 0, native.stderr);
 return JSON.parse(native.stdout);
 }
-commands.push({
-    cmd: 'run-recipe', requestId: 'recipe-parity', recipePath: '/sources/custom.json',
-    recipe: { inputs: [{ name: 'sig', file: 'selected.wav' }],
-        steps: [{ as: 'spectrum', expr: 'sig.fft()' }], display: ['sig', 'spectrum'] },
-});
-commands.push({
-    cmd: 'run-recipe', requestId: 'mosqito-parity', recipePath: '/sources/custom.json',
-    recipe: { inputs: [{ name: 'sig', file: 'selected.wav' }],
-        steps: [{ as: 'loudness', expr: 'sig.loudness_zwst()' }, { as: 'sharpness', expr: 'sig.sharpness_din_st()' }],
-        display: ['loudness', 'sharpness'] },
-});
+// The time-varying loudness recipe also checks that the Web runtime bundles MoSQITo.
+for (const name of ['loudness.recipe.json', 'coherence.recipe.json', 'transfer-function.recipe.json']) {
+    const recipe = JSON.parse(fs.readFileSync(path.join(root, 'python-backend/recipes', name), 'utf8'));
+    commands.push({
+        cmd: 'run-recipe', requestId: `recipe-${name}`, recipePath: `./recipes/${name}`, recipe,
+        inputs: Object.fromEntries(recipe.inputs.map(input => [input.name, '/sources/selected.wav'])),
+    });
+}
 const nativePairs = fixtures.map(nativeResultsFor);
 const byteResults = nativePairs.map(pair => pair[0]);
 const nativeResults = nativePairs.map(pair => pair[1]);
