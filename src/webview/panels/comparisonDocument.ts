@@ -371,6 +371,7 @@ export function renderComparisonStyles(): string {
             width: 300px;
             min-width: 160px;
             flex-shrink: 0;
+            position: relative;
             background: var(--panel);
         }
         .tree-resizer {
@@ -403,8 +404,10 @@ export function renderComparisonStyles(): string {
         #tree-filter-input:focus {
             border-color: var(--accent);
         }
+        /* The collapse button sits in the panel's own top-right corner, like the spectrum's in its header. */
+        #selection-sidebar > .panel-toggle { position: absolute; top: 8px; right: 8px; z-index: 1; }
         #selection-summary {
-            padding: 12px 14px;
+            padding: 12px 40px 12px 14px;
             border-bottom: 1px solid var(--line);
             display: flex;
             flex-direction: column;
@@ -520,6 +523,8 @@ export function renderComparisonStyles(): string {
             #selection-sidebar {
                 width: 100% !important;
                 min-width: 0;
+                /* Stacked and empty, the panel would have no height left for its absolutely placed toggle. */
+                min-height: 34px;
                 border-right: none;
                 border-bottom: 1px solid var(--line);
             }

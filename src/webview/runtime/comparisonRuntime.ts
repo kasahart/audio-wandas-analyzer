@@ -2354,7 +2354,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         persistWebviewState({ sidebarCollapsed: next });
         const layout = document.getElementById('directory-selection-layout');
         layout?.classList.toggle('sidebar-collapsed', next);
-        const button = layout?.querySelector<HTMLElement>('[data-action="toggle-selection-sidebar"]');
+        const button = layout?.querySelector<HTMLElement>('#selection-sidebar [data-action="toggle-selection-sidebar"]');
         if (button) {
             syncPanelToggle(button, 'sidebar', next, STR);
         }

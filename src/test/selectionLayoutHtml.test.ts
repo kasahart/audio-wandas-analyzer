@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getStrings } from '../shared/i18n/strings';
+import { panelToggleHtml } from '../webview/runtime/panelCollapse';
 import { selectionFolderButton, selectionLayoutHtml, type SelectionLayoutParts } from '../webview/runtime/selectionLayoutHtml';
 
 const strings = getStrings('en');
@@ -47,8 +48,12 @@ test('selection layout offers "another" folder only while something is listed an
     assert.ok(picked.includes('>' + strings.btnOpenAnotherFolder + '</button>'));
 });
 
-test('selection layout leads with a sidebar toggle that reflects the collapsed state', () => {
+test('the file list carries its own collapse toggle that reflects the collapsed state', () => {
     const open = selectionLayoutHtml(parts, strings);
+    const toolbar = open.slice(open.indexOf('id="selection-toolbar"'), open.indexOf('id="selection-body"'));
+    assert.ok(!toolbar.includes('toggle-selection-sidebar'));
+    const sidebar = open.slice(open.indexOf('<div id="selection-sidebar">') + '<div id="selection-sidebar">'.length);
+    assert.ok(sidebar.trimStart().startsWith(panelToggleHtml('sidebar', false, strings)));
     assert.ok(open.includes('data-action="toggle-selection-sidebar" aria-expanded="true" data-hint="' + strings.hintCollapseSidebar + '"'));
     assert.ok(!open.includes('sidebar-collapsed'));
     const collapsed = selectionLayoutHtml({ ...parts, isEmpty: true, sidebarCollapsed: true }, strings);
