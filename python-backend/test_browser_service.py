@@ -297,9 +297,18 @@ def _encoded(extension: str, data: np.ndarray, rate: int) -> bytes:
         time = np.arange(len(data)) / rate
         rows = "\n".join(",".join(str(float(value)) for value in (t, *row)) for t, row in zip(time, data, strict=True))
         return f"time,left,right\n{rows}\n".encode()
-    formats = {".flac": "FLAC", ".ogg": "OGG", ".aiff": "AIFF", ".aif": "AIFF", ".snd": "AU", ".wav": "WAV"}
+    formats = {
+        ".flac": ("FLAC", "PCM_16"),
+        ".ogg": ("OGG", "VORBIS"),
+        ".aiff": ("AIFF", "PCM_16"),
+        ".aif": ("AIFF", "PCM_16"),
+        ".snd": ("AU", "PCM_16"),
+        ".wav": ("WAV", "PCM_16"),
+    }
+    assert extension in formats, f"add an encoder for {extension}, which the bundled wandas now reads"
+    container, subtype = formats[extension]
     buffer = io.BytesIO()
-    sf.write(buffer, data, rate, format=formats[extension], subtype="VORBIS" if extension == ".ogg" else None)
+    sf.write(buffer, data, rate, format=container, subtype=subtype)
     return buffer.getvalue()
 
 
