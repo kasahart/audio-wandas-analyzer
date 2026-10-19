@@ -213,6 +213,7 @@ export class PairSpectrumPanel {
         if (!result || !sources) {
             return [];
         }
+        // Hosts give every listed source its own path, so a path and channel name one lane.
         const seenTracks = new Set<TrackId>();
         return result.responses.flatMap(response => {
             const source = sources.responses.find(channel => channel.filePath === response.filePath && channel.channelIndex === response.channelIndex);

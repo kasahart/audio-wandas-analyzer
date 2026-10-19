@@ -122,14 +122,18 @@ function pairResult(overrides: Partial<PairSpectrumResult> = {}): PairSpectrumRe
     };
 }
 
-function controllerWith(result: () => Promise<PairSpectrumResult>, canPublish: (filePath: string, revision: number | undefined) => boolean) {
+function controllerWith(
+    result: () => Promise<PairSpectrumResult>,
+    canPublish: (filePath: string, revision: number | undefined) => boolean,
+    lazyContext = (filePath: string): { analysisRevision: number } | undefined => ({ analysisRevision: filePath === '/a.wav' ? 2 : 5 }),
+) {
     const published: SessionPublication[] = [];
     const calls: unknown[][] = [];
     const ports = {
         scope: () => ({ isCurrent: () => true, canPublish }),
         publish: (message: SessionPublication) => { published.push(message); },
         stftOptions: () => ({ nFft: 4096, hopLength: 1024, window: 'hann' }),
-        lazyContext: (filePath: string) => ({ analysisRevision: filePath === '/a.wav' ? 2 : 5 }),
+        lazyContext,
         client: { requestPairSpectrum: (...args: unknown[]) => { calls.push(args); return result(); } },
     } as unknown as ComparisonSessionPorts;
     return { controller: new ComparisonSessionController(ports), published, calls };
@@ -163,6 +167,14 @@ test('the session controller drops a pair result once any source was reanalyzed'
     await controller.handle(pairRequest);
     assert.equal(published.length, 0);
     assert.deepEqual(seen.find(([filePath]) => filePath === '/b.wav'), ['/b.wav', 5]);
+});
+
+test('the session controller ignores a pair request for a source the host no longer displays', async () => {
+    const { controller, published, calls } = controllerWith(async () => pairResult(), () => true,
+        filePath => filePath === '/gone.wav' ? undefined : { analysisRevision: 2 });
+    await controller.handle({ ...pairRequest, responses: [{ filePath: '/gone.wav', channelIndex: 0, offsetSeconds: 0 }] });
+    assert.equal(calls.length, 0);
+    assert.equal(published.length, 0);
 });
 
 test('the session controller reports a failed pair request', async () => {
