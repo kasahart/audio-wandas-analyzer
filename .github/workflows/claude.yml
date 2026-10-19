@@ -53,6 +53,30 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Lets the reviewer compile, run tests and probe scripts to confirm what it reports.
+      - uses: actions/setup-node@v5
+        if: steps.auth.outputs.ok == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: actions/setup-python@v6
+        if: steps.auth.outputs.ok == 'true'
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            python-backend/requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        if: steps.auth.outputs.ok == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsndfile1
+          npm ci
+          pip install -e ".[dev]"
+
       - uses: anthropics/claude-code-action@v1
         if: steps.auth.outputs.ok == 'true'
         with:
@@ -61,4 +85,6 @@ jobs:
           additional_permissions: |
             actions: read
           claude_args: |
-            --append-system-prompt "Reply in Japanese. Follow AGENTS.md and CLAUDE.md in this repository."
+            --model opus
+            --allowedTools "Bash(npm run compile:*),Bash(node:*),Bash(python:*)"
+            --append-system-prompt "Reply in Japanese. Follow AGENTS.md and CLAUDE.md in this repository. When asked to review a pull request, follow .github/claude-review.md."
