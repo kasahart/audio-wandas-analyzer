@@ -469,6 +469,9 @@ def test_browser_pair_spectrum_refuses_work_beyond_the_memory_budget(tmp_path: P
 
     with pytest.raises(ValueError, match="memory budget"):
         browser.pair_spectrum(sources[0], sources[1:2])
+    # A loop range bounds the work, so the same pair fits once only a few seconds are averaged.
+    narrowed = browser.pair_spectrum(sources[0], sources[1:2], start_seconds=10.0, end_seconds=15.0)
+    assert narrowed["responses"][0]["status"] == "ok"
     # Thirty seconds at 48 kHz with the default settings is the common case and must fit.
     result = browser.pair_spectrum(sources[1], sources[2:])
     assert result["responses"][0]["status"] == "ok"

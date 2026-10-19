@@ -180,16 +180,30 @@ class BrowserService(AnalysisService):
         reference: Mapping[str, object],
         responses: list[Mapping[str, object]],
         *,
+        start_seconds: float | None = None,
+        end_seconds: float | None = None,
         stft_options: Mapping[str, object] | None = None,
         **options: object,
     ) -> PairSpectrumResult:
         # Peak memory follows the two-channel STFT and its cross spectra, measured near 64 bytes per bin.
-        length = self.engine.get_file(str(reference["filePath"])).frame.n_samples
-        n_fft, hop_length, _ = pair_stft_params(length, stft_options)
+        frame = self.engine.get_file(str(reference["filePath"])).frame
+        n_fft, hop_length, _ = pair_stft_params(frame.n_samples, stft_options)
+        length = frame.n_samples
+        if start_seconds is not None and end_seconds is not None:
+            length = min(length, max(0, int((end_seconds - start_seconds) * frame.sampling_rate)))
         working = ((length // hop_length) + 5) * 2 * (n_fft // 2 + 1) * 64
         if self.engine.estimated_bytes(working) > MAX_ESTIMATED_BYTES:
-            raise InputError("Pair spectrum exceeds browser estimated memory budget; lower the overlap")
-        return super().pair_spectrum(reference, responses, stft_options=stft_options, **options)
+            raise InputError(
+                "Pair spectrum exceeds browser estimated memory budget; shorten the range or lower the overlap"
+            )
+        return super().pair_spectrum(
+            reference,
+            responses,
+            start_seconds=start_seconds,
+            end_seconds=end_seconds,
+            stft_options=stft_options,
+            **options,
+        )
 
     def run_recipe(
         self,
