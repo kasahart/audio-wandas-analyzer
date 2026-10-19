@@ -62,11 +62,28 @@ class BrowserEngine(AnalysisEngine):
 
     def load(self, source_id: str, payload: bytes) -> dict[str, object]:
         if not payload or len(payload) > MAX_INPUT_BYTES:
-            raise InputError(f"Select a non-empty WAV up to {_mib(MAX_INPUT_BYTES)}")
-        if payload[:4] != b"RIFF" or payload[8:12] != b"WAVE":
-            raise InputError("This prototype supports RIFF WAV only")
-        header = wd.inspect(payload, file_type=".wav")
-        length, channels, rate = (int(header[key]) for key in ("frames", "channels", "samplerate"))
+            raise InputError(f"Select a non-empty file up to {_mib(MAX_INPUT_BYTES)}")
+        suffix = Path(source_id).suffix.lower()
+        if suffix not in wd.supported_formats():
+            raise InputError(f"Unsupported file type: {suffix or source_id}")
+        frame: wd.ChannelFrame | None = None
+        if suffix == ".csv":
+            # wd.inspect reads audio headers only, so a CSV is bounded before parsing: every value
+            # takes at least two bytes, which caps its decoded frame at half the payload's byte count.
+            worst_frame_bytes = len(payload) // 2 * AUDIO_CACHE_DTYPE.itemsize
+            if self.estimated_bytes(len(payload) * 2 + worst_frame_bytes * 8) > MAX_ESTIMATED_BYTES:
+                raise InputError("Loading exceeds browser estimated memory budget; remove another track")
+            try:
+                frame = wd.read(payload, file_type=suffix, source_name=source_id).astype(AUDIO_CACHE_DTYPE).cache()
+            except ValueError as error:
+                raise InputError(f"Unable to read CSV: {str(error).splitlines()[0]}") from error
+            length, channels, rate = frame.n_samples, frame.n_channels, float(frame.sampling_rate)
+        else:
+            try:
+                header = wd.inspect(payload, file_type=suffix)
+            except sf.LibsndfileError as error:
+                raise InputError("Unable to read audio: invalid or unsupported data") from error
+            length, channels, rate = (int(header[key]) for key in ("frames", "channels", "samplerate"))
         if (
             not length >= 32
             or not 1 <= channels <= MAX_CHANNELS
@@ -82,8 +99,6 @@ class BrowserEngine(AnalysisEngine):
         path = Path("/sources") / source_id
         if path.as_posix() != f"/sources/{source_id}" or ".." in path.parts:
             raise InputError("Invalid source identity")
-        if not source_id.lower().endswith(".wav"):
-            raise InputError("Invalid source identity")
         if path in self._files:
             raise InputError("Source identity is already loaded")
         frame_bytes = length * channels * AUDIO_CACHE_DTYPE.itemsize
@@ -91,15 +106,16 @@ class BrowserEngine(AnalysisEngine):
         decoded_bytes = sum(entry.frame_nbytes for entry in self._files.values()) + frame_bytes
         if len(self._files) >= MAX_SOURCES or input_bytes > MAX_TOTAL_INPUT_BYTES:
             raise InputError(
-                f"Browser session limit: up to {MAX_SOURCES} WAV files / {_mib(MAX_TOTAL_INPUT_BYTES)} total input"
+                f"Browser session limit: up to {MAX_SOURCES} files / {_mib(MAX_TOTAL_INPUT_BYTES)} total input"
             )
         if decoded_bytes > MAX_TOTAL_DECODED_BYTES:
             raise InputError(f"Browser session exceeds {_mib(MAX_TOTAL_DECODED_BYTES)} decoded audio budget")
         if self.estimated_bytes(len(payload) * 2 + frame_bytes * 8) > MAX_ESTIMATED_BYTES:
             raise InputError("Loading exceeds browser estimated memory budget; remove another track")
-        frame = wd.read(payload, file_type=".wav", source_name=source_id).astype(AUDIO_CACHE_DTYPE).cache()
+        if frame is None:
+            frame = wd.read(payload, file_type=suffix, source_name=source_id).astype(AUDIO_CACHE_DTYPE).cache()
         if not np.isfinite(frame.data).all():
-            raise InputError("WAV contains non-finite samples")
+            raise InputError("Source contains non-finite samples")
         self._files[path] = CachedAnalysis(
             path=path,
             frame=frame,
@@ -261,7 +277,7 @@ def load_source(source_id: str, payload: object) -> str:
     try:
         return json.dumps(service.engine.load(source_id, bytes(payload)))
     except sf.LibsndfileError as error:
-        raise InputError("Unable to read WAV: invalid or unsupported WAV data") from error
+        raise InputError("Unable to read audio: invalid or unsupported data") from error
 
 
 @_json_reply

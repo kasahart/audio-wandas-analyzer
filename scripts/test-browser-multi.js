@@ -122,9 +122,9 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         assert.equal(await page.evaluate(async u=>{try{await fetch(u);return true;}catch{return false;}},removedUrl),false);
         const bytes=fs.readFileSync(fixture('short-stereo.wav'));
         await picker.setInputFiles([{name:'bad.wav',mimeType:'audio/wav',buffer:Buffer.from('invalid')},{name:'added.wav',mimeType:'audio/wav',buffer:bytes}]);
-        await status.filter({hasText:'WAV only'}).waitFor();assert.equal(await page.locator('.track-row').count(),3);
+        await status.filter({hasText:'Unable to read audio'}).waitFor();assert.equal(await page.locator('.track-row').count(),3);
         await picker.setInputFiles(Array.from({length:6},(_,i)=>({name:`additional-${i}.wav`,mimeType:'audio/wav',buffer:bytes})));
-        await status.filter({hasText:'8 WAV files'}).waitFor();assert.equal(await page.locator('.track-row').count(),8);
+        await status.filter({hasText:'8 files'}).waitFor();assert.equal(await page.locator('.track-row').count(),8);
         assert.equal(await page.evaluate(()=>window.__workers.length),1);
         const waitStftPainted = async () => {
             await page.waitForFunction(() => {

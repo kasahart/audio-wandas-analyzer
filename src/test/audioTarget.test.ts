@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    hasPlayableAudio,
     isAnalyzeSelectedFilesMessage,
     isExportWavLoopMessage,
     isRequestSpectrumSliceMessage,
@@ -15,6 +16,14 @@ test('isSupportedAudioFile accepts supported extensions case-insensitively', () 
     assert.equal(isSupportedAudioFile('archive.take.FlAc'), true);
     assert.equal(isSupportedAudioFile('notes.txt'), false);
     assert.equal(isSupportedAudioFile('no-extension'), false);
+});
+
+test('hasPlayableAudio excludes formats Chromium cannot decode', () => {
+    assert.equal(hasPlayableAudio('take.flac'), true);
+    assert.equal(hasPlayableAudio('accel.CSV'), false);
+    assert.equal(hasPlayableAudio('take.aif'), false);
+    assert.equal(hasPlayableAudio('take.snd'), false);
+    assert.equal(hasPlayableAudio('notes.txt'), false);
 });
 
 test('isSelectTargetMessage only accepts supported target kinds', () => {

@@ -1,13 +1,25 @@
-export const SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.aiff', '.aif', '.snd']);
+/** Mirrors `wandas.supported_formats()` of the pinned wandas; test_typescript_extension_list_matches_wandas in python-backend/test_browser_service.py keeps them equal. */
+export const SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.aiff', '.aif', '.snd', '.csv']);
 /** The same extensions without the leading dot, as VS Code open-dialog filters expect. */
 export const SUPPORTED_AUDIO_DIALOG_EXTENSIONS = Array.from(SUPPORTED_AUDIO_FILE_EXTENSIONS, extension => extension.slice(1));
 
 export type SelectionTargetKind = 'file' | 'directory';
 
-export function isSupportedAudioFile(fileName: string): boolean {
+function extensionOf(fileName: string): string {
     const leaf = fileName.split(/[\\/]/).pop() ?? '';
     const dot = leaf.lastIndexOf('.');
-    return dot > 0 && SUPPORTED_AUDIO_FILE_EXTENSIONS.has(leaf.slice(dot).toLowerCase());
+    return dot > 0 ? leaf.slice(dot).toLowerCase() : '';
+}
+
+export function isSupportedAudioFile(fileName: string): boolean {
+    return SUPPORTED_AUDIO_FILE_EXTENSIONS.has(extensionOf(fileName));
+}
+
+/** Chromium has no AIFF or AU decoder and CSV holds samples rather than encoded audio, so the webview plays only these. */
+const PLAYABLE_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg']);
+
+export function hasPlayableAudio(fileName: string): boolean {
+    return PLAYABLE_AUDIO_FILE_EXTENSIONS.has(extensionOf(fileName));
 }
 
 export function isSelectTargetMessage(message: unknown): message is { type: 'select-target'; targetKind: SelectionTargetKind } {

@@ -495,7 +495,7 @@ class AnalysisService:
         end_norm: float,
     ) -> WavLoopExportResult:
         cached = self.engine.get_file(file_path)
-        sample_rate = int(cached.frame.sampling_rate)
+        sample_rate = max(1, round(cached.frame.sampling_rate))
         start_sample, end_sample = sample_range(start_norm, end_norm, cached.frame.n_samples)
         frame_count = end_sample - start_sample
 

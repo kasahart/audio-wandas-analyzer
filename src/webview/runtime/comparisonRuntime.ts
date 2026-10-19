@@ -3335,6 +3335,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             __setReanalyzeBusy(false);
             invalidateDesiredSpectrumSliceRequests();
+            // A host drops a request whose source was cleared, so waiting for its answer would block every later cursor spectrum.
+            activeSpectrumSliceRequest = null;
             const reconciliation = trackStore.reconcile(msg.results, function (nextResult, previousResult) {
                 return Object.assign({}, nextResult, { audioSource: previousResult?.audioSource || nextResult.audioSource || '' });
             });

@@ -10,6 +10,7 @@ import numpy as np
 import wandas as wd
 from scipy.signal import ShortTimeFFT, get_window
 
+from backend_errors import InputError
 from calibration_profile import ResolvedCalibrationProfile, resolve_calibration_profile, source_channel_peaks
 
 StftKey = tuple[str, int, int, str]
@@ -119,6 +120,9 @@ class AnalysisEngine:
             self._files.move_to_end(path)
             return cached
         frame = wd.read(path).astype(AUDIO_CACHE_DTYPE).cache()
+        # A CSV can hold blanks or NaN, which would only fail later as non-JSON analysis output.
+        if not np.isfinite(frame.data).all():
+            raise InputError("Source contains non-finite samples")
         cached = CachedAnalysis(
             path=path,
             frame=frame,

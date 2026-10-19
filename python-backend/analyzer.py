@@ -220,7 +220,7 @@ def _resample_time_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.nd
 
 def _build_spectrogram(
     spectrogram_db: np.ndarray,
-    sample_rate_hz: int,
+    sample_rate_hz: float,
     window_size: int,
     hop_size: int,
     scale_metadata: LevelScaleMetadata | None = None,
@@ -326,7 +326,8 @@ def analyze_from_frame(
     t_frame = time.perf_counter()
     channel_count = int(frame.n_channels)
     sample_count = int(frame.n_samples)
-    sample_rate_hz = int(frame.sampling_rate)
+    # CSV sources may have fractional rates.
+    sample_rate_hz = float(frame.sampling_rate)
     labels = list(frame.labels)
     resolved = calibration_profile
     references = [frame.channels[index].level_reference for index in range(channel_count)]

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../shared/utils/audioTarget';
 
 const repoRoot = path.resolve(__dirname, '../..');
 
@@ -57,7 +58,7 @@ test('package.json contributes GUI entry points for analysis', () => {
     );
     assert.equal(
         manifest.contributes?.menus?.['explorer/context']?.[0]?.when,
-        'resourceExtname =~ /^\\.(wav|flac|ogg|aiff|aif|snd)$/i',
+        `resourceExtname =~ /^\\.(${SUPPORTED_AUDIO_DIALOG_EXTENSIONS.join('|')})$/i`,
     );
     assert.deepEqual(manifest.contributes?.viewsContainers?.activitybar, [
         {

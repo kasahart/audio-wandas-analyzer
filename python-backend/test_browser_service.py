@@ -1,8 +1,12 @@
+import io
 import json
+import re
 from pathlib import Path
 
 import numpy as np
 import pytest
+import soundfile as sf
+import wandas as wd
 
 from browser_service import BrowserService, create_service
 from command_dispatch import dispatch, validate_request
@@ -22,7 +26,7 @@ def test_browser_source_bounds_release_and_stale_identity() -> None:
     assert isinstance(service, BrowserService)
     with pytest.raises(ValueError, match="non-empty"):
         service.engine.load("selected.wav", b"")
-    with pytest.raises(ValueError, match="WAV only"):
+    with pytest.raises(ValueError, match="Unable to read audio"):
         service.engine.load("selected.wav", b"not a wav")
     service.engine.load("selected.wav", FIXTURE.read_bytes())
     source = service.engine.get_file("/sources/selected.wav")
@@ -64,7 +68,7 @@ def test_multiple_sources_add_failure_remove_and_recompute() -> None:
     service.engine.load("second.wav", FIXTURE.with_name("changing-stereo.wav").read_bytes())
     first = service.engine.get_file("/sources/first.wav")
     second = service.engine.get_file("/sources/second.wav")
-    with pytest.raises(ValueError, match="WAV only"):
+    with pytest.raises(ValueError, match="Unable to read audio"):
         service.engine.load("bad.wav", b"not a wav")
     with pytest.raises(ValueError, match="already loaded"):
         service.engine.load("first.wav", FIXTURE.read_bytes())
@@ -90,7 +94,7 @@ def test_aggregate_bounds_reject_before_decode_and_preserve_sources(monkeypatch)
     payload = FIXTURE.read_bytes()
     for index in range(8):
         service.engine.load(f"source-{index}.wav", payload)
-    with pytest.raises(ValueError, match="8 WAV"):
+    with pytest.raises(ValueError, match="8 files"):
         service.engine.load("ninth.wav", payload)
     service.engine.discard("/sources/source-0.wav")
     monkeypatch.setattr(browser, "MAX_TOTAL_INPUT_BYTES", len(payload) * 7)
@@ -270,7 +274,7 @@ def test_estimated_bytes_counts_session_inputs_and_retained_detail() -> None:
     assert engine.estimated_bytes(10) == baseline + len(payload) + engine.retained_bytes * 2 + 10
 
 
-@pytest.mark.parametrize("source_id", ["/etc/a.wav", "a/../b.wav", "a//b.wav", "a/./b.wav", "a.txt", "a/"])
+@pytest.mark.parametrize("source_id", ["/etc/a.wav", "a/../b.wav", "a//b.wav", "a/./b.wav"])
 def test_source_identity_rejects_paths_outside_sources(source_id: str) -> None:
     with pytest.raises(ValueError, match="Invalid source identity"):
         create_service().engine.load(source_id, FIXTURE.read_bytes())
@@ -280,3 +284,87 @@ def test_folder_sources_keep_their_relative_path() -> None:
     service = create_service()
     assert service.engine.load("rec/day1/A.WAV", FIXTURE.read_bytes()) == {"filePath": "/sources/rec/day1/A.WAV"}
     assert service.engine.get_file("/sources/rec/day1/A.WAV").path.name == "A.WAV"
+
+
+@pytest.mark.parametrize("source_id", ["a.txt", "a/", "a.m4a"])
+def test_load_rejects_types_wandas_cannot_read(source_id: str) -> None:
+    with pytest.raises(ValueError, match="Unsupported file type"):
+        create_service().engine.load(source_id, FIXTURE.read_bytes())
+
+
+def _encoded(extension: str, data: np.ndarray, rate: int) -> bytes:
+    if extension == ".csv":
+        time = np.arange(len(data)) / rate
+        rows = "\n".join(",".join(str(float(value)) for value in (t, *row)) for t, row in zip(time, data, strict=True))
+        return f"time,left,right\n{rows}\n".encode()
+    formats = {
+        ".flac": ("FLAC", "PCM_16"),
+        ".ogg": ("OGG", "VORBIS"),
+        ".aiff": ("AIFF", "PCM_16"),
+        ".aif": ("AIFF", "PCM_16"),
+        ".snd": ("AU", "PCM_16"),
+        ".wav": ("WAV", "PCM_16"),
+    }
+    assert extension in formats, f"add an encoder for {extension}, which the bundled wandas now reads"
+    container, subtype = formats[extension]
+    buffer = io.BytesIO()
+    sf.write(buffer, data, rate, format=container, subtype=subtype)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("extension", wd.supported_formats())
+def test_load_accepts_every_format_wandas_reads(extension: str) -> None:
+    rate = 8000
+    time = np.arange(800) / rate
+    data = np.column_stack([0.5 * np.sin(2 * np.pi * 440 * time), 0.25 * np.sin(2 * np.pi * 880 * time)])
+    service = create_service()
+    payload = _encoded(extension, data, rate)
+
+    path = service.engine.load(f"folder/tone{extension}", payload)["filePath"]
+
+    frame = service.engine.get_file(path).frame
+    assert frame.sampling_rate == rate
+    assert frame.shape == (2, 800)
+    if extension != ".ogg":
+        np.testing.assert_allclose(frame.data, data.T, atol=1e-4)
+
+
+def test_typescript_extension_list_matches_wandas() -> None:
+    source = (Path(__file__).resolve().parents[1] / "src/shared/utils/audioTarget.ts").read_text(encoding="utf-8")
+    listed = re.search(r"SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set\(\[([^\]]*)\]\)", source)
+    assert listed
+    assert sorted(re.findall(r"'([^']+)'", listed[1])) == wd.supported_formats()
+
+
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        (b"time,x\n", "Invalid sampling_rate"),
+        ("time,x\n" + "".join(f"{i / 1000},abc\n" for i in range(100)), "must be numeric"),
+        ("time,x\n" + "".join(f"{(i % 10) / 1000},{i}\n" for i in range(100)), "Invalid sampling_rate"),
+    ],
+    ids=["header-only", "non-numeric", "non-monotonic-time"],
+)
+def test_unreadable_csv_is_an_input_error_on_one_line(monkeypatch, payload, reason: str) -> None:
+    import browser_service
+
+    monkeypatch.setattr(browser_service, "service", create_service())
+    data = payload if isinstance(payload, bytes) else payload.encode()
+    message = _input_error(browser_service.load_source("bad.csv", data))
+    assert message.startswith("Unable to read CSV:")
+    assert reason in message
+    assert "\n" not in message
+    assert not browser_service.service.engine._files
+
+
+def test_csv_is_bounded_before_it_is_parsed(monkeypatch) -> None:
+    import browser_service as browser
+
+    def unexpected_read(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("parsed a CSV that exceeds the memory budget")
+
+    service = create_service()
+    monkeypatch.setattr(browser, "MAX_ESTIMATED_BYTES", 1)
+    monkeypatch.setattr(browser.wd, "read", unexpected_read)
+    with pytest.raises(ValueError, match="memory budget"):
+        service.engine.load("big.csv", b"time,x\n0,0\n")

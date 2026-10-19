@@ -66,7 +66,7 @@ const limitRows = {
     'README.md': [
         '| Limit | Browser version |',
         '| --- | --- |',
-        '| Audio format | RIFF WAV |',
+        '| Formats | WAV, FLAC, OGG, AIFF, SND, CSV |',
         `| Per file | Up to ${mib(constants.MAX_INPUT_BYTES)} MiB and ${constants.MAX_DURATION_SECONDS} seconds; mono or stereo |`,
         `| Sample rate | ${khz(constants.MIN_SAMPLE_RATE_HZ)}–${khz(constants.MAX_SAMPLE_RATE_HZ)} kHz |`,
         `| Comparison | Up to ${constants.MAX_SOURCES} tracks and ${mib(constants.MAX_TOTAL_INPUT_BYTES)} MiB of input files in total |`,
@@ -75,7 +75,7 @@ const limitRows = {
     'README.ja.md': [
         '| 制限 | ブラウザー版 |',
         '| --- | --- |',
-        '| 音声形式 | RIFF WAV |',
+        '| 形式 | WAV、FLAC、OGG、AIFF、SND、CSV |',
         `| 1 ファイル | ${mib(constants.MAX_INPUT_BYTES)} MiB・${constants.MAX_DURATION_SECONDS} 秒まで、モノラルまたはステレオ |`,
         `| サンプリング周波数 | ${khz(constants.MIN_SAMPLE_RATE_HZ)}–${khz(constants.MAX_SAMPLE_RATE_HZ)} kHz |`,
         `| 比較 | 最大 ${constants.MAX_SOURCES} トラック、入力ファイルの合計 ${mib(constants.MAX_TOTAL_INPUT_BYTES)} MiB まで |`,
