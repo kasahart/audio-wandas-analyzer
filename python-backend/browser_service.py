@@ -66,14 +66,18 @@ class BrowserEngine(AnalysisEngine):
         suffix = Path(source_id).suffix.lower()
         if suffix not in wd.supported_formats():
             raise InputError(f"Unsupported file type: {suffix or source_id}")
-        source: wd.ChannelFrame | None = None
+        frame: wd.ChannelFrame | None = None
         if suffix == ".csv":
-            # wd.inspect reads audio headers only; a CSV has to be parsed to know its shape and rate.
+            # wd.inspect reads audio headers only, so a CSV is bounded before parsing: every value
+            # takes at least two bytes, which caps its decoded frame at half the payload's byte count.
+            worst_frame_bytes = len(payload) // 2 * AUDIO_CACHE_DTYPE.itemsize
+            if self.estimated_bytes(len(payload) * 2 + worst_frame_bytes * 8) > MAX_ESTIMATED_BYTES:
+                raise InputError("Loading exceeds browser estimated memory budget; remove another track")
             try:
-                source = wd.read(payload, file_type=suffix, source_name=source_id)
+                frame = wd.read(payload, file_type=suffix, source_name=source_id).astype(AUDIO_CACHE_DTYPE).cache()
             except ValueError as error:
-                raise InputError(f"Unable to read CSV: {error}") from error
-            length, channels, rate = source.n_samples, source.n_channels, int(source.sampling_rate)
+                raise InputError(f"Unable to read CSV: {str(error).splitlines()[0]}") from error
+            length, channels, rate = frame.n_samples, frame.n_channels, float(frame.sampling_rate)
         else:
             try:
                 header = wd.inspect(payload, file_type=suffix)
@@ -108,9 +112,8 @@ class BrowserEngine(AnalysisEngine):
             raise InputError(f"Browser session exceeds {_mib(MAX_TOTAL_DECODED_BYTES)} decoded audio budget")
         if self.estimated_bytes(len(payload) * 2 + frame_bytes * 8) > MAX_ESTIMATED_BYTES:
             raise InputError("Loading exceeds browser estimated memory budget; remove another track")
-        if source is None:
-            source = wd.read(payload, file_type=suffix, source_name=source_id)
-        frame = source.astype(AUDIO_CACHE_DTYPE).cache()
+        if frame is None:
+            frame = wd.read(payload, file_type=suffix, source_name=source_id).astype(AUDIO_CACHE_DTYPE).cache()
         if not np.isfinite(frame.data).all():
             raise InputError("Source contains non-finite samples")
         self._files[path] = CachedAnalysis(

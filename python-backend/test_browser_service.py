@@ -325,3 +325,37 @@ def test_typescript_extension_list_matches_wandas() -> None:
     listed = re.search(r"SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set\(\[([^\]]*)\]\)", source)
     assert listed
     assert sorted(re.findall(r"'([^']+)'", listed[1])) == wd.supported_formats()
+
+
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        (b"time,x\n", "Invalid sampling_rate"),
+        ("time,x\n" + "".join(f"{i / 1000},abc\n" for i in range(100)), "must be numeric"),
+        ("time,x\n" + "".join(f"{(i % 10) / 1000},{i}\n" for i in range(100)), "Invalid sampling_rate"),
+    ],
+    ids=["header-only", "non-numeric", "non-monotonic-time"],
+)
+def test_unreadable_csv_is_an_input_error_on_one_line(monkeypatch, payload, reason: str) -> None:
+    import browser_service
+
+    monkeypatch.setattr(browser_service, "service", create_service())
+    data = payload if isinstance(payload, bytes) else payload.encode()
+    message = _input_error(browser_service.load_source("bad.csv", data))
+    assert message.startswith("Unable to read CSV:")
+    assert reason in message
+    assert "\n" not in message
+    assert not browser_service.service.engine._files
+
+
+def test_csv_is_bounded_before_it_is_parsed(monkeypatch) -> None:
+    import browser_service as browser
+
+    def unexpected_read(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("parsed a CSV that exceeds the memory budget")
+
+    service = create_service()
+    monkeypatch.setattr(browser, "MAX_ESTIMATED_BYTES", 1)
+    monkeypatch.setattr(browser.wd, "read", unexpected_read)
+    with pytest.raises(ValueError, match="memory budget"):
+        service.engine.load("big.csv", b"time,x\n0,0\n")
