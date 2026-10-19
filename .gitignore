@@ -21,5 +21,5 @@ UX_AUDIT_REPORT.md
 
 browser-dist/
 
-# Claude review probe scripts (.github/claude-review.md)
+# Claude review probe scripts (.claude/review.md)
 review-scratch/
