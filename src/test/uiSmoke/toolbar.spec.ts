@@ -349,6 +349,16 @@ test('static page recipe menu drops from the Workflow menu, closes on Escape and
     await expect(result).toContainText('mine');
     await expect(result).toContainText('signal: selected.wav');
     await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
+
+    // In a window too short for the menu, it scrolls instead of hiding its last item below the edge.
+    await page.setViewportSize({ width: 1280, height: 110 });
+    await workflow.locator('summary').click();
+    await workflow.locator('[data-action="run-recipe"]').click();
+    const shortBox = (await picker.boundingBox())!;
+    expect(shortBox.y + shortBox.height).toBeLessThanOrEqual(110);
+    await expect(picker).toHaveCSS('overflow-y', 'auto');
+    await picker.locator('[data-action="browser-recipe-file"]').scrollIntoViewIfNeeded();
+    await expect(picker.locator('[data-action="browser-recipe-file"]')).toBeInViewport();
 });
 
 test('static page loads WAV files dropped onto the page or the recipe charts as tracks', async ({ page }) => {

@@ -28,7 +28,9 @@ export function createRecipeMenus(document: Document, strings: UiStrings): Recip
             const workflow = document.querySelector<HTMLDetailsElement>('[data-action="run-recipe"]')?.closest<HTMLDetailsElement>('details.tb-menu');
             const anchor = workflow?.querySelector('summary')?.getBoundingClientRect();
             if (workflow) workflow.open = false;
-            menu.style.cssText = `position:fixed;top:${anchor ? anchor.bottom + 4 : 40}px;left:${anchor ? anchor.left : 8}px`;
+            const top = anchor ? anchor.bottom + 4 : 40;
+            // A Recipe with many inputs must not push Run below a short window.
+            menu.style.cssText = `position:fixed;top:${top}px;left:${anchor ? anchor.left : 8}px;max-height:calc(100vh - ${top + 8}px);overflow-y:auto`;
             // Capture keys before the page's shortcuts: Space must press the focused item, not toggle playback,
             // and Escape must only close this menu, not also restore a maximized spectrum.
             const onKey = (event: KeyboardEvent): void => {
