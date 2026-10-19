@@ -90,12 +90,11 @@ export class RecipeFlow {
                 return parsed;
             },
             pickInputFiles: () => this.host.pickInputFiles(),
-            resolveRelative: (file, location) => path.resolve(path.dirname(location), file),
             runWithProgress: (title, task) => Promise.resolve(this.host.runWithProgress(title, token => {
                 cancellation = token;
                 return task();
             })),
-            execute: (recipe, location) => this.backend.runRecipe(recipe, { recipePath: location, ...(cancellation ? { cancellation } : {}) }),
+            execute: (recipe, inputs, location) => this.backend.runRecipe(recipe, inputs, { recipePath: location, ...(cancellation ? { cancellation } : {}) }),
             showCharts: (title, charts) => {
                 if (!cancellation?.isCancellationRequested) this.host.showCharts(this.extensionUri, title, { charts });
             },

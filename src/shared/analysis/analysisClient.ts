@@ -152,7 +152,7 @@ export abstract class AnalysisClient {
         );
     }
 
-    async runRecipe(recipe: RunRecipePayload['recipe'], options: RecipeExecutionOptions = {}): Promise<RunRecipeResult> {
+    async runRecipe(recipe: RunRecipePayload['recipe'], inputs: RunRecipePayload['inputs'], options: RecipeExecutionOptions = {}): Promise<RunRecipeResult> {
         const cancellation = options.cancellation;
         if (cancellation?.isCancellationRequested) throw new Error('Recipe execution cancelled');
         const requestId = `recipe-${++this.nextRecipeId}`;
@@ -187,20 +187,20 @@ export abstract class AnalysisClient {
                 interrupted,
                 (async () => {
                     if (this.contextPolicy?.discardStale) {
-                        for (const input of recipe.inputs ?? []) {
-                            if (this.contextPolicy.current(input.file).calibrationProfile) {
-                                await this.analyzeWithContext(input.file, {}, resolved => this.request(
-                                    'analyze', analysisPayload(input.file, resolved), requestId, requestCancellation,
+                        for (const file of Object.values(inputs)) {
+                            if (this.contextPolicy.current(file).calibrationProfile) {
+                                await this.analyzeWithContext(file, {}, resolved => this.request(
+                                    'analyze', analysisPayload(file, resolved), requestId, requestCancellation,
                                 ));
                             }
                             if (cancelled) throw new Error('Recipe execution cancelled');
                         }
                     }
-                    const inputContexts = Object.fromEntries((recipe.inputs ?? []).map(input => [
-                        input.name, this.calibrationPayload(this.requestContext(input.file, {})),
+                    const inputContexts = Object.fromEntries(Object.entries(inputs).map(([name, file]) => [
+                        name, this.calibrationPayload(this.requestContext(file, {})),
                     ]));
                     return this.request('run-recipe', {
-                        recipe, inputContexts, ...(options.recipePath ? { recipePath: options.recipePath } : {}),
+                        recipe, inputs, inputContexts, ...(options.recipePath ? { recipePath: options.recipePath } : {}),
                     }, requestId, requestCancellation);
                 })(),
             ]);

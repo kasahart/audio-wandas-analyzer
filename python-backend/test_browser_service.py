@@ -216,24 +216,21 @@ def test_browser_dispatch_errors_carry_codes(monkeypatch) -> None:
     )
 
 
-def test_run_recipe_uses_loaded_sources_and_rejects_paths() -> None:
+def test_run_recipe_uses_loaded_sources_and_rejects_paths(make_recipe) -> None:
     service = create_service()
     service.engine.load("selected.wav", FIXTURE.read_bytes())
     path = "/sources/selected.wav"
     service.track_detail(path, stft_options={"nFft": 256, "overlapPercent": 75, "window": "hann"})
-    recipe = {
-        "inputs": [{"name": "sig", "file": path}],
-        "steps": [{"as": "w", "expr": "sig.welch(n_fft=256)"}],
-        "display": [{"name": "w", "title": "PSD"}],
-    }
-    result = dispatch(validate_request({"cmd": "run-recipe", "requestId": "r", "recipe": recipe}), service)
+    recipe = make_recipe(lambda sig: sig.welch(n_fft=256))
+    command = {"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": path}}
+    result = dispatch(validate_request({**command, "recipePath": "./recipes/psd.recipe.json"}), service)
     assert [chart["kind"] for chart in result["charts"]] == ["line"]
-    assert result["charts"][0]["title"] == "PSD"
+    assert result["charts"][0]["title"] == "psd"
     assert not service.engine.get_file(path).spectrograms, "recipe execution releases recomputable detail"
     with pytest.raises(ValueError, match="not a loaded source"):
-        service.run_recipe({**recipe, "inputs": [{"name": "sig", "file": str(FIXTURE)}]})
-    with pytest.raises(ValueError, match="recipe error"):
-        service.run_recipe({**recipe, "steps": [{"as": "w", "expr": "sig[0]"}]})
+        service.run_recipe(recipe, inputs={"signal": str(FIXTURE)})
+    with pytest.raises(ValueError, match="no file for recipe input 'signal'"):
+        service.run_recipe(recipe, inputs={})
 
 
 def test_browser_limits_are_published_from_the_python_constants() -> None:

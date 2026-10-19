@@ -184,20 +184,45 @@ def test_sparse_stft_time_axes_and_amplitudes_match_scipy(n_fft: int, window: st
 
 
 @pytest.mark.parametrize(
-    "inputs",
-    [{"name": "sig"}, {}, "", 0, False, 1, [{"name": "sig"}], [{"name": "sig", "file": 3}], ["selected.wav"]],
+    "recipe",
+    [
+        {"inputs": [{"name": "sig", "file": "selected.wav"}], "steps": [], "display": []},
+        {"schema": "wandas.recipe", "version": 2, "inputs": [], "nodes": [], "output": "missing"},
+        {
+            "schema": "wandas.recipe",
+            "version": 2,
+            "inputs": [{"id": "input-0", "name": "offset", "kind": "array"}],
+            "nodes": [],
+            "output": "input-0",
+        },
+        {
+            "schema": "wandas.recipe",
+            "version": 2,
+            "inputs": [{"id": "input-0", "name": "signal", "kind": "frame"}],
+            "nodes": [
+                {
+                    "id": "node-0",
+                    "operation": "builtins.eval",
+                    "version": 1,
+                    "inputs": ["input-0"],
+                    "params": {"$type": "map", "entries": []},
+                }
+            ],
+            "output": "node-0",
+        },
+    ],
 )
-def test_recipe_rejects_malformed_inputs_before_loading(inputs: object) -> None:
+def test_recipe_rejects_documents_wandas_cannot_replay_before_loading(recipe: dict) -> None:
     from backend_errors import InputError
     from browser_service import create_service
 
     desktop = AnalysisService(AnalysisEngine(cache_limit_bytes=1024 * 1024))
     for service in (desktop, create_service()):
         with pytest.raises(InputError, match="recipe error"):
-            service.run_recipe({"inputs": inputs, "steps": [], "display": []})
+            service.run_recipe(recipe, inputs={})
 
 
-def test_recipe_uses_calibrated_frames_and_recipe_relative_paths_in_both_hosts(tmp_path):
+def test_recipe_uses_calibrated_frames_in_both_hosts(tmp_path, make_recipe):
     from browser_service import create_service
 
     wav = tmp_path / "selected.wav"
@@ -220,37 +245,42 @@ def test_recipe_uses_calibrated_frames_and_recipe_relative_paths_in_both_hosts(t
             }
         ],
     }
-    recipe = {
-        "inputs": [{"name": "sig", "file": "selected.wav"}],
-        "steps": [
-            {"as": "spectrum", "expr": "sig.fft()"},
-            {"as": "octave", "expr": "sig.noct_spectrum(fmin=125, fmax=4000, n=3)"},
-            {"as": "stft", "expr": "sig.stft()"},
-        ],
-        "display": ["sig", "spectrum", "octave", "stft"],
+    workflows = {
+        "identity": lambda sig: sig,
+        "spectrum": lambda sig: sig.fft(),
+        "octave": lambda sig: sig.noct_spectrum(fmin=125, fmax=4000, n=3),
+        "stft": lambda sig: sig.stft(),
     }
-    contexts = {"sig": {"calibrationProfile": profile, "analysisRevision": 3}}
-    native = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
-    web = browser.run_recipe(recipe, recipe_path="/sources/custom.json", input_contexts=contexts)
+    contexts = {"signal": {"calibrationProfile": profile, "analysisRevision": 3}}
+
+    def run(service, file, name, input_contexts=None):
+        (chart,) = service.run_recipe(
+            make_recipe(workflows[name]),
+            inputs={"signal": file},
+            recipe_path=f"/recipes/{name}.recipe.json",
+            input_contexts=input_contexts,
+        )["charts"]
+        assert chart["title"] == name
+        return chart
+
+    native = {name: run(desktop, str(wav), name, contexts) for name in workflows}
+    web = {name: run(browser, f"/sources/{wav.name}", name, contexts) for name in workflows}
     assert native == web
-    assert native["charts"][0]["series"][0]["unit"] == "Pa"
-    assert "Pa" in native["charts"][1]["series"][0]["unit"]
-    assert "Pa" in native["charts"][2]["series"][0]["unit"]
-    assert "Pa" in native["charts"][3]["unit"]
-    raw = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"))
-    assert raw["charts"][2]["series"][0]["unit"] == "dBFS"
-    assert raw["charts"][3]["unit"] == "dBFS"
-    np.testing.assert_allclose(
-        native["charts"][0]["series"][0]["ys"], np.array(raw["charts"][0]["series"][0]["ys"]) * 10
-    )
+    assert native["identity"]["series"][0]["unit"] == "Pa"
+    assert "Pa" in native["spectrum"]["series"][0]["unit"]
+    assert "Pa" in native["octave"]["series"][0]["unit"]
+    assert "Pa" in native["stft"]["unit"]
+    raw = {name: run(desktop, str(wav), name) for name in workflows}
+    assert raw["octave"]["series"][0]["unit"] == "dBFS"
+    assert raw["stft"]["unit"] == "dBFS"
+    np.testing.assert_allclose(native["identity"]["series"][0]["ys"], np.array(raw["identity"]["series"][0]["ys"]) * 10)
     cached = desktop.engine.get_file(wav)
-    desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
+    run(desktop, str(wav), "spectrum", contexts)
     assert desktop.engine.get_file(wav) is cached
     assert cached.frame.channels[0].unit != "Pa"
 
 
-@pytest.mark.parametrize("transfer_value", [None, "gain"])
-def test_calibrated_pairwise_recipe_matches_desktop_and_browser(tmp_path, transfer_value):
+def test_calibrated_pairwise_recipe_matches_desktop_and_browser(tmp_path, make_recipe):
     from browser_service import create_service
 
     rate = 16000
@@ -276,25 +306,17 @@ def test_calibrated_pairwise_recipe_matches_desktop_and_browser(tmp_path, transf
             for index, (factor, unit, ref) in enumerate([(2.0, "Pa", 2e-5), (3.0, "V", 1e-6)])
         ],
     }
-    recipe = {
-        "inputs": [{"name": "sig", "file": wav.name}],
-        "steps": [
-            {"as": "cross", "expr": "sig.csd()"},
-            {"as": "transfer", "expr": "sig.transfer_function()"},
-        ],
-        "display": ["cross", {"name": "transfer", "value": transfer_value}]
-        if transfer_value
-        else ["cross", "transfer"],
-    }
-    contexts = {"sig": {"calibrationProfile": profile}}
-    native = desktop.run_recipe(recipe, recipe_path=str(tmp_path / "custom.json"), input_contexts=contexts)
-    web = browser.run_recipe(recipe, recipe_path="/sources/custom.json", input_contexts=contexts)
-    assert native == web
-    assert [chart["yLabel"] for chart in native["charts"]] == [
-        "Cross-spectral level [dB]",
-        "Gain" if transfer_value else "Transfer level [dB]",
-    ]
-    for chart in native["charts"]:
+    contexts = {"signal": {"calibrationProfile": profile}}
+    charts = {}
+    for name, workflow in {"cross": lambda sig: sig.csd(), "transfer": lambda sig: sig.transfer_function()}.items():
+        recipe = make_recipe(workflow, channels=2)
+        native = desktop.run_recipe(recipe, inputs={"signal": str(wav)}, input_contexts=contexts)
+        web = browser.run_recipe(recipe, inputs={"signal": f"/sources/{wav.name}"}, input_contexts=contexts)
+        assert native == web
+        charts[name] = native["charts"][0]
+    assert charts["cross"]["yLabel"] == "Cross-spectral level [dB]"
+    assert charts["transfer"]["yLabel"] == "Transfer level [dB]"
+    for chart in charts.values():
         assert any("Pa" in series["unit"] and "V" in series["unit"] for series in chart["series"])
 
 

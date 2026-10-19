@@ -26,7 +26,7 @@ test(clearSources ? 'clearing a pending browser recipe keeps the cleared status'
         const fixtures = ${JSON.stringify(fixtures.validResponses.map(workerFixture))};
         window.fetch = async url => ({ ok: true, json: async () => url.endsWith('manifest.json')
             ? [{ name: 'octave.json', location: './recipes/octave.json' }]
-            : { inputs: [{ name: 'sig', file: '{{selection}}' }], steps: [], display: [] } });
+            : { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' } });
         window.Worker = class {
             terminate() {}
             postMessage(command) {
@@ -100,7 +100,7 @@ async function openStaticPage(page: Page, extraInit = ''): Promise<void> {
         if (name.startsWith('recipes/')) {
             await route.fulfill({ json: name.endsWith('manifest.json')
                 ? [{ name: 'octave.json', location: './recipes/octave.json' }]
-                : { inputs: [{ name: 'sig', file: '{{selection}}' }], steps: [], display: [] } });
+                : { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' } });
             return;
         }
         const body = (name === 'staticHost.js' ? init : '') + readFileSync(join(process.cwd(), 'dist/webview', name), 'utf8');
