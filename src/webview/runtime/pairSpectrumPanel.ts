@@ -219,6 +219,9 @@ export class PairSpectrumPanel {
             this.error = null;
         }
         this.render();
+        if (this.hoverPoint) {
+            this.syncHostHover();
+        }
         return true;
     }
 
@@ -323,6 +326,15 @@ export class PairSpectrumPanel {
         return visible.frequencyMin + fraction * (visible.frequencyMax - visible.frequencyMin);
     }
 
+    private syncHostHover(): void {
+        const canvas = this.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement | null;
+        const result = this.result;
+        const frequencyHz = canvas && result && this.hoverPoint
+            ? this.frequencyAt(this.hoverPoint.x, canvas.width, this.visibleFrequencyHz(result)) : null;
+        // The power spectrum may reach past the reference's Nyquist, where the pair cursor stops at its last bin.
+        this.host.onHoverFrequency(frequencyHz === null || !result ? null : Math.min(frequencyHz, result.maxFrequencyHz));
+    }
+
     private setReadout(readout: { text: string; color: string } | null): void {
         const el = this.doc.getElementById('pair-spectrum-readout');
         if (el) {
@@ -341,9 +353,7 @@ export class PairSpectrumPanel {
             const scaleY = rect.height > 0 ? element.height / rect.height : 1;
             this.hoverPoint = { x: (event.clientX - rect.left) * scaleX, y: (event.clientY - rect.top) * scaleY };
             this.render();
-            const frequencyHz = this.result ? this.frequencyAt(this.hoverPoint.x, element.width, this.visibleFrequencyHz(this.result)) : null;
-            // The power spectrum may reach past the reference's Nyquist, where the pair cursor stops at its last bin.
-            this.host.onHoverFrequency(frequencyHz === null || !this.result ? null : Math.min(frequencyHz, this.result.maxFrequencyHz));
+            this.syncHostHover();
         });
         canvas?.addEventListener('mouseleave', () => {
             this.hoverPoint = null;

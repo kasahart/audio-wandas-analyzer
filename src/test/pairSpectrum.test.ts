@@ -407,6 +407,24 @@ test('hovering past the reference Nyquist syncs the power spectrum to the last p
     }
 });
 
+test('a pointer resting on the pair plot syncs the power spectrum once the result arrives', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        fixture.panel.attach();
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        const canvas = fixture.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement;
+        canvas.dispatchEvent(new fixture.doc.defaultView!.MouseEvent('mousemove', { clientX: PAIR_SPECTRUM_PAD.left, clientY: 10 }));
+        assert.deepEqual(fixture.hoverFrequencies, [null]);
+        fixture.panel.handleMessage(resultFor('pair-1'));
+        assert.deepEqual(fixture.hoverFrequencies, [null, 0]);
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
 test('toggling the reference lane again clears it', () => {
     const fixture = panelFixture();
     fixture.panel.toggleReference('t2' as TrackId, 0);
