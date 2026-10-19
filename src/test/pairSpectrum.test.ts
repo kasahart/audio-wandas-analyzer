@@ -121,6 +121,8 @@ test('the pointer picks the line nearest it and reads that lane only', () => {
     assert.equal(at(phase.top + phase.height * 0.25).text, 'b.wav / 500 Hz / 90°');
     assert.equal(at(coherence.top + coherence.height * 0.6).text, 'c.wav / 500 Hz / γ² 0.30');
     assert.equal(at(gain.top).text, 'c.wav / 500 Hz / 10.0 dB');
+    // In the gap between two lanes the nearer lane answers.
+    assert.equal(at(phase.top + phase.height + 1).text, 'c.wav / 500 Hz / -90°');
     // Two responses × two segments × three rows, the picked line again thicker in its row, three vertical lines and one horizontal line.
     assert.equal(at(gain.top).lines, 2 * 2 * 3 + 2 + 3 + 1);
 });

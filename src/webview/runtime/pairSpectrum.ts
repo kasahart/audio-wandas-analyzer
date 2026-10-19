@@ -220,9 +220,11 @@ export function paintPairSpectrum(
     let picked: { curve: PairCurve; lane: number; value: number } | null = null;
     if (hoverBin !== null && hover?.y != null) {
         const pointerY = hover.y;
-        const lane = frames.findIndex(frame => pointerY >= frame.top && pointerY <= frame.top + frame.height);
+        // The lane under the pointer, or the nearest one when it is in a gap, so crossing lanes keeps a readout.
+        const gapTo = (frame: PlotFrame) => Math.max(frame.top - pointerY, pointerY - frame.top - frame.height, 0);
+        const lane = frames.reduce((nearest, frame, index) => gapTo(frame) < gapTo(frames[nearest]) ? index : nearest, 0);
         let best = Infinity;
-        for (const curve of lane >= 0 ? drawn : []) {
+        for (const curve of drawn) {
             const value = rows[lane].values(curve.response)[hoverBin];
             if (value === null || value === undefined) {
                 continue;
