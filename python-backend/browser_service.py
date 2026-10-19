@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import itertools
 import json
 import sys
 import traceback
@@ -56,6 +57,8 @@ def browser_limits() -> dict[str, int]:
 class BrowserEngine(AnalysisEngine):
     def __init__(self) -> None:
         super().__init__(128 * MIB)
+        # Reloading a source under the same identity must not reuse pair spectra cached for the old bytes.
+        self._loads = itertools.count(1)
 
     def load(self, source_id: str, payload: bytes) -> dict[str, object]:
         if not payload or len(payload) > MAX_INPUT_BYTES:
@@ -100,7 +103,7 @@ class BrowserEngine(AnalysisEngine):
         self._files[path] = CachedAnalysis(
             path=path,
             frame=frame,
-            identity=(0, len(payload)),
+            identity=(next(self._loads), len(payload)),
             frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
             source_peaks=source_channel_peaks(frame),
         )

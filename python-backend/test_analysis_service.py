@@ -340,6 +340,52 @@ def test_pair_spectrum_recovers_a_known_filter(tmp_path: Path) -> None:
     assert result["nFft"] == 1024 and result["hopLength"] == 512
 
 
+@pytest.mark.parametrize("overlap", [50, 75, 87.5])
+def test_pair_spectrum_averages_the_welch_segments_inside_the_range(tmp_path: Path, overlap: float) -> None:
+    rate = 8000
+    audio = tmp_path / "pair.wav"
+    _write_pair_wav(audio, np.random.default_rng(7).standard_normal((2, rate)) * 0.1, rate)
+    options = {"nFft": 1024, "overlapPercent": overlap, "window": "hann"}
+
+    result = AnalysisService(AnalysisEngine()).pair_spectrum(
+        _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=options
+    )
+
+    from scipy.signal import coherence
+
+    hop = result["hopLength"]
+    response = result["responses"][0]
+    assert response["averages"] == (rate - 1024) // hop + 1
+    samples = sf.read(audio, dtype="float64")[0].T
+    _, expected = coherence(samples[0], samples[1], rate, window="hann", nperseg=1024, noverlap=1024 - hop)
+    bins = np.round(np.linspace(0, 512, result["frequencyBins"])).astype(int)
+    np.testing.assert_allclose(response["coherence"], expected[bins], rtol=1e-6, atol=1e-9)
+
+
+def test_browser_pair_spectrum_does_not_reuse_a_reloaded_response(tmp_path: Path) -> None:
+    from browser_service import create_service
+
+    rate = 8000
+    browser = create_service()
+    rng = np.random.default_rng(8)
+    signal = rng.standard_normal(rate * 2) * 0.1
+    for name, data in [("reference.wav", signal), ("response.wav", signal)]:
+        _write_pair_wav(tmp_path / name, [data], rate)
+        browser.engine.load(name, (tmp_path / name).read_bytes())
+    reference = {"filePath": "/sources/reference.wav", "channelIndex": 0, "offsetSeconds": 0.0}
+    response = {"filePath": "/sources/response.wav", "channelIndex": 0, "offsetSeconds": 0.0}
+    first = browser.pair_spectrum(reference, [response], stft_options=_PAIR_OPTIONS)
+    # Same name and byte length, different samples.
+    _write_pair_wav(tmp_path / "response.wav", [rng.standard_normal(rate * 2) * 0.1], rate)
+    browser.engine.discard("/sources/response.wav")
+    browser.engine.load("response.wav", (tmp_path / "response.wav").read_bytes())
+
+    second = browser.pair_spectrum(reference, [response], stft_options=_PAIR_OPTIONS)
+
+    assert np.median(np.asarray(first["responses"][0]["coherence"], dtype=float)) > 0.99
+    assert np.median(np.asarray(second["responses"][0]["coherence"], dtype=float)) < 0.5
+
+
 def test_pair_spectrum_uses_offsets_and_the_requested_range(tmp_path: Path) -> None:
     rate = 8000
     signal = np.random.default_rng(1).standard_normal(rate * 4) * 0.1

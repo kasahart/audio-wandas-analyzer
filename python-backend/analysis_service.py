@@ -606,8 +606,8 @@ def _compute_pair(
         .cache()
     )
     # The STFT pads the edges; averaging only frames inside the range matches Welch's segments.
-    first_window = -(n_fft // 2)
-    frame_starts = np.arange(spectrogram.n_frames) * hop_length + first_window
+    first_center = int(round(spectrogram.frame_time_origin * rate))
+    frame_starts = np.arange(spectrogram.n_frames) * hop_length + first_center - n_fft // 2
     inside = np.flatnonzero((frame_starts >= 0) & (frame_starts + n_fft <= length))
     end = start + length / rate
     if inside.size == 0:
