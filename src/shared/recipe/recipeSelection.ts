@@ -31,3 +31,8 @@ export function bindSelection(recipe: RecipeDocument, selectionFilePaths: string
     }
     return Object.fromEntries(recipe.inputs.map((input, index) => [input.name, selectionFilePaths[index]]));
 }
+
+/** One line naming the file behind each Recipe input, e.g. `reference: a.wav · response: b.wav`. */
+export function describeInputs(inputs: Record<string, string>, fileName: (filePath: string) => string): string {
+    return Object.entries(inputs).map(([name, filePath]) => `${name}: ${fileName(filePath)}`).join(' · ');
+}

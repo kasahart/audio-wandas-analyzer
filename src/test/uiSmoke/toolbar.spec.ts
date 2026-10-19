@@ -22,7 +22,6 @@ test(clearSources ? 'clearing a pending browser recipe keeps the cleared status'
     await page.setContent('<html><body></body></html>');
     await page.addScriptTag({ content: `
         window.__APP_STATE__ = {};
-        window.prompt = () => '1';
         const fixtures = ${JSON.stringify(fixtures.validResponses.map(workerFixture))};
         window.fetch = async url => ({ ok: true, json: async () => url.endsWith('manifest.json')
             ? [{ name: 'octave.json', location: './recipes/octave.json' }]
@@ -53,6 +52,7 @@ test(clearSources ? 'clearing a pending browser recipe keeps the cleared status'
     await page.evaluate(() => {
         (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
     });
+    await page.locator('[data-recipe-picker] [data-action="browser-recipe-pick"]').first().click();
     await expect.poll(() => page.evaluate(() => Boolean((window as typeof window & { __pendingRecipe?: unknown }).__pendingRecipe))).toBe(true);
     const expected = clearSources
         ? await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared)
@@ -134,6 +134,7 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
     await page.evaluate(() => {
         (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
     });
+    await page.locator('[data-recipe-picker] [data-action="browser-recipe-pick"]').first().click();
     await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
     await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toBeVisible();
     expect(cspErrors).toEqual([]);
@@ -302,6 +303,37 @@ test('static page adds a picked file from an opened folder as its own entry and 
     await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2/sub"]')).toHaveAttribute('aria-expanded', 'true');
 });
 
+test('static page recipe menu drops from the Workflow menu, closes on Escape and runs a local recipe file', async ({ page }) => {
+    await openStaticPage(page);
+    await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
+    await expect(page.locator('.track-row')).toHaveCount(1);
+    const workflow = page.locator('#toolbar details.tb-menu').filter({ has: page.locator('[data-action="run-recipe"]') });
+    const picker = page.locator('[data-recipe-picker]');
+    await workflow.locator('summary').click();
+    await workflow.locator('[data-action="run-recipe"]').click();
+    await expect(picker).toBeVisible();
+    await expect(workflow).not.toHaveAttribute('open', '');
+    await expect(picker.locator('[data-action="browser-recipe-pick"]')).toHaveText(['octave']);
+    const summaryBox = (await workflow.locator('summary').boundingBox())!;
+    const pickerBox = (await picker.boundingBox())!;
+    expect(Math.abs(pickerBox.x - summaryBox.x)).toBeLessThan(2);
+    expect(pickerBox.y).toBeGreaterThan(summaryBox.y + summaryBox.height - 1);
+    await page.keyboard.press('Escape');
+    await expect(picker).toHaveCount(0);
+
+    await workflow.locator('summary').click();
+    await workflow.locator('[data-action="run-recipe"]').click();
+    await picker.locator('[data-action="browser-recipe-file"]').hover();
+    await expect(page.locator('#hint-footer')).toHaveText('Run a wandas .recipe.json from your computer');
+    await picker.locator('input[type="file"]').setInputFiles({ name: 'mine.recipe.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(
+        { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' })) });
+    await expect(picker).toHaveCount(0);
+    const result = page.locator('[data-recipe-result]');
+    await expect(result).toContainText('mine');
+    await expect(result).toContainText('signal: selected.wav');
+    await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
+});
+
 test('static page loads WAV files dropped onto the page or the recipe charts as tracks', async ({ page }) => {
     await openStaticPage(page);
     const dropFiles = (type: 'dragover' | 'drop', names: string[], intoRecipe = false) => page.evaluate(({ type, names, intoRecipe }) => {
@@ -325,6 +357,7 @@ test('static page loads WAV files dropped onto the page or the recipe charts as 
     await page.evaluate(() => {
         (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
     });
+    await page.locator('[data-recipe-picker] [data-action="browser-recipe-pick"]').first().click();
     await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
     await dropFiles('dragover', ['third.wav'], true);
     await expect(outline).toBeVisible();

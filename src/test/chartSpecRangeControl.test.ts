@@ -764,4 +764,9 @@ test('ChartSpec document loads the bundled renderer by nonce under the webview C
     assert.match(html, /<script nonce="n1" src="vscode-resource:\/ext\/dist\/webview\/chartSpecRuntime\.js"><\/script>/);
     assert.match(html, /window\.__CHART_SPECS__ = \[\{"kind":"scalar"/);
     assert.doesNotMatch(html, /installRangePopover/);
+    assert.doesNotMatch(html, /chart-caption">/);
+    const captioned = renderChartSpecDocument('Recipe', [], {
+        language: 'en', nonce: 'n1', rendererScriptUri: 'r.js', cspSource: 'c', caption: 'signal: <a>.wav',
+    });
+    assert.match(captioned, /<p class="chart-caption">signal: &lt;a&gt;\.wav<\/p>/);
 });

@@ -20,7 +20,10 @@ class MockElement {
     attributes: Record<string, string> = {};
     children: MockElement[] = [];
     removed = false;
-    files?: Array<{ size: number; name: string; webkitRelativePath?: string; lastModified?: number; arrayBuffer(): Promise<ArrayBuffer> }>;
+    className = '';
+    type = '';
+    hidden = false;
+    files?: Array<{ size: number; name: string; webkitRelativePath?: string; lastModified?: number; arrayBuffer?(): Promise<ArrayBuffer>; text?(): Promise<string> }>;
     onchange?: () => void;
     onclick?: () => void;
     contentDocument?: MockDocument;
@@ -33,6 +36,9 @@ class MockElement {
     insertAdjacentElement(_where: string, node: MockElement): void { this.children.push(node); }
     remove(): void { this.removed = true; }
     click(): void {}
+    focus(): void {}
+    contains(node: unknown): boolean { return node === this || this.children.some(child => child.contains(node)); }
+    querySelector(tag: string): MockElement | null { return this.children.find(child => child.tag === tag) ?? null; }
 }
 class MockDocument {
     head = new MockElement('head');
@@ -46,6 +52,24 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     const fetched: string[] = [];
     const prompts: string[] = [];
     let promptAnswer: string | null = '1';
+    // How the recipe menu is answered once it opens: an entry index, a local file, or Escape.
+    let recipeAnswer: number | { name: string; text: string } | 'escape' = 0;
+    const recipeMenus: string[][] = [];
+    const documentListeners = new Map<string, (event: unknown) => void>();
+    function answerRecipeMenu(menu: MockElement): void {
+        const entries = menu.children.filter(child => child.attributes['data-action'] === 'browser-recipe-pick');
+        recipeMenus.push(menu.children.filter(child => child.tag === 'button').map(child => child.textContent));
+        queueMicrotask(() => {
+            if (recipeAnswer === 'escape') documentListeners.get('keydown')!({ key: 'Escape' });
+            else if (typeof recipeAnswer === 'number') entries[recipeAnswer].onclick!();
+            else {
+                const { name, text } = recipeAnswer;
+                const input = menu.children.find(child => child.tag === 'input')!;
+                input.files = [{ size: text.length, name, text: async () => text }];
+                input.onchange!();
+            }
+        });
+    }
     const served: Record<string, unknown> = {
         './recipes/manifest.json': [
             { name: 'octave.json', location: './recipes/octave.json' },
@@ -123,9 +147,11 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         window: browser,
         document: {
             createElement: (tag: string) => { const element = new MockElement(tag); elements.push(element); return element; },
-            body: { prepend: () => undefined, append: () => undefined },
+            body: { prepend: () => undefined, append: (node: MockElement) => { if ('data-recipe-picker' in node.attributes) answerRecipeMenu(node); } },
             getElementById: (id: string) => id === 'hint-footer' ? footer : null,
-            querySelector: () => elements.find(element => element.tag === 'section' && !element.removed) ?? null,
+            querySelector: (selector: string) => selector === '[data-recipe-result]' ? elements.find(element => element.tag === 'section' && !element.removed) ?? null : null,
+            addEventListener: (type: string, listener: (event: unknown) => void) => { documentListeners.set(type, listener); },
+            removeEventListener: (type: string, listener: (event: unknown) => void) => { if (documentListeners.get(type) === listener) documentListeners.delete(type); },
         },
         fetch: async (url: string) => { fetched.push(url); const body = served[url]; return { ok: body !== undefined, status: body === undefined ? 404 : 200, json: async () => body }; },
         Worker: ControlledWorker,
@@ -145,8 +171,9 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     }
     // Unchecking every file posts an empty selection; the panel's Clear also marks it clearAll.
     const clear = (clearAll = false): void => { host.postMessage({ type: 'analyze-selected-files', requestId: 'clear', filePaths: [], ...(clearAll ? { clearAll: true } : {}) }); };
-    return { host, browser, storage, workers, clear, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served,
+    return { host, browser, storage, workers, clear, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served, recipeMenus, documentListeners,
         setPromptAnswer(value: string | null) { promptAnswer = value; },
+        setRecipeAnswer(value: typeof recipeAnswer) { recipeAnswer = value; },
         get status() { return elements.find(element => element.attributes.role === 'status')!.textContent; },
         get footer() { return footer.textContent; },
         get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
@@ -496,7 +523,8 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     app.host.postMessage({ type: 'run-recipe' });
     await flush();
     assert.deepEqual(app.fetched, ['./recipes/manifest.json', './recipes/octave.json']);
-    assert.match(app.prompts[0], /1: octave.json\n2: coherence.recipe.json/);
+    assert.deepEqual(app.recipeMenus[0], ['octave', 'coherence', 'From file…']);
+    assert.equal(app.documentListeners.size, 0, 'choosing a recipe closes its menu');
     const worker = app.workers[0];
     const command = worker.commands.at(-1)!;
     assert.equal(command.cmd, 'run-recipe');
@@ -510,21 +538,50 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     assert.equal(JSON.stringify((frame.contentWindow as { __CHART_SPECS__: unknown }).__CHART_SPECS__), JSON.stringify([{ kind: 'scalar', title: 'Peak', rows: [] }]));
     assert.equal(frame.contentDocument!.body.children.at(-1)!.src, './chartSpecRuntime.js');
     assert.equal(frame.contentDocument!.body.children[0].id, 'charts');
-    assert.equal(app.status, app.browser.__APP_STRINGS__.browserRecipeDone + 'octave.json');
+    assert.equal(app.status, app.browser.__APP_STRINGS__.browserRecipeDone + 'octave');
+    assert.ok(app.elements.some(element => element.tag === 'span' && element.textContent === 'signal: selected.wav'), 'the result names the file behind each input');
     const close = app.elements.find(element => element.attributes['data-action'] === 'browser-recipe-close')!;
     close.onclick!();
     assert.equal(app.elements.find(element => element.tag === 'section')!.removed, true);
-    app.setPromptAnswer('2');
+    app.setRecipeAnswer(1);
     app.host.postMessage({ type: 'run-recipe' });
     await flush();
     assert.match(app.status, /Recipe expects 2 file\(s\) from the panel selection but 1 is checked/);
     assert.equal(worker.commands.filter(entry => entry.cmd === 'run-recipe').length, 1);
-    app.setPromptAnswer('1');
+    app.setRecipeAnswer('escape');
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush();
+    assert.equal(worker.commands.filter(entry => entry.cmd === 'run-recipe').length, 1, 'Escape cancels the run');
+    assert.equal(app.documentListeners.size, 0);
+    app.setRecipeAnswer(0);
     app.host.postMessage({ type: 'run-recipe' });
     await flush();
     worker.reply(worker.commands.at(-1)!, {}, 'recipe error: Unknown name');
     await flush();
     assert.equal(app.status, 'Recipe execution failed: recipe error: Unknown name');
+});
+
+test('a browser recipe opened from disk runs under its file name and reports unreadable files', async () => {
+    const app = harness();
+    await app.load();
+    const recipe = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
+    app.setRecipeAnswer({ name: 'mine.recipe.json', text: JSON.stringify(recipe) });
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush();
+    assert.deepEqual(app.fetched, ['./recipes/manifest.json'], 'a local recipe is not fetched');
+    const worker = app.workers[0];
+    const command = worker.commands.at(-1)!;
+    assert.equal(command.cmd, 'run-recipe');
+    assert.equal(command.recipePath, 'mine.recipe.json');
+    assert.deepEqual(command.recipe, recipe);
+    worker.reply(command, { charts: [] });
+    await flush();
+    assert.equal(app.status, app.browser.__APP_STRINGS__.browserRecipeDone + 'mine');
+    app.setRecipeAnswer({ name: 'broken.json', text: '{"schema": "other"}' });
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush();
+    assert.equal(app.status, 'Recipe execution failed: broken.json is not a recipe document');
+    assert.equal(worker.commands.filter(entry => entry.cmd === 'run-recipe').length, 1);
 });
 
 test('clearing sources during a recipe preserves the new status and ignores late charts', async () => {

@@ -37,6 +37,8 @@ export interface UiStrings {
     browserDropNoWav: string;
     browserUnavailable: string;
     browserRecipePick: string;
+    browserRecipeOpenFile: string;
+    hintRecipeOpenFile: string;
     browserRecipeNoSources: string;
     browserRecipeDone: string;
     btnCloseRecipeResult: string;
@@ -357,7 +359,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserFolderOpened: 'Opened a folder with {count} readable files. Check files in the tree to add them as tracks.',
         browserDropNoWav: 'Drop audio or CSV files to add them as tracks; use Open Folder for folders.',
         browserUnavailable: 'Not available in the browser version.',
-        browserRecipePick: 'Select a recipe (enter its number):',
+        browserRecipePick: 'Recipes',
+        browserRecipeOpenFile: 'From file…',
+        hintRecipeOpenFile: 'Run a wandas .recipe.json from your computer',
         browserRecipeNoSources: 'Add files first; recipes run on the loaded tracks.',
         browserRecipeDone: 'Recipe finished: ',
         btnCloseRecipeResult: 'Close recipe result',
@@ -668,7 +672,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserFolderOpened: '読み込めるファイルを{count}件含むフォルダを開きました。ツリーでチェックしたファイルがトラックになります。',
         browserDropNoWav: 'ドロップできるのは音声ファイルとCSVです。フォルダは「フォルダを開く」から開いてください。',
         browserUnavailable: 'Web版では未対応です。',
-        browserRecipePick: 'レシピを番号で選択してください:',
+        browserRecipePick: 'レシピ',
+        browserRecipeOpenFile: 'ファイルから…',
+        hintRecipeOpenFile: '手元の wandas .recipe.json を実行',
         browserRecipeNoSources: '先にファイルを追加してください。レシピは読み込んだトラックに対して実行します。',
         browserRecipeDone: 'レシピ実行完了: ',
         btnCloseRecipeResult: 'レシピ結果を閉じる',
