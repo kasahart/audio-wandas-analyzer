@@ -6,6 +6,7 @@ export type GuiEntryPointKind =
     | 'status-bar'
     | 'quick-pick'
     | 'selection-toolbar'
+    | 'selection-panel'
     | 'results-toolbar'
     | 'track-control'
     | 'canvas-gesture'
@@ -275,7 +276,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     {
         id: 'panel-collapse',
         label: 'Collapse and expand the file list and the power spectrum',
-        entryPoints: ['selection-toolbar', 'results-toolbar', 'canvas-gesture'],
+        entryPoints: ['selection-panel', 'results-toolbar', 'canvas-gesture'],
         triggers: ['toggle-selection-sidebar', 'toggle-spectrum-panel', 'Double-click (resize edge)'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
