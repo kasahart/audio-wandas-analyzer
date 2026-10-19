@@ -16,6 +16,7 @@ from scipy.signal import ShortTimeFFT, get_window
 from analysis_engine import AnalysisEngine, compute_spectrogram
 from analysis_service import AnalysisService
 from analyzer import normalize_stft_options
+from backend_errors import InputError
 
 
 def _write_sine_wav(path: Path, seconds: float = 0.5, sample_rate: int = 16000) -> None:
@@ -526,3 +527,12 @@ def test_browser_pair_spectrum_refuses_work_beyond_the_memory_budget(tmp_path: P
     # Thirty seconds at 48 kHz with the default settings is the common case and must fit.
     result = browser.pair_spectrum(sources[1], sources[2:])
     assert result["responses"][0]["status"] == "ok"
+
+
+@pytest.mark.parametrize("sample", ["", "nan", "inf"])
+def test_desktop_csv_with_non_finite_samples_is_an_input_error(tmp_path: Path, sample: str) -> None:
+    csv = tmp_path / "accel.csv"
+    csv.write_text("time,x\n0.0,0.1\n0.001," + sample + "\n0.002,0.3\n", encoding="utf-8")
+
+    with pytest.raises(InputError, match="non-finite samples"):
+        AnalysisService(AnalysisEngine()).analyze(csv)
