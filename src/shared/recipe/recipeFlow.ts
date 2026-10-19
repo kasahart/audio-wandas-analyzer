@@ -1,5 +1,5 @@
 import type { ChartSpec } from '../chartSpec';
-import { bindSelection, type RecipeDocument } from './recipeSelection';
+import { bindSelection, needsAssignment, type RecipeDocument } from './recipeSelection';
 
 export interface RecipeCatalogEntry {
     /** File name shown to the user, e.g. `octave.json`. */
@@ -26,6 +26,11 @@ export interface RecipeFlowPorts {
     readRecipe(location: string): Promise<RecipeDocument>;
     /** Asked only when the caller supplied no selection; undefined cancels. */
     pickInputFiles(): Promise<string[] | undefined>;
+    /**
+     * Lets the user check or change which file fills each Recipe input before it runs; `proposed` follows the
+     * selection order. Asked only when that order alone is a guess (see `needsAssignment`); undefined cancels.
+     */
+    assignInputs(names: string[], files: string[], proposed: Record<string, string>): Promise<Record<string, string> | undefined>;
     runWithProgress<T>(title: string, task: () => Promise<T>): Promise<T>;
     /** `inputs` maps each Recipe input name to a checked file. */
     execute(recipe: RecipeDocument, inputs: Record<string, string>, location: string): Promise<{ charts: ChartSpec[] }>;
@@ -71,16 +76,31 @@ export class RecipeFlow {
         if (!isCurrent() || !selected || selected.length === 0) return;
 
         const title = recipeTitle(location);
+        const failed = (error: unknown): void => {
+            if (isCurrent()) this.ports.showError(`Recipe execution failed: ${error instanceof Error ? error.message : String(error)}`);
+        };
+        let document: RecipeDocument;
+        let inputs: Record<string, string> | undefined;
+        try {
+            document = await this.ports.readRecipe(location);
+            if (!isCurrent()) return;
+            inputs = bindSelection(document, selected);
+            if (needsAssignment(document, selected)) {
+                inputs = await this.ports.assignInputs(document.inputs.map(input => input.name), selected, inputs);
+            }
+        } catch (error) {
+            failed(error);
+            return;
+        }
+        if (!isCurrent() || !inputs) return;
+        const chosen = inputs;
         await this.ports.runWithProgress(`Running recipe ${title}…`, async () => {
             if (!isCurrent()) return;
             try {
-                const document = await this.ports.readRecipe(location);
-                if (!isCurrent()) return;
-                const inputs = bindSelection(document, selected);
-                const result = await this.ports.execute(document, inputs, location);
-                if (isCurrent()) this.ports.showCharts(title, result.charts, inputs);
+                const result = await this.ports.execute(document, chosen, location);
+                if (isCurrent()) this.ports.showCharts(title, result.charts, chosen);
             } catch (error) {
-                if (isCurrent()) this.ports.showError(`Recipe execution failed: ${error instanceof Error ? error.message : String(error)}`);
+                failed(error);
             }
         });
     }

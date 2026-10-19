@@ -53,7 +53,7 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   virtual source と Web 上限を担当する。Web 配布物には native transport を含めない。
 
 - Recipe は wandas の `RecipePlan` JSON（`*.recipe.json`）。`src/shared/recipe/` の `RecipeFlow` が一覧・選択・
-  チェック中ファイルの入力名への割り当て（Recipe の入力順）・実行・表示の手順を持つ。
+  チェック中ファイルの入力名への割り当て（Recipe の入力順を初期値とし、入力が複数かファイルが余るときは実行前に確認・変更できる）・実行・表示の手順を持つ。
   native は recipes ディレクトリ、QuickPick、常駐 `AnalysisClient.runRecipe`、ChartSpec Panel を port で渡す。
   Web は build 時の `recipes/manifest.json`、Workflow メニュー下の選択メニュー（同梱 Recipe と手元の `.recipe.json`）、Worker の `run-recipe` command、同一 origin の
   `chartSpecRuntime.js` を読み込む frame を渡す。両 host の `AnalysisClient.runRecipe` は入力名→ファイルの対応、
