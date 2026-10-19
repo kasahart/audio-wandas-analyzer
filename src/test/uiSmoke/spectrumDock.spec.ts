@@ -79,3 +79,22 @@ test('in a short Webview the settings popover stays on screen and Apply is reach
     await page.locator('#spec-apply').click();
     await expect(popover).toBeHidden();
 });
+
+test('a cursor spectrum request left unanswered by a replaced analysis does not block the next one', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    // This host never answers spectrum requests, like a host whose source was cleared mid-request.
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const sliceRequests = (): Promise<number> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type?: string }> })
+        .__uiSmokePostedMessages.filter(message => message.type === 'request-spectrum-slice').length);
+    await expect.poll(sliceRequests).toBeGreaterThan(0);
+
+    await page.evaluate(() => {
+        const appWindow = window as unknown as { __APP_STATE__: { results: unknown[] }; __uiSmokePostedMessages: unknown[] };
+        appWindow.__uiSmokePostedMessages = [];
+        window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: appWindow.__APP_STATE__.results } }));
+    });
+    const box = await page.locator('#track-canvas-0').boundingBox();
+    if (!box) throw new Error('track canvas has no layout box');
+    await page.mouse.click(box.x + box.width * 0.3, box.y + box.height / 2);
+    await expect.poll(sliceRequests).toBeGreaterThan(0);
+});
