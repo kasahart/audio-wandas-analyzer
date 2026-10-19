@@ -415,6 +415,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         return response.json();
     }
     const recipeMenus = createRecipeMenus(document, strings);
+    /** Track names, or their paths under `/sources` where two of the given tracks share a name, as the file list shows them. */
+    function trackLabels(paths: string[]): (path: string) => string {
+        const nameOf = (path: string): string => sources.get(path)?.name ?? recipeBaseName(path);
+        const distinct = Array.from(new Set(paths));
+        return path => distinct.some(other => other !== path && nameOf(other) === nameOf(path)) ? path.slice('/sources/'.length) : nameOf(path);
+    }
     // A recipe opened from disk is run by its file name, so the backend titles its charts after the file.
     const localRecipes = new Map<string, File>();
     // Recipe charts render in a same-origin frame: the bundled ChartSpec renderer arrives as ./chartSpecRuntime.js under the page CSP,
@@ -470,14 +476,17 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             return recipe;
         },
         pickInputFiles: async () => { announce(strings.browserRecipeNoSources); return undefined; },
-        assignInputs: (names, files, proposed) => recipeMenus.assignInputs(names, files.map(path => ({ path, name: sources.get(path)?.name ?? recipeBaseName(path) })), proposed),
+        assignInputs: (names, files, proposed) => {
+            const label = trackLabels(files);
+            return recipeMenus.assignInputs(names, files.map(path => ({ path, name: label(path) })), proposed);
+        },
         runWithProgress: async (title, task) => { announce(title); return task(); },
         execute: async (recipe, inputs, location) => {
             if (!sources.size) throw new Error(strings.browserRecipeNoSources);
             return analysisClient.runRecipe(recipe, inputs, { recipePath: location });
         },
         showCharts: (title, charts, inputs) => {
-            showRecipeCharts(title, charts, describeInputs(inputs, filePath => sources.get(filePath)?.name ?? recipeBaseName(filePath)));
+            showRecipeCharts(title, charts, describeInputs(inputs, trackLabels(Object.values(inputs))));
             announce(strings.browserRecipeDone + title);
         },
         showError: announce,

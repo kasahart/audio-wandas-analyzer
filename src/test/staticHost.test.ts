@@ -585,12 +585,15 @@ test('a two-input browser recipe lets the user swap which track fills each input
     app.host.postMessage({ type: 'run-recipe' });
     await flush();
     assert.deepEqual(app.assignMenus[0], [`reference=${first}`, `response=${second}`], 'the menu proposes the selection order');
+    const options = app.elements.filter(element => element.tag === 'option').map(element => element.textContent);
+    assert.deepEqual(options.slice(0, 2), [first, second].map(path => path.slice('/sources/'.length)), 'tracks sharing a name are told apart by their paths');
+    assert.notEqual(options[0], options[1]);
     const command = worker.commands.at(-1)!;
     assert.equal(command.cmd, 'run-recipe');
     assert.deepEqual(command.inputs, { reference: second, response: first });
     worker.reply(command, { charts: [] });
     await flush();
-    assert.ok(app.elements.some(element => element.tag === 'span' && element.textContent === 'reference: selected.wav · response: selected.wav'));
+    assert.ok(app.elements.some(element => element.tag === 'span' && element.textContent === `reference: ${second.slice('/sources/'.length)} · response: ${first.slice('/sources/'.length)}`));
 });
 
 test('a browser recipe opened from disk runs under its file name and reports unreadable files', async () => {
