@@ -181,8 +181,8 @@ export function pairLaneFrames(W: number, H: number): PlotFrame[] {
 
 /**
  * Gain, phase and γ² stacked on one shared frequency axis, each with its unit as a turned axis title.
- * At the hover frequency every lane gets a crosshair whose horizontal line marks one response: the one
- * nearest the pointer in the lane under it, else the first drawn. Returns that response's values there.
+ * At the hover frequency every lane gets a vertical line; the line nearest the pointer gets the horizontal
+ * one, and its value in that lane is returned for the readout.
  */
 export function paintPairSpectrum(
     ctx: CanvasDrawCtx,
@@ -216,20 +216,22 @@ export function paintPairSpectrum(
         frame.top + (1 - Math.max(0, Math.min(1, (value - row.min) / (row.max - row.min)))) * frame.height;
     const hoverBin = hover === null || bins.length === 0 ? null : bins.reduce((best, candidate) =>
         Math.abs(binFrequency(input, candidate) - hover.frequencyHz) < Math.abs(binFrequency(input, best) - hover.frequencyHz) ? candidate : best, bins[0]);
-    let chosen = drawn[0];
+    // The line nearest the pointer in the lane under it; none when the cursor only follows the power spectrum.
+    let picked: { curve: PairCurve; lane: number; value: number } | null = null;
     if (hoverBin !== null && hover?.y != null) {
         const pointerY = hover.y;
         const lane = frames.findIndex(frame => pointerY >= frame.top && pointerY <= frame.top + frame.height);
-        if (lane >= 0) {
-            let best = Infinity;
-            drawn.forEach(curve => {
-                const value = rows[lane].values(curve.response)[hoverBin];
-                const distance = value === null || value === undefined ? Infinity : Math.abs(yOf(rows[lane], frames[lane], value) - pointerY);
-                if (distance < best) {
-                    best = distance;
-                    chosen = curve;
-                }
-            });
+        let best = Infinity;
+        for (const curve of lane >= 0 ? drawn : []) {
+            const value = rows[lane].values(curve.response)[hoverBin];
+            if (value === null || value === undefined) {
+                continue;
+            }
+            const distance = Math.abs(yOf(rows[lane], frames[lane], value) - pointerY);
+            if (distance < best) {
+                best = distance;
+                picked = { curve, lane, value };
+            }
         }
     }
     const strokeCurve = (row: PairRow, frame: PlotFrame, curve: PairCurve, lineWidth: number) => {
@@ -270,8 +272,8 @@ export function paintPairSpectrum(
         ctx.rect(frame.left, frame.top, frame.width, frame.height);
         ctx.clip();
         drawn.forEach(curve => strokeCurve(row, frame, curve, 1.2));
-        if (hoverBin !== null && chosen && drawn.length > 1) {
-            strokeCurve(row, frame, chosen, 2.5);
+        if (picked && picked.lane === index && drawn.length > 1) {
+            strokeCurve(row, frame, picked.curve, 2.5);
         }
         ctx.setLineDash([]);
         ctx.restore();
@@ -287,18 +289,12 @@ export function paintPairSpectrum(
     }
     const frequencyHz = binFrequency(input, hoverBin);
     const x = xOf(frequencyHz);
-    const values = rows.map(row => chosen ? row.values(chosen.response)[hoverBin] : null);
-    rows.forEach((row, index) => {
-        const value = values[index];
-        const y = value === null || value === undefined ? null : yOf(row, frames[index], value);
-        drawCrosshair(ctx, frames[index], x, y, 'rgba(255,255,255,0.7)', chosen ? chosen.color : '');
+    frames.forEach((frame, index) => {
+        const y = picked && picked.lane === index ? yOf(rows[index], frame, picked.value) : null;
+        drawCrosshair(ctx, frame, x, y, 'rgba(255,255,255,0.7)', picked ? picked.curve.color : '');
     });
-    if (!chosen) {
+    if (!picked) {
         return null;
     }
-    const parts = rows.map((row, index) => {
-        const value = values[index];
-        return value === null || value === undefined ? '–' : row.readout(value);
-    });
-    return { frequencyHz, text: readoutText([chosen.label, formatReadoutHz(frequencyHz), ...parts]), color: chosen.color };
+    return { frequencyHz, text: readoutText([picked.curve.label, formatReadoutHz(frequencyHz), rows[picked.lane].readout(picked.value)]), color: picked.curve.color };
 }

@@ -98,26 +98,31 @@ test('the pair plot draws ok responses only and reads out the hovered bin', () =
         frequencyBins: 3, maxFrequencyHz: 1000,
         curves: [curve(), curve({ status: 'no-overlap', gainDb: [], phaseRad: [], coherence: [] }, 'c.wav')],
     }, { frequencyMin: 0, frequencyMax: 1000 }, { frequencyHz: 520, y: null }, en, DEFAULT_THEME);
-    // Two segments in each of the three rows for the one drawn response, plus a vertical and a horizontal cursor line in each row.
-    assert.equal(ctx.lines, 3 * 2 + 3 * 2);
-    assert.equal(readout?.frequencyHz, 500);
-    assert.equal(readout?.text, 'b.wav / 500 Hz / -6.0 dB / 90° / γ² 0.99');
+    // Two segments in each of the three rows for the one drawn response, plus a vertical cursor line in each row; with no pointer height no line is picked.
+    assert.equal(ctx.lines, 3 * 2 + 3);
+    assert.equal(readout, null);
     // Units sit in the turned axis titles; the ticks are bare numbers.
     assert.ok(ctx.texts.includes('Gain [dB]') && ctx.texts.includes('Phase [°]') && ctx.texts.includes('γ²'));
     assert.ok(ctx.texts.includes('180') && !ctx.texts.some(text => text.endsWith('°') && text !== 'Phase [°]'));
 });
 
-test('the pointer picks the response nearest it in the lane under it', () => {
-    const curves = [curve({}, 'b.wav'), curve({ gainDb: [10, 10, 10], phaseRad: [-Math.PI / 2, -Math.PI / 2, -Math.PI / 2] }, 'c.wav')];
+test('the pointer picks the line nearest it and reads that lane only', () => {
+    const curves = [curve({}, 'b.wav'), curve({ gainDb: [10, 10, 10], phaseRad: [-Math.PI / 2, -Math.PI / 2, -Math.PI / 2], coherence: [0.3, 0.3, 0.3] }, 'c.wav')];
     const input = { frequencyBins: 3, maxFrequencyHz: 1000, curves };
     const visible = { frequencyMin: 0, frequencyMax: 1000 };
-    const [, phase] = pairLaneFrames(400, 180);
+    const [gain, phase, coherence] = pairLaneFrames(400, 180);
+    const at = (y: number) => {
+        const ctx = recordingContext();
+        const readout = paintPairSpectrum(ctx, 400, 180, input, visible, { frequencyHz: 500, y }, en, DEFAULT_THEME);
+        return { text: readout?.text, lines: ctx.lines };
+    };
     // -90° sits three quarters of the way down the phase lane.
-    const lowY = phase.top + phase.height * 0.75;
-    assert.equal(paintPairSpectrum(recordingContext(), 400, 180, input, visible, { frequencyHz: 500, y: lowY }, en, DEFAULT_THEME)?.text,
-        'c.wav / 500 Hz / 10.0 dB / -90° / γ² 0.99');
-    assert.equal(paintPairSpectrum(recordingContext(), 400, 180, input, visible, { frequencyHz: 500, y: null }, en, DEFAULT_THEME)?.text,
-        'b.wav / 500 Hz / -6.0 dB / 90° / γ² 0.99');
+    assert.equal(at(phase.top + phase.height * 0.75).text, 'c.wav / 500 Hz / -90°');
+    assert.equal(at(phase.top + phase.height * 0.25).text, 'b.wav / 500 Hz / 90°');
+    assert.equal(at(coherence.top + coherence.height * 0.6).text, 'c.wav / 500 Hz / γ² 0.30');
+    assert.equal(at(gain.top).text, 'c.wav / 500 Hz / 10.0 dB');
+    // Two responses × two segments × three rows, the picked line again thicker in its row, three vertical lines and one horizontal line.
+    assert.equal(at(gain.top).lines, 2 * 2 * 3 + 2 + 3 + 1);
 });
 
 test('pair requests and results pass their validators', () => {

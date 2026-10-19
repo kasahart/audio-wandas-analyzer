@@ -72,8 +72,8 @@ export function paintOverlaySpectrum(
     strokeSpectrumSeries(ctx, frame, vis.dbMax - vis.dbMin > 0 ? slices : [], 1.4, maxFrequencyHz);
     let nearest: SpectrumSnapHit<SpectrumSeries> | null = null;
     if (hover.norm !== null && hover.target === 'overlay') {
-        const mouseY = hover.yFrac !== null ? hover.yFrac * H : null;
-        nearest = nearestSpectrumSnap(slices, hover.norm, mouseY, frame);
+        // With no pointer height (the cursor follows the pair plot) no line is nearest, so only the frequency line shows.
+        nearest = hover.yFrac !== null ? nearestSpectrumSnap(slices, hover.norm, hover.yFrac * H, frame) : null;
         if (nearest) {
             strokeSpectrumSeries(ctx, frame, [nearest.s], 2.5, maxFrequencyHz);
         }
