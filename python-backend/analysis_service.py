@@ -558,6 +558,19 @@ def _finite_values(row: np.ndarray) -> list[float | None]:
     return [float(value) if math.isfinite(value) else None for value in row.tolist()]
 
 
+def pair_overlap(
+    x: _PairSource, y: _PairSource, start_seconds: float | None, end_seconds: float | None
+) -> tuple[float, float]:
+    """Global seconds both channels cover inside the requested range, capped at ``MAX_PAIR_SECONDS``."""
+    start = max(x.offset, y.offset, -math.inf if start_seconds is None else start_seconds)
+    end = min(
+        x.offset + x.frame.n_samples / float(x.frame.sampling_rate),
+        y.offset + y.frame.n_samples / float(y.frame.sampling_rate),
+        math.inf if end_seconds is None else end_seconds,
+    )
+    return start, min(end, start + MAX_PAIR_SECONDS)
+
+
 def _compute_pair(
     x: _PairSource,
     y: _PairSource,
@@ -570,13 +583,7 @@ def _compute_pair(
 ) -> _PairSpectrum:
     rate = float(x.frame.sampling_rate)
     y_rate = float(y.frame.sampling_rate)
-    start = max(x.offset, y.offset, -math.inf if start_seconds is None else start_seconds)
-    end = min(
-        x.offset + x.frame.n_samples / rate,
-        y.offset + y.frame.n_samples / y_rate,
-        math.inf if end_seconds is None else end_seconds,
-    )
-    end = min(end, start + MAX_PAIR_SECONDS)
+    start, end = pair_overlap(x, y, start_seconds, end_seconds)
     empty = np.empty((3, 0))
     level: dict[str, object] = {"unit": "dB", "axisLabel": "Gain [dB]"}
     if end <= start:
@@ -626,6 +633,7 @@ def _compute_pair(
 __all__ = [
     "AnalysisService",
     "PairSpectrumResult",
+    "pair_overlap",
     "pair_stft_params",
     "RecipeRunResult",
     "recipe_inputs",

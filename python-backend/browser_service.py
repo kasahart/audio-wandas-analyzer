@@ -13,7 +13,7 @@ import soundfile as sf
 import wandas as wd
 
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
-from analysis_service import AnalysisService, PairSpectrumResult, pair_stft_params, recipe_inputs
+from analysis_service import AnalysisService, PairSpectrumResult, pair_overlap, pair_stft_params, recipe_inputs
 from analyzer import resolve_stft_params, sample_range
 from backend_errors import INTERNAL_ERROR, InputError, error_payload
 from calibration_profile import source_channel_peaks
@@ -186,11 +186,16 @@ class BrowserService(AnalysisService):
         **options: object,
     ) -> PairSpectrumResult:
         # Peak memory follows the two-channel STFT and its cross spectra, measured near 64 bytes per bin.
-        frame = self.engine.get_file(str(reference["filePath"])).frame
-        n_fft, hop_length, _ = pair_stft_params(frame.n_samples, stft_options)
-        length = frame.n_samples
-        if start_seconds is not None and end_seconds is not None:
-            length = min(length, max(0, int((end_seconds - start_seconds) * frame.sampling_rate)))
+        x = self._pair_source(reference)
+        n_fft, hop_length, _ = pair_stft_params(x.frame.n_samples, stft_options)
+        seconds = max(
+            (
+                end - start
+                for start, end in (pair_overlap(x, self._pair_source(y), start_seconds, end_seconds) for y in responses)
+            ),
+            default=0.0,
+        )
+        length = max(0, int(seconds * x.frame.sampling_rate))
         working = ((length // hop_length) + 5) * 2 * (n_fft // 2 + 1) * 64
         if self.engine.estimated_bytes(working) > MAX_ESTIMATED_BYTES:
             raise InputError(
