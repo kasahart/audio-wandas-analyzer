@@ -54,10 +54,15 @@ test('double-clicking the spectrum top edge folds and unfolds it', async ({ page
 test('the selection toggle hides the file list so the results pane takes the full width', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
     await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
-    const toggle = page.locator('#selection-toolbar [data-action="toggle-selection-sidebar"]');
+    const toggle = page.locator('#selection-sidebar [data-action="toggle-selection-sidebar"]');
     const sidebar = page.locator('#selection-sidebar');
     const results = page.locator('#selection-results-pane');
     const openWidth = (await results.boundingBox())!.width;
+    // The button sits in the file list's own top-right corner.
+    const sidebarBox = (await sidebar.boundingBox())!;
+    const toggleBox = (await toggle.boundingBox())!;
+    expect(sidebarBox.x + sidebarBox.width - (toggleBox.x + toggleBox.width)).toBeLessThanOrEqual(16);
+    expect(toggleBox.y - sidebarBox.y).toBeLessThanOrEqual(16);
 
     await toggle.click();
     await expect(sidebar).toBeHidden();

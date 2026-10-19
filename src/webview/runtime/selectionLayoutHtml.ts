@@ -36,7 +36,6 @@ export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: Select
     const layoutClasses = [parts.isEmpty ? 'is-empty' : '', parts.sidebarCollapsed ? 'sidebar-collapsed' : ''].filter(Boolean).join(' ');
     return '<div id="directory-selection-layout"' + (layoutClasses ? ' class="' + layoutClasses + '"' : '') + '>'
         + '  <div id="selection-toolbar">'
-        + '    ' + panelToggleHtml('sidebar', Boolean(parts.sidebarCollapsed), strings)
         + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + escapeHtml(strings.selectionHeader) + '</span>'
         + '    <div class="tb-sep"></div>'
         + '    <button class="tb-btn" data-action="open-file"' + hintAttr(strings.hintOpenFile) + '>' + escapeHtml(strings.btnOpenFile) + '</button>'
@@ -46,6 +45,7 @@ export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: Select
         + '  <div id="selection-body">'
         + '    <button id="selection-sidebar-rail" data-action="toggle-selection-sidebar"' + hintAttr(strings.hintExpandSidebar) + ' aria-label="' + escapeHtml(strings.hintExpandSidebar) + '"><span>›</span><span id="selection-rail-count"></span></button>'
         + '    <div id="selection-sidebar">'
+        + '      ' + panelToggleHtml('sidebar', Boolean(parts.sidebarCollapsed), strings)
         + '      <div id="selection-summary">'
         + '        <div class="selection-count" id="selection-count"></div>'
         + '        <div class="selection-path">' + escapeHtml(parts.rootPath) + '</div>'
