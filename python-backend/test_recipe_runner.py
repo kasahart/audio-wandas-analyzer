@@ -130,6 +130,21 @@ def test_bundled_coherence_recipe_runs(tmp_path: Path) -> None:
     assert len(charts[0]["series"]) == 1
 
 
+@pytest.mark.parametrize("name", ["coherence.json", "transfer-function.json"])
+def test_bundled_pair_recipes_accept_selections_of_different_lengths(tmp_path: Path, name: str) -> None:
+    first = tmp_path / "a.wav"
+    second = tmp_path / "b.wav"
+    _write_sine_wav(first, freq_hz=440.0, seconds=1.0)
+    _write_sine_wav(second, freq_hz=880.0, seconds=1.5)
+    recipe = json.loads((Path(__file__).parent / "recipes" / name).read_text())
+    for input_spec, selected in zip(recipe["inputs"], (first, second), strict=True):
+        input_spec["file"] = str(selected)
+
+    charts = run_recipe(recipe, base_dir=tmp_path)
+
+    assert charts and all(len(chart["series"]) == 1 for chart in charts)
+
+
 def test_bundled_transfer_function_recipe_shows_gain_and_phase(tmp_path: Path) -> None:
     first = tmp_path / "a.wav"
     second = tmp_path / "b.wav"

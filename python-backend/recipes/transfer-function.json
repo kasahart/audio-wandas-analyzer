@@ -4,7 +4,7 @@
     { "name": "b", "file": "{{selection}}" }
   ],
   "steps": [
-    { "as": "pair", "expr": "a.get_channel(0).concat_frame(b.get_channel(0), suffix_on_dup='_b')" },
+    { "as": "pair", "expr": "a.get_channel(0).concat_frame(b.get_channel(0), suffix_on_dup='_b', align='truncate')" },
     { "as": "h", "expr": "pair.transfer_function(n_fft=4096).select_pair(1, 0)" }
   ],
   "display": [
