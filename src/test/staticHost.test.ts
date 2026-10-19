@@ -516,7 +516,7 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     app.setPromptAnswer('2');
     app.host.postMessage({ type: 'run-recipe' });
     await flush();
-    assert.match(app.status, /Recipe expects 2 file\(s\) from the panel selection but 1 are checked/);
+    assert.match(app.status, /Recipe expects 2 file\(s\) from the panel selection but 1 is checked/);
     assert.equal(worker.commands.filter(entry => entry.cmd === 'run-recipe').length, 1);
     app.setPromptAnswer('1');
     app.host.postMessage({ type: 'run-recipe' });

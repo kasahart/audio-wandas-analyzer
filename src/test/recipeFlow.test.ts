@@ -49,7 +49,7 @@ test('recipe flow asks for inputs only without a selection and reports too few f
     await flow.run([]);
     assert.equal(executed.length, 0);
     assert.ok(log.includes('pickInputs'));
-    assert.match(log.at(-1)!, /^error:Recipe execution failed: Recipe expects 2 file\(s\).*but 1 are checked/);
+    assert.match(log.at(-1)!, /^error:Recipe execution failed: Recipe expects 2 file\(s\).*but 1 is checked/);
 });
 
 test('recipe flow stops on cancel, catalog failure and missing inputs', async () => {
@@ -93,6 +93,7 @@ test('recipe documents must be wandas Recipes and inputs must be frames', () => 
     assert.equal(isRecipeDocument(recipeOf('a')), true);
     assert.equal(isRecipeDocument({ inputs: [{ name: 'a', file: 'x' }], steps: [] }), false);
     assert.equal(isRecipeDocument({ schema: 'wandas.recipe', inputs: [{ id: 'input-0', name: 1, kind: 'frame' }] }), false);
+    assert.equal(isRecipeDocument({ schema: 'wandas.recipe', inputs: [{ name: 'a', kind: 'frame' }] }), false);
     assert.equal(isRecipeDocument([]), false);
     const withArray: RecipeDocument = { ...recipeOf('a'), inputs: [{ id: 'input-0', name: 'offset', kind: 'array' }] };
     assert.throws(() => bindSelection(withArray, ['/a.wav']), /offset needs an array/);

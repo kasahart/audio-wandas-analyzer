@@ -18,7 +18,7 @@ export function isRecipeDocument(value: unknown): value is RecipeDocument {
     return recipe['schema'] === 'wandas.recipe'
         && Array.isArray(inputs)
         && inputs.every(input => !!input && typeof input === 'object'
-            && typeof (input as RecipeInput).name === 'string' && typeof (input as RecipeInput).kind === 'string');
+            && (['id', 'name', 'kind'] as const).every(key => typeof (input as RecipeInput)[key] === 'string'));
 }
 
 /** Assign the checked files to the Recipe's inputs in the order the Recipe lists them. */
@@ -26,7 +26,8 @@ export function bindSelection(recipe: RecipeDocument, selectionFilePaths: string
     const arrayInput = recipe.inputs.find(input => input.kind !== 'frame');
     if (arrayInput) throw new Error(`Recipe input ${arrayInput.name} needs an array, which the analyzer cannot supply.`);
     if (selectionFilePaths.length < recipe.inputs.length) {
-        throw new Error(`Recipe expects ${recipe.inputs.length} file(s) from the panel selection but ${selectionFilePaths.length} are checked.`);
+        const checked = selectionFilePaths.length === 1 ? '1 is checked' : `${selectionFilePaths.length} are checked`;
+        throw new Error(`Recipe expects ${recipe.inputs.length} file(s) from the panel selection but ${checked}.`);
     }
     return Object.fromEntries(recipe.inputs.map((input, index) => [input.name, selectionFilePaths[index]]));
 }
