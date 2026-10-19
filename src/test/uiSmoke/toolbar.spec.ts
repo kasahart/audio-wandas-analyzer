@@ -318,11 +318,26 @@ test('static page recipe menu drops from the Workflow menu, closes on Escape and
     const pickerBox = (await picker.boundingBox())!;
     expect(Math.abs(pickerBox.x - summaryBox.x)).toBeLessThan(2);
     expect(pickerBox.y).toBeGreaterThan(summaryBox.y + summaryBox.height - 1);
+    await page.evaluate(() => {
+        const keys: string[] = [];
+        (window as typeof window & { __pageKeys?: string[] }).__pageKeys = keys;
+        document.addEventListener('keydown', event => { keys.push(event.key); });
+    });
+    const pageKeys = () => page.evaluate(() => (window as typeof window & { __pageKeys: string[] }).__pageKeys);
     await picker.locator('[data-action="browser-recipe-file"]').hover();
     await expect(page.locator('#hint-footer')).toHaveText('Run a wandas .recipe.json from your computer');
     await page.keyboard.press('Escape');
     await expect(picker).toHaveCount(0);
     await expect(page.locator('#hint-footer')).toHaveText('');
+    expect(await pageKeys(), 'Escape closes only the menu').toEqual([]);
+
+    await workflow.locator('summary').click();
+    await workflow.locator('[data-action="run-recipe"]').click();
+    await expect(picker.locator('[data-action="browser-recipe-pick"]')).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
+    await expect(page.locator('[data-recipe-result]')).toContainText('octave');
+    expect(await pageKeys(), 'Space presses the menu item instead of reaching the playback shortcut').toEqual([]);
 
     await workflow.locator('summary').click();
     await workflow.locator('[data-action="run-recipe"]').click();

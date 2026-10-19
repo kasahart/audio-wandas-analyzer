@@ -23,7 +23,12 @@ export function createRecipePicker(document: Document, strings: UiStrings): (ent
             const anchor = workflow?.querySelector('summary')?.getBoundingClientRect();
             if (workflow) workflow.open = false;
             menu.style.cssText = `position:fixed;top:${anchor ? anchor.bottom + 4 : 40}px;left:${anchor ? anchor.left : 8}px`;
-            const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') finish(undefined); };
+            // Capture keys before the page's shortcuts: Space must press the focused item, not toggle playback,
+            // and Escape must only close this menu, not also restore a maximized spectrum.
+            const onKey = (event: KeyboardEvent): void => {
+                if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish(undefined); }
+                else if (menu.contains(event.target as Node)) event.stopPropagation();
+            };
             const onPointer = (event: Event): void => { if (!menu.contains(event.target as Node)) finish(undefined); };
             function finish(pick: RecipePick | undefined): void {
                 cancelOpen = undefined;

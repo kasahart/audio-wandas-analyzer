@@ -60,7 +60,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         const entries = menu.children.filter(child => child.attributes['data-action'] === 'browser-recipe-pick');
         recipeMenus.push(menu.children.filter(child => child.tag === 'button').map(child => child.textContent));
         queueMicrotask(() => {
-            if (recipeAnswer === 'escape') documentListeners.get('keydown')!({ key: 'Escape' });
+            if (recipeAnswer === 'escape') documentListeners.get('keydown')!({ key: 'Escape', preventDefault: () => undefined, stopPropagation: () => undefined });
             else if (typeof recipeAnswer === 'number') entries[recipeAnswer].onclick!();
             else {
                 const { name, text } = recipeAnswer;
