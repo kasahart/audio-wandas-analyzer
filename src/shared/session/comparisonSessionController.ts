@@ -6,9 +6,9 @@ import type {
     SpectrogramSettings,
     StftOptions,
 } from '../analysis/analysisTypes';
-import type { CalibrationRequestContext } from '../protocol/backendProtocol';
+import type { CalibrationRequestContext, PairSpectrumResult } from '../protocol/backendProtocol';
 import { parsePanelMessage, type PanelMessage } from '../protocol/panelMessages';
-import type { AnalyzeSelectedFilesMessage, ExportReportOptionsMessage, ExportWavLoopMessage, SelectionTargetKind } from '../utils/audioTarget';
+import type { AnalyzeSelectedFilesMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
 import { exportWavRegions, reportArtifact, type ReportFormat, type WavExportSink, type WavExportSource } from '../utils/exportArtifact';
 
 type LazyPublication = Awaited<ReturnType<typeof executeLazyAnalysis>> | ReturnType<typeof lazyAnalysisError>;
@@ -19,7 +19,12 @@ export type SessionPublication =
     | AnalysisUpdateMessage
     | { type: 'reanalyze-start'; count: number }
     | { type: 'reanalyze-end' }
-    | DistributiveOmit<LazyPublication, 'analysisRevision'>;
+    | DistributiveOmit<LazyPublication, 'analysisRevision'>
+    | PairSpectrumPublication;
+
+export type PairSpectrumPublication =
+    | ({ type: 'pair-spectrum-result'; requestId: string } & Omit<PairSpectrumResult, 'analysisRevision' | 'calibrationSignature'>)
+    | { type: 'pair-spectrum-error'; requestId: string; analysisId: string; settingsSignature: string; error: string };
 
 /** Publication validity captured when one panel message starts. */
 export interface SessionScope {
@@ -109,6 +114,7 @@ export class ComparisonSessionController {
                 case 'request-reanalyze': await this.reanalyze(message.settings, scope); return;
                 case 'request-waveform-range': case 'request-track-detail': case 'request-spectrum-slice':
                     await this.lazy(message, scope); return;
+                case 'request-pair-spectrum': await this.pair(message, scope); return;
                 case 'release-track-detail': { const pending = this.ports.releaseTrackDetail(message.filePath); if (thenable(pending)) await pending; } return;
                 case 'export-wav-loop': await this.exportWav(message, scope); return;
                 case 'export-report-options': await this.exportReport(message); return;
@@ -158,6 +164,31 @@ export class ComparisonSessionController {
             if (!scope.canPublish(request.filePath, context?.analysisRevision)) return;
             this.ports.lazyFailed?.(request, reasonOf(error));
             if (request.type !== 'request-waveform-range') { const pending = this.ports.publish(lazyAnalysisError(request, error)); if (thenable(pending)) await pending; }
+        }
+    }
+
+    private async pair(request: PairSpectrumRequest, scope: SessionScope): Promise<void> {
+        const sources = [request.reference, ...request.responses];
+        const contexts = new Map<string, CalibrationRequestContext>();
+        try {
+            for (const source of sources) {
+                const context = this.ports.lazyContext(source.filePath);
+                if (!context) return;
+                contexts.set(source.filePath, context);
+            }
+            const { analysisRevision: referenceRevision, calibrationSignature: _signature, ...result } = await this.ports.client.requestPairSpectrum(
+                { ...request, stftOptions: this.ports.stftOptions() }, contexts, request.requestId,
+            );
+            const revisions = new Map(result.responses.map(response => [response.filePath, response.analysisRevision]));
+            revisions.set(result.filePath, referenceRevision);
+            if (![...revisions].every(([filePath, revision]) => scope.canPublish(filePath, revision))) return;
+            const pending = this.ports.publish({ type: 'pair-spectrum-result', requestId: request.requestId, ...result });
+            if (thenable(pending)) await pending;
+        } catch (error) {
+            if (!sources.every(source => scope.canPublish(source.filePath, contexts.get(source.filePath)?.analysisRevision))) return;
+            const pending = this.ports.publish({ type: 'pair-spectrum-error', requestId: request.requestId,
+                analysisId: request.analysisId, settingsSignature: request.settingsSignature, error: reasonOf(error) });
+            if (thenable(pending)) await pending;
         }
     }
 

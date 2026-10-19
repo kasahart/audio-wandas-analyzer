@@ -9,6 +9,7 @@ import {
     isExportReportOptionsMessage,
     isExportWavLoopMessage,
     isReleaseTrackDetailMessage,
+    isRequestPairSpectrumMessage,
     isRequestSpectrumSliceMessage,
     isRequestTrackDetailMessage,
     isRequestWaveformRangeMessage,
@@ -17,6 +18,7 @@ import {
     type AnalyzeSelectedFilesMessage,
     type ExportReportOptionsMessage,
     type ExportWavLoopMessage,
+    type PairSpectrumRequest,
     type SelectPythonEnvironmentMessage,
     type SelectionTargetKind,
     type SpectrumSliceRequest,
@@ -50,6 +52,7 @@ export type PanelMessage =
     | TrackDetailRequest
     | TrackDetailReleaseMessage
     | SpectrumSliceRequest
+    | PairSpectrumRequest
     | ExportWavLoopMessage
     | ExportReportOptionsMessage
     | RunRecipeMessage
@@ -101,6 +104,7 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'request-track-detail': return isRequestTrackDetailMessage(value) ? value : undefined;
         case 'release-track-detail': return isReleaseTrackDetailMessage(value) ? value : undefined;
         case 'request-spectrum-slice': return isRequestSpectrumSliceMessage(value) ? value : undefined;
+        case 'request-pair-spectrum': return isRequestPairSpectrumMessage(value) ? value : undefined;
         case 'export-wav-loop': return isExportWavLoopMessage(value) ? value : undefined;
         case 'export-report-options': return isExportReportOptionsMessage(value) ? value : undefined;
         case 'run-recipe': return { type: 'run-recipe' };

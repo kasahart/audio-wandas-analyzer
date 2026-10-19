@@ -30,6 +30,15 @@ export class SpectrumView {
         return !!this.painted && this.painted.maxFrequencyHz > 0;
     }
 
+    /** The Hz window of the last linear paint, for views that share its frequency zoom. */
+    visibleFrequencyHz(): FrequencyScale | null {
+        const painted = this.painted;
+        if (!painted || painted.logMinFrequencyHz !== undefined || !(painted.maxFrequencyHz > 0)) {
+            return null;
+        }
+        return { frequencyMin: this.freqStart * painted.maxFrequencyHz, frequencyMax: this.freqEnd * painted.maxFrequencyHz };
+    }
+
     paintedDb(): { min: number; max: number } | null {
         return this.painted ? { min: this.painted.dbMin, max: this.painted.dbMax } : null;
     }

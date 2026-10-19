@@ -65,3 +65,12 @@ test('results pane offers a maximize toggle before the spectrum collapse toggle'
     assert.ok(maximize > 0);
     assert.ok(maximize < html.indexOf('data-action="toggle-spectrum-panel"'));
 });
+
+test('results pane holds the hidden pair view beside the power spectrum', () => {
+    const html = resultsPaneHtml(parts, strings);
+    const split = html.indexOf('<div id="spectrum-split">');
+    assert.ok(split > 0);
+    assert.ok(html.indexOf('id="spectrum-overlay-wrap"') > split);
+    assert.ok(html.indexOf('data-action="pair-divider-drag"') > html.indexOf('id="spectrum-overlay-wrap"'));
+    assert.ok(html.includes('<canvas id="pair-spectrum-canvas" aria-label="' + strings.pairSectionTitle + '"'));
+});

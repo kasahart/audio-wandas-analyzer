@@ -306,6 +306,24 @@ export interface UiStrings {
     hintSpecApply: string;
     hintBrowserOpenFolder: string;
     hintBrowserAbout: string;
+    pairReferenceHint: string;
+    pairReferenceClearHint: string;
+    pairReferenceBadge: string;
+    pairAverages: string;
+    pairFewAveragesHint: string;
+    pairResampledHint: string;
+    pairNoOverlapHint: string;
+    pairTooShortHint: string;
+    pairOtherUnitHint: string;
+    pairPhaseLabel: string;
+    pairCoherenceLabel: string;
+    pairSectionTitle: string;
+    pairWaiting: string;
+    pairNoResponses: string;
+    pairFailed: string;
+    hintPairDivider: string;
+    hintOctaveDisabledByPair: string;
+    hintPairPlot: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -601,6 +619,24 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpecApply: 'Recompute the spectrogram with these STFT settings',
         hintBrowserOpenFolder: 'Open a folder and pick WAV files from the tree',
         hintBrowserAbout: 'Show limits, unavailable features and how audio is handled',
+        pairReferenceHint: 'Set as reference',
+        pairReferenceClearHint: 'Clear the reference',
+        pairReferenceBadge: 'Ref',
+        pairAverages: '{n} avg',
+        pairFewAveragesHint: 'Few averages: γ² reads high. Widen the range or raise the overlap',
+        pairResampledHint: 'Resampled to the reference rate',
+        pairNoOverlapHint: 'No overlap with the reference in the range',
+        pairTooShortHint: 'Overlap shorter than one FFT frame',
+        pairOtherUnitHint: 'Calibrated to a different unit, so not drawn on this gain axis',
+        pairPhaseLabel: 'Phase [°]',
+        pairCoherenceLabel: 'γ²',
+        pairSectionTitle: 'Transfer function and coherence against the reference',
+        pairWaiting: 'Computing…',
+        pairNoResponses: 'Show another channel to compare with the reference',
+        pairFailed: 'Pair spectrum failed: {error}',
+        hintPairDivider: 'Drag to change the split',
+        hintOctaveDisabledByPair: 'Octave bands are off while a reference is set',
+        hintPairPlot: 'Averaged over the loop region, or the whole overlap without one',
     },
     ja: {
         panelTitle: 'Audio Wandas Analyzer',
@@ -894,6 +930,24 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpecApply: 'この STFT 設定でスペクトログラムを再計算',
         hintBrowserOpenFolder: 'フォルダを開き、ツリーから WAV を選ぶ',
         hintBrowserAbout: '制限・未対応機能・音声の扱いを表示',
+        pairReferenceHint: '基準にする',
+        pairReferenceClearHint: '基準を解除',
+        pairReferenceBadge: '基準',
+        pairAverages: '{n}平均',
+        pairFewAveragesHint: '平均回数が少なく γ² が高めに出ます。範囲を広げるかオーバーラップを上げてください',
+        pairResampledHint: '基準のサンプルレートにリサンプル済み',
+        pairNoOverlapHint: '範囲内に基準との重なりがありません',
+        pairTooShortHint: '重なりが FFT 1 フレームより短い',
+        pairOtherUnitHint: '校正の単位が異なるため、このゲイン軸には描画しません',
+        pairPhaseLabel: '位相 [°]',
+        pairCoherenceLabel: 'γ²',
+        pairSectionTitle: '基準に対する伝達関数とコヒーレンス',
+        pairWaiting: '計算中…',
+        pairNoResponses: '基準と比べる別のチャンネルを表示してください',
+        pairFailed: 'ペアスペクトルの計算に失敗しました: {error}',
+        hintPairDivider: 'ドラッグで分割位置を変更',
+        hintOctaveDisabledByPair: '基準の設定中はオクターブバンドを使えません',
+        hintPairPlot: 'ループ範囲で平均。ループがなければ重なり全体で平均',
     },
 };
 

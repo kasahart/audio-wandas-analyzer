@@ -4,6 +4,7 @@ import type {
     AnalysisUpdateMessage,
     ChannelSummary,
 } from '../../shared/analysis/analysisTypes';
+import type { PairSpectrumPublication } from '../../shared/session/comparisonSessionController';
 import type { RangeWaveform, RuntimeWindow, WebviewHostApi } from './types';
 
 export type HostOutboundMessage = PanelMessage
@@ -49,6 +50,7 @@ export type HostInboundMessage =
         computeMs?: number;
     })
     | (LazyResponseIdentity & { type: 'spectrum-slice-error'; error: string })
+    | PairSpectrumPublication
     | { type: 'python-environment-state'; pythonCommand: string; status: string; tooltip: string }
     | {
         type: 'comparison-panel-test-action';
@@ -73,6 +75,28 @@ function hasString(value: Record<string, unknown>, key: string): boolean {
 
 function hasNumber(value: Record<string, unknown>, key: string): boolean {
     return typeof value[key] === 'number' && Number.isFinite(value[key]);
+}
+
+function hasIndex(value: Record<string, unknown>, key: string): boolean {
+    return Number.isInteger(value[key]) && (value[key] as number) >= 0;
+}
+
+function isNullableNumberArray(value: unknown, length: number): boolean {
+    return Array.isArray(value) && value.length === length
+        && value.every(item => item === null || (typeof item === 'number' && Number.isFinite(item)));
+}
+
+function isPairResponse(value: unknown, frequencyBins: number): boolean {
+    if (!isRecord(value)) {
+        return false;
+    }
+    const length = value.status === 'ok' ? frequencyBins : 0;
+    return hasString(value, 'filePath') && hasIndex(value, 'channelIndex')
+        && (value.status === 'ok' || value.status === 'no-overlap' || value.status === 'too-short')
+        && hasNumber(value, 'startSeconds') && hasNumber(value, 'endSeconds') && hasIndex(value, 'averages')
+        && typeof value.resampled === 'boolean' && hasString(value, 'unit') && hasString(value, 'axisLabel')
+        && isNullableNumberArray(value.gainDb, length) && isNullableNumberArray(value.phaseRad, length)
+        && isNullableNumberArray(value.coherence, length);
 }
 
 export function isHostInboundMessage(value: unknown): value is HostInboundMessage {
@@ -113,6 +137,15 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
                 && (value.windowEndNorm === undefined || hasNumber(value, 'windowEndNorm'))
                 && (value.window === undefined || hasString(value, 'window'))
                 && (value.computeMs === undefined || hasNumber(value, 'computeMs'));
+        case 'pair-spectrum-error':
+            return hasString(value, 'requestId') && hasString(value, 'analysisId')
+                && hasString(value, 'settingsSignature') && hasString(value, 'error');
+        case 'pair-spectrum-result':
+            return hasString(value, 'requestId') && hasString(value, 'analysisId')
+                && hasString(value, 'settingsSignature') && hasString(value, 'filePath')
+                && hasIndex(value, 'channelIndex') && hasIndex(value, 'frequencyBins') && hasNumber(value, 'maxFrequencyHz')
+                && hasIndex(value, 'nFft') && hasIndex(value, 'hopLength')
+                && Array.isArray(value.responses) && value.responses.every(response => isPairResponse(response, value.frequencyBins as number));
         case 'python-environment-state':
             return hasString(value, 'pythonCommand') && hasString(value, 'status') && hasString(value, 'tooltip');
         case 'comparison-panel-test-action':

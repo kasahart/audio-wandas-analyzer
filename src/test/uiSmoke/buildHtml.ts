@@ -127,10 +127,47 @@ const uiSmokeSpectrumResponse = function(message) {
         computeMs: 7.1,
     });
 };
+const uiSmokePairResponse = function(message) {
+    const bins = 129;
+    return {
+        type: 'pair-spectrum-result',
+        requestId: message.requestId,
+        analysisId: message.analysisId,
+        settingsSignature: message.settingsSignature,
+        filePath: message.reference.filePath,
+        channelIndex: message.reference.channelIndex,
+        frequencyBins: bins,
+        maxFrequencyHz: 4000,
+        nFft: 256,
+        hopLength: 64,
+        window: 'hann',
+        computeMs: 3.2,
+        responses: message.responses.map(function(source, index) {
+            return {
+                filePath: source.filePath,
+                channelIndex: source.channelIndex,
+                status: 'ok',
+                startSeconds: message.startSeconds === undefined ? 0 : message.startSeconds,
+                endSeconds: message.endSeconds === undefined ? 1 : message.endSeconds,
+                averages: index === 0 ? 32 : 6,
+                resampled: index === 1,
+                gainDb: Array.from({ length: bins }, function(_, bin) { return -6 * bin / (bins - 1) - index * 3; }),
+                phaseRad: Array.from({ length: bins }, function(_, bin) { return -Math.PI * bin / (bins - 1); }),
+                coherence: Array.from({ length: bins }, function(_, bin) { return 1 - 0.5 * bin / (bins - 1); }),
+                unit: 'FS',
+                axisLabel: 'Gain [dB]',
+            };
+        }),
+    };
+};
 window.acquireVsCodeApi = function() {
     return {
         postMessage(message) {
             window.__uiSmokePostedMessages.push(message);
+            if (message && message.type === 'request-pair-spectrum') {
+                window.setTimeout(function() { window.postMessage(uiSmokePairResponse(message), '*'); }, ${responseDelayMs});
+                return;
+            }
             if (!message || message.type !== 'request-spectrum-slice') {
                 return;
             }

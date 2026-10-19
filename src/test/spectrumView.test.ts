@@ -69,3 +69,15 @@ test('SpectrumView Hz fields follow a painted log axis', () => {
     assert.equal(view.setFrequencyRangeHz(0, 100), true);
     assert.equal(view.freqStart, 0);
 });
+
+test('visibleFrequencyHz gives the painted linear window in Hz and nothing for a log axis', () => {
+    const view = new SpectrumView();
+    assert.equal(view.visibleFrequencyHz(), null);
+    view.recordPaint({ maxFrequencyHz: 24000, dbMin: -80, dbMax: 0 });
+    view.freqStart = 10000 / 24000;
+    view.freqEnd = 20000 / 24000;
+    const visible = view.visibleFrequencyHz();
+    assert.ok(visible && Math.abs(visible.frequencyMin - 10000) < 1e-9 && Math.abs(visible.frequencyMax - 20000) < 1e-9);
+    view.recordPaint({ maxFrequencyHz: 22387, logMinFrequencyHz: 22.39, dbMin: -80, dbMax: 0 });
+    assert.equal(view.visibleFrequencyHz(), null);
+});
