@@ -341,7 +341,9 @@ export class PairSpectrumPanel {
             const scaleY = rect.height > 0 ? element.height / rect.height : 1;
             this.hoverPoint = { x: (event.clientX - rect.left) * scaleX, y: (event.clientY - rect.top) * scaleY };
             this.render();
-            this.host.onHoverFrequency(this.result ? this.frequencyAt(this.hoverPoint.x, element.width, this.visibleFrequencyHz(this.result)) : null);
+            const frequencyHz = this.result ? this.frequencyAt(this.hoverPoint.x, element.width, this.visibleFrequencyHz(this.result)) : null;
+            // The power spectrum may reach past the reference's Nyquist, where the pair cursor stops at its last bin.
+            this.host.onHoverFrequency(frequencyHz === null || !this.result ? null : Math.min(frequencyHz, this.result.maxFrequencyHz));
         });
         canvas?.addEventListener('mouseleave', () => {
             this.hoverPoint = null;

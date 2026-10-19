@@ -9,7 +9,7 @@ import { isRequestPairSpectrumMessage, type PairSpectrumRequest } from '../share
 import { DEFAULT_THEME, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
 import { isHostInboundMessage } from '../webview/runtime/hostMessaging';
 import {
-    paintPairSpectrum, pairLaneFrames, pairHeader, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
+    PAIR_SPECTRUM_PAD, paintPairSpectrum, pairLaneFrames, pairHeader, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
     type PairCurve, type PairSpectrumResponse, type PairSpectrumResultMessage,
 } from '../webview/runtime/pairSpectrum';
 import { PAIR_REQUEST_DELAY_MS, PairSpectrumPanel, type PairChannelSource, type PairPanelHost } from '../webview/runtime/pairSpectrumPanel';
@@ -238,6 +238,7 @@ function panelFixture() {
         { trackId: 't2' as TrackId, filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5, label: 'b.wav', color: '#f00' },
     ];
     let range: { startSeconds: number; endSeconds: number } | null = null;
+    let visible: { frequencyMin: number; frequencyMax: number } | null = null;
     let requestCount = 0;
     const host: PairPanelHost = {
         channels: () => channels,
@@ -246,7 +247,7 @@ function panelFixture() {
         settingsSignature: () => 's',
         nextRequestId: () => 'pair-' + (++requestCount),
         post: request => { posted.push(request); },
-        visibleFrequencyHz: () => null,
+        visibleFrequencyHz: () => visible,
         plotHeight: () => 140,
         hoverFrequencyHz: () => null,
         onHoverFrequency: hz => { hoverFrequencies.push(hz); },
@@ -259,6 +260,7 @@ function panelFixture() {
         doc, panel, posted, references, hoverFrequencies,
         setChannels(next: PairChannelSource[]) { channels = next; },
         setRange(next: typeof range) { range = next; },
+        setVisible(next: typeof visible) { visible = next; },
     };
 }
 
@@ -379,6 +381,26 @@ test('closing the pair pane under the pointer clears the synced power spectrum c
         mock.timers.tick(PAIR_REQUEST_DELAY_MS);
         assert.equal(fixture.panel.reference, null);
         assert.deepEqual(fixture.hoverFrequencies, [null]);
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
+test('hovering past the reference Nyquist syncs the power spectrum to the last pair frequency', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        fixture.panel.attach();
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        fixture.panel.handleMessage(resultFor('pair-1'));
+        fixture.setVisible({ frequencyMin: 0, frequencyMax: 4000 });
+        const canvas = fixture.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement;
+        const mouseEvent = fixture.doc.defaultView!.MouseEvent;
+        canvas.dispatchEvent(new mouseEvent('mousemove', { clientX: canvas.width, clientY: 10 }));
+        canvas.dispatchEvent(new mouseEvent('mousemove', { clientX: PAIR_SPECTRUM_PAD.left, clientY: 10 }));
+        assert.deepEqual(fixture.hoverFrequencies, [1000, 0]);
     }
     finally {
         mock.timers.reset();
