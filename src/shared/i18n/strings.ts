@@ -314,6 +314,7 @@ export interface UiStrings {
     pairResampledHint: string;
     pairNoOverlapHint: string;
     pairTooShortHint: string;
+    pairOtherUnitHint: string;
     pairPhaseLabel: string;
     pairCoherenceLabel: string;
     pairSectionTitle: string;
@@ -626,6 +627,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pairResampledHint: 'Resampled to the reference rate',
         pairNoOverlapHint: 'No overlap with the reference in the range',
         pairTooShortHint: 'Overlap shorter than one FFT frame',
+        pairOtherUnitHint: 'Calibrated to a different unit, so not drawn on this gain axis',
         pairPhaseLabel: 'Phase [°]',
         pairCoherenceLabel: 'γ²',
         pairSectionTitle: 'Transfer function and coherence against the reference',
@@ -936,6 +938,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pairResampledHint: '基準のサンプルレートにリサンプル済み',
         pairNoOverlapHint: '範囲内に基準との重なりがありません',
         pairTooShortHint: '重なりが FFT 1 フレームより短い',
+        pairOtherUnitHint: '校正の単位が異なるため、このゲイン軸には描画しません',
         pairPhaseLabel: '位相 [°]',
         pairCoherenceLabel: 'γ²',
         pairSectionTitle: '基準に対する伝達関数とコヒーレンス',

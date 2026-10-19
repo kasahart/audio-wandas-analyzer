@@ -68,6 +68,16 @@ test('the legend greys a response with no overlap and marks a resampled one', ()
     assert.ok(!html.includes('c.wav<span class="pair-legend-mark">'));
 });
 
+test('a response calibrated to another unit is listed but not drawn on the shared gain axis', () => {
+    const curves = [curve({ axisLabel: 'Gain [dB re 1 Pa/(m/s²)]' }, 'p.wav'), curve({ axisLabel: 'Gain [dB]', averages: 4 }, 'a.wav')];
+    const html = pairLegendHtml(curves, en);
+    assert.ok(html.includes('pair-legend-item is-empty" data-hint="' + en.pairOtherUnitHint + '"'));
+    assert.equal(pairHeader(curves, en)?.fewAverages, false);
+    const ctx = recordingContext();
+    paintPairSpectrum(ctx, 400, 180, { frequencyBins: 3, maxFrequencyHz: 1000, curves }, { frequencyMin: 0, frequencyMax: 1000 }, null, en, DEFAULT_THEME);
+    assert.equal(ctx.lines, 3 * 2);
+});
+
 function recordingContext(): CanvasDrawCtx & { lines: number } {
     const ctx = {
         lines: 0,

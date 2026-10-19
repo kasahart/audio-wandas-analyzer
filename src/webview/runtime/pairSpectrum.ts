@@ -24,7 +24,7 @@ export interface PairCurve {
 
 export type PairStrings = Pick<UiStrings,
     | 'pairReferenceHint' | 'pairReferenceClearHint' | 'pairReferenceBadge' | 'pairAverages' | 'pairFewAveragesHint'
-    | 'pairResampledHint' | 'pairNoOverlapHint' | 'pairTooShortHint' | 'pairPhaseLabel' | 'pairCoherenceLabel'>;
+    | 'pairResampledHint' | 'pairNoOverlapHint' | 'pairTooShortHint' | 'pairOtherUnitHint' | 'pairPhaseLabel' | 'pairCoherenceLabel'>;
 
 /** Below this many averages the γ² estimate is biased high enough to mislead. */
 export const PAIR_FEW_AVERAGES = 8;
@@ -55,6 +55,16 @@ export function syncReferenceButtons(root: ParentNode, reference: PairReference 
     return found;
 }
 
+/**
+ * The responses that share one gain axis: ok ones whose level reference matches the first ok one.
+ * A response calibrated to another unit stays in the legend but is not drawn on that axis.
+ */
+export function drawnPairCurves(curves: readonly PairCurve[]): PairCurve[] {
+    const ok = curves.filter(curve => curve.response.status === 'ok');
+    const axisLabel = ok[0]?.response.axisLabel;
+    return ok.filter(curve => curve.response.axisLabel === axisLabel);
+}
+
 function formatSeconds(seconds: number): string {
     return seconds.toFixed(2);
 }
@@ -66,7 +76,7 @@ export interface PairHeader {
 
 /** e.g. `H1 · 32 avg · 1.00–3.00 s`; the averages are the fewest any drawn response used. */
 export function pairHeader(curves: readonly PairCurve[], strings: PairStrings): PairHeader | null {
-    const ok = curves.filter(curve => curve.response.status === 'ok').map(curve => curve.response);
+    const ok = drawnPairCurves(curves).map(curve => curve.response);
     if (ok.length === 0) {
         return null;
     }
@@ -80,12 +90,14 @@ export function pairHeader(curves: readonly PairCurve[], strings: PairStrings): 
 }
 
 export function pairLegendHtml(curves: readonly PairCurve[], strings: PairStrings): string {
+    const drawn = new Set(drawnPairCurves(curves));
     return curves.map(curve => {
         const { response } = curve;
-        const empty = response.status !== 'ok';
+        const empty = !drawn.has(curve);
         const hint = response.status === 'no-overlap' ? strings.pairNoOverlapHint
             : response.status === 'too-short' ? strings.pairTooShortHint
-                : response.resampled ? strings.pairResampledHint : '';
+                : empty ? strings.pairOtherUnitHint
+                    : response.resampled ? strings.pairResampledHint : '';
         return '<span class="pair-legend-item' + (empty ? ' is-empty' : '') + '"' + (hint ? hintAttr(hint) : '') + '>'
             + '<span class="pair-legend-swatch" style="background:' + escapeHtml(curve.color) + '"></span>'
             + escapeHtml(curve.label) + (response.resampled && !empty ? '<span class="pair-legend-mark">≈</span>' : '')
@@ -125,7 +137,7 @@ function gainRange(curves: readonly PairCurve[], bins: readonly number[]): { min
 
 function pairRows(curves: readonly PairCurve[], bins: readonly number[], strings: PairStrings): PairRow[] {
     const gain = gainRange(curves, bins);
-    const gainLabel = curves.find(curve => curve.response.status === 'ok')?.response.axisLabel ?? 'Gain [dB]';
+    const gainLabel = curves[0]?.response.axisLabel ?? 'Gain [dB]';
     return [
         { label: gainLabel, ...gain, values: response => response.gainDb, format: value => value.toFixed(1) },
         { label: strings.pairPhaseLabel, min: -180, max: 180, values: response => response.phaseRad.map(value => value === null ? null : value * DEGREES), format: value => value.toFixed(0) + '°' },
@@ -179,7 +191,7 @@ export function paintPairSpectrum(
             bins.push(bin);
         }
     }
-    const drawn = input.curves.filter(curve => curve.response.status === 'ok');
+    const drawn = drawnPairCurves(input.curves);
     const rows = pairRows(drawn, bins, strings);
     ctx.font = '9px monospace';
     rows.forEach((row, index) => {
