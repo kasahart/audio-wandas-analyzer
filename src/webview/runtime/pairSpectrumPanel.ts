@@ -83,6 +83,7 @@ export class PairSpectrumPanel {
     }
 
     setReference(next: PairReference | null): void {
+        const hadHover = this.hoverPoint !== null;
         this.referenceState = next;
         this.sentKey = null;
         this.observedKey = null;
@@ -94,6 +95,10 @@ export class PairSpectrumPanel {
         this.applySplit();
         syncReferenceButtons(this.doc, next, this.strings);
         this.host.onReferenceChange(next);
+        if (hadHover) {
+            // The pointer may still be over a pane that is closing, so no mouseleave will clear the power spectrum cursor.
+            this.host.onHoverFrequency(null);
+        }
         this.schedule(0);
     }
 

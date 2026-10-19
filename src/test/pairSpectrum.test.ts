@@ -232,6 +232,7 @@ function panelFixture() {
     (doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement).getContext = (() => null) as never;
     const posted: PairSpectrumRequest[] = [];
     const references: Array<unknown> = [];
+    const hoverFrequencies: Array<number | null> = [];
     let channels: PairChannelSource[] = [
         { trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
         { trackId: 't2' as TrackId, filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5, label: 'b.wav', color: '#f00' },
@@ -248,14 +249,14 @@ function panelFixture() {
         visibleFrequencyHz: () => null,
         plotHeight: () => 140,
         hoverFrequencyHz: () => null,
-        onHoverFrequency: () => undefined,
+        onHoverFrequency: hz => { hoverFrequencies.push(hz); },
         theme: () => DEFAULT_THEME,
         onReferenceChange: reference => { references.push(reference); },
         onLayoutChange: () => undefined,
     };
     const panel = new PairSpectrumPanel(doc, host, en);
     return {
-        doc, panel, posted, references,
+        doc, panel, posted, references, hoverFrequencies,
         setChannels(next: PairChannelSource[]) { channels = next; },
         setRange(next: typeof range) { range = next; },
     };
@@ -356,6 +357,28 @@ test('the pair panel clears the reference with its lane and reports failures', (
         assert.equal(fixture.panel.reference, null);
         assert.deepEqual(fixture.references, [{ trackId: 't1', channelIndex: 0 }, null]);
         assert.equal(fixture.doc.getElementById('spectrum-section')?.classList.contains('has-pair'), false);
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
+test('closing the pair pane under the pointer clears the synced power spectrum cursor', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        fixture.panel.attach();
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        const canvas = fixture.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement;
+        canvas.dispatchEvent(new fixture.doc.defaultView!.MouseEvent('mousemove', { clientX: 10, clientY: 10 }));
+        fixture.hoverFrequencies.length = 0;
+
+        fixture.setChannels([]);
+        fixture.panel.sync();
+        mock.timers.tick(PAIR_REQUEST_DELAY_MS);
+        assert.equal(fixture.panel.reference, null);
+        assert.deepEqual(fixture.hoverFrequencies, [null]);
     }
     finally {
         mock.timers.reset();
