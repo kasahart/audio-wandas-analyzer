@@ -44,6 +44,18 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         const detail = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='track-detail-result'));
         for(let i=0;i<2;i++) compare(nativeResults[i][1].channels,detail.find(m=>m.filePath===initial[i].filePath).channels,`multi.STFT[${i}]`);
         await page.screenshot({path:path.join(root,'test-results/browser-multi-stft.png'),fullPage:true});
+        // The pair view goes through the same session controller to the Worker's pair-spectrum command.
+        await page.locator('[data-action="set-pair-reference"]').first().click();
+        await page.waitForFunction(()=>window.__multiIn.some(m=>m.type==='pair-spectrum-result'),undefined,{timeout:120000});
+        const pair = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='pair-spectrum-result').at(-1));
+        assert.equal(pair.nFft,256);assert.equal(pair.responses.length,3);
+        assert.ok(pair.responses.every(r=>r.status==='ok'&&r.averages>=8&&r.gainDb.length===pair.frequencyBins),JSON.stringify(pair.responses.map(r=>[r.status,r.averages])));
+        assert.match(await page.locator('#pair-spectrum-summary').innerText(),/^H1 · \d+ avg · \d\.\d\d–\d\.\d\d s$/);
+        assert.equal(await page.locator('[data-action="spectrum-octave-3"]').isDisabled(),true);
+        await page.screenshot({path:path.join(root,'test-results/browser-multi-pair.png'),fullPage:true});
+        await page.locator('[data-action="set-pair-reference"]').first().click();
+        assert.equal(await page.locator('#pair-spectrum-wrap').isVisible(),false);
+        console.log('Pair view: H1/γ² for',pair.responses.length,'responses against the first lane,',pair.responses[0].averages,'averages.');
         await page.locator('[data-action="content-waveform"]').click();
         await page.locator('[data-action="toggle-mute"]').first().click();
         assert.equal(await page.locator('audio').first().evaluate(audio=>audio.muted),true);

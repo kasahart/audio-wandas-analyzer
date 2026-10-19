@@ -20,7 +20,8 @@ export type ResultsPaneStrings = Pick<UiStrings,
     | 'ariaToolbar' | 'spectrumSectionTitle' | 'spectrumZoomLabel'
     | 'ariaSpecZoomOut' | 'ariaSpecZoomIn' | 'ariaSpecZoomReset' | 'btnSpecZoomReset' | 'heightSpectrumLabel'
     | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'btnSpectrumSettingsTitle' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'
-    | 'hintSpectrumFft' | 'hintSpectrumOctave1' | 'hintSpectrumOctave3'> & PanelCollapseStrings;
+    | 'hintSpectrumFft' | 'hintSpectrumOctave1' | 'hintSpectrumOctave3'
+    | 'pairSectionTitle' | 'hintPairDivider' | 'hintPairPlot'> & PanelCollapseStrings;
 
 function spectrumBandsButtons(selected: SpectrumBandsSetting, strings: ResultsPaneStrings): string {
     const state = (bands: SpectrumBandsSetting) => (bands === selected ? ' is-active" aria-pressed="true"' : '" aria-pressed="false"');
@@ -47,7 +48,14 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '    <span style="margin-left:auto;display:flex;gap:2px;">' + spectrumBandsButtons(parts.spectrumBandsPerOctave, strings) + '</span>'
         + '    <button class="tb-btn" data-action="spectrum-settings"' + hintAttr(strings.btnSpectrumSettingsTitle) + ' aria-label="' + escapeHtml(strings.btnSpectrumSettingsTitle) + '">⚙</button>'
         + '  </div>'
-        + '  <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(strings.spectrumSectionTitle) + '"' + hintAttr(strings.hintSpectrumPlot) + '></canvas></div>'
+        + '  <div id="spectrum-split">'
+        + '    <div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(strings.spectrumSectionTitle) + '"' + hintAttr(strings.hintSpectrumPlot) + '></canvas></div>'
+        + '    <div id="pair-divider" class="pair-divider" data-action="pair-divider-drag"' + hintAttr(strings.hintPairDivider) + ' role="separator" aria-orientation="vertical"></div>'
+        + '    <div id="pair-spectrum-wrap" aria-label="' + escapeHtml(strings.pairSectionTitle) + '">'
+        + '      <div id="pair-spectrum-header"><span id="pair-spectrum-summary"></span><span id="pair-spectrum-legend"></span><span id="pair-spectrum-readout"></span></div>'
+        + '      <div id="pair-spectrum-plot"><canvas id="pair-spectrum-canvas" aria-label="' + escapeHtml(strings.pairSectionTitle) + '"' + hintAttr(strings.hintPairPlot) + '></canvas><div id="pair-spectrum-message" style="display:none"></div></div>'
+        + '    </div>'
+        + '  </div>'
         + '</div>'
         + '<div id="audio-host">' + parts.audioHtml + '</div>';
 }

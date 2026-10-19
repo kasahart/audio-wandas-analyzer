@@ -54,6 +54,7 @@ export interface PanelBackend extends Pick<AnalysisClient,
     | 'requestTrackDetail'
     | 'releaseTrackDetail'
     | 'requestSpectrumSlice'
+    | 'requestPairSpectrum'
     | 'exportWavLoop'> {}
 
 export interface PanelAnalysis {

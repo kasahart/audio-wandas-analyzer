@@ -134,6 +134,55 @@ export function isRequestSpectrumSliceMessage(message: unknown): message is Spec
     );
 }
 
+/** One channel at its place on the shared timeline. */
+export interface PairSourceRef {
+    filePath: string;
+    channelIndex: number;
+    offsetSeconds: number;
+}
+
+export interface PairSpectrumRequest {
+    type: 'request-pair-spectrum';
+    requestId: string;
+    analysisId: string;
+    settingsSignature: string;
+    reference: PairSourceRef;
+    responses: PairSourceRef[];
+    /** Global seconds; absent bounds average the whole overlap. */
+    startSeconds?: number;
+    endSeconds?: number;
+}
+
+function isPairSourceRef(value: unknown): value is PairSourceRef {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+    const m = value as Record<string, unknown>;
+    return typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0
+        && Number.isInteger(m['channelIndex']) && (m['channelIndex'] as number) >= 0
+        && typeof m['offsetSeconds'] === 'number' && Number.isFinite(m['offsetSeconds']);
+}
+
+function isOptionalFinite(value: unknown): boolean {
+    return value === undefined || (typeof value === 'number' && Number.isFinite(value));
+}
+
+export function isRequestPairSpectrumMessage(message: unknown): message is PairSpectrumRequest {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+    const m = message as Record<string, unknown>;
+    return (
+        m['type'] === 'request-pair-spectrum' &&
+        typeof m['requestId'] === 'string' &&
+        typeof m['analysisId'] === 'string' &&
+        typeof m['settingsSignature'] === 'string' &&
+        isPairSourceRef(m['reference']) &&
+        Array.isArray(m['responses']) && m['responses'].every(isPairSourceRef) &&
+        isOptionalFinite(m['startSeconds']) && isOptionalFinite(m['endSeconds'])
+    );
+}
+
 export interface TrackDetailReleaseMessage {
     type: 'release-track-detail';
     analysisId: string;

@@ -102,3 +102,13 @@ test('every track header control and the lane canvases carry a footer hint', () 
     assert.match(lane, /class="track-axis-canvas"[^>]* data-hint="Double-click: reset"/);
     assert.match(lane, /class="track-spectrum-canvas"[^>]* data-hint="Spectrum \/ ← →"/);
 });
+
+test('the reference button sits in a multi-channel lane header or in a mono track\'s buttons', () => {
+    const button = '<button data-action="set-pair-reference"></button>';
+    assert.ok(channelLaneHtml({ ...base, channelCount: 2, referenceButtonHtml: button }).includes('<span>Peak 80.0 dB</span>' + button + '</div>'));
+    assert.ok(!channelLaneHtml({ ...base, referenceButtonHtml: button }).includes(button));
+    const row = trackRowHtml({ ...baseRow, referenceButtonHtml: button }, rowStrings);
+    assert.ok(row.indexOf(button) > row.indexOf('data-action="configure-calibration"'));
+    assert.ok(row.indexOf(button) < row.indexOf('class="track-offset"'));
+    assert.ok(!trackRowHtml(baseRow, rowStrings).includes('set-pair-reference'));
+});

@@ -17,13 +17,15 @@ export interface ChannelLaneSpec {
     spectrumTitle: string;
     axisHint: string;
     spectrumHint: string;
+    /** Set on multi-channel tracks, whose lanes each get a reference button. */
+    referenceButtonHtml?: string;
 }
 
 export function channelLaneHtml(spec: ChannelLaneSpec): string {
     const { trackId, trackIndex, channelIndex, channelLabel: label, axisWidth } = spec;
     const dataAttrs = ' data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '"';
     const header = spec.channelCount > 1
-        ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escapeHtml(label) + '</span>' + spec.metricSummaryHtml + '</div>'
+        ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escapeHtml(label) + '</span>' + spec.metricSummaryHtml + (spec.referenceButtonHtml ?? '') + '</div>'
         : '';
     return '<div class="track-channel-lane"' + dataAttrs + '>'
         + header
@@ -52,6 +54,8 @@ export interface TrackRowSpec {
     playable: boolean;
     muted: boolean;
     lanesHtml: string;
+    /** Set on mono tracks, whose one lane has no header of its own. */
+    referenceButtonHtml?: string;
 }
 
 export type TrackRowStrings = Pick<UiStrings,
@@ -84,6 +88,7 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaTrackMute) + '" data-hint="' + escapeHtml(strings.ariaTrackMute) + '" aria-pressed="' + spec.muted + '"' + disabled + '>' + (spec.muted ? '🔇' : '🔊') + '</button>'
         + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '"' + hintAttr(strings.hintRemoveTrack) + ' aria-label="' + escapeHtml(strings.ariaRemoveTrack) + '">✕</button>'
         + '    ' + calibrationButtonHtml(trackId, strings)
+        + (spec.referenceButtonHtml ? '    ' + spec.referenceButtonHtml : '')
         + '  </div>'
         + '  <div class="track-offset">'
         + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '"' + hintAttr(strings.trackOffsetResetHint) + ' aria-label="' + escapeHtml(strings.ariaOffsetValue) + '">+0.000s</span>'

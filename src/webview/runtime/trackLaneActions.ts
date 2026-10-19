@@ -9,7 +9,8 @@ export type TrackLaneAction =
     | 'configure-calibration'
     | 'offset-up'
     | 'offset-down'
-    | 'pick-color';
+    | 'pick-color'
+    | 'set-pair-reference';
 
 export interface TrackLaneContext {
     trackId: TrackId;

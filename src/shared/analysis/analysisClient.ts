@@ -1,10 +1,10 @@
 import type { StftOptions } from './analysisTypes';
 import type {
     AnalyzePayload, BackendCommand, BackendPayload, BackendResult,
-    CalibrationRequestContext, RangeResult, SpectrumSlicePayload, SpectrumSliceResult,
+    CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult,
     TrackDetailPayload, TrackDetailResult, ExportWavLoopResult, RunRecipePayload, RunRecipeResult,
 } from '../protocol/backendProtocol';
-import type { SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../utils/audioTarget';
+import type { PairSourceRef, PairSpectrumRequest, SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../utils/audioTarget';
 
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
 
@@ -118,6 +118,29 @@ export abstract class AnalysisClient {
         );
     }
 
+    async requestPairSpectrum(
+        request: Omit<PairSpectrumRequest, 'type' | 'requestId'> & { stftOptions?: StftOptions },
+        contexts: ReadonlyMap<string, CalibrationRequestContext>,
+        requestId: string,
+    ): Promise<PairSpectrumResult> {
+        const source = (ref: PairSourceRef) => ({
+            ...ref, ...this.calibrationPayload(this.requestContext(ref.filePath, contexts.get(ref.filePath) ?? {})),
+        });
+        return this.request(
+            'pair-spectrum',
+            {
+                analysisId: request.analysisId,
+                settingsSignature: request.settingsSignature,
+                reference: source(request.reference),
+                responses: request.responses.map(source),
+                ...(request.startSeconds !== undefined ? { startSeconds: request.startSeconds } : {}),
+                ...(request.endSeconds !== undefined ? { endSeconds: request.endSeconds } : {}),
+                ...(request.stftOptions ? { stftOptions: request.stftOptions } : {}),
+            },
+            requestId,
+        );
+    }
+
     async exportWavLoop(
         filePath: string,
         startNorm: number,
@@ -197,7 +220,7 @@ export abstract class AnalysisClient {
 }
 
 export type LazyAnalysisRequest = WaveformRangeRequest | TrackDetailRequest | SpectrumSliceRequest;
-export type LazyAnalysisBackend = Pick<AnalysisClient, 'requestRange' | 'requestTrackDetail' | 'requestSpectrumSlice'>;
+export type LazyAnalysisBackend = Pick<AnalysisClient, 'requestRange' | 'requestTrackDetail' | 'requestSpectrumSlice' | 'requestPairSpectrum'>;
 
 export async function executeLazyAnalysis(
     backend: LazyAnalysisBackend,

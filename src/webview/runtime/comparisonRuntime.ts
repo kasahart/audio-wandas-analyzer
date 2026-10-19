@@ -52,6 +52,8 @@ import { SpectrumHover } from './spectrumHover';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
+import { referenceButtonHtml } from './pairSpectrum';
+import { PairSpectrumPanel } from './pairSpectrumPanel';
 import { paintTrackSpectrum } from './trackSpectrumPainter';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
 import { toolbarHtml } from './toolbarHtml';
@@ -398,6 +400,52 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const trackId = trackIdFromElement(element);
         return trackId ? trackStore.protocolIndexForId(trackId) : null;
     }
+    const pairPanel = new PairSpectrumPanel(document, {
+        channels() {
+            return trackStore.displayOrder.flatMap(function (trackId) {
+                const record = trackStore.require(trackId);
+                if (record.runtime.hidden || record.result.error) {
+                    return [];
+                }
+                return channelsForResult(record.result).map(function (_, channelIndex: number) {
+                    return {
+                        trackId,
+                        filePath: record.result.filePath,
+                        channelIndex,
+                        offsetSeconds: record.runtime.offsetSeconds,
+                        label: spectrumReadoutTrackLabel(record.result, channelIndex),
+                        color: trackColor(record.protocolIndex),
+                    };
+                });
+            });
+        },
+        range() {
+            if (!loopRegion) {
+                return null;
+            }
+            const span = trackStore.globalSpan();
+            return { startSeconds: span.startSec + loopRegion.start * span.spanSec, endSeconds: span.startSec + loopRegion.end * span.spanSec };
+        },
+        analysisId: () => analysisId,
+        settingsSignature: currentSettingsSignature,
+        nextRequestId: () => nextLazyRequestId('pair', 0),
+        post: request => messaging.post(request),
+        visibleFraction: () => ({ start: spectrumView.freqStart, end: spectrumView.freqEnd }),
+        plotHeight: effectiveSpectrumHeight,
+        theme: drawTheme,
+        onReferenceChange(reference) {
+            if (reference && spectrumBandsPerOctave !== 0) {
+                setSpectrumBands(0);
+            }
+            syncSpectrumBandsAvailability(reference !== null);
+            overlaySpectrumPainted = false;
+            scheduleSpectrumRefresh('immediate');
+        },
+        onLayoutChange() {
+            overlaySpectrumPainted = false;
+            scheduleSpectrumRefresh('immediate');
+        },
+    }, STR);
     let overlaySpectrumPainted = false;
     let lazyRequestCounter = 0;
     interface DesiredSpectrumSliceRequest extends LazyRequestState {
@@ -757,6 +805,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
         requestAnimationFrame(function () { publishTestSnapshot(); });
         pumpSpectrumSliceRequests();
+    });
+    messaging.onMessage(function (msg) {
+        if (msg && pairPanel.handleMessage(msg)) {
+            requestAnimationFrame(function () { publishTestSnapshot(); });
+        }
     });
     messaging.onMessage(function (msg) {
         if (!msg || msg.type !== 'python-environment-state') {
@@ -1213,6 +1266,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             spectrumTitle: STR.trackSpectrumTitle,
             axisHint: trackAxisHint(),
             spectrumHint: STR.trackSpectrumTitle + ' / ' + STR.hintSpectrumKeys,
+            referenceButtonHtml: channels.length > 1 ? referenceButtonHtml(trackId, channelIndex, STR) : undefined,
         });
     }
     // Spectrogram lanes have no amplitude axis, so their axis double-click keeps resetting the zoom.
@@ -1241,10 +1295,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             playable: !!result.audioSource,
             muted: !!trackStore.require(trackId).runtime.muted,
             lanesHtml: buildChannelLanes(result, i),
+            referenceButtonHtml: channelsForResult(result).length === 1 ? referenceButtonHtml(trackId, 0, STR) : undefined,
         }, STR);
     }
     // ── Rendering ──
     function renderAll() {
+        pairPanel.sync();
         updateUiSmokeSpectrumState();
         resizeAllCanvases();
         renderRuler();
@@ -1989,6 +2045,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'pick-color': ({ trackId, target }) => {
                 openColorPicker(trackId, target.closest<HTMLElement>('[data-action="pick-color"]') ?? target);
             },
+            'set-pair-reference': ({ trackId, target }) => {
+                const channelIndex = Number(target.getAttribute('data-channel-index'));
+                if (Number.isInteger(channelIndex)) {
+                    pairPanel.toggleReference(trackId, channelIndex);
+                }
+            },
         });
         attachOffsetEditing(tracksWrapper, document, { placeholder: STR.offsetEditPlaceholder, ariaLabel: STR.offsetEditAriaLabel }, {
             trackIndexFromElement,
@@ -2030,7 +2092,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 onReorder: reorderTracks,
             });
         }
-        const layoutElementIds = ['tracks-wrapper', 'ruler-row', 'spectrum-overlay-wrap'];
+        const layoutElementIds = ['tracks-wrapper', 'ruler-row', 'spectrum-overlay-wrap', 'pair-spectrum-plot'];
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
             channelsForResult(result).forEach(function (_, channelIndex: number) {
                 layoutElementIds.push(trackCanvasWrapId(i, channelIndex), trackSpectrumWrapId(i, channelIndex));
@@ -2121,6 +2183,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 });
                 attachCanvasFocusHint(overlayCanvas, hintFooter, STR.hintSpectrumPlot);
             }
+            pairPanel.attach();
             function attachTrackSpectrumCursorEvents() {
                 canvasesMatching(document, '.track-spectrum-canvas').forEach(function (c) {
                     attachSpectrumCursorListeners(c, spectrumCursor, TRACK_SPECTRUM_PAD, () => ({
@@ -2257,7 +2320,20 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         __updateSpecGearVisibility();
         scheduleRender();
     }
+    /** The pair view only has an FFT axis, so the octave bands are off while it shows. */
+    function syncSpectrumBandsAvailability(pairActive: boolean) {
+        ([['spectrum-octave-1', STR.hintSpectrumOctave1], ['spectrum-octave-3', STR.hintSpectrumOctave3]] as const).forEach(function ([action, hint]) {
+            const button = buttonMatching(document, '[data-action="' + action + '"]');
+            if (button) {
+                button.disabled = pairActive;
+                setHint(button, pairActive ? STR.hintOctaveDisabledByPair : hint);
+            }
+        });
+    }
     function setSpectrumBands(next: SpectrumBandsSetting) {
+        if (next !== 0 && pairPanel.reference) {
+            return;
+        }
         if (next === spectrumBandsPerOctave) {
             return;
         }
@@ -3106,6 +3182,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function refreshSpectrumViews() {
         renderTrackSpectra();
         renderOverlaySpectrum();
+        pairPanel.render();
         updateUiSmokeSpectrumState();
         const el = document.getElementById('spectrum-cursor-time');
         if (el) {

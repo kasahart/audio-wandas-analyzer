@@ -59,6 +59,7 @@ function collectWebviewActionIds(repoRoot) {
         path.join(repoRoot, 'src', 'webview', 'runtime', 'staticHost.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'selectionTreeView.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'panelCollapse.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'pairSpectrum.ts'),
     ];
     const source = sourcePaths.map((sourcePath) => fs.readFileSync(sourcePath, 'utf8')).join('\n');
     return collectWebviewActionIdsFromSource(source);

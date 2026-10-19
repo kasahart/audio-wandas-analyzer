@@ -248,18 +248,56 @@ export function renderComparisonStyles(): string {
             display: flex; align-items: center; gap: 8px; padding: 4px 10px;
             font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line);
         }
-        #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); position: relative; }
+        #spectrum-split { display: flex; align-items: stretch; }
+        #spectrum-overlay-wrap { padding: 6px 10px; background: var(--track-bg); position: relative; flex: 1 1 0; min-width: 0; }
+        /* The pair view against a reference lane takes the right part of the spectrum section. */
+        #pair-divider, #pair-spectrum-wrap { display: none; }
+        #spectrum-section.has-pair #pair-divider { display: block; flex: none; width: 6px; cursor: col-resize; background: var(--line); }
+        #spectrum-section.has-pair #pair-divider:hover,
+        body.is-pair-resizing #pair-divider { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+        body.is-pair-resizing { cursor: col-resize; user-select: none; }
+        #spectrum-section.has-pair #spectrum-overlay-wrap { flex: 0 0 50%; }
+        #spectrum-section.has-pair #pair-spectrum-wrap {
+            display: flex; flex-direction: column; flex: 1 1 0; min-width: 0;
+            padding: 2px 10px 6px; background: var(--track-bg); overflow: hidden;
+        }
+        #pair-spectrum-header {
+            display: flex; align-items: center; gap: 10px; height: 18px; flex: none;
+            font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden;
+        }
+        #pair-spectrum-summary { font-family: var(--font-mono); }
+        #pair-spectrum-summary.is-warning { color: var(--vscode-editorWarning-foreground, #c98a00); }
+        #pair-spectrum-legend { display: flex; gap: 8px; overflow: hidden; }
+        .pair-legend-item { display: inline-flex; align-items: center; gap: 3px; }
+        .pair-legend-item.is-empty { opacity: 0.45; }
+        .pair-legend-swatch { width: 10px; height: 2px; border-radius: 1px; }
+        .pair-legend-item.is-empty .pair-legend-swatch { background: var(--muted) !important; }
+        .pair-legend-mark { margin-left: 1px; }
+        #pair-spectrum-readout { margin-left: auto; font-family: var(--font-mono); }
+        #pair-spectrum-plot { position: relative; flex: 1 1 auto; min-height: 0; }
+        #pair-spectrum-canvas { display: block; width: 100%; cursor: crosshair; }
+        #pair-spectrum-message {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            font-size: 11px; color: var(--muted); text-align: center; padding: 0 12px; pointer-events: none;
+        }
+        .pair-ref-btn { display: inline-flex; align-items: center; gap: 2px; }
+        .pair-ref-btn > * { pointer-events: none; }
+        .track-channel-lane-header .pair-ref-btn { margin-left: auto; padding: 0 3px; height: 14px; }
+        .pair-ref-badge { display: none; font-size: 9px; }
+        .pair-ref-btn.is-active { color: var(--accent); }
+        .pair-ref-btn.is-active .pair-ref-badge { display: inline; }
         .spectrum-height-resizer { left: 0; right: 0; top: -3px; height: 6px; }
         #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; cursor: crosshair; }
         #spectrum-section-header .panel-toggle:first-of-type { margin-left: auto; }
         /* Maximized: the tracks keep a strip for moving the cursor and the plot takes the rest; flex-basis 0 lets the runtime size the canvas from the wrap. */
         .spectrum-maximized > #tracks-wrapper { flex: 0 1 auto; max-height: 30%; }
         .spectrum-maximized > #spectrum-section { flex: 1 1 0; min-height: 0; }
-        #spectrum-section.is-maximized #spectrum-overlay-wrap { flex: 1 1 0; min-height: 0; overflow: hidden; }
+        #spectrum-section.is-maximized #spectrum-split { flex: 1 1 0; min-height: 0; overflow: hidden; }
+        #spectrum-section.is-maximized #spectrum-overlay-wrap { overflow: hidden; }
         #spectrum-section.is-maximized .spectrum-height-resizer { display: none; }
         /* The zoom toolbar lays itself out with an inline display:flex. */
         #spectrum-section.is-collapsed #spectrum-zoom-toolbar,
-        #spectrum-section.is-collapsed #spectrum-overlay-wrap { display: none !important; }
+        #spectrum-section.is-collapsed #spectrum-split { display: none !important; }
         #spectrum-section.is-collapsed #spectrum-section-header { border-bottom: none; }
         #spectrum-section.is-collapsed .spectrum-height-resizer { cursor: default; }
         #spectrum-section.is-collapsed #spectrum-section-header { cursor: pointer; }

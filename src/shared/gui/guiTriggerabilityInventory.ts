@@ -89,6 +89,8 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'remove-track',
     'offset-up',
     'offset-down',
+    'set-pair-reference',
+    'pair-divider-drag',
 ] as const;
 
 export const GUI_TRIGGERABILITY_SCOPED_SHORTCUTS = [
@@ -177,6 +179,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Switch the docked spectrum between the FFT and 1/1 or 1/3 octave bands',
         entryPoints: ['results-toolbar'],
         triggers: ['spectrum-fft', 'spectrum-octave-1', 'spectrum-octave-3'],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'pair-spectrum',
+        label: 'Set a channel as the reference and show gain, phase and coherence of the others beside the power spectrum',
+        entryPoints: ['track-control', 'canvas-gesture'],
+        triggers: ['set-pair-reference', 'pair-divider-drag'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
