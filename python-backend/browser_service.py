@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import itertools
 import json
 import sys
 import traceback
@@ -13,7 +14,7 @@ import soundfile as sf
 import wandas as wd
 
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
-from analysis_service import AnalysisService, recipe_inputs
+from analysis_service import AnalysisService, PairSpectrumResult, pair_overlap, pair_stft_params, recipe_inputs
 from analyzer import resolve_stft_params, sample_range
 from backend_errors import INTERNAL_ERROR, InputError, error_payload
 from calibration_profile import source_channel_peaks
@@ -56,6 +57,8 @@ def browser_limits() -> dict[str, int]:
 class BrowserEngine(AnalysisEngine):
     def __init__(self) -> None:
         super().__init__(128 * MIB)
+        # Reloading a source under the same identity must not reuse pair spectra cached for the old bytes.
+        self._loads = itertools.count(1)
 
     def load(self, source_id: str, payload: bytes) -> dict[str, object]:
         if not payload or len(payload) > MAX_INPUT_BYTES:
@@ -100,7 +103,7 @@ class BrowserEngine(AnalysisEngine):
         self._files[path] = CachedAnalysis(
             path=path,
             frame=frame,
-            identity=(0, len(payload)),
+            identity=(next(self._loads), len(payload)),
             frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
             source_peaks=source_channel_peaks(frame),
         )
@@ -174,6 +177,41 @@ class BrowserService(AnalysisService):
     def release_track_detail(self, file_path: str | Path) -> dict[str, object]:
         self.engine.discard_spectrograms(file_path)
         return {}
+
+    def pair_spectrum(
+        self,
+        reference: Mapping[str, object],
+        responses: list[Mapping[str, object]],
+        *,
+        start_seconds: float | None = None,
+        end_seconds: float | None = None,
+        stft_options: Mapping[str, object] | None = None,
+        **options: object,
+    ) -> PairSpectrumResult:
+        # Peak memory follows the two-channel STFT and its cross spectra, measured near 64 bytes per bin.
+        x = self._pair_source(reference)
+        n_fft, hop_length, _ = pair_stft_params(x.frame.n_samples, stft_options)
+        seconds = max(
+            (
+                end - start
+                for start, end in (pair_overlap(x, self._pair_source(y), start_seconds, end_seconds) for y in responses)
+            ),
+            default=0.0,
+        )
+        length = max(0, int(seconds * x.frame.sampling_rate))
+        working = ((length // hop_length) + 5) * 2 * (n_fft // 2 + 1) * 64
+        if self.engine.estimated_bytes(working) > MAX_ESTIMATED_BYTES:
+            raise InputError(
+                "Pair spectrum exceeds browser estimated memory budget; shorten the range or lower the overlap"
+            )
+        return super().pair_spectrum(
+            reference,
+            responses,
+            start_seconds=start_seconds,
+            end_seconds=end_seconds,
+            stft_options=stft_options,
+            **options,
+        )
 
     def run_recipe(
         self,

@@ -21,7 +21,7 @@ const tonePath = path.join(root, 'test-results/generated-frequency-tones.wav');
 fs.writeFileSync(tonePath, toneBytes);
 const bytes = fixtures[0].bytes;
 // Only these payloads list stftOptions; the schema rejects keys it does not list.
-const STFT_COMMANDS = new Set(['analyze', 'track-detail', 'spectrum-slice']);
+const STFT_COMMANDS = new Set(['analyze', 'track-detail', 'spectrum-slice', 'pair-spectrum']);
 const withStft = (command, stftOptions) => (STFT_COMMANDS.has(command.cmd) ? { ...command, stftOptions } : command);
 const commands = [
     { cmd: 'analyze' },
@@ -32,6 +32,10 @@ const commands = [
     { cmd: 'range', startNorm: 0.21, endNorm: 0.63, points: 128 },
     { cmd: 'export-wav-loop', startNorm: 0.21, endNorm: 0.63 },
 ].map((command, index) => withStft({ ...command, requestId: String(index), filePath: '/sources/selected.wav' }, { nFft: 256, overlapPercent: 75, window: 'hann' }));
+// Pair sources name their files inside the payload, so the command carries no top-level filePath.
+const pairSource = (channelIndex, offsetSeconds) => ({ filePath: '/sources/selected.wav', channelIndex, offsetSeconds });
+commands.push(withStft({ cmd: 'pair-spectrum', requestId: 'pair-parity', analysisId: 'fixture', settingsSignature: 'fixture',
+    reference: pairSource(0, 0), responses: [pairSource(1, 0), pairSource(1, 0.05)] }, { nFft: 256, overlapPercent: 75, window: 'hann' }));
 fixtures.push({ name: 'generated-frequency-tones.wav', path: tonePath, bytes: toneBytes, commands: [
     { ...commands[2], cursorNorm: 0.5 }, ...commands,
 ].map(command => withStft(command, { nFft: 2048, overlapPercent: 75, window: 'hann' })) });
@@ -53,6 +57,10 @@ sys.stdout=sys.stderr
 byte_results=[dispatch(c,service) for c in commands]
 native_service=AnalysisService(AnalysisEngine())
 for c in commands:
+    if c['cmd']=='pair-spectrum':
+        for source in [c['reference'],*c['responses']]:
+            source['filePath']=packet['fixture']
+        continue
     c['filePath']=packet['fixture']
     if c['cmd']=='run-recipe':
         c['recipePath']=str(__import__('pathlib').Path(packet['fixture']).resolve().parent / 'custom.json')

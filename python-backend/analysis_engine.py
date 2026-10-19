@@ -14,6 +14,7 @@ from calibration_profile import ResolvedCalibrationProfile, resolve_calibration_
 
 StftKey = tuple[str, int, int, str]
 SpectrumSliceKey = tuple[str, int, str, int, int, int | None]
+PairSpectrumKey = tuple[object, ...]
 AUDIO_CACHE_DTYPE = np.dtype("float32")
 SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
 
@@ -92,6 +93,7 @@ class CachedAnalysis:
     spectrograms: dict[StftKey, wd.SpectrogramFrame] = field(default_factory=dict)
     spectrogram_nbytes: dict[StftKey, int] = field(default_factory=dict)
     spectrum_slices: OrderedDict[SpectrumSliceKey, tuple[np.ndarray, float]] = field(default_factory=OrderedDict)
+    pair_spectra: OrderedDict[PairSpectrumKey, object] = field(default_factory=OrderedDict)
 
     @property
     def nbytes(self) -> int:
@@ -202,6 +204,18 @@ class AnalysisEngine:
         cached.spectrum_slices.move_to_end(key)
         while len(cached.spectrum_slices) > self.spectrum_slice_cache_entries:
             cached.spectrum_slices.popitem(last=False)
+
+    def get_pair_spectrum(self, cached: CachedAnalysis, key: PairSpectrumKey) -> object | None:
+        value = cached.pair_spectra.get(key)
+        if value is not None:
+            cached.pair_spectra.move_to_end(key)
+        return value
+
+    def put_pair_spectrum(self, cached: CachedAnalysis, key: PairSpectrumKey, value: object) -> None:
+        cached.pair_spectra[key] = value
+        cached.pair_spectra.move_to_end(key)
+        while len(cached.pair_spectra) > self.spectrum_slice_cache_entries:
+            cached.pair_spectra.popitem(last=False)
 
     def clear(self) -> None:
         self._files.clear()

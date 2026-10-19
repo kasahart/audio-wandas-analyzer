@@ -145,6 +145,18 @@ def handle_spectrum_slice(service: AnalysisService, command: Command) -> dict[st
     )
 
 
+def handle_pair_spectrum(service: AnalysisService, command: Command) -> dict[str, object]:
+    return service.pair_spectrum(
+        command["reference"],
+        command["responses"],
+        start_seconds=float(command["startSeconds"]) if "startSeconds" in command else None,
+        end_seconds=float(command["endSeconds"]) if "endSeconds" in command else None,
+        stft_options=_stft_options(command),
+        analysis_id=command["analysisId"],
+        settings_signature=command["settingsSignature"],
+    )
+
+
 def handle_range(service: AnalysisService, command: Command) -> dict[str, object]:
     return service.waveform_range(
         str(command["filePath"]),
@@ -180,6 +192,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "track-detail": handle_track_detail,
     "release-track-detail": handle_release_track_detail,
     "spectrum-slice": handle_spectrum_slice,
+    "pair-spectrum": handle_pair_spectrum,
     "export-wav-loop": handle_export_wav_loop,
     "run-recipe": handle_run_recipe,
 }

@@ -79,6 +79,7 @@ _ALLOWED_METHODS = frozenset(
         "transfer_function",
         "concat_frame",
         "get_channel",
+        "select_pair",
         "a_weighting",
         "high_pass_filter",
         "low_pass_filter",
