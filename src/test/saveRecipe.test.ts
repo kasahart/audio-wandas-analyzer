@@ -22,7 +22,7 @@ test('save-recipe messages carry only what build-recipe takes, without STFT sett
     assert.equal(parsePanelMessage({ ...pairMessage, stftOptions: { nFft: 1024, overlapPercent: 75, window: 'hann' } }), undefined);
 });
 
-test('the session controller builds the Recipe with the panel STFT settings and hands the host a .recipe.json', async () => {
+test('the session controller builds the Recipe with the panel STFT settings, only for displayed files, and hands the host a .recipe.json', async () => {
     const payloads: BuildRecipePayload[] = [];
     const saved: ReportArtifactFile[] = [];
     const recipe = { schema: 'wandas.recipe', version: 2, inputs: [], nodes: [], output: 'input-0' };
@@ -31,6 +31,7 @@ test('the session controller builds the Recipe with the panel STFT settings and 
     const ports = {
         scope: () => ({ isCurrent: () => true, canPublish: () => true }),
         stftOptions: () => options,
+        lazyContext: (filePath: string) => filePath === '/gone.wav' ? undefined : { analysisRevision: 0 },
         client: { buildRecipe: async (payload: BuildRecipePayload) => { payloads.push(payload); return { name: 'transfer-function', recipe }; } },
         saveRecipe: async (file: ReportArtifactFile) => { saved.push(file); },
         showError: (message: string) => { throw new Error(message); },
@@ -40,9 +41,11 @@ test('the session controller builds the Recipe with the panel STFT settings and 
     await controller.dispatch(pairMessage);
     options = undefined;
     await controller.dispatch({ type: 'save-recipe', filePath: '/a.wav' });
+    await controller.dispatch({ ...pairMessage, responses: [{ filePath: '/gone.wav', channelIndex: 0 }] });
+    await controller.dispatch({ type: 'save-recipe', filePath: '/gone.wav' });
 
     const { type: _type, ...analysis } = pairMessage;
-    assert.deepEqual(payloads, [{ ...analysis, stftOptions: stft }, { filePath: '/a.wav' }]);
+    assert.deepEqual(payloads, [{ ...analysis, stftOptions: stft }, { filePath: '/a.wav' }], 'files the host no longer displays are never sent');
     assert.equal(saved[0].name, 'transfer-function.recipe.json');
     assert.equal(saved[0].type, 'application/json');
     assert.deepEqual(JSON.parse(saved[0].content), recipe);

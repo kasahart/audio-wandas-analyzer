@@ -203,6 +203,9 @@ export class ComparisonSessionController {
     }
 
     private async saveRecipe({ type: _type, ...analysis }: SaveRecipeMessage): Promise<void> {
+        // Like pair requests, every named file must be one the host still displays.
+        const paths = [analysis.filePath, ...(analysis.responses ?? []).map(source => source.filePath)];
+        if (!paths.every(filePath => this.ports.lazyContext(filePath))) return;
         const stftOptions = this.ports.stftOptions();
         const built = await this.ports.client.buildRecipe({ ...analysis, ...(stftOptions ? { stftOptions } : {}) });
         await this.ports.saveRecipe({
