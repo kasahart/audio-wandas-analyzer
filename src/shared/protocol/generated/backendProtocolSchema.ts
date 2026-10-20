@@ -966,6 +966,71 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "properties": {},
             "additionalProperties": false
         },
+        "RecipeChannel": {
+            "type": "object",
+            "required": [
+                "filePath",
+                "channelIndex"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                },
+                "channelIndex": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "additionalProperties": false
+        },
+        "BuildRecipePayload": {
+            "type": "object",
+            "required": [
+                "filePath"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                },
+                "stftOptions": {
+                    "$ref": "#/$defs/StftOptions"
+                },
+                "bandsPerOctave": {
+                    "type": "integer",
+                    "enum": [
+                        1,
+                        3
+                    ]
+                },
+                "referenceChannel": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "responses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/RecipeChannel"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+        "BuildRecipeResult": {
+            "type": "object",
+            "required": [
+                "name",
+                "recipe"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "recipe": {
+                    "type": "object"
+                }
+            },
+            "additionalProperties": false
+        },
         "BackendErrorPayload": {
             "type": "object",
             "required": [
@@ -1098,6 +1163,10 @@ export const BACKEND_PROTOCOL_SCHEMA = {
         "release-track-detail": {
             "payload": "ReleaseTrackDetailPayload",
             "result": "ReleaseTrackDetailResult"
+        },
+        "build-recipe": {
+            "payload": "BuildRecipePayload",
+            "result": "BuildRecipeResult"
         }
     },
     "x-requestEnvelopeKeys": [
@@ -1109,7 +1178,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
     ]
 } as const;
 
-export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail';
+export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail' | 'build-recipe';
 
 export interface StftOptions {
     nFft: number;
@@ -1352,6 +1421,24 @@ export interface ReleaseTrackDetailPayload {
 
 export interface ReleaseTrackDetailResult {
 
+}
+
+export interface RecipeChannel {
+    filePath: string;
+    channelIndex: number;
+}
+
+export interface BuildRecipePayload {
+    filePath: string;
+    stftOptions?: StftOptions;
+    bandsPerOctave?: 1 | 3;
+    referenceChannel?: number;
+    responses?: RecipeChannel[];
+}
+
+export interface BuildRecipeResult {
+    name: string;
+    recipe: Record<string, unknown>;
 }
 
 export interface BackendErrorPayload {

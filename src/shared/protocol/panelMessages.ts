@@ -1,4 +1,6 @@
 import { isSpectrogramSettings } from '../analysis/savedSpectrogramSettings';
+import type { BuildRecipePayload } from './backendProtocol';
+import { schemaViolation } from './schemaValidation';
 import type {
     ComparisonPanelReadyMessage,
     RequestReanalyzeMessage,
@@ -36,6 +38,9 @@ export interface RunRecipeMessage {
     type: 'run-recipe';
 }
 
+/** The bottom panel's analysis to save as a wandas Recipe; the host adds the STFT settings. */
+export type SaveRecipeMessage = { type: 'save-recipe' } & Omit<BuildRecipePayload, 'stftOptions'>;
+
 export interface ShowInfoMessage {
     type: 'show-info';
     message: string;
@@ -56,6 +61,7 @@ export type PanelMessage =
     | ExportWavLoopMessage
     | ExportReportOptionsMessage
     | RunRecipeMessage
+    | SaveRecipeMessage
     | ShowInfoMessage;
 
 function hasType(value: unknown, type: string): boolean {
@@ -88,6 +94,12 @@ function isUpdateSpectrogramSettingsMessage(value: unknown): value is UpdateSpec
         && isSpectrogramSettings((value as Record<string, unknown>)['settings']);
 }
 
+function isSaveRecipeMessage(value: unknown): value is SaveRecipeMessage {
+    if (!hasType(value, 'save-recipe')) { return false; }
+    const { type: _type, ...analysis } = value as Record<string, unknown>;
+    return analysis['stftOptions'] === undefined && schemaViolation('BuildRecipePayload', analysis) === null;
+}
+
 export function parsePanelMessage(value: unknown): PanelMessage | undefined {
     if (!value || typeof value !== 'object') { return undefined; }
     const type = (value as { type?: unknown }).type;
@@ -108,6 +120,7 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'export-wav-loop': return isExportWavLoopMessage(value) ? value : undefined;
         case 'export-report-options': return isExportReportOptionsMessage(value) ? value : undefined;
         case 'run-recipe': return { type: 'run-recipe' };
+        case 'save-recipe': return isSaveRecipeMessage(value) ? value : undefined;
         case 'show-info': {
             const message = (value as { message?: unknown }).message;
             return typeof message === 'string' ? { type: 'show-info', message } : undefined;

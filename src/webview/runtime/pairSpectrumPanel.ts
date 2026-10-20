@@ -149,7 +149,8 @@ export class PairSpectrumPanel {
         }, delayMs);
     }
 
-    private sources(): { reference: PairChannelSource; responses: PairChannelSource[] } | null {
+    /** The reference channel and every other shown channel; null without a reference or once its lane is gone. */
+    sources(): { reference: PairChannelSource; responses: PairChannelSource[] } | null {
         const reference = this.referenceState;
         if (!reference) {
             return null;

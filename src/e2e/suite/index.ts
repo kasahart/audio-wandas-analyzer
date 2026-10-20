@@ -227,6 +227,7 @@ export async function run(): Promise<void> {
                     'spectrum-height-input',
                     'spectrum-height-reset',
                     'run-recipe',
+                    'save-recipe',
                     'copy-spec',
                     'export-png',
                     'export-csv',

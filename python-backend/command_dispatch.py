@@ -193,6 +193,16 @@ def handle_run_recipe(service: AnalysisService, command: Command) -> dict[str, o
     )
 
 
+def handle_build_recipe(service: AnalysisService, command: Command) -> dict[str, object]:
+    return service.build_recipe(
+        str(command["filePath"]),
+        stft_options=_stft_options(command),
+        bands_per_octave=int(command["bandsPerOctave"]) if "bandsPerOctave" in command else None,
+        reference_channel=int(command["referenceChannel"]) if "referenceChannel" in command else None,
+        responses=command.get("responses", []),
+    )
+
+
 COMMANDS: dict[str, CommandHandler] = {
     "analyze": handle_analyze,
     "range": handle_range,
@@ -202,6 +212,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "pair-spectrum": handle_pair_spectrum,
     "export-wav-loop": handle_export_wav_loop,
     "run-recipe": handle_run_recipe,
+    "build-recipe": handle_build_recipe,
 }
 
 

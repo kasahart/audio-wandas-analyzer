@@ -28,6 +28,7 @@ export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
         + '<input class="tb-number" type="number" min="' + spec.spectrumHeightRange.min + '" max="' + spec.spectrumHeightRange.max + '" step="1" value="' + spec.spectrumHeight + '" data-action="spectrum-height-input"' + hintAttr(strings.hintSpectrumHeightInput) + ' aria-label="' + escapeHtml(strings.heightSpectrumLabel + ' px') + '">'
         + '<button class="tb-btn" data-action="spectrum-height-reset" aria-label="' + escapeHtml(strings.ariaSpectrumHeightReset) + '" data-hint="' + escapeHtml(strings.ariaSpectrumHeightReset) + '">' + escapeHtml(strings.heightSpectrumLabel + ' ' + strings.btnHeightReset) + '</button></div>';
     const workflowMenu = '<button class="tb-btn" data-action="run-recipe"' + hintAttr(strings.hintRunRecipe) + '>' + escapeHtml(strings.btnRunRecipe) + '</button>'
+        + '<button class="tb-btn" data-action="save-recipe"' + hintAttr(strings.hintSaveRecipe) + '>' + escapeHtml(strings.btnSaveRecipe) + '</button>'
         + '<button class="tb-btn" data-action="copy-spec"' + hintAttr(strings.hintCopySpec) + '>' + escapeHtml(strings.btnCopySpec) + '</button>';
     const exportMenu = '<button class="tb-btn" data-action="export-png"' + hintAttr(strings.btnExportPngTitle) + '>' + escapeHtml(strings.btnExportPng) + '</button>'
         + '<button class="tb-btn" data-action="export-csv"' + hintAttr(strings.btnExportCsvTitle) + '>' + escapeHtml(strings.btnExportCsv) + '</button>'

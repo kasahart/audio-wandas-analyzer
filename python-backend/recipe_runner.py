@@ -56,12 +56,14 @@ def recipe_title(recipe_path: str | None) -> str:
 def evaluate_recipe(plan: RecipePlan, frames: Mapping[str, Any], *, title: str) -> list[ChartSpec]:
     try:
         result = plan.apply(frames)
+        if not isinstance(result, CHART_FRAME_TYPES):
+            raise RecipeError(f"the analyzer cannot chart a {type(result).__name__} output")
+        # Frames are lazy, so an operation that rejects the input (e.g. an octave band above
+        # this file's Nyquist) only fails here, while the chart computes it.
+        charts = [adapt(result, title=title)]
+        if isinstance(result, TransferFunctionFrame):
+            # Gain alone hides whether the path delays or inverts, so a transfer function also gets its phase.
+            charts.append(adapt(result, title=f"{title} (phase)", value="phase"))
     except (RecipeExecutionError, RecipeValidationError, ValueError) as error:
         raise RecipeError(str(error)) from error
-    if not isinstance(result, CHART_FRAME_TYPES):
-        raise RecipeError(f"the analyzer cannot chart a {type(result).__name__} output")
-    charts = [adapt(result, title=title)]
-    if isinstance(result, TransferFunctionFrame):
-        # Gain alone hides whether the path delays or inverts, so a transfer function also gets its phase.
-        charts.append(adapt(result, title=f"{title} (phase)", value="phase"))
     return charts

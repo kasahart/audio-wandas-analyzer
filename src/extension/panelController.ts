@@ -55,7 +55,8 @@ export interface PanelBackend extends Pick<AnalysisClient,
     | 'releaseTrackDetail'
     | 'requestSpectrumSlice'
     | 'requestPairSpectrum'
-    | 'exportWavLoop'> {}
+    | 'exportWavLoop'
+    | 'buildRecipe'> {}
 
 export interface PanelAnalysis {
     analyzeFiles: AnalysisOrchestrator['analyzeFiles'];
@@ -351,6 +352,7 @@ export class PanelController implements vscode.Disposable {
             wavExport: (message) => this.exports.wavExport(message),
             pickReportFormat: () => this.exports.pickReportFormat(),
             saveReport: (artifact, format, message) => this.exports.saveReport(artifact, format, message),
+            saveRecipe: (file) => this.exports.saveRecipe(file),
             selectTarget: (targetKind) => this.handleSelectTarget(session, targetKind),
             showInformation: (message) => this.host.showInformation(message),
             showError: (message) => this.host.showError(message),

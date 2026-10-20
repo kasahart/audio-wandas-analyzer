@@ -453,6 +453,31 @@ DEFINITIONS: dict[str, Schema] = {
     },
     # Nothing to report; the reply only settles the request.
     "ReleaseTrackDetailResult": {"type": "object", "properties": {}},
+    "RecipeChannel": {
+        "type": "object",
+        "required": ["filePath", "channelIndex"],
+        "properties": {"filePath": {"type": "string"}, "channelIndex": {"type": "integer", "minimum": 0}},
+    },
+    # The bottom panel's analysis: every channel's spectrum of ``filePath`` (octave bands when
+    # ``bandsPerOctave`` is set), or with ``referenceChannel`` its transfer function to ``responses``.
+    # ``filePath`` also pins the auto STFT size the panel shows.
+    "BuildRecipePayload": {
+        "type": "object",
+        "required": ["filePath"],
+        "properties": {
+            "filePath": {"type": "string"},
+            "stftOptions": {"$ref": "#/$defs/StftOptions"},
+            "bandsPerOctave": {"type": "integer", "enum": [1, 3]},
+            "referenceChannel": {"type": "integer", "minimum": 0},
+            "responses": {"type": "array", "items": {"$ref": "#/$defs/RecipeChannel"}},
+        },
+    },
+    # ``recipe`` is ``RecipePlan.to_dict()``; wandas validates it whenever it is loaded.
+    "BuildRecipeResult": {
+        "type": "object",
+        "required": ["name", "recipe"],
+        "properties": {"name": {"type": "string"}, "recipe": {"type": "object"}},
+    },
     # Codes from backend_errors.py; hosts branch on them, never on the message text.
     "BackendErrorPayload": {
         "type": "object",
@@ -511,6 +536,7 @@ COMMANDS: dict[str, dict[str, str]] = {
     "pair-spectrum": {"payload": "PairSpectrumPayload", "result": "PairSpectrumResult"},
     "export-wav-loop": {"payload": "ExportWavLoopPayload", "result": "ExportWavLoopResult"},
     "release-track-detail": {"payload": "ReleaseTrackDetailPayload", "result": "ReleaseTrackDetailResult"},
+    "build-recipe": {"payload": "BuildRecipePayload", "result": "BuildRecipeResult"},
 }
 
 

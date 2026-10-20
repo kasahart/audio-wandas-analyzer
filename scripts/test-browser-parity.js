@@ -21,7 +21,7 @@ const tonePath = path.join(root, 'test-results/generated-frequency-tones.wav');
 fs.writeFileSync(tonePath, toneBytes);
 const bytes = fixtures[0].bytes;
 // Only these payloads list stftOptions; the schema rejects keys it does not list.
-const STFT_COMMANDS = new Set(['analyze', 'track-detail', 'spectrum-slice', 'pair-spectrum']);
+const STFT_COMMANDS = new Set(['analyze', 'track-detail', 'spectrum-slice', 'pair-spectrum', 'build-recipe']);
 const withStft = (command, stftOptions) => (STFT_COMMANDS.has(command.cmd) ? { ...command, stftOptions } : command);
 const commands = [
     { cmd: 'analyze' },
@@ -31,6 +31,8 @@ const commands = [
     { cmd: 'spectrum-slice', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture', cursorNorm: 0.437, bandsPerOctave: 1 },
     { cmd: 'range', startNorm: 0.21, endNorm: 0.63, points: 128 },
     { cmd: 'export-wav-loop', startNorm: 0.21, endNorm: 0.63 },
+    { cmd: 'build-recipe', bandsPerOctave: 3 },
+    { cmd: 'build-recipe', referenceChannel: 0, responses: [{ filePath: '/sources/selected.wav', channelIndex: 1 }] },
 ].map((command, index) => withStft({ ...command, requestId: String(index), filePath: '/sources/selected.wav' }, { nFft: 256, overlapPercent: 75, window: 'hann' }));
 // Pair sources name their files inside the payload, so the command carries no top-level filePath.
 const pairSource = (channelIndex, offsetSeconds) => ({ filePath: '/sources/selected.wav', channelIndex, offsetSeconds });
@@ -62,6 +64,8 @@ for c in commands:
             source['filePath']=packet['fixture']
         continue
     c['filePath']=packet['fixture']
+    for source in c.get('responses',[]):
+        source['filePath']=packet['fixture']
     if c['cmd']=='run-recipe':
         c['inputs']={name: packet['fixture'] for name in c['inputs']}
 native_results=[dispatch(c,native_service) for c in commands]

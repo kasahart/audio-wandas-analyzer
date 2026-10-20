@@ -2472,6 +2472,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'toggle-follow-cursor': toggleFollowCursor,
             'zoom-to-selection': zoomToSelection,
             'run-recipe': () => messaging.post({ type: 'run-recipe' }),
+            'save-recipe': saveRecipe,
             'copy-spec': copySpecToClipboard,
             'export-png': exportPng,
             'export-csv': exportCsv,
@@ -2639,6 +2640,28 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const csv = buildSpectrumCsv(tracks);
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
         triggerAnchorDownload(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
+    }
+    function saveRecipe() {
+        // The bottom panel's analysis: the transfer functions while a reference is set, else the spectrum.
+        const pair = pairPanel.sources();
+        if (pair && pair.responses.length > 0) {
+            messaging.post({
+                type: 'save-recipe',
+                filePath: pair.reference.filePath,
+                referenceChannel: pair.reference.channelIndex,
+                responses: pair.responses.map(source => ({ filePath: source.filePath, channelIndex: source.channelIndex })),
+            });
+            return;
+        }
+        // The lowest sample rate shown bounds the octave bands, so the saved Recipe runs on every shown track.
+        const record = trackStore.activeIds().map(trackId => trackStore.require(trackId))
+            .filter(item => !item.runtime.hidden && !item.result.error)
+            .sort((a, b) => a.result.sampleRateHz - b.result.sampleRateHz)[0];
+        if (!record) {
+            messaging.post({ type: 'show-info', message: STR.recipeSaveNoData });
+            return;
+        }
+        messaging.post({ type: 'save-recipe', filePath: record.result.filePath, ...(spectrumBandsPerOctave ? { bandsPerOctave: spectrumBandsPerOctave } : {}) });
     }
     function exportWavLoop() {
         if (!loopRegion) {

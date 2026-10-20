@@ -563,6 +563,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             download(new TextEncoder().encode(artifact.content), artifact.name, artifact.type);
             announce(strings.reportExportedPrefix + artifact.name);
         },
+        async saveRecipe(file) {
+            download(new TextEncoder().encode(file.content), file.name, file.type);
+            announce(strings.recipeSavedPrefix + file.name);
+        },
         selectTarget(targetKind): void {
             if (targetKind === 'directory') pickFolder();
             // A disabled input ignores click(), so say why nothing opens.

@@ -157,6 +157,26 @@
         "startSeconds": 1,
         "endSeconds": 3
       }
+    },
+    {
+      "command": "build-recipe",
+      "request": {
+        "cmd": "build-recipe",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "stftOptions": {
+          "nFft": 1024,
+          "overlapPercent": 75,
+          "window": "hann"
+        },
+        "referenceChannel": 0,
+        "responses": [
+          {
+            "filePath": "tone.wav",
+            "channelIndex": 1
+          }
+        ]
+      }
     }
   ],
   "invalidRequests": [
@@ -440,6 +460,16 @@
         "endSeconds": 3
       },
       "errorField": "reference.channelIndex"
+    },
+    {
+      "command": "build-recipe",
+      "request": {
+        "cmd": "build-recipe",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "referenceChannel": -1
+      },
+      "errorField": "referenceChannel"
     }
   ],
   "validResponses": [
@@ -658,6 +688,20 @@
             "axisLabel": "Gain [dB]"
           }
         ]
+      }
+    },
+    {
+      "command": "build-recipe",
+      "response": {
+        "requestId": "build-recipe",
+        "name": "spectrum",
+        "recipe": {
+          "schema": "wandas.recipe",
+          "version": 2,
+          "inputs": [],
+          "nodes": [],
+          "output": "input-0"
+        }
       }
     }
   ],

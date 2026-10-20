@@ -81,6 +81,7 @@ export interface UiStrings {
     ariaSpectrumHeightDown: string;
     ariaSpectrumHeightReset: string;
     btnRunRecipe: string;
+    btnSaveRecipe: string;
     chartSpecNoResults: string;
     chartSpecScalarLabelHeader: string;
     chartSpecScalarValueHeader: string;
@@ -180,11 +181,14 @@ export interface UiStrings {
     btnExportReport: string;
     btnExportReportTitle: string;
     exportReportNoData: string;
+    recipeSaveNoData: string;
     reportFormatMarkdown: string;
     reportFormatNotebook: string;
     reportFormatPlaceholder: string;
     reportSaveLabel: string;
     reportExportedPrefix: string;
+    recipeSaveLabel: string;
+    recipeSavedPrefix: string;
     fileCountOne: string;
     fileCountMany: string;
     exportSelectOutputFolder: string;
@@ -265,6 +269,7 @@ export interface UiStrings {
     hintTrackHeightInput: string;
     hintSpectrumHeightInput: string;
     hintRunRecipe: string;
+    hintSaveRecipe: string;
     hintCopySpec: string;
     hintSpecZoomOut: string;
     hintSpecZoomIn: string;
@@ -398,6 +403,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaSpectrumHeightDown: 'Decrease power spectrum height',
         ariaSpectrumHeightReset: 'Reset power spectrum height',
         btnRunRecipe: 'Run recipe',
+        btnSaveRecipe: 'Save as recipe',
         chartSpecNoResults: 'Recipe returned no charts.',
         chartSpecScalarLabelHeader: 'Label',
         chartSpecScalarValueHeader: 'Value',
@@ -496,11 +502,14 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnExportReport: 'Report',
         btnExportReportTitle: 'Export analysis report as Markdown or Jupyter Notebook',
         exportReportNoData: 'No analysis data to export.',
+        recipeSaveNoData: 'No analysis to save as a recipe.',
         reportFormatMarkdown: 'Markdown (.md)',
         reportFormatNotebook: 'Jupyter Notebook (.ipynb)',
         reportFormatPlaceholder: 'Select report format',
         reportSaveLabel: 'Export Report',
         reportExportedPrefix: 'Report exported → ',
+        recipeSaveLabel: 'Save Recipe',
+        recipeSavedPrefix: 'Recipe saved → ',
         fileCountOne: '1 file',
         fileCountMany: '{count} files',
         exportSelectOutputFolder: 'Select output folder',
@@ -581,6 +590,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintTrackHeightInput: 'Track height in px (you can also drag the bottom edge of a track)',
         hintSpectrumHeightInput: 'Spectrum height in px (you can also drag the edge of the spectrum)',
         hintRunRecipe: 'Run an analysis recipe on the loaded tracks',
+        hintSaveRecipe: 'Save the bottom panel analysis over whole files, with its current settings, as a recipe',
         hintCopySpec: 'Copy the current analysis spec to the clipboard',
         hintSpecZoomOut: 'Zoom the spectrum out',
         hintSpecZoomIn: 'Zoom the spectrum in (or drag a box on the spectrum)',
@@ -712,6 +722,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaSpectrumHeightDown: 'パワースペクトルを低くする',
         ariaSpectrumHeightReset: 'パワースペクトルの高さをリセット',
         btnRunRecipe: 'レシピ実行',
+        btnSaveRecipe: 'レシピとして保存',
         chartSpecNoResults: 'レシピは何もチャートを返しませんでした。',
         chartSpecScalarLabelHeader: '項目',
         chartSpecScalarValueHeader: '値',
@@ -810,11 +821,14 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnExportReport: 'レポート',
         btnExportReportTitle: '解析結果を Markdown または Jupyter Notebook として書き出す',
         exportReportNoData: 'エクスポートする解析データがありません。',
+        recipeSaveNoData: 'レシピにする解析がありません。',
         reportFormatMarkdown: 'Markdown (.md)',
         reportFormatNotebook: 'Jupyter Notebook (.ipynb)',
         reportFormatPlaceholder: 'レポート形式を選択',
         reportSaveLabel: 'レポートを書き出す',
         reportExportedPrefix: 'レポートを書き出しました → ',
+        recipeSaveLabel: 'レシピを保存',
+        recipeSavedPrefix: 'レシピを保存しました → ',
         fileCountOne: '1 ファイル',
         fileCountMany: '{count} ファイル',
         exportSelectOutputFolder: '出力フォルダを選択',
@@ -895,6 +909,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintTrackHeightInput: 'トラックの高さ (px)。トラック下端のドラッグでも変更できます',
         hintSpectrumHeightInput: 'スペクトルの高さ (px)。スペクトルの境界のドラッグでも変更できます',
         hintRunRecipe: '読み込んだトラックに解析レシピを実行',
+        hintSaveRecipe: '下のパネルの解析を、今の設定でファイル全体を計算するレシピとして保存',
         hintCopySpec: '現在の解析スペックをクリップボードにコピー',
         hintSpecZoomOut: 'スペクトルをズームアウト',
         hintSpecZoomIn: 'スペクトルをズームイン（スペクトル上のドラッグでも可）',

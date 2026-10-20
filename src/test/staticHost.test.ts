@@ -571,6 +571,24 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     assert.equal(app.status, 'Recipe execution failed: recipe error: Unknown name');
 });
 
+test('Save as recipe builds the Recipe in the Worker and downloads it as a .recipe.json', async () => {
+    const app = harness();
+    await app.load();
+    app.host.postMessage({ type: 'save-recipe', filePath: app.sourcePath, bandsPerOctave: 3 });
+    await flush();
+    const worker = app.workers[0];
+    const command = worker.commands.at(-1)!;
+    assert.equal(command.cmd, 'build-recipe');
+    assert.equal(command.filePath, app.sourcePath);
+    assert.equal(command.bandsPerOctave, 3);
+    const recipe = { schema: 'wandas.recipe', version: 2, inputs: [], nodes: [], output: 'input-0' };
+    worker.reply(command, { name: 'octave-3', recipe });
+    await flush();
+    const link = app.elements.find(element => element.tag === 'a' && (element as { download?: string }).download === 'octave-3.recipe.json');
+    assert.ok(link, 'the Recipe is offered as a download');
+    assert.equal(app.status, app.browser.__APP_STRINGS__.recipeSavedPrefix + 'octave-3.recipe.json');
+});
+
 test('a two-input browser recipe lets the user swap which track fills each input before it runs', async () => {
     const app = harness();
     await app.load();

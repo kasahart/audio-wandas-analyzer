@@ -14,6 +14,7 @@ export interface ExportHost {
     pickOutputFolder(): Promise<vscode.Uri | undefined>;
     pickReportFormat(): Promise<'markdown' | 'notebook' | undefined>;
     pickReportDestination(defaultName: string, format: 'markdown' | 'notebook'): Promise<vscode.Uri | undefined>;
+    pickRecipeDestination(fileName: string): Promise<vscode.Uri | undefined>;
     writeFile(uri: vscode.Uri, content: Uint8Array): Thenable<void>;
     showInformation(message: string): void;
     showError(message: string): void;
@@ -51,6 +52,14 @@ const defaultHost: ExportHost = {
                 : undefined,
             filters: format === 'markdown' ? { Markdown: ['md'] } : { Notebook: ['ipynb'] },
             saveLabel: strings.reportSaveLabel,
+        });
+    },
+    async pickRecipeDestination(fileName) {
+        const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        return vscode.window.showSaveDialog({
+            defaultUri: workspacePath ? vscode.Uri.file(path.join(workspacePath, fileName)) : undefined,
+            filters: { 'Recipe JSON': ['json'] },
+            saveLabel: getStrings(vscode.env.language).recipeSaveLabel,
         });
     },
     writeFile: (uri, content) => vscode.workspace.fs.writeFile(uri, content),
@@ -113,5 +122,12 @@ export class ExportFlows {
         if (!destination) { return; }
         await this.host.writeFile(destination, Buffer.from(artifact.content, 'utf-8'));
         this.host.showInformation(getStrings(this.host.language()).reportExportedPrefix + destination.fsPath);
+    }
+
+    async saveRecipe(file: ReportArtifactFile): Promise<void> {
+        const destination = await this.host.pickRecipeDestination(file.name);
+        if (!destination) { return; }
+        await this.host.writeFile(destination, Buffer.from(file.content, 'utf-8'));
+        this.host.showInformation(getStrings(this.host.language()).recipeSavedPrefix + destination.fsPath);
     }
 }
