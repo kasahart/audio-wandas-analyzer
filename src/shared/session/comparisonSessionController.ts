@@ -1,4 +1,4 @@
-import { executeLazyAnalysis, lazyAnalysisError, type LazyAnalysisBackend, type LazyAnalysisRequest } from '../analysis/analysisClient';
+import { executeLazyAnalysis, lazyAnalysisError, type AnalysisClient, type LazyAnalysisBackend, type LazyAnalysisRequest } from '../analysis/analysisClient';
 import type {
     AnalysisResultWithError,
     AnalysisUpdateMessage,
@@ -7,7 +7,7 @@ import type {
     StftOptions,
 } from '../analysis/analysisTypes';
 import type { CalibrationRequestContext, PairSpectrumResult } from '../protocol/backendProtocol';
-import { parsePanelMessage, type PanelMessage } from '../protocol/panelMessages';
+import { parsePanelMessage, type PanelMessage, type SaveRecipeMessage } from '../protocol/panelMessages';
 import type { AnalyzeSelectedFilesMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
 import { exportWavRegions, reportArtifact, type ReportFormat, type WavExportSink, type WavExportSource } from '../utils/exportArtifact';
 
@@ -56,7 +56,7 @@ export interface ComparisonSessionPorts {
     saveSettings(settings: SpectrogramSettings): void | PromiseLike<void>;
     /** STFT options for lazy requests: the persisted explicit settings, or undefined in auto mode. */
     stftOptions(): StftOptions | undefined;
-    client: LazyAnalysisBackend;
+    client: LazyAnalysisBackend & Pick<AnalysisClient, 'buildRecipe'>;
     /** Displayed calibration context for `filePath`; undefined ignores the request, throwing reports it. */
     lazyContext(filePath: string): CalibrationRequestContext | undefined;
     lazyFailed?(request: LazyAnalysisRequest, reason: string): void;
@@ -69,6 +69,8 @@ export interface ComparisonSessionPorts {
     wavExport(message: ExportWavLoopMessage, scope: SessionScope): Promise<WavExportPlan | undefined>;
     pickReportFormat(): Promise<ReportFormat | undefined>;
     saveReport(artifact: ReportArtifactFile, format: ReportFormat, message: ExportReportOptionsMessage): Promise<void>;
+    /** Saves a `.recipe.json` built from the bottom panel; the user may still cancel the destination. */
+    saveRecipe(file: ReportArtifactFile): Promise<void>;
     selectTarget(targetKind: SelectionTargetKind): Promise<void> | void;
     showInformation(message: string): void;
     showError(message: string): void;
@@ -130,6 +132,7 @@ export class ComparisonSessionController {
                 case 'run-recipe':
                     if (this.ports.runRecipe) await this.ports.runRecipe(scope); else this.ports.unsupported(message.type);
                     return;
+                case 'save-recipe': await this.saveRecipe(message); return;
             }
         } catch (error) {
             if (scope.isCurrent()) this.ports.showError(reasonOf(error));
@@ -197,6 +200,14 @@ export class ComparisonSessionController {
         if (!plan) return;
         await exportWavRegions(message, plan.sources, plan.sink);
         if (scope.isCurrent()) { const pending = plan.complete?.(); if (thenable(pending)) await pending; }
+    }
+
+    private async saveRecipe({ type: _type, ...analysis }: SaveRecipeMessage): Promise<void> {
+        const stftOptions = this.ports.stftOptions();
+        const built = await this.ports.client.buildRecipe({ ...analysis, ...(stftOptions ? { stftOptions } : {}) });
+        await this.ports.saveRecipe({
+            name: `${built.name}.recipe.json`, content: JSON.stringify(built.recipe, null, 2) + '\n', type: 'application/json',
+        });
     }
 
     private async exportReport(message: ExportReportOptionsMessage): Promise<void> {

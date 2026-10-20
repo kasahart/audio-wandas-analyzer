@@ -7,6 +7,8 @@ import type {
     BackendErrorPayload,
     BackendHeartbeatNotification,
     BackendReadyNotification,
+    BuildRecipePayload,
+    BuildRecipeResult,
     ExportWavLoopPayload,
     ExportWavLoopResult,
     PairSpectrumPayload,
@@ -33,6 +35,8 @@ export type {
     BackendErrorPayload,
     BackendHeartbeatNotification,
     BackendReadyNotification,
+    BuildRecipePayload,
+    BuildRecipeResult,
     ExportWavLoopPayload,
     ExportWavLoopResult,
     PairSpectrumPayload,
@@ -74,6 +78,7 @@ export interface BackendCommandMap {
     'pair-spectrum': { payload: PairSpectrumPayload; result: PairSpectrumResult };
     'export-wav-loop': { payload: ExportWavLoopPayload; result: ExportWavLoopResult };
     'run-recipe': { payload: RunRecipePayload; result: RunRecipeResult };
+    'build-recipe': { payload: BuildRecipePayload; result: BuildRecipeResult };
 }
 
 export const BACKEND_COMMANDS = [
@@ -85,6 +90,7 @@ export const BACKEND_COMMANDS = [
     'pair-spectrum',
     'export-wav-loop',
     'run-recipe',
+    'build-recipe',
 ] as const satisfies ReadonlyArray<keyof BackendCommandMap>;
 
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
@@ -218,6 +224,10 @@ function isRunRecipeResult(value: unknown): value is RunRecipeResult {
             && typeof chart['title'] === 'string');
 }
 
+function isBuildRecipeResult(value: unknown): value is BuildRecipeResult {
+    return schemaViolation('BuildRecipeResult', value) === null;
+}
+
 type ResultValidator<K extends BackendCommand> = (value: unknown) => value is BackendResult<K>;
 
 const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
@@ -229,6 +239,7 @@ const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
     'pair-spectrum': isPairSpectrumResult,
     'export-wav-loop': isExportWavLoopResult,
     'run-recipe': isRunRecipeResult,
+    'build-recipe': isBuildRecipeResult,
 };
 
 export function parseBackendResult<K extends BackendCommand>(command: K, value: unknown): BackendResult<K> {

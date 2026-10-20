@@ -196,6 +196,7 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
 
     await openToolbarMenu(page, 1);
     await domClick(page, '#toolbar [data-action="run-recipe"]');
+    await domClick(page, '#toolbar [data-action="save-recipe"]');
     await domClick(page, '#toolbar [data-action="copy-spec"]');
     await openToolbarMenu(page, 2);
     await domClick(page, '#toolbar [data-action="export-png"]');
@@ -207,6 +208,7 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     expect(messages).toEqual(expect.arrayContaining([
         expect.objectContaining({ type: 'request-reanalyze' }),
         expect.objectContaining({ type: 'export-report-options' }),
+        expect.objectContaining({ type: 'save-recipe' }),
     ]));
 });
 

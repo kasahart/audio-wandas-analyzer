@@ -1,6 +1,6 @@
 import type { StftOptions } from './analysisTypes';
 import type {
-    AnalyzePayload, BackendCommand, BackendPayload, BackendResult,
+    AnalyzePayload, BackendCommand, BuildRecipePayload, BuildRecipeResult, BackendPayload, BackendResult,
     CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult,
     TrackDetailPayload, TrackDetailResult, ExportWavLoopResult, RunRecipePayload, RunRecipeResult,
 } from '../protocol/backendProtocol';
@@ -208,6 +208,10 @@ export abstract class AnalysisClient {
             clearTimeout(timer);
             disposable?.dispose();
         }
+    }
+
+    buildRecipe(payload: BuildRecipePayload): Promise<BuildRecipeResult> {
+        return this.request('build-recipe', payload);
     }
 
     protected calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {

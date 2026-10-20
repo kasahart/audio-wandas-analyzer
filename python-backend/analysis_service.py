@@ -135,6 +135,11 @@ class RecipeRunResult(TypedDict):
     charts: list[ChartSpec]
 
 
+class RecipeBuildResult(TypedDict):
+    name: str
+    recipe: dict[str, object]
+
+
 # IEC 61260-1 nominal mid-band frequencies, which wandas (MoSQITo) uses to label its bands.
 _NOMINAL_BAND_CENTERS_HZ: dict[int, tuple[float, ...]] = {
     1: (31.5, 63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0),
@@ -527,6 +532,60 @@ class AnalysisService:
             raise InputError(f"recipe error: {error}") from error
         return {"charts": charts}
 
+    def build_recipe(
+        self,
+        file_path: str | Path,
+        *,
+        stft_options: Mapping[str, object] | None = None,
+        bands_per_octave: int | None = None,
+        reference_channel: int | None = None,
+        responses: list[Mapping[str, object]] | None = None,
+    ) -> RecipeBuildResult:
+        from recipe_builder import RecipeSource, spectrum_recipe, transfer_recipe
+
+        cached = self.engine.get_file(file_path)
+        frame = cached.frame
+        # The pair view's parameters: auto mode averages half-overlapping segments like Welch.
+        n_fft, hop_length, window = pair_stft_params(frame.n_samples, stft_options)
+        if reference_channel is None:
+            source = RecipeSource(frame.n_channels, float(frame.sampling_rate))
+            if bands_per_octave is None:
+                recipe = spectrum_recipe(source, n_fft=n_fft, hop_length=hop_length, window=window)
+                return {"name": "spectrum", "recipe": recipe}
+            bands = octave_bands(bands_per_octave, frame.sampling_rate)
+            recipe = spectrum_recipe(
+                source,
+                n_fft=n_fft,
+                hop_length=hop_length,
+                window=window,
+                band_centers_hz=bands.centers_hz,
+                bands_per_octave=bands_per_octave,
+            )
+            return {"name": f"octave-{bands_per_octave}", "recipe": recipe}
+        if not responses:
+            raise InputError("A transfer function Recipe needs at least one response channel")
+        files: list[CachedAnalysis] = [cached]
+        pairs: list[tuple[int, int]] = []
+        for channel in [{"filePath": str(file_path), "channelIndex": reference_channel}, *responses]:
+            response = self.engine.get_file(str(channel["filePath"]))
+            index = next((i for i, known in enumerate(files) if known.path == response.path), None)
+            if index is None:
+                files.append(response)
+                index = len(files) - 1
+            channel_index = int(channel["channelIndex"])  # type: ignore[call-overload]
+            if not 0 <= channel_index < response.frame.n_channels:
+                raise InputError(f"channelIndex {channel_index} is out of range for {response.path.name}")
+            pairs.append((index, channel_index))
+        recipe = transfer_recipe(
+            [RecipeSource(known.frame.n_channels, float(known.frame.sampling_rate)) for known in files],
+            pairs[0][1],
+            pairs[1:],
+            n_fft=n_fft,
+            hop_length=hop_length,
+            window=window,
+        )
+        return {"name": "transfer-function", "recipe": recipe}
+
     def release_track_detail(self, file_path: str | Path) -> dict[str, object]:
         return {}
 
@@ -624,6 +683,7 @@ __all__ = [
     "PairSpectrumResult",
     "pair_overlap",
     "pair_stft_params",
+    "RecipeBuildResult",
     "RecipeRunResult",
     "SpectrumSliceResult",
     "StftOptions",

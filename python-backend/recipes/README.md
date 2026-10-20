@@ -21,5 +21,8 @@ result = signal.band_pass_filter(low_cutoff=100, high_cutoff=4000).welch(n_fft=4
 RecipePlan.from_frame(result, input_names=("signal",)).save("python-backend/recipes/my-analysis")
 ```
 
+The analyzer's **Workflow → Save as recipe** writes the same kind of file from
+the bottom panel's current analysis (`recipe_builder.py`).
+
 Only Frame outputs can be saved, so scalar metrics such as `loudness_zwst()`
 cannot be a recipe.

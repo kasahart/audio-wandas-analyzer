@@ -93,3 +93,36 @@ test('a reference lane splits the spectrum section into the power spectrum and t
     await expect(page.locator('#pair-spectrum-wrap')).toBeHidden();
     await expect(page.locator('[data-action="spectrum-octave-3"]')).toBeEnabled();
 });
+
+test('Save as recipe asks the host for what the bottom panel shows: the bands, then the pairs once a reference is set', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const posted = () => page.evaluate(() => ((window as typeof window & { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages)
+        .filter(message => message && message.type === 'save-recipe'));
+    const save = async () => {
+        const workflow = page.locator('#toolbar details.tb-menu').filter({ has: page.locator('[data-action="save-recipe"]') });
+        if (await workflow.getAttribute('open') === null) await workflow.locator('summary').click();
+        await workflow.locator('[data-action="save-recipe"]').click();
+    };
+    const buttons = page.locator('[data-action="set-pair-reference"]');
+    await expect(buttons.first()).toBeVisible();
+
+    await page.locator('[data-action="spectrum-octave-3"]').click();
+    await save();
+    await expect.poll(async () => (await posted()).length).toBe(1);
+    const [spectrum] = await posted();
+    expect(spectrum).toEqual({ type: 'save-recipe', filePath: expect.any(String), bandsPerOctave: 3 });
+
+    await buttons.first().click();
+    await expect.poll(async () => (await pairRequests(page)).length).toBe(1);
+    const [request] = await pairRequests(page);
+    await save();
+    await expect.poll(async () => (await posted()).length).toBe(2);
+    const transfer = (await posted())[1];
+    expect(transfer).toEqual({
+        type: 'save-recipe',
+        filePath: request.reference?.filePath,
+        referenceChannel: request.reference?.channelIndex,
+        responses: request.responses?.map(source => ({ filePath: source.filePath, channelIndex: source.channelIndex })),
+    });
+});

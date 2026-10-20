@@ -81,6 +81,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'zoom-to-selection',
     'toggle-follow-cursor',
     'run-recipe',
+    'save-recipe',
     'copy-spec',
     'export-png',
     'export-csv',
@@ -212,6 +213,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Run a wandas recipe from the comparison panel',
         entryPoints: ['results-toolbar', 'command', 'dialog'],
         triggers: ['audioWandasAnalyzer.runRecipe', 'run-recipe', 'browser-recipe-pick', 'browser-recipe-file', 'browser-recipe-input', 'browser-recipe-run', 'browser-recipe-close'],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'recipe-saver',
+        label: 'Save the bottom panel analysis as a wandas recipe',
+        entryPoints: ['results-toolbar', 'dialog'],
+        triggers: ['save-recipe'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

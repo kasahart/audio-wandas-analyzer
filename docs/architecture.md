@@ -65,6 +65,10 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   次の要求で新しい Worker に再ロードする。
   ChartSpec 文書の CSS と globals は `chartSpecDocument.ts` に置き、renderer は `chartSpecRuntime.ts` の
   `startChartSpecRenderer` を bundle した `dist/webview/chartSpecRuntime.js` を両 host が読み込む。
+- 「レシピとして保存」は webview が下のパネルの内容（スペクトルのファイルと帯域、または基準チャンネルと応答チャンネル）を
+  `save-recipe` で送り、共通 session controller が STFT 設定を足して `build-recipe` を呼ぶ。Python 側の `recipe_builder.py` は
+  表示中のファイルと同じ形の無音 frame で wandas の処理を実行し、`RecipePlan.from_frame()` で Recipe JSON にする。
+  native は保存ダイアログ、Web はダウンロードで `<名前>.recipe.json` を渡す。
 
 校正設定 UI、フォルダ選択、codec の Web 対応範囲は増やしていない。
 新しい共通処理は両 host が実際に参照する。host 名による分岐で共通ファイルを膨らませない。
@@ -169,7 +173,7 @@ flowchart LR
 責務:
 
 - stdin の NDJSON リクエストを検証し、`AnalysisService` に渡す
-- 共通7コマンド（analyze、range、track-detail、release-track-detail、spectrum-slice、export-wav-loop、run-recipe）を dispatch する
+- 共通9コマンド（analyze、range、track-detail、release-track-detail、spectrum-slice、pair-spectrum、export-wav-loop、run-recipe、build-recipe）を dispatch する
 - request ID 付きの結果または error を stdout に返す
 - 起動通知・heartbeat と stderr の診断を提供する
 
