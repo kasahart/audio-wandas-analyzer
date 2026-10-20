@@ -95,3 +95,16 @@ def test_transfer_recipe_needs_a_response_and_valid_channels(tmp_path: Path) -> 
         service.build_recipe(path, reference_channel=1, responses=[{"filePath": path, "channelIndex": 0}])
     with pytest.raises(InputError, match="invalid request field"):
         validate_request({"cmd": "build-recipe", "requestId": "r", "filePath": path, "offsetSeconds": 0})
+
+
+def test_an_octave_recipe_above_a_file_nyquist_is_a_recipe_error_not_an_internal_one(tmp_path: Path) -> None:
+    service = AnalysisService(AnalysisEngine())
+    high = _write(tmp_path / "high.wav", [_tone(1.0, 48000)], 48000)
+    low = _write(tmp_path / "low.wav", [_tone(1.0, 16000)], 16000)
+    recipe = service.build_recipe(high, bands_per_octave=1)["recipe"]
+    with pytest.raises(InputError, match="recipe error"):
+        service.run_recipe(recipe, inputs={"signal": low})
+    # Saved from the lowest rate shown, the same bands run on both files.
+    recipe = service.build_recipe(low, bands_per_octave=1)["recipe"]
+    for path in (high, low):
+        assert service.run_recipe(recipe, inputs={"signal": path})["charts"][0]["kind"] == "bar"

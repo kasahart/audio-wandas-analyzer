@@ -2653,7 +2653,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             return;
         }
-        const record = trackStore.activeIds().map(trackId => trackStore.require(trackId)).find(item => !item.runtime.hidden && !item.result.error);
+        // The lowest sample rate shown bounds the octave bands, so the saved Recipe runs on every shown track.
+        const record = trackStore.activeIds().map(trackId => trackStore.require(trackId))
+            .filter(item => !item.runtime.hidden && !item.result.error)
+            .sort((a, b) => a.result.sampleRateHz - b.result.sampleRateHz)[0];
         if (!record) {
             messaging.post({ type: 'show-info', message: STR.recipeSaveNoData });
             return;
