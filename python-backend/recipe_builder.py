@@ -65,8 +65,9 @@ def transfer_recipe(
     rate = files[0].sampling_rate
 
     def channel(file_index: int, channel_index: int) -> wd.ChannelFrame:
-        picked = frames[file_index].get_channel(channel_index)
-        return picked if files[file_index].sampling_rate == rate else picked.resampling(target_sr=rate)
+        # Every channel is resampled, a no-op at the same rate, so the Recipe still runs when it is
+        # given files at other rates than the ones it was saved from.
+        return frames[file_index].get_channel(channel_index).resampling(target_sr=rate)
 
     combined = channel(0, reference_channel)
     for index, response in enumerate(responses, start=1):

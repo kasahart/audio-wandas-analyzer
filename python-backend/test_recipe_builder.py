@@ -108,3 +108,17 @@ def test_an_octave_recipe_above_a_file_nyquist_is_a_recipe_error_not_an_internal
     recipe = service.build_recipe(low, bands_per_octave=1)["recipe"]
     for path in (high, low):
         assert service.run_recipe(recipe, inputs={"signal": path})["charts"][0]["kind"] == "bar"
+
+
+def test_a_transfer_recipe_saved_from_equal_rates_runs_on_files_at_other_rates(tmp_path: Path) -> None:
+    service = AnalysisService(AnalysisEngine())
+    reference = _write(tmp_path / "ref.wav", [_tone(1.0, 16000)], 16000)
+    response = _write(tmp_path / "resp.wav", [_tone(2.0, 16000)], 16000)
+    recipe = service.build_recipe(reference, reference_channel=0, responses=[{"filePath": response, "channelIndex": 0}])
+    slow = _write(tmp_path / "slow.wav", [_tone(2.0, 8000)], 8000)
+    fast = _write(tmp_path / "fast.wav", [_tone(1.0, 48000)], 48000)
+
+    charts = service.run_recipe(recipe["recipe"], inputs={"reference": fast, "response": slow})["charts"]
+
+    at_tone = int(np.argmin(np.abs(np.asarray(charts[0]["xs"]) - 1000)))
+    assert charts[0]["series"][0]["ys"][at_tone] == pytest.approx(20 * np.log10(2), abs=0.2)
