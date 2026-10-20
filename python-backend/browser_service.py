@@ -14,7 +14,14 @@ import soundfile as sf
 import wandas as wd
 
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
-from analysis_service import AnalysisService, PairSpectrumResult, pair_overlap, pair_stft_params
+from analysis_service import (
+    AnalysisService,
+    PairSpectrumResult,
+    SpectrumSliceResult,
+    pair_overlap,
+    pair_stft_params,
+    spectrum_range_samples,
+)
 from analyzer import resolve_stft_params, sample_range
 from backend_errors import INTERNAL_ERROR, InputError, error_payload
 from calibration_profile import source_channel_peaks
@@ -193,6 +200,29 @@ class BrowserService(AnalysisService):
     def release_track_detail(self, file_path: str | Path) -> dict[str, object]:
         self.engine.discard_spectrograms(file_path)
         return {}
+
+    def spectrum_slice(
+        self,
+        file_path: str | Path,
+        *,
+        start_seconds: float | None = None,
+        end_seconds: float | None = None,
+        stft_options: Mapping[str, object] | None = None,
+        **options: object,
+    ) -> SpectrumSliceResult:
+        if start_seconds is not None or end_seconds is not None:
+            # Welch materializes every segment of every channel at once, near 16 bytes per segment bin.
+            cached = self.engine.get_file(file_path)
+            frame = cached.frame
+            n_fft, hop_length, _ = pair_stft_params(frame.n_samples, stft_options)
+            start, end = spectrum_range_samples(frame.n_samples, float(frame.sampling_rate), start_seconds, end_seconds)
+            segments = max(1, (end - start - n_fft) // hop_length + 1)
+            working = (end - start) * frame.n_channels * 16 + segments * (n_fft // 2 + 1) * frame.n_channels * 16
+            if self.engine.estimated_bytes(working) > MAX_ESTIMATED_BYTES:
+                raise InputError("Averaged spectrum exceeds browser estimated memory budget; shorten the loop")
+        return super().spectrum_slice(
+            file_path, start_seconds=start_seconds, end_seconds=end_seconds, stft_options=stft_options, **options
+        )
 
     def pair_spectrum(
         self,

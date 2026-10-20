@@ -54,6 +54,10 @@ class SpectrumSliceResult(TypedDict):
     windowStartNorm: float
     windowEndNorm: float
     window: str
+    # Range results only: the file seconds averaged and, for the Welch spectrum, the segment count.
+    startSeconds: NotRequired[float]
+    endSeconds: NotRequired[float]
+    averages: NotRequired[int]
     computeMs: float
     calibrationSignature: str
     analysisRevision: int
@@ -271,7 +275,9 @@ class AnalysisService:
         self,
         file_path: str | Path,
         *,
-        cursor_norm: float,
+        cursor_norm: float | None = None,
+        start_seconds: float | None = None,
+        end_seconds: float | None = None,
         track_index: int = -1,
         analysis_id: object = None,
         settings_signature: object = None,
@@ -282,24 +288,57 @@ class AnalysisService:
     ) -> SpectrumSliceResult:
         compute_started = time.perf_counter()
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
-        window_size, _hop_size, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
-        clipped_norm = max(0.0, min(1.0, cursor_norm))
         revision = _analysis_revision(analysis_revision)
         bands = octave_bands(bands_per_octave, analysis_frame.sampling_rate) if bands_per_octave is not None else None
-        if bands is not None:
-            window_size = max(window_size, math.ceil(bands.min_duration_s * analysis_frame.sampling_rate))
-
-        # Transform the window centred on the cursor itself rather than the nearest STFT frame, so the
-        # spectrum (and the band drawn for it) follows the cursor without hop-sized jumps or gaps.
-        center_sample = min(int(round(clipped_norm * analysis_frame.n_samples)), analysis_frame.n_samples - 1)
-        start_sample = max(0, center_sample - window_size // 2)
-        end_sample = min(analysis_frame.n_samples, start_sample + window_size)
-        start_sample = max(0, end_sample - window_size)
+        averaged = start_seconds is not None or end_seconds is not None
+        if averaged:
+            # The Welch average of the range (half-overlapping segments, as the saved Recipe replays it),
+            # or the band levels of its samples.
+            window_size, hop_length, window_name = pair_stft_params(analysis_frame.n_samples, stft_options)
+            start_sample, end_sample = spectrum_range_samples(
+                analysis_frame.n_samples, float(analysis_frame.sampling_rate), start_seconds, end_seconds
+            )
+            averages = max(1, (end_sample - start_sample - window_size) // hop_length + 1)
+        elif cursor_norm is None:
+            raise InputError("A spectrum needs a cursor position or a start and end")
+        else:
+            window_size, hop_length, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
+            clipped_norm = max(0.0, min(1.0, cursor_norm))
+            if bands is not None:
+                window_size = max(window_size, math.ceil(bands.min_duration_s * analysis_frame.sampling_rate))
+            # Transform the window centred on the cursor itself rather than the nearest STFT frame, so the
+            # spectrum (and the band drawn for it) follows the cursor without hop-sized jumps or gaps.
+            center_sample = min(int(round(clipped_norm * analysis_frame.n_samples)), analysis_frame.n_samples - 1)
+            start_sample = max(0, center_sample - window_size // 2)
+            end_sample = min(analysis_frame.n_samples, start_sample + window_size)
+            start_sample = max(0, end_sample - window_size)
+            averages = 1
         window_start_sample = float(start_sample)
-        slice_key = (resolved.signature, window_size, window_name, revision, start_sample, bands_per_octave)
+        slice_key = (
+            resolved.signature,
+            window_size,
+            window_name,
+            revision,
+            start_sample,
+            bands_per_octave,
+            averaged,
+            end_sample,
+        )
         cached_slice = self.engine.get_spectrum_slice(cached, slice_key)
         if cached_slice is not None:
             rows, max_frequency_hz = cached_slice
+        elif averaged and bands is None:
+            segment = analysis_frame[:, start_sample:end_sample]
+            if end_sample - start_sample < window_size:
+                segment = segment.fix_length(length=window_size)
+            spectrum = segment.welch(n_fft=window_size, hop_length=hop_length, window=window_name)
+            max_frequency_hz = float(spectrum.freqs[-1])
+            values = np.asarray(spectrum.dB, dtype=np.float64)
+            rows = resample_frequency_bins(
+                values.reshape(analysis_frame.n_channels, -1),
+                SPECTROGRAM_FREQUENCY_BIN_LIMIT,
+            ).astype(np.float32, copy=False)
+            self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
         elif bands is not None:
             segment = analysis_frame[:, start_sample:end_sample]
             if end_sample - start_sample < _MIN_BAND_SLICE_SAMPLES:
@@ -342,12 +381,18 @@ class AnalysisService:
             "maxFrequencyHz": max_frequency_hz,
             "windowStartNorm": window_start_sample / analysis_frame.n_samples,
             # fft() zero-pads short files to window_size before windowing, so the span may pass the file end.
-            "windowEndNorm": (window_start_sample + window_size) / analysis_frame.n_samples,
+            "windowEndNorm": (window_start_sample + max(window_size, end_sample - start_sample))
+            / analysis_frame.n_samples,
             "window": window_name,
             "computeMs": (time.perf_counter() - compute_started) * 1000.0,
             "calibrationSignature": resolved.signature,
             "analysisRevision": revision,
         }
+        if averaged:
+            rate = float(analysis_frame.sampling_rate)
+            result.update(startSeconds=start_sample / rate, endSeconds=end_sample / rate)
+            if bands is None:
+                result.update(averages=int(averages))
         if bands is not None:
             result.update(
                 bandsPerOctave=bands.bands_per_octave,
@@ -538,6 +583,8 @@ class AnalysisService:
         *,
         stft_options: Mapping[str, object] | None = None,
         bands_per_octave: int | None = None,
+        start_seconds: float | None = None,
+        end_seconds: float | None = None,
         reference_channel: int | None = None,
         responses: list[Mapping[str, object]] | None = None,
     ) -> RecipeBuildResult:
@@ -549,8 +596,13 @@ class AnalysisService:
         n_fft, hop_length, window = pair_stft_params(frame.n_samples, stft_options)
         if reference_channel is None:
             source = RecipeSource(frame.n_channels, float(frame.sampling_rate))
+            trim: tuple[float, float] | None = None
+            if start_seconds is not None or end_seconds is not None:
+                rate = float(frame.sampling_rate)
+                start_sample, end_sample = spectrum_range_samples(frame.n_samples, rate, start_seconds, end_seconds)
+                trim = (start_sample / rate, end_sample / rate)
             if bands_per_octave is None:
-                recipe = spectrum_recipe(source, n_fft=n_fft, hop_length=hop_length, window=window)
+                recipe = spectrum_recipe(source, n_fft=n_fft, hop_length=hop_length, window=window, trim=trim)
                 return {"name": "spectrum", "recipe": recipe}
             bands = octave_bands(bands_per_octave, frame.sampling_rate)
             recipe = spectrum_recipe(
@@ -560,6 +612,7 @@ class AnalysisService:
                 window=window,
                 band_centers_hz=bands.centers_hz,
                 bands_per_octave=bands_per_octave,
+                trim=trim,
             )
             return {"name": f"octave-{bands_per_octave}", "recipe": recipe}
         if not responses:
@@ -604,6 +657,20 @@ def _display_bins(bin_count: int) -> np.ndarray:
 
 def _finite_values(row: np.ndarray) -> list[float | None]:
     return [float(value) if math.isfinite(value) else None for value in row.tolist()]
+
+
+def spectrum_range_samples(
+    sample_count: int, sampling_rate: float, start_seconds: float | None, end_seconds: float | None
+) -> tuple[int, int]:
+    """The file samples a range covers, clamped to the file and capped at ``MAX_PAIR_SECONDS`` like the pair view."""
+    start = 0.0 if start_seconds is None else max(0.0, start_seconds)
+    end = math.inf if end_seconds is None else end_seconds
+    end = min(end, sample_count / sampling_rate, start + MAX_PAIR_SECONDS)
+    if end <= start:
+        raise InputError("The range holds no samples of this file")
+    start_sample = min(int(round(start * sampling_rate)), sample_count - 1)
+    end_sample = max(start_sample + 1, min(int(round(end * sampling_rate)), sample_count))
+    return start_sample, end_sample
 
 
 def pair_overlap(
@@ -683,6 +750,7 @@ __all__ = [
     "PairSpectrumResult",
     "pair_overlap",
     "pair_stft_params",
+    "spectrum_range_samples",
     "RecipeBuildResult",
     "RecipeRunResult",
     "SpectrumSliceResult",

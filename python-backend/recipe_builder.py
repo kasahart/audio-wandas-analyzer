@@ -8,6 +8,7 @@ in a notebook, so the result is ordinary ``RecipePlan.to_dict()`` JSON that
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from typing import Any, NamedTuple
 
@@ -35,9 +36,18 @@ def spectrum_recipe(
     window: str,
     band_centers_hz: Sequence[float] | None = None,
     bands_per_octave: int | None = None,
+    trim: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
-    """Every channel's Welch spectrum, or its octave band levels when bands are given."""
-    signal = _stand_in(source, 2 * n_fft)
+    """Every channel's Welch spectrum, or its octave band levels when bands are given.
+
+    ``trim`` (start and end seconds of the file) averages that stretch only, as the panel showed it.
+    """
+    stand_in_samples = 2 * n_fft
+    if trim is not None:
+        stand_in_samples = max(stand_in_samples, int(math.ceil(trim[1] * source.sampling_rate)) + 1)
+    signal = _stand_in(source, stand_in_samples)
+    if trim is not None:
+        signal = signal.trim(start=trim[0], end=trim[1])
     if band_centers_hz:
         result = signal.noct_spectrum(fmin=band_centers_hz[0], fmax=band_centers_hz[-1], n=bands_per_octave)
     else:

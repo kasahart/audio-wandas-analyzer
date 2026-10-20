@@ -4,6 +4,7 @@ import type {
     CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult,
     TrackDetailPayload, TrackDetailResult, ExportWavLoopResult, RunRecipePayload, RunRecipeResult,
 } from '../protocol/backendProtocol';
+import { spectrumSliceSpan } from '../utils/audioTarget';
 import type { PairSourceRef, PairSpectrumRequest, SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../utils/audioTarget';
 
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
@@ -109,7 +110,9 @@ export abstract class AnalysisClient {
                 trackIndex: payload.trackIndex,
                 analysisId: payload.analysisId,
                 settingsSignature: payload.settingsSignature,
-                cursorNorm: payload.cursorNorm,
+                ...(payload.cursorNorm !== undefined ? { cursorNorm: payload.cursorNorm } : {}),
+                ...(payload.startSeconds !== undefined ? { startSeconds: payload.startSeconds } : {}),
+                ...(payload.endSeconds !== undefined ? { endSeconds: payload.endSeconds } : {}),
                 ...(payload.bandsPerOctave ? { bandsPerOctave: payload.bandsPerOctave } : {}),
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
                 ...this.calibrationPayload(this.requestContext(filePath, payload)),
@@ -241,7 +244,7 @@ export async function executeLazyAnalysis(
     const result = message.type === 'request-track-detail'
         ? await backend.requestTrackDetail(message.filePath, payload, message.requestId)
         : await backend.requestSpectrumSlice(message.filePath,
-            { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}) }, message.requestId);
+            { ...payload, ...spectrumSliceSpan(message), ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}) }, message.requestId);
     const identity = { requestId: message.requestId, analysisId: message.analysisId,
         settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath };
     if ('frequencyBins' in result) {
@@ -249,7 +252,9 @@ export async function executeLazyAnalysis(
             frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, computeMs: result.computeMs,
             windowStartNorm: result.windowStartNorm, windowEndNorm: result.windowEndNorm, window: result.window,
             ...(result.bandCentersHz ? { bandsPerOctave: result.bandsPerOctave, bandCentersHz: result.bandCentersHz, minFrequencyHz: result.minFrequencyHz } : {}),
-            ...(message.type === 'request-spectrum-slice' ? { cursorNorm: message.cursorNorm } : {}) };
+            ...(result.startSeconds !== undefined ? { startSeconds: result.startSeconds, endSeconds: result.endSeconds } : {}),
+            ...(result.averages !== undefined ? { averages: result.averages } : {}),
+            ...(message.type === 'request-spectrum-slice' && message.cursorNorm !== undefined ? { cursorNorm: message.cursorNorm } : {}) };
     }
     return { ...identity, analysisRevision: result.analysisRevision, type: 'track-detail-result' as const, channels: result.channels };
 }
