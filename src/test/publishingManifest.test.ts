@@ -21,6 +21,14 @@ test('package.json defines publish and packaging scripts for VS Code releases', 
     assert.equal(manifest.scripts?.['package:vsix'], 'vsce package --no-yarn --allow-missing-repository --skip-license');
 });
 
+test('Marketplace icon stays within the Marketplace upload limit', () => {
+    const manifest = readJson<{ icon?: string }>('package.json');
+    assert.ok(manifest.icon, 'package.json must name a Marketplace icon');
+
+    // The Marketplace rejects a publish whose icon is larger than 1024 KB.
+    assert.ok(fs.statSync(path.join(repoRoot, manifest.icon)).size <= 1024 * 1024);
+});
+
 test('package.json and verify.sh include the GUI triggerability audit', () => {
     const manifest = readJson<{ scripts?: Record<string, string> }>('package.json');
     const verifyScript = readText('scripts/verify.sh');
