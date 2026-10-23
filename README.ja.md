@@ -4,11 +4,22 @@
 
 VS Code を、そのまま音声確認の作業台に。Audio Wandas Analyzer は、音声ファイルを開き、複数テイクを同じタイムラインで比較し、波形の細部、スペクトログラム、カーソル位置のパワースペクトルを確認しながら、必要な証跡をその場で出力できる拡張機能です。
 
+**[▶ ブラウザーですぐ試す](https://kasahart.github.io/audio-wandas-analyzer/)**（インストール不要、音声は端末から送信されません）。VS Code 版は [Marketplace](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer) からインストールできます。
+
 ## スクリーンショット
 
 ![Audio Wandas Analyzer のスクリーンショット](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
 
 ![Audio Wandas Analyzer のスペクトログラム表示スクリーンショット](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer_stft.png)
+
+## ブラウザー版と VS Code 版
+
+| | ブラウザー版 | VS Code 版 |
+| --- | --- | --- |
+| 準備 | 不要（ページを開くだけ） | Python 3.11+ |
+| ファイル | 短いファイル（制限は「ブラウザー版」を参照） | 大きく長いファイル |
+| 校正 | 未対応 | 対応 |
+| レシピ | 同梱レシピと手元の `.recipe.json`。ブラウザーにない Python パッケージを使う処理は実行できません | Python 環境で動くものすべて |
 
 ## なぜ便利か
 
@@ -16,13 +27,15 @@ VS Code を、そのまま音声確認の作業台に。Audio Wandas Analyzer �
 
 - 複数の録音や生成結果を並べ、タイミング差をすぐ確認
 - ファイルを読み直さずに、波形、スペクトログラム、パワースペクトルを行き来
-- カーソル位置のスペクトルを FFT と 1/1・1/3 オクターブバンド（wandas `noct_spectrum`）で切り替え
+- カーソル位置のスペクトルを FFT と 1/1・1/3 オクターブバンドで切り替え
 - ズーム中の範囲だけを高解像度で再取得して、細部を軽快に確認
 - 再生、ミュート、ループ、トラックの時間オフセット調整を同じ画面で操作
 - 画像、CSV スペクトル、ループ音声、Markdown 向けレポートを出力
-- [wandas](https://github.com/kasahart/wandas) の同梱 / カスタムレシピでさらに深い解析を実行
+- 基準トラックを決めて、他のトラックとの伝達関数・コヒーレンスを確認
+- チャンネルを物理量（Pa、m/s²、V）に校正し、dB SPL などのレベルで確認
+- 同梱 / 自作の解析レシピでさらに深い解析を実行
 
-対応フォーマット: **WAV / FLAC / OGG / AIFF / AIF / SND / CSV**（同梱の wandas が読める形式。CSV は 1 列目を時刻として読みます）。再生できるのは WAV、FLAC、OGG のみです。
+対応フォーマット: **WAV / FLAC / OGG / AIFF / AIF / SND / CSV**（CSV は 1 列目を時刻として読みます）。再生できるのは WAV、FLAC、OGG のみです。
 
 UI は VS Code の表示言語に追従します。`ja*` では日本語、それ以外では英語で表示されます。
 
@@ -75,12 +88,14 @@ Audio Analyzer: Select Python Environment
 ## パネルでの操作
 
 - **比較:** 複数トラックを共通タイムラインに並べ、行ごとに波形 / スペクトログラムを切り替え
-- **ズーム:** ツールバーの `+ / - / 0`、キーボードショートカット、またはプロット上のホイール操作
+- **ズーム:** ツールバーの `－ / ＋ / リセット`、`+ / − / 0` キー、または Ctrl + ホイール。`L` でループ範囲にズーム
 - **確認:** 波形、スペクトログラム、スペクトル上をクリックしてカーソルを動かし、スペクトルを更新
 - **ループ:** 波形上をドラッグしてループ範囲を作成し、クリックで解除
-- **再生:** トラックごとの再生ボタンを使用。`M` でミュート
-- **位置合わせ:** `▲ / ▼` でトラックの時間オフセットを調整。値をダブルクリックするとリセット
-- **スペクトログラム調整:** 歯車ポップオーバーから FFT 長、ホップ長、窓関数、dB 範囲、最大周波数を変更
+- **再生:** トラックごとの再生・ミュートボタン、または `Space` で再生 / 一時停止。`F` で再生中にカーソルを追従
+- **位置合わせ:** `▲ / ▼` で 10 ms ずつ、Shift+ドラッグ、またはオフセット値をクリックして入力。ダブルクリックでリセット
+- **基準:** トラックを基準にすると、下のパネルに他のトラックとの伝達関数とコヒーレンスを表示
+- **校正:** トラックの **校正**、または **Audio Analyzer: Configure Calibration** で、チャンネルごとに係数・単位・レベル基準を設定
+- **スペクトログラム調整:** 歯車ポップオーバーから FFT 長、オーバーラップ、窓関数、dB 範囲、最大周波数を変更
 - **ヘルプ:** パネル内で `?` を押すとキーボードショートカットを表示
 
 ## エクスポートとレシピ
@@ -91,22 +106,26 @@ Audio Analyzer: Select Python Environment
 | --- | --- |
 | **PNG 出力** | 表示中のトラック画像 |
 | **CSV 出力** | 現在のカーソル位置のスペクトルデータ |
-| **WAV 出力** | 選択したループ範囲の音声 |
-| **レポート出力** | Markdown / Notebook 向け解析レポート |
-| **レシピ実行** | wandas レシピの結果を VS Code 内に表示 |
+| **WAV** | 選択したループ範囲の音声 |
+| **レポート** | Markdown / Notebook 向け解析レポート |
+| **レシピ実行** | レシピの結果を VS Code 内に表示 |
+| **レシピとして保存** | 下のパネルの解析を `.recipe.json` として保存 |
+
+レシピ（`*.recipe.json`）は保存した解析の手順です。**レシピ実行** で同梱レシピや自作のレシピをチェック中のトラックに適用します。入力が複数あるレシピでは、実行前にどのトラックを割り当てるか確認できます。
+
+**ワークフロー → レシピとして保存** は、下のパネルの解析を現在の設定のままファイル全体に対して保存します。各チャンネルのスペクトルまたはオクターブバンド、基準を設定中は基準から他のチャンネルへの伝達関数です。トラックのオフセットとループ範囲は保存されないため、入力は同期している必要があります。保存したファイルは **レシピ実行** でいつでも再実行できます。
 
 ## 設定
 
 | 設定キー | 既定値 | 説明 |
 | --- | --- | --- |
 | `audioWandasAnalyzer.pythonCommand` | `python3` | バックエンドに使う Python 環境フォルダまたは実行ファイル |
-| `audioWandasAnalyzer.cacheMemoryMb` | `1024` | 常駐 Python 波形バックエンドが使う音声キャッシュの上限 MB |
-| `audioWandasAnalyzer.debugFilePath` | `media/debug` | **Audio Analyzer: Analyze Debug Path** で開く既定パス |
+| `audioWandasAnalyzer.cacheMemoryMb` | `1024` | 読み込んだ音声のキャッシュに使うメモリの上限（MB） |
 
 ## トラブルシューティング
 
-- **Python interpreter was not found:** `wandas` を入れた仮想環境を選択するか、`audioWandasAnalyzer.pythonCommand` を更新してください。
-- **解析に失敗する:** **Output: Audio Wandas Analyzer** を開き、Python 側のエラーを確認してください。選択中の環境に `wandas`、`numpy`、`soundfile` が入っているか確認します。
+- **Python interpreter was not found:** クイックスタートのパッケージを入れた仮想環境を選択するか、`audioWandasAnalyzer.pythonCommand` を更新してください。
+- **解析に失敗する:** **Output: Audio Wandas Analyzer** を開き、Python 側のエラーを確認してください。選択中の環境にクイックスタートのパッケージが入っているか確認します。
 - **ファイルが読み込めない:** 拡張子が WAV、FLAC、OGG、AIFF、AIF、SND、CSV のいずれかか確認してください。MP3 / M4A はまだ非対応です。
 - **大きなファイルが重い:** 波形は表示中のズーム範囲だけを取得します。スペクトログラムが重い場合は FFT 長やホップ長を小さくしてください。
 
@@ -114,7 +133,7 @@ Audio Analyzer: Select Python Environment
 
 [ブラウザー版を開く](https://kasahart.github.io/audio-wandas-analyzer/)と、VS Code や Python をインストールせずに短い音声ファイルや CSV を比較できます。音声は端末内で解析され、アップロードされません。
 
-ファイルを選択すると、波形、スペクトログラム、カーソル、再生、ミュート、時間オフセット、ループの各操作を利用できます。比較中にトラックを追加・削除でき、画像、CSV スペクトル、選択範囲の音声、Markdown / Notebook レポートを出力できます。複数の音声範囲は ZIP でダウンロードされます。MoSQITo による心理音響解析を含む同梱レシピも利用できます。
+ファイルを選択すると、波形、スペクトログラム、カーソル、再生、ミュート、時間オフセット、ループの各操作を利用できます。比較中にトラックを追加・削除でき、画像、CSV スペクトル、選択範囲の音声、Markdown / Notebook レポートを出力できます。複数の音声範囲は ZIP でダウンロードされます。心理音響（ラウドネス、ラフネス）を含む同梱レシピと、**ワークフロー → レシピ実行 → ファイルから…** による手元の `.recipe.json` も実行できます。
 
 <!-- browser-limits:start (generated by scripts/check-single-sources.mjs --write) -->
 | 制限 | ブラウザー版 |
@@ -133,6 +152,4 @@ Audio Analyzer: Select Python Environment
 ## リンク
 
 - リポジトリ: https://github.com/kasahart/audio-wandas-analyzer
-- バックエンドライブラリ: [wandas](https://github.com/kasahart/wandas)
-- 開発者ガイド: [docs/developer-guide.ja.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.ja.md)
 - バグ報告 / 機能要望: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues)

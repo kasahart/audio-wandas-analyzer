@@ -12,7 +12,34 @@
         "vscode": "^1.96.0"
     },
     "categories": [
-        "Other"
+        "Data Science",
+        "Visualization"
+    ],
+    "keywords": [
+        "audio",
+        "audio-analysis",
+        "audio-viewer",
+        "audio-comparison",
+        "waveform",
+        "spectrogram",
+        "spectrum",
+        "fft",
+        "stft",
+        "octave-band",
+        "transfer-function",
+        "coherence",
+        "loudness",
+        "psychoacoustics",
+        "signal-processing",
+        "acoustics",
+        "noise",
+        "wav",
+        "flac",
+        "recipe",
+        "wandas",
+        "python",
+        "音声",
+        "音響"
     ],
     "activationEvents": [
         "onStartupFinished"
