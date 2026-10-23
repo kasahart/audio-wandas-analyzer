@@ -16,7 +16,7 @@ Turn VS Code into a focused audio inspection desk. Audio Wandas Analyzer lets yo
 
 | | Browser | VS Code |
 | --- | --- | --- |
-| Setup | None: open the page | Python 3.11+ with wandas |
+| Setup | None: open the page | Python 3.11+ |
 | Files | Short files (limits under Browser Version) | Large and long files |
 | Calibration | Not available | Available |
 | Recipes | Bundled and your own `.recipe.json`; steps that need Python packages the browser lacks do not run | Anything your Python environment can run |
@@ -27,13 +27,15 @@ Audio comparison often means bouncing between a DAW, a notebook, a file browser,
 
 - Line up multiple recordings and check timing differences at a glance
 - Move between waveform, spectrogram, and power spectrum views without reloading files
-- Switch the cursor spectrum between the FFT and 1/1 or 1/3 octave bands (wandas `noct_spectrum`)
+- Switch the cursor spectrum between the FFT and 1/1 or 1/3 octave bands
 - Zoom into a range and fetch high-resolution waveform data only for what is visible
 - Listen, mute, loop, and nudge tracks while you inspect them
 - Export images, CSV spectrum data, loop audio, or a Markdown-friendly report for handoff
-- Run bundled or custom [wandas](https://github.com/kasahart/wandas) recipes for deeper analysis
+- Set a reference track to see the transfer function and coherence to the other tracks
+- Calibrate channels to physical units (Pa, m/s², V) and read levels such as dB SPL
+- Run bundled or your own analysis recipes for deeper analysis
 
-Supported formats: **WAV / FLAC / OGG / AIFF / AIF / SND / CSV** (whatever the bundled wandas reads; a CSV's first column is time). Playback covers WAV, FLAC and OGG only.
+Supported formats: **WAV / FLAC / OGG / AIFF / AIF / SND / CSV** (a CSV's first column is time). Playback covers WAV, FLAC and OGG only.
 
 The UI follows VS Code's display language. Japanese is used for `ja*`; all other languages fall back to English.
 
@@ -86,11 +88,13 @@ When you open a folder, supported audio files appear in a tree. Check a file to 
 ## Working In The Panel
 
 - **Compare:** view tracks on one shared timeline and switch each row between waveform and spectrogram
-- **Zoom:** use the toolbar `+ / - / 0` buttons, keyboard shortcuts, or the mouse wheel over a plot
+- **Zoom:** use the toolbar `－ / ＋ / Reset` buttons, the `+ / − / 0` keys, or Ctrl + mouse wheel; `L` zooms to the loop region
 - **Inspect:** click a waveform, spectrogram, or spectrum panel to move the cursor and update spectra
 - **Loop:** drag on the waveform to create a loop region; clear it with a click
-- **Listen:** use the per-track play button; mute tracks with `M`
-- **Align:** nudge track offsets with the `▲ / ▼` controls or double-click the offset value to reset it
+- **Listen:** use the per-track play and mute buttons, or `Space` to play or pause; `F` keeps the cursor in view during playback
+- **Align:** nudge a track by 10 ms with `▲ / ▼`, Shift+drag it, or click the offset value to type it; double-click resets it
+- **Reference:** set a track as the reference to see the transfer function and coherence to the others in the bottom panel
+- **Calibrate:** use **Cal** on a track, or **Audio Analyzer: Configure Calibration**, to set a factor, unit and level reference per channel
 - **Tune spectrograms:** open the gear popover to change FFT size, overlap, window function, dB range, and max frequency
 - **Get help:** press `?` inside the panel to see keyboard shortcuts
 
@@ -102,14 +106,14 @@ The comparison toolbar includes export actions for everyday handoff work:
 | --- | --- |
 | **Export PNG** | Current visible tracks as an image |
 | **Export CSV** | Spectrum data at the current cursor position |
-| **Export WAV** | Audio from the selected loop region |
-| **Export Report** | Markdown / notebook-ready analysis report |
-| **Run recipe** | A wandas recipe result rendered in VS Code |
+| **WAV** | Audio from the selected loop region |
+| **Report** | Markdown / notebook-ready analysis report |
+| **Run recipe** | A recipe result rendered in VS Code |
 | **Save as recipe** | The bottom panel's analysis as a `.recipe.json` |
 
-A recipe is a wandas `RecipePlan` saved with `plan.save()` (`*.recipe.json`), so a workflow built in a notebook runs here unchanged. The checked tracks fill the Recipe inputs in order (when a Recipe has several inputs or more tracks are checked than it needs, you confirm or change the assignment before it runs), as the same calibrated frames the main analysis uses; browser Recipes use tracks already loaded into the Worker. Both hosts execute the persistent `run-recipe` command.
+A recipe (`*.recipe.json`) is a saved analysis workflow. **Run recipe** applies a bundled recipe or one of your own to the checked tracks; when a recipe takes several inputs, you confirm which track goes where before it runs.
 
-**Workflow → Save as recipe** saves the bottom panel's analysis, with the current STFT settings, as an ordinary wandas Recipe computed over whole files: the spectrum of every channel (a Welch average where the panel shows the FFT at the cursor, or the 1/1 or 1/3 octave bands it shows, within the lowest shown sample rate), or, while a reference channel is set, the transfer function from it to every other shown channel. The transfer Recipe has one input per file (`reference`, `response`, …), resamples every input to the rate it was saved at (above a slower file's Nyquist the gain means nothing) and assumes the inputs are synchronized, so track offsets and the loop range are not saved. Python records the workflow with `RecipePlan.from_frame`, so the file runs again through **Run recipe** or in wandas itself.
+**Workflow → Save as recipe** saves the bottom panel's analysis with the current settings, computed over whole files: the spectrum or octave bands of every channel, or, while a reference is set, the transfer function from it to the other channels. Track offsets and the loop range are not saved, so the inputs should be synchronized. Run the file again any time with **Run recipe**.
 
 ## Settings
 
@@ -121,8 +125,8 @@ A recipe is a wandas `RecipePlan` saved with `plan.save()` (`*.recipe.json`), so
 
 ## Troubleshooting
 
-- **Python interpreter was not found:** select the venv that has `wandas` installed, or update `audioWandasAnalyzer.pythonCommand`.
-- **Analysis failed:** open **Output: Audio Wandas Analyzer** and check the Python error. Confirm `wandas`, `numpy`, and `soundfile` are installed in the selected environment.
+- **Python interpreter was not found:** select the virtual environment where you installed the Quick Start packages, or update `audioWandasAnalyzer.pythonCommand`.
+- **Analysis failed:** open **Output: Audio Wandas Analyzer** and check the Python error. Confirm the Quick Start packages are installed in the selected environment.
 - **A file does not load:** confirm the extension is one of WAV, FLAC, OGG, AIFF, AIF, SND, or CSV. MP3 and M4A are not supported yet.
 - **Large files feel slow:** zoomed waveform requests are fetched only for the visible range. For spectrogram-heavy work, try a smaller FFT size or a lower overlap.
 
@@ -130,7 +134,7 @@ A recipe is a wandas `RecipePlan` saved with `plan.save()` (`*.recipe.json`), so
 
 [Open the browser version](https://kasahart.github.io/audio-wandas-analyzer/) to compare short audio or CSV files without installing VS Code or Python. Audio is analyzed on your device and is not uploaded.
 
-Select one or more files, then use the waveform, spectrogram, cursor, playback, mute, offset and loop controls. You can add or remove tracks during a comparison. Export images, CSV spectra, selected audio ranges, or Markdown / Notebook reports; exporting multiple audio ranges downloads a ZIP file. Bundled recipes are available, including the psychoacoustic ones that use MoSQITo, and **Workflow → Run recipe → From file…** runs a `.recipe.json` from your computer. The result names the file behind each Recipe input.
+Select one or more files, then use the waveform, spectrogram, cursor, playback, mute, offset and loop controls. You can add or remove tracks during a comparison. Export images, CSV spectra, selected audio ranges, or Markdown / Notebook reports; exporting multiple audio ranges downloads a ZIP file. Bundled recipes are available, including psychoacoustic ones (loudness, roughness), and **Workflow → Run recipe → From file…** runs a `.recipe.json` from your computer. The result names the file behind each recipe input.
 
 <!-- browser-limits:start (generated by scripts/check-single-sources.mjs --write) -->
 | Limit | Browser version |
@@ -150,6 +154,5 @@ Display and spectrogram settings are remembered between visits. Audio files, cur
 
 - VS Code Marketplace: [Audio Wandas Analyzer](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer)
 - Repository: https://github.com/kasahart/audio-wandas-analyzer
-- Backend library: [wandas](https://github.com/kasahart/wandas)
 - Developer guide: [docs/developer-guide.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.md)
 - Issues and feature requests: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues)
