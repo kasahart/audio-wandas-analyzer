@@ -50,12 +50,25 @@ guardrails. Write every comment in Japanese.
   focus lost when an element hides, feedback only in `aria-hidden` regions.
 - Parallel entry points: a change made for one host, one protocol command or
   one panel but not for its counterparts; protocol schema and generated types
-  out of step.
+  out of step; a check that existing commands apply (for example path
+  authorization through `lazyContext`) missing from a new command.
+- Recipe replay on other inputs: a Recipe saved from the tracks on screen can
+  be run on any assigned tracks. Decisions taken at save time from those
+  tracks (sample rate, resampling, channel count, band limits, FFT size) must
+  still hold, or the run must fail with a clear input error. Save from one
+  set of files and run on files with other sample rates, channel counts and
+  lengths.
+- Scaling: work that grows quadratically with tracks or channels (for example
+  computing a full N×N matrix and keeping N−1 rows), or that repeats per-file
+  work for every file when only visible rows are needed. Measure time and
+  memory at many tracks or channels when the PR touches such a path.
 - Integrity and security: verified bytes discarded and fetched again
   unverified, cached copies checked instead of what actually runs, paths not
   validated.
 - Edge inputs: empty, very short, very long, different sample rates,
-  unsupported formats, invalid user input reaching a crash.
+  unsupported formats, invalid user input reaching a crash, user-supplied
+  names (Recipe inputs, file names, labels) used as plain object keys, where
+  `__proto__` is lost.
 - Docs, comments and UI strings that state something false about the code.
 - Tests that pass without exercising the new behaviour.
 
