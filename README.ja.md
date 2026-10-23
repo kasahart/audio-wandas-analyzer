@@ -120,8 +120,7 @@ Audio Analyzer: Select Python Environment
 | 設定キー | 既定値 | 説明 |
 | --- | --- | --- |
 | `audioWandasAnalyzer.pythonCommand` | `python3` | バックエンドに使う Python 環境フォルダまたは実行ファイル |
-| `audioWandasAnalyzer.cacheMemoryMb` | `1024` | 常駐 Python 波形バックエンドが使う音声キャッシュの上限 MB |
-| `audioWandasAnalyzer.debugFilePath` | `media/debug` | **Audio Analyzer: Analyze Debug Path** で開く既定パス |
+| `audioWandasAnalyzer.cacheMemoryMb` | `1024` | 読み込んだ音声のキャッシュに使うメモリの上限（MB） |
 
 ## トラブルシューティング
 
@@ -153,5 +152,4 @@ Audio Analyzer: Select Python Environment
 ## リンク
 
 - リポジトリ: https://github.com/kasahart/audio-wandas-analyzer
-- 開発者ガイド: [docs/developer-guide.ja.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.ja.md)
 - バグ報告 / 機能要望: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues)

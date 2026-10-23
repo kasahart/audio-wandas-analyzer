@@ -120,8 +120,7 @@ A recipe (`*.recipe.json`) is a saved analysis workflow. **Run recipe** applies 
 | Key | Default | Description |
 | --- | --- | --- |
 | `audioWandasAnalyzer.pythonCommand` | `python3` | Python environment folder or executable used for the backend |
-| `audioWandasAnalyzer.cacheMemoryMb` | `1024` | Maximum audio cache size used by the persistent Python waveform backend |
-| `audioWandasAnalyzer.debugFilePath` | `media/debug` | Default path for **Audio Analyzer: Analyze Debug Path** |
+| `audioWandasAnalyzer.cacheMemoryMb` | `1024` | Maximum memory (MB) used to cache loaded audio |
 
 ## Troubleshooting
 
@@ -154,5 +153,4 @@ Display and spectrogram settings are remembered between visits. Audio files, cur
 
 - VS Code Marketplace: [Audio Wandas Analyzer](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer)
 - Repository: https://github.com/kasahart/audio-wandas-analyzer
-- Developer guide: [docs/developer-guide.md](https://github.com/kasahart/audio-wandas-analyzer/blob/main/docs/developer-guide.md)
 - Issues and feature requests: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues)
