@@ -69,6 +69,20 @@
       }
     },
     {
+      "command": "spectrum-slice",
+      "request": {
+        "cmd": "spectrum-slice",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "trackIndex": 0,
+        "analysisId": "analysis-1",
+        "settingsSignature": "settings-1",
+        "startSeconds": 0.25,
+        "endSeconds": 1.5,
+        "bandsPerOctave": 3
+      }
+    },
+    {
       "command": "export-wav-loop",
       "request": {
         "cmd": "export-wav-loop",
@@ -368,9 +382,24 @@
         "filePath": "tone.wav",
         "trackIndex": 0,
         "analysisId": "analysis-1",
-        "settingsSignature": "settings-1"
+        "settingsSignature": "settings-1",
+        "cursorNorm": "half"
       },
       "errorField": "cursorNorm"
+    },
+    {
+      "command": "spectrum-slice",
+      "request": {
+        "cmd": "spectrum-slice",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "trackIndex": 0,
+        "analysisId": "analysis-1",
+        "settingsSignature": "settings-1",
+        "startSeconds": 0.5,
+        "endSeconds": "end"
+      },
+      "errorField": "endSeconds"
     },
     {
       "command": "spectrum-slice",

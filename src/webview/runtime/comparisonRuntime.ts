@@ -55,7 +55,7 @@ import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { referenceButtonHtml } from './pairSpectrum';
 import { PairSpectrumPanel } from './pairSpectrumPanel';
 import { paintTrackSpectrum } from './trackSpectrumPainter';
-import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
+import { regionForTrack, RegionSpectrumStore } from './regionSpectrum';
 import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
@@ -471,6 +471,45 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleSpectrumRefresh('immediate');
         },
     }, STR);
+    // The bottom panel: each shown track's spectrum averaged over the loop region, or its whole file without one.
+    const regionSpectrum = new RegionSpectrumStore({
+        sources() {
+            return trackStore.displayOrder.flatMap(function (trackId) {
+                const record = trackStore.require(trackId);
+                if (record.runtime.hidden || record.result.error) {
+                    return [];
+                }
+                const result = record.result;
+                return [{
+                    trackId,
+                    trackIndex: record.protocolIndex,
+                    filePath: result.filePath,
+                    offsetSeconds: record.runtime.offsetSeconds,
+                    durationSeconds: result.durationSeconds || 0,
+                    channelCount: channelsForResult(result).length,
+                    color: trackColor(record.protocolIndex),
+                    label: channelIndex => spectrumSeriesLabel(result, channelIndex),
+                }];
+            });
+        },
+        range() {
+            if (!loopRegion) {
+                return null;
+            }
+            const span = trackStore.globalSpan();
+            return { startSeconds: span.startSec + loopRegion.start * span.spanSec, endSeconds: span.startSec + loopRegion.end * span.spanSec };
+        },
+        analysisId: () => analysisId,
+        settingsSignature: currentSpectrumDataSignature,
+        bandsPerOctave: () => spectrumBandsPerOctave,
+        nextRequestId: trackIndex => nextLazyRequestId('region', trackIndex),
+        post: request => messaging.post(request),
+        applyDisplaySettings: slice => applySpectrumDisplaySettings(slice),
+        onChange() {
+            overlaySpectrumPainted = false;
+            scheduleSpectrumFrame(false, false);
+        },
+    }, STR);
     let overlaySpectrumPainted = false;
     let lazyRequestCounter = 0;
     interface DesiredSpectrumSliceRequest extends LazyRequestState {
@@ -830,6 +869,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
         requestAnimationFrame(function () { publishTestSnapshot(); });
         pumpSpectrumSliceRequests();
+    });
+    messaging.onMessage(function (msg) {
+        if (msg) {
+            regionSpectrum.handleMessage(msg);
+        }
     });
     messaging.onMessage(function (msg) {
         if (msg && pairPanel.handleMessage(msg)) {
@@ -1326,6 +1370,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // ── Rendering ──
     function renderAll() {
         pairPanel.sync();
+        regionSpectrum.sync();
         updateUiSmokeSpectrumState();
         resizeAllCanvases();
         renderRuler();
@@ -2616,22 +2661,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
             return;
         }
-        const tracks: Array<{ name: string; slice: SpectrumSlice }> = [];
-        trackStore.activeIds().forEach(function (trackId) {
-            const record = trackStore.require(trackId);
-            const result = record.result;
-            const i = record.protocolIndex;
-            if (record.runtime.hidden) {
-                return;
-            }
-            channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, cursorNorm, channelIndex);
-                if (!slice || !slice.values || slice.values.length === 0) {
-                    return;
-                }
-                tracks.push({ name: (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex), slice: slice });
+        const tracks: Array<{ name: string; slice: SpectrumSlice }> = regionSpectrum.series()
+            .filter(function (item) { return item.slice.values && item.slice.values.length > 0; })
+            .map(function (item) {
+                const result = trackRecordAtIndex(item.index)?.result;
+                const name = result ? (result.fileName || ('track' + (item.index + 1))) + ' ' + channelLabel(result, item.channelIndex) : item.label;
+                return { name: name, slice: item.slice };
             });
-        });
         if (tracks.length === 0) {
             messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
             return;
@@ -2661,7 +2697,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             messaging.post({ type: 'show-info', message: STR.recipeSaveNoData });
             return;
         }
-        messaging.post({ type: 'save-recipe', filePath: record.result.filePath, ...(spectrumBandsPerOctave ? { bandsPerOctave: spectrumBandsPerOctave } : {}) });
+        const region = loopRegion ? regionForTrack(regionSpectrum.range(), record.runtime.offsetSeconds, record.result.durationSeconds || 0) : null;
+        messaging.post({
+            type: 'save-recipe',
+            filePath: record.result.filePath,
+            ...(spectrumBandsPerOctave ? { bandsPerOctave: spectrumBandsPerOctave } : {}),
+            ...(region ? { startSeconds: region.startSeconds, endSeconds: region.endSeconds } : {}),
+        });
     }
     function exportWavLoop() {
         if (!loopRegion) {
@@ -3079,20 +3121,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function spectrumSeriesLabel(result: ComparisonTrackState, channelIndex: number) {
         return result.fileName + ' / ' + channelLabel(result, channelIndex);
     }
-    const spectrumSeriesSource: SpectrumSeriesSource<ComparisonTrackState> = {
-        channelCount: function (result) { return channelsForResult(result).length; },
-        slice: extractSpectrumAtCursor,
-        isPending: isSpectrumSliceRequestPendingForCursor,
-        color: trackColor,
-        label: spectrumSeriesLabel,
-    };
-    function spectrumSeriesAt(norm: number): CollectedSpectrumSeries {
-        const tracks = trackStore.displayOrder.map(function (trackId) {
-            const record = trackStore.require(trackId);
-            return { index: record.protocolIndex, result: record.result, hidden: record.runtime.hidden, offsetSeconds: record.runtime.offsetSeconds };
-        });
-        return collectSpectrumSeries(tracks, norm, spectrumSeriesSource);
-    }
     function moveSpectrumHoverByBin(deltaIdx: number) {
         if (spectrumHover.norm === null) {
             spectrumHover.norm = 0.5;
@@ -3112,7 +3140,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             return;
         }
-        const slices = spectrumSeriesAt(cursorNorm).series;
+        const slices = regionSpectrum.series();
         if (slices.length === 0) {
             return;
         }
@@ -3209,12 +3237,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const W = canvas.width, H = canvas.height;
-        const { series: slices, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
-        if (overlaySpectrumPainted && pendingVisibleSlice) {
-            return;
-        }
+        const slices = regionSpectrum.series();
+        wrap?.classList.toggle('is-stale', regionSpectrum.stale);
         if (slices.length === 0) {
-            drawCanvasMessage(ctx, W, H, STR.spectrumNoData, '11px sans-serif', drawTheme().mutedColor);
+            const error = regionSpectrum.error;
+            const text = error !== null ? STR.spectrumFailed.replace('{error}', error) : regionSpectrum.pending ? STR.pairWaiting : STR.spectrumNoData;
+            drawCanvasMessage(ctx, W, H, text, '11px sans-serif', drawTheme().mutedColor);
+            setSpectrumReadout(document.getElementById('spectrum-freq-readout'), '', '');
             overlaySpectrumPainted = false;
             return;
         }
@@ -3235,26 +3264,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         updateUiSmokeSpectrumState();
         const el = document.getElementById('spectrum-cursor-time');
         if (el) {
-            const gs = trackStore.globalSpan();
-            el.textContent = '@ ' + formatClockTime(gs.startSec + spectrumCursorNorm * gs.spanSec) + analysisWindowCaption();
+            el.textContent = regionSpectrum.caption();
         }
-    }
-    function analysisWindowCaption() {
-        const gs = trackStore.globalSpan();
-        const captions = new Set<string>();
-        for (const trackId of trackStore.displayOrder) {
-            const band = analysisWindowBand(trackStore.require(trackId).protocolIndex, 0);
-            if (band) {
-                const ms = (band.endNorm - band.startNorm) * gs.spanSec * 1000;
-                captions.add(STR.spectrumAnalysisWindow + (band.window ? ' ' + band.window : '') + ' '
-                    + (gs.startSec + band.startNorm * gs.spanSec).toFixed(3) + '–' + (gs.startSec + band.endNorm * gs.spanSec).toFixed(3)
-                    + ' s (' + ms.toFixed(ms < 10 ? 2 : 1) + ' ms)');
-            }
-        }
-        if (captions.size === 0) {
-            return '';
-        }
-        return '  ' + (captions.size === 1 ? captions.values().next().value : STR.spectrumAnalysisWindowPerTrack);
     }
     function removeTrack(trackId: TrackId) {
         const record = trackStore.get(trackId);

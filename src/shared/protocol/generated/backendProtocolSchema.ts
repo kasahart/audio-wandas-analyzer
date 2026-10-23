@@ -484,8 +484,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "filePath",
                 "trackIndex",
                 "analysisId",
-                "settingsSignature",
-                "cursorNorm"
+                "settingsSignature"
             ],
             "properties": {
                 "filePath": {
@@ -501,6 +500,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "type": "string"
                 },
                 "cursorNorm": {
+                    "type": "number"
+                },
+                "startSeconds": {
+                    "type": "number"
+                },
+                "endSeconds": {
                     "type": "number"
                 },
                 "bandsPerOctave": {
@@ -663,6 +668,16 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "blackman",
                         "boxcar"
                     ]
+                },
+                "startSeconds": {
+                    "type": "number"
+                },
+                "endSeconds": {
+                    "type": "number"
+                },
+                "averages": {
+                    "type": "integer",
+                    "minimum": 1
                 },
                 "computeMs": {
                     "type": "number"
@@ -1002,6 +1017,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         3
                     ]
                 },
+                "startSeconds": {
+                    "type": "number"
+                },
+                "endSeconds": {
+                    "type": "number"
+                },
                 "referenceChannel": {
                     "type": "integer",
                     "minimum": 0
@@ -1304,7 +1325,9 @@ export interface SpectrumSlicePayload {
     trackIndex: number;
     analysisId: string;
     settingsSignature: string;
-    cursorNorm: number;
+    cursorNorm?: number;
+    startSeconds?: number;
+    endSeconds?: number;
     bandsPerOctave?: 1 | 3;
     stftOptions?: StftOptions;
     calibrationProfile?: CalibrationProfile;
@@ -1345,6 +1368,9 @@ export interface SpectrumSliceResult {
     windowStartNorm: number;
     windowEndNorm: number;
     window: "hann" | "hamming" | "blackman" | "boxcar";
+    startSeconds?: number;
+    endSeconds?: number;
+    averages?: number;
     computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;
@@ -1432,6 +1458,8 @@ export interface BuildRecipePayload {
     filePath: string;
     stftOptions?: StftOptions;
     bandsPerOctave?: 1 | 3;
+    startSeconds?: number;
+    endSeconds?: number;
     referenceChannel?: number;
     responses?: RecipeChannel[];
 }

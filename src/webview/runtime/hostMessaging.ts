@@ -48,6 +48,10 @@ export type HostInboundMessage =
         windowEndNorm?: number;
         window?: string;
         computeMs?: number;
+        /** Set when the spectrum averages a span of the file rather than a cursor window. */
+        startSeconds?: number;
+        endSeconds?: number;
+        averages?: number;
     })
     | (LazyResponseIdentity & { type: 'spectrum-slice-error'; error: string })
     | PairSpectrumPublication
