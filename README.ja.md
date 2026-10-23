@@ -4,11 +4,22 @@
 
 VS Code を、そのまま音声確認の作業台に。Audio Wandas Analyzer は、音声ファイルを開き、複数テイクを同じタイムラインで比較し、波形の細部、スペクトログラム、カーソル位置のパワースペクトルを確認しながら、必要な証跡をその場で出力できる拡張機能です。
 
+**[▶ ブラウザーですぐ試す](https://kasahart.github.io/audio-wandas-analyzer/)**（インストール不要、音声は端末から送信されません）。VS Code 版は [Marketplace](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer) からインストールできます。
+
 ## スクリーンショット
 
 ![Audio Wandas Analyzer のスクリーンショット](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
 
 ![Audio Wandas Analyzer のスペクトログラム表示スクリーンショット](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer_stft.png)
+
+## ブラウザー版と VS Code 版
+
+| | ブラウザー版 | VS Code 版 |
+| --- | --- | --- |
+| 準備 | 不要（ページを開くだけ） | Python 3.11+ と wandas |
+| ファイル | 短い音声（制限は「ブラウザー版」を参照） | 大きく長いファイル |
+| 校正 | 未対応 | 対応 |
+| レシピ | 同梱レシピと手元の `.recipe.json`。ブラウザーにない Python パッケージを使う処理は実行できません | Python 環境で動くものすべて |
 
 ## なぜ便利か
 

@@ -4,11 +4,22 @@
 
 Turn VS Code into a focused audio inspection desk. Audio Wandas Analyzer lets you open audio files, compare takes on one timeline, zoom into waveform detail, inspect spectrograms and cursor-time spectra, and export the evidence you need without switching tools.
 
+**[▶ Try it in your browser](https://kasahart.github.io/audio-wandas-analyzer/)** with no install (audio stays on your device), or install it from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer).
+
 ## Screenshot
 
 ![Audio Wandas Analyzer screenshot](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
 
 ![Audio Wandas Analyzer spectrogram screenshot](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer_stft.png)
+
+## Browser or VS Code
+
+| | Browser | VS Code |
+| --- | --- | --- |
+| Setup | None: open the page | Python 3.11+ with wandas |
+| Files | Short files (limits under Browser Version) | Large and long files |
+| Calibration | Not available | Available |
+| Recipes | Bundled and your own `.recipe.json`; steps that need Python packages the browser lacks do not run | Anything your Python environment can run |
 
 ## Why Use It
 
