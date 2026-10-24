@@ -122,7 +122,11 @@ export interface SpectrumSliceRequest {
     settingsSignature: string;
     trackIndex: number;
     filePath: string;
-    cursorNorm: number;
+    /** Instantaneous spectrum centred on this position of the file (0..1). */
+    cursorNorm?: number;
+    /** Average spectrum over this span of the file, in seconds from its start. */
+    startSeconds?: number;
+    endSeconds?: number;
     /** Absent for the FFT spectrum. */
     bandsPerOctave?: SpectrumBandsPerOctave;
 }
@@ -141,9 +145,18 @@ export function isRequestSpectrumSliceMessage(message: unknown): message is Spec
         typeof m['settingsSignature'] === 'string' &&
         typeof m['trackIndex'] === 'number' &&
         typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0 &&
-        typeof m['cursorNorm'] === 'number' &&
+        (typeof m['cursorNorm'] === 'number' || (typeof m['startSeconds'] === 'number' && typeof m['endSeconds'] === 'number')) &&
         (m['bandsPerOctave'] === undefined || m['bandsPerOctave'] === 1 || m['bandsPerOctave'] === 3)
     );
+}
+
+/** The part of a spectrum-slice request that names which samples it covers. */
+export function spectrumSliceSpan(message: Pick<SpectrumSliceRequest, 'cursorNorm' | 'startSeconds' | 'endSeconds'>):
+    { cursorNorm: number } | { startSeconds: number; endSeconds: number } {
+    if (typeof message.cursorNorm === 'number') {
+        return { cursorNorm: message.cursorNorm };
+    }
+    return { startSeconds: message.startSeconds ?? 0, endSeconds: message.endSeconds ?? 0 };
 }
 
 /** One channel at its place on the shared timeline. */

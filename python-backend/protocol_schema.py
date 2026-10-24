@@ -264,15 +264,19 @@ DEFINITIONS: dict[str, Schema] = {
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
         },
     },
+    # Either ``cursorNorm`` (one window centred on the cursor) or ``startSeconds``/``endSeconds``
+    # (the Welch average, or band levels, of that stretch of the file) names the samples.
     "SpectrumSlicePayload": {
         "type": "object",
-        "required": ["filePath", "trackIndex", "analysisId", "settingsSignature", "cursorNorm"],
+        "required": ["filePath", "trackIndex", "analysisId", "settingsSignature"],
         "properties": {
             "filePath": {"type": "string"},
             "trackIndex": {"type": "integer"},
             "analysisId": {"type": "string"},
             "settingsSignature": {"type": "string"},
             "cursorNorm": _NUMBER,
+            "startSeconds": _NUMBER,
+            "endSeconds": _NUMBER,
             # Absent for the FFT spectrum; 1 or 3 asks for 1/1 or 1/3 octave bands of the same samples instead.
             "bandsPerOctave": {"type": "integer", "enum": [1, 3]},
             "stftOptions": {"$ref": "#/$defs/StftOptions"},
@@ -336,6 +340,10 @@ DEFINITIONS: dict[str, Schema] = {
             "windowStartNorm": _NUMBER,
             "windowEndNorm": _NUMBER,
             "window": {"type": "string", "enum": ["hann", "hamming", "blackman", "boxcar"]},
+            # Range results only: the file seconds actually averaged and, for the Welch spectrum, its segment count.
+            "startSeconds": _NUMBER,
+            "endSeconds": _NUMBER,
+            "averages": {"type": "integer", "minimum": 1},
             "computeMs": _NUMBER,
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
@@ -468,6 +476,9 @@ DEFINITIONS: dict[str, Schema] = {
             "filePath": {"type": "string"},
             "stftOptions": {"$ref": "#/$defs/StftOptions"},
             "bandsPerOctave": {"type": "integer", "enum": [1, 3]},
+            # The spectrum Recipe trims the file to these seconds first; absent, it averages the whole file.
+            "startSeconds": _NUMBER,
+            "endSeconds": _NUMBER,
             "referenceChannel": {"type": "integer", "minimum": 0},
             "responses": {"type": "array", "items": {"$ref": "#/$defs/RecipeChannel"}},
         },

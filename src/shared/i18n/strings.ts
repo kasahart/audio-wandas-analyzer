@@ -103,8 +103,7 @@ export interface UiStrings {
     tooltipLoopOrShift: string;
     canvasOutOfRange: string;
     spectrumNoData: string;
-    spectrumAnalysisWindow: string;
-    spectrumAnalysisWindowPerTrack: string;
+    spectrumFailed: string;
     spectrogramLoading: string;
     settingsApplyHint: string;
     reanalyzingStft: string;
@@ -380,7 +379,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         selectionCountLabel: 'selected',
         selectionNoSupported: 'No supported audio files found.',
         treeFilterPlaceholder: 'Filter files...',
-        spectrumSectionTitle: 'Power spectrum at cursor (all tracks overlaid)',
+        spectrumSectionTitle: 'Average spectrum of the range',
         toolbarMain: 'Files',
         toolbarTrackLabel: 'Track:',
         btnWaveform: 'Waveform',
@@ -424,9 +423,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         tooltipLoopClear: 'Click to clear loop',
         tooltipLoopOrShift: 'Drag: set loop region / Shift+Drag: shift track in time',
         canvasOutOfRange: 'Out of range',
-        spectrumNoData: 'No track has data at the cursor position',
-        spectrumAnalysisWindow: 'window',
-        spectrumAnalysisWindowPerTrack: 'window differs per track (see the bands)',
+        spectrumNoData: 'No shown track has data in the range',
+        spectrumFailed: 'Spectrum failed: {error}',
         spectrogramLoading: 'Loading spectrogram...',
         settingsApplyHint: 'Click Apply to commit changes',
         reanalyzingStft: 'Recomputing STFT…',
@@ -555,7 +553,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceExportPngStarted: 'PNG export started',
         announceExportPngFailed: 'PNG export failed: no visible canvases',
         announceExportCsvStarted: 'CSV export started',
-        announceExportCsvFailed: 'CSV export failed: no spectrum data at cursor',
+        announceExportCsvFailed: 'CSV export failed: no spectrum data in the range',
         spectrumZoomLabel: 'Spectrum',
         ariaSpecZoomIn: 'Spectrum zoom in',
         ariaSpecZoomOut: 'Spectrum zoom out',
@@ -699,7 +697,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         selectionCountLabel: '件を選択中',
         selectionNoSupported: '対応する音声ファイルは見つかりませんでした。',
         treeFilterPlaceholder: 'ファイルを絞り込む...',
-        spectrumSectionTitle: 'カーソル時刻のパワースペクトル（全トラック重ね合わせ）',
+        spectrumSectionTitle: '区間の平均スペクトル',
         toolbarMain: 'ファイル',
         toolbarTrackLabel: 'トラック:',
         btnWaveform: '波形',
@@ -743,9 +741,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         tooltipLoopClear: 'クリックでループ解除',
         tooltipLoopOrShift: 'ドラッグ: ループ区間を設定 / Shift+ドラッグ: トラックの時間をずらす',
         canvasOutOfRange: '範囲外',
-        spectrumNoData: 'カーソル位置にデータがあるトラックがありません',
-        spectrumAnalysisWindow: '解析窓',
-        spectrumAnalysisWindowPerTrack: '解析窓はトラックごとに異なります（帯を参照）',
+        spectrumNoData: '区間にデータがある表示中のトラックがありません',
+        spectrumFailed: 'スペクトルの計算に失敗しました: {error}',
         spectrogramLoading: 'スペクトログラムを読み込み中...',
         settingsApplyHint: '変更は「適用」で反映',
         reanalyzingStft: 'STFT を再計算中…',
@@ -874,7 +871,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceExportPngStarted: 'PNG 出力を開始しました',
         announceExportPngFailed: 'PNG 出力失敗：表示中のキャンバスがありません',
         announceExportCsvStarted: 'CSV 出力を開始しました',
-        announceExportCsvFailed: 'CSV 出力失敗：カーソル位置にスペクトルデータがありません',
+        announceExportCsvFailed: 'CSV 出力失敗：区間にスペクトルデータがありません',
         spectrumZoomLabel: 'スペクトル',
         ariaSpecZoomIn: 'スペクトル拡大',
         ariaSpecZoomOut: 'スペクトル縮小',
