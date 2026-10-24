@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "pyodideVersion": "314.0.3",
   "pythonVersion": "3.14.0",
-  "wandasVersion": "0.9.0",
-  "upstreamHarness": "https://github.com/kasahart/wandas/blob/v0.9.0/scripts/run_pyodide_tests.mjs",
-  "upstreamCommit": "1cbf3b1790a0d1feadcfdefee6b78c8622eadd97",
+  "wandasVersion": "0.10.0",
+  "upstreamHarness": "https://github.com/kasahart/wandas/blob/v0.10.0/scripts/run_pyodide_tests.mjs",
+  "upstreamCommit": "20965b2e59f275eb6d71f94591eccaee48113c27",
   "nativePackages": [
     "attrs",
     "certifi",
@@ -38,8 +38,7 @@
     "xarray"
   ],
   "pureWheels": [
-    "wandas-0.9.0-py3-none-any.whl",
-    "cattrs-26.1.0-py3-none-any.whl",
+    "wandas-0.10.0-py3-none-any.whl",
     "dask-2026.7.1-py3-none-any.whl",
     "locket-1.0.0-py2.py3-none-any.whl",
     "partd-1.4.2-py3-none-any.whl",
@@ -298,20 +297,12 @@
       "version": "2026.2.0"
     },
     {
-      "path": "wandas-0.9.0-py3-none-any.whl",
-      "url": "https://files.pythonhosted.org/packages/83/a4/ddcb27987f7c8b343886d3267e7d825b64a2ae34ebe542780024944408a4/wandas-0.9.0-py3-none-any.whl",
-      "sha256": "e198c97285ae07259256508d9e688ee233ea0ace1c52f4e5ea86eee30270b719",
-      "bytes": 288923,
+      "path": "wandas-0.10.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/e8/4a/03f15e40423be770cb7f4ddb5607e635b0e355a88ddcdbfbf2b55b5951ba/wandas-0.10.0-py3-none-any.whl",
+      "sha256": "6aa79525b7dc074adabe0b7c253508c65932d3762f770ddbb04f181c9d83b1f3",
+      "bytes": 306615,
       "component": "wandas",
-      "version": "0.9.0"
-    },
-    {
-      "path": "cattrs-26.1.0-py3-none-any.whl",
-      "url": "https://files.pythonhosted.org/packages/80/56/60547f7801b97c67e97491dc3d9ade9fbccbd0325058fd3dfcb2f5d98d90/cattrs-26.1.0-py3-none-any.whl",
-      "sha256": "d1e0804c42639494d469d08d4f26d6b9de9b8ab26b446db7b5f8c2e97f7c3096",
-      "bytes": 73054,
-      "component": "cattrs",
-      "version": "26.1.0"
+      "version": "0.10.0"
     },
     {
       "path": "dask-2026.7.1-py3-none-any.whl",

@@ -25,9 +25,9 @@ const REQUIRED_PACKAGES = [
     {
         modules: ['wandas', 'mosqito'],
         distribution: 'wandas',
-        requirement: 'wandas[psychoacoustic]>=0.9.0,<0.10.0',
-        minimum: [0, 9, 0],
-        maximum: [0, 10, 0],
+        requirement: 'wandas[psychoacoustic]>=0.10.0,<0.11.0',
+        minimum: [0, 10, 0],
+        maximum: [0, 11, 0],
     },
 ] as const;
 /** The user's configured interpreter (`audioWandasAnalyzer.pythonCommand`), before relative-path resolution. */

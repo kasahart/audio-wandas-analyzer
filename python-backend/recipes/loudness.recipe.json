@@ -1,6 +1,6 @@
 {
   "schema": "wandas.recipe",
-  "version": 2,
+  "version": 3,
   "inputs": [
     {
       "id": "input-0",

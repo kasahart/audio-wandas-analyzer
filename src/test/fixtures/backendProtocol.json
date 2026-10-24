@@ -85,7 +85,7 @@
         "requestId": "r1",
         "recipe": {
           "schema": "wandas.recipe",
-          "version": 2,
+          "version": 3,
           "inputs": [
             {
               "id": "input-0",
@@ -697,7 +697,7 @@
         "name": "spectrum",
         "recipe": {
           "schema": "wandas.recipe",
-          "version": 2,
+          "version": 3,
           "inputs": [],
           "nodes": [],
           "output": "input-0"

@@ -1,6 +1,6 @@
 {
   "schema": "wandas.recipe",
-  "version": 2,
+  "version": 3,
   "inputs": [
     {
       "id": "input-0",
@@ -12,7 +12,7 @@
     {
       "id": "node-0",
       "operation": "wandas.audio.bandpass_filter",
-      "version": 1,
+      "version": 2,
       "inputs": [
         "input-0"
       ],
@@ -45,7 +45,7 @@
     {
       "id": "node-2",
       "operation": "wandas.audio.welch",
-      "version": 2,
+      "version": 3,
       "inputs": [
         "node-1"
       ],
