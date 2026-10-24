@@ -188,17 +188,17 @@ def test_sparse_stft_time_axes_and_amplitudes_match_scipy(n_fft: int, window: st
     "recipe",
     [
         {"inputs": [{"name": "sig", "file": "selected.wav"}], "steps": [], "display": []},
-        {"schema": "wandas.recipe", "version": 2, "inputs": [], "nodes": [], "output": "missing"},
+        {"schema": "wandas.recipe", "version": 3, "inputs": [], "nodes": [], "output": "missing"},
         {
             "schema": "wandas.recipe",
-            "version": 2,
+            "version": 3,
             "inputs": [{"id": "input-0", "name": "offset", "kind": "array"}],
             "nodes": [],
             "output": "input-0",
         },
         {
             "schema": "wandas.recipe",
-            "version": 2,
+            "version": 3,
             "inputs": [{"id": "input-0", "name": "signal", "kind": "frame"}],
             "nodes": [
                 {

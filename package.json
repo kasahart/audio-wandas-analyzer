@@ -77,7 +77,7 @@
             "explorer/context": [
                 {
                     "command": "audioWandasAnalyzer.analyzeThisTarget",
-                    "when": "resourceExtname =~ /^\\.(wav|flac|ogg|aiff|aif|snd|csv)$/i",
+                    "when": "resourceExtname =~ /^\\.(wav|flac|ogg|oga|opus|mp3|aiff|aif|au|snd|caf|w64|rf64|csv)$/i",
                     "group": "2_workspace"
                 },
                 {

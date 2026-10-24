@@ -1052,8 +1052,8 @@ test('Open Folder walks the File System Access picker and ignores a cancelled pi
 test('every format wandas reads is offered and keeps its extension when listed', async () => {
     const app = harness();
     const file = (name: string) => ({ size: 100, name, lastModified: 1, arrayBuffer: async () => new ArrayBuffer(100) });
-    assert.equal(app.picker.accept, '.wav,.flac,.ogg,.aiff,.aif,.snd,.csv');
-    app.picker.files = [file('take.FLAC'), file('accel.csv'), file('take.flac'), file('clip.mp3')];
+    assert.equal(app.picker.accept, '.wav,.flac,.ogg,.oga,.opus,.mp3,.aiff,.aif,.au,.snd,.caf,.w64,.rf64,.csv');
+    app.picker.files = [file('take.FLAC'), file('accel.csv'), file('take.flac'), file('clip.m4a')];
     app.picker.onchange!();
     await flush(); await flush();
     assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths,

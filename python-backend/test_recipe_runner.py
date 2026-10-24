@@ -77,7 +77,7 @@ def test_recipe_replays_what_a_notebook_saved(tmp_path: Path) -> None:
     "recipe",
     [
         {"inputs": [{"name": "sig", "file": "a.wav"}], "steps": [], "display": []},
-        {"schema": "wandas.recipe", "version": 2, "inputs": [], "nodes": [], "output": "missing"},
+        {"schema": "wandas.recipe", "version": 3, "inputs": [], "nodes": [], "output": "missing"},
     ],
 )
 def test_documents_that_are_not_wandas_recipes_are_rejected(recipe: dict) -> None:
