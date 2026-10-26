@@ -18,6 +18,8 @@ export interface DirectorySelectionState {
     rootPath: string;
     tree: DirectoryTreeNode[];
     allFilePaths: string[];
+    /** Files added from outside the folder (＋ Add files): listed and selectable beside the folder's. */
+    extraFilePaths?: string[];
     selectedFilePaths: string[];
     cachedResultsByFilePath: Map<string, AnalysisResultWithError>;
 }

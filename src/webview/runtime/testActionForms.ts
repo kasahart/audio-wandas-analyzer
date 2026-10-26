@@ -1,6 +1,5 @@
 import type { SpectrogramDisplaySettings } from '../../shared/analysis/analysisTypes';
 import type { HeightKind } from './heightResize';
-import { inputsMatching } from './domAdapter';
 import type { LoopRegion, TestAction, TrackId } from './types';
 
 type ActionPayload = Record<string, unknown>;
@@ -38,18 +37,6 @@ export function fillSpectrogramDisplayForm(doc: Document, payload: ActionPayload
         dbMax: typeof payload.dbMax === 'number' ? payload.dbMax : null,
         maxFrequencyHz: typeof payload.maxFrequencyHz === 'number' ? payload.maxFrequencyHz : null,
     };
-}
-
-export function setSelectionFileChecked(doc: Document, filePath: unknown, selected: boolean): void {
-    const checkbox = inputsMatching(doc, '.selection-file-checkbox')
-        .find((input) => input.getAttribute('data-file-path') === filePath);
-    if (!checkbox) {
-        throw new Error('Selection checkbox not found');
-    }
-    checkbox.checked = selected;
-    const event = doc.createEvent('Event');
-    event.initEvent('change', true, false);
-    checkbox.dispatchEvent(event);
 }
 
 export function loopRegionFromPayload(payload: ActionPayload): LoopRegion | null {

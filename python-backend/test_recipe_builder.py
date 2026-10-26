@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -122,3 +123,15 @@ def test_a_transfer_recipe_saved_from_equal_rates_runs_on_files_at_other_rates(t
 
     at_tone = int(np.argmin(np.abs(np.asarray(charts[0]["xs"]) - 1000)))
     assert charts[0]["series"][0]["ys"][at_tone] == pytest.approx(20 * np.log10(2), abs=0.2)
+
+
+def test_entry_scan_recipe_file_is_the_generated_recipe() -> None:
+    from recipe_builder import entry_scan_recipe
+
+    path = Path(__file__).parent / "recipes" / "entry-scan.recipe.json"
+    assert json.loads(path.read_text()) == entry_scan_recipe()
+    assert [operation for operation, _ in _operations(entry_scan_recipe())] == [
+        "wandas.audio.highpass_filter",
+        "wandas.frame.time_slice",
+        "wandas.audio.welch",
+    ]

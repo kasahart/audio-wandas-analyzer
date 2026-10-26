@@ -41,13 +41,14 @@ test('spectrum canvas aria-label escapes the file name', () => {
 });
 
 const rowStrings = {
-    ariaDragHandle: 'Drag', ariaPickColor: 'Color', trackPickColor: 'Pick color', clipBadgeTitle: 'Clipped',
+    ariaDragHandle: 'Drag', clipBadgeTitle: 'Clipped',
     trackPlayTitle: 'Play', ariaTrackPlay: 'Play track', trackStopTitle: 'Stop', ariaTrackStop: 'Stop track',
     ariaTrackMute: 'Mute', ariaRemoveTrack: 'Remove',
     calibrationButtonLabel: 'Cal', calibrationButtonTitle: 'Calibrate', calibrationButtonAria: 'Calibrate track',
     trackOffsetResetHint: 'Reset', ariaOffsetValue: 'Offset', ariaOffsetUp: 'Up', ariaOffsetDown: 'Down',
     heightTrackLabel: 'Track height',
     hintRemoveTrack: 'Remove this track', hintOffsetUp: '+10 ms', hintOffsetDown: '-10 ms', hintTrackHeightResizer: 'Drag height',
+    trackMoreHint: 'Time offset', offsetStepUp: '+10 ms', offsetStepDown: '−10 ms', offsetEdit: 'Type…', offsetReset: 'Reset to 0',
     peakLabel: 'Pk', calibrationBadgeUncalibratedHint: 'Full scale', calibrationBadgePartialHint: 'Partial', calibrationFactorLabel: 'k',
 } satisfies TrackRowStrings;
 

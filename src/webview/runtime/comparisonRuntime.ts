@@ -4,15 +4,14 @@ import { spectrogramDisplayBounds } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { trackTimelinePlacement } from './waveformCoverage';
 import { attachOffsetEditing } from './offsetInlineEditor';
-import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setSelectionFileChecked, setTestInputValue, testActionTrackId } from './testActionForms';
+import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setTestInputValue, testActionTrackId } from './testActionForms';
+import { nextRequestId } from './hostRequests';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
-import { formatAmplitudeValue, formatWaveformAxisLabels, formatHz, dbLevelUnitFor, formatDbLevel, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
+import { formatAmplitudeValue, formatWaveformAxisLabels, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, computeReqBounds, isOverviewSufficient, rangeCacheCoversView, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
-import { buildSelectionTree as buildSelectionTreeFromPaths } from './directorySelection';
-import { createSelectionTreeView } from './selectionTreeView';
-import { buildSpecSummaryText, buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
-import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, canvasTarget, eventTarget, inputMatching, inputsMatching, requiredElementById } from './domAdapter';
+import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
+import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, canvasTarget, eventTarget, inputMatching, requiredElementById } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
@@ -25,7 +24,7 @@ import {
 import { createAudioFader, FADE_SECONDS } from './audioFade';
 import { positionPopover } from './settingsPopover';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
-import { clampHeight, createHeightResize, heightInputRequest, type HeightKind } from './heightResize';
+import { clampHeight, createHeightResize, type HeightKind } from './heightResize';
 import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
@@ -60,7 +59,7 @@ import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
-import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, formatReadoutHz, HOVER_LINE_STYLE } from './canvasOverlays';
+import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
@@ -78,10 +77,18 @@ import {
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { TrackStore } from './trackStore';
-import { installColorPicker } from './colorPicker';
 import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
+import { createEntryScreen, type EntryScreenDeps } from './entryRuntime';
+import { buildCompareModel, diffHeadline, fileName as fileNameOf } from './comparePanes';
+import { reportFiles } from './compareReport';
+import { regionLabel } from './entryTable';
+import { recipeKey } from '../../shared/recipe/recipeSteps';
+import { ROLE_COLORS } from './stagePanes';
+import { createTrackStageMode, type StageTrack, type TrackStageDeps, type TrackStageMode } from './trackStageMode';
+import { installScreenHelp } from './screenHelp';
+import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
 import {
     exceedsDragThreshold,
     loopGripAt,
@@ -89,10 +96,11 @@ import {
     loopRegionForDrag,
     normAtPlotX,
     rectZoomTarget,
+    wheelZoomFactor,
     ZOOM_IN_FACTOR,
 } from './waveformInteraction';
-import type { ChannelSummary, SpectrogramDisplaySettings, WaveformEnvelope, } from '../../shared/analysis/analysisTypes';
-import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SelectionTreeNode, SpectrumSlice, SpectrumSnap, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformDragState, WaveformDrawOptions, } from './types';
+import type { ChannelSummary, SpectrogramDisplaySettings, } from '../../shared/analysis/analysisTypes';
+import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SpectrumSlice, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformDragState, WaveformDrawOptions, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, appVersion, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
@@ -126,46 +134,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         persistedStore.update(patch);
         persistedWebviewState = persistedStore.snapshot;
     }
-    // ─── ファイルパス一覧からディレクトリツリーを webview 側で組み立てる (#91) ───
-    const selectionTree = buildSelectionTreeFromPaths(state.rootPath, allSelectableFilePaths);
-    var __directoryTree = isSelectionMode ? selectionTree.roots : [];
-    // 折りたたみ状態とフィルタ文字列は webview.html 再代入後も vscode.getState() から current rootPath 単位で復元する
-    function savedTreeState(rootPath: string) {
-        return {
-            rootPath,
-            collapseState: persistedWebviewState.directoryCollapseRootPath === rootPath
-                ? (persistedWebviewState.directoryCollapseState || {})
-                : {},
-            filterQuery: persistedWebviewState.treeFilterRootPath === rootPath
-                && typeof persistedWebviewState.treeFilterQuery === 'string'
-                ? persistedWebviewState.treeFilterQuery
-                : '',
-        };
-    }
-    const selectionTreeView = createSelectionTreeView({
-        document,
-        strings: STR,
-        tree: selectionTree,
-        ...savedTreeState(state.rootPath || ''),
-        isSelected: hasSelectedFilePath,
-        persist: persistWebviewState,
-        onFileToggled(filePath, checked) {
-            if (checked) {
-                trackStore.allowExplicitSelection(filePath);
-                addSelectedFilePath(filePath);
-            }
-            else {
-                removeSelectedFilePath(filePath);
-            }
-            syncSelectionSummary();
-            postSelectedFiles();
-        },
-        handleAction: handleSelectionAction,
-        syncSummary: syncSelectionSummary,
-        setFilterFlush: (handler) => testBridge.setTreeFilterFlush(handler),
-        setTimeout: (handler, timeout) => setTimeout(handler, timeout),
-        clearTimeout,
-    });
+    /** How many files the host lists (a folder's, or files opened on their own): the entry table's rows. */
+    let listedCount = isSelectionMode ? allSelectableFilePaths.length : 0;
     let selectionMessageSeq = 0;
     let pythonEnvironmentState = state.pythonEnvironmentState || DEFAULT_PYTHON_ENVIRONMENT_STATE;
     function drawTheme(): DrawTheme {
@@ -181,15 +151,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const TRACK_HEIGHT_DEFAULT = 80;
     const TRACK_HEIGHT_MIN = TRACK_HEIGHT_DEFAULT;
     const TRACK_HEIGHT_MAX = 220;
-    const TRACK_HEIGHT_STEP = 16;
     const SPECTRUM_HEIGHT_DEFAULT = 140;
     const SPECTRUM_HEIGHT_MIN = 80;
     const SPECTRUM_HEIGHT_MAX = 1200;
     // A tall spectrum still leaves the tracks this much room so the cursor stays reachable.
     const TRACKS_MIN_VISIBLE = 120;
-    const SPECTRUM_HEIGHT_STEP = 20;
-    const TRACK_COLORS = ['#4ec994', '#ff8c4a', '#4a9eff', '#e8637a', '#c084fc',
-        '#f0c040', '#40b0d0', '#d09060', '#80c080', '#a0a0ff'];
+    // A track's own colour never looks like a role's: no blue (base), yellow / purple / magenta (slots 1–3),
+    // green (Δ) or orange (outliers); those belong to the roles (ROLE_COLORS) and the entry table.
+    const TRACK_COLORS = ['#2bb3a3', '#7fd0e8', '#b08968', '#9aa4b2', '#8a9a5b', '#d8dee9', '#6c7a89', '#c8b79c'];
     function announce(msg: string): void {
         const el = document.getElementById('a11y-announce');
         if (!el) {
@@ -216,6 +185,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // Queuing the end fade further ahead would let a media stall silence the track before it reaches the end.
     const END_FADE_LOOKAHEAD_SECONDS = 0.25;
     let playbackTrackId: TrackId | null = null;
+    /** The file the entry table last drew as playing (its row's ■). */
+    let entryPlaying: string | null = null;
     let followCursor = false;
     const SPECTRUM_PLAYBACK_TARGET_FRAME_MS = 1000 / 32;
     let spectrumRafPending = false;
@@ -232,16 +203,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         rafPending = true;
         requestAnimationFrame(function () { rafPending = false; renderAll(); });
-    }
-    function syncHeightInputs() {
-        const trackInput = inputMatching(document, '[data-action="track-height-input"]');
-        if (trackInput) {
-            trackInput.value = String(trackHeight);
-        }
-        const spectrumInput = inputMatching(document, '[data-action="spectrum-height-input"]');
-        if (spectrumInput) {
-            spectrumInput.value = String(spectrumOverlayHeight);
-        }
     }
     function updateUiSmokeSpectrumState() {
         const uiSmokeState = testBridge.state;
@@ -320,11 +281,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         scheduleSpectrumFrame(kind !== 'hover', true);
     }
-    let contentType: 'waveform' | 'spectrogram' = persistedWebviewState.contentType === 'spectrogram' ? 'spectrogram' : 'waveform';
+    // 'stage': every lane draws one step of the scan Recipe (trackStageMode.ts); it is not kept across sessions.
+    /** The steps mode (created once the entry table it reads its Recipe from exists). */
+    let stageMode: TrackStageMode | null = null;
+    let contentType: 'waveform' | 'spectrogram' | 'stage' = persistedWebviewState.contentType === 'spectrogram' ? 'spectrogram' : 'waveform';
     let spectrumBandsPerOctave: SpectrumBandsSetting = persistedWebviewState.spectrumBandsPerOctave === 1 || persistedWebviewState.spectrumBandsPerOctave === 3
         ? persistedWebviewState.spectrumBandsPerOctave : 0;
     let sidebarCollapsed = persistedWebviewState.sidebarCollapsed === true;
-    let spectrumCollapsed = persistedWebviewState.spectrumCollapsed === true;
+    // The cursor spectrum starts folded: the tracks get the room until it is opened (and then it stays as left).
+    let spectrumCollapsed = persistedWebviewState.spectrumCollapsed !== false;
     let spectrumMaximized = false;
     const waveformView = new WaveformView();
     let cursorNorm = 0; // グローバルカーソル（常に number）
@@ -351,7 +316,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function createTrackRuntime(): TrackRuntimeState {
         const defaultColor = TRACK_COLORS[nextDefaultTrackColorIndex % TRACK_COLORS.length];
         nextDefaultTrackColorIndex += 1;
-        return { offsetSeconds: 0, hidden: false, color: null, defaultColor: defaultColor };
+        return { offsetSeconds: 0, hidden: false, defaultColor: defaultColor };
     }
     const trackStore = new TrackStore(state.results, createTrackRuntime);
     const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
@@ -429,7 +394,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         },
         analysisId: () => analysisId,
         settingsSignature: currentSettingsSignature,
-        nextRequestId: () => nextLazyRequestId('pair', 0),
+        nextRequestId: () => nextRequestId('pair', 0),
         post: request => messaging.post(request),
         visibleFrequencyHz: () => spectrumView.visibleFrequencyHz(),
         plotHeight: effectiveSpectrumHeight,
@@ -472,7 +437,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         },
     }, STR);
     let overlaySpectrumPainted = false;
-    let lazyRequestCounter = 0;
     interface DesiredSpectrumSliceRequest extends LazyRequestState {
         trackIndex: number;
         bandsPerOctave: SpectrumBandsSetting;
@@ -485,10 +449,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let spectrumRequestGeneration = 0;
     let activeSpectrumSliceRequest: DesiredSpectrumSliceRequest | null = null;
     const desiredSpectrumSliceRequests = new Map<string, DesiredSpectrumSliceRequest>();
-    function nextLazyRequestId(prefix: string, i: number | string): string {
-        lazyRequestCounter += 1;
-        return prefix + '-' + i + '-' + Date.now() + '-' + lazyRequestCounter.toString(36);
-    }
     function currentSettingsSignature() {
         try {
             const settings = __spectrogramSettings;
@@ -550,12 +510,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const settingsSignature = currentSettingsSignature();
-        const pending = record.detailRequest;
+        const pending = record.requests.pending('detail')?.meta;
         if (pending && pending.settingsSignature === settingsSignature) {
             return;
         }
-        const requestId = nextLazyRequestId('detail', i);
-        record.detailRequest = { trackId: record.id, requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature };
+        const requestId = nextRequestId('detail', i);
+        record.requests.ask('detail', requestId, settingsSignature, { trackId: record.id, requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature });
         messaging.post({
             type: 'request-track-detail',
             requestId: requestId,
@@ -571,7 +531,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!result || !record) {
             return;
         }
-        const hadPendingDetail = !!record.detailRequest;
+        const hadPendingDetail = !!record.requests.pending('detail');
         let hadSpectrogram = false;
         if (result.channels) {
             result.channels.forEach(function (channel: ChannelSummary) {
@@ -581,9 +541,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
             });
         }
-        record.detailRequest = null;
+        record.requests.drop('detail');
         desiredSpectrumSliceRequests.delete(spectrumSliceRequestKey(record.id));
-        record.spectrumSliceRequests.clear();
+        record.requests.drop('slice');
         record.spectrumSliceCache.clear();
         record.spectrumPainted.clear();
         overlaySpectrumPainted = false;
@@ -608,7 +568,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const record = trackRecordAtIndex(i);
         const pending = record
             ? desiredSpectrumSliceRequests.get(spectrumSliceRequestKey(record.id))
-                || record.spectrumSliceRequests.get(0)
+                || record.requests.pending('slice')?.meta
             : undefined;
         if (!pending) {
             return false;
@@ -640,11 +600,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const key = spectrumSliceRequestKey(record.id);
-        const pending = desiredSpectrumSliceRequests.get(key) || record.spectrumSliceRequests.get(0);
+        const pending = desiredSpectrumSliceRequests.get(key) || record.requests.pending('slice')?.meta;
         if (pending && pending.settingsSignature === settingsSignature && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
             return;
         }
-        const requestId = nextLazyRequestId('slice', i);
+        const requestId = nextRequestId('slice', i);
         desiredSpectrumSliceRequests.set(key, {
             trackId: record.id,
             requestId: requestId,
@@ -702,7 +662,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             activeSpectrumSliceRequest = request;
             lastSpectrumRequestAt = spectrumNow();
-            record.spectrumSliceRequests.set(0, request);
+            record.requests.ask('slice', request.requestId, String(request.cursorNorm), request);
             messaging.post({
                 type: 'request-spectrum-slice',
                 requestId: request.requestId,
@@ -734,7 +694,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function trackColor(i: number) {
         const runtime = trackRuntimeAt(i);
-        return (runtime && runtime.color) || (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
+        // Its role from the entry table's slots (base blue, slots 1–3); otherwise its own colour, never a role's.
+        const filePath = state.results[i]?.filePath;
+        const role = filePath && stageMode ? stageMode.role(filePath) : undefined;
+        return (role !== undefined ? ROLE_COLORS[role] : undefined) || (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
     }
     const hintFooter = createHintFooter(document);
     attachHoverHints(document, hintFooter);
@@ -752,10 +715,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!trackId || !record) {
             return;
         }
-        if (record.pendingRangeRequest !== msg.requestId) {
+        if (!record.requests.answering('range', msg.requestId)) {
             return;
         } // stale
-        record.pendingRangeRequest = null;
+        record.requests.settle(msg.requestId);
         record.rangeCache = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
         renderAll();
     });
@@ -769,11 +732,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!trackId || !record) {
             return;
         }
-        const pending = record.detailRequest;
+        const pending = record.requests.answering('detail', msg.requestId)?.meta;
         if (!isResponseToLazyRequest(pending, trackId, msg) || pending.channelIndex !== msg.channelIndex) {
             return;
         }
-        record.detailRequest = null;
+        record.requests.settle(msg.requestId);
         if (msg.type === 'track-detail-error') {
             return;
         }
@@ -800,12 +763,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             pumpSpectrumSliceRequests();
             return;
         }
-        const pending = record.spectrumSliceRequests.get(0);
+        const pending = record.requests.answering('slice', msg.requestId)?.meta;
         if (!isResponseToLazyRequest(pending, trackId, msg)) {
             pumpSpectrumSliceRequests();
             return;
         }
-        record.spectrumSliceRequests.delete(0);
+        record.requests.settle(msg.requestId);
         const isCurrent = active.generation === spectrumRequestGeneration
             && pending.analysisId === analysisId
             && pending.settingsSignature === currentSpectrumDataSignature();
@@ -846,8 +809,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     testBridge.onActions(function (msg) {
         if (msg.inputValues && typeof msg.inputValues === 'object') {
             const inputValues = msg.inputValues;
+            // Tests set the heights the drag handles would: track-height-input / spectrum-height-input.
             Object.keys(inputValues).forEach(function (action: string) {
-                applyHeightInput(action, inputValues[action]);
+                const height = Number(inputValues[action]);
+                const kind = action === 'track-height-input' ? 'track' : action === 'spectrum-height-input' ? 'spectrum' : null;
+                if (kind && Number.isInteger(height)) setHeight(kind, height);
             });
         }
         try {
@@ -917,7 +883,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleRender();
                 scheduleSpectrumRefresh('immediate');
             },
-            'set-file-selected': p => setSelectionFileChecked(document, p.filePath, !!p.selected),
+            // A listed file shown as a track or taken off, as the entry table's slots and ＋ do.
+            'set-file-selected': p => setFileShown(String(p.filePath), !!p.selected),
+            // Every listed file at once, shown or taken off (the e2e's folder-wide steps).
+            'set-all-files-selected': p => {
+                if (p.selected) { selectTracks(allSelectableFilePaths, true); return; }
+                clearSelectedFilePaths();
+                syncSelectionSummary();
+                postSelectedFiles(true);
+            },
+            // A key pressed and released, as the entry table and the comparison read them (on the window).
+            'press-key': p => {
+                for (const type of ['keydown', 'keyup']) window.dispatchEvent(new KeyboardEvent(type, { key: String(p.key), bubbles: true, cancelable: true }));
+            },
             'mouse-event': p => dispatchTestMouseEvent(document, p),
             'set-input-value': p => setTestInputValue(document, p),
             'set-loop-region': p => {
@@ -996,8 +974,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (isCacheSufficient(record.rangeCache, reqStart, reqEnd, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd, channelsForResult(result).length)) {
                 return;
             }
-            const requestId = record.id + '-' + Date.now();
-            record.pendingRangeRequest = requestId;
+            const requestId = nextRequestId('range', record.id);
+            record.requests.ask('range', requestId, `${reqStart}|${reqEnd}|${pts}`, null);
             messaging.post({
                 type: 'request-waveform-range',
                 requestId: requestId,
@@ -1016,6 +994,186 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     syncWaveformModeButton();
     __updateSpecGearVisibility();
     attachEvents();
+    // Installed before the screens, so its key listener runs before theirs and owns ? and F1. The comparison's
+    // keys are listed while the track view compares (its steps mode, the entry table not over it).
+    const screenHelp = installScreenHelp(document, window, STR, () => {
+        if (entryScreen.isOpen() || entryScreen.hasFocus()) return 'entry';
+        return stageMode?.active() ? 'compare' : null;
+    });
+    /** Tracks are analysed (waveform, spectrogram) for the files compared from the entry table, or the old screen's. */
+    function selectTracks(filePaths: readonly string[], replace = false) {
+        if (replace) clearSelectedFilePaths();
+        const wanted = filePaths.filter(filePath => replace || !selectedFilePaths.includes(filePath));
+        if (!wanted.length && !replace) return;
+        wanted.forEach(function (filePath) {
+            trackStore.allowExplicitSelection(filePath);
+            addSelectedFilePath(filePath);
+        });
+        syncSelectionSummary();
+        postSelectedFiles();
+    }
+    /** Shows a file as a track (it is analysed if it is not yet), or takes it off the track view. */
+    function setFileShown(filePath: string, shown: boolean) {
+        if (shown) {
+            // A hidden track asked for again is shown again.
+            const record = trackRecordForPath(filePath);
+            if (record?.runtime.hidden) {
+                record.runtime.hidden = false;
+                updateVisibility();
+                scheduleRender();
+            }
+            selectTracks([filePath]);
+        } else if (hasSelectedFilePath(filePath)) {
+            removeSelectedFilePath(filePath);
+            syncSelectionSummary();
+            postSelectedFiles();
+        }
+        entryScreen.tracksChanged();
+    }
+    /** The active track of a file (the first, for a file listed twice). */
+    function trackRecordForPath(filePath: string) {
+        const trackId = trackStore.activeIds().find(id => trackStore.require(id).result.filePath === filePath);
+        return trackId ? trackStore.require(trackId) : undefined;
+    }
+    const trackReady = (filePath: string): boolean => trackStore.activeIds().some(id => trackStore.require(id).result.filePath === filePath);
+    /** A ▶ pressed before its file was analysed: it plays once the track is there. */
+    let pendingPlay: string | null = null;
+    function playWhenReady() {
+        if (!pendingPlay || !trackReady(pendingPlay)) return;
+        const filePath = pendingPlay;
+        pendingPlay = null;
+        const trackId = trackStore.activeIds().find(id => trackStore.require(id).result.filePath === filePath);
+        if (trackId) togglePlayback(trackId);
+    }
+    const entryScreen = createEntryScreen({
+        document,
+        window: window as unknown as EntryScreenDeps['window'],
+        strings: STR,
+        dock: document.getElementById('entry-dock'),
+        maximizedChanged: () => scheduleRender(),
+        shownTracks() {
+            const shown = new Map<string, boolean>();
+            selectedFilePaths.forEach(function (filePath: string) {
+                const record = trackRecordForPath(filePath);
+                shown.set(filePath, !!record && record.runtime.hidden);
+            });
+            return shown;
+        },
+        setShown: (filePath, shown) => setFileShown(filePath, shown),
+        play(filePath) {
+            const record = trackRecordForPath(filePath);
+            if (record && !record.runtime.hidden) { togglePlayback(record.id); return; }
+            // Not a track yet (or hidden): shown as one, it plays once analysed.
+            pendingPlay = filePath;
+            setFileShown(filePath, true);
+            playWhenReady();
+        },
+        playing() {
+            return playingPath();
+        },
+        setHidden(filePath, hidden) {
+            const record = trackRecordForPath(filePath);
+            if (!record) return;
+            record.runtime.hidden = hidden;
+            if (hidden && record.id === playbackTrackId) stopPlayback(record.id);
+            updateVisibility();
+            scheduleRender();
+            scheduleSpectrumRefresh('immediate');
+            entryScreen.tracksChanged();
+        },
+        post: message => messaging.post(message),
+        loadSlots: () => persistedWebviewState.entrySlots,
+        saveSlots: slots => persistWebviewState({ entrySlots: slots }),
+        loadDerived: () => persistedWebviewState.entryDerived,
+        loadRecipe: () => persistedWebviewState.entryRecipe,
+        saveRecipe: recipe => persistWebviewState({ entryRecipe: recipe }),
+        saveDerived: rows => persistWebviewState({ entryDerived: rows }),
+        // New results or conditions: the compared tracks' pictures follow.
+        compareChanged() { scheduleRender(); },
+        help: () => screenHelp.open('entry'),
+        openFiles(filePaths, comparison) {
+            // The slotted files are compared in the track view, beside the tracks already shown, as a step of the Recipe.
+            selectTracks(filePaths);
+            stageMode?.open(comparison.stage);
+            setContentType('stage');
+        },
+        announce(text) {
+            announce(text);
+            hintFooter.show(text);
+        },
+        download(csv, fileName) {
+            if (messaging.downloadFile(csv, fileName, 'text/csv;charset=utf-8')) return;
+            downloadEntryCsv(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), fileName);
+        },
+    });
+    if (state.entry && allSelectableFilePaths.length) {
+        entryScreen.open(allSelectableFilePaths, state.rootPath);
+    }
+    stageMode = createTrackStageMode({
+        document,
+        window: window as unknown as TrackStageDeps['window'],
+        strings: STR,
+        post: message => messaging.post(message),
+        recipe: () => entryScreen.recipes(),
+        slots: () => entryScreen.slots(),
+        basePaths: comparePath => entryScreen.basePaths(comparePath),
+        baseTitle: comparePath => entryScreen.baseTitle(comparePath),
+        showCompared: () => entryScreen.showCompared(),
+        showLanes(visible) {
+            const stacked = document.getElementById('stacked-wrap');
+            if (stacked) stacked.style.display = visible ? '' : 'none';
+        },
+        recipeChanged: recipe => entryScreen.setRecipe(recipe),
+        tracks() {
+            const tracks: StageTrack[] = [];
+            const entryResults = entryScreen.compareData().results;
+            trackStore.displayOrder.forEach(function (trackId) {
+                const record = trackStore.require(trackId);
+                const result = record.result;
+                if (record.runtime.hidden || result.error || !result.filePath) return;
+                const i = record.protocolIndex;
+                // The step's picture is of all channels together: it is drawn on the first lane, the others left clear.
+                channelsForResult(result).forEach(function (_, channelIndex: number) {
+                    if (channelIndex === 0) return;
+                    const canvas = canvasById(document, trackCanvasId(i, channelIndex));
+                    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+                });
+                // The file's unit and reference as the entry table scanned it, so the level axis names its reference.
+                const input = entryResults.get(result.filePath)?.input;
+                tracks.push({ filePath: result.filePath, color: trackColor(i), canvas: canvasById(document, trackCanvasId(i, 0)), axis: canvasById(document, trackAxisCanvasId(i, 0)), ...(input ? { input: { unit: input.unit, ref: input.ref } } : {}) });
+            });
+            return tracks;
+        },
+        sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
+        rerender: () => scheduleRender(),
+        hint: text => hintFooter.show(text),
+        inFront: () => !entryScreen.isOpen(),
+        back() {
+            const slots = entryScreen.slots();
+            entryScreen.show(slots);
+        },
+        fix(comparePath, groupBase, region, measured) {
+            const data = entryScreen.compareData();
+            // Over a region, the files' results over it take the entry table's place.
+            const results = region ? new Map([...data.results, ...measured]) : data.results;
+            const result = results.get(comparePath);
+            const comparison = buildCompareModel(data.model, results, comparePath, groupBase ? null : data.slots[0] ?? null, STR);
+            if (!result?.ok || !comparison.base || comparison.blocked) return STR.compareRefuseFix.replace('{why}', diffHeadline(comparison, STR));
+            const baseLabel = data.slots[0] && !groupBase ? fileNameOf(data.slots[0]) : STR.entryBaseGroup;
+            entryScreen.addDerived({ parentPath: comparePath, region: regionLabel(region), result, recipeKey: recipeKey(data.runRecipe), base: { leq: comparison.base.leq, bands: comparison.base.bands, label: baseLabel, paths: comparison.base.filePaths } });
+            return null;
+        },
+        report(showDiff, region, measured) {
+            const data = entryScreen.compareData();
+            const results = region ? new Map([...data.results, ...measured]) : data.results;
+            const { folder, files } = reportFiles(document, { model: data.model, results, slots: data.slots, region, recipe: data.runRecipe ?? data.recipe ?? null, recipeName: STR.stepRecipeName, now: new Date(), showDiff }, STR);
+            messaging.post({ type: 'save-report-folder', folder, files });
+            hintFooter.show(STR.reportSaved + folder);
+        },
+    });
+    // The lanes' surface takes the shared plot gestures too; they act only in the steps mode.
+    const stageSurface = document.getElementById('tracks-wrapper');
+    if (stageSurface) stageMode.attach(stageSurface);
     // Defer first render so the browser has time to calculate flex layout
     requestAnimationFrame(function () {
         renderAll();
@@ -1139,6 +1297,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return el ? (el.textContent || '') : '';
                 })(),
                 tracks: trackInfo,
+                entry: entryScreen.snapshot(),
+                comparison: stageMode?.snapshot() ?? null,
                 ...shellSnapshot(document, audioFader.contextState()),
                 lastPlayRejection,
             }, actionId);
@@ -1176,18 +1336,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     // A host with nothing listed yet shows its own start prompt where the tracks will appear.
     function selectionEmptyText() {
-        return __directoryTree.length || !vscode.emptyMessage ? STR.emptyNoTracks : vscode.emptyMessage;
+        return listedCount || !vscode.emptyMessage ? STR.emptyNoTracks : vscode.emptyMessage;
     }
     function buildDirectorySelectionLayout(resultsPaneHtml = buildResultsPane(selectionEmptyText())) {
         const warning = pythonEnvironmentState.status === 'warning';
         return selectionLayoutHtml({
             rootPath: rootLabel,
-            isEmpty: !__directoryTree.length,
+            isEmpty: !listedCount,
             sidebarCollapsed,
-            filterQuery: selectionTreeView.filterQuery,
-            treeHtml: selectionTreeView.renderTree(__directoryTree, true, 0),
             resultsPaneHtml,
-            clearEmptiesList: vscode.selectionPanel === true,
             python: hasPythonEnvironmentPicker ? {
                 text: buildPythonButtonText(pythonEnvironmentState.pythonCommand, warning),
                 tooltip: buildPythonTooltip(pythonEnvironmentState.pythonCommand, pythonEnvironmentState.tooltip),
@@ -1196,29 +1353,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }, STR);
     }
     /**
-     * Lists the host's sources in the selection panel's tree, which only a `selectionPanel` host shows without a directory.
-     * A new listing starts unfiltered and keeps the folders that were open or closed, since it usually adds to the last one.
+     * The host's sources: the entry table in the side panel lists them; the tracks shown are chosen there. A folder
+     * opened starts with no tracks; files listed beside the current ones (added, dropped) keep the tracks shown.
      */
-    function showDirectorySelection(rootPath: string, filePaths: string[], label = rootPath) {
-        const collapseState = selectionTreeView.collapseStateBelow(rootPath);
+    function showDirectorySelection(rootPath: string, filePaths: string[], label = rootPath, newFolder = true) {
         state.rootPath = rootPath;
         rootLabel = label;
-        clearSelectedFilePaths();
-        const tree = buildSelectionTreeFromPaths(rootPath, filePaths);
-        __directoryTree = tree.roots;
-        selectionTreeView.replaceTree({ tree, rootPath, collapseState, filterQuery: '' });
+        if (newFolder) clearSelectedFilePaths();
+        listedCount = filePaths.length;
         const emptyMessage = function (text: string) {
             const el = document.querySelector('#empty-state p');
             if (el) {
                 el.textContent = text;
             }
         };
-        requiredElementById(document, 'selection-summary').querySelector('.selection-path')!.textContent = rootLabel;
         const folderButton = requiredElementById(document, 'selection-toolbar').querySelector<HTMLElement>('[data-action="open-folder"]')!;
-        const folder = selectionFolderButton(Boolean(rootLabel) || __directoryTree.length > 0, STR);
+        const folder = selectionFolderButton(Boolean(rootLabel) || listedCount > 0, STR);
         folderButton.textContent = folder.text;
         setHint(folderButton, folder.hint);
-        requiredElementById(document, 'directory-selection-layout').classList.toggle('is-empty', !__directoryTree.length);
+        requiredElementById(document, 'directory-selection-layout').classList.toggle('is-empty', !listedCount);
         emptyMessage(selectionEmptyText());
         syncSelectionSummary();
         scheduleRender();
@@ -1238,7 +1391,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         updateVisibility();
         updateOffsetDisplays();
-        syncHeightInputs();
         updatePlaybackButtons();
         Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
     }
@@ -1266,10 +1418,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function buildToolbar() {
         return toolbarHtml({
             contentType,
-            trackHeight,
-            trackHeightRange: { min: TRACK_HEIGHT_MIN, max: TRACK_HEIGHT_MAX },
-            spectrumHeight: spectrumOverlayHeight,
-            spectrumHeightRange: { min: SPECTRUM_HEIGHT_MIN, max: SPECTRUM_HEIGHT_MAX },
             appVersion,
         }, STR);
     }
@@ -1325,6 +1473,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     // ── Rendering ──
     function renderAll() {
+        playWhenReady();
         pairPanel.sync();
         updateUiSmokeSpectrumState();
         resizeAllCanvases();
@@ -1395,6 +1544,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     function renderStackedTracks() {
+        const tracksWrapperEl = document.getElementById('tracks-wrapper');
+        if (tracksWrapperEl && stageMode && !tracksWrapperEl.contains(stageMode.root)) tracksWrapperEl.prepend(stageMode.root);
+        const ruler = document.getElementById('ruler-row');
+        if (ruler) ruler.style.display = contentType === 'stage' ? 'none' : '';
+        if (contentType === 'stage') {
+            // The lanes draw the chosen step's Frames; the spectrogram overlays are the spectrogram mode's.
+            canvasesMatching(document, '.track-spectrogram-overlay').forEach(function (overlay) { overlay.style.display = 'none'; });
+            stageMode?.paint();
+            return;
+        }
         trackStore.displayOrder.forEach(function (trackId) {
             const record = trackStore.require(trackId);
             const i = record.protocolIndex;
@@ -1554,7 +1713,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq,
         }, spectrogramRasterCache.get(cacheId), drawTheme()));
         if (axisCanvas && axisCtx) {
-            drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq }, drawTheme());
+            drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq, label: STR.axisFrequency }, drawTheme());
         }
         if (overlayCtx) {
             drawLoopRegionOnCanvas(overlayCtx, plotW, H);
@@ -1654,6 +1813,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             const off = trackRuntimeAt(i).offsetSeconds;
             el.textContent = (off >= 0 ? '+' : '') + off.toFixed(3) + 's';
+            // A shifted track keeps its offset in sight; at 0 the row is out of the way.
+            el.closest('.track-row')?.classList.toggle('is-shifted', off !== 0);
         });
     }
     function getTrackAudio(idx: number) {
@@ -1696,6 +1857,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 stopBtn.disabled = !isActive;
             }
         });
+        // The entry table's row ▶ turns to ■ on the file playing.
+        const playing = playingPath();
+        if (playing !== entryPlaying) {
+            entryPlaying = playing;
+            entryScreen.tracksChanged();
+        }
+    }
+    function playingPath(): string | null {
+        if (playbackTrackId === null || !playbackEl || !isPlaybackRunning()) return null;
+        return trackStore.require(playbackTrackId).result.filePath ?? null;
     }
     function updateLoopBadge() {
         const badge = document.getElementById('loop-badge');
@@ -1983,7 +2154,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             attachDirectorySelectionEvents();
         }
         const tracksWrapper = requiredElementById(document, 'tracks-wrapper');
-        const toolbarHandlers = { onAction: handleToolbarAction, onHeightInput: applyHeightInput };
+        const toolbarHandlers = { onAction: handleToolbarAction };
         attachToolbarActions(document.getElementById('toolbar'), toolbarHandlers);
         attachToolbarActions(document.getElementById('spectrum-zoom-toolbar'), toolbarHandlers);
         attachToolbarActions(document.getElementById('spectrum-section-header'), toolbarHandlers);
@@ -2067,13 +2238,26 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     adjustOffset(trackIndex, -0.01);
                 }
             },
-            'pick-color': ({ trackId, target }) => {
-                openColorPicker(trackId, target.closest<HTMLElement>('[data-action="pick-color"]') ?? target);
+            // "Type a value": the offset's field opens in place, shown even at 0.
+            'offset-edit': ({ trackIndex }) => {
+                const value = trackIndex === null ? null : document.getElementById('offset-val-' + trackIndex);
+                if (!value) return;
+                value.closest('.track-row')?.classList.add('is-shifted');
+                value.click();
+            },
+            'offset-reset': ({ trackIndex }) => {
+                if (trackIndex === null) return;
+                trackRuntimeAt(trackIndex).offsetSeconds = 0;
+                updateOffsetDisplays();
+                scheduleRender();
+                scheduleSpectrumRefresh('immediate');
             },
             'set-pair-reference': ({ trackId, target }) => {
                 const channelIndex = Number(target.getAttribute('data-channel-index'));
                 if (Number.isInteger(channelIndex)) {
                     pairPanel.toggleReference(trackId, channelIndex);
+                    // Its result (transfer function, phase, γ²) is drawn in the dock: a folded dock opens.
+                    if (spectrumCollapsed) setSpectrumCollapsed(false);
                 }
             },
         });
@@ -2095,16 +2279,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleSpectrumRefresh('immediate');
             },
         });
+        // In the steps mode the lanes answer the shared plot gestures (trackStageMode.ts), not the time axis's.
+        const timeAxis = <A extends unknown[]>(handler: (...args: A) => void) => (...args: A): void => { if (contentType !== 'stage') handler(...args); };
         attachTrackPointerListeners(tracksWrapper, document, {
-            resetZoom,
-            openAxisRange: openWaveformRangePopup,
-            hover: handleCanvasMouseMove,
-            clearHover,
-            press: handleCanvasMouseDown,
-            drag: handleDocMouseMove,
-            release: handleDocMouseUp,
-            zoomWheel: handleZoomWheel,
-            panWheel: handlePanWheel,
+            resetZoom: timeAxis(resetZoom),
+            openAxisRange: (axis, clientX, clientY) => contentType !== 'stage' && openWaveformRangePopup(axis, clientX, clientY),
+            hover: timeAxis(handleCanvasMouseMove),
+            clearHover: timeAxis(clearHover),
+            press: timeAxis(handleCanvasMouseDown),
+            drag: timeAxis(handleDocMouseMove),
+            release: timeAxis(handleDocMouseUp),
+            zoomWheel: timeAxis(handleZoomWheel),
+            panWheel: timeAxis(handlePanWheel),
         });
         var stackedWrap = document.getElementById('stacked-wrap');
         if (stackedWrap) {
@@ -2226,75 +2412,67 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function attachDirectorySelectionEvents() {
         const layout = document.getElementById('directory-selection-layout');
-        if (layout) {
-            selectionTreeView.attach(layout);
+        if (!layout) {
+            return;
         }
+        syncSelectionSummary();
+        layout.addEventListener('click', function (event) {
+            const action = eventTarget(event)?.getAttribute?.('data-action');
+            if (action) {
+                handleSelectionAction(action);
+            }
+        });
+        // The side panel's edge widens the entry table in it; let go past 60 % of the window, the table is maximized
+        // and the panel keeps the width it had.
+        const resizer = document.getElementById('tree-resizer');
+        const sidebar = document.getElementById('selection-sidebar');
+        if (!resizer || !sidebar) {
+            return;
+        }
+        let startX = 0, startWidth = 0, dragging = false;
+        const move = function (event: MouseEvent) {
+            if (dragging) sidebar.style.width = Math.max(160, Math.min(window.innerWidth - 80, startWidth + event.clientX - startX)) + 'px';
+        };
+        const up = function () {
+            dragging = false;
+            resizer.classList.remove('is-dragging');
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', up);
+            if (sidebar.getBoundingClientRect().width > window.innerWidth * 0.6) {
+                sidebar.style.width = startWidth + 'px';
+                entryScreen.setMaximized(true);
+            }
+        };
+        resizer.addEventListener('mousedown', function (event) {
+            dragging = true;
+            startX = event.clientX;
+            startWidth = sidebar.getBoundingClientRect().width;
+            resizer.classList.add('is-dragging');
+            document.addEventListener('mousemove', move);
+            document.addEventListener('mouseup', up);
+            event.preventDefault();
+        });
     }
     function handleSelectionAction(action: string) {
         if (action === 'open-file' || action === 'open-folder' || action === 'select-python-environment') {
             handleToolbarAction(action);
             return true;
         }
-        if (action === 'toggle-directory') {
-            return true;
-        }
         if (action === 'toggle-selection-sidebar') {
             setSidebarCollapsed(!sidebarCollapsed);
             return true;
         }
-        if (action === 'selection-select-all') {
-            clearSelectedFilePaths();
-            // 可視状態のチェックボックスのみを対象にする
-            inputsMatching(document, '.selection-file-checkbox').forEach(function (input) {
-                if (selectionTreeView.isVisible(input)) {
-                    const filePath = input.getAttribute('data-file-path');
-                    if (filePath) {
-                        trackStore.allowExplicitSelection(filePath);
-                        addSelectedFilePath(filePath);
-                    }
-                }
-            });
-            syncSelectionCheckboxes();
-            syncSelectionSummary();
-            postSelectedFiles();
-            return true;
-        }
-        if (action === 'selection-clear-all') {
-            clearSelectedFilePaths();
-            syncSelectionCheckboxes();
-            syncSelectionSummary();
-            postSelectedFiles(true);
-            return true;
-        }
-        if (action === 'selection-submit') {
-            postSelectedFiles();
-            return true;
-        }
         return false;
-    }
-    function syncSelectionCheckboxes() {
-        inputsMatching(document, '.selection-file-checkbox').forEach(function (input) {
-            const filePath = input.getAttribute('data-file-path');
-            input.checked = !!filePath && hasSelectedFilePath(filePath);
-        });
     }
     function hasSelectedFilePath(filePath: string) { return selection.has(filePath); }
     function addSelectedFilePath(filePath: string) { selection.add(filePath); }
     function removeSelectedFilePath(filePath: string) { selection.remove(filePath); }
     function clearSelectedFilePaths() { selection.clear(); }
+    /** The folded side panel's rail counts the tracks shown out of the files listed. */
     function syncSelectionSummary() {
-        const countEl = document.getElementById('selection-count');
-        const count = selectedFilePaths.length;
-        // 可視チェックボックスの数を分母にする
-        const visibleCount = inputsMatching(document, '.selection-file-checkbox').filter(function (el) {
-            return selectionTreeView.isVisible(el);
-        }).length;
-        if (countEl) {
-            countEl.textContent = count + ' / ' + visibleCount + ' ' + STR.selectionCountLabel;
-        }
         const railCountEl = document.getElementById('selection-rail-count');
         if (railCountEl) {
-            railCountEl.textContent = count + '/' + visibleCount;
+            railCountEl.textContent = selectedFilePaths.length + '/' + listedCount;
         }
     }
     function syncPythonEnvironmentButton() {
@@ -2333,15 +2511,28 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             ...(clearAll ? { clearAll: true as const } : {}),
         });
     }
-    function setContentType(next: 'waveform' | 'spectrogram') {
+    /** The cursor spectrum's state before the steps view folded it (it belongs to the waveform view): restored on leaving. */
+    let spectrumBeforeStage: boolean | null = null;
+    function setContentType(next: 'waveform' | 'spectrogram' | 'stage') {
+        // The steps view takes the height for its plots, so both their axes stay in sight.
+        if (next === 'stage' && contentType !== 'stage') {
+            spectrumBeforeStage = spectrumCollapsed;
+            if (!spectrumCollapsed) setSpectrumCollapsed(true);
+        } else if (next !== 'stage' && contentType === 'stage' && spectrumBeforeStage !== null) {
+            if (spectrumCollapsed !== spectrumBeforeStage) setSpectrumCollapsed(spectrumBeforeStage);
+            spectrumBeforeStage = null;
+        }
         contentType = next;
-        if (next === 'waveform') {
+        if (next !== 'spectrogram') {
             state.results.forEach(function (_result, index) { releaseTrackDetail(index); });
         }
-        persistWebviewState({ contentType: contentType });
+        stageMode?.setActive(next === 'stage');
+        document.body.classList.toggle('is-stage-view', next === 'stage');
+        if (next !== 'stage') persistWebviewState({ contentType: next });
         canvasesMatching(document, '.track-axis-canvas').forEach(function (axis) { setHint(axis, trackAxisHint()); });
         buttonMatching(document, '[data-action="content-waveform"]')?.classList.toggle('is-active', next === 'waveform');
         buttonMatching(document, '[data-action="content-spectrogram"]')?.classList.toggle('is-active', next === 'spectrogram');
+        buttonMatching(document, '[data-action="content-stage"]')?.classList.toggle('is-active', next === 'stage');
         __updateSpecGearVisibility();
         scheduleRender();
     }
@@ -2420,7 +2611,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     // Esc restores a maximized spectrum unless it is closing a popover or the help first.
     function hasOpenOverlay() {
-        return Array.from(document.querySelectorAll<HTMLElement>('#help-overlay, #spec-settings-popover, #color-picker-popover, [id$="range-popover"]'))
+        return Array.from(document.querySelectorAll<HTMLElement>('#help-overlay, #spec-settings-popover, [id$="range-popover"]'))
             .some(function (el) { return !el.hidden && el.getClientRects().length > 0; });
     }
     // A folded spectrum is only its header, so the whole header is the way back.
@@ -2452,6 +2643,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'select-python-environment': () => messaging.post({ type: 'select-python-environment' }),
             'content-waveform': () => setContentType('waveform'),
             'content-spectrogram': () => setContentType('spectrogram'),
+            'content-stage': () => setContentType('stage'),
             'zoom-in': zoomIn,
             'zoom-out': zoomOut,
             'zoom-reset': resetZoom,
@@ -2461,8 +2653,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'spectrum-fft': () => setSpectrumBands(0),
             'spectrum-octave-1': () => setSpectrumBands(1),
             'spectrum-octave-3': () => setSpectrumBands(3),
-            'track-height-reset': () => setTrackHeight(TRACK_HEIGHT_DEFAULT),
-            'spectrum-height-reset': () => setSpectrumHeight(SPECTRUM_HEIGHT_DEFAULT),
             'toggle-spectrum-panel': () => setSpectrumCollapsed(!spectrumCollapsed),
             'toggle-spectrum-maximize': () => setSpectrumMaximized(!spectrumMaximized),
             'wave-mode-rect-zoom': () => {
@@ -2473,7 +2663,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'zoom-to-selection': zoomToSelection,
             'run-recipe': () => messaging.post({ type: 'run-recipe' }),
             'save-recipe': saveRecipe,
-            'copy-spec': copySpecToClipboard,
             'export-png': exportPng,
             'export-csv': exportCsv,
             'export-wav': exportWavLoop,
@@ -2481,12 +2670,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         } satisfies Record<GlobalShortcutAction, () => void> & Record<string, () => void>;
         if (Object.prototype.hasOwnProperty.call(toolbarActions, action)) {
             toolbarActions[action]();
-        }
-    }
-    function applyHeightInput(action: string | null, value: string | number | null): void {
-        const request = heightInputRequest(action, value);
-        if (request) {
-            setHeight(request.kind, request.height);
         }
     }
     function setHeight(kind: HeightKind, value: number): void {
@@ -2500,11 +2683,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function setTrackHeight(value: number): void {
         const next = clampHeight(value, TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX);
         if (trackHeight === next) {
-            syncHeightInputs();
             return;
         }
         trackHeight = next;
-        syncHeightInputs();
         updateUiSmokeSpectrumState();
         updatePlaybackButtons();
         Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
@@ -2548,12 +2729,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function setSpectrumHeight(value: number): void {
         const next = clampHeight(value, SPECTRUM_HEIGHT_MIN, spectrumHeightLimit());
         if (spectrumOverlayHeight === next) {
-            syncHeightInputs();
             syncSpectrumCanvasCssHeight();
             return;
         }
         spectrumOverlayHeight = next;
-        syncHeightInputs();
         updateUiSmokeSpectrumState();
         syncSpectrumCanvasCssHeight();
         scheduleSpectrumRefresh('immediate');
@@ -2836,20 +3015,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         return true;
     }
-    function copySpecToClipboard() {
-        if (!navigator.clipboard || !navigator.clipboard.writeText) {
-            messaging.post({ type: 'show-info', message: STR.announceSpecCopyFailed || 'Copy failed: clipboard not available' });
-            return;
-        }
-        navigator.clipboard.writeText(buildSpecSummaryText(state.results || [], __spectrogramSettings.stft))
-            .then(function () { announce(STR.announceSpecCopied || 'Spec copied to clipboard'); })
-            .catch(function () {
-            messaging.post({ type: 'show-info', message: STR.announceSpecCopyFailed || 'Copy failed: clipboard not available' });
-        });
-    }
     function handleZoomWheel(e: WheelEvent): void {
         disableFollowCursor();
-        const scaleFactor = e.deltaY > 0 ? 1.15 : 0.85;
+        const scaleFactor = wheelZoomFactor(e.deltaY);
         const view = waveformView.timeRange();
         const wrapper = document.getElementById('tracks-wrapper');
         let pivotNorm = (view.start + view.end) / 2; // fallback: current center
@@ -3284,10 +3452,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         var n = pos !== -1 ? pos + 1 : idx + 1;
         trackStore.remove(trackId);
         messaging.releaseSource(record.result.filePath);
+        // Off the track view is off the entry table's tracks and slots too.
+        removeSelectedFilePath(record.result.filePath);
+        syncSelectionSummary();
+        entryScreen.trackRemoved(record.result.filePath);
         announce((STR.announceTrackRemoved || 'Track {n} removed').replace('{n}', String(n)));
-        if (colorPicker.target() === trackId) {
-            colorPicker.close();
-        }
         updateVisibility();
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
@@ -3358,7 +3527,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (msg.type === 'directory-selection') {
-            showDirectorySelection(msg.rootPath, msg.filePaths, msg.rootLabel);
+            showDirectorySelection(msg.rootPath, msg.filePaths, msg.rootLabel, !!msg.entry);
+            // A folder opens on the entry table; files listed beside it (added, dropped) join its "added files" group.
+            if (msg.entry && msg.filePaths.length) entryScreen.open(msg.filePaths, msg.rootPath);
+            else entryScreen.addFiles(msg.filePaths);
+            return;
+        }
+        // A comparison scan the entry table asked for (re-measuring a fixed Δ) goes to the entry table.
+        if (stageMode?.handle(msg) || entryScreen.handle(msg)) {
             return;
         }
         if (msg.type === 'reanalyze-start') {
@@ -3379,8 +3555,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (isSelectionMode && msg.selectedFilePaths) {
                 clearSelectedFilePaths();
                 msg.selectedFilePaths.forEach(addSelectedFilePath);
-                syncSelectionCheckboxes();
-                syncSelectionSummary();
+                        syncSelectionSummary();
             }
             __setReanalyzeBusy(false);
             invalidateDesiredSpectrumSliceRequests();
@@ -3418,6 +3593,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             updateLoopTimeDisplay();
             overlaySpectrumPainted = false;
             announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
+            entryScreen.tracksChanged();
             scheduleRender();
             scheduleSpectrumRefresh('immediate');
             requestAnimationFrame(function () { publishTestSnapshot(); });
@@ -3440,22 +3616,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
-    }
-    var colorPicker = installColorPicker(document, {
-        colors: TRACK_COLORS,
-        resetLabel: STR.trackColorReset,
-        onPick(trackId, color) {
-            trackStore.require(trackId).runtime.color = color;
-            var trigger = document.querySelector<HTMLElement>('[data-action="pick-color"][data-track-id="' + trackId + '"]');
-            if (trigger) {
-                trigger.style.background = color === null ? trackColor(trackIndexForId(trackId)) : color;
-            }
-            scheduleRender();
-            scheduleSpectrumRefresh('immediate');
-        },
-    });
-    function openColorPicker(trackId: TrackId, anchorEl: HTMLElement) {
-        colorPicker.open(trackId, anchorEl);
     }
     __updateSpecGearVisibility();
     ensureCalibrationStyles(document as unknown as Document);

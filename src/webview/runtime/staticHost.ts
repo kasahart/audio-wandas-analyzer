@@ -1,8 +1,8 @@
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal, type AnalysisContextPolicy } from '../../shared/analysis/analysisClient';
-import { BackendProtocolError, parseBackendResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
-import type { BrowserLimits } from '../../shared/protocol/generated/backendProtocolSchema';
+import { BackendProtocolError, parseBackendResult, type ScanResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
+import type { BrowserLimits, StageDetail } from '../../shared/protocol/generated/backendProtocolSchema';
 import { schemaViolation, withoutResponseEnvelope } from '../../shared/protocol/schemaValidation';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { hasPlayableAudio, isConfigureCalibrationMessage, isSupportedAudioFile, SUPPORTED_AUDIO_FILE_EXTENSIONS } from '../../shared/utils/audioTarget';
@@ -10,7 +10,7 @@ import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../../shared/session/comparisonSessionController';
 import { RecipeFlow, recipeBaseName, type RecipeCatalogEntry } from '../../shared/recipe/recipeFlow';
-import { describeInputs, isRecipeDocument } from '../../shared/recipe/recipeSelection';
+import { describeInputs, isRecipeDocument, type RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { ChartSpec } from '../../shared/chartSpec';
 import { chartSpecGlobals, renderChartSpecStyles } from '../panels/chartSpecDocument';
 import { setHint } from './hintFooter';
@@ -77,6 +77,8 @@ export interface StaticHostDeps {
     setTimeout: typeof setTimeout;
     /** Overrides AnalysisClient's Recipe timeout; tests shorten it. */
     recipeTimeoutMs?: number;
+    /** Files a scan must load before the Worker is replaced afterwards (20); tests lower it. */
+    restartAfterScans?: number;
 }
 
 const UNAVAILABLE_ACTIONS = '[data-action="configure-calibration"]';
@@ -108,11 +110,17 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         ...(restoredView?.contentType === 'spectrogram' ? { contentType: 'spectrogram' } : {}),
         ...(restoredView?.sidebarCollapsed === true ? { sidebarCollapsed: true } : {}),
         ...(restoredView?.spectrumCollapsed === true ? { spectrumCollapsed: true } : {}),
+        ...(Array.isArray(restoredView?.entrySlots) && restoredView.entrySlots.every(slot => slot === null || typeof slot === 'string')
+            ? { entrySlots: restoredView.entrySlots } : {}),
+        ...(Array.isArray(restoredView?.entryDerived) ? { entryDerived: restoredView.entryDerived } : {}),
+        ...(restoredView?.entryRecipe !== undefined ? { entryRecipe: restoredView.entryRecipe } : {}),
     };
     browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
     let worker: Worker | undefined;
     let recovery: Promise<void> | undefined;
     let bootFailed = false;
+    /** A Worker booting behind the current one after a folder scan (replaceWorkerBehind). */
+    let spare: Worker | undefined;
     const sourceGeneration = new SessionRequests();
     const reanalysisGeneration = new SessionRequests();
     const sources = new SourceResults<Source>(new Map(), source => URL.revokeObjectURL(source.url));
@@ -180,6 +188,41 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (overflow > 0) aboutPanel.style.right = `${-overflow}px`;
     };
     about.ontoggle = clampAbout;
+    /** A small in-page choice (the page's language and look, not the browser's prompt); Esc or a press outside cancels. */
+    function choose<T extends string>(title: string, options: ReadonlyArray<readonly [T, string]>): Promise<T | undefined> {
+        return new Promise(resolve => {
+            const box = document.createElement('div');
+            box.setAttribute('role', 'dialog');
+            box.setAttribute('aria-label', title);
+            box.setAttribute('data-web-choice', '');
+            box.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);z-index:80;display:grid;gap:6px;min-width:240px;padding:12px 14px;'
+                + 'background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.35);font-size:13px';
+            const heading = document.createElement('div');
+            heading.textContent = title;
+            heading.style.cssText = 'color:var(--muted);margin-bottom:2px';
+            box.append(heading);
+            const close = (value: T | undefined): void => {
+                box.remove();
+                document.removeEventListener('pointerdown', outside, true);
+                document.removeEventListener('keydown', escape, true);
+                resolve(value);
+            };
+            const outside = (event: Event): void => { if (!box.contains(event.target as Node)) close(undefined); };
+            const escape = (event: KeyboardEvent): void => { if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); close(undefined); } };
+            for (const [value, label] of options) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'tb-btn';
+                button.textContent = label;
+                button.addEventListener('click', () => close(value));
+                box.append(button);
+            }
+            document.body.append(box);
+            document.addEventListener('pointerdown', outside, true);
+            document.addEventListener('keydown', escape, true);
+            box.querySelector('button')?.focus();
+        });
+    }
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
     status.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
@@ -188,6 +231,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     webStyles.textContent = '#web-footer { display: flex; align-items: center; flex-shrink: 0; height: 22px; font-size: 11px; color: var(--muted);'
         + ' background: var(--panel); border-top: 1px solid var(--line); }'
         + ' #web-footer > #hint-footer { flex: 1; min-width: 0; border-top: 0; }'
+        // The lane view's status line ("3 tracks; add more") means nothing on the entry table or the comparison.
+        + ' body:has(#entry-screen:not([hidden])) #web-footer [role="status"] { visibility: hidden; }'
         + ` ${UNAVAILABLE_ACTIONS} { opacity: 0.4; cursor: not-allowed; }`
         + ' @keyframes python-dot-pulse { 50% { opacity: 0.3; } }';
     bar.append(pick, folderPick, status, about, webStyles);
@@ -212,19 +257,21 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     pythonLoading.append(pythonSpinner, pythonLoadingText, pythonSpinnerKeyframes);
     document.body.prepend(pythonLoading);
     const pythonStates = {
-        starting: { text: strings.browserPythonStarting, color: '#d29922' },
-        ready: { text: strings.browserPythonReady, color: '#3fb950' },
+        // Yellow and green are the compare and Δ roles on the new screens: the status dot stays neutral (the boot pulses).
+        starting: { text: strings.browserPythonStarting, color: 'var(--muted)' },
+        ready: { text: strings.browserPythonReady, color: 'var(--text)' },
         failed: { text: strings.browserPythonFailed, color: '#e5534b' },
         stopped: { text: strings.browserPythonStopped, color: 'var(--muted)' },
     };
-    function showPythonState(state: keyof typeof pythonStates): void {
+    /** `quiet`: a restart the user did not ask for (after a folder scan) keeps to the footer dot, without the centred card. */
+    function showPythonState(state: keyof typeof pythonStates, quiet = false): void {
         const { text, color } = pythonStates[state];
         const booting = state === 'starting';
         pythonState.textContent = text;
         setHint(pythonIndicator, text);
         pythonDot.style.background = color;
         pythonDot.style.animation = booting ? 'python-dot-pulse 1.2s ease-in-out infinite' : 'none';
-        pythonLoading.style.display = booting ? 'flex' : 'none';
+        pythonLoading.style.display = booting && !quiet ? 'flex' : 'none';
     }
     const announce = (value: string): void => { status.textContent = value; };
     const showInFooter = (value: string): void => { const footer = document.getElementById('hint-footer'); if (footer) footer.textContent = value; };
@@ -274,9 +321,48 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         batches = settled;
     }
 
+    /** Runs `task` in the source batch queue and settles with its outcome. */
+    function exclusive<T>(task: () => Promise<T>): Promise<T> {
+        return new Promise<T>((resolve, reject) => { enqueueBatch(() => task().then(resolve, reject)); });
+    }
+    let entryRecipe: Promise<Record<string, unknown>> | undefined;
+    /**
+     * One entry-table file: loaded into the Worker only for its scan unless it is already a selected
+     * track, so a folder of any size never holds more than one extra file in Pyodide.
+     */
+    async function scanEntryFile(path: string, region?: { start: number; end: number }, override?: Record<string, unknown>, stage?: string, detail?: StageDetail): Promise<ScanResult> {
+        const file = folder.get(path);
+        if (!file) return { ok: false, reason: strings.entrySourceGone };
+        const limit = browserLimits ?? await limits();
+        if (file.size > limit.maxInputBytes) return { ok: false, reason: strings.browserInputTooLarge.replace('{mib}', mib(limit.maxInputBytes)) };
+        entryRecipe ??= fetchJson('./recipes/entry-scan.recipe.json') as Promise<Record<string, unknown>>;
+        const recipe = override ?? await entryRecipe;
+        return exclusive(async () => {
+            const over = { ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}) };
+            if (sources.get(path)) return analysisClient.scan({ filePath: path, recipe, ...over });
+            const bytes = await file.arrayBuffer();
+            let loaded: string | undefined;
+            try {
+                loaded = String((await request({ cmd: 'load', sourceId: path.slice('/sources/'.length) }, bytes)).filePath);
+                return await analysisClient.scan({ filePath: loaded, recipe, ...over });
+            } finally {
+                if (loaded) await request({ cmd: 'unload', filePath: loaded }).catch(() => undefined);
+            }
+        });
+    }
+    /** Hashes a listed file's bytes, which is what the Worker would name it by too. */
+    async function contentIdentity(path: string): Promise<string | undefined> {
+        const file = folder.get(path);
+        const subtle = window.crypto?.subtle;
+        if (!file || !subtle) return undefined;
+        const digest = new Uint8Array(await subtle.digest('SHA-256', await file.arrayBuffer()));
+        return `sha256:${Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('')}`;
+    }
+
     function resetWorker(reason: Error): void {
         reanalysisGeneration.advance();
         worker?.terminate(); worker = undefined;
+        spare?.terminate(); spare = undefined;
         showPythonState('stopped');
         recovery = undefined;
         rejectPendingRequests(pending, reason);
@@ -319,14 +405,22 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (cancellation?.isCancellationRequested) throw new Error('Recipe execution cancelled');
         return sendRequest(command, bytes, forcedRequestId);
     }
-    function startWorker(): Worker {
+    function startWorker(quiet = false): Worker {
         const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
         bootFailed = false;
-        showPythonState('starting');
+        showPythonState('starting', quiet);
+        attachWorker(activeWorker);
+        return activeWorker;
+    }
+    /** Routes a Worker's replies to the pending requests while it is the current one. */
+    function attachWorker(activeWorker: Worker): void {
         activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown; ready?: boolean }>): void => {
             if (worker !== activeWorker) return;
             if (event.data.ready !== undefined) {
                 bootFailed = !event.data.ready;
+                // The optional packages the runtime cannot import: the step bar greys out what needs them.
+                const lacks = (event.data as { lacks?: unknown }).lacks;
+                if (Array.isArray(lacks)) browserWindow.__AWA_RUNTIME_LACKS__ = lacks.filter((name): name is string => typeof name === 'string');
                 showPythonState(event.data.ready ? 'ready' : 'failed');
                 return;
             }
@@ -351,7 +445,58 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(strings.browserWorkerFailed);
             emit({ type: 'reanalyze-end' });
         };
-        return activeWorker;
+    }
+    /**
+     * After a folder scan Pyodide's heap stays as large as the scan made it, so a fresh Worker takes over.
+     * It boots and loads the selected tracks behind the current one, which keeps answering meanwhile; it is
+     * swapped in at a moment no request is waiting, and the old one is then dropped. Nothing waits for the
+     * boot. A spare that fails, or whose tracks no longer match, is dropped and the current one stays.
+     */
+    function replaceWorkerBehind(): void {
+        if (spare || !worker) return;
+        const generation = sourceGeneration.current;
+        const next = new Worker('./audio.worker.js', { type: 'module' });
+        spare = next;
+        const replies = new Map<string, (data: { error?: unknown }) => void>();
+        let calls = 0;
+        const abandon = (): void => { if (spare === next) spare = undefined; next.terminate(); };
+        next.onmessage = (event: MessageEvent<{ requestId?: string; ready?: boolean; error?: unknown }>): void => {
+            if (event.data.ready === false) { abandon(); return; }
+            if (event.data.requestId) replies.get(event.data.requestId)?.(event.data);
+        };
+        next.onerror = (): void => abandon();
+        const call = (command: Record<string, unknown>, bytes?: ArrayBuffer): Promise<void> => new Promise((resolve, reject) => {
+            const requestId = `spare-${++calls}`;
+            replies.set(requestId, data => { replies.delete(requestId); if (data.error === undefined) resolve(); else reject(new Error('spare Worker refused a command')); });
+            next.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
+        });
+        const loaded = new Set<string>();
+        const loadMissing = async (): Promise<void> => {
+            for (const source of sources.values()) {
+                if (loaded.has(source.sourceId)) continue;
+                await call({ cmd: 'load', sourceId: source.sourceId }, await source.file.arrayBuffer());
+                loaded.add(source.sourceId);
+            }
+        };
+        void (async () => {
+            try {
+                // Answered once Pyodide has booted.
+                await call({ cmd: 'limits' });
+                await loadMissing();
+                await exclusive(async () => {
+                    while (pending.size) await new Promise(resolve => setTimeout(resolve, 20));
+                    // A track picked meanwhile is loaded too; one released meanwhile, or a Clear, drops the spare.
+                    const current = new Set(Array.from(sources.values(), source => source.sourceId));
+                    if (spare !== next || !worker || recovery || !sourceGeneration.isCurrent(generation) || [...loaded].some(id => !current.has(id))) { abandon(); return; }
+                    await loadMissing();
+                    const old = worker;
+                    attachWorker(next);
+                    worker = next;
+                    spare = undefined;
+                    old.terminate();
+                });
+            } catch { abandon(); }
+        })();
     }
     function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
         if (!worker) {
@@ -553,11 +698,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 },
             };
         },
-        async pickReportFormat() {
-            const choice = window.prompt(`${strings.reportFormatPlaceholder}\n1: ${strings.reportFormatMarkdown}\n2: ${strings.reportFormatNotebook}`, '1');
-            if (choice === null) return undefined;
-            if (choice !== '1' && choice !== '2') { announce(strings.reportFormatPlaceholder); return undefined; }
-            return choice === '1' ? 'markdown' : 'notebook';
+        pickReportFormat() {
+            return choose<'markdown' | 'notebook'>(strings.reportFormatPlaceholder, [['markdown', strings.reportFormatMarkdown], ['notebook', strings.reportFormatNotebook]]);
         },
         async saveReport(artifact) {
             download(new TextEncoder().encode(artifact.content), artifact.name, artifact.type);
@@ -621,6 +763,30 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             if (!sources.size) { announce(strings.browserRecipeNoSources); return; }
             await recipeFlow.run(sources.snapshot(source => source.path), () => scope.isCurrent());
         },
+        // A browser cannot write a folder, so the report folder arrives as one zip named after it.
+        async saveReportFolder(folder, files) {
+            download(zipStore(files, { maxEntries: 16, maxBytes: 64 * 1024 * 1024 }), `${folder}.zip`, 'application/zip');
+            announce(strings.reportSaved + folder + '.zip');
+        },
+        entry: {
+            identity: contentIdentity,
+            scan: (path, region, recipe, stage, detail) => scanEntryFile(path, region, recipe as Record<string, unknown> | undefined, stage, detail),
+            recipe: async () => {
+                entryRecipe ??= fetchJson('./recipes/entry-scan.recipe.json') as Promise<Record<string, unknown>>;
+                return await entryRecipe as unknown as RecipeDocument;
+            },
+            // The picked folder's CSV/TSV files are listed beside its recordings; the browser cannot reach the folder above.
+            readFile: async path => {
+                const file = folder.get(path);
+                if (!file) throw new Error(strings.entrySourceGone);
+                return new Uint8Array(await file.arrayBuffer());
+            },
+            read: readSaved,
+            write: save,
+            // Pyodide's heap never shrinks, so after a folder scan the Worker is replaced and the selected tracks reload into it.
+            // A few files (a comparison region over a base group) leave Pyodide's heap as it was; a folder's worth does not.
+            afterScan: scanned => { if (scanned >= (deps.restartAfterScans ?? 20) && worker && !recovery) replaceWorkerBehind(); },
+        },
     };
     const controller = new ComparisonSessionController(ports);
     const host: WebviewHostApi = {
@@ -632,7 +798,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             void controller.dispatch(message);
         },
         getState: () => persisted,
-        setState: (state): void => { persisted = state; save(VIEW_STATE_KEY, { contentType: state.contentType, sidebarCollapsed: state.sidebarCollapsed, spectrumCollapsed: state.spectrumCollapsed }); },
+        setState: (state): void => {
+            persisted = state;
+            save(VIEW_STATE_KEY, { contentType: state.contentType, sidebarCollapsed: state.sidebarCollapsed, spectrumCollapsed: state.spectrumCollapsed, entrySlots: state.entrySlots, entryDerived: state.entryDerived, entryRecipe: state.entryRecipe });
+        },
         emptyMessage: strings.browserEmptyPrompt,
         selectionPanel: true,
     };
@@ -764,11 +933,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }
     acceptDrops(window);
     /** A list that holds one folder and nothing else is shown under that folder's name; any other list is shown from /sources. */
-    function emitListing(): void {
+    function emitListing(entry = false): void {
         const paths = Array.from(folder.keys());
         const roots = new Set(paths.map(path => path.split('/')[2]));
         const only = roots.size === 1 && paths.every(path => path.split('/').length > 3) ? Array.from(roots)[0] : '';
-        emit({ type: 'directory-selection', rootPath: only ? `/sources/${only}` : '/sources', rootLabel: only, filePaths: paths });
+        emit({ type: 'directory-selection', rootPath: only ? `/sources/${only}` : '/sources', rootLabel: only, filePaths: paths, ...(entry ? { entry } : {}) });
     }
     /** Adds an opened folder to the list beside what is already listed; its files stay unchecked until picked in the tree. */
     function openFolderFiles(rootName: string, files: Array<{ path: string; file: File }>): void {
@@ -786,7 +955,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             name = `${rootName} (${n})`;
         }
         inFolder.forEach(({ rest, file }) => folder.set(`/sources/${name}${rest}`, file));
-        emitListing();
+        // An opened folder starts on the entry table.
+        emitListing(true);
         snapshot();
         announce(strings.browserFolderOpened.replace('{count}', String(files.length)));
     }

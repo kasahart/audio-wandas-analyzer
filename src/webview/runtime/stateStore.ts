@@ -16,6 +16,7 @@ export interface RuntimeState {
     allFilePaths: string[];
     selectedFilePaths: string[];
     pythonEnvironmentState: PythonEnvironmentState;
+    entry: boolean;
 }
 
 export function normalizeRuntimeState(state: ComparisonState): RuntimeState {
@@ -27,6 +28,7 @@ export function normalizeRuntimeState(state: ComparisonState): RuntimeState {
         rootPath: selection?.rootPath ?? '',
         allFilePaths: selection?.allFilePaths ?? [],
         selectedFilePaths: selection?.selectedFilePaths ?? [],
+        entry: selection?.entry === true,
         pythonEnvironmentState: selection?.pythonEnvironmentState ?? {
             pythonCommand: 'python3',
             status: 'normal',

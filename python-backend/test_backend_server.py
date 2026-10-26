@@ -445,11 +445,11 @@ def test_spectrum_slice_window_is_centred_on_the_cursor(tmp_path: Path, cached_d
     ("bands_per_octave", "sr", "first", "last", "peak"),
     [
         (1, 8000, 31.5, 2000.0, 1000.0),
-        (3, 8000, 25.0, 3150.0, 1000.0),
+        (3, 8000, 20.0, 3150.0, 1000.0),
         (1, 16000, 31.5, 4000.0, 1000.0),
-        (3, 16000, 25.0, 6300.0, 1000.0),
+        (3, 16000, 20.0, 6300.0, 1000.0),
         (1, 44100, 31.5, 8000.0, 1000.0),
-        (3, 48000, 25.0, 20000.0, 1000.0),
+        (3, 48000, 20.0, 20000.0, 1000.0),
     ],
 )
 def test_spectrum_slice_octave_bands_level_the_cursor_samples(
@@ -467,7 +467,8 @@ def test_spectrum_slice_octave_bands_level_the_cursor_samples(
     assert (centers[0], centers[-1]) == (first, last)
     assert resp["frequencyBins"] == len(centers) == len(resp["channels"][0]["values"])
     # Every sample rate shares one axis, and the band filters see the samples unwindowed.
-    assert resp["minFrequencyHz"] == pytest.approx(22.39, abs=0.01)
+    # The lowest band's lower edge: 31.5 Hz octave, or the 20 Hz third octave (wandas 0.10 computes it).
+    assert resp["minFrequencyHz"] == pytest.approx(22.39 if bands_per_octave == 1 else 17.78, abs=0.01)
     assert resp["maxFrequencyHz"] == pytest.approx(22387.2, abs=0.1)
     assert resp["window"] == "boxcar"
     assert resp["channels"][0]["axisLabel"].startswith("Band level")

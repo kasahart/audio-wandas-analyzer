@@ -29,6 +29,8 @@ test('directory selection uses live result updates with resource URIs, cache reu
     } finally { NodeModule._load = originalLoad; }
 
     const messages: AnalysisUpdateMessage[] = [];
+    const listings: Array<{ rootPath: string; filePaths: string[] }> = [];
+    let picked: Array<{ fsPath: string }> | undefined;
     let receive: ((message: unknown) => unknown) | undefined;
     let htmlWrites = 0;
     const webview = {
@@ -38,6 +40,7 @@ test('directory selection uses live result updates with resource URIs, cache reu
         onDidReceiveMessage: (listener: (message: unknown) => unknown) => { receive = listener; return { dispose() {} }; },
         postMessage: async (message: unknown) => {
             if ((message as { type: string }).type === 'analysis-update') messages.push(message as AnalysisUpdateMessage);
+            if ((message as { type: string }).type === 'directory-selection') listings.push(message as { rootPath: string; filePaths: string[] });
             return true;
         },
     };
@@ -62,7 +65,7 @@ test('directory selection uses live result updates with resource URIs, cache reu
             stat: async () => ({ type: 2, ctime: 0, mtime: 0, size: 0 }),
             readDirectory: async (source) => source.fsPath.endsWith('/sub') ? [['b.wav', 1]] : [['a.wav', 1], ['c.wav', 1], ['sub', 2]],
         },
-        showOpenDialog: async () => undefined, executeCommand: async () => undefined,
+        showOpenDialog: async () => picked as vscode.Uri[] | undefined, executeCommand: async () => undefined,
         showInformation() {}, showError: message => { errors.push(message); },
         getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
         onPythonEnvironmentChange: () => ({ dispose() {} }),
@@ -133,6 +136,19 @@ test('directory selection uses live result updates with resource URIs, cache reu
         assert.deepEqual(controller.getActiveFilePaths(panel), []);
         assert.deepEqual(ComparisonPanel.getResults(panel), []);
         assert.equal(htmlWrites, 2, 'opening a directory explicitly may initialize a new shell');
+
+        // ＋ Add files: a file from outside the folder is listed beside it and shown at once, in the same document.
+        await select(['/retention/c.wav']);
+        picked = [uri('/elsewhere/x.wav'), uri('/retention/a.wav')];
+        receive!({ type: 'select-target', targetKind: 'file' });
+        for (let wait = 0; wait < 5; wait++) await tick();
+        assert.deepEqual(listings.at(-1), { type: 'directory-selection', rootPath: '/retention', filePaths: ['/retention/sub/b.wav', '/retention/a.wav', '/retention/c.wav', '/elsewhere/x.wav'] });
+        assert.deepEqual(controller.getActiveFilePaths(panel), ['/retention/c.wav', '/elsewhere/x.wav', '/retention/a.wav']);
+        assert.deepEqual(messages.at(-1)!.selectedFilePaths, controller.getActiveFilePaths(panel));
+        assert.equal(htmlWrites, 2, 'added files do not replace the Webview document');
+        // The webview may then select it like any listed file.
+        await select(['/elsewhere/x.wav']);
+        assert.deepEqual(controller.getActiveFilePaths(panel), ['/elsewhere/x.wav']);
         assert.deepEqual(writes, [], 'selection updates must not add persistent settings');
         assert.deepEqual(errors, []);
     } finally { controller.dispose(); }

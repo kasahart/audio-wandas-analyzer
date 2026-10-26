@@ -1,18 +1,7 @@
-import { parseBoundedInteger } from './settingsPopover';
-
 export type HeightKind = 'track' | 'spectrum';
 
 export function clampHeight(value: number, minValue: number, maxValue: number): number {
     return Math.max(minValue, Math.min(maxValue, value));
-}
-
-export function heightInputRequest(action: string | null, value: string | number | null): { kind: HeightKind; height: number } | null {
-    const kind = action === 'track-height-input' ? 'track' : action === 'spectrum-height-input' ? 'spectrum' : null;
-    if (!kind || value === null) {
-        return null;
-    }
-    const height = parseBoundedInteger(value, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
-    return height === null ? null : { kind, height };
 }
 
 export interface HeightResizeDeps {

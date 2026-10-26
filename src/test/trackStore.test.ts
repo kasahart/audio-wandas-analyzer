@@ -21,7 +21,7 @@ function result(filePath: string, peakAbsolute = 0.5): ComparisonTrackState {
 }
 
 function runtime(): TrackRuntimeState {
-    return { offsetSeconds: 0, hidden: false, color: null, defaultColor: '#123456' };
+    return { offsetSeconds: 0, hidden: false, defaultColor: '#123456' };
 }
 
 test('TrackStore assigns unique identities to duplicate file instances', () => {
@@ -37,7 +37,7 @@ test('TrackStore preserves runtime state and display order across result reconci
     const store = new TrackStore([result('/b.wav'), result('/c.wav')], runtime);
     const [bId, cId] = store.activeIds();
     store.require(bId).runtime.offsetSeconds = 0.25;
-    store.require(bId).runtime.color = '#abcdef';
+    store.require(bId).runtime.hidden = true;
     store.reorder(cId, bId);
 
     const reconciliation = store.reconcile(
@@ -52,7 +52,7 @@ test('TrackStore preserves runtime state and display order across result reconci
     assert.deepEqual(store.activeIds(), [aId, bId, cId]);
     assert.deepEqual(store.displayOrder, [cId, bId, aId]);
     assert.equal(store.require(bId).runtime.offsetSeconds, 0.25);
-    assert.equal(store.require(bId).runtime.color, '#abcdef');
+    assert.equal(store.require(bId).runtime.hidden, true);
     assert.deepEqual(reconciliation.removed, []);
     assert.deepEqual(reconciliation.added, [aId]);
 });
@@ -70,10 +70,10 @@ test('TrackStore tombstones removals and does not reuse identity at the same pro
     const store = new TrackStore([result('/old.wav')], runtime);
     const oldId = store.activeIds()[0];
     const oldRecord = store.require(oldId);
-    oldRecord.pendingRangeRequest = 'old-request';
+    oldRecord.requests.ask('range', 'old-request', 'whole', null);
     assert.equal(store.remove(oldId), true);
     assert.equal(store.idAtProtocolIndex(0), null);
-    assert.equal(oldRecord.pendingRangeRequest, null);
+    assert.equal(oldRecord.requests.pending('range'), undefined);
     assert.equal(store.get(oldId), undefined);
 
     store.reconcile([result('/replacement.wav')], (next) => next);

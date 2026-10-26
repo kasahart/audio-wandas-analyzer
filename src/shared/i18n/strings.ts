@@ -45,41 +45,30 @@ export interface UiStrings {
     btnCloseRecipeResult: string;
 
     panelTitle: string;
-    panelTitlePrefix: string;
-    panelComparePrefix: string;
     emptyAllExcluded: string;
     emptyNoTracks: string;
     selectionHeader: string;
+    selectionEmptyHint: string;
     btnOpenFile: string;
     btnOpenAnotherFolder: string;
     btnOpenFolder: string;
-    btnSelectAll: string;
-    btnClear: string;
-    selectionCountLabel: string;
     selectionNoSupported: string;
-    treeFilterPlaceholder: string;
     spectrumSectionTitle: string;
-    toolbarMain: string;
     toolbarTrackLabel: string;
     btnWaveform: string;
     btnSpectrogram: string;
+    btnStage: string;
+    stageLayoutSide: string;
+    stageLayoutOverlay: string;
+    compareFixedHint: string;
+    hintContentStage: string;
     btnSpectrogramSettingsTitle: string;
     btnSpectrumSettingsTitle: string;
     toolbarZoomLabel: string;
     btnZoomReset: string;
-    toolbarAdjustLabel: string;
-    toolbarWorkflowLabel: string;
     toolbarExportLabel: string;
-    toolbarHeightLabel: string;
     heightTrackLabel: string;
     heightSpectrumLabel: string;
-    btnHeightReset: string;
-    ariaTrackHeightUp: string;
-    ariaTrackHeightDown: string;
-    ariaTrackHeightReset: string;
-    ariaSpectrumHeightUp: string;
-    ariaSpectrumHeightDown: string;
-    ariaSpectrumHeightReset: string;
     btnRunRecipe: string;
     btnSaveRecipe: string;
     chartSpecNoResults: string;
@@ -94,8 +83,6 @@ export interface UiStrings {
     offsetEditPlaceholder: string;
     offsetEditAriaLabel: string;
     trackSpectrumTitle: string;
-    trackChannelSelectLabel: string;
-    ariaTrackChannelSelect: string;
     analysisFailed: string;
     cursorHelpKeys: string;
     tooltipLoopResize: string;
@@ -122,6 +109,214 @@ export interface UiStrings {
     helpRowDoubleClickEdge: string;
     helpRowQuestion: string;
     helpRowEsc: string;
+    entryColFile: string;
+    entryColCondition: string;
+    entryColLeq: string;
+    entryColPeak: string;
+    entryOpen: string;
+    entryPasteConditions: string;
+    entryOutliers: string;
+    entryBaseGroup: string;
+    entryBase: string;
+    entryCount: string;
+    entryNoOutliers: string;
+    entryKeyHoldDelta: string;
+    entryKeySlot: string;
+    entryUnreadable: string;
+    entryUnavailable: string;
+    entryShape: string;
+    entryCalibrated: string;
+    entryBandUnit: string;
+    hintCalibratedColumn: string;
+    hintRowSlot: string;
+    hintRowBase: string;
+    entryConditionsApply: string;
+    entryConditionsClear: string;
+    entryConditionsClose: string;
+    entryConditionsPlaceholder: string;
+    entryCsvRegion: string;
+    entryCsvGroupSize: string;
+    entrySourceGone: string;
+    entryMissing: string;
+    entryAmbiguous: string;
+    entryRepeated: string;
+    entryFolderLevel: string;
+    compareKeyHold: string;
+    compareKeyBack: string;
+    comparePlay: string;
+    compareDelta: string;
+    stepNeedBelow: string;
+    stepNeedPow2: string;
+    compareReport: string;
+    entryBaseMedian: string;
+    stageBaseAggregate: string;
+    stageBaseList: string;
+    reportBase: string;
+    reportCompare: string;
+    reportDiff: string;
+    reportCsv: string;
+    reportBaseLeq: string;
+    reportBandDelta: string;
+    reportRegion: string;
+    reportSummary: string;
+    reportStepsLegend: string;
+    reportRegionStart: string;
+    reportRegionEnd: string;
+    reportWhole: string;
+    reportDefinitions: string;
+    defLeq: string;
+    defSpectrum: string;
+    defThirdOct: string;
+    defChannels: string;
+    defBase: string;
+    defDelta: string;
+    defRegion: string;
+    defHeadline: string;
+    defHeadlineEdges: string;
+    reportGroupFiles: string;
+    reportSpecVersion: string;
+    reportSaved: string;
+    stepRegion: string;
+    stepAll: string;
+    stepMetrics: string;
+    stepAverage: string;
+    stepSettings: string;
+    stepApply: string;
+    stepRecipeWarning: string;
+    compareNotEntry: string;
+    comparePending: string;
+    compareBaseEntryRegion: string;
+    compareSelfBase: string;
+    stepRecipeName: string;
+    stepHoldHint: string;
+    stepHintNoHold: string;
+    stepAdd: string;
+    stepMenuTitle: string;
+    stepMenuFilter: string;
+    stepOffFrame: string;
+    stepOffRequired: string;
+    stepOffRefuses: string;
+    stepOffUnavailable: string;
+    stepDefaultsOnly: string;
+    stepNoSettings: string;
+    stepBarLabel: string;
+    stepInputFiles: string;
+    stepInput: string;
+    stepHintLocale: string;
+    stepGroupFilter: string;
+    stepGroupPrepare: string;
+    stepGroupTime: string;
+    stepGroupFrequency: string;
+    stepGroupOther: string;
+    stepDragHint: string;
+    stepMoved: string;
+    stepRemoveChip: string;
+    stepHighpass: string;
+    stepLowpass: string;
+    stepBandpass: string;
+    stepAverageFft: string;
+    stepOctaveHint: string;
+    stepRemove: string;
+    stepNeedFrame: string;
+    stepFailedOn: string;
+    stepInsertHere: string;
+    stepTapHint: string;
+    stepAdded: string;
+    stepRemoved: string;
+    entryStaleTag: string;
+    entryScanAll: string;
+    entryScanCancel: string;
+    entryMinutes: string;
+    entrySeconds: string;
+    reportChain: string;
+    reportChainCurrent: string;
+    reportChainPrevious: string;
+    stepNotDrawable: string;
+    stepOpenCompare: string;
+    axisLevel: string;
+    axisValue: string;
+    axisGain: string;
+    axisCoherence: string;
+    axisBand: string;
+    axisBark: string;
+    axisQuefrency: string;
+    axisCepstrum: string;
+    stageNoDelta: string;
+    stageMaxDelta: string;
+    compareLevelsAt: string;
+    compareHintPlot: string;
+    compareHintAxis: string;
+    compareDiffShow: string;
+    compareDiffHide: string;
+    hintDiffToggle: string;
+    stepHeldWithout: string;
+    stepHeldRow: string;
+    stepHeldNoRow: string;
+    outsideLeq: string;
+    outside192: string;
+    outsideMedian: string;
+    outsideDelta: string;
+    outsideOutliers: string;
+    stepOutsideHeading: string;
+    stepOpen: string;
+    stepClose: string;
+    stepOctave: string;
+    stepFrameHint: string;
+    slotEmpty: string;
+    axisFrequency: string;
+    axisLevelUncal: string;
+    axisLevelCal: string;
+    axisDelta: string;
+    axisTime: string;
+    legendHeadline: string;
+    legendLeak: string;
+    legendLine: string;
+    compareNoSignificant: string;
+    stepNeedAbove: string;
+    stepNeedInteger: string;
+    compareRegionInvalid: string;
+    entryAxisMaxDelta: string;
+    stepNeedValue: string;
+    hintSpectrogram: string;
+    compareRefuseFix: string;
+    compareRefuseSlot: string;
+    entryLeqUncalibrated: string;
+    hintLeqUncalibrated: string;
+    hintSpectrogramGroup: string;
+    screenHelpTitle: string;
+    screenHelpEntry: string;
+    screenHelpCompare: string;
+    screenHelpSymbols: string;
+    keyHelp: string;
+    hintColumnsMore: string;
+    hintFailedFilter: string;
+    hintOutlierFilter: string;
+    hintSortMark: string;
+    hintOverview: string;
+    hintScatterAxis: string;
+    hintBandSelect: string;
+    hintBaseCard: string;
+    hintSlotCard: string;
+    hintSlotEmpty: string;
+    hintRegionMark: string;
+    hintCompareMark: string;
+    hintStepChip: string;
+    hintEntryProgress: string;
+    hintEntryMaximize: string;
+    hintRowPlay: string;
+    hintRowStop: string;
+    hintComparedFilter: string;
+    entryCompared: string;
+    entryAddedGroup: string;
+    hintRowHide: string;
+    hintRowRemove: string;
+    hintBaseChip: string;
+    compareSingleBase: string;
+    compareRegionDiffers: string;
+    helpRowEntryKeys: string;
+    helpRowCompareKeys: string;
+    helpRowStepKeys: string;
+    helpRowStepDrag: string;
     helpRowZoomKeys: string;
     playbackTimePrefix: string;
     playbackDisplayTitle: string;
@@ -138,7 +333,6 @@ export interface UiStrings {
     loopTimeDisplayTitle: string;
     btnFollowCursor: string;
     btnFollowCursorTitle: string;
-    btnCopySpec: string;
     specSettingsAuto: string;
     specSettingsStftLegend: string;
     specSettingsNFft: string;
@@ -176,8 +370,6 @@ export interface UiStrings {
     ariaOffsetUp: string;
     ariaOffsetDown: string;
     ariaOffsetValue: string;
-    ariaSelectionTree: string;
-    ariaSelectionTreeDir: string;
     btnExportReport: string;
     btnExportReportTitle: string;
     exportReportNoData: string;
@@ -222,15 +414,10 @@ export interface UiStrings {
     calReferenceTitle: string;
     calReferencePromptPa: string;
     calReferencePrompt: string;
-    trackPickColor: string;
-    trackColorReset: string;
     ariaDragHandle: string;
-    ariaPickColor: string;
     announceAnalyzing: string;
     announceAnalysisDone: string;
     announceTrackRemoved: string;
-    announceSpecCopied: string;
-    announceSpecCopyFailed: string;
     announceExportPngStarted: string;
     announceExportPngFailed: string;
     announceExportCsvStarted: string;
@@ -263,14 +450,9 @@ export interface UiStrings {
     hintZoomIn: string;
     hintZoomReset: string;
     hintRectZoom: string;
-    hintMenuAdjust: string;
-    hintMenuWorkflow: string;
     hintMenuExport: string;
-    hintTrackHeightInput: string;
-    hintSpectrumHeightInput: string;
     hintRunRecipe: string;
     hintSaveRecipe: string;
-    hintCopySpec: string;
     hintSpecZoomOut: string;
     hintSpecZoomIn: string;
     hintSpecZoomReset: string;
@@ -279,6 +461,11 @@ export interface UiStrings {
     hintSpectrumOctave3: string;
     hintRemoveTrack: string;
     hintOffsetUp: string;
+    trackMoreHint: string;
+    offsetStepUp: string;
+    offsetStepDown: string;
+    offsetEdit: string;
+    offsetReset: string;
     hintOffsetDown: string;
     hintTrackHeightResizer: string;
     hintSpectrumHeightResizer: string;
@@ -291,12 +478,6 @@ export interface UiStrings {
     hintRestoreSpectrum: string;
     hintOpenFile: string;
     hintOpenFolder: string;
-    hintSelectAll: string;
-    hintClearAll: string;
-    hintClearList: string;
-    hintTreeFilter: string;
-    hintTreeDirectory: string;
-    hintTreeFile: string;
     hintWheelGestures: string;
     hintDoubleClickResetZoom: string;
     hintRectZoomDrag: string;
@@ -337,12 +518,11 @@ export interface UiStrings {
 const STRINGS: Record<SupportedLocale, UiStrings> = {
     en: {
         panelTitle: 'Audio Wandas Analyzer',
-        panelTitlePrefix: 'Audio Analyzer: ',
-        panelComparePrefix: 'Audio Compare: ',
         emptyAllExcluded: 'All tracks are excluded',
-        emptyNoTracks: 'Files checked in the left tree appear here as tracks',
+        emptyNoTracks: 'Files you put in slots 0–3 or add with ＋ on the entry table appear here as tracks',
         selectionHeader: 'Select files to analyze',
-        btnOpenFile: 'Open File',
+        selectionEmptyHint: 'Open a folder to list every file here',
+        btnOpenFile: '＋ Add files',
         browserEmptyPrompt: 'Drop audio or CSV files here, or open files or a folder, to start comparing',
         browserAbout: 'ⓘ About the browser version',
         browserAboutPrivacy: 'Audio is processed in this browser and never uploaded.',
@@ -362,7 +542,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserCleared: 'Worker cleared; audio memory released. Add short files.',
         browserRemoved: 'All tracks removed; audio memory released. Add short files.',
         browserExported: 'Selected regions exported as PCM16 WAV.',
-        browserFolderOpened: 'Opened a folder with {count} readable files. Check files in the tree to add them as tracks.',
+        browserFolderOpened: 'Opened a folder with {count} readable files. Put files in slots 0–3 or press ＋ on a row to show them as tracks.',
         browserDropNoWav: 'Drop audio or CSV files to add them as tracks; use Open Folder for folders.',
         browserUnavailable: 'Not available in the browser version.',
         browserRecipePick: 'Recipes',
@@ -375,33 +555,23 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
 
         btnOpenAnotherFolder: 'Open another folder',
         btnOpenFolder: 'Open Folder',
-        btnSelectAll: 'Select all',
-        btnClear: 'Clear',
-        selectionCountLabel: 'selected',
         selectionNoSupported: 'No supported audio files found.',
-        treeFilterPlaceholder: 'Filter files...',
         spectrumSectionTitle: 'Power spectrum at cursor (all tracks overlaid)',
-        toolbarMain: 'Files',
         toolbarTrackLabel: 'Track:',
         btnWaveform: 'Waveform',
         btnSpectrogram: 'Spectrogram',
+        btnStage: 'Steps',
+        stageLayoutSide: 'Side by side',
+        stageLayoutOverlay: 'Overlay',
+        compareFixedHint: 'Fixed: the difference is a row of the entry table now (Esc to see it)',
+        hintContentStage: 'Pick a step of the scan Recipe and draw every track as that step\'s Frame (the entry table\'s Recipe)',
         btnSpectrogramSettingsTitle: 'Spectrogram settings',
         btnSpectrumSettingsTitle: 'Frequency analysis settings (shared with the spectrogram)',
         toolbarZoomLabel: 'Zoom:',
         btnZoomReset: 'Reset',
-        toolbarAdjustLabel: 'Adjust',
-        toolbarWorkflowLabel: 'Workflow',
         toolbarExportLabel: 'Export',
-        toolbarHeightLabel: 'Height:',
         heightTrackLabel: 'Track',
         heightSpectrumLabel: 'Spectrum',
-        btnHeightReset: 'Reset',
-        ariaTrackHeightUp: 'Increase track height',
-        ariaTrackHeightDown: 'Decrease track height',
-        ariaTrackHeightReset: 'Reset track height',
-        ariaSpectrumHeightUp: 'Increase power spectrum height',
-        ariaSpectrumHeightDown: 'Decrease power spectrum height',
-        ariaSpectrumHeightReset: 'Reset power spectrum height',
         btnRunRecipe: 'Run recipe',
         btnSaveRecipe: 'Save as recipe',
         chartSpecNoResults: 'Recipe returned no charts.',
@@ -416,8 +586,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'Track offset in milliseconds',
         trackSpectrumTitle: 'Power spectrum at main cursor',
-        trackChannelSelectLabel: 'Channel',
-        ariaTrackChannelSelect: 'Displayed channel',
         analysisFailed: 'Analysis failed: ',
         cursorHelpKeys: '← →: move cursor   Shift+←→: 100 ms step   Space: play/pause',
         tooltipLoopResize: 'Drag to resize loop region',
@@ -444,6 +612,214 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowDoubleClickEdge: 'collapse the file list; collapse or expand the spectrum',
         helpRowQuestion: 'toggle this help',
         helpRowEsc: 'close popover / help, restore a maximized spectrum',
+        entryColFile: 'File',
+        entryColCondition: 'Cond. {n}',
+        entryColLeq: 'Leq dB(A)',
+        entryColPeak: 'Δ max band',
+        entryOpen: 'Compare',
+        entryPasteConditions: 'Paste conditions',
+        entryOutliers: 'Outliers',
+        entryBaseGroup: 'Base group',
+        entryBase: 'Base',
+        entryCount: '{count} files',
+        entryNoOutliers: 'no outliers',
+        entryKeyHoldDelta: 'hold 0 Δ',
+        entryKeySlot: '1–3 slot',
+        entryUnreadable: 'unreadable',
+        entryUnavailable: 'Not comparable',
+        entryShape: 'Different shape',
+        entryCalibrated: 'Cal.',
+        entryBandUnit: '{unit}',
+        hintCalibratedColumn: '✓ = calibrated (dB SPL). Empty: digital values (dBFS; dB(A) is relative)',
+        hintRowSlot: 'Put this file in slot {n} (key {n})',
+        hintRowBase: '0: make this file the base (again: back to the group median)',
+        entryConditionsApply: 'Apply',
+        entryConditionsClear: 'Clear',
+        entryConditionsClose: 'Close',
+        entryConditionsPlaceholder: 'Paste a table: file name, then condition columns',
+        entryCsvRegion: 'Region',
+        entryCsvGroupSize: 'Base group n',
+        entrySourceGone: 'The file is no longer listed',
+        entryMissing: 'unmatched',
+        entryAmbiguous: 'ambiguous',
+        entryRepeated: 'duplicate',
+        entryFolderLevel: 'Folder {n}',
+        compareKeyHold: 'hold 1–3 swap',
+        compareKeyBack: 'Esc entry',
+        comparePlay: 'Play',
+        compareDelta: 'Δ = compare − base',
+        stepNeedBelow: 'Must be below {max}',
+        stepNeedPow2: 'A power of two from 64 to {max}',
+        compareReport: 'Export (comparison folder)',
+        entryBaseMedian: 'median of {count}',
+        stageBaseAggregate: 'Aggregate: the median at each point',
+        stageBaseList: 'Show on the list',
+        reportBase: 'base',
+        reportCompare: 'compare',
+        reportDiff: 'delta',
+        reportCsv: 'report',
+        reportBaseLeq: 'Base Leq',
+        reportBandDelta: 'Δ {band} dB',
+        reportRegion: 'Region s',
+        reportSummary: 'summary',
+        reportStepsLegend: 'bands: filled = headline, outlined = leak into the neighbour',
+        reportRegionStart: 'Start s',
+        reportRegionEnd: 'End s',
+        reportWhole: 'whole',
+        reportDefinitions: 'definitions',
+        defLeq: 'A-weighted RMS over the region, 20·log10(rms / ref); ref is the channel calibration (1 = full scale, so an uncalibrated file reads below 0 dB).',
+        defSpectrum: 'Welch power spectrum (wandas welch, n_fft {n_fft}, {window} window) in dB re the channel ref; its bins are power-averaged into 192 log-spaced points from 20 Hz to Nyquist (a point narrower than one bin is interpolated), so a narrow peak reads lower with a longer n_fft.',
+        defHeadline: 'The headline lists up to three bands whose |Δ| is larger than both neighbours, beyond chance (3 MAD of the base condition\'s other files, at least 1.5 dB) and where the louder of base and compare is within {within} dB of the loudest band, largest |Δ| first, each with both levels; or it says "no clear difference". A band beside such a peak with the same sign is the peak\'s leak through the band filters, drawn as an outline and not listed.',
+        defHeadlineEdges: 'In a step\'s spectrogram or cepstrogram, a column whose STFT frames are centred less than n_fft / 2 from the start or end of the signal reads the padding beyond it (its window sticks out of the signal): it is drawn, but never named in the headline.',
+        defRegion: 'Every metric skips the first and last 0.15 s of the file, where the Recipe\'s filters ring; the Recipe\'s time slice is the region actually measured.',
+        defThirdOct: 'wandas noct_spectrum (n = 3), bands from 25 Hz up to 0.88 × Nyquist, in dB; a band centred outside the Recipe\'s filter passband is left empty.',
+        defChannels: 'Channels are combined by their power mean (10·log10 of the mean of 10^(L/10)).',
+        defBase: 'The file in slot 0, or else the median per point and band of the other files of the compared file\'s condition.',
+        defDelta: 'compare − base, in dB, point by point and band by band; Δ max band is the 1/3-octave band with the largest |Δ|.',
+        reportGroupFiles: 'Base group files',
+        reportSpecVersion: 'Spec version',
+        reportSaved: 'Report saved: ',
+        stepRegion: 'Region',
+        stepAll: 'all',
+        stepMetrics: 'Metrics',
+        stepAverage: 'Average spectrum',
+        stepSettings: 'Settings',
+        stepApply: 'Apply',
+        stepRecipeWarning: 'The saved recipe could not be read; the standard one is used.',
+        compareNotEntry: '≠ entry',
+        comparePending: 'pending',
+        compareBaseEntryRegion: 'base = entry region',
+        compareSelfBase: '≠ same file',
+        stepRecipeName: 'Standard',
+        stepHoldHint: 'Hold to see what this step does',
+        stepHintNoHold: 'Nothing to compare on this screen; ⚙ changes its settings',
+        stepAdd: 'Add a step',
+        stepMenuTitle: 'Add a step here',
+        stepMenuFilter: 'Filter operations',
+        stepOffFrame: 'Cannot take the result here',
+        stepOffRequired: 'Needs {params}, which the app cannot set yet',
+        stepOffRefuses: 'Does not run on a {frame} ({reason})',
+        stepOffUnavailable: 'Not available in the Web version (no {packages})',
+        stepDefaultsOnly: 'defaults',
+        stepNoSettings: "No settings known for this step: it runs with wandas' defaults.",
+        stepBarLabel: 'Steps',
+        stepInputFiles: 'Input · {n} files',
+        stepInput: 'Input',
+        stepHintLocale: 'en',
+        stepGroupFilter: 'Filters',
+        stepGroupPrepare: 'Preparation',
+        stepGroupTime: 'Over time',
+        stepGroupFrequency: 'Frequency',
+        stepGroupOther: 'Other',
+        stepDragHint: 'drag to move it',
+        stepMoved: 'Moved {op}',
+        stepRemoveChip: 'Remove this step (Del)',
+        stepHighpass: 'HPF',
+        stepLowpass: 'LPF',
+        stepBandpass: 'BPF',
+        stepAverageFft: '{name} {n}',
+        stepOctaveHint: 'The value in the table\'s band column',
+        stepRemove: 'Remove',
+        stepNeedFrame: '{op} cannot take the result before it: left out until the steps before it change.',
+        stepFailedOn: 'Failed on a file ({reason}): left out until the Recipe changes.',
+        stepInsertHere: 'Add a step here',
+        stepTapHint: "Press: see this step's Frame · hold: what this step does",
+        stepAdded: 'Added {op}. The files on screen are measured again; Scan all updates the table.',
+        stepRemoved: 'Removed {op}. Every file is measured again.',
+        entryStaleTag: 'Chain changed · {n} rows from the previous chain',
+        entryScanAll: 'Scan all {n} · about {time}',
+        entryScanCancel: 'Cancel',
+        entryMinutes: '{n} min',
+        entrySeconds: '{n} s',
+        reportChain: 'Chain',
+        reportChainCurrent: 'current (the Recipe in this folder)',
+        reportChainPrevious: 'previous chain',
+        stepNotDrawable: 'This step cannot be shown ({frame})',
+        stepOpenCompare: 'Put files in slots 1–3 to compare them at this step.',
+        axisLevel: 'Level dB',
+        axisValue: 'Value',
+        axisGain: 'Gain dB',
+        axisCoherence: 'Coherence',
+        axisBand: 'Band centre Hz',
+        axisBark: 'Critical band Bark',
+        axisQuefrency: 'Quefrency s',
+        axisCepstrum: 'Real cepstrum',
+        stageNoDelta: '— (Δ only between pictures of one kind on the same axes)',
+        stageMaxDelta: 'largest Δ {at} {delta}',
+        compareLevelsAt: '{at} base {base} / compare {compare}',
+        compareHintPlot: 'Drag: zoom into the box / Ctrl+Wheel: zoom / Shift+Wheel: scroll / + −: zoom / Double-click: reset zoom',
+        compareHintAxis: 'Double-click: set the range of this axis',
+        compareDiffShow: 'Show Δ',
+        compareDiffHide: 'Hide Δ',
+        hintDiffToggle: 'Show the difference (compare − base) under the overlay, or hide it again',
+        stepHeldWithout: 'without {step}',
+        stepHeldRow: '{what} · {file}',
+        stepHeldNoRow: 'Pick a row (click it) to see what the step does to it.',
+        outsideLeq: 'Leq dB(A)',
+        outside192: '192 points',
+        outsideMedian: 'group median',
+        outsideDelta: 'Δ',
+        outsideOutliers: 'outliers',
+        stepOutsideHeading: 'Outside the Recipe (computed by the app)',
+        stepOpen: 'Details: each step\'s Frame, and ＋ between steps',
+        stepClose: 'Hide details',
+        stepOctave: '1/3 oct',
+        stepFrameHint: 'wandas {op}',
+        slotEmpty: 'empty',
+        axisFrequency: 'Frequency Hz',
+        axisLevelUncal: 'Amplitude dBFS (uncal.)',
+        axisLevelCal: 'Amplitude dB re {ref} {unit}',
+        axisDelta: 'Δ dB',
+        axisTime: 'Time s',
+        legendHeadline: '1/3 oct headline',
+        legendLeak: 'leak',
+        legendLine: 'per point',
+        compareNoSignificant: 'no clear difference',
+        stepNeedAbove: 'Must be above {min}',
+        stepNeedInteger: 'Must be a whole number',
+        compareRegionInvalid: 'A region is 0 ≤ start < end ≤ {end} s; the fields went back to the region in force.',
+        entryAxisMaxDelta: 'Δ max band dB',
+        stepNeedValue: 'Enter a value (the field is empty)',
+        hintSpectrogram: 'Average spectrum (n_fft, window): the curves of the comparison; hold to show the spectrograms instead',
+        compareRefuseFix: 'D: no Δ to fix ({why}). Put a file in slot 0 on the entry table, or wait for the scan.',
+        compareRefuseSlot: 'Slot {n} is empty: fill it on the entry table (1–3 on a row).',
+        entryLeqUncalibrated: 'uncalibrated',
+        hintLeqUncalibrated: 'Uncalibrated: 0 dB is the file\'s full scale, so levels read below 0. Calibrate to read sound pressure.',
+        hintSpectrogramGroup: 'Hold to show spectrograms; with a group as the base there is no single file to show, so put a file in slot 0',
+        screenHelpTitle: 'Keys and symbols',
+        screenHelpEntry: '↑ / ↓\tmove between rows\n1–3\tput the row in a slot (hold: its Δ spectrum)\n0\tmake the row the base; on the base row, back to the group median (hold: show Δ)\nEnter\topen the slotted rows on the comparison\nEsc\tclose a setting, a filter, then the focused row (the old screen: the last line of this list)\n? / F1\tthis list',
+        screenHelpCompare: '1–3\ttap: compare that slot; hold: compare it until released\n0\tswitch the base between the file in slot 0 and the group median\nD\tfix the comparison as a row of the entry table\nSteps / Overlay · Side by side\tthe tracks as a step of the Recipe, drawn over one another or each in its lane\nShow Δ\tshow the difference (compare − base) under the overlay\nEsc\tclose a setting, then go back to the entry table\n? / F1\tthis list',
+        screenHelpSymbols: '+N\thidden condition columns (click to show)\n✕\tfiles that could not be read\n≠ (chip)\tfiles of another shape, readable but not compared\n≠\ta region other than the entry table\'s, or a Δ that cannot be read\n▼Δ\tsorted by this column (grey: waits for the scan)\n● ▲ ■ ◆ ×\tone marker shape per condition in the scatter\nΔ max band\tthe 1/3-octave band where the row differs most from its condition, with that Δ\noutlier\tLeq or Δ max band beyond 3 MAD (the group\'s typical spread; 8 for the band) from the median of its condition\nslot\tthe four places 0–3 at the bottom: 0 the base, 1–3 the files to compare\nfilled / outlined step\ta headline band / its leak into the neighbouring band filter\nn=1\tthe base group is a single file\nstrip\tevery file\'s 1/3-octave levels (row = file, bright = loud)\nblue\tbase\nyellow / purple / magenta\tslots 1 / 2 / 3 (card, badge and line)\ngreen line\ta fixed comparison (D)\norange\toutlier or invalid value\ngreen\tΔ (compare − base), not good or bad',
+        keyHelp: '?',
+        hintColumnsMore: 'Condition columns not used for grouping; click to show them',
+        hintFailedFilter: 'Files that cannot be compared: unreadable, or of another shape (channels, rate, unit); click to list only them',
+        hintOutlierFilter: 'Rows more than 3 MAD from their group median; click to list only them',
+        hintSortMark: 'Sorted by this column, largest |Δ| first; grey while the scan still runs',
+        hintOverview: 'Every file\'s 1/3-octave levels: one row per file, brighter is louder; the frame is the rows on screen',
+        hintScatterAxis: 'What this axis of the scatter shows',
+        hintBandSelect: 'The 1/3-octave band this column shows',
+        hintBaseCard: '0: the base the compared file is measured against',
+        hintSlotCard: 'Tap to compare this file; hold to swap it in until released',
+        hintSlotEmpty: 'Empty: press to put the selected row here (key {n})',
+        hintRegionMark: 'The comparison uses another region than the entry table; click to go back to it',
+        hintCompareMark: 'No Δ to read against this base',
+        hintStepChip: 'A step of the scan Recipe; ⚙ changes its settings',
+        hintEntryProgress: 'Files scanned / files in the folder',
+        hintEntryMaximize: 'Widen the table to the whole window (⤢) or back into the side panel (⤡); a double click on this bar, or dragging the panel\'s edge past 60 % of the window, does the same. Esc shrinks it',
+        hintRowPlay: 'Play this file alone (shown as a track)',
+        hintRowStop: 'Stop',
+        hintComparedFilter: 'Only the compared files and their base, the base nearest its median first',
+        entryCompared: 'Compared',
+        entryAddedGroup: 'Added files',
+        hintRowHide: 'Hide or show this track in the track view',
+        hintRowRemove: 'Take this file off the track view (and out of its slot)',
+        hintBaseChip: 'Slot 0: the base; empty means each row\'s own group median',
+        compareSingleBase: 'n=1',
+        compareRegionDiffers: '≠ region',
+        helpRowEntryKeys: 'entry table: 0 base (hold: Δ), 1–3 slot, Enter open, Esc close (old screen: from the ? list), ↑/↓ row',
+        helpRowCompareKeys: 'comparing: hold 1–3 to swap the compared file, tap 1–3 to keep it, 0 base on the compared file, D fix the difference, Esc back to the entry table',
+        helpRowStepKeys: 'step bar: press a step to see its Frame in the comparison, hold it to see what it does, ＋ adds a wandas operation, Delete on a step removes it',
+        helpRowStepDrag: 'step bar: drag a step to move it (the region stays where it is)',
         helpRowZoomKeys: 'zoom in / out / reset',
         playbackTimePrefix: '▶',
         playbackDisplayTitle: 'Playback position',
@@ -460,7 +836,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         loopTimeDisplayTitle: 'Click to copy loop range',
         btnFollowCursor: 'Follow',
         btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback (key: F)',
-        btnCopySpec: 'Copy spec',
         specSettingsAuto: 'Auto (defaults)',
         specSettingsStftLegend: 'STFT',
         specSettingsNFft: 'n_fft',
@@ -497,8 +872,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaOffsetUp: 'Increase offset',
         ariaOffsetDown: 'Decrease offset',
         ariaOffsetValue: 'Track offset',
-        ariaSelectionTree: 'File selection tree',
-        ariaSelectionTreeDir: 'Directory',
         btnExportReport: 'Report',
         btnExportReportTitle: 'Export analysis report as Markdown or Jupyter Notebook',
         exportReportNoData: 'No analysis data to export.',
@@ -543,15 +916,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         calReferenceTitle: 'Level reference — {channel}',
         calReferencePromptPa: '20 µPa is 0.00002 Pa and produces dB SPL.',
         calReferencePrompt: 'Reference value in {unit}.',
-        trackPickColor: 'Change color',
-        trackColorReset: 'Reset to default',
         ariaDragHandle: 'Drag to reorder track',
-        ariaPickColor: 'Change track color',
         announceAnalyzing: 'Analyzing: {msg}',
         announceAnalysisDone: 'Analysis complete: {count} tracks',
         announceTrackRemoved: 'Track {n} removed',
-        announceSpecCopied: 'Spec copied to clipboard',
-        announceSpecCopyFailed: 'Copy failed: clipboard not available',
         announceExportPngStarted: 'PNG export started',
         announceExportPngFailed: 'PNG export failed: no visible canvases',
         announceExportCsvStarted: 'CSV export started',
@@ -584,14 +952,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintZoomIn: 'Zoom in in time (key: +)',
         hintZoomReset: 'Show the whole time range (key: 0, or double-click a waveform)',
         hintRectZoom: 'Box zoom mode: drag on a waveform to zoom into that box',
-        hintMenuAdjust: 'Change the track and spectrum heights',
-        hintMenuWorkflow: 'Run a recipe or copy the analysis spec',
         hintMenuExport: 'Export PNG, CSV, WAV or a report',
-        hintTrackHeightInput: 'Track height in px (you can also drag the bottom edge of a track)',
-        hintSpectrumHeightInput: 'Spectrum height in px (you can also drag the edge of the spectrum)',
         hintRunRecipe: 'Run an analysis recipe on the loaded tracks',
         hintSaveRecipe: 'Save the bottom panel analysis over whole files, with its current settings, as a recipe',
-        hintCopySpec: 'Copy the current analysis spec to the clipboard',
         hintSpecZoomOut: 'Zoom the spectrum out',
         hintSpecZoomIn: 'Zoom the spectrum in (or drag a box on the spectrum)',
         hintSpecZoomReset: 'Show the whole spectrum (or double-click the plot)',
@@ -600,6 +963,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrumOctave3: '1/3 octave band levels at the cursor (wandas noct_spectrum)',
         hintRemoveTrack: 'Remove this track from the comparison',
         hintOffsetUp: 'Offset +10 ms',
+        trackMoreHint: 'Time offset',
+        offsetStepUp: '+10 ms',
+        offsetStepDown: '−10 ms',
+        offsetEdit: 'Type an offset…',
+        offsetReset: 'Reset the offset to 0',
         hintOffsetDown: 'Offset −10 ms',
         hintTrackHeightResizer: 'Drag to change the track height',
         hintSpectrumHeightResizer: 'Drag to change the spectrum height; double-click to collapse or expand it',
@@ -610,14 +978,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintExpandSpectrum: 'Show the power spectrum',
         hintMaximizeSpectrum: 'Maximize the power spectrum (Esc restores)',
         hintRestoreSpectrum: 'Restore the layout (Esc)',
-        hintOpenFile: 'Open an audio file',
+        hintOpenFile: 'Add audio files from anywhere: they join the entry table\'s "Added files" and are shown as tracks at once',
         hintOpenFolder: 'Open another folder of audio files',
-        hintSelectAll: 'Check all visible files in the tree',
-        hintClearAll: 'Uncheck all files',
-        hintClearList: 'Remove all files from the list and release their audio',
-        hintTreeFilter: 'Type to filter the files by name',
-        hintTreeDirectory: 'Click or Enter / Space: expand or collapse',
-        hintTreeFile: 'Check to show this file as a track',
         hintWheelGestures: 'Wheel: scroll tracks / Ctrl+Wheel: zoom / Shift+Wheel: scroll in time',
         hintDoubleClickResetZoom: 'Double-click: reset zoom',
         hintRectZoomDrag: 'Drag: zoom into the box',
@@ -633,9 +995,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpecDisplay: 'Display range, applied immediately (empty = auto)',
         hintSpecReset: 'Restore the default settings',
         hintSpecApply: 'Recompute the spectrogram with these STFT settings',
-        hintBrowserOpenFolder: 'Open a folder and pick files from the tree',
+        hintBrowserOpenFolder: 'Open a folder on the entry table',
         hintBrowserAbout: 'Show limits, unavailable features and how audio is handled',
-        pairReferenceHint: 'Set as reference',
+        pairReferenceHint: 'Transfer function reference',
         pairReferenceClearHint: 'Clear the reference',
         pairReferenceBadge: 'Ref',
         pairAverages: '{n} avg',
@@ -656,12 +1018,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
     },
     ja: {
         panelTitle: 'Audio Wandas Analyzer',
-        panelTitlePrefix: 'Audio Analyzer: ',
-        panelComparePrefix: 'Audio Compare: ',
         emptyAllExcluded: 'すべてのトラックが除外されています',
-        emptyNoTracks: '左のツリーでチェックしたファイルがここにトラックとして表示されます',
+        emptyNoTracks: '一覧で 1–3 や ▶ を押したファイルが、ここにトラックとして表示されます',
         selectionHeader: '選択して解析',
-        btnOpenFile: 'ファイルを開く',
+        selectionEmptyHint: 'フォルダを開くと、全ファイルの表がここに出ます',
+        btnOpenFile: '＋ファイルを追加',
         browserEmptyPrompt: '音声ファイルやCSVをここにドロップするか、ファイルまたはフォルダを開いて比較を始めます',
         browserAbout: 'ⓘ ブラウザ版について',
         browserAboutPrivacy: '音声はこのブラウザ内で処理され、外部には送信されません。',
@@ -681,7 +1042,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserCleared: 'Workerを終了し、音声メモリを解放しました。短いファイルを追加できます。',
         browserRemoved: '全トラックを削除し、音声メモリを解放しました。',
         browserExported: '選択区間をPCM16 WAVで書き出しました。',
-        browserFolderOpened: '読み込めるファイルを{count}件含むフォルダを開きました。ツリーでチェックしたファイルがトラックになります。',
+        browserFolderOpened: '読み込めるファイルを{count}件含むフォルダを開きました。0〜3 のスロットに入れるか、行の ＋ でトラックとして表示します。',
         browserDropNoWav: 'ドロップできるのは音声ファイルとCSVです。フォルダは「フォルダを開く」から開いてください。',
         browserUnavailable: 'Web版では未対応です。',
         browserRecipePick: 'レシピ',
@@ -694,33 +1055,23 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
 
         btnOpenAnotherFolder: '別のフォルダを開く',
         btnOpenFolder: 'フォルダを開く',
-        btnSelectAll: 'すべて選択',
-        btnClear: 'クリア',
-        selectionCountLabel: '件を選択中',
         selectionNoSupported: '対応する音声ファイルは見つかりませんでした。',
-        treeFilterPlaceholder: 'ファイルを絞り込む...',
         spectrumSectionTitle: 'カーソル時刻のパワースペクトル（全トラック重ね合わせ）',
-        toolbarMain: 'ファイル',
         toolbarTrackLabel: 'トラック:',
         btnWaveform: '波形',
         btnSpectrogram: 'スペクトログラム',
+        btnStage: '手順',
+        stageLayoutSide: '並べる',
+        stageLayoutOverlay: '重ねる',
+        compareFixedHint: '差を一覧の行として残しました（Esc で一覧）',
+        hintContentStage: '手順ごとの結果を、比較するファイルどうし重ねて表示',
         btnSpectrogramSettingsTitle: 'スペクトログラム設定',
         btnSpectrumSettingsTitle: '周波数解析の設定（スペクトログラムと共通）',
         toolbarZoomLabel: 'ズーム:',
         btnZoomReset: 'リセット',
-        toolbarAdjustLabel: '調整',
-        toolbarWorkflowLabel: 'ワークフロー',
         toolbarExportLabel: '書き出し',
-        toolbarHeightLabel: '高さ:',
         heightTrackLabel: 'トラック',
         heightSpectrumLabel: 'スペクトル',
-        btnHeightReset: '戻す',
-        ariaTrackHeightUp: 'トラックを高くする',
-        ariaTrackHeightDown: 'トラックを低くする',
-        ariaTrackHeightReset: 'トラックの高さをリセット',
-        ariaSpectrumHeightUp: 'パワースペクトルを高くする',
-        ariaSpectrumHeightDown: 'パワースペクトルを低くする',
-        ariaSpectrumHeightReset: 'パワースペクトルの高さをリセット',
         btnRunRecipe: 'レシピ実行',
         btnSaveRecipe: 'レシピとして保存',
         chartSpecNoResults: 'レシピは何もチャートを返しませんでした。',
@@ -735,8 +1086,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'トラックオフセット（ミリ秒）',
         trackSpectrumTitle: 'メインカーソル時刻のパワースペクトル',
-        trackChannelSelectLabel: 'チャンネル',
-        ariaTrackChannelSelect: '表示チャンネル',
         analysisFailed: '解析失敗: ',
         cursorHelpKeys: '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止',
         tooltipLoopResize: 'ドラッグでループ区間をリサイズ',
@@ -763,6 +1112,214 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowDoubleClickEdge: 'ファイル一覧を畳む、スペクトルを畳む/戻す',
         helpRowQuestion: 'このヘルプを開閉',
         helpRowEsc: 'ポップオーバー / ヘルプを閉じる、最大化を戻す',
+        entryColFile: 'ファイル',
+        entryColCondition: '条件 {n}',
+        entryColLeq: 'Leq dB(A)',
+        entryColPeak: 'Δ最大帯域',
+        entryOpen: '比較を表示',
+        entryPasteConditions: '条件表 貼る',
+        entryOutliers: '外れ値',
+        entryBaseGroup: '基準群',
+        entryBase: '基準',
+        entryCount: '{count} 件',
+        entryNoOutliers: '外れ値なし',
+        entryKeyHoldDelta: '0 長押しで差',
+        entryKeySlot: '1–3 スロット',
+        entryUnreadable: '読めない',
+        entryUnavailable: '比較不可',
+        entryShape: '形が違う',
+        entryCalibrated: '校正',
+        entryBandUnit: '帯 {unit}',
+        hintCalibratedColumn: '✓ = 校正値あり（dB SPL）。空欄はデジタル値（dBFS / dB(A) は相対）',
+        hintRowSlot: 'このファイルをスロット {n} に入れる（キー {n}）',
+        hintRowBase: '0：基準にする（もう一度押すと群の中央値に戻す）',
+        entryConditionsApply: '適用',
+        entryConditionsClear: '消去',
+        entryConditionsClose: '閉じる',
+        entryConditionsPlaceholder: '表を貼る: ファイル名、続けて条件の列',
+        entryCsvRegion: '区間',
+        entryCsvGroupSize: '基準群 n',
+        entrySourceGone: 'ファイルが一覧から外れました',
+        entryMissing: '未対応',
+        entryAmbiguous: '曖昧',
+        entryRepeated: '重複',
+        entryFolderLevel: 'フォルダ階層{n}',
+        compareKeyHold: '1–3 長押しで入れ替え',
+        compareKeyBack: 'Esc 一覧へ',
+        comparePlay: '再生',
+        compareDelta: 'Δ = 比較 − 基準',
+        stepNeedBelow: '{max} 未満にしてください',
+        stepNeedPow2: '64〜{max} の 2 の冪にしてください',
+        compareReport: '書き出し（比較フォルダ）',
+        entryBaseMedian: '{count} 件の中央値',
+        stageBaseAggregate: '集約：点ごとの中央値',
+        stageBaseList: '一覧で見る',
+        reportBase: '基準',
+        reportCompare: '比較',
+        reportDiff: '差',
+        reportCsv: '報告',
+        reportBaseLeq: '基準 Leq',
+        reportBandDelta: 'Δ {band} dB',
+        reportRegion: '区間 s',
+        reportSummary: '要約',
+        reportStepsLegend: '帯域：塗り＝見出し、枠＝隣への漏れ',
+        reportRegionStart: '開始 s',
+        reportRegionEnd: '終了 s',
+        reportWhole: '全区間',
+        reportDefinitions: '定義',
+        defLeq: '区間の A 特性 RMS を 20·log10(rms / ref) で dB にした値。ref はチャンネルの校正値（1 = フルスケール。校正していないファイルは 0 dB より小さくなる）。',
+        defSpectrum: 'Welch パワースペクトル（wandas welch、n_fft {n_fft}、{window} 窓）。dB はチャンネルの ref 基準。ビンを 20 Hz〜ナイキストの対数間隔の 192 点にパワー平均でまとめる（1 ビンより狭い点は補間）ので、細いピークは n_fft を長くすると低く出る。',
+        defHeadline: '見出しは、|Δ| が両隣の帯域より大きく、偶然の範囲（基準の条件の他のファイルの 3 MAD（中央絶対偏差）、最小 1.5 dB）を超え、基準と比較の大きい方が最大の帯域から {within} dB 以内の帯域を、|Δ| の大きい順に 3 つまで、両方のレベルで出す。無ければ「有意な差なし」と出す。その山の隣で同じ符号の帯域は、帯域フィルタへの漏れなので枠だけで描き、見出しには出さない。',
+        defHeadlineEdges: '手順のスペクトログラム・ケプストログラムでは、STFT のフレームの中心が信号の先頭・末尾から n_fft / 2 未満の列は、窓が信号からはみ出して外側の詰め物を読むので、描くが見出しには選ばない。',
+        defRegion: 'どの指標も、手順のフィルタが響くファイルの最初と最後の 0.15 s を除いて測る。手順の time slice は実際に測った区間。',
+        defThirdOct: 'wandas noct_spectrum（n = 3）。25 Hz から 0.88 × ナイキストまでの帯域の dB。中心が手順のフィルタの通過帯域の外にある帯域は空欄。',
+        defChannels: 'チャンネルはパワー平均でまとめる（10^(L/10) の平均を 10·log10）。',
+        defBase: 'スロット 0 のファイル。無ければ、比較するファイルと同じ条件の他のファイルの、点ごと・帯域ごとの中央値。',
+        defDelta: '比較 − 基準（dB、点ごと・帯域ごと）。Δ最大帯域は |Δ| が最大の 1/3 oct 帯域。',
+        reportGroupFiles: '基準群ファイル',
+        reportSpecVersion: '解析仕様版',
+        reportSaved: '報告を保存しました: ',
+        stepRegion: '区間',
+        stepAll: '全体',
+        stepMetrics: '指標',
+        stepAverage: '平均スペクトル',
+        stepSettings: '設定',
+        stepApply: '適用',
+        stepRecipeWarning: '保存していたレシピを読めないため、標準のレシピを使います。',
+        compareNotEntry: '≠ 一覧',
+        comparePending: '未確定',
+        compareBaseEntryRegion: '基準 = 一覧の区間',
+        compareSelfBase: '≠ 同じファイル',
+        stepRecipeName: '標準',
+        stepHoldHint: '長押しの間、この手順あり／なしを比べる',
+        stepHintNoHold: 'この画面では比べるものが無い。⚙ で設定',
+        stepAdd: '手順を足す',
+        stepMenuTitle: 'ここに手順を足す',
+        stepMenuFilter: '操作を絞り込む',
+        stepOffFrame: 'この位置の結果には使えません',
+        stepOffRequired: '必須の設定 {params} を、アプリはまだ設定できません',
+        stepOffRefuses: '{frame} では動きません（{reason}）',
+        stepOffUnavailable: 'Web 版では使えません（{packages} が無い）',
+        stepDefaultsOnly: '既定値',
+        stepNoSettings: '設定項目の情報なし（wandas の既定値で実行します）',
+        stepBarLabel: '手順',
+        stepInputFiles: '入力 {n} 本',
+        stepInput: '入力',
+        stepHintLocale: 'ja',
+        stepGroupFilter: 'フィルタ',
+        stepGroupPrepare: '前処理',
+        stepGroupTime: '時間変化',
+        stepGroupFrequency: '周波数',
+        stepGroupOther: 'その他',
+        stepDragHint: 'ドラッグで並べ替え',
+        stepMoved: '{op} を移しました',
+        stepRemoveChip: 'このステップを削除（Del）',
+        stepHighpass: 'ハイパス',
+        stepLowpass: 'ローパス',
+        stepBandpass: 'バンドパス',
+        stepAverageFft: '{name}（FFT {n} 点）',
+        stepOctaveHint: '表の帯域列の値',
+        stepRemove: '外す',
+        stepNeedFrame: '{op} は前の手順の結果に使えません。前の手順を直すまで外して計算しています',
+        stepFailedOn: 'ファイルで失敗（{reason}）。レシピを変えるまで外して計算しています',
+        stepInsertHere: 'ここに手順を足す',
+        stepTapHint: 'クリック: この手順の結果 · 長押し: この手順あり／なしを比べる',
+        stepAdded: '{op} を足しました。表示中のファイルを計算し直します。一覧は「全件を計算」で更新します。',
+        stepRemoved: '{op} を外しました。全ファイルを計算し直します。',
+        entryStaleTag: '手順変更 · 表は前の手順 {n} 本',
+        entryScanAll: '全件を計算 {n} 本 · 約 {time}',
+        entryScanCancel: '中止',
+        entryMinutes: '{n} 分',
+        entrySeconds: '{n} 秒',
+        reportChain: '手順',
+        reportChainCurrent: '現在の手順（同じフォルダの Recipe）',
+        reportChainPrevious: '前の手順',
+        stepNotDrawable: 'この手順の結果は表示できません（{frame}）',
+        stepOpenCompare: '行の 1–3 を押すと、この手順の結果を比べられます',
+        axisLevel: 'レベル dB',
+        axisValue: '値',
+        axisGain: '利得 dB',
+        axisCoherence: 'コヒーレンス',
+        axisBand: '帯域中心 Hz',
+        axisBark: '臨界帯域 Bark',
+        axisQuefrency: 'ケフレンシー s',
+        axisCepstrum: '実ケプストラム',
+        stageNoDelta: '— 差は同じ種類・同じ軸の結果どうしでだけ出せます',
+        stageMaxDelta: '最大 Δ {at} {delta}',
+        compareLevelsAt: '{at} 基準 {base} / 比較 {compare}',
+        compareHintPlot: 'ドラッグ: 囲んだ範囲にズーム / Ctrl+ホイール: ズーム / Shift+ホイール: 横にスクロール / + −: ズーム / ダブルクリック: ズームをリセット',
+        compareHintAxis: 'ダブルクリック: この軸の範囲を設定',
+        compareDiffShow: '差も表示',
+        compareDiffHide: '差を隠す',
+        hintDiffToggle: '重ね描きの下に差（比較 − 基準）を出す。もう一度押すと隠す',
+        stepHeldWithout: '{step} なし',
+        stepHeldRow: '{what} · {file}',
+        stepHeldNoRow: '行を選ぶと（クリック）、その行で手順の効果を見せます。',
+        outsideLeq: 'Leq dB(A)',
+        outside192: '192 点',
+        outsideMedian: '群の中央値',
+        outsideDelta: 'Δ',
+        outsideOutliers: '外れ値',
+        stepOutsideHeading: 'Recipe の外（アプリで計算）',
+        stepOpen: '詳しく：各手順の結果の種類と、手順の間に足す＋',
+        stepClose: '詳しくを閉じる',
+        stepOctave: '1/3 oct 帯域（表の値）',
+        stepFrameHint: 'wandas {op}',
+        slotEmpty: '空き',
+        axisFrequency: '周波数 Hz',
+        axisLevelUncal: '振幅 dBFS 未校正',
+        axisLevelCal: '振幅 dB re {ref} {unit}',
+        axisDelta: '差 dB',
+        axisTime: '時間 s',
+        legendHeadline: '1/3 oct 見出し',
+        legendLeak: '漏れ',
+        legendLine: '点ごとの差',
+        compareNoSignificant: '有意な差なし',
+        stepNeedAbove: '{min} より大きくしてください',
+        stepNeedInteger: '整数にしてください',
+        compareRegionInvalid: '区間は 0 ≤ 開始 < 終了 ≤ {end} s です。入力欄を今の区間に戻しました。',
+        entryAxisMaxDelta: 'Δ最大帯域 dB',
+        stepNeedValue: '値を入れてください（欄が空）',
+        hintSpectrogram: '平均スペクトルの設定（FFT 長・窓）。長押しでスペクトログラム',
+        compareRefuseFix: 'D：残せる差がありません（{why}）。一覧でスロット 0 にファイルを入れるか、一括計算が終わるのを待ってください',
+        compareRefuseSlot: 'スロット {n} は空です。一覧の行で 1–3 を押して入れてください',
+        entryLeqUncalibrated: '未校正',
+        hintLeqUncalibrated: '未校正：0 dB はファイルのフルスケールなので、値は 0 より小さくなる。音圧として読むには校正が要る。',
+        hintSpectrogramGroup: '長押しでスペクトログラム。基準が群のときは 1 本のファイルが無いので、スロット 0 にファイルを入れる',
+        screenHelpTitle: 'キーと記号',
+        screenHelpEntry: '↑ / ↓\t行を移動\n1–3\t行をスロットに入れる（長押しの間は Δ スペクトル）\n0\t行を基準にする。基準の行でもう一度押すと群の中央値へ（長押しの間は Δ を表示）\nEnter\tスロットの行を比較を表示\nEsc\t設定 → 絞り込み → 行の選択の順に閉じる\n? / F1\tこの一覧',
+        screenHelpCompare: '1–3\t押して比較を切り替え、長押しの間だけ入れ替え\n0\t基準をスロット 0 のファイル ⇄ 群の中央値で切り替え\nD\t比較を一覧の行として固定\n手順 / 重ねる・並べる\tトラックを手順で描く。1 枚に重ねるか、レーンに並べる\n差も表示\t重ね描きの下に差（比較 − 基準）を出す\nEsc\t設定を閉じる → 一覧へ\n? / F1\tこの一覧',
+        screenHelpSymbols: '+N\t隠れている条件列の数（押すと開く）\n✕\t読めなかったファイル\n≠（チップ）\t形が違うので比べないファイル\n≠\t一覧と違う区間、または読めない Δ\n▼Δ\tこの列で並べ替え中（灰色は計算が終わるまで待ち）\n● ▲ ■ ◆ ×\t散布図で条件ごとの形\nΔ最大帯域\t同じ条件の他のファイルと最も違う 1/3 oct 帯域と、その Δ\n外れ値\tLeq か Δ最大帯域が、条件の中央値から 3 MAD（群のふつうのばらつき。帯域は 8）を超える行\nスロット\t下の 0–3 の 4 つの枠。0 が基準、1–3 が比べるファイル\n塗りの帯 / 枠の帯\t見出しの帯域 / その隣の帯域フィルタへの漏れ\nn=1\t基準群が 1 本だけ\n俯瞰帯\t全ファイルの 1/3 oct（行＝ファイル、明るい＝大きい）\n青\t基準\n黄 / 紫 / 赤紫\tスロット 1 / 2 / 3（カード・番号・線）\n緑の線\t固定した比較（D）\n橙\t外れ値・無効な値\n緑\tΔ（比較 − 基準）。良し悪しではない',
+        keyHelp: '?',
+        hintColumnsMore: '群分けに使っていない条件列。押すと表示',
+        hintFailedFilter: '比べられないファイル（読めない、またはチャンネル数・サンプリング周波数・単位が違う）。押すとそれだけを表示',
+        hintOutlierFilter: '同じ条件の群の中央値から 3 MAD（中央絶対偏差）を超えて外れた行。押すとそれだけを表示',
+        hintSortMark: '差の大きい順。灰色は計算中',
+        hintOverview: '全ファイルの 1/3 oct。1 行が 1 ファイル、明るいほど大きい。枠は表に見えている行',
+        hintScatterAxis: '散布図のこの軸に出す値',
+        hintBandSelect: 'この列に出す 1/3 oct 帯域',
+        hintBaseCard: '0: 比較するファイルの基準',
+        hintSlotCard: 'クリックで比較、長押しの間だけ入れ替え',
+        hintSlotEmpty: '空き：押すと、選んでいる行をここに入れる（キー {n}）',
+        hintRegionMark: '比較の区間が一覧と違う。押すと一覧の区間に戻す',
+        hintCompareMark: 'この基準とは差を出せない（形が違う）',
+        hintStepChip: '一覧の計算に使う手順。⚙ で設定',
+        hintEntryProgress: '計算済み / フォルダのファイル数',
+        hintEntryMaximize: '表をウィンドウ全体に広げる（⤢）／左パネルに戻す（⤡）。このバーのダブルクリック、パネルの端をウィンドウの 6 割より先までドラッグしても同じ。Esc で縮める',
+        hintRowPlay: 'このファイルだけを再生（トラックにも表示）',
+        hintRowStop: '止める',
+        hintComparedFilter: '比較中のファイルとその基準だけを表示。基準は中央値に近い順',
+        entryCompared: '比較中',
+        entryAddedGroup: '追加したファイル',
+        hintRowHide: 'トラック表示でこのトラックを隠す／出す',
+        hintRowRemove: 'このファイルをトラック表示から外す（スロットからも外す）',
+        hintBaseChip: '基準。空なら同じ条件の群の中央値',
+        compareSingleBase: 'n=1',
+        compareRegionDiffers: '≠ 区間',
+        helpRowEntryKeys: 'ファイル一覧: 0 基準（長押しで差）、1–3 スロット、Enter 比較を表示、Esc 閉じる、↑/↓ 行',
+        helpRowCompareKeys: '比較: 1–3 長押しで比較を入れ替え、押して固定、0 比較中を基準に、D 差を残す、Esc 一覧へ',
+        helpRowStepKeys: '手順バー: 手順を押すとその結果、長押しでその手順あり／なし、＋ で wandas の操作を足す、手順で Delete で外す',
+        helpRowStepDrag: '手順バー: 手順をドラッグして並べ替え（区間は動かせない）',
         helpRowZoomKeys: 'ズームイン / アウト / リセット',
         playbackTimePrefix: '▶',
         playbackDisplayTitle: '再生位置',
@@ -779,7 +1336,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         loopTimeDisplayTitle: 'クリックでループ範囲をコピー',
         btnFollowCursor: '追従',
         btnFollowCursorTitle: '再生中にカーソルを中央に保つ（キー: F）',
-        btnCopySpec: 'スペックをコピー',
         specSettingsAuto: '自動 (デフォルト)',
         specSettingsStftLegend: 'STFT',
         specSettingsNFft: 'n_fft',
@@ -816,8 +1372,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaOffsetUp: 'オフセットを増やす',
         ariaOffsetDown: 'オフセットを減らす',
         ariaOffsetValue: 'トラックオフセット',
-        ariaSelectionTree: 'ファイル選択ツリー',
-        ariaSelectionTreeDir: 'ディレクトリ',
         btnExportReport: 'レポート',
         btnExportReportTitle: '解析結果を Markdown または Jupyter Notebook として書き出す',
         exportReportNoData: 'エクスポートする解析データがありません。',
@@ -862,15 +1416,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         calReferenceTitle: 'レベル基準値 — {channel}',
         calReferencePromptPa: '20 µPa は 0.00002 Pa で、dB SPL になります。',
         calReferencePrompt: '{unit} での基準値。',
-        trackPickColor: '色を変更',
-        trackColorReset: 'デフォルトに戻す',
         ariaDragHandle: 'ドラッグしてトラックを並び替え',
-        ariaPickColor: 'トラック色を変更',
         announceAnalyzing: '解析中: {msg}',
         announceAnalysisDone: '解析完了: {count}件',
         announceTrackRemoved: 'トラック{n}を削除',
-        announceSpecCopied: 'スペックをクリップボードにコピーしました',
-        announceSpecCopyFailed: 'コピー失敗：クリップボードが利用できません',
         announceExportPngStarted: 'PNG 出力を開始しました',
         announceExportPngFailed: 'PNG 出力失敗：表示中のキャンバスがありません',
         announceExportCsvStarted: 'CSV 出力を開始しました',
@@ -903,14 +1452,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintZoomIn: '時間方向にズームイン（キー: +）',
         hintZoomReset: '全体を表示（キー: 0、または波形をダブルクリック）',
         hintRectZoom: '矩形ズームモード: 波形上をドラッグした範囲にズーム',
-        hintMenuAdjust: 'トラックとスペクトルの高さを変更',
-        hintMenuWorkflow: 'レシピの実行、解析スペックのコピー',
         hintMenuExport: 'PNG・CSV・WAV・レポートを書き出す',
-        hintTrackHeightInput: 'トラックの高さ (px)。トラック下端のドラッグでも変更できます',
-        hintSpectrumHeightInput: 'スペクトルの高さ (px)。スペクトルの境界のドラッグでも変更できます',
         hintRunRecipe: '読み込んだトラックに解析レシピを実行',
         hintSaveRecipe: '下のパネルの解析を、今の設定でファイル全体を計算するレシピとして保存',
-        hintCopySpec: '現在の解析スペックをクリップボードにコピー',
         hintSpecZoomOut: 'スペクトルをズームアウト',
         hintSpecZoomIn: 'スペクトルをズームイン（スペクトル上のドラッグでも可）',
         hintSpecZoomReset: 'スペクトル全体を表示（グラフのダブルクリックでも可）',
@@ -919,6 +1463,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrumOctave3: 'カーソル位置の 1/3 オクターブバンドレベル（wandas noct_spectrum）',
         hintRemoveTrack: 'このトラックを比較から外す',
         hintOffsetUp: 'オフセット +10 ms',
+        trackMoreHint: '時間オフセット',
+        offsetStepUp: '+10 ms',
+        offsetStepDown: '−10 ms',
+        offsetEdit: '値を入力…',
+        offsetReset: 'オフセットを 0 に戻す',
         hintOffsetDown: 'オフセット −10 ms',
         hintTrackHeightResizer: 'ドラッグでトラックの高さを変更',
         hintSpectrumHeightResizer: 'ドラッグでスペクトルの高さを変更、ダブルクリックで畳む/戻す',
@@ -929,14 +1478,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintExpandSpectrum: 'パワースペクトルを表示',
         hintMaximizeSpectrum: 'パワースペクトルを最大化（Esc で戻す）',
         hintRestoreSpectrum: '元の配置に戻す（Esc）',
-        hintOpenFile: '音声ファイルを開く',
+        hintOpenFile: 'どこからでも音声ファイルを追加。一覧の「追加したファイル」に入り、すぐトラックとして表示される',
         hintOpenFolder: '別の音声フォルダを開く',
-        hintSelectAll: 'ツリーに表示中のファイルをすべてチェック',
-        hintClearAll: 'すべてのチェックを外す',
-        hintClearList: '一覧のファイルをすべて削除し、音声メモリを解放する',
-        hintTreeFilter: '入力した文字でファイルを絞り込む',
-        hintTreeDirectory: 'クリックまたは Enter / Space: 開く / 閉じる',
-        hintTreeFile: 'チェックするとトラックとして表示',
         hintWheelGestures: 'ホイール: トラックをスクロール / Ctrl+ホイール: ズーム / Shift+ホイール: 時間方向にスクロール',
         hintDoubleClickResetZoom: 'ダブルクリック: ズームをリセット',
         hintRectZoomDrag: 'ドラッグ: 囲んだ範囲にズーム',
@@ -952,9 +1495,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpecDisplay: '表示範囲。すぐに反映されます（空欄は自動）',
         hintSpecReset: '既定の設定に戻す',
         hintSpecApply: 'この STFT 設定でスペクトログラムを再計算',
-        hintBrowserOpenFolder: 'フォルダを開き、ツリーからファイルを選ぶ',
+        hintBrowserOpenFolder: 'フォルダを開き、一覧で選ぶ',
         hintBrowserAbout: '制限・未対応機能・音声の扱いを表示',
-        pairReferenceHint: '基準にする',
+        pairReferenceHint: '伝達関数の基準',
         pairReferenceClearHint: '基準を解除',
         pairReferenceBadge: '基準',
         pairAverages: '{n}平均',

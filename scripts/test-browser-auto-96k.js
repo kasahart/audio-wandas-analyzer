@@ -24,8 +24,10 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
     try {
         await page.goto(origin+'/analyzer/');
         await page.evaluate(()=>{window.__auto96k=[];window.__AWA_HOST__.onMessage(m=>window.__auto96k.push(m));});
-        await page.getByLabel('Open File',{exact:true}).setInputFiles(fixture);
-        await page.locator('span[role="status"]').filter({hasText:'waveform ready'}).waitFor({timeout:120000});
+        // The page speaks the browser's language: its own strings say what it shows, not assumed English.
+        const S=await page.evaluate(()=>window.__APP_STRINGS__);
+        await page.locator('input[data-action="browser-open-wav"]').setInputFiles(fixture);
+        await page.locator('span[role="status"]').filter({hasText:S.browserReady.slice(0,S.browserReady.indexOf('{count}')).trim()}).waitFor({timeout:120000});
         await page.locator('[data-action="content-spectrogram"]').click();
         await page.waitForFunction(()=>window.__auto96k.some(m=>m.type==='track-detail-result'||m.type==='track-detail-error'),undefined,{timeout:120000});
         const result=await page.evaluate(()=>window.__auto96k.find(m=>m.type==='track-detail-result'||m.type==='track-detail-error'));

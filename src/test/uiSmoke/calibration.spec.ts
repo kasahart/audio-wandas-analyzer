@@ -118,7 +118,11 @@ test('calibration update preserves runtime state without requesting a Webview re
     await loadCalibrationUi(page);
 
     const offset = page.locator('#track-row-0 .track-offset-val');
-    await offset.click();
+    // At 0 the offset is out of sight; "Type an offset…" in the track's … menu opens its field.
+    await expect(offset).toBeHidden();
+    await page.locator('#track-row-0 details.track-more summary').click();
+    await page.locator('#track-row-0 [data-action="offset-edit"]').click();
+    await expect(page.locator('#track-row-0 details.track-more')).not.toHaveAttribute('open', '');
     const input = page.locator('#track-row-0 .track-offset-input');
     await input.fill('2000');
     await input.press('Enter');

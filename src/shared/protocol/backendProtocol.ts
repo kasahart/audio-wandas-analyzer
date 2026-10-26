@@ -16,8 +16,12 @@ import type {
     RangePayload,
     RangeResult,
     ReleaseTrackDetailPayload,
+    ScanPayload,
+    ScanResult,
     SpectrumSlicePayload,
     SpectrumSliceResult,
+    StageDetail,
+    StageView,
     TrackDetailPayload,
     TrackDetailResult,
 } from './generated/backendProtocolSchema';
@@ -44,8 +48,12 @@ export type {
     RangePayload,
     RangeResult,
     ReleaseTrackDetailPayload,
+    ScanPayload,
+    ScanResult,
     SpectrumSlicePayload,
     SpectrumSliceResult,
+    StageDetail,
+    StageView,
     TrackDetailPayload,
     TrackDetailResult,
 };
@@ -79,6 +87,7 @@ export interface BackendCommandMap {
     'export-wav-loop': { payload: ExportWavLoopPayload; result: ExportWavLoopResult };
     'run-recipe': { payload: RunRecipePayload; result: RunRecipeResult };
     'build-recipe': { payload: BuildRecipePayload; result: BuildRecipeResult };
+    scan: { payload: ScanPayload; result: ScanResult };
 }
 
 export const BACKEND_COMMANDS = [
@@ -91,6 +100,7 @@ export const BACKEND_COMMANDS = [
     'export-wav-loop',
     'run-recipe',
     'build-recipe',
+    'scan',
 ] as const satisfies ReadonlyArray<keyof BackendCommandMap>;
 
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
@@ -149,9 +159,6 @@ export function isJsonObject(value: unknown): value is { [key: string]: unknown 
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
 
 /** Cross-field invariant the schema cannot express: every per-point array has the same length. */
 function hasAlignedEnvelopeArrays(envelope: WaveformEnvelope): boolean {
@@ -228,6 +235,26 @@ function isBuildRecipeResult(value: unknown): value is BuildRecipeResult {
     return schemaViolation('BuildRecipeResult', value) === null;
 }
 
+const STAGE_METRIC_KEYS = ['conditionId', 'leqDbA', 'peakHz', 'spectrumDb', 'thirdOctDb', 'crest', 'endFrame'] as const;
+const SCAN_SUCCESS_KEYS = [
+    'conditionId', 'input', 'leqDbA', 'peakHz', 'spectrumDb', 'thirdOctDb', 'crest', 'specVersion', 'wandasVersion', 'elapsedMs',
+] as const;
+
+function isScanResult(value: unknown): value is ScanResult {
+    if (schemaViolation('ScanResult', value) !== null) return false;
+    const result = value as ScanResult;
+    if (!result.ok) return typeof result.reason === 'string' && SCAN_SUCCESS_KEYS.every(key => result[key] === undefined);
+    // A step's picture alone (scan with `stage`): the file's input and the picture, none of the metrics.
+    if (result.stage !== undefined && result.leqDbA === undefined) {
+        return result.reason === undefined && result.input !== undefined && STAGE_METRIC_KEYS.every(key => result[key] === undefined);
+    }
+    if (result.reason !== undefined || !SCAN_SUCCESS_KEYS.every(key => result[key] !== undefined)) return false;
+    // Every per-channel array follows input.channels.
+    const channels = result.input!.channels.length;
+    return [result.leqDbA, result.peakHz, result.spectrumDb, result.thirdOctDb, result.crest]
+        .every(values => values!.length === channels);
+}
+
 type ResultValidator<K extends BackendCommand> = (value: unknown) => value is BackendResult<K>;
 
 const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
@@ -240,6 +267,7 @@ const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
     'export-wav-loop': isExportWavLoopResult,
     'run-recipe': isRunRecipeResult,
     'build-recipe': isBuildRecipeResult,
+    scan: isScanResult,
 };
 
 export function parseBackendResult<K extends BackendCommand>(command: K, value: unknown): BackendResult<K> {

@@ -39,8 +39,9 @@ export function collectAudioFilePaths(tree: DirectoryTreeNode[]): string[] {
     return filePaths;
 }
 
-export function sanitizeSelectedAudioFilePaths(tree: DirectoryTreeNode[], selectedFilePaths: string[]): string[] {
-    const allowed = new Set(collectAudioFilePaths(tree));
+/** The selected files the session lists: the folder's, and files added from outside it. */
+export function sanitizeSelectedAudioFilePaths(tree: DirectoryTreeNode[], selectedFilePaths: string[], extraFilePaths: readonly string[] = []): string[] {
+    const allowed = new Set([...collectAudioFilePaths(tree), ...extraFilePaths]);
     const selection = new OrderedSelection();
 
     for (const filePath of selectedFilePaths) {

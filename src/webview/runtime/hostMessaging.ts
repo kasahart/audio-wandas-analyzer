@@ -1,10 +1,11 @@
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import type {
-    AnalysisResultWithError,
     AnalysisUpdateMessage,
     ChannelSummary,
 } from '../../shared/analysis/analysisTypes';
 import type { PairSpectrumPublication } from '../../shared/session/comparisonSessionController';
+import { isEntryConditionTable, type ComparePublication, type EntryPublication } from '../../shared/analysis/entryScan';
+import { parseBackendResult } from '../../shared/protocol/backendProtocol';
 import type { RangeWaveform, RuntimeWindow, WebviewHostApi } from './types';
 
 export type HostOutboundMessage = PanelMessage
@@ -61,8 +62,10 @@ export type HostInboundMessage =
     | { type: 'reanalyze-start'; count: number }
     | { type: 'reanalyze-end' }
     | { type: 'analysis-file-progress'; current: number; total: number; fileName: string }
-    /** Lists a newly picked folder in the selection tree; no files leaves the tree for the plain results layout. */
-    | { type: 'directory-selection'; rootPath: string; rootLabel?: string; filePaths: string[] }
+    /** Lists a newly picked folder in the selection tree; no files leaves the tree for the plain results layout. `entry` opens the entry table on it. */
+    | { type: 'directory-selection'; rootPath: string; rootLabel?: string; filePaths: string[]; entry?: boolean }
+    | EntryPublication
+    | ComparePublication
     | AnalysisUpdateMessage;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -160,7 +163,19 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
         case 'directory-selection':
             return hasString(value, 'rootPath') && (value.rootLabel === undefined || typeof value.rootLabel === 'string')
                 && Array.isArray(value.filePaths)
-                && value.filePaths.every(path => typeof path === 'string');
+                && value.filePaths.every(path => typeof path === 'string')
+                && (value.entry === undefined || typeof value.entry === 'boolean');
+        case 'entry-conditions':
+            return hasString(value, 'requestId') && (value.table === null || isEntryConditionTable(value.table));
+        case 'entry-scan-result':
+            if (!hasString(value, 'requestId') || !hasString(value, 'filePath')) return false;
+            try { parseBackendResult('scan', value.result); return true; } catch { return false; }
+        case 'entry-scan-done':
+        case 'compare-scan-done':
+            return hasString(value, 'requestId');
+        case 'compare-scan-result':
+            if (!hasString(value, 'requestId') || !hasString(value, 'filePath')) return false;
+            try { parseBackendResult('scan', value.result); return true; } catch { return false; }
         case 'analysis-update':
             return Array.isArray(value.results) && (value.selectedFilePaths === undefined
                 || Array.isArray(value.selectedFilePaths) && value.selectedFilePaths.every(path => typeof path === 'string'));

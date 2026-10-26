@@ -26,11 +26,14 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
             window.__AWA_HOST__.postMessage = message => { window.__multiOut.push(message); original(message); };
         });
         const fixture = name => path.join(root,'src/test/fixtures',name);
-        const picker = page.getByLabel('Open File', { exact: true });
+        // The page speaks the browser's language: its own strings say what it shows, not assumed English.
+        const S = await page.evaluate(() => window.__APP_STRINGS__);
+        const tracks = count => S.browserReady.replace('{count}', String(count));
+        const picker = page.locator('input[data-action="browser-open-wav"]');
         const status = page.locator('span[role="status"]');
         assert.equal(await picker.evaluate(input=>input.multiple),true);
         await picker.setInputFiles([fixture('short-stereo.wav'),fixture('changing-stereo.wav')]);
-        await status.filter({hasText:'2 tracks'}).waitFor({timeout:120000});
+        await status.filter({hasText:tracks(2)}).waitFor({timeout:120000});
         assert.equal(await page.locator('.track-row').count(),2);
         assert.equal(await page.evaluate(()=>window.__workers.length),1,'one shared Python runtime');
         const initial = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='analysis-update').at(-1).results);
@@ -50,7 +53,8 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         const pair = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='pair-spectrum-result').at(-1));
         assert.equal(pair.nFft,256);assert.equal(pair.responses.length,3);
         assert.ok(pair.responses.every(r=>r.status==='ok'&&r.averages>=8&&r.gainDb.length===pair.frequencyBins),JSON.stringify(pair.responses.map(r=>[r.status,r.averages])));
-        assert.match(await page.locator('#pair-spectrum-summary').innerText(),/^H1 · \d+ avg · \d\.\d\d–\d\.\d\d s$/);
+        const averages = S.pairAverages.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{n\\}', '\\d+');
+        assert.match(await page.locator('#pair-spectrum-summary').innerText(),new RegExp(`^H1 · ${averages} · \\d\\.\\d\\d–\\d\\.\\d\\d s$`));
         assert.equal(await page.locator('[data-action="spectrum-octave-3"]').isDisabled(),true);
         await page.screenshot({path:path.join(root,'test-results/browser-multi-pair.png'),fullPage:true});
         await page.locator('[data-action="set-pair-reference"]').first().click();
@@ -65,7 +69,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         const box = await page.locator('#track-canvas-0').boundingBox();assert.ok(box);
         await page.mouse.move(box.x+box.width*.21,box.y+box.height*.5);await page.mouse.down();
         await page.mouse.move(box.x+box.width*.63,box.y+box.height*.5,{steps:5});await page.mouse.up();
-        await page.locator('summary').filter({hasText:'Export'}).click();
+        await page.locator('summary').filter({hasText:S.toolbarExportLabel}).click();
         const [download] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-wav"]').click()]);
         assert.equal(download.suggestedFilename(),'selected-regions.zip');
         const selection = await page.evaluate(()=>window.__multiOut.filter(m=>m.type==='export-wav-loop').at(-1));
@@ -104,14 +108,14 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         assert.equal(syntax.status, 0, syntax.stderr);
         page.once('dialog', dialog => dialog.dismiss());
         await page.locator('[data-action="export-report"]').click();
-        await page.locator('summary').filter({hasText:'Export'}).click();
+        await page.locator('summary').filter({hasText:S.toolbarExportLabel}).click();
         await page.locator('[data-action="toggle-playback"]').last().click();
         await page.waitForFunction(()=>!document.querySelectorAll('audio')[1].paused);
         await page.locator('[data-action="stop-playback"]').last().click();
         await page.waitForFunction(()=>[...document.querySelectorAll('audio')].every(x=>x.paused),null,{timeout:2000});
         const firstUrl=await page.locator('audio').first().getAttribute('src');
         await picker.setInputFiles(fixture('short-stereo.wav'));
-        await status.filter({hasText:'3 tracks'}).waitFor();
+        await status.filter({hasText:tracks(3)}).waitFor();
         assert.equal(await page.locator('.track-row').count(),3);
         assert.equal(await page.locator('audio').first().getAttribute('src'),firstUrl);
         assert.equal(await page.locator('audio').first().evaluate(audio=>audio.muted),true,'mute survives additions');
@@ -124,7 +128,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await picker.setInputFiles([{name:'bad.wav',mimeType:'audio/wav',buffer:Buffer.from('invalid')},{name:'added.wav',mimeType:'audio/wav',buffer:bytes}]);
         await status.filter({hasText:'Unable to read audio'}).waitFor();assert.equal(await page.locator('.track-row').count(),3);
         await picker.setInputFiles(Array.from({length:6},(_,i)=>({name:`additional-${i}.wav`,mimeType:'audio/wav',buffer:bytes})));
-        await status.filter({hasText:'8 files'}).waitFor();assert.equal(await page.locator('.track-row').count(),8);
+        await status.filter({hasText:S.browserAggregateLimit.slice(0,S.browserAggregateLimit.indexOf('{mib}')).replace('{count}','8')}).waitFor();assert.equal(await page.locator('.track-row').count(),8);
         assert.equal(await page.evaluate(()=>window.__workers.length),1);
         const waitStftPainted = async () => {
             await page.waitForFunction(() => {
@@ -139,14 +143,14 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await waitStftPainted();
         await page.locator('[data-action="remove-track"]').last().click();
         await picker.setInputFiles({name:'replacement.wav',mimeType:'audio/wav',buffer:bytes});
-        await status.filter({hasText:'8 tracks'}).waitFor();
+        await status.filter({hasText:tracks(8)}).waitFor();
         await waitStftPainted();
         assert.equal(await page.locator('[data-action="content-spectrogram"]').evaluate(button=>button.classList.contains('is-active')),true);
         console.log('Eight-track STFT remove/add: all 16 real Canvas rasters repainted without mode toggling.');
         await page.evaluate(()=>window.__workers[0].postMessage({cmd:'__test_throw',requestId:'test-fault'}));
-        await status.filter({hasText:'Audio Worker failed'}).waitFor();assert.equal(await page.locator('.track-row').count(),0);
+        await status.filter({hasText:S.browserWorkerFailed}).waitFor();assert.equal(await page.locator('.track-row').count(),0);
         assert.equal(await page.evaluate(async u=>{try{await fetch(u);return true;}catch{return false;}},firstUrl),false);
-        await picker.setInputFiles(fixture('changing-stereo.wav'));await status.filter({hasText:'1 tracks'}).waitFor({timeout:120000});
+        await picker.setInputFiles(fixture('changing-stereo.wav'));await status.filter({hasText:tracks(1)}).waitFor({timeout:120000});
         await page.locator('[data-action="selection-clear-all"]').click();assert.equal(await page.locator('.track-row').count(),0);
         assert.ok(errors.every(error=>error.includes('intentional-multi-worker-failure')),errors.join('\n'));
         await page.locator('[data-action="content-spectrogram"]').click();

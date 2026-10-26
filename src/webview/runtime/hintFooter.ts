@@ -14,6 +14,12 @@ export function hintAttr(text: string): string {
     return ' data-hint="' + value + '" aria-description="' + value + '"';
 }
 
+// The entry table and the comparison also show it at the pointer (title): their footer line is easy to miss, and
+// nothing there sits under the pointer for long the way the waveform does.
+export function titledHintAttr(text: string): string {
+    return hintAttr(text) + ' title="' + escapeHtml(text) + '"';
+}
+
 // For a wrapper such as a <label> whose focusable control carries hintAttr, so the description is not announced twice.
 export function hoverHintAttr(text: string): string {
     return ' data-hint="' + escapeHtml(text) + '"';

@@ -58,9 +58,14 @@ function collectWebviewActionIds(repoRoot) {
         path.join(repoRoot, 'src', 'webview', 'runtime', 'selectionLayoutHtml.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'staticHost.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'recipePicker.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'selectionTreeView.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'panelCollapse.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'pairSpectrum.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'entryTableHtml.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'comparePanes.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'stepBar.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'entryRuntime.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'screenHelp.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'trackStageMode.ts'),
     ];
     const source = sourcePaths.map((sourcePath) => fs.readFileSync(sourcePath, 'utf8')).join('\n');
     return collectWebviewActionIdsFromSource(source);

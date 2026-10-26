@@ -1,5 +1,5 @@
 /** Mirrors `wandas.supported_formats()` of the pinned wandas; test_typescript_extension_list_matches_wandas in python-backend/test_browser_service.py keeps them equal. */
-export const SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.oga', '.opus', '.mp3', '.aiff', '.aif', '.au', '.snd', '.caf', '.w64', '.rf64', '.csv']);
+export const SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.oga', '.opus', '.mp3', '.aiff', '.aif', '.au', '.snd', '.caf', '.rf64', '.w64', '.csv']);
 /** The same extensions without the leading dot, as VS Code open-dialog filters expect. */
 export const SUPPORTED_AUDIO_DIALOG_EXTENSIONS = Array.from(SUPPORTED_AUDIO_FILE_EXTENSIONS, extension => extension.slice(1));
 

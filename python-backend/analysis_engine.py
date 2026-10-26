@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -91,6 +92,8 @@ class CachedAnalysis:
     identity: tuple[int, int]
     frame_nbytes: int
     source_peaks: tuple[float, ...] = ()
+    # Names the input in scan condition IDs: path, size and mtime here, the content hash in the browser.
+    input_id: str = ""
     spectrograms: dict[StftKey, wd.SpectrogramFrame] = field(default_factory=dict)
     spectrogram_nbytes: dict[StftKey, int] = field(default_factory=dict)
     spectrum_slices: OrderedDict[SpectrumSliceKey, tuple[np.ndarray, float]] = field(default_factory=OrderedDict)
@@ -129,6 +132,7 @@ class AnalysisEngine:
             identity=identity,
             frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
             source_peaks=source_channel_peaks(frame),
+            input_id=json.dumps([str(path), stat.st_size, stat.st_mtime_ns // 1_000_000]),
         )
         self._files[path] = cached
         self._evict(path)
@@ -177,6 +181,9 @@ class AnalysisEngine:
     ) -> wd.SpectrogramFrame | None:
         cached, _analysis_frame, resolved = self.get_analysis(file_path, calibration_profile)
         return cached.spectrograms.get((resolved.signature, n_fft, hop_length, window))
+
+    def is_cached(self, file_path: str | Path) -> bool:
+        return Path(file_path).expanduser().resolve() in self._files
 
     def discard(self, file_path: str | Path) -> None:
         self._files.pop(Path(file_path).expanduser().resolve(), None)

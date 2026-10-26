@@ -3,6 +3,7 @@ import {
     buildResultsPreviewHtml,
     buildSelectionPreviewHtml,
 } from '../../tools/comparisonPreview';
+import { getStrings } from '../../shared/i18n/strings';
 
 function buildVsCodeApiStub(nonce: string): string {
     return `<script nonce="${nonce}">
@@ -10,13 +11,14 @@ window.__uiSmokePostedMessages = [];
 window.__uiSmokeDownloads = [];
 window.__uiSmokeClipboardWrites = [];
 window.__uiSmokeState = {};
+// Smoke pages open with the cursor spectrum unfolded (a fresh panel folds it); a test sets __uiSmokeViewState for a fresh one.
 window.acquireVsCodeApi = function() {
     return {
         postMessage(message) {
             window.__uiSmokePostedMessages.push(message);
         },
         setState() {},
-        getState() { return null; },
+        getState() { return window.__uiSmokeViewState === undefined ? { spectrumCollapsed: false } : window.__uiSmokeViewState; },
     };
 };
 if (!navigator.clipboard) {
@@ -191,7 +193,7 @@ window.acquireVsCodeApi = function() {
             }, ${responseDelayMs});
         },
         setState() {},
-        getState() { return null; },
+        getState() { return window.__uiSmokeViewState === undefined ? { spectrumCollapsed: false } : window.__uiSmokeViewState; },
     };
 };
 const originalClearRect = CanvasRenderingContext2D.prototype.clearRect;
@@ -302,4 +304,23 @@ export function buildExtensionHostPathUiSmokeHtml(responseDelayMs = 12): string 
         buildExtensionHostPathPreviewHtml(),
         (nonce) => buildExtensionHostApiStub(nonce, responseDelayMs),
     );
+}
+
+function replaceAppStrings(html: string, language: string): string {
+    const marker = 'window.__APP_STRINGS__ = ';
+    const start = html.indexOf(marker);
+    if (start < 0) throw new Error('Could not find __APP_STRINGS__ in preview HTML');
+    const valueStart = start + marker.length;
+    const valueEnd = html.indexOf(';\n', valueStart);
+    return html.slice(0, valueStart) + JSON.stringify(getStrings(language)) + html.slice(valueEnd);
+}
+
+/** A folder opened on the entry table: the webview posts `entry-scan` and the test answers it. */
+export function buildUiSmokeEntryHtml(filePaths: string[], language = 'en'): string {
+    const html = replaceAppState(buildSelectionPreviewHtml(), (state) => {
+        state['entry'] = true;
+        state['rootPath'] = '/entry100';
+        state['allFilePaths'] = filePaths;
+    });
+    return finalizeUiSmokeHtml(language === 'en' ? html : replaceAppStrings(html, language));
 }

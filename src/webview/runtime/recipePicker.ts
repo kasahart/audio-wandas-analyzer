@@ -12,7 +12,7 @@ export interface RecipeMenus {
 }
 
 /**
- * In-page recipe popovers for the static Web host. Each drops down under the toolbar's Workflow menu and
+ * In-page recipe popovers for the static Web host. Each drops down under the toolbar's Export menu and
  * resolves undefined on Escape or a click elsewhere; opening another cancels the open one so no run waits forever.
  */
 export function createRecipeMenus(document: Document, strings: UiStrings): RecipeMenus {
@@ -28,7 +28,8 @@ export function createRecipeMenus(document: Document, strings: UiStrings): Recip
             const workflow = document.querySelector<HTMLDetailsElement>('[data-action="run-recipe"]')?.closest<HTMLDetailsElement>('details.tb-menu');
             const anchor = workflow?.querySelector('summary')?.getBoundingClientRect();
             if (workflow) workflow.open = false;
-            const top = anchor ? anchor.bottom + 4 : 40;
+            // The page may have scrolled the menu's summary off the top; the picker stays on screen.
+            const top = Math.max(8, anchor ? anchor.bottom + 4 : 40);
             // A Recipe with many inputs must not push Run below a short window.
             menu.style.cssText = `position:fixed;top:${top}px;left:${anchor ? anchor.left : 8}px;max-height:calc(100vh - ${top + 8}px);overflow-y:auto`;
             // Capture keys before the page's shortcuts: Space must press the focused item, not toggle playback,
@@ -52,6 +53,9 @@ export function createRecipeMenus(document: Document, strings: UiStrings): Recip
             document.addEventListener('keydown', onKey, true);
             document.addEventListener('pointerdown', onPointer, true);
             document.body.append(menu);
+            // Under a menu near the window's right edge it would run off screen: it moves left to stay in.
+            const right = menu.getBoundingClientRect?.().right, width = document.documentElement?.clientWidth;
+            if (right !== undefined && width && right > width - 8) menu.style.left = `${Math.max(8, (anchor ? anchor.left : 8) - (right - width + 8))}px`;
             (menu.querySelector('select, button') as HTMLElement | null)?.focus();
         });
     }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import itertools
 import json
 import sys
@@ -122,11 +123,16 @@ class BrowserEngine(AnalysisEngine):
             identity=(next(self._loads), len(payload)),
             frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
             source_peaks=source_channel_peaks(frame),
+            input_id=f"sha256:{hashlib.sha256(payload).hexdigest()}",
         )
         return {"filePath": str(path)}
 
     def is_loaded(self, file_path: str | Path) -> bool:
         return Path(file_path) in self._files
+
+    def is_cached(self, file_path: str | Path) -> bool:
+        # Sources are the user's loaded tracks, never something a scan may drop.
+        return True
 
     @property
     def input_bytes(self) -> int:

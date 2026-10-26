@@ -8,25 +8,17 @@ function el(dom: JSDOM, id: string): HTMLElement {
     return dom.window.document.getElementById(id) as unknown as HTMLElement;
 }
 
-test('attachToolbarActions dispatches clicked actions but skips the height inputs', () => {
-    const dom = new JSDOM('<div id="bar"><button data-action="open-file"><span id="inner"></span></button><input id="h" data-action="track-height-input" value="120"></div>');
+test('attachToolbarActions dispatches the clicked control\'s action', () => {
+    const dom = new JSDOM('<div id="bar"><button data-action="open-file"><span id="inner"></span></button><span id="plain"></span></div>');
     const actions: string[] = [];
-    const inputs: Array<[string | null, string | null]> = [];
-    attachToolbarActions(el(dom, 'bar'), {
-        onAction: action => actions.push(action),
-        onHeightInput: (action, value) => inputs.push([action, value]),
-    });
+    attachToolbarActions(el(dom, 'bar'), { onAction: action => actions.push(action) });
     (dom.window.document.getElementById('inner') as HTMLElement).click();
-    (dom.window.document.getElementById('h') as HTMLElement).click();
+    (dom.window.document.getElementById('plain') as HTMLElement).click();
     assert.deepEqual(actions, ['open-file']);
-    const input = dom.window.document.getElementById('h')!;
-    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-    input.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-    assert.deepEqual(inputs, [['track-height-input', '120'], ['track-height-input', '120']]);
 });
 
 test('attachToolbarActions ignores a missing container', () => {
-    assert.doesNotThrow(() => attachToolbarActions(null, { onAction: () => {}, onHeightInput: () => {} }));
+    assert.doesNotThrow(() => attachToolbarActions(null, { onAction: () => {} }));
 });
 
 test('attachExclusiveMenus closes the other open menu when one opens', () => {
@@ -38,6 +30,23 @@ test('attachExclusiveMenus closes the other open menu when one opens', () => {
     b.dispatchEvent(new dom.window.Event('toggle'));
     assert.equal(a.open, false);
     assert.equal(b.open, true);
+});
+
+test('attachExclusiveMenus closes an open menu once an item is used, on a press outside and on Esc', () => {
+    const dom = new JSDOM('<div id="bar"><details id="a" class="tb-menu" open><summary>Export</summary><div class="tb-menu-popover"><button id="item" data-action="export-png"></button></div></details></div><div id="outside"></div>');
+    attachExclusiveMenus(el(dom, 'bar'));
+    const { document } = dom.window;
+    const menu = document.getElementById('a') as HTMLDetailsElement;
+    (document.getElementById('item') as HTMLElement).click();
+    assert.equal(menu.open, false);
+    menu.open = true;
+    document.getElementById('item')!.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }));
+    assert.equal(menu.open, true, 'a press inside keeps it open');
+    document.getElementById('outside')!.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }));
+    assert.equal(menu.open, false);
+    menu.open = true;
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+    assert.equal(menu.open, false);
 });
 
 test('attachHeightResizeListeners drives the resize from a drag handle', () => {

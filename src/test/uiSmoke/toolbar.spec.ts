@@ -12,6 +12,22 @@ function workerFixture(entry: { command: string; response: Record<string, unknow
     return { ...entry, response };
 }
 
+/** An opened folder starts on the entry table, maximized; Esc shrinks it into the side panel beside the tracks. */
+async function leaveEntryTable(page: Page) {
+    await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
+}
+
+/** A file's row in the side panel's entry table. */
+const entryRow = (page: Page, filePath: string) => page.locator(`#entry-dock tr[data-file-path="${filePath}"]`);
+
+/** A row's ▶ (shown on the row under the pointer): the file becomes a track. */
+async function showRow(page: Page, filePath: string) {
+    await entryRow(page, filePath).hover();
+    await entryRow(page, filePath).locator('[data-action="entry-row-play"]').click();
+}
+
 async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 }
@@ -81,6 +97,8 @@ function staticWorkerInit(): string {
                 const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
                     : command.cmd === 'limits' ? { maxInputBytes: 16777216, maxSources: 8, maxTotalInputBytes: 67108864, maxExportBytes: 33554432 }
                     : command.cmd === 'run-recipe' ? { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] }
+                    : command.cmd === 'scan' ? { ok: true, conditionId: 'c', input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1 },
+                        leqDbA: [-20], peakHz: [1000], spectrumDb: [[-20]], thirdOctDb: [[-23]], crest: [1.4], specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 1 }
                     : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath,
                         ...(command.cmd === 'analyze' ? { channelCount: 1, channels: [{ label: 'Channel 1', peakAbsolute: 1,
                             waveform: { min: [-1], max: [1], samples: [0], absolutePeak: 1 }, spectrogram: null }] } : {}) };
@@ -147,10 +165,9 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     const strings = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: Record<string, string> }).__APP_STRINGS__);
     await expect(page.locator('#empty-state')).toHaveText(strings.browserEmptyPrompt);
     await expect(page.locator('span[role="status"]')).toHaveText('');
-    // The selection panel is the only place that opens sources, and it shows no summary or filter before anything is listed.
+    // The selection panel is the only place that opens sources; its entry table waits for something to list.
     await expect(page.locator('#selection-sidebar')).toBeVisible();
-    await expect(page.locator('#selection-summary')).toBeHidden();
-    await expect(page.locator('#tree-filter-input')).toBeHidden();
+    await expect(page.locator('#entry-screen')).toBeHidden();
     await expect(page.locator('#selection-toolbar [data-action="open-folder"]')).toHaveText(strings.btnOpenFolder);
     await expect(page.getByRole('button', { name: strings.btnOpenFile, exact: true })).toHaveCount(1);
     const indicator = page.locator('[data-python-indicator]');
@@ -197,14 +214,16 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     await expect(page.locator('[data-action="browser-about"]')).toBeFocused();
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
     await expect(page.locator('#empty-state')).toBeHidden();
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/selected.wav"]')).toBeChecked();
+    // A file opened on its own is a track at once, and a row of the entry table's "added files" in the side panel.
+    await expect(entryRow(page, '/sources/selected.wav')).toHaveClass(/is-shown/);
+    await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
     await expect(page.locator('#selection-toolbar [data-action="open-folder"]')).toHaveText(strings.btnOpenAnotherFolder);
     await page.locator('[data-action="remove-track"]').click();
     await expect(page.locator('#empty-state')).toHaveText(strings.emptyNoTracks);
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/selected.wav"]')).not.toBeChecked();
+    await expect(entryRow(page, '/sources/selected.wav')).not.toHaveClass(/is-shown/);
 });
 
-test('static page opens a folder into the shared selection tree and checked files become tracks', async ({ page }) => {
+test('static page opens a folder onto the entry table, whose rows become tracks with ▶ and leave with ×', async ({ page }) => {
     const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
     mkdirSync(join(folder, 'rec', 'day2'), { recursive: true });
     writeFileSync(join(folder, 'rec', 'first.wav'), Buffer.alloc(100));
@@ -215,59 +234,57 @@ test('static page opens a folder into the shared selection tree and checked file
     const chooser = page.waitForEvent('filechooser');
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
     await (await chooser).setFiles(join(folder, 'rec'));
+    await leaveEntryTable(page);
     await expect(page.locator('#selection-sidebar')).toBeVisible();
-    await expect(page.locator('#selection-summary .selection-path')).toHaveText('rec');
-    await expect(page.locator('.selection-file-checkbox')).toHaveCount(2);
+    await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
+    // In the side panel the rows group by subfolder, in place of a folder tree.
+    await expect(page.locator('#entry-dock .entry-group')).toHaveText([/rec\s*1/, /day2\s*1/]);
     await expect(page.locator('#selection-python-environment')).toHaveCount(0);
     await expect(page.locator('#selection-results-pane #toolbar')).toHaveCount(1);
     await expect(page.locator('#directory-selection-layout')).toBeInViewport({ ratio: 1 });
-    await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/first.wav"]').check();
+    await showRow(page, '/sources/rec/first.wav');
     await expect(page.locator('.track-row')).toHaveCount(1);
-    await expect(page.locator('#selection-count')).toContainText('1 / 2');
-    await page.locator('[data-action="selection-select-all"]').click();
+    await expect(page.locator('#selection-rail-count')).toHaveText('1/2');
+    await showRow(page, '/sources/rec/day2/second.wav');
     await expect(page.locator('.track-row')).toHaveCount(2);
-    await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/first.wav"]').uncheck();
+    // 👁 hides a track and shows it again; × takes it off.
+    await entryRow(page, '/sources/rec/first.wav').locator('[data-action="entry-row-hide"]').click();
+    await expect(page.locator('.track-row:visible')).toHaveCount(1);
+    await entryRow(page, '/sources/rec/first.wav').locator('[data-action="entry-row-hide"]').click();
+    await expect(page.locator('.track-row:visible')).toHaveCount(2);
+    await entryRow(page, '/sources/rec/first.wav').locator('[data-action="entry-row-remove"]').click();
     await expect(page.locator('.track-row')).toHaveCount(1);
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]')).toBeChecked();
-    // Unchecking the last file frees the audio but keeps the list.
-    await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]').uncheck();
+    await expect(entryRow(page, '/sources/rec/day2/second.wav')).toHaveClass(/is-shown/);
+    // Taking off the last track frees the audio but keeps the table.
+    await entryRow(page, '/sources/rec/day2/second.wav').locator('[data-action="entry-row-remove"]').click();
     await expect(page.locator('.track-row')).toHaveCount(0);
     await expect(page.locator('span[role="status"]')).toHaveText(await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared));
-    await expect(page.locator('.selection-file-checkbox')).toHaveCount(2);
+    await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
 
-    await page.locator('#tree-filter-input').fill('second');
     const sameName = mkdtempSync(join(tmpdir(), 'awa-folder-'));
     mkdirSync(join(sameName, 'rec'));
     writeFileSync(join(sameName, 'rec', 'third.wav'), Buffer.alloc(100));
     const nextChooser = page.waitForEvent('filechooser');
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
     await (await nextChooser).setFiles(join(sameName, 'rec'));
-    // A second folder joins the list; its taken name gets a suffix and the header no longer names one folder.
-    await expect(page.locator('#tree-filter-input')).toHaveValue('');
-    await expect(page.locator('#selection-summary .selection-path')).toBeHidden();
-    // day2 was open before the second folder joined, so it stays open below rec.
-    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2"]')).toHaveAttribute('aria-expanded', 'true');
-    await page.locator('.selection-file-checkbox[data-file-path="/sources/rec (2)/third.wav"]').check();
+    await leaveEntryTable(page);
+    // A second folder joins the table; its taken name gets a suffix.
+    await expect(page.locator('#entry-dock .entry-group')).toHaveText([/^▾ rec\s*1/, /rec \(2\)\s*1/, /rec\/day2\s*1/]);
+    await showRow(page, '/sources/rec (2)/third.wav');
     await expect(page.locator('.track-row')).toHaveCount(1);
 
+    // ＋ Add files: the file is a track at once, in the "added files" group at the top.
     const fileChooser = page.waitForEvent('filechooser');
     await page.locator('#selection-toolbar [data-action="open-file"]').click();
     await (await fileChooser).setFiles({ name: 'single.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/single.wav"]')).toBeChecked();
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec (2)/third.wav"]')).toBeChecked();
+    await expect(entryRow(page, '/sources/single.wav')).toHaveClass(/is-shown/);
+    await expect(entryRow(page, '/sources/rec (2)/third.wav')).toHaveClass(/is-shown/);
     await expect(page.locator('.track-row')).toHaveCount(2);
-
-    // Clear empties the list as well as freeing the audio.
-    await page.locator('[data-action="selection-clear-all"]').click();
-    await expect(page.locator('.track-row')).toHaveCount(0);
-    await expect(page.locator('.selection-file-checkbox')).toHaveCount(0);
-    await expect(page.locator('#directory-selection-layout')).toHaveClass(/is-empty/);
-    const strings = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { hintClearList: string; btnOpenFolder: string } }).__APP_STRINGS__);
-    await expect(page.locator('[data-action="selection-clear-all"]')).toHaveAttribute('data-hint', strings.hintClearList);
-    await expect(page.locator('#selection-toolbar [data-action="open-folder"]')).toHaveText(strings.btnOpenFolder);
+    const strings = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { entryAddedGroup: string } }).__APP_STRINGS__);
+    await expect(page.locator('#entry-dock .entry-group').first()).toContainText(strings.entryAddedGroup);
 });
 
-test('static page adds a picked file from an opened folder as its own entry and keeps folders open or closed across listings', async ({ page }) => {
+test('static page: a subfolder group folds and stays folded while files are added, which join the added files at the top', async ({ page }) => {
     const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
     mkdirSync(join(folder, 'rec', 'day2', 'sub'), { recursive: true });
     writeFileSync(join(folder, 'rec', 'first.wav'), Buffer.alloc(100));
@@ -278,33 +295,27 @@ test('static page adds a picked file from an opened folder as its own entry and 
         const chooser = page.waitForEvent('filechooser');
         await page.locator(`#selection-toolbar [data-action="${action}"]`).click();
         await (await chooser).setFiles(path);
+        if (action === 'open-folder') await leaveEntryTable(page);
     };
     await pick('open-folder', join(folder, 'rec'));
-    await expect(page.locator('.selection-tree-directory[data-relative-path="day2"]')).toHaveAttribute('aria-expanded', 'true');
+    const day2 = page.locator('#entry-dock [data-action="entry-group-toggle"][data-group="1day2"]');
+    await expect(day2).toHaveAttribute('aria-expanded', 'true');
+    await day2.click();
+    await expect(day2).toHaveAttribute('aria-expanded', 'false');
+    await expect(entryRow(page, '/sources/rec/day2/second.wav')).toHaveCount(0);
     await pick('open-file', { name: 'single.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
     await expect(page.locator('.track-row')).toHaveCount(1);
-    // The list is now shown from /sources, and day2, which was open, stays open below rec.
-    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2"]')).toHaveAttribute('aria-expanded', 'true');
-    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
     await pick('open-file', join(folder, 'rec', 'day2', 'second.wav'));
     await expect(page.locator('.track-row')).toHaveCount(2);
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/second.wav"]')).toBeChecked();
-    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2"]')).toHaveAttribute('aria-expanded', 'false');
-    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/second.wav"]')).not.toBeChecked();
-    await expect(page.locator('.selection-file-checkbox')).toHaveCount(4);
-    // A folder opened inside a closed one stays open through more than one listing, though it is not drawn meanwhile.
-    await page.locator('.selection-tree-directory[data-relative-path="rec/day2/sub"]').click();
-    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
-    for (const name of ['one.wav', 'two.wav']) {
-        await pick('open-file', { name, mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
-        await expect(page.locator(`.selection-file-checkbox[data-file-path="/sources/${name}"]`)).toBeChecked();
-    }
-    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
-    await expect(page.locator('.selection-tree-directory[data-relative-path="rec/day2/sub"]')).toHaveAttribute('aria-expanded', 'true');
+    // The added files, not the folder's own second.wav, which stays in its folded group.
+    await expect(page.locator('#entry-dock [data-group="0"] .entry-group-count')).toHaveText('2');
+    await expect(entryRow(page, '/sources/second.wav')).toHaveClass(/is-shown/);
+    await expect(day2).toHaveAttribute('aria-expanded', 'false');
+    await day2.click();
+    await expect(entryRow(page, '/sources/rec/day2/second.wav')).not.toHaveClass(/is-shown/);
 });
 
-test('static page recipe menu drops from the Workflow menu, closes on Escape and runs a local recipe file', async ({ page }) => {
+test('static page recipe menu drops from the Export menu, stays in the window, closes on Escape and runs a local recipe file', async ({ page }) => {
     await openStaticPage(page);
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(100) });
     await expect(page.locator('.track-row')).toHaveCount(1);
@@ -317,7 +328,8 @@ test('static page recipe menu drops from the Workflow menu, closes on Escape and
     await expect(picker.locator('[data-action="browser-recipe-pick"]')).toHaveText(['octave']);
     const summaryBox = (await workflow.locator('summary').boundingBox())!;
     const pickerBox = (await picker.boundingBox())!;
-    expect(Math.abs(pickerBox.x - summaryBox.x)).toBeLessThan(2);
+    expect(pickerBox.x).toBeLessThanOrEqual(summaryBox.x + 1);
+    expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual((page.viewportSize()?.width ?? 1280) - 7);
     expect(pickerBox.y).toBeGreaterThan(summaryBox.y + summaryBox.height - 1);
     await page.evaluate(() => {
         const keys: string[] = [];
@@ -414,10 +426,9 @@ test('static page loads WAV files dropped onto the page or the recipe charts as 
         Object.defineProperty(transfer, 'items', { value: [{ webkitGetAsEntry: () => root }] });
         document.body.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
     });
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/a.wav"]')).not.toBeChecked();
-    await page.locator('.selection-tree-directory[data-relative-path="rec/day2"]').click();
-    await expect(page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/b.WAV"]')).not.toBeChecked();
-    await expect(page.locator('.selection-file-checkbox:checked')).toHaveCount(3);
+    await leaveEntryTable(page);
+    await expect(entryRow(page, '/sources/rec/a.wav')).not.toHaveClass(/is-shown/);
+    await expect(entryRow(page, '/sources/rec/day2/b.WAV')).not.toHaveClass(/is-shown/);
     await expect(page.locator('.track-row')).toHaveCount(3);
 });
 
@@ -453,9 +464,9 @@ test('toolbar message assertions ignore initial panel bootstrap messages', async
         ];
     });
 
-    await openToolbarMenu(page, 1);
+    await openToolbarMenu(page, 0);
     await page.locator('[data-action="run-recipe"]').click({ force: true });
-    await openToolbarMenu(page, 2);
+    await openToolbarMenu(page, 0);
     await page.locator('[data-action="export-report"]').click({ force: true });
 
     expect(await getPostedActionTypes(page)).toEqual([
@@ -467,9 +478,9 @@ test('toolbar message assertions ignore initial panel bootstrap messages', async
 test('results toolbar posts VS Code messages for recipe run and report export', async ({ page }) => {
     await loadUi(page);
 
-    await openToolbarMenu(page, 1);
+    await openToolbarMenu(page, 0);
     await page.locator('[data-action="run-recipe"]').click({ force: true });
-    await openToolbarMenu(page, 2);
+    await openToolbarMenu(page, 0);
     await page.locator('[data-action="export-report"]').click({ force: true });
 
     expect(await getPostedActionTypes(page)).toEqual([
@@ -508,8 +519,8 @@ test('static page opens a folder through the File System Access picker without t
     };`);
     page.on('filechooser', () => { throw new Error('the folder input must not open when the picker exists'); });
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
-    await expect(page.locator('.selection-file-checkbox')).toHaveCount(2);
-    await expect(page.locator('#selection-summary .selection-path')).toHaveText('rec');
-    await page.locator('.selection-file-checkbox[data-file-path="/sources/rec/day2/a.WAV"]').check();
+    await leaveEntryTable(page);
+    await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
+    await showRow(page, '/sources/rec/day2/a.WAV');
     await expect(page.locator('.track-row')).toHaveCount(1);
 });

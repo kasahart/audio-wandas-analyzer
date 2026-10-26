@@ -59,7 +59,7 @@ export interface TrackRowSpec {
 }
 
 export type TrackRowStrings = Pick<UiStrings,
-    | 'ariaDragHandle' | 'ariaPickColor' | 'trackPickColor' | 'clipBadgeTitle'
+    | 'ariaDragHandle' | 'clipBadgeTitle' | 'trackMoreHint' | 'offsetStepUp' | 'offsetStepDown' | 'offsetEdit' | 'offsetReset'
     | 'trackPlayTitle' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaTrackMute' | 'ariaRemoveTrack'
     | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'
     | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'heightTrackLabel'
@@ -76,7 +76,7 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '<div class="track-header">'
         + '  <div class="track-title-row">'
         + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaDragHandle) + '" data-hint="' + escapeHtml(strings.ariaDragHandle) + '">≡</div>'
-        + '    <div class="track-color-swatch" data-action="pick-color" data-track-id="' + trackId + '" style="background:' + spec.color + '" role="button" tabindex="0" aria-label="' + escapeHtml(strings.ariaPickColor) + '"' + hintAttr(strings.trackPickColor) + '></div>'
+        + '    <div class="track-color-swatch" data-track-id="' + trackId + '" style="background:' + spec.color + '" aria-hidden="true"></div>'
         + '    <div class="track-name"' + hintAttr(spec.filePath) + '>' + escapeHtml(spec.fileName) + '</div>'
         + (isClipped(channels) ? '    <span class="clip-badge"' + hintAttr(strings.clipBadgeTitle) + '>CLIP</span>' : '')
         + '    ' + calibrationBadgeHtml(channels, strings)
@@ -89,11 +89,16 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '"' + hintAttr(strings.hintRemoveTrack) + ' aria-label="' + escapeHtml(strings.ariaRemoveTrack) + '">✕</button>'
         + '    ' + calibrationButtonHtml(trackId, strings)
         + (spec.referenceButtonHtml ? '    ' + spec.referenceButtonHtml : '')
+        // The time offset: its steps live in the track's … menu; the value shows only while the track is shifted.
+        + '    <details class="track-more"><summary class="track-btn"' + hintAttr(strings.trackMoreHint) + ' aria-label="' + escapeHtml(strings.trackMoreHint) + '">…</summary><div class="track-more-menu">'
+        + '      <button class="track-btn" data-action="offset-up" data-track-id="' + trackId + '"' + hintAttr(strings.hintOffsetUp) + ' aria-label="' + escapeHtml(strings.ariaOffsetUp) + '">▲ ' + escapeHtml(strings.offsetStepUp) + '</button>'
+        + '      <button class="track-btn" data-action="offset-down" data-track-id="' + trackId + '"' + hintAttr(strings.hintOffsetDown) + ' aria-label="' + escapeHtml(strings.ariaOffsetDown) + '">▼ ' + escapeHtml(strings.offsetStepDown) + '</button>'
+        + '      <button class="track-btn" data-action="offset-edit" data-track-id="' + trackId + '"' + hintAttr(strings.offsetEdit) + '>' + escapeHtml(strings.offsetEdit) + '</button>'
+        + '      <button class="track-btn" data-action="offset-reset" data-track-id="' + trackId + '"' + hintAttr(strings.offsetReset) + '>' + escapeHtml(strings.offsetReset) + '</button>'
+        + '    </div></details>'
         + '  </div>'
         + '  <div class="track-offset">'
         + '    <span class="track-offset-val" id="offset-val-' + i + '" data-track-id="' + trackId + '"' + hintAttr(strings.trackOffsetResetHint) + ' aria-label="' + escapeHtml(strings.ariaOffsetValue) + '">+0.000s</span>'
-        + '    <button class="track-offset-step" data-action="offset-up" data-track-id="' + trackId + '"' + hintAttr(strings.hintOffsetUp) + ' aria-label="' + escapeHtml(strings.ariaOffsetUp) + '">▲</button>'
-        + '    <button class="track-offset-step" data-action="offset-down" data-track-id="' + trackId + '"' + hintAttr(strings.hintOffsetDown) + ' aria-label="' + escapeHtml(strings.ariaOffsetDown) + '">▼</button>'
         + '  </div>'
         + '</div>'
         + '<div class="track-channel-lanes">' + spec.lanesHtml + '</div>'

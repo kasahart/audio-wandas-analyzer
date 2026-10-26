@@ -109,9 +109,3 @@ test('VS Code panel injects the extension version from package.json', () => {
     assert.ok(renderHtmlWith('en').includes('window.__APP_VERSION__ = ' + JSON.stringify(version) + ';'));
 });
 
-test('i18n: toolbarMain ラベルが "Files" (en) / "ファイル" (ja) であること', () => {
-    assert.match(renderHtmlWith('en'), /"toolbarMain":\s*"Files"/);
-    assert.match(renderHtmlWith('ja'), /"toolbarMain":\s*"ファイル"/);
-    assert.doesNotMatch(renderHtmlWith('en'), /"toolbarMain":\s*"[^"]*Main[^"]*"/);
-    assert.doesNotMatch(renderHtmlWith('ja'), /"toolbarMain":\s*"[^"]*メイン[^"]*"/);
-});

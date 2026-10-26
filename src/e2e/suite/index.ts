@@ -24,6 +24,9 @@ interface TestSnapshot {
     resultCount: number;
     lastActionId?: string;
     renderedUi?: {
+        /** The entry table and the comparison, as their own snapshots report them. */
+        entry?: { open: boolean; rows: number; scanned: number; slots: (string | null)[] };
+        comparison?: { open: boolean; stage: string | null; frame: string | null; kind: string | null; stageValues: number; stageMedian: number | null; invalidSteps: number };
         hasToolbar: boolean;
         toolbarActions: string[];
         trackRowCount: number;
@@ -215,6 +218,7 @@ export async function run(): Promise<void> {
                 assert.deepEqual(snapshot.renderedUi.toolbarActions, [
                     'content-waveform',
                     'content-spectrogram',
+                    'content-stage',
                     'spectrogram-settings',
                     'zoom-out',
                     'zoom-in',
@@ -222,17 +226,13 @@ export async function run(): Promise<void> {
                     'wave-mode-rect-zoom',
                     'zoom-to-selection',
                     'toggle-follow-cursor',
-                    'track-height-input',
-                    'track-height-reset',
-                    'spectrum-height-input',
-                    'spectrum-height-reset',
-                    'run-recipe',
-                    'save-recipe',
-                    'copy-spec',
+                    // Track and spectrum heights are set by dragging their edges; there is no spec-copy button.
                     'export-png',
                     'export-csv',
                     'export-wav',
                     'export-report',
+                    'save-recipe',
+                    'run-recipe',
                 ]);
                 assert.deepEqual(
                     snapshot.renderedUi.displayOrder,
@@ -368,8 +368,8 @@ export async function run(): Promise<void> {
 
                 const actionId = `selection-race-${Date.now()}`;
                 await ComparisonPanel.postTestActions(actionId, [
-                    'selection-select-all',
-                    'selection-clear-all',
+                    { action: 'set-all-files-selected', payload: { selected: true } },
+                    { action: 'set-all-files-selected', payload: { selected: false } },
                 ]);
                 await delay(2000);
                 const settled = await waitForSnapshotWhere((snapshot) => {
@@ -382,7 +382,7 @@ export async function run(): Promise<void> {
             },
         },
         {
-            name: 'directory checkbox removal and re-add retain other track offset and cursor',
+            name: 'directory file removal and re-add retain other track offset and cursor',
             run: async () => {
                 const initial = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH, { selectAllDirectoryFiles: true });
                 assert.equal(initial.resultCount, 3);
@@ -406,7 +406,7 @@ export async function run(): Promise<void> {
             },
         },
         {
-            name: 'directory selection toolbar can select all and clear all tracks',
+            name: 'directory selection can show every listed file and take them all off',
             run: async () => {
                 const initial = await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
                 assert.equal(initial.resultCount, 0, 'directory selection should start with no analyzed tracks');
@@ -418,7 +418,7 @@ export async function run(): Promise<void> {
                 assert.equal(selected.renderedUi?.trackRowCount, 3, 'select-all should render every track row');
 
                 const clearId = `selection-clear-all-${Date.now()}`;
-                await ComparisonPanel.postTestActions(clearId, ['selection-clear-all']);
+                await ComparisonPanel.postTestActions(clearId, [{ action: 'set-all-files-selected', payload: { selected: false } }]);
                 const cleared = await waitForSnapshotWhere((snapshot) => {
                     return snapshot.resultCount === 0
                         && !!snapshot.renderedUi
@@ -426,6 +426,103 @@ export async function run(): Promise<void> {
                 });
                 assert.equal(cleared.resultCount, 0, 'clear-all should remove analyzed tracks from the panel');
                 assert.equal(cleared.renderedUi?.trackRowCount, 0, 'clear-all should remove track rows from the panel');
+            },
+        },
+        {
+            name: 'HPSS steps added from the comparison run in the VS Code backend (wandas[effects] brings librosa)',
+            run: async () => {
+                invalidateFixtureCache();
+                // A folder opens on the entry table, which scans its files with the chain.
+                await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
+                const scanned = await pollSnapshot('entry-scanned', snapshot => {
+                    const entry = snapshot.renderedUi?.entry;
+                    return !!entry?.open && entry.rows > 0 && entry.scanned === entry.rows;
+                }, COMMAND_TIMEOUT_MS);
+                assert.ok(scanned.renderedUi?.entry?.rows, `entry table did not scan: ${JSON.stringify(scanned.renderedUi?.entry)}`);
+                // The first row into slot 1, then the comparison.
+                await postActionsAndWait(`hpss-open-${Date.now()}`, [
+                    { action: 'press-key', payload: { key: '1' } },
+                    { action: 'press-key', payload: { key: 'Enter' } },
+                ]);
+                const click = (selector: string) => ({ action: 'mouse-event', payload: { type: 'click', selector } });
+                /** Presses a chip and waits for the comparison to draw that step's Frame for the compared file. */
+                const showStep = async (id: string): Promise<NonNullable<TestSnapshot['renderedUi']>['comparison']> => {
+                    await postActionsAndWait(`hpss-show-${id}-${Date.now()}`, [click(`.track-stage-bar [data-step-hold="${id}"]`)]);
+                    const shown = await pollSnapshot(`hpss-shown-${id}`, snapshot => {
+                        const comparison = snapshot.renderedUi?.comparison;
+                        return comparison?.stage === id && comparison.frame !== null && comparison.stageValues > 0;
+                    }, COMMAND_TIMEOUT_MS);
+                    return shown.renderedUi?.comparison;
+                };
+                // ＋ on the link after the region adds each HPSS step there (node-3, then node-4 between the region and it).
+                for (const operation of ['wandas.audio.hpss_harmonic', 'wandas.audio.hpss_percussive']) {
+                    await postActionsAndWait(`hpss-add-${operation}-${Date.now()}`, [
+                        click('.track-stage-bar [data-action="step-expand"]'),
+                        click('.track-stage-bar [data-action="step-insert"][data-after="node-1"]'),
+                        click(`.track-stage-bar .step-menu-item[data-op="${operation}"]`),
+                        click('.track-stage-bar [data-action="step-expand"]'),
+                    ]);
+                }
+                const region = await showStep('node-1');
+                const harmonic = await showStep('node-3');
+                const percussive = await showStep('node-4');
+                for (const [name, comparison] of [['harmonic', harmonic], ['percussive', percussive]] as const) {
+                    assert.equal(comparison?.invalidSteps, 0, `${name}: a step failed: ${JSON.stringify(comparison)}`);
+                    assert.equal(comparison?.frame, 'ChannelFrame');
+                    assert.equal(comparison?.kind, 'line');
+                    // A part of the signal: it has a level, and no more than the whole signal's.
+                    assert.ok(comparison!.stageMedian! > -200, `${name} is silent: ${JSON.stringify(comparison)}`);
+                    assert.ok(comparison!.stageMedian! <= region!.stageMedian! + 1, `${name} ${comparison!.stageMedian} dB is louder than the signal ${region!.stageMedian} dB`);
+                }
+                invalidateFixtureCache();
+            },
+        },
+        {
+            name: 'a cepstrum and a cepstrogram added from the comparison are drawn as their plot() draws them',
+            run: async () => {
+                invalidateFixtureCache();
+                await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
+                await pollSnapshot('entry-scanned', snapshot => {
+                    const entry = snapshot.renderedUi?.entry;
+                    return !!entry?.open && entry.rows > 0 && entry.scanned === entry.rows;
+                }, COMMAND_TIMEOUT_MS);
+                await postActionsAndWait(`cepstrum-open-${Date.now()}`, [
+                    { action: 'press-key', payload: { key: '1' } },
+                    { action: 'press-key', payload: { key: 'Enter' } },
+                ]);
+                const click = (selector: string) => ({ action: 'mouse-event', payload: { type: 'click', selector } });
+                /** Waits for the comparison to draw the chain's end, a Frame of `frame`, for the compared file. */
+                const drawn = async (frame: string): Promise<NonNullable<TestSnapshot['renderedUi']>['comparison']> => {
+                    const shown = await pollSnapshot(`cepstrum-shown-${frame}`, snapshot => {
+                        const comparison = snapshot.renderedUi?.comparison;
+                        return comparison?.frame === frame && comparison.stageValues > 0;
+                    }, COMMAND_TIMEOUT_MS);
+                    return shown.renderedUi?.comparison;
+                };
+                const remove = (id: string) => postActionsAndWait(`cepstrum-remove-${id}-${Date.now()}`, [
+                    click(`.track-stage-bar [data-action="step-settings"][data-step="${id}"]`),
+                    click(`.track-stage-bar [data-action="step-remove"][data-step="${id}"]`),
+                ]);
+                const add = (operation: string) => postActionsAndWait(`cepstrum-add-${operation}-${Date.now()}`, [
+                    click('.track-stage-bar [data-action="step-add"]'),
+                    click(`.track-stage-bar .step-menu-item[data-op="${operation}"]`),
+                ]);
+                // The chain ends at the region (a time signal) without the average spectrum; a cepstrum follows it.
+                await postActionsAndWait(`cepstrum-expand-${Date.now()}`, [click('.track-stage-bar [data-action="step-expand"]')]);
+                await remove('node-2');
+                await add('wandas.audio.cepstrum');
+                const cepstrum = await drawn('CepstralFrame');
+                assert.equal(cepstrum?.invalidSteps, 0, `a step failed: ${JSON.stringify(cepstrum)}`);
+                assert.equal(cepstrum?.kind, 'line', JSON.stringify(cepstrum));
+                // An STFT's cepstrum is a cepstrogram, an image over time and quefrency.
+                await remove(cepstrum!.stage!);
+                await add('wandas.audio.stft');
+                await drawn('SpectrogramFrame');
+                await add('wandas.spectrogram.cepstrum');
+                const cepstrogram = await drawn('CepstrogramFrame');
+                assert.equal(cepstrogram?.invalidSteps, 0, `a step failed: ${JSON.stringify(cepstrogram)}`);
+                assert.equal(cepstrogram?.kind, 'heatmap');
+                invalidateFixtureCache();
             },
         },
         {
@@ -680,6 +777,7 @@ export async function run(): Promise<void> {
     ];
     let passedCount = 0;
 
+    assertNoWorkspaceOverrides(config);
     await config.update('pythonCommand', pythonCommand, vscode.ConfigurationTarget.Global);
 
     const orderedCases = maybeShuffle(testCases);
@@ -703,6 +801,22 @@ export async function run(): Promise<void> {
     }
 }
 
+/**
+ * The checks set the files to open and the interpreter as user settings; a workspace or folder setting of
+ * the same name (e.g. a local .vscode/settings.json) would win over them, and every check would then wait
+ * for a panel that opens something else. Say so at once instead.
+ */
+function assertNoWorkspaceOverrides(config: vscode.WorkspaceConfiguration): void {
+    const overridden = ['debugFilePath', 'pythonCommand'].flatMap(key => {
+        const values = config.inspect(key);
+        const value = values?.workspaceFolderValue ?? values?.workspaceValue;
+        return value === undefined ? [] : [`audioWandasAnalyzer.${key} = ${JSON.stringify(value)}`];
+    });
+    assert.deepEqual(overridden, [],
+        `The workspace's settings override what the E2E checks set: ${overridden.join(', ')}. `
+        + 'Remove them from .vscode/settings.json (or the workspace file) and run again.');
+}
+
 async function analyzeDebugPath(
     debugPath: string,
     options?: { selectAllDirectoryFiles?: boolean },
@@ -716,7 +830,7 @@ async function analyzeDebugPath(
         await waitForSnapshotWhere(snapshot => snapshot.resultCount === 0
             && snapshot.renderedUi?.trackRowCount === 0);
         const actionId = `selection-select-all-${Date.now()}`;
-        return postActionsAndWait(actionId, ['selection-select-all'], (snapshot) => {
+        return postActionsAndWait(actionId, [{ action: 'set-all-files-selected', payload: { selected: true } }], (snapshot) => {
             return snapshot.resultCount > 0
                 && !!snapshot.renderedUi
                 && snapshot.renderedUi.trackRowCount > 0;

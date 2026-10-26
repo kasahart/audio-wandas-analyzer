@@ -1,0 +1,605 @@
+"""``scan``: one file's analysis-spec metrics for the entry table.
+
+The host scans files one at a time, so a scan keeps nothing but its small result: the region frame is
+computed, measured and dropped. The Recipe is one chain: its steps up to its time slice run as one plan
+with the slice set to the region the user picked (the Recipe's own slice bounds never apply), and each
+step after it runs on the frame the step before gave, so every step's Frame is at hand and a step that
+fails is named (``failedStep``). The metrics take the chain's time signal and, where the chain ends in a
+spectrum, that spectrum; ``stage`` asks for one step's Frame as the comparison draws it (stage_view.py).
+
+A file that cannot be scanned is a result, not an error: ``{"ok": false, "reason": "<one line>"}`` lets
+the table keep a ✕ row while the scan moves on to the next file. (``error`` would read as the error
+envelope every host checks replies for.)
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import re
+import struct
+import sys
+import time
+import traceback
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, NotRequired, TypedDict
+
+import dask
+import numpy as np
+import soundfile as sf
+import wandas as wd
+from wandas.pipeline import RecipeExecutionError, RecipePlan
+
+import analysis_spec as spec
+from backend_errors import InputError
+from calibration_profile import resolve_calibration_profile
+from stage_view import StageView, stage_view
+
+if TYPE_CHECKING:
+    from analysis_engine import AnalysisEngine, CachedAnalysis
+
+TIME_SLICE_OPERATION = "wandas.frame.time_slice"
+
+
+class ScanInput(TypedDict):
+    id: str
+    fs: int
+    channels: list[int]
+    durationS: float
+    unit: str
+    ref: float
+
+
+class ScanResult(TypedDict):
+    ok: bool
+    reason: NotRequired[str]
+    conditionId: NotRequired[str]
+    input: NotRequired[ScanInput]
+    leqDbA: NotRequired[list[float]]
+    peakHz: NotRequired[list[int]]
+    spectrumDb: NotRequired[list[list[float]]]
+    thirdOctDb: NotRequired[list[list[float | None]]]
+    crest: NotRequired[list[float]]
+    specVersion: NotRequired[int]
+    wandasVersion: NotRequired[str]
+    elapsedMs: NotRequired[float]
+    endFrame: NotRequired[str]
+    stage: NotRequired[StageView]
+    failedStep: NotRequired[str]
+
+
+class StepFailure(InputError):
+    """A step of the Recipe failed on this file: the result names it, so the step bar can leave it out."""
+
+    def __init__(self, step: str, error: BaseException) -> None:
+        super().__init__(_cause_line(error))
+        self.step = step
+
+
+def _cause_line(error: BaseException) -> str:
+    """The line that says why: wandas' "Recipe operation failed" errors give it as "Cause: …"."""
+    text = str(error).strip()
+    for line in text.splitlines():
+        if line.strip().startswith("Cause:"):
+            return line.strip()[len("Cause:") :].strip()
+    return text.splitlines()[0] if text else type(error).__name__
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def region_label(region: Mapping[str, float] | None) -> str:
+    """``"0.500-1.500"`` (seconds, three decimals) or ``"all"``, as condition IDs spell regions."""
+    if region is None:
+        return "all"
+    return f"{region['start']:.3f}-{region['end']:.3f}"
+
+
+def condition_id(
+    *,
+    input_id: str,
+    region: Mapping[str, float] | None,
+    channels: Sequence[int],
+    sampling_rate: int,
+    calibration: str | None,
+    unit: str,
+    ref: float,
+    recipe_sha256: str,
+) -> str:
+    """sha256 of everything that decides a scan's numbers, so equal IDs mean comparable values."""
+    return _sha256(
+        _canonical_json(
+            {
+                "input": input_id,
+                "region": region_label(region),
+                "channels": list(channels),
+                "fs": sampling_rate,
+                "calibration": calibration,
+                "unit": unit,
+                "ref": ref,
+                "recipe": recipe_sha256,
+                "specVersion": spec.ANALYSIS_SPEC_VERSION,
+                "wandasVersion": wd.__version__,
+            }
+        )
+    )
+
+
+WELCH_OPERATION = "wandas.audio.welch"
+NOCT_OPERATION = "wandas.audio.noct_spectrum"
+# The app's 1/3-octave branch beside the chain: not a Recipe node, but a step the comparison can show.
+OCTAVE_STAGE = "node-noct"
+
+
+def welch_params(recipe: Mapping[str, object]) -> dict[str, object]:
+    """The FFT length and window of the Recipe's average-spectrum step, which the scan's spectrum uses.
+
+    The step runs after the slice, so it is cut from the scan plan; its settings still decide the
+    spectrum and the dominant frequency. Without one, the analysis spec's defaults apply.
+    """
+    params: dict[str, object] = {"n_fft": spec.WELCH_N_FFT, "window": "hann"}
+    nodes = recipe.get("nodes")
+    for node in nodes if isinstance(nodes, list) else []:
+        if isinstance(node, Mapping) and node.get("operation") == WELCH_OPERATION:
+            entries = node.get("params", {}).get("entries", []) if isinstance(node.get("params"), Mapping) else []
+            for name, value in entries:
+                if name == "n_fft" and isinstance(value, int) and not isinstance(value, bool):
+                    params["n_fft"] = value
+                elif name == "window" and isinstance(value, str):
+                    params["window"] = value
+    return params
+
+
+FILTER_EDGES = {
+    "wandas.audio.highpass_filter": (("cutoff", "low"),),
+    "wandas.audio.lowpass_filter": (("cutoff", "high"),),
+    "wandas.audio.bandpass_filter": (("low_cutoff", "low"), ("high_cutoff", "high")),
+}
+
+
+def _decoded(value: object) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    if isinstance(value, Mapping) and value.get("kind") == "python-float" and isinstance(value.get("data"), str):
+        return float(struct.unpack(">d", bytes.fromhex(str(value["data"])))[0])
+    return None
+
+
+def passband(recipe: Mapping[str, object]) -> tuple[float, float]:
+    """The frequencies the Recipe's filters let through: a band centred outside them measures the stopband."""
+    low, high = 0.0, math.inf
+    nodes = recipe.get("nodes")
+    for node in nodes if isinstance(nodes, list) else []:
+        edges = FILTER_EDGES.get(node.get("operation")) if isinstance(node, Mapping) else None
+        params = node.get("params") if edges else None
+        entries = dict(params.get("entries", [])) if isinstance(params, Mapping) else {}
+        for name, side in edges or ():
+            value = _decoded(entries.get(name))
+            if value is None:
+                continue
+            if side == "low":
+                low = max(low, value)
+            else:
+                high = min(high, value)
+    return low, high
+
+
+def _python_float(value: float) -> float:
+    """A float as a schema-3 Recipe (wandas 0.10) writes it: a plain JSON number."""
+    return float(value)
+
+
+def _single_node_plan(node: Mapping[str, object], input_name: str) -> RecipePlan:
+    """One Recipe node as a plan of its own, applied to the frame the shared steps produced."""
+    return RecipePlan.from_dict(
+        {
+            "schema": "wandas.recipe",
+            # The node comes from RecipePlan.to_dict, which writes schema 3 (plain floats).
+            "version": 3,
+            "inputs": [{"id": "input-0", "name": input_name, "kind": "frame"}],
+            "nodes": [{**node, "id": "node-0", "inputs": ["input-0"]}],
+            "output": "node-0",
+        }
+    )
+
+
+class ScanPlans(TypedDict):
+    """The Recipe as the scan runs it: the steps up to the region, each step after it, and the app's branches."""
+
+    region: RecipePlan
+    #: The chain's steps after the time slice, in order, each a plan over the frame the step before gave.
+    steps: list[tuple[str, RecipePlan]]
+    #: The steps before the slice (they run over the whole file), by id.
+    upstream: list[str]
+    #: The spectrum when the chain does not end in one: the Recipe's welch node, or the analysis spec's.
+    welch: RecipePlan
+    noct: RecipePlan | None
+    sha256: str
+
+
+def _upstream(nodes: Sequence[Mapping[str, object]], target: str) -> set[str]:
+    """The ids of `target` and every node it is computed from."""
+    by_id = {str(node["id"]): node for node in nodes}
+    keep: set[str] = set()
+    pending = [target]
+    while pending:
+        node_id = pending.pop()
+        if node_id in by_id and node_id not in keep:
+            keep.add(node_id)
+            pending.extend(by_id[node_id]["inputs"])  # type: ignore[arg-type]
+    return keep
+
+
+def _chain(full: Mapping[str, object]) -> list[Mapping[str, object]]:
+    """The nodes from the input to the output, following each node's first input: the step bar's chain."""
+    nodes: list[Mapping[str, object]] = full["nodes"]  # type: ignore[assignment]
+    by_id = {node["id"]: node for node in nodes}
+    chain: list[Mapping[str, object]] = []
+    node_id = full["output"]
+    while node_id in by_id:
+        chain.insert(0, by_id[node_id])
+        node_id = by_id[node_id]["inputs"][0]  # type: ignore[index]
+    return chain
+
+
+def upstream_plan(recipe: Mapping[str, object], target: str) -> RecipePlan:
+    """The Recipe up to one of its steps, which is then its output: that step's Frame over the whole file."""
+    full = RecipePlan.from_dict(dict(recipe)).to_dict()
+    keep = _upstream(full["nodes"], target)
+    return RecipePlan.from_dict(
+        {**full, "nodes": [node for node in full["nodes"] if node["id"] in keep], "output": target}
+    )
+
+
+def scan_plans(recipe: Mapping[str, object], start: float, end: float, sampling_rate: float) -> ScanPlans:
+    """The Recipe's steps up to its time slice, with the slice set to the measured region, and its branches.
+
+    wandas 0.9.0 plans have one output, so the branches are plans of their own over the region's frame:
+    the Recipe's welch node (the average spectrum), and noct_spectrum (n = 3) over the bands the file can
+    give. The shared steps run once. A Recipe without a slice must end in a time signal and gets a slice
+    after its output; one without a welch node gets the analysis spec's.
+    """
+    full = RecipePlan.from_dict(dict(recipe)).to_dict()
+    recipe_sha256 = _sha256(_canonical_json(full))
+    if len([item for item in full["inputs"] if item["kind"] == "frame"]) != 1 or len(full["inputs"]) != 1:
+        raise InputError("A scan Recipe needs exactly one frame input")
+    slices = [node for node in full["nodes"] if node["operation"] == TIME_SLICE_OPERATION]
+    if len(slices) > 1:
+        raise InputError("A scan Recipe may slice its input only once")
+    region_params = {"$type": "map", "entries": [["end", _python_float(end)], ["start", _python_float(start)]]}
+    by_id = {node["id"]: node for node in full["nodes"]}
+    chain = _chain(full)
+    after: list[Mapping[str, object]] = []
+    if slices:
+        target = slices[0]["id"]
+        keep = _upstream(full["nodes"], target)
+        ids = [node["id"] for node in chain]
+        after = chain[ids.index(target) + 1 :] if target in ids else []
+        nodes = [
+            {**node, "params": region_params} if node["id"] == target else node
+            for node in full["nodes"]
+            if node["id"] in keep
+        ]
+    else:
+        target = "node-region"
+        if by_id.get(full["output"], {}).get("operation") == WELCH_OPERATION:
+            raise InputError("The Recipe must give a time signal before its slice, not a SpectralFrame")
+        nodes = list(full["nodes"])
+        tail = nodes[-1]["id"] if nodes else full["inputs"][0]["id"]
+        nodes.append(
+            {"id": target, "operation": TIME_SLICE_OPERATION, "version": 1, "inputs": [tail], "params": region_params}
+        )
+    region = RecipePlan.from_dict({**full, "nodes": nodes, "output": target})
+    welch_node = next((node for node in full["nodes"] if node["operation"] == WELCH_OPERATION), None) or {
+        "operation": WELCH_OPERATION,
+        "version": 2,
+        "params": {"$type": "map", "entries": [["n_fft", spec.WELCH_N_FFT], ["window", "hann"]]},
+    }
+    bands = _third_octave_bands(sampling_rate)
+    noct = (
+        _single_node_plan(
+            {
+                "operation": NOCT_OPERATION,
+                "version": 1,
+                "params": {
+                    "$type": "map",
+                    "entries": [["fmax", _python_float(bands[-1])], ["fmin", _python_float(bands[0])], ["n", 3]],
+                },
+            },
+            "region",
+        )
+        if bands
+        else None
+    )
+    return {
+        "region": region,
+        "steps": [(str(node["id"]), _single_node_plan(node, "region")) for node in after],
+        "upstream": [
+            str(node["id"]) for node in chain if node["id"] in _upstream(nodes, target) and node["id"] != target
+        ],
+        "welch": _single_node_plan(welch_node, "region"),
+        "noct": noct,
+        "sha256": recipe_sha256,
+    }
+
+
+def _levels(values: np.ndarray) -> np.ndarray:
+    if np.isnan(values).any():
+        raise InputError("Analysis produced undefined levels")
+    floored = np.maximum(np.nan_to_num(values, neginf=spec.MIN_LEVEL_DB, posinf=-spec.MIN_LEVEL_DB), spec.MIN_LEVEL_DB)
+    return np.round(floored, spec.DB_DECIMALS)
+
+
+def log_spectrum(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist: float) -> np.ndarray:
+    """Welch levels on `points` log-spaced frequencies from SPECTRUM_MIN_HZ to Nyquist.
+
+    Each point is the power mean of the Welch bins between its edges; a point narrower than one bin
+    (the low end of a short FFT) takes the levels interpolated at its centre instead.
+    """
+    edges = np.geomspace(spec.SPECTRUM_MIN_HZ, nyquist, points + 1)
+    centres = np.sqrt(edges[:-1] * edges[1:])
+    out = np.empty((levels_db.shape[0], points), dtype=np.float64)
+    for index in range(points):
+        upper = freqs < edges[index + 1] if index < points - 1 else freqs <= edges[index + 1]
+        inside = (freqs >= edges[index]) & upper
+        if inside.any():
+            power = np.mean(10.0 ** (levels_db[:, inside] / 10.0), axis=1)
+            with np.errstate(divide="ignore"):
+                out[:, index] = 10.0 * np.log10(power)
+        else:
+            out[:, index] = [np.interp(centres[index], freqs, row) for row in levels_db]
+    return out
+
+
+def _third_octave_bands(sampling_rate: float) -> tuple[float, ...]:
+    from analysis_service import octave_bands
+
+    usable = octave_bands(3, sampling_rate).centers_hz
+    return tuple(c for c in usable if spec.THIRD_OCTAVE_CENTERS_HZ[0] <= c <= spec.THIRD_OCTAVE_CENTERS_HZ[-1])
+
+
+def measure(
+    filtered: wd.ChannelFrame,
+    welch: wd.SpectralFrame,
+    octave: wd.NOctFrame | None,
+    *,
+    passband: tuple[float, float] = (0.0, math.inf),
+) -> dict[str, object]:
+    """The analysis-spec metrics of a region frame and the Recipe's branches over it, one entry per channel.
+
+    `filtered` is the Recipe's region (its time slice), `welch` and `octave` its average-spectrum and
+    1/3-octave branches. Leq stays outside the Recipe: an RMS is an array, not a frame.
+    """
+    frame = filtered
+    refs = np.array([channel.ref for channel in filtered.channels], dtype=np.float64)
+    rms = np.asarray(filtered.a_weighting().rms, dtype=np.float64)
+    with np.errstate(divide="ignore"):
+        leq = 20.0 * np.log10(rms / refs)
+
+    welch_db = np.asarray(welch.dB, dtype=np.float64).reshape(frame.n_channels, -1)
+    freqs = np.asarray(welch.freqs, dtype=np.float64)
+    searched = freqs >= spec.PEAK_MIN_HZ
+    peaks = freqs[searched][np.argmax(welch_db[:, searched], axis=1)]
+    spectrum = log_spectrum(welch_db, freqs, spec.SPECTRUM_POINTS, frame.sampling_rate / 2)
+
+    third = np.full((frame.n_channels, len(spec.THIRD_OCTAVE_CENTERS_HZ)), np.nan)
+    bands = _third_octave_bands(frame.sampling_rate)
+    if bands and octave is not None:
+        values = np.asarray(octave.dB, dtype=np.float64).reshape(frame.n_channels, -1)
+        columns = [spec.THIRD_OCTAVE_CENTERS_HZ.index(band) for band in bands]
+        if values.shape[1] != len(columns):
+            raise InputError("1/3-octave analysis returned an unexpected number of bands")
+        third[:, columns] = _levels(values)
+        # A band centred where the Recipe filters the signal out shows the filter, not the file.
+        for column, center in enumerate(spec.THIRD_OCTAVE_CENTERS_HZ):
+            if not passband[0] <= center <= passband[1]:
+                third[:, column] = np.nan
+
+    # A silent channel has no peak-to-RMS ratio; 0 keeps the result JSON.
+    crest = np.nan_to_num(np.asarray(filtered.crest_factor, dtype=np.float64), nan=0.0, posinf=0.0)
+    return {
+        "leqDbA": _levels(leq).tolist(),
+        "peakHz": [int(round(peak)) for peak in peaks],
+        "spectrumDb": _levels(spectrum).tolist(),
+        "thirdOctDb": [[None if math.isnan(value) else value for value in row] for row in third.tolist()],
+        "crest": np.round(crest, spec.CREST_DECIMALS).tolist(),
+    }
+
+
+def _selected_channels(channels: Sequence[int] | None, count: int) -> list[int]:
+    if channels is None:
+        return list(range(count))
+    if not channels or len(set(channels)) != len(channels) or any(not 0 <= index < count for index in channels):
+        raise InputError(f"channels must be distinct indices below {count}")
+    return list(channels)
+
+
+def _check_region(region: Mapping[str, float] | None, duration: float, sampling_rate: float) -> None:
+    if region is None:
+        return
+    start, end = float(region["start"]), float(region["end"])
+    if not (math.isfinite(start) and math.isfinite(end)) or start < 0 or end <= start:
+        raise InputError("region must satisfy 0 <= start < end")
+    if end > duration + 1 / sampling_rate:
+        raise InputError(f"region ends after the file ({duration:.3f} s)")
+
+
+def scan_cached(
+    cached: CachedAnalysis,
+    *,
+    recipe: Mapping[str, object],
+    region: Mapping[str, float] | None,
+    channels: Sequence[int] | None,
+    calibration_profile: object,
+    stage: str | None = None,
+    detail: Mapping[str, object] | None = None,
+) -> ScanResult:
+    source = cached.frame
+    sampling_rate = float(source.sampling_rate)
+    duration = source.n_samples / sampling_rate
+    _check_region(region, duration, sampling_rate)
+    selected = _selected_channels(channels, source.n_channels)
+    resolved = resolve_calibration_profile(calibration_profile, source, source_peaks=cached.source_peaks)
+    calibrated = resolved.apply(source)
+    picked = calibrated if selected == list(range(source.n_channels)) else calibrated.get_channel(selected)
+    units = {(channel.unit or "FS", float(channel.ref)) for channel in picked.channels}
+    if len(units) != 1:
+        raise InputError("Selected channels have different units; scan them separately")
+    [(unit, ref)] = units
+
+    start = 0.0 if region is None else float(region["start"])
+    end = duration if region is None else min(float(region["end"]), duration)
+    # The Recipe's filters ring where the file starts and ends, so its time slice skips those ends of a region.
+    start, end = max(start, spec.EDGE_GUARD_S), min(end, duration - spec.EDGE_GUARD_S)
+    averaging = welch_params(recipe)
+    if (end - start) * sampling_rate < int(averaging["n_fft"]):  # type: ignore[call-overload]
+        raise InputError(f"Region is too short once the file's first and last {spec.EDGE_GUARD_S:g} s are skipped")
+    plans = scan_plans(recipe, start, end, sampling_rate)
+    recipe_sha256 = plans["sha256"]
+    input_name = plans["region"].inputs[0].name
+    described: ScanInput = {
+        "id": cached.input_id,
+        "fs": int(round(sampling_rate)),
+        "channels": selected,
+        "durationS": round(duration, 6),
+        "unit": unit,
+        "ref": ref,
+    }
+    known = {*plans["upstream"], plans["region"].output, *(step for step, _ in plans["steps"])}
+    if plans["noct"] is not None:
+        known.add(OCTAVE_STAGE)
+    if stage is not None and stage not in known:
+        raise InputError(f"The Recipe has no step {stage!r}")
+    if stage is not None and stage in plans["upstream"]:
+        # A step before the slice runs over the whole file; nothing after it is needed.
+        try:
+            view = stage_view(upstream_plan(recipe, stage).apply({input_name: picked}), _length_s(picked), detail)
+        except Exception as error:  # noqa: BLE001 - a step that fails on this file is named, whatever it raised.
+            raise StepFailure(stage, error) from error
+        return _stage_result(described, view)
+    try:
+        result = plans["region"].apply({input_name: picked})
+        # Computed once: every later step and branch reads it, and a lazy frame would rerun the steps before.
+        region_frame = result.cache()
+    except (RecipeExecutionError, ValueError) as error:
+        named = re.search(r"Node: '([^']+)'", str(error))
+        if named and named.group(1) in {*plans["upstream"], plans["region"].output}:
+            raise StepFailure(named.group(1), error) from error
+        raise
+    if not isinstance(region_frame, wd.ChannelFrame):
+        raise InputError(f"The Recipe must give a time signal before its slice, not a {type(region_frame).__name__}")
+    if stage == plans["region"].output:
+        return _stage_result(described, stage_view(region_frame, None, detail))
+    # The time signal the metrics read: the region, then each step after it while every step gives a time
+    # signal at the file's rate (a loudness over time is a ChannelFrame too, but not a signal to take Leq of).
+    signal = current = region_frame
+    leading = True
+    # The last time signal in the chain: what an STFT after it was taken of, for its columns' windows.
+    timed = region_frame
+    for step, plan in plans["steps"]:
+        try:
+            current = plan.apply({"region": current}).cache()
+            # A step's picture needs nothing after it, and none of the metrics.
+            if step == stage:
+                return _stage_result(described, stage_view(current, _length_s(timed), detail))
+        except Exception as error:  # noqa: BLE001 - as above.
+            raise StepFailure(step, error) from error
+        if isinstance(current, wd.ChannelFrame):
+            timed = current
+        leading = leading and isinstance(current, wd.ChannelFrame) and current.sampling_rate == sampling_rate
+        if leading:
+            signal = current
+    spectrum = current if isinstance(current, wd.SpectralFrame) else plans["welch"].apply({"region": signal})
+    octave = plans["noct"].apply({"region": signal}) if plans["noct"] is not None else None
+    if stage == OCTAVE_STAGE:
+        return _stage_result(described, stage_view(octave, None, detail))
+    metrics = measure(signal, spectrum, octave, passband=passband(recipe))
+    return {
+        "ok": True,
+        "conditionId": condition_id(
+            input_id=cached.input_id,
+            region=region,
+            channels=selected,
+            sampling_rate=int(round(sampling_rate)),
+            calibration=None if resolved.is_identity else resolved.signature,
+            unit=unit,
+            ref=ref,
+            recipe_sha256=recipe_sha256,
+        ),
+        "input": described,
+        **metrics,  # type: ignore[typeddict-item]
+        "specVersion": spec.ANALYSIS_SPEC_VERSION,
+        "wandasVersion": wd.__version__,
+        "endFrame": type(current).__name__,
+    }
+
+
+def _length_s(frame: wd.ChannelFrame) -> float:
+    return float(frame.n_samples) / float(frame.sampling_rate)
+
+
+def _stage_result(described: ScanInput, view: StageView) -> ScanResult:
+    """A step's picture alone: the comparison asks for it per step, so the metrics are not computed again."""
+    return {
+        "ok": True,
+        "input": described,
+        "stage": view,
+        "specVersion": spec.ANALYSIS_SPEC_VERSION,
+        "wandasVersion": wd.__version__,
+    }
+
+
+def _first_line(error: BaseException) -> str:
+    text = str(error).strip()
+    line = text.splitlines()[0] if text else type(error).__name__
+    if isinstance(error, sf.LibsndfileError):
+        return f"Unable to read audio: {error.error_string}"
+    return line if isinstance(error, (InputError, OSError)) else f"{type(error).__name__}: {line}"
+
+
+def scan(
+    engine: AnalysisEngine,
+    file_path: str,
+    *,
+    recipe: Mapping[str, object],
+    region: Mapping[str, float] | None = None,
+    channels: Sequence[int] | None = None,
+    calibration_profile: object = None,
+    stage: str | None = None,
+    detail: Mapping[str, object] | None = None,
+) -> ScanResult:
+    started = time.perf_counter()
+    was_cached = engine.is_cached(file_path)
+    cached = None
+    try:
+        cached = engine.get_file(file_path)
+        # One short file's graph gains nothing from threads, which only add scheduling overhead.
+        with dask.config.set(scheduler="synchronous"):
+            result = scan_cached(
+                cached,
+                recipe=recipe,
+                region=region,
+                channels=channels,
+                calibration_profile=calibration_profile,
+                stage=stage,
+                detail=detail,
+            )
+    except Exception as error:  # noqa: BLE001 - every failure becomes this file's ✕ row.
+        if not isinstance(error, (InputError, OSError, sf.LibsndfileError)):
+            traceback.print_exc(file=sys.stderr)
+        result = {"ok": False, "reason": _first_line(error)}
+        if isinstance(error, StepFailure):
+            result["failedStep"] = error.step
+    finally:
+        # Files opened only for the scan are not kept: a 100-file scan must not hold 100 frames.
+        if cached is not None and not was_cached:
+            engine.discard(cached.path)
+    if result["ok"]:
+        result["elapsedMs"] = round((time.perf_counter() - started) * 1000, 1)
+    return result

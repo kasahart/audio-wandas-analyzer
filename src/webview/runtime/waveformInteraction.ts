@@ -9,6 +9,11 @@ export interface NormalizedRange {
 /** One zoom-in step keeps this fraction of the visible span (zoom-out divides by it). */
 export const ZOOM_IN_FACTOR = 0.7;
 
+/** One Ctrl+wheel notch: away from you zooms out (the span × 1.15), towards you zooms in (× 0.85). */
+export function wheelZoomFactor(deltaY: number): number {
+    return deltaY > 0 ? 1.15 : 0.85;
+}
+
 export function zoomNormalizedRange(range: NormalizedRange, factor: number): NormalizedRange {
     const center = (range.start + range.end) / 2;
     const half = ((range.end - range.start) / 2) * factor;

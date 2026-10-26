@@ -11,6 +11,11 @@ export interface ComparisonWindow extends RuntimeWindow {
     __APP_STRINGS__?: UiStrings;
     __APP_VERSION__?: string;
     __AWA_HOST__?: WebviewHostApi;
+    /**
+     * The optional Python packages the host's runtime cannot import, as its Worker reports them when it
+     * boots (the Web version); unset where the analyzer installs them all (VS Code).
+     */
+    __AWA_RUNTIME_LACKS__?: readonly string[];
     acquireVsCodeApi?: () => WebviewHostApi;
 }
 

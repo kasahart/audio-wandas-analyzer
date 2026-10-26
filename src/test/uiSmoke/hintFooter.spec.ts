@@ -8,7 +8,8 @@ test('hints show in the footer instead of tooltips beside the pointer', async ({
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     const footer = page.locator('#hint-footer');
     await expect(footer).toBeVisible();
-    await expect(page.locator('[title]')).toHaveCount(0);
+    // The lane view has no native tooltips; the entry table and comparison add them on purpose (titledHintAttr).
+    await expect(page.locator('[title]:not(#entry-screen *)')).toHaveCount(0);
 
     await page.locator('[data-action="toggle-follow-cursor"]').hover();
     await expect(footer).toHaveText(STR.btnFollowCursorTitle);
@@ -49,16 +50,3 @@ test('axes, the spectrum and every toolbar control explain their gestures in the
     await expect(spectrum).toHaveAttribute('aria-description', STR.hintSpectrumPlot);
 });
 
-test('Space on a focused tree folder toggles the folder without reaching the playback shortcut', async ({ page }) => {
-    await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
-    const directory = page.locator('.selection-tree-directory').first();
-    const expanded = await directory.getAttribute('aria-expanded');
-    await page.evaluate(() => {
-        (window as unknown as { __docSpaces: number }).__docSpaces = 0;
-        document.addEventListener('keydown', e => { if (e.key === ' ') (window as unknown as { __docSpaces: number }).__docSpaces++; });
-    });
-    await directory.focus();
-    await page.keyboard.press(' ');
-    await expect(directory).not.toHaveAttribute('aria-expanded', expanded ?? '');
-    expect(await page.evaluate(() => (window as unknown as { __docSpaces: number }).__docSpaces)).toBe(0);
-});

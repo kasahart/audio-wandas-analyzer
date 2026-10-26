@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { clampHeight, createHeightResize, heightInputRequest, type HeightKind } from '../webview/runtime/heightResize';
+import { clampHeight, createHeightResize, type HeightKind } from '../webview/runtime/heightResize';
 
 test('clampHeight keeps values inside the bounds', () => {
     assert.equal(clampHeight(10, 40, 400), 40);
     assert.equal(clampHeight(900, 40, 400), 400);
     assert.equal(clampHeight(120, 40, 400), 120);
-});
-
-test('heightInputRequest maps height inputs and ignores other actions or invalid values', () => {
-    assert.deepEqual(heightInputRequest('track-height-input', '120'), { kind: 'track', height: 120 });
-    assert.deepEqual(heightInputRequest('spectrum-height-input', 80), { kind: 'spectrum', height: 80 });
-    assert.equal(heightInputRequest('track-height-input', null), null);
-    assert.equal(heightInputRequest('track-height-input', 'abc'), null);
-    assert.equal(heightInputRequest('zoom-in', '120'), null);
 });
 
 test('height drag grows tracks downward and the spectrum upward, and toggles the active state', () => {

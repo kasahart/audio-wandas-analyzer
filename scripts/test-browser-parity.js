@@ -120,6 +120,10 @@ const server = http.createServer((req,res) => {
         const errors=[]; page.on('pageerror',error=>errors.push(error.message));
         const origin=`http://127.0.0.1:${server.address().port}`;
         await page.goto(origin+'/analyzer/index.html');
+        // The page speaks the browser's language: what it says is read from its own strings, not assumed English.
+        const S=await page.evaluate(()=>window.__APP_STRINGS__);
+        const READY=S.browserReady.slice(0,S.browserReady.indexOf('{count}')).trim();
+        const OPEN_FILE='input[data-action="browser-open-wav"]';
         const results=await page.evaluate(async ({fixtures,commands})=>{
             const worker=new Worker('./audio.worker.js',{type:'module'});
             let id=0;
@@ -157,8 +161,8 @@ const server = http.createServer((req,res) => {
                 });
             }
         }
-        await page.getByLabel('Open File', { exact: true }).setInputFiles(path.join(root,'src/test/fixtures/short-stereo.wav'));
-        await page.getByRole('status').filter({hasText:'waveform ready'}).waitFor({timeout:120000});
+        await page.locator(OPEN_FILE).setInputFiles(path.join(root,'src/test/fixtures/short-stereo.wav'));
+        await page.getByRole('status').filter({hasText:READY}).waitFor({timeout:120000});
         assert.ok(await page.locator('canvas').count()>0);
         const recordHostMessages = () => page.evaluate(() => {
             window.__testInbound = [];
@@ -215,7 +219,7 @@ const server = http.createServer((req,res) => {
         await page.mouse.down();
         await page.mouse.move(box.x + box.width * .63, box.y + box.height * .5, { steps: 4 });
         await page.mouse.up();
-        await page.locator('summary').filter({hasText:'Export'}).click();
+        await page.locator('summary').filter({hasText:S.toolbarExportLabel}).click();
         const [download] = await Promise.all([
             page.waitForEvent('download', {timeout:15000}),
             page.locator('[data-action="export-wav"]').click(),
@@ -249,15 +253,15 @@ const server = http.createServer((req,res) => {
         assert.equal(await page.locator('.track-row').count(), trackCount);
         assert.equal(await page.locator('audio').evaluateAll(nodes=>nodes.every(audio=>audio.paused)),true);
         await page.locator('[data-action="selection-clear-all"]').click();
-        await page.getByRole('status').filter({hasText:'Worker cleared'}).waitFor();
+        await page.getByRole('status').filter({hasText:S.browserCleared}).waitFor();
         assert.deepEqual(errors,[]);
-        const picker = page.getByLabel('Open File', { exact: true });
+        const picker = page.locator(OPEN_FILE);
         const status = page.getByRole('status');
         const fixturePath = name => path.join(root,'src/test/fixtures',name);
         async function loadFile(name) {
             if (await page.locator('.track-row').count()) await page.locator('[data-action="selection-clear-all"]').click();
             await picker.setInputFiles(fixturePath(name));
-            await status.filter({hasText:`${name}: waveform ready`}).waitFor({timeout:120000});
+            await status.filter({hasText:`${name}: ${READY}`}).waitFor({timeout:120000});
             await page.waitForFunction(() => {
                 const canvas=document.querySelector('#track-canvas-0');
                 return canvas?.width>0 && Math.abs(canvas.width-canvas.getBoundingClientRect().width)<1.1;
@@ -276,13 +280,13 @@ const server = http.createServer((req,res) => {
         assert.equal(aiff.status,0,String(aiff.stderr));
         const accelCsv = 'time,x\n' + Array.from({length:2000},(_,i)=>`${i/1000},${Math.sin(2*Math.PI*50*i/1000)}`).join('\n') + '\n';
         await picker.setInputFiles([{name:'take.flac',mimeType:'audio/flac',buffer:flac.stdout},{name:'take.aiff',mimeType:'audio/aiff',buffer:aiff.stdout},{name:'accel.csv',mimeType:'text/csv',buffer:Buffer.from(accelCsv)}]);
-        await status.filter({hasText:'accel.csv: waveform ready'}).waitFor({timeout:120000});
+        await status.filter({hasText:`accel.csv: ${READY}`}).waitFor({timeout:120000});
         assert.equal(await page.locator('.track-row').count(),3);
         // Chromium decodes neither AIFF nor a CSV blob, so only the FLAC track gets transport audio.
         assert.equal(await page.locator('audio').count(),1);
         for (const name of ['take.aiff','accel.csv']) assert.ok(await page.locator('.track-row',{hasText:name}).locator('.track-btns [disabled]').count()>0, name);
         await page.locator('[data-action="selection-clear-all"]').click();
-        await status.filter({hasText:'Worker cleared'}).waitFor();
+        await status.filter({hasText:S.browserCleared}).waitFor();
         await loadFile('short-stereo.wav');
         const firstUrl = await page.locator('audio').first().getAttribute('src');
         await loadFile('changing-stereo.wav');
@@ -303,7 +307,7 @@ const server = http.createServer((req,res) => {
         });
         assert.ok(Math.abs(peakHz-880)<80,`2.5s cursor should select the later 880Hz section, got ${peakHz}`);
         await picker.setInputFiles({name:'oversized.wav',mimeType:'audio/wav',buffer:Buffer.alloc(16*1024*1024+1)});
-        await status.filter({hasText:'16 MiB or smaller'}).waitFor();
+        await status.filter({hasText:S.browserInputTooLarge.replace('{mib}','16')}).waitFor();
         assert.equal(await page.locator('.track-row').count(),1);
         const longWav=Buffer.alloc(44+31*8000*2*2);
         bytes.copy(longWav,0,0,44); longWav.writeUInt32LE(longWav.length-8,4); longWav.writeUInt32LE(longWav.length-44,40);
@@ -328,7 +332,7 @@ const server = http.createServer((req,res) => {
         await page.waitForFunction(async count=>(await (await caches.open('awa-runtime')).keys()).length>=count,runtimeAssetCount,{timeout:60000});
         await page.reload();
         await picker.setInputFiles(fixturePath('short-stereo.wav'));
-        await status.filter({hasText:'waveform ready'}).waitFor({timeout:120000});
+        await status.filter({hasText:READY}).waitFor({timeout:120000});
         assert.deepEqual(runtimeDownloads,[]);
         // A corrupted cache entry is downloaded again instead of failing the boot.
         await page.evaluate(async name=>{
@@ -338,7 +342,7 @@ const server = http.createServer((req,res) => {
         },nativeWheel);
         await page.reload();
         await picker.setInputFiles(fixturePath('short-stereo.wav'));
-        await status.filter({hasText:'waveform ready'}).waitFor({timeout:120000});
+        await status.filter({hasText:READY}).waitFor({timeout:120000});
         assert.deepEqual(runtimeDownloads,[nativeWheel]);
         await page.unroute(cachedRuntime);
         // Native wheels are verified only by their locked hash, so a tampered download must still fail the boot.
@@ -353,14 +357,14 @@ const server = http.createServer((req,res) => {
         await page.unroute(`**/runtime/${nativeWheel}`);
         await page.route('**/audio.worker.js',route=>route.fulfill({contentType:'text/javascript',body:'throw new Error("intentional-worker-failure")'}));
         await picker.setInputFiles(fixturePath('changing-stereo.wav'));
-        await status.filter({hasText:'Audio Worker failed'}).waitFor();
+        await status.filter({hasText:S.browserWorkerFailed}).waitFor();
         assert.equal(await page.locator('.track-row').count(),0);
         await page.unroute('**/audio.worker.js');
         await loadFile('changing-stereo.wav');
         await recordHostMessages();
         await page.locator('[data-action="selection-clear-all"]').click();
         await picker.setInputFiles(tonePath);
-        await status.filter({hasText:'waveform ready'}).waitFor({timeout:120000});
+        await status.filter({hasText:READY}).waitFor({timeout:120000});
         await page.locator('[data-action="content-spectrogram"]').click();
         await page.locator('[data-action="spectrogram-settings"]').click();
         await page.locator('#spec-auto').uncheck();
@@ -412,8 +416,8 @@ const server = http.createServer((req,res) => {
         await page.locator('[data-action="selection-clear-all"]').click();
         const mobile=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
         await mobile.goto(origin+'/analyzer/');
-        await mobile.getByLabel('Open File', { exact: true }).setInputFiles(fixturePath('short-stereo.wav'));
-        await mobile.getByRole('status').filter({hasText:'waveform ready'}).waitFor({timeout:120000});
+        await mobile.locator(OPEN_FILE).setInputFiles(fixturePath('short-stereo.wav'));
+        await mobile.getByRole('status').filter({hasText:READY}).waitFor({timeout:120000});
         const mobileBox=await mobile.locator('#track-canvas-0').boundingBox();
         assert.ok(mobileBox?.width>0);
         await mobile.evaluate(() => {

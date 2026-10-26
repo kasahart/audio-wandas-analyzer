@@ -1,6 +1,6 @@
 import type { StftOptions } from './analysisTypes';
 import type {
-    AnalyzePayload, BackendCommand, BuildRecipePayload, BuildRecipeResult, BackendPayload, BackendResult,
+    AnalyzePayload, BackendCommand, BuildRecipePayload, BuildRecipeResult, BackendPayload, ScanPayload, ScanResult, BackendResult,
     CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult,
     TrackDetailPayload, TrackDetailResult, ExportWavLoopResult, RunRecipePayload, RunRecipeResult,
 } from '../protocol/backendProtocol';
@@ -212,6 +212,17 @@ export abstract class AnalysisClient {
 
     buildRecipe(payload: BuildRecipePayload): Promise<BuildRecipeResult> {
         return this.request('build-recipe', payload);
+    }
+
+    /** The calibration profile requests for `filePath` carry, if the host keeps one. */
+    calibrationFor(filePath: string): CalibrationRequestContext['calibrationProfile'] {
+        return this.contextPolicy?.current(filePath).calibrationProfile;
+    }
+
+    /** One file's entry-table metrics, under the calibration the host keeps for it. */
+    scan(payload: ScanPayload): Promise<ScanResult> {
+        const calibration = payload.calibration ?? this.calibrationFor(payload.filePath);
+        return this.request('scan', { ...payload, ...(calibration ? { calibration } : {}) });
     }
 
     protected calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {
