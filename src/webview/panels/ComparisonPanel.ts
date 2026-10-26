@@ -41,7 +41,7 @@ interface ComparisonPanelRenderedUi {
     spectrumOverlayPresent: boolean;
     spectrumTrackCanvasCount: number;
     visibleSpectrumTrackCount: number;
-    contentType: 'waveform' | 'spectrogram';
+    contentType: 'waveform' | 'stage';
     reanalyzeBusy: boolean;
     latestSpectrogram?: {
         windowSize: number;

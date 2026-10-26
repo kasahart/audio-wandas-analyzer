@@ -43,7 +43,7 @@ export function sanitizePersistedState(saved: unknown): PersistedWebviewState {
     const csv = raw['entryCsv'] as { name?: unknown; text?: unknown } | undefined;
     const slots = raw['entrySlots'];
     return {
-        ...(raw['contentType'] === 'waveform' || raw['contentType'] === 'spectrogram' ? { contentType: raw['contentType'] } : {}),
+        ...(typeof raw['waveShare'] === 'number' && Number.isFinite(raw['waveShare']) ? { waveShare: raw['waveShare'] } : {}),
         ...(raw['spectrumBandsPerOctave'] === 0 || raw['spectrumBandsPerOctave'] === 1 || raw['spectrumBandsPerOctave'] === 3 ? { spectrumBandsPerOctave: raw['spectrumBandsPerOctave'] } : {}),
         ...(typeof raw['sidebarCollapsed'] === 'boolean' ? { sidebarCollapsed: raw['sidebarCollapsed'] } : {}),
         ...(typeof raw['spectrumCollapsed'] === 'boolean' ? { spectrumCollapsed: raw['spectrumCollapsed'] } : {}),

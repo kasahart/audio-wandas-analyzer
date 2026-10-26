@@ -93,7 +93,6 @@ export async function run(): Promise<void> {
         await ComparisonPanel.postTestActions(actionId, [
             'zoom-in',
             'zoom-in',
-            'content-spectrogram',
             'open-spectrogram-settings'
         ]);
         await waitForSnapshot(actionId);

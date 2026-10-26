@@ -38,7 +38,7 @@ interface TestSnapshot {
         spectrumOverlayPresent: boolean;
         spectrumTrackCanvasCount: number;
         visibleSpectrumTrackCount: number;
-        contentType: 'waveform' | 'spectrogram';
+        contentType: 'waveform' | 'stage';
         reanalyzeBusy: boolean;
         latestSpectrogram?: {
             windowSize: number;
@@ -217,7 +217,6 @@ export async function run(): Promise<void> {
                 assert.equal(errored.length, 0, `Tracks should not have analysis errors: ${errored.map((t) => `${t.trackIndex}=${t.resultError}`).join(', ')}`);
                 assert.deepEqual(snapshot.renderedUi.toolbarActions, [
                     'content-waveform',
-                    'content-spectrogram',
                     'content-stage',
                     'spectrogram-settings',
                     'zoom-out',
@@ -286,18 +285,18 @@ export async function run(): Promise<void> {
             },
         },
         {
-            name: 'spectrogram mode renders successfully',
+            name: 'track view (waveform over spectrogram) renders successfully',
             requires: 'single-track',
             run: async () => {
-                const spectrogramSnapshot = await runViewModeScenario(['content-spectrogram']);
-                assert.ok(spectrogramSnapshot.renderedUi, 'Rendered UI snapshot should exist after spectrogram switch');
+                const spectrogramSnapshot = await runViewModeScenario(['content-waveform']);
+                assert.ok(spectrogramSnapshot.renderedUi, 'Rendered UI snapshot should exist in the track view');
             },
         },
         {
             name: 'spectrogram settings popover roundtrip',
             run: async () => {
                 await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
-                await runViewModeScenario(['content-spectrogram']);
+                await runViewModeScenario(['content-waveform']);
 
                 const openId = `spec-open-${Date.now()}`;
                 await postActionsAndWait(openId, ['open-spectrogram-settings']);
@@ -577,7 +576,7 @@ export async function run(): Promise<void> {
             name: 'axis labels with units are emitted for waveform / spectrogram / spectrum',
             requires: 'single-track',
             run: async () => {
-                await runViewModeScenario(['content-spectrogram']);
+                await runViewModeScenario(['content-waveform']);
                 const axisSnapshot = await waitForSnapshotWhere((snapshot) => {
                     const axes = snapshot.renderedUi?.axisLabels;
                     if (!axes) { return false; }
@@ -662,10 +661,10 @@ export async function run(): Promise<void> {
                     const snapshot = await analyzeDebugPath('src/test/fixtures/short-stereo.wav');
                     assert.deepEqual(snapshot.fileNames, ['short-stereo.wav']);
                     const cursor = await postActionsAndWait(`loop-cursor-${Date.now()}`, [
-                        'content-spectrogram',
+                        'content-waveform',
                         { action: 'set-cursor', payload: { cursorNorm: 0.437 } },
                     ]);
-                    assert.equal(cursor.renderedUi?.contentType, 'spectrogram');
+                    assert.equal(cursor.renderedUi?.contentType, 'waveform');
                     assert.equal(cursor.renderedUi?.cursorNorm, 0.437);
                     await postActionsAndWait(`loop-export-${Date.now()}`, [
                         { action: 'set-loop-region', payload: { start: 0.25, end: 0.75 } },
@@ -932,9 +931,6 @@ async function runZoomInEdgeCoverageScenario(): Promise<TestSnapshot> {
 
 async function runViewModeScenario(actions: string[]): Promise<TestSnapshot> {
     const actionId = `view-mode-${Date.now()}-${actions.join('-')}`;
-    if (actions.includes('content-spectrogram')) {
-        return postActionsAndWait(actionId, actions, (snapshot) => snapshot.renderedUi?.contentType === 'spectrogram');
-    }
     return postActionsAndWait(actionId, actions);
 }
 

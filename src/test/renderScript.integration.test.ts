@@ -346,8 +346,11 @@ test('renderScript: monaural tracks keep waveform and power spectrum in one body
     const spectrumWrap = env.dom.window.document.getElementById('track-spectrum-wrap-0') as HTMLElement | null;
     assert.ok(waveWrap, 'track-canvas-wrap-0 が存在すること');
     assert.ok(spectrumWrap, 'track-spectrum-wrap-0 が存在すること');
-    assert.ok(waveWrap!.parentElement?.classList.contains('track-channel-lane-body'), 'waveform はレーン本文に入ること');
-    assert.equal(spectrumWrap!.parentElement, waveWrap!.parentElement, 'power spectrum は waveform と横並びの本文に入ること');
+    const stack = waveWrap!.parentElement;
+    assert.ok(stack?.classList.contains('track-canvas-stack'), 'waveform はスペクトログラムと縦に積まれること');
+    assert.ok(stack?.parentElement?.classList.contains('track-channel-lane-body'), 'waveform はレーン本文に入ること');
+    assert.equal(stack?.querySelector('#track-spec-canvas-0')?.closest('.track-canvas-stack'), stack, 'spectrogram は waveform の下に入ること');
+    assert.equal(spectrumWrap!.parentElement, stack?.parentElement, 'power spectrum は波形・スペクトログラムと横並びの本文に入ること');
     env.dom.window.close();
 });
 
@@ -669,9 +672,9 @@ test('waveform-range-result メッセージを受信しても例外が起きな�
     });
 });
 
-test('renderScript: spectrogram mode requests track detail when spectrogram is null', async () => {
+test('renderScript: the track view requests track detail when spectrogram is null', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
-    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
     assert.ok(button);
     button.click();
     await nextAnimationFrame(env.dom);
@@ -684,33 +687,33 @@ test('renderScript: spectrogram mode requests track detail when spectrogram is n
     assert.equal(typeof detailRequests[0].settingsSignature, 'string');
 });
 
-test('renderScript: spectrogram content mode survives Webview regeneration', async () => {
+test('renderScript: the waveform/spectrogram split survives Webview regeneration', async () => {
     const env = setupEnv();
-    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
-    assert.ok(button);
-    button.click();
     await nextAnimationFrame(env.dom);
+    const doc = env.dom.window.document;
+    const split = doc.querySelector('.track-split') as HTMLElement | null;
+    assert.ok(split, 'every lane has a split between its waveform and spectrogram');
+    split.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientY: 100 }));
+    // 32 px of the 160 px plots: the waveform's share goes from 40 % to 60 %.
+    doc.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientY: 132 }));
+    doc.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, clientY: 132 }));
+    await nextAnimationFrame(env.dom);
+    assert.equal((doc.getElementById('track-canvas-0') as HTMLCanvasElement).height, 96);
+    assert.equal((doc.getElementById('track-spec-canvas-0') as HTMLCanvasElement).height, 64);
 
     const persistedState = env.vscodeStates.at(-1);
-    assert.ok(persistedState, 'spectrogram mode should be persisted before the host regenerates HTML');
+    assert.ok(persistedState, 'the split is persisted before the host regenerates HTML');
     env.dom.window.close();
 
     const rerendered = setupEnvWithState(DUMMY_APP_STATE, persistedState);
     await nextAnimationFrame(rerendered.dom);
-    const snap = rerendered.postedMessages
-        .filter((msg: any) => msg.type === 'comparison-panel-test-snapshot')
-        .at(-1) as any;
-    assert.equal(snap.renderedUi.contentType, 'spectrogram');
-    assert.ok(
-        rerendered.dom.window.document.querySelector('[data-action="content-spectrogram"]')?.classList.contains('is-active'),
-        'spectrogram toolbar button should be restored as active',
-    );
+    assert.equal((rerendered.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement).height, 96);
     rerendered.dom.window.close();
 });
 
 test('renderScript: track-detail-result merges spectrogram and stale detail is ignored', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
-    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
     assert.ok(button);
     button.click();
     await nextAnimationFrame(env.dom);
@@ -756,29 +759,11 @@ test('renderScript: removing a detailed track releases its spectrogram detail', 
     assert.equal(release.filePath, '/tmp/a.wav');
 });
 
-test('renderScript: leaving spectrogram mode releases pending track detail', async () => {
-    const env = setupEnvWithState(makeLazySpectrogramState());
-    await nextAnimationFrame(env.dom);
-    const spectrogramButton = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement;
-    spectrogramButton.click();
-    await nextAnimationFrame(env.dom);
-    assert.ok(env.postedMessages.some((msg: any) => msg.type === 'request-track-detail'));
-
-    const waveformButton = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement;
-    waveformButton.click();
-
-    const release = env.postedMessages.find((msg: any) => msg.type === 'release-track-detail' && msg.trackIndex === 0) as any;
-    assert.ok(release, 'pending track detail should be released');
-    assert.equal(release.filePath, '/tmp/a.wav');
-    env.dom.window.close();
-});
-
-
 test('renderScript: display-only spectrogram changes do not request fresh track detail', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     await nextAnimationFrame(env.dom);
 
-    const specButton = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    const specButton = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
     assert.ok(specButton, 'spectrogram button should exist');
     specButton!.click();
     await nextAnimationFrame(env.dom);
@@ -799,9 +784,9 @@ test('renderScript: display-only spectrogram changes do not request fresh track 
     env.dom.window.close();
 });
 
-test('renderScript: analysis-update in spectrogram mode requests fresh detail for new settings', async () => {
+test('renderScript: analysis-update requests fresh spectrogram detail for new settings', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
-    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
     assert.ok(button);
     button.click();
     await nextAnimationFrame(env.dom);
@@ -933,7 +918,7 @@ test('analysis-update rebinds rebuilt waveform and spectrum canvases', async () 
 
 test('lazy detail response cannot attach to a replacement at the same protocol index', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
-    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement;
+    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement;
     button.click();
     await nextAnimationFrame(env.dom);
     const oldRequest = env.postedMessages.find((message: any) => message.type === 'request-track-detail') as any;
@@ -1706,15 +1691,15 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const win = env.dom.window as any;
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
     assert.ok(spectrogramBtn, 'スペクトログラム切替ボタンが存在すること');
     spectrogramBtn.click();
     await nextAnimationFrame(env.dom);
     // フレーム駆動の再描画を待つ
     await new Promise((r) => win.setTimeout(r, 0));
 
-    const axisSpy = env.domCanvasContexts.get('track-axis-canvas-0');
-    assert.ok(axisSpy, 'track-axis-canvas-0 のスパイが取得できること');
+    const axisSpy = env.domCanvasContexts.get('track-spec-axis-canvas-0');
+    assert.ok(axisSpy, 'track-spec-axis-canvas-0 のスパイが取得できること');
     const axisLabels = axisSpy!.fillTextCalls;
     assert.ok(axisLabels.includes('0 Hz'), '0 Hz ラベルが描かれること: ' + JSON.stringify(axisLabels));
     assert.ok(
@@ -1722,8 +1707,8 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
         'Hz または kHz の周波数ラベルが axis canvas に描かれること',
     );
 
-    const spy = env.domCanvasContexts.get('track-canvas-0');
-    assert.ok(spy, 'track-canvas-0 のスパイが取得できること');
+    const spy = env.domCanvasContexts.get('track-spec-canvas-0');
+    assert.ok(spy, 'track-spec-canvas-0 のスパイが取得できること');
     const labels = spy!.fillTextCalls;
     assert.ok(labels.some((s) => /\d+\s*dB$/.test(s)), 'カラーバーの dB ラベルが描かれること');
     assert.equal(labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)), false, '周波数ラベルはプロット canvas に描かれないこと');
@@ -1735,12 +1720,12 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
 test('renderScript: spectrogram reuses its decimated base during playback and rebuilds for display changes', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
     assert.ok(spectrogramBtn);
     spectrogramBtn.click();
     await nextAnimationFrame(env.dom);
 
-    const baseSpy = env.domCanvasContexts.get('track-canvas-0');
+    const baseSpy = env.domCanvasContexts.get('track-spec-canvas-0');
     const overlaySpy = env.domCanvasContexts.get('track-spectrogram-overlay-0');
     assert.ok(baseSpy && baseSpy.putImageDataCalls > 0, 'spectrogram base should be rasterized once');
     assert.ok(overlaySpy, 'spectrogram cursor should use a separate overlay canvas');
@@ -1796,15 +1781,15 @@ test('renderScript: spectrogram reuses its decimated base during playback and re
 test('axes: スペクトログラム画像はカラーバー領域に重ならない', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
     assert.ok(spectrogramBtn);
     spectrogramBtn!.click();
     await nextAnimationFrame(env.dom);
     await new Promise((resolve) => env.dom.window.setTimeout(resolve, 0));
 
-    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
     assert.ok(canvas);
-    const spy = env.domCanvasContexts.get('track-canvas-0');
+    const spy = env.domCanvasContexts.get('track-spec-canvas-0');
     assert.ok(spy);
     const spectrogramImage = spy!.putImageDataArgs[0];
     assert.ok(spectrogramImage, 'スペクトログラム画像の putImageData が記録されること');
@@ -1819,12 +1804,12 @@ test('axes: スペクトログラム画像はカラーバー領域に重なら�
 test('spectrogram hit testing maps pointer positions to the plot width and ignores the colorbar', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
     assert.ok(spectrogramBtn);
     spectrogramBtn!.click();
     await nextAnimationFrame(env.dom);
 
-    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
     assert.ok(canvas);
     canvas!.width = 800;
     canvas!.height = 100;
@@ -1859,13 +1844,13 @@ test('spectrogram hit testing maps pointer positions to the plot width and ignor
 test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
     assert.ok(spectrogramBtn);
     spectrogramBtn!.click();
     await nextAnimationFrame(env.dom);
 
     const wrapper = env.dom.window.document.getElementById('tracks-wrapper') as HTMLElement | null;
-    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
     assert.ok(wrapper);
     assert.ok(canvas);
     wrapper!.getBoundingClientRect = () => ({
@@ -1927,10 +1912,12 @@ test('spectrogram ruler maps time ticks to the plot width', async () => {
     const row = env.dom.window.document.getElementById('ruler-row') as HTMLElement | null;
     assert.ok(row);
     Object.defineProperty(row, 'clientWidth', { configurable: true, value: 994 });
+    // The lane: 64 px amplitude axis, a 750 px waveform, then the spectrogram's 50 px colour bar.
+    Object.defineProperty(env.dom.window.document.getElementById('track-canvas-wrap-0'), 'clientWidth', { configurable: true, value: 864 });
     const ruler = env.dom.window.document.getElementById('ruler-canvas') as HTMLCanvasElement | null;
     assert.ok(ruler);
 
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
     assert.ok(spectrogramBtn);
     spectrogramBtn!.click();
     await nextAnimationFrame(env.dom);
@@ -2973,12 +2960,16 @@ test('トラック高さはヘッダー実寸より低くならない', async ()
     );
     await nextAnimationFrame(env.dom);
 
+    // The lane's plot height is shared: 40 % waveform, the rest its spectrogram.
     const trackCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    const specCanvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
     assert.ok(trackCanvas);
-    assert.strictEqual(trackCanvas.height, 80);
+    assert.ok(specCanvas);
+    assert.strictEqual(trackCanvas.height, 40);
+    assert.strictEqual(specCanvas.height, 60);
 
     const snap = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.strictEqual(snap?.renderedUi?.trackHeight, 80);
+    assert.strictEqual(snap?.renderedUi?.trackHeight, 100);
 
     env.dom.window.close();
 });
@@ -3008,8 +2999,10 @@ test('高さの数値入力がトラックとパワースペクトルの canvas 
     assert.ok(trackCanvas);
     assert.ok(trackSpectrumCanvas);
     assert.ok(overlayCanvas);
-    assert.strictEqual(trackCanvas.height, 112);
-    assert.strictEqual(trackSpectrumCanvas.height, 112);
+    // 112 px of plots: 45 waveform + 67 spectrogram; the spectrum beside them also spans the 5 px split.
+    assert.strictEqual(trackCanvas.height, 45);
+    assert.strictEqual((env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement).height, 67);
+    assert.strictEqual(trackSpectrumCanvas.height, 117);
     assert.strictEqual(overlayCanvas.height, 180);
     assert.strictEqual(overlayCanvas.style.height, '180px');
 
@@ -3051,12 +3044,13 @@ test('高さリサイズハンドルのドラッグがトラックとパワー�
     const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(trackCanvas);
     assert.ok(overlayCanvas);
-    assert.strictEqual(trackCanvas.height, 104);
+    // 160 + 24 px of plots, 40 % of it the waveform.
+    assert.strictEqual(trackCanvas.height, 74);
     assert.strictEqual(overlayCanvas.height, 170);
     assert.strictEqual(overlayCanvas.style.height, '170px');
 
     const snap = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.strictEqual(snap?.renderedUi?.trackHeight, 104);
+    assert.strictEqual(snap?.renderedUi?.trackHeight, 184);
     assert.strictEqual(snap?.renderedUi?.spectrumOverlayHeight, 170);
 
     env.dom.window.close();
@@ -3219,7 +3213,7 @@ test('renderScript: 波形キャンバスの dblclick でズームがリセッ�
 
 test('renderScript: スペクトログラム表示では軸キャンバスの dblclick でズームがリセットされる', async () => {
     const env = setupEnv();
-    (env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLElement).click();
+    (env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLElement).click();
 
     // '+' キーでズームイン
     env.dom.window.document.dispatchEvent(
@@ -3238,8 +3232,8 @@ test('renderScript: スペクトログラム表示では軸キャンバスの db
     assert.ok(pre && (pre.zoomStart > 0 || pre.zoomEnd < 1), 'ズームイン後は zoomStart/zoomEnd が変化していること');
 
     // .track-axis-canvas への dblclick でリセット
-    const axisCanvas = env.dom.window.document.querySelector('.track-axis-canvas') as HTMLElement | null;
-    assert.ok(axisCanvas, '.track-axis-canvas が存在すること');
+    const axisCanvas = env.dom.window.document.querySelector('.track-spec-axis') as HTMLElement | null;
+    assert.ok(axisCanvas, 'スペクトログラムの周波数軸が存在すること');
     axisCanvas!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true }));
 
     // dblclick 後スナップショット
@@ -3476,16 +3470,16 @@ test('tracks without an audio source disable all playback controls', () => {
 
 test('recreated canvases repaint unchanged spectrogram data', async () => {
     const env = setupSpectrumEnv();
-    env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-spectrogram"]')!.click();
+    env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]')!.click();
     await nextAnimationFrame(env.dom);
-    const oldCanvas = env.dom.window.document.getElementById('track-canvas-0');
-    const spy = env.domCanvasContexts.get('track-canvas-0')!;
+    const oldCanvas = env.dom.window.document.getElementById('track-spec-canvas-0');
+    const spy = env.domCanvasContexts.get('track-spec-canvas-0')!;
     const paints = spy.putImageDataCalls;
     assert.ok(paints > 0);
     const results = (env.dom.window as unknown as { __APP_STATE__: { results: unknown[] } }).__APP_STATE__.results;
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'analysis-update', results } }));
     await nextAnimationFrame(env.dom);
-    assert.notEqual(env.dom.window.document.getElementById('track-canvas-0'), oldCanvas);
+    assert.notEqual(env.dom.window.document.getElementById('track-spec-canvas-0'), oldCanvas);
     assert.ok(spy.putImageDataCalls > paints, 'the old raster cache must not suppress painting the new canvas');
     env.dom.window.close();
 });
@@ -3493,7 +3487,7 @@ test('recreated canvases repaint unchanged spectrogram data', async () => {
 
 test('renderScript: terminal detail error permits retry with the same analysis settings', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
-    const button = env.dom.window.document.querySelector('[data-action="content-spectrogram"]') as HTMLButtonElement;
+    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement;
     button.click();
     await nextAnimationFrame(env.dom);
     const before = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];

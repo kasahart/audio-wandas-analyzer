@@ -88,14 +88,14 @@ test('i18n: タイトルはどのロケールでもアプリ名 "Audio Wandas An
 
 test('i18n: __APP_STRINGS__ に btnWaveform="波形" (ja) が含まれる', () => {
     const html = renderHtmlWith('ja');
-    assert.match(html, /"btnWaveform":\s*"波形"/);
-    assert.match(html, /"btnSpectrogram":\s*"スペクトログラム"/);
+    assert.match(html, /"btnWaveform":\s*"トラック"/);
+    assert.match(html, /"btnStage":\s*"比較解析"/);
 });
 
 test('i18n: __APP_STRINGS__ に btnWaveform="Waveform" (en) が含まれる', () => {
     const html = renderHtmlWith('en');
-    assert.match(html, /"btnWaveform":\s*"Waveform"/);
-    assert.match(html, /"btnSpectrogram":\s*"Spectrogram"/);
+    assert.match(html, /"btnWaveform":\s*"Tracks"/);
+    assert.match(html, /"btnStage":\s*"Compare"/);
 });
 
 test('i18n: __APP_LOCALE__ も注入される', () => {

@@ -32,7 +32,7 @@ import { installHelpOverlay } from './helpOverlay';
 import { arrowCursorStep, isTextEntryTag, type GlobalShortcutAction } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
-import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
+import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, setHint } from './hintFooter';
@@ -150,9 +150,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     const TRACK_HEADER_W = 130;
     const AXIS_W = 64;
-    const TRACK_HEIGHT_DEFAULT = 80;
-    const TRACK_HEIGHT_MIN = TRACK_HEIGHT_DEFAULT;
-    const TRACK_HEIGHT_MAX = 220;
+    // A lane's plot height: the waveform and the spectrogram under it share it (TRACK_SPLIT_H apart).
+    const TRACK_HEIGHT_DEFAULT = 160;
+    const TRACK_HEIGHT_MIN = 100;
+    const TRACK_HEIGHT_MAX = 440;
+    const TRACK_SPLIT_H = 5;
+    const WAVE_SHARE_DEFAULT = 0.4;
+    const WAVE_SHARE_MIN = 0.15;
+    const WAVE_SHARE_MAX = 0.85;
     const SPECTRUM_HEIGHT_DEFAULT = 140;
     const SPECTRUM_HEIGHT_MIN = 80;
     const SPECTRUM_HEIGHT_MAX = 1200;
@@ -286,7 +291,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // 'stage': every lane draws one step of the scan Recipe (trackStageMode.ts); it is not kept across sessions.
     /** The steps mode (created once the entry table it reads its Recipe from exists). */
     let stageMode: TrackStageMode | null = null;
-    let contentType: 'waveform' | 'spectrogram' | 'stage' = persistedWebviewState.contentType === 'spectrogram' ? 'spectrogram' : 'waveform';
+    // 'waveform': the lanes show each channel's waveform with its spectrogram under it.
+    let contentType: 'waveform' | 'stage' = 'waveform';
+    let waveShare = typeof persistedWebviewState.waveShare === 'number'
+        ? Math.min(WAVE_SHARE_MAX, Math.max(WAVE_SHARE_MIN, persistedWebviewState.waveShare)) : WAVE_SHARE_DEFAULT;
+    /** The waveform's and the spectrogram's heights; the steps view gives the whole lane to its plot. */
+    function laneHeights(): { wave: number; spec: number } {
+        if (contentType === 'stage') return { wave: trackHeight, spec: 0 };
+        const wave = Math.round(trackHeight * waveShare);
+        return { wave, spec: trackHeight - wave };
+    }
+    function laneOuterHeight(): number {
+        return contentType === 'stage' ? trackHeight : trackHeight + TRACK_SPLIT_H;
+    }
     let spectrumBandsPerOctave: SpectrumBandsSetting = persistedWebviewState.spectrumBandsPerOctave === 1 || persistedWebviewState.spectrumBandsPerOctave === 3
         ? persistedWebviewState.spectrumBandsPerOctave : 0;
     let sidebarCollapsed = persistedWebviewState.sidebarCollapsed === true;
@@ -1475,13 +1492,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             axisWidth: AXIS_W,
             spectrumTitle: STR.trackSpectrumTitle,
             axisHint: trackAxisHint(),
+            spectrogramAxisHint: STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures,
+            splitHint: STR.hintTrackSplit,
+            splitLabel: STR.trackSplitLabel,
             spectrumHint: STR.trackSpectrumTitle + ' / ' + STR.hintSpectrumKeys,
             referenceButtonHtml: channels.length > 1 ? referenceButtonHtml(trackId, channelIndex, STR) : undefined,
         });
     }
-    // Spectrogram lanes have no amplitude axis, so their axis double-click keeps resetting the zoom.
     function trackAxisHint(): string {
-        return (contentType === 'waveform' ? STR.hintWaveformAmplitudeAxis : STR.hintDoubleClickResetZoom) + ' / ' + STR.hintWheelGestures;
+        return STR.hintWaveformAmplitudeAxis + ' / ' + STR.hintWheelGestures;
     }
     function buildChannelLanes(result: ComparisonTrackState, i: number) {
         return channelsForResult(result).map(function (_, channelIndex: number) {
@@ -1519,7 +1538,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         updateVisibility();
         updateOffsetDisplays();
         updateUiSmokeWaveformState();
-        if (contentType === 'waveform') {
+        if (contentType !== 'stage') {
             scheduleRangeRequests();
         }
     }
@@ -1535,20 +1554,27 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return;
                 }
                 const newW = wrap.clientWidth || 800;
-                const cacheKey = newW + 'x' + trackHeight + 'x' + channelIndex;
+                const heights = laneHeights();
+                const cacheKey = newW + 'x' + heights.wave + 'x' + heights.spec + 'x' + channelIndex;
                 const cacheIdx = i + ':' + channelIndex;
                 if (canvasWidthCache[cacheIdx] === cacheKey) {
                     return;
                 }
                 canvasWidthCache[cacheIdx] = cacheKey;
-                syncCanvasSize(canvas, newW - AXIS_W, trackHeight);
-                const spectrogramOverlay = canvasById(document, trackSpectrogramOverlayCanvasId(i, channelIndex));
-                if (spectrogramOverlay) {
-                    syncCanvasSize(spectrogramOverlay, newW - AXIS_W, trackHeight);
-                }
+                // Outside the steps view the waveform stops where the spectrogram's colour bar starts.
+                const waveW = contentType === 'stage' ? newW - AXIS_W : spectrogramPlotWidth(newW - AXIS_W);
+                syncCanvasSize(canvas, waveW, heights.wave);
                 const axisCanvas = canvasById(document, trackAxisCanvasId(i, channelIndex));
                 if (axisCanvas) {
-                    syncCanvasSize(axisCanvas, AXIS_W, trackHeight);
+                    syncCanvasSize(axisCanvas, AXIS_W, heights.wave);
+                }
+                if (heights.spec > 0) {
+                    [trackSpecCanvasId(i, channelIndex), trackSpectrogramOverlayCanvasId(i, channelIndex)].forEach(function (id) {
+                        const c = canvasById(document, id);
+                        if (c) syncCanvasSize(c, newW - AXIS_W, heights.spec);
+                    });
+                    const specAxis = canvasById(document, trackSpecAxisCanvasId(i, channelIndex));
+                    if (specAxis) syncCanvasSize(specAxis, AXIS_W, heights.spec);
                 }
             });
         });
@@ -1567,7 +1593,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const W = canvas.width;
-        const timeW = contentType === 'spectrogram' ? spectrogramPlotWidth(W) : W;
+        // The ticks follow the lanes' time span: the waveform's width, which ends at the spectrogram's colour bar.
+        const lane = canvasesMatching(document, '.track-canvas:not(.track-spec-canvas)').find(function (c) { return c.width > 1 && c.offsetParent !== null; });
+        const timeW = lane ? Math.min(W, lane.width) : spectrogramPlotWidth(W);
         const H = canvas.height;
         ctx.clearRect(0, 0, W, H);
         const gs = trackStore.globalSpan();
@@ -1586,8 +1614,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ruler = document.getElementById('ruler-row');
         if (ruler) ruler.style.display = contentType === 'stage' ? 'none' : '';
         if (contentType === 'stage') {
-            // The lanes draw the chosen step's Frames; the spectrogram overlays are the spectrogram mode's.
-            canvasesMatching(document, '.track-spectrogram-overlay').forEach(function (overlay) { overlay.style.display = 'none'; });
+            // The lanes draw the chosen step's Frames; their spectrograms are hidden (CSS).
             stageMode?.paint();
             return;
         }
@@ -1603,9 +1630,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 existingOverlay.remove();
             }
             if (result.error) {
-                channelsForResult(result).forEach(function (_, channelIndex: number) {
-                    const canvas = canvasById(document, trackCanvasId(i, channelIndex));
-                    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+                channelsForResult(result).forEach(function (_, channelIndex: number) {                    [trackCanvasId(i, channelIndex), trackSpecCanvasId(i, channelIndex)].forEach(function (id) {
+                        const canvas = canvasById(document, id);
+                        canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+                    });
                 });
                 const row = document.getElementById('track-row-' + i);
                 if (row) {
@@ -1636,23 +1664,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!canvas) {
                     return;
                 }
-                if (contentType === 'waveform') {
-                    spectrogramRasterCache.delete(trackId + ':' + channelIndex);
-                    const spectrogramOverlay = canvasById(document, trackSpectrogramOverlayCanvasId(i, channelIndex));
-                    if (spectrogramOverlay) {
-                        spectrogramOverlay.style.display = 'none';
-                    }
-                    const axisC = canvasById(document, trackAxisCanvasId(i, channelIndex));
-                    if (axisC) {
-                        const ac = axisC.getContext('2d');
-                        if (ac) {
-                            ac.clearRect(0, 0, axisC.width, axisC.height);
-                        }
-                    }
-                    drawTrackWaveform(canvas, result, i, channelIndex, trackRuntimeAt(i).offsetSeconds, color);
-                }
-                else {
-                    drawSpectrogram(canvas, result, i, channelIndex, trackRuntimeAt(i).offsetSeconds);
+                const axisC = canvasById(document, trackAxisCanvasId(i, channelIndex));
+                axisC?.getContext('2d')?.clearRect(0, 0, axisC.width, axisC.height);
+                drawTrackWaveform(canvas, result, i, channelIndex, trackRuntimeAt(i).offsetSeconds, color);
+                const specCanvas = canvasById(document, trackSpecCanvasId(i, channelIndex));
+                if (specCanvas) {
+                    drawSpectrogram(specCanvas, result, i, channelIndex, trackRuntimeAt(i).offsetSeconds);
                 }
             });
         });
@@ -1724,13 +1741,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const H = canvas.height;
         const overlayCanvas = canvasById(document, trackSpectrogramOverlayCanvasId(trackIndex, channelIndex));
         const overlayCtx = overlayCanvas ? overlayCanvas.getContext('2d') : null;
-        if (overlayCanvas) {
-            overlayCanvas.style.display = '';
-        }
         if (overlayCtx && overlayCanvas) {
             overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
         }
-        const axisCanvas = canvasById(document, trackAxisCanvasId(trackIndex, channelIndex));
+        const axisCanvas = canvasById(document, trackSpecAxisCanvasId(trackIndex, channelIndex));
         const axisCtx = axisCanvas ? axisCanvas.getContext('2d') : null;
         if (axisCanvas && axisCtx) {
             axisCtx.clearRect(0, 0, axisCanvas.width, axisCanvas.height);
@@ -1760,9 +1774,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
 
-    type CanvasHitTarget = Pick<Element, 'getBoundingClientRect'> & { width: number };
+    type CanvasHitTarget = Pick<Element, 'getBoundingClientRect'> & { width: number; classList?: DOMTokenList };
+    /** The spectrogram canvas ends in its colour bar; the waveform's own width is already its time span. */
     function trackCanvasTimeHit(canvas: CanvasHitTarget, clientX: number) {
-        const timeWidth = contentType === 'spectrogram' ? spectrogramPlotWidth(canvas.width) : canvas.width;
+        const timeWidth = canvas.classList?.contains('track-spec-canvas') ? spectrogramPlotWidth(canvas.width) : canvas.width;
         return canvasTimeHit(canvas.getBoundingClientRect().left, clientX, timeWidth, waveformView.timeRange());
     }
     function clampedTrackCanvasNorm(canvas: Pick<Element, 'getBoundingClientRect'>, clientX: number, timeWidth: number) {
@@ -2303,6 +2318,29 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             zoomWheel: timeAxis(handleZoomWheel),
             panWheel: timeAxis(handlePanWheel),
         });
+        // The split between a lane's waveform and spectrogram: one share for every lane, kept across sessions.
+        let splitDrag: { startY: number; startShare: number } | null = null;
+        tracksWrapper.addEventListener('mousedown', function (e) {
+            const target = eventTarget(e);
+            if (e.button !== 0 || !target || typeof target.closest !== 'function' || !target.closest('.track-split')) return;
+            splitDrag = { startY: e.clientY, startShare: waveShare };
+            document.body.classList.add('is-split-resizing');
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', function (e) {
+            if (!splitDrag) return;
+            const next = Math.min(WAVE_SHARE_MAX, Math.max(WAVE_SHARE_MIN, splitDrag.startShare + (e.clientY - splitDrag.startY) / trackHeight));
+            if (next === waveShare) return;
+            waveShare = next;
+            Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
+            scheduleRender();
+        });
+        document.addEventListener('mouseup', function () {
+            if (!splitDrag) return;
+            splitDrag = null;
+            document.body.classList.remove('is-split-resizing');
+            persistWebviewState({ waveShare });
+        });
         var stackedWrap = document.getElementById('stacked-wrap');
         if (stackedWrap) {
             installTrackReorderDrag(document, stackedWrap, {
@@ -2522,7 +2560,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     /** The cursor spectrum's state before the steps view folded it (it belongs to the waveform view): restored on leaving. */
     let spectrumBeforeStage: boolean | null = null;
-    function setContentType(next: 'waveform' | 'spectrogram' | 'stage') {
+    function setContentType(next: 'waveform' | 'stage') {
         // The steps view takes the height for its plots, so both their axes stay in sight.
         if (next === 'stage' && contentType !== 'stage') {
             spectrumBeforeStage = spectrumCollapsed;
@@ -2532,15 +2570,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             spectrumBeforeStage = null;
         }
         contentType = next;
-        if (next !== 'spectrogram') {
-            state.results.forEach(function (_result, index) { releaseTrackDetail(index); });
-        }
         stageMode?.setActive(next === 'stage');
         document.body.classList.toggle('is-stage-view', next === 'stage');
-        if (next !== 'stage') persistWebviewState({ contentType: next });
-        canvasesMatching(document, '.track-axis-canvas').forEach(function (axis) { setHint(axis, trackAxisHint()); });
+        Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
         buttonMatching(document, '[data-action="content-waveform"]')?.classList.toggle('is-active', next === 'waveform');
-        buttonMatching(document, '[data-action="content-spectrogram"]')?.classList.toggle('is-active', next === 'spectrogram');
         buttonMatching(document, '[data-action="content-stage"]')?.classList.toggle('is-active', next === 'stage');
         __updateSpecGearVisibility();
         scheduleRender();
@@ -2651,7 +2684,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'open-folder': () => messaging.post({ type: 'select-target', targetKind: 'directory' }),
             'select-python-environment': () => messaging.post({ type: 'select-python-environment' }),
             'content-waveform': () => setContentType('waveform'),
-            'content-spectrogram': () => setContentType('spectrogram'),
             'content-stage': () => setContentType('stage'),
             'zoom-in': zoomIn,
             'zoom-out': zoomOut,
@@ -2793,7 +2825,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         announce(STR.announceExportPngStarted || 'PNG export started');
         setTimeout(function () {
             const composed = composeTrackCanvases(document as unknown as Document, canvases, function (canvas) {
-                const axisId = canvas.id ? canvas.id.replace(/^track-canvas-/, 'track-axis-canvas-') : '';
+                const axisId = canvas.id ? canvas.id.replace(/^track-canvas-/, 'track-axis-canvas-').replace(/^track-spec-canvas-/, 'track-spec-axis-canvas-') : '';
                 return axisId && axisId !== canvas.id && wrapper ? wrapper.querySelector('#' + axisId) as unknown as Element | null : null;
             }, AXIS_W);
             if (!composed) {
@@ -2994,7 +3026,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     });
     // The popover takes values of the clicked channel; other lanes follow by the same ratio to their own peak.
     function openWaveformRangePopup(axis: Element, clientX: number, clientY: number): boolean {
-        if (contentType !== 'waveform') {
+        if (contentType !== 'waveform' || axis.classList.contains('track-spec-axis')) {
             return false;
         }
         const trackIndex = trackIndexFromElement(axis);
@@ -3038,7 +3070,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const wheelCanvas = target && typeof target.closest === 'function'
             ? target.closest<HTMLCanvasElement>('.track-canvas')
             : null;
-        if (contentType === 'spectrogram' && wheelCanvas) {
+        if (wheelCanvas) {
             const hit = trackCanvasTimeHit(wheelCanvas, e.clientX);
             if (!hit) {
                 return;
@@ -3111,6 +3143,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const gripType = waveformMode === 'rect-zoom' ? null : loopGripAt(loopRegion, norm, waveformView.span());
             dragState = {
                 trackId: trackId,
+                canvasId: canvas.id,
                 startClientX: e.clientX,
                 startClientY: e.clientY,
                 startOffset: trackRuntimeAt(idx).offsetSeconds,
@@ -3120,7 +3153,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 isShift: e.shiftKey,
                 startNorm: norm,
                 startAmpNorm: ampNorm,
-                dragType: gripType || (e.shiftKey ? 'offset' : (waveformMode === 'rect-zoom' ? 'rectZoom' : 'loop')),
+                // The box zoom picks an amplitude range, which only the waveform has.
+                dragType: gripType || (e.shiftKey ? 'offset' : (waveformMode === 'rect-zoom' && !canvas.classList.contains('track-spec-canvas') ? 'rectZoom' : 'loop')),
             };
             if (dragState.dragType === 'rectZoom') setLoopRegion(null);
             canvas.focus();
@@ -3152,7 +3186,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             setTrackOffset(dragTrackIndex, dragState.startOffset + dx * secsPerPx, false);
         }
         else {
-            const canvasEl = canvasById(document, trackCanvasId(dragTrackIndex, 0));
+            const canvasEl = canvasById(document, dragState.canvasId);
             if (canvasEl) {
                 const norm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
                 if (dragState.dragType === 'rectZoom') {
@@ -3179,9 +3213,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const wasRectZoom = dragState !== null && dragState.isDrag && dragState.dragType === 'rectZoom' && waveformMode === 'rect-zoom';
         if (dragState && !dragState.isDrag) {
             // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
-            const dragTrackIndex = trackStore.protocolIndexForId(dragState.trackId);
-            const canvasId = dragTrackIndex === null ? '' : trackCanvasId(dragTrackIndex, 0);
-            const canvas = canvasById(document, canvasId);
+            const canvas = trackStore.protocolIndexForId(dragState.trackId) === null ? null : canvasById(document, dragState.canvasId);
             if (canvas) {
                 const hit = trackCanvasTimeHit(canvas, e.clientX);
                 if (hit) {
@@ -3318,7 +3350,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const w = wrap.clientWidth || 180;
                 const prevW = canvas.width;
                 const prevH = canvas.height;
-                syncCanvasSize(canvas, w, trackHeight);
+                syncCanvasSize(canvas, w, laneOuterHeight());
                 const paintedByChannel = trackStore.require(trackIdAtIndex(i)!).spectrumPainted;
                 if (canvas.width !== prevW || canvas.height !== prevH) {
                     paintedByChannel.set(channelIndex, false);
@@ -3481,7 +3513,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function __updateSpecGearVisibility() {
         const gear = buttonMatching(document, '[data-action="spectrogram-settings"]');
         if (gear) {
-            gear.style.display = (contentType === 'spectrogram') ? '' : 'none';
+            gear.style.display = contentType === 'stage' ? 'none' : '';
         }
     }
     function __setSpectrogramDisplay(display: SpectrogramDisplaySettings): void {

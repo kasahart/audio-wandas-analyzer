@@ -3,7 +3,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
 
 export interface ToolbarSpec {
-    contentType: 'waveform' | 'spectrogram' | 'stage';
+    contentType: 'waveform' | 'stage';
     appVersion: string;
 }
 
@@ -31,9 +31,8 @@ export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
         + '<button class="tb-btn" data-action="toggle-follow-cursor"' + hintAttr(strings.btnFollowCursorTitle) + '>' + escapeHtml(strings.btnFollowCursor) + '</button>';
     return '<span class="tb-label">' + escapeHtml(strings.toolbarTrackLabel) + '</span>'
         + '<button class="tb-btn' + (spec.contentType === 'waveform' ? ' is-active' : '') + '" data-action="content-waveform"' + hintAttr(strings.hintContentWaveform) + '>' + escapeHtml(strings.btnWaveform) + '</button>'
-        + '<button class="tb-btn' + (spec.contentType === 'spectrogram' ? ' is-active' : '') + '" data-action="content-spectrogram"' + hintAttr(strings.hintContentSpectrogram) + '>' + escapeHtml(strings.btnSpectrogram) + '</button>'
         + '<button class="tb-btn' + (spec.contentType === 'stage' ? ' is-active' : '') + '" data-action="content-stage"' + hintAttr(strings.hintContentStage) + '>' + escapeHtml(strings.btnStage) + '</button>'
-        + '<button class="tb-btn" data-action="spectrogram-settings" data-hint="' + escapeHtml(strings.btnSpectrogramSettingsTitle) + '" aria-label="' + escapeHtml(strings.btnSpectrogramSettingsTitle) + '" style="display:none">⚙</button>'
+        + '<button class="tb-btn" data-action="spectrogram-settings" data-hint="' + escapeHtml(strings.btnSpectrogramSettingsTitle) + '" aria-label="' + escapeHtml(strings.btnSpectrogramSettingsTitle) + '"' + (spec.contentType === 'stage' ? ' style="display:none"' : '') + '>⚙</button>'
         + '<div class="tb-sep tb-track-only"></div>'
         + '<span class="tb-label tb-track-only">' + escapeHtml(strings.toolbarZoomLabel) + '</span>'
         + '<button class="tb-btn tb-track-only" data-action="zoom-out"' + hintAttr(strings.hintZoomOut) + ' aria-label="' + escapeHtml(strings.ariaZoomOut) + '">－</button>'

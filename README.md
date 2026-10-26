@@ -26,7 +26,7 @@ Turn VS Code into a focused audio inspection desk. Audio Wandas Analyzer lets yo
 Audio comparison often means bouncing between a DAW, a notebook, a file browser, and a plotting script. This extension keeps that loop inside VS Code:
 
 - Line up multiple recordings and check timing differences at a glance
-- Move between waveform, spectrogram, and power spectrum views without reloading files
+- See each track's waveform with its spectrogram right under it, on one time axis, beside its power spectrum
 - Switch the cursor spectrum between the FFT and 1/1 or 1/3 octave bands
 - Zoom into a range and fetch high-resolution waveform data only for what is visible
 - Listen, mute, loop, and nudge tracks while you inspect them
@@ -87,7 +87,7 @@ When you open a folder, supported audio files appear in a tree. Check a file to 
 
 ## Working In The Panel
 
-- **Compare:** view tracks on one shared timeline and switch each row between waveform and spectrogram
+- **Compare:** view tracks on one shared timeline, each row showing its waveform over its spectrogram (drag the line between them to share the height)
 - **Zoom:** use the toolbar `－ / ＋ / Reset` buttons, the `+ / − / 0` keys, or Ctrl + mouse wheel; `L` zooms to the loop region
 - **Inspect:** click a waveform, spectrogram, or spectrum panel to move the cursor and update spectra
 - **Loop:** drag on the waveform to create a loop region; clear it with a click
