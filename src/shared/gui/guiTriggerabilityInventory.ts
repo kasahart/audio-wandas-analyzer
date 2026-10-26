@@ -130,6 +130,10 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'step-add-op',
     'step-remove',
     'step-delete',
+    'step-bypass',
+    'step-undo',
+    'step-redo',
+    'step-region-clear',
     'entry-scan-all',
     'entry-scan-cancel',
 ] as const;
@@ -154,6 +158,8 @@ export const GUI_TRIGGERABILITY_SCOPED_SHORTCUTS = [
     '? / F1 (entry table, comparison)',
     'Delete (step chip)',
     'Drag (step chip)',
+    'M (step chip)',
+    'Ctrl+Z / Ctrl+Shift+Z (step bar)',
 ] as const;
 
 export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = [
@@ -198,9 +204,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'step-bar',
-        label: 'See every step of the scan Recipe in the step bar, add any wandas operation (listed by what it does) after the step on screen, at the end or between steps, remove a step (× or Remove), move it by dragging, change its settings and press a step to see its Frame; a step that cannot run turns red and is left out',
+        label: 'See every step of the scan Recipe in the step bar, add any wandas operation (listed by what it does; one that fits an earlier place goes there) with ＋ at the end or between steps, remove a step (× or Remove), bypass it (it stays in place but is skipped), move it by dragging, change its settings, undo and redo (↶ ↷), set the comparison\'s region with its chip, and press a step (or the input) to see its result; a step that cannot run is marked ⚠ with why and left out',
         entryPoints: ['results-toolbar', 'dialog', 'keyboard'],
-        triggers: ['step-expand', 'step-settings', 'step-apply', 'step-add', 'step-insert', 'step-add-op', 'step-remove', 'step-delete', 'Delete (step chip)', 'Drag (step chip)'],
+        triggers: ['step-expand', 'step-settings', 'step-apply', 'step-add', 'step-insert', 'step-add-op', 'step-remove', 'step-delete', 'step-bypass', 'step-undo', 'step-redo', 'step-region-clear', 'Delete (step chip)', 'Drag (step chip)', 'M (step chip)', 'Ctrl+Z / Ctrl+Shift+Z (step bar)'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

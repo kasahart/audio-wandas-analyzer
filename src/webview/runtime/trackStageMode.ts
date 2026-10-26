@@ -15,9 +15,9 @@ import type { CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
-import { recipeKey, recipeSteps, withoutSteps, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { brokenStep, chainEnd, recipeKey, recipeSteps, withoutSteps, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, OCTAVE_BRANCH } from './stepBar';
+import { createStepBar, endsInSpectrum, invalidReason, runnableRecipe, stepChipLabel, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
 import { createDetailPlanner } from './stageDetail';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotWindow } from './plotInteraction';
@@ -130,8 +130,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     let compared = 1;
     let held: number | null = null;
     let groupBase = false;
-    /** The part of the files compared (s; null: the whole file), and the step held to see the chain without it. */
-    let region: EntryRegion | null = null;
+    /** The region set with the step bar's region chip (s; null: the whole file), and the step held to see the chain without it. */
+    let regionSet: EntryRegion | null = null;
+    /** The part of the files compared: the region chip's, unless it is bypassed. */
+    function liveRegion(): EntryRegion | null {
+        const recipe = deps.recipe()?.recipe;
+        const slice = recipe ? recipeSteps(recipe).find(step => step.operation === TIME_SLICE) : undefined;
+        return slice?.bypassed ? null : regionSet;
+    }
     let heldStep: RecipeStep | null = null;
     const source = createStageSource('track-stage', message => deps.post(message), () => deps.rerender());
     const detail = createDetailPlanner(deps.window.performance, deps.window, () => deps.rerender());
@@ -144,6 +150,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // Holding a step shows the picture on screen without it (the step before it, when it is the one on screen).
         canHold: step => !!holdSpec(step),
         onStepHold: step => { heldStep = step; deps.rerender(); },
+        onRegionSet: next => { regionSet = next; window_ = FULL_PLOT_WINDOW; deps.rerender(); },
+        onInputSelect: () => { stage = INPUT_STAGE; window_ = FULL_PLOT_WINDOW; deps.rerender(); },
     });
     stepBar.element.classList.add('track-stage-bar');
     const root = document.createElement('div');
@@ -153,7 +161,6 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         + `<button type="button" class="tb-btn" data-action="stage-layout" aria-pressed="true">${escapeHtml(strings.stageLayoutSide)}</button>`
         + `<button type="button" class="tb-btn" data-action="stage-diff" aria-pressed="false">${escapeHtml(strings.compareDiffShow)}</button>`
         + `<button type="button" class="tb-btn" data-action="stage-report">${escapeHtml(strings.compareReport)}</button>`
-        + `<span class="track-stage-region">${escapeHtml(strings.stepRegion)} <input type="number" step="0.01" min="0" data-stage-region="start" aria-label="start s"> – <input type="number" step="0.01" min="0" data-stage-region="end" aria-label="end s"> s</span>`
         + `<span class="compare-value track-stage-headline" data-stage-headline></span></div>`
         + `<div class="track-stage-panel" data-stage-panel>`
         + `<div class="compare-pane-head compare-legend" data-stage-legend></div>`
@@ -169,35 +176,25 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const action = (event.target as HTMLElement).closest('[data-action]')?.getAttribute('data-action');
         if (action === 'stage-layout') { overlaid = !overlaid; deps.rerender(); }
         else if (action === 'stage-diff') { showDiff = !showDiff; deps.rerender(); }
-        else if (action === 'stage-report') deps.report(showDiff, region, measured());
+        else if (action === 'stage-report') {
+            // A chain that cannot run has no values to report.
+            const recipe = deps.recipe()?.recipe;
+            if (recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate() }))) deps.hint(strings.stepOctaveBroken);
+            else deps.report(showDiff, liveRegion(), measured());
+        }
         // The base group's ▾ says how its curve is made; "list" shows its files on the table.
         else if (action === 'stage-base-info') { const info = query<HTMLElement>('[data-stage-base-info]'); info.hidden = !info.hidden; }
         else if (action === 'stage-base-list') { query<HTMLElement>('[data-stage-base-info]').hidden = true; deps.showCompared(); }
 
     });
-    // The region: typed and applied with Enter (or on leaving the field); both emptied is the whole file again.
-    const regionInputs = (): HTMLInputElement[] => Array.from(root.querySelectorAll<HTMLInputElement>('[data-stage-region]'));
-    function readRegion(): void {
-        const [start, end] = regionInputs().map(input => input.value.trim() === '' ? NaN : Math.round(Number(input.value) * 100) / 100);
-        const next = Number.isFinite(start) && Number.isFinite(end) && end > start && start >= 0 ? { start, end } : null;
-        if (regionInputs().every(input => input.value.trim() === '') || next) {
-            if (regionLabel(next) !== regionLabel(region)) { region = next; window_ = FULL_PLOT_WINDOW; deps.rerender(); }
-        } else {
-            regionInputs().forEach(input => input.classList.add('is-invalid'));
-            deps.hint(strings.compareRegionInvalid.replace('{end}', '—'));
-        }
-    }
-    root.addEventListener('keydown', event => {
-        if ((event.target as HTMLElement).matches('[data-stage-region]') && event.key === 'Enter') { event.preventDefault(); readRegion(); }
-    });
-    root.addEventListener('change', event => { if ((event.target as HTMLElement).matches('[data-stage-region]')) readRegion(); });
     /** The files' scans over the region (their metrics), for D and the report; asked for while a region is set. */
     function regionSpec(): StageSpec {
+        const region = liveRegion();
         const run = deps.recipe()?.runRecipe;
         return { key: `region|${recipeKey(run)}|${regionLabel(region)}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}) } };
     }
     function measured(): ReadonlyMap<string, ScanResult> {
-        if (!region) return new Map();
+        if (!liveRegion()) return new Map();
         const files = [...new Set([...deps.tracks().map(track => track.filePath), ...deps.tracks().flatMap(track => deps.basePaths(track.filePath, groupBase))])];
         const spec = regionSpec();
         return new Map(files.flatMap(path => { const result = source.result(spec, path); return result ? [[path, result] as [string, ScanResult]] : []; }));
@@ -234,7 +231,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         } else if (event.key === 'd' || event.key === 'D') {
             event.preventDefault(); event.stopImmediatePropagation();
             const path = comparedPath(deps.tracks());
-            const refused = !path ? strings.compareRefuseSlot.replace('{n}', String(compared))
+            const region = liveRegion();
+            const recipe = deps.recipe()?.recipe;
+            const refused = recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate() })) ? strings.stepOctaveBroken
+                : !path ? strings.compareRefuseSlot.replace('{n}', String(compared))
                 : region && !measured().has(path) ? strings.compareRefuseFix.replace('{why}', strings.comparePending)
                     : deps.fix(path, groupBase, region, measured());
             deps.hint(refused ?? strings.compareFixedHint);
@@ -260,13 +260,21 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const recipe = deps.recipe()?.recipe;
         if (!recipe) return null;
         const limits = stepLimits({ sampleRate: deps.sampleRate() });
-        const steps = recipeSteps(recipe, limits).filter(step => step.invalid === undefined);
+        const all = recipeSteps(recipe, limits);
+        const steps = all.filter(step => step.invalid === undefined && !step.bypassed);
+        if (stage === INPUT_STAGE) return INPUT_STAGE;
         // The app's 1/3-octave branch stands beside a chain that ends in a spectrum: its bands are a step to show too.
         // A comparison opens on it, as the table's band column reads it, so the headline and the table agree.
-        if ((stage ?? OCTAVE_BRANCH) === OCTAVE_BRANCH && endsInSpectrum(recipe, limits)) return OCTAVE_BRANCH;
+        const spectral = endsInSpectrum(recipe, limits) || (!!brokenStep(recipe, limits) && ['SpectralFrame', 'NOctFrame'].includes(chainEnd(recipe, limits)));
+        if ((stage ?? OCTAVE_BRANCH) === OCTAVE_BRANCH && spectral) return OCTAVE_BRANCH;
+        const at = all.findIndex(step => step.id === stage);
+        // A step that cannot run is shown as such (paint says why); a bypassed one, as the chain gives it there: the step before.
+        if (at >= 0 && all[at].invalid !== undefined) return stage;
+        if (at >= 0 && all[at].bypassed) return all.slice(0, at).reverse().find(step => step.invalid === undefined && !step.bypassed)?.id ?? INPUT_STAGE;
         return stage && steps.some(step => step.id === stage) ? stage : steps.at(-1)?.id ?? null;
     }
     function spec(id: string): StageSpec {
+        const region = liveRegion();
         const run = deps.recipe()?.runRecipe;
         return { key: `stage|${recipeKey(run)}|${regionLabel(region)}|${id}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), stage: id } };
     }
@@ -281,6 +289,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const shownOf = step.id === id ? steps[at - 1]?.id : id;
         if (!shownOf) return undefined;
         const without = runnableRecipe(withoutSteps(recipe.runRecipe ?? recipe.recipe, [step.id]), limits);
+        const region = liveRegion();
         // The 1/3-octave branch is not a node: it is there while the chain without the step still ends in a spectrum.
         const present = shownOf === OCTAVE_BRANCH ? endsInSpectrum(without, limits) : (without as unknown as { nodes: Array<{ id: string }> }).nodes.some(node => node.id === shownOf);
         if (!present) return undefined;
@@ -327,7 +336,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             if (!on) return;
             const recipe = deps.recipe();
             const id = chosen();
-            stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), stage: id ?? undefined });
+            const shownStage = stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === stage)?.bypassed ? stage : id;
+            stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), stage: shownStage ?? undefined, regionRange: regionSet });
             const tracks = deps.tracks();
             painted = false;
             stepBar.element.dataset.drawn = '0';
@@ -335,6 +345,22 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 deps.showLanes(true);
                 panel.hidden = true;
                 for (const track of tracks) if (track.canvas) paintStage(track.canvas, null, { min: 0, max: 1 }, track.color, { x: '', y: '' }, { empty: strings.stepOpenCompare });
+                return;
+            }
+            const steps = recipeSteps(recipe.recipe, stepLimits({ sampleRate: deps.sampleRate() }));
+            // A step that cannot run has no picture: the plot says why, and how to fix it.
+            const broken = brokenStep(recipe.recipe, stepLimits({ sampleRate: deps.sampleRate() }));
+            const cannot = steps.find(step => step.id === id && step.invalid !== undefined) ?? (id === OCTAVE_BRANCH && broken ? { ...broken, id: OCTAVE_BRANCH } : undefined);
+            if (cannot) {
+                deps.showLanes(false);
+                panel.hidden = false;
+                query<HTMLElement>('[data-stage-headline]').textContent = '';
+                query<HTMLElement>('[data-stage-diff]').hidden = true;
+                stepBar.element.dataset.drawn = '0';
+                stepBar.element.dataset.stage = id;
+                painted = false;
+                paintOverlay(query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers: [] }, { min: 0, max: 1 }, { x: '', y: '' },
+                    { empty: `${strings.stepCannotShow.replace('{why}', invalidReason(cannot, strings, steps))} — ${strings.stepCannotShowFix}` });
                 return;
             }
             // The compared file (the slot tapped or held); its base: slot 0, or the others of its condition (0 switches).
@@ -348,14 +374,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             root.dataset.held = held_ ? heldStep!.id : '';
             const waiting = source.ensure(coarseSpec, files);
             // Over a region, the files' metrics over it too, for D and the report.
-            if (region && !waiting) source.ensure(regionSpec(), files);
-            const [startInput, endInput] = regionInputs();
-            if (deps.document.activeElement !== startInput && deps.document.activeElement !== endInput) {
-                startInput.value = region ? region.start.toFixed(2) : '';
-                endInput.value = region ? region.end.toFixed(2) : '';
-                regionInputs().forEach(input => input.classList.remove('is-invalid'));
-            }
+            const region = liveRegion();
+            if (region && !waiting && !broken) source.ensure(regionSpec(), files);
             root.dataset.region = regionLabel(region);
+            // The region on the plots: its part of a whole-file picture (a step before the region's), else a corner tag.
+            const sliceAt = steps.findIndex(step => step.operation === TIME_SLICE);
+            const shownAt = id === INPUT_STAGE ? -1 : id === OCTAVE_BRANCH ? steps.length : steps.findIndex(step => step.id === id);
+            const regionMark = region ? { start: region.start, end: region.end, mark: shownAt < sliceAt ? 'range' as const : 'tag' as const, label: `${strings.stepRegion} ${region.start.toFixed(2)}–${region.end.toFixed(2)} s` } : undefined;
+            root.dataset.regionMark = regionMark?.mark ?? '';
             const coarse = (path: string) => source.view(coarseSpec, path);
             const picture = tracks.map(track => coarse(track.filePath)).find((view): view is StageView => !!view) ?? null;
             const images = !picture || picture.kind === 'heatmap' || picture.kind === 'none';
@@ -385,6 +411,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
             const headline = query<HTMLElement>('[data-stage-headline]');
             headline.textContent = waiting ? strings.comparePending : comparePath ? stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, strings) : '';
+            // The steps bypassed are named: what is drawn is the chain without them.
+            const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, regionSet));
+            if (bypassed.length && !waiting) headline.textContent += strings.stepBypassing.replace('{ops}', bypassed.join(', '));
             const colorOf = (path: string, fallback: string): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
             if (!overlay) {
                 // Side by side: every track's lane, on one range so the tracks compare at a glance.
@@ -400,7 +429,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                     drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, views: { base: coarsePlots.base, compare: coarse(track.filePath) ?? null, diff: null } });
                     // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
                     paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(track.filePath, track.color), width: 2 }] : [] }, heat ? range : narrowed(range, window_.y), axes,
-                        { empty, window: { x: window_.x, ...(heat ? { y: window_.y } : {}) }, axisView: coarse(track.filePath) ?? picture });
+                        { empty, window: { x: window_.x, ...(heat ? { y: window_.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}) });
                     if (view) drawn++;
                 });
                 stepBar.element.dataset.drawn = String(drawn);
@@ -430,7 +459,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const axes = stageAxes(strings, picture, tracks[0]?.input);
             const empty = waiting ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
             drawnOn.set(query('[data-stage-canvas="overlay"]'), { picture, range, axes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff } });
-            paintOverlay(query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers }, narrowed(range, window_.y), axes, { empty, window: { x: window_.x }, axisView: picture });
+            paintOverlay(query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers }, narrowed(range, window_.y), axes, { empty, window: { x: window_.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}) });
             const diffBox = query<HTMLElement>('[data-stage-diff]');
             diffBox.hidden = !showDiff;
             if (showDiff) {

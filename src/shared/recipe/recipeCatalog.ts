@@ -9,6 +9,10 @@ export interface CatalogParam {
     name: string;
     /** No default in wandas: the operation cannot be added unless the app knows how to set it. */
     required: boolean;
+    /** What wandas uses when a Recipe leaves it out. */
+    default?: number | string | boolean;
+    /** The values wandas accepts, when it lists them. */
+    choices?: readonly string[];
 }
 
 export interface CatalogOperation {

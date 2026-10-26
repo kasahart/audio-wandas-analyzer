@@ -293,6 +293,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let spectrumMaximized = false;
     const waveformView = new WaveformView();
     let cursorNorm = 0; // グローバルカーソル（常に number）
+    /**
+     * The cursor moved to `norm` (clamped to the tracks): its readouts follow, and spectra asked for at the old
+     * place are stale, except while playing, whose own requests keep up with it.
+     */
+    function moveCursor(norm: number, playing = false): void {
+        if (!playing) invalidateDesiredSpectrumSliceRequests();
+        cursorNorm = Math.max(0, Math.min(1, norm));
+        updateCursorDisplay(cursorNorm);
+    }
     let hoverNorm: number | null = null; // ホバープレビュー位置（null = 非表示）
     const spectrumHover = new SpectrumHover();
     let trackHeight = TRACK_HEIGHT_DEFAULT;
@@ -312,6 +321,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let playbackStartNorm = 0; // 再生開始位置の記憶
     let dragState: WaveformDragState | null = null;
     let loopRegion: LoopRegion | null = null;
+    /** The loop region set or cleared: its time readout and the zoom-to-selection button follow. */
+    function setLoopRegion(region: LoopRegion | null): void {
+        loopRegion = region;
+        updateLoopTimeDisplay();
+        updateZoomToSelectionBtn();
+    }
     let nextDefaultTrackColorIndex = 0;
     function createTrackRuntime(): TrackRuntimeState {
         const defaultColor = TRACK_COLORS[nextDefaultTrackColorIndex % TRACK_COLORS.length];
@@ -855,12 +870,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!payload || !Number.isFinite(offsetSeconds)) {
                     return;
                 }
-                trackRuntimeAt(trackIndex).offsetSeconds = offsetSeconds;
-                invalidateDesiredSpectrumSliceRequests();
-                updateOffsetDisplays();
-                updateLoopTimeDisplay();
-                scheduleRender();
-                scheduleSpectrumRefresh('immediate');
+                setTrackOffset(trackIndex, offsetSeconds);
             },
         };
         const payloadActions: Record<string, (p: Record<string, unknown>) => void> = {
@@ -879,9 +889,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 requiredElementById(document, 'spec-apply').click();
             },
             'set-cursor': p => {
-                invalidateDesiredSpectrumSliceRequests();
-                cursorNorm = Math.max(0, Math.min(1, Number(p.cursorNorm)));
-                updateCursorDisplay(cursorNorm);
+                moveCursor(Number(p.cursorNorm));
                 scheduleRender();
                 scheduleSpectrumRefresh('immediate');
             },
@@ -903,9 +911,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'set-loop-region': p => {
                 const region = loopRegionFromPayload(p);
                 if (region) {
-                    loopRegion = region;
-                    updateLoopTimeDisplay();
-                    updateZoomToSelectionBtn();
+                    setLoopRegion(region);
                     scheduleRender();
                 }
             },
@@ -1932,11 +1938,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
                 const nextCursor = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
                 if (nextCursor !== null) {
-                    cursorNorm = nextCursor;
                     if (followCursor) {
                         waveformView.centerOn(nextCursor);
                     }
-                    updateCursorDisplay(nextCursor);
+                    moveCursor(nextCursor, true);
                     scheduleRender();
                     scheduleSpectrumRefresh('playback');
                 }
@@ -2007,10 +2012,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
         }
         if (trackId === playbackTrackId) {
-            if (!options || options.keepCursor !== true) {
-                cursorNorm = playbackStartNorm;
-                updateCursorDisplay(cursorNorm);
-            }
+            if (!options || options.keepCursor !== true) moveCursor(playbackStartNorm);
             invalidateDesiredSpectrumSliceRequests();
             clearPlaybackState();
             scheduleRender();
@@ -2030,8 +2032,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 // Playback runs on through the fade-out, so resume from where it actually stopped.
                 const pausedCursor = playbackEl === audio && audio.paused ? globalNormFromTrackTime(idx, audio.currentTime) : null;
                 if (pausedCursor !== null) {
-                    cursorNorm = pausedCursor;
-                    updateCursorDisplay(pausedCursor);
+                    moveCursor(pausedCursor);
                     scheduleRender();
                 }
             });
@@ -2043,8 +2044,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (playbackTrackId !== null && playbackTrackId !== trackId) {
             // 再生開始位置にカーソルを戻してからトラックを切り替え
-            cursorNorm = playbackStartNorm;
-            updateCursorDisplay(cursorNorm);
+            moveCursor(playbackStartNorm);
             stopPlayback(playbackTrackId, { keepCursor: true });
         }
         if (playbackTrackId === trackId && playbackEl === audio && audioFader.isPausing(audio)) {
@@ -2090,10 +2090,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             fadeIn();
         }
         const nextCursor = globalNormFromTrackTime(idx, audio.currentTime);
-        if (nextCursor !== null) {
-            cursorNorm = nextCursor;
-            updateCursorDisplay(nextCursor);
-        }
+        if (nextCursor !== null) moveCursor(nextCursor);
         updatePlaybackButtons();
         startPlaybackLoop();
         scheduleRender();
@@ -2101,10 +2098,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function finishPlaybackAtEnd(trackIndex: number, trackId: TrackId): void {
         const endNorm = globalNormFromTrackTime(trackIndex, state.results[trackIndex].durationSeconds || 0);
-        if (endNorm !== null) {
-            cursorNorm = endNorm;
-            updateCursorDisplay(endNorm);
-        }
+        if (endNorm !== null) moveCursor(endNorm);
         stopPlayback(trackId, { keepCursor: true });
     }
     function attachAudioEvents() {
@@ -2248,11 +2242,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 value.click();
             },
             'offset-reset': ({ trackIndex }) => {
-                if (trackIndex === null) return;
-                trackRuntimeAt(trackIndex).offsetSeconds = 0;
-                updateOffsetDisplays();
-                scheduleRender();
-                scheduleSpectrumRefresh('immediate');
+                if (trackIndex !== null) setTrackOffset(trackIndex, 0);
             },
             'set-pair-reference': ({ trackId, target }) => {
                 const channelIndex = Number(target.getAttribute('data-channel-index'));
@@ -2266,19 +2256,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         attachOffsetEditing(tracksWrapper, document, { placeholder: STR.offsetEditPlaceholder, ariaLabel: STR.offsetEditAriaLabel }, {
             trackIndexFromElement,
             currentOffsetMs: (idx) => Math.round(trackRuntimeAt(idx).offsetSeconds * 1000),
-            onReset(idx) {
-                trackRuntimeAt(idx).offsetSeconds = 0;
-                updateOffsetDisplays();
-                scheduleRender();
-                scheduleSpectrumRefresh('immediate');
-            },
+            onReset: idx => setTrackOffset(idx, 0),
             onEdited(idx, offsetMs) {
-                if (offsetMs !== null) {
-                    trackRuntimeAt(idx).offsetSeconds = offsetMs / 1000;
-                }
-                updateOffsetDisplays();
-                scheduleRender();
-                scheduleSpectrumRefresh('immediate');
+                setTrackOffset(idx, offsetMs === null ? trackRuntimeAt(idx).offsetSeconds : offsetMs / 1000);
             },
         });
         // In the steps mode the lanes answer the shared plot gestures (trackStageMode.ts), not the time axis's.
@@ -2347,9 +2327,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return;
                 }
                 const step = arrowCursorStep(shiftKey, trackStore.globalSpan().spanSec, waveformView.start, waveformView.end, (active as HTMLCanvasElement).width || 800);
-                invalidateDesiredSpectrumSliceRequests();
-                cursorNorm = Math.max(0, Math.min(1, cursorNorm + direction * step));
-                updateCursorDisplay(cursorNorm);
+                moveCursor(cursorNorm + direction * step);
                 scheduleRender();
             },
             arrowReleased: () => scheduleSpectrumRefresh('immediate'),
@@ -3111,11 +3089,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 startAmpNorm: ampNorm,
                 dragType: gripType || (e.shiftKey ? 'offset' : (waveformMode === 'rect-zoom' ? 'rectZoom' : 'loop')),
             };
-            if (dragState.dragType === 'rectZoom') {
-                loopRegion = null;
-                updateLoopTimeDisplay();
-                updateZoomToSelectionBtn();
-            }
+            if (dragState.dragType === 'rectZoom') setLoopRegion(null);
             canvas.focus();
         }
     }
@@ -3141,8 +3115,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (dragState.dragType === 'offset') {
             const gs = trackStore.globalSpan();
             const secsPerPx = waveformView.span() * gs.spanSec / dragState.canvasWidth;
-            trackRuntimeAt(dragTrackIndex).offsetSeconds = dragState.startOffset + dx * secsPerPx;
-            updateOffsetDisplays();
+            // The spectra follow once the drag ends (handleDocMouseUp).
+            setTrackOffset(dragTrackIndex, dragState.startOffset + dx * secsPerPx, false);
         }
         else {
             const canvasEl = canvasById(document, trackCanvasId(dragTrackIndex, 0));
@@ -3161,11 +3135,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
                 else {
                     const region = loopRegionForDrag(dragState.dragType, dragState.startNorm, loopRegion, norm);
-                    if (region) {
-                        loopRegion = region;
-                        updateLoopTimeDisplay();
-                        updateZoomToSelectionBtn();
-                    }
+                    if (region) setLoopRegion(region);
                 }
             }
         }
@@ -3182,12 +3152,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (canvas) {
                 const hit = trackCanvasTimeHit(canvas, e.clientX);
                 if (hit) {
-                    invalidateDesiredSpectrumSliceRequests();
-                    cursorNorm = Math.max(0, Math.min(1, hit.norm));
-                    loopRegion = null;
-                    updateLoopTimeDisplay();
-                    updateZoomToSelectionBtn();
-                    updateCursorDisplay(cursorNorm);
+                    moveCursor(hit.norm);
+                    setLoopRegion(null);
                     scheduleRender();
                 }
             }
@@ -3201,9 +3167,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 disableFollowCursor();
                 waveformView.applyRectZoom(target);
             }
-            loopRegion = null;
-            updateZoomToSelectionBtn();
-            updateLoopTimeDisplay();
+            setLoopRegion(null);
             updateUiSmokeWaveformState();
             scheduleRender();
             return;
@@ -3464,11 +3428,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
     }
     function adjustOffset(idx: number, deltaSeconds: number) {
-        trackRuntimeAt(idx).offsetSeconds += deltaSeconds;
+        setTrackOffset(idx, trackRuntimeAt(idx).offsetSeconds + deltaSeconds);
+    }
+    /** A track's offset changed: spectra asked for at the old offset are stale, and every view of the offset follows. */
+    function setTrackOffset(idx: number, seconds: number, refreshSpectrum = true): void {
+        trackRuntimeAt(idx).offsetSeconds = seconds;
         invalidateDesiredSpectrumSliceRequests();
         updateOffsetDisplays();
+        updateLoopTimeDisplay();
         scheduleRender();
-        scheduleSpectrumRefresh('immediate');
+        if (refreshSpectrum) scheduleSpectrumRefresh('immediate');
     }
     // ── Spectrogram settings popover ──
     let __spectrogramSettings = state.spectrogramSettings || {

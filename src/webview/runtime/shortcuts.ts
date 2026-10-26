@@ -18,6 +18,8 @@ export const SHORTCUT_ROWS = [
     { shortcut: '? / F1 (entry table, comparison)', labelKey: 'screenHelpTitle' },
     { shortcut: 'Delete (step chip)', labelKey: 'helpRowStepKeys' },
     { shortcut: 'Drag (step chip)', labelKey: 'helpRowStepDrag' },
+    { shortcut: 'M (step chip)', labelKey: 'helpRowStepBypass' },
+    { shortcut: 'Ctrl+Z / Ctrl+Shift+Z (step bar)', labelKey: 'helpRowStepUndo' },
 ] as const;
 
 export type GlobalShortcutAction = 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'toggle-follow-cursor' | 'zoom-to-selection';

@@ -395,6 +395,10 @@ def test_scan_names_the_frame_the_chain_ends_in_and_draws_any_step(tmp_path: Pat
         spec.SPECTRUM_POINTS,
     )
     # The app's 1/3-octave branch beside the chain is a step too: its bands.
+    # The input is a stage too: the file's signal over the whole file, before any step.
+    raw = _scan(service, path, stage="node-input", region={"start": 0.5, "end": 1.0})["stage"]
+    assert (raw["frame"], raw["kind"], raw["x"]) == ("ChannelFrame", "line", "time")
+    assert raw["xs"][0] < 0.01 and raw["xs"][-1] > 1.99
     bands = _scan(service, path, stage="node-noct")["stage"]
     assert (bands["frame"], bands["kind"], bands["x"]) == ("NOctFrame", "bar", "band")
 

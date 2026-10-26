@@ -439,11 +439,7 @@ export async function run(): Promise<void> {
                     return !!entry?.open && entry.rows > 0 && entry.scanned === entry.rows;
                 }, COMMAND_TIMEOUT_MS);
                 assert.ok(scanned.renderedUi?.entry?.rows, `entry table did not scan: ${JSON.stringify(scanned.renderedUi?.entry)}`);
-                // The first row into slot 1, then the comparison.
-                await postActionsAndWait(`hpss-open-${Date.now()}`, [
-                    { action: 'press-key', payload: { key: '1' } },
-                    { action: 'press-key', payload: { key: 'Enter' } },
-                ]);
+                await openComparison('hpss', scanned);
                 const click = (selector: string) => ({ action: 'mouse-event', payload: { type: 'click', selector } });
                 /** Presses a chip and waits for the comparison to draw that step's Frame for the compared file. */
                 const showStep = async (id: string): Promise<NonNullable<TestSnapshot['renderedUi']>['comparison']> => {
@@ -482,14 +478,11 @@ export async function run(): Promise<void> {
             run: async () => {
                 invalidateFixtureCache();
                 await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
-                await pollSnapshot('entry-scanned', snapshot => {
+                const scanned = await pollSnapshot('entry-scanned', snapshot => {
                     const entry = snapshot.renderedUi?.entry;
                     return !!entry?.open && entry.rows > 0 && entry.scanned === entry.rows;
                 }, COMMAND_TIMEOUT_MS);
-                await postActionsAndWait(`cepstrum-open-${Date.now()}`, [
-                    { action: 'press-key', payload: { key: '1' } },
-                    { action: 'press-key', payload: { key: 'Enter' } },
-                ]);
+                await openComparison('cepstrum', scanned);
                 const click = (selector: string) => ({ action: 'mouse-event', payload: { type: 'click', selector } });
                 /** Waits for the comparison to draw the chain's end, a Frame of `frame`, for the compared file. */
                 const drawn = async (frame: string): Promise<NonNullable<TestSnapshot['renderedUi']>['comparison']> => {
@@ -947,6 +940,18 @@ async function runMultiTrackOffsetScenario(): Promise<TestSnapshot> {
         { action: 'offset-up', trackIndex: 1 },
     ]);
     return waitForSnapshot(actionId);
+}
+
+/**
+ * Opens the comparison on the first row: into slot 1 unless it is there already (the folder keeps its slots
+ * between checks, and 1 on a slotted row takes it out), then Enter.
+ */
+async function openComparison(label: string, scanned: TestSnapshot): Promise<TestSnapshot> {
+    const slotted = !!scanned.renderedUi?.entry?.slots?.[1];
+    return postActionsAndWait(`${label}-open-${Date.now()}`, [
+        ...(slotted ? [] : [{ action: 'press-key', payload: { key: '1' } }]),
+        { action: 'press-key', payload: { key: 'Enter' } },
+    ]);
 }
 
 type TestAction = string | { action: string; trackId?: string; trackIndex?: number; payload?: Record<string, unknown> };

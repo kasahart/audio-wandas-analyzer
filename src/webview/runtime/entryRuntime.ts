@@ -22,7 +22,7 @@ import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { positionPopover } from './settingsPopover';
 import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, OCTAVE_BRANCH } from './stepBar';
 import { leqLabel } from './compareReport';
-import { isRecipeChain, recipeKey, recipeSteps, timeSignalStep, withoutSteps, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { brokenStep, chainEnd, isRecipeChain, recipeKey, recipeSteps, timeSignalStep, withoutSteps, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { decodeTableText, isMetadataCandidate, parseTable, resolveTable, withFolderColumns, type MetadataAudit } from '../../shared/analysis/entryMetadata';
 import {
@@ -208,7 +208,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** What the table asked the host for: the folder's scan ('scan', keyed by its chain), a row measured again, a fixed difference measured again. */
     const requests = new HostRequests<undefined>();
     const remeasuring = new HostRequests<{ row: DerivedRow; results: Map<string, ScanResult> }>();
-    const currentKey = (): string => recipeKey(runRecipe());
+    /** Whether the chain cannot run (a step that cannot, and so nothing after it): the table then has no values for it. */
+    const broken = (): boolean => { const recipe = editedRecipe ?? standardRecipe; return !!recipe && !!brokenStep(recipe, limits()); };
+    // A broken chain has no values: every row keeps the previous chain's, greyed, and nothing is scanned with it.
+    const currentKey = (): string => (broken() ? 'broken' : recipeKey(runRecipe()));
     const isStale = (path: string): boolean => results.has(path) && resultKeys.get(path) !== currentKey();
     function stalePaths(): Set<string> {
         const key = currentKey();
@@ -285,7 +288,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** Whether the chain ends in a spectrum or band levels: otherwise the table has Leq only, no band columns. */
     function spectral(): boolean {
         const recipe = editedRecipe ?? standardRecipe;
-        return !recipe || endsInSpectrum(recipe, limits());
+        // A broken chain keeps the columns it would have: its rows are the previous chain's, greyed.
+        return !recipe || endsInSpectrum(recipe, limits()) || (!!brokenStep(recipe, limits()) && ['SpectralFrame', 'NOctFrame'].includes(chainEnd(recipe, limits())));
     }
     /** A result as the table reads it: without a spectral end, its bands (the app's own) are not shown or compared. */
     function shown(result: ScanResult | undefined): ScanResult | undefined {
@@ -348,6 +352,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const estimate = minutes >= 1 ? strings.entryMinutes.replace('{n}', String(Math.ceil(minutes))) : strings.entrySeconds.replace('{n}', String(Math.max(1, Math.ceil(minutes * 60))));
         const staleHtml = scanning
             ? `<button type="button" data-action="entry-scan-cancel">${escapeHtml(strings.entryScanCancel)}</button>`
+            : broken() ? `<span class="awa-tag entry-stale-tag is-broken">${escapeHtml(strings.entryChainBroken)}</span>`
             : staleCount ? `<span class="awa-tag entry-stale-tag">${escapeHtml(strings.entryStaleTag.replace('{n}', String(staleCount)))}</span>`
                 + `<button type="button" data-action="entry-scan-all">${escapeHtml(strings.entryScanAll.replace('{n}', String(staleCount)).replace('{time}', estimate))}</button>` : '';
         if (staleBox.innerHTML !== staleHtml) staleBox.innerHTML = staleHtml;
@@ -421,7 +426,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         shownTimer = window.setTimeout(() => {
             shownTimer = undefined;
             const path = focused;
-            if (!path || !isStale(path) || requests.pending(`row|${path}`)?.key === currentKey()) return;
+            if (!path || broken() || !isStale(path) || requests.pending(`row|${path}`)?.key === currentKey()) return;
             const recipe = runRecipe();
             requests.ask(`row|${path}`, `row-${++requestCount}`, currentKey(), undefined, ({ requestId }) => deps.post({ type: 'compare-scan', requestId, filePaths: [path], ...(recipe ? { recipe } : {}) }));
         }, 250);
@@ -439,16 +444,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return true;
     }
     /**
-     * A step that failed on a file is left out (orange ! on its chip) and every file is scanned again
-     * without it; a step already left out, or one this Recipe does not have, changes nothing.
+     * A step that failed on a file breaks the chain (⚠ on its chip and on every step after it): the scan stops
+     * and the table keeps its values until the steps change; a step already marked, or one this Recipe does not
+     * have, changes nothing.
      */
     function stepFailed(step: string, reason: string): void {
         const recipe = editedRecipe ?? standardRecipe;
         const known = recipe && (recipe as unknown as { nodes?: Array<{ id: string }> }).nodes?.some(node => node.id === step);
         if (!known || failed[step] !== undefined) return;
         failed = { ...failed, [step]: reason };
-        // The scan the user started goes on with the step left out; otherwise only what is on screen is measured again.
-        if (scanning) scanAll();
+        if (scanning) { deps.post({ type: 'entry-scan-cancel' }); scanning = false; }
         rebuild();
     }
     /** A new Recipe from a step bar: every number changes, so the table scans again from the start. */
@@ -463,6 +468,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return { ...row, result, base: { ...row.base, ...base }, recipeKey: recipeKey(runRecipe()), stale: false };
     }
     function remeasureStale(): void {
+        if (broken()) return;
         derived.forEach(row => {
             if (!row.stale || !row.base.paths?.length) return;
             if (row.region === 'all') {
@@ -715,6 +721,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         post(order);
     }
     function post(pending: string[]): void {
+        if (broken()) return;
         const slotted = pending.filter(path => slots.includes(path));
         const { requestId } = requests.ask('scan', `entry-${++requestCount}`, currentKey(), undefined);
         scanning = pending.length > 0;

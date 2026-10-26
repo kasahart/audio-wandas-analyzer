@@ -174,12 +174,15 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await bar.locator('[data-action="step-remove"]').click();
     await add('a_weighting');
     await add('fft');
-    // After a spectrum, ＋ offers what takes a SpectralFrame: ifft, not a_weighting.
+    // After a spectrum, ＋ offers what takes a SpectralFrame (ifft); a_weighting goes in earlier, before the fft.
     await bar.locator('[data-action="step-add"]').click();
     await expect(bar.locator('.step-menu-item[data-op="wandas.spectral.ifft"]')).not.toHaveClass(/is-off/);
-    await expect(bar.locator('.step-menu-item[data-op="wandas.audio.a_weighting"]')).toHaveClass(/is-off/);
+    const earlier = bar.locator('[data-group="earlier"] .step-menu-item[data-op="wandas.audio.a_weighting"]');
+    await expect(earlier).not.toHaveClass(/is-off/);
+    await expect(earlier.locator('.step-menu-hint')).toHaveText(STR.stepGoesBefore.replace('{step}', 'fft'));
     await bar.locator('[data-step-menu-filter]').press('Escape');
-    await expect(bar.locator('.step-chip')).toHaveText(['HPF 20 Hz', `${STR.stepRegion} ${STR.stepAll}`, 'a_weighting', 'fft', STR.stepOctave]);
+    // The whole file is no region: no region chip.
+    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', 'a_weighting', 'fft', STR.stepOctave]);
     await expect.poll(lastRecipe).toEqual(['highpass_filter', 'time_slice', 'a_weighting', 'fft']);
     await answer(page);
     await expect(page.locator('[data-stage-headline]')).toHaveText(/ base /);
@@ -226,21 +229,37 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
 });
 
-test('a region compares only that part of the files, and holding a step shows the comparison without it', async ({ page }) => {
+test('a region set with its chip compares only that part of the files, shows on the plots, and holding a step shows the comparison without it', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
     await openComparison(page);
     const root = page.locator('.track-stage');
-    // The region: Enter applies it; the pictures (and the files' metrics, for D and the report) are scanned over it.
-    await page.locator('[data-stage-region="start"]').fill('0.5');
-    await page.locator('[data-stage-region="end"]').fill('1.5');
-    await page.locator('[data-stage-region="end"]').press('Enter');
+    const bar = page.locator('.track-stage-bar');
+    await expect(bar.locator('.step-chip', { hasText: STR.stepRegion })).toHaveCount(0);
+    // 区間 from ＋: the region chip, its form open; Enter applies it and the pictures are scanned over it.
+    await bar.locator('[data-action="step-insert"][data-after="node-1"]').click();
+    await bar.locator('.step-menu-item[data-op="wandas.frame.time_slice"]').click();
+    await expect(bar.locator('[data-step-region-param="start"]')).toBeFocused();
+    await bar.locator('[data-step-region-param="start"]').fill('0.5');
+    await bar.locator('[data-step-region-param="end"]').fill('1.5');
+    await bar.locator('[data-step-region-param="end"]').press('Enter');
+    await expect(bar.locator('.step-chip', { hasText: STR.stepRegion })).toHaveText(`${STR.stepRegion} 0.50–1.50 s`);
     await expect(root).toHaveAttribute('data-region', '0.50–1.50');
-    await expect.poll(async () => (await stageScans(page)).at(-1)).toMatchObject({ region: { start: 0.5, end: 1.5 }, stage: 'node-noct' });
+    await expect.poll(async () => (await stageScans(page)).at(-1)).toMatchObject({ region: { start: 0.5, end: 1.5 }, stage: 'node-1' });
+    // The region's own picture says which part it is; a step before it shows the whole file with the region marked.
+    await expect(root).toHaveAttribute('data-region-mark', 'tag');
+    await bar.locator('.step-chip', { hasText: 'HPF' }).locator('[data-step-hold]').click();
+    await expect(root).toHaveAttribute('data-region-mark', 'range');
+    // The input chip: the files as they come in.
+    await bar.locator(`[data-step-hold="node-input"]`).click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-input');
+    await bar.locator('.step-chip', { hasText: STR.stepOctave }).locator('[data-step-hold]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
     await answer(page);
     // Then the files' metrics over it: a scan of the region without a step.
     await expect.poll(async () => (await stageScans(page)).some(message => message.region?.start === 0.5 && message.stage === undefined)).toBe(true);
     // Holding the HPF chip: the comparison without the HPF, framed green, until released.
-    const hpf = page.locator('.track-stage-bar .step-chip', { hasText: 'HPF' }).locator('[data-step-hold]');
+    const hpf = bar.locator('.step-chip', { hasText: 'HPF' }).locator('[data-step-hold]');
     const box = (await hpf.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
@@ -249,11 +268,59 @@ test('a region compares only that part of the files, and holding a step shows th
     await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.map(node => node.operation.split('.').pop())).toEqual(['time_slice', 'welch']);
     await page.mouse.up();
     await expect(root).toHaveAttribute('data-held', '');
-    // Both fields emptied: the whole files again.
-    await page.locator('[data-stage-region="start"]').fill('');
-    await page.locator('[data-stage-region="end"]').fill('');
-    await page.locator('[data-stage-region="end"]').press('Enter');
+    // The region chip's ×: the whole files again, and no region chip.
+    await bar.locator('.step-chip', { hasText: STR.stepRegion }).hover();
+    await bar.locator('[data-action="step-region-clear"]').click();
     await expect(root).toHaveAttribute('data-region', 'all');
+    await expect(bar.locator('.step-chip', { hasText: STR.stepRegion })).toHaveCount(0);
+    // ↶ brings the region back, ↷ takes it away again.
+    await bar.locator('[data-action="step-undo"]').click();
+    await expect(root).toHaveAttribute('data-region', '0.50–1.50');
+    await bar.locator('[data-action="step-redo"]').click();
+    await expect(root).toHaveAttribute('data-region', 'all');
+});
+
+test('bypass keeps a step in place but runs the chain without it; ↶ ↷ and Ctrl+Z undo and redo; a step that cannot run says why', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openComparison(page);
+    const root = page.locator('.track-stage');
+    const bar = page.locator('.track-stage-bar');
+    const lastRecipe = async (): Promise<string[] | undefined> => (await stageScans(page)).filter(message => message.recipe).at(-1)?.recipe?.nodes.map(node => node.operation.split('.').pop()!);
+    const hpf = bar.locator('.step-chip', { hasText: 'HPF' });
+    await expect(bar.locator('[data-action="step-undo"]')).toBeDisabled();
+    await hpf.hover();
+    await hpf.locator('[data-action="step-bypass"]').click();
+    await expect(hpf).toHaveClass(/is-bypassed/);
+    await expect(hpf.locator('[data-action="step-bypass"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(lastRecipe).toEqual(['time_slice', 'welch']);
+    await answer(page);
+    await expect(page.locator('[data-stage-headline]')).toContainText(STR.stepBypassing.replace('{ops}', 'HPF 20 Hz'));
+    // M on the chip brings it back.
+    await hpf.locator('[data-step-hold]').focus();
+    await page.keyboard.press('m');
+    await expect(hpf).not.toHaveClass(/is-bypassed/);
+    await expect.poll(lastRecipe).toEqual(['highpass_filter', 'time_slice', 'welch']);
+    // Ctrl+Z undoes that (bypassed again), Ctrl+Shift+Z redoes it.
+    await page.keyboard.press('Control+z');
+    await expect(hpf).toHaveClass(/is-bypassed/);
+    await page.keyboard.press('Control+Shift+z');
+    await expect(hpf).not.toHaveClass(/is-bypassed/);
+    // An FFT before the average spectrum: the spectrum cannot take it, stays in place with ⚠ and says why when shown.
+    await bar.locator('[data-action="step-insert"][data-after="node-1"]').click();
+    await bar.locator('[data-step-menu-filter]').fill('fft');
+    await bar.locator('.step-menu-item[data-op="wandas.audio.fft"]').click();
+    const welch = bar.locator('.step-chip', { hasText: STR.stepAverage });
+    await expect(welch).toHaveClass(/is-invalid/);
+    // The table's 1/3-octave branch after it cannot run either, and is not computed without the spectrum.
+    await expect(bar.locator('.step-chip', { hasText: STR.stepOctave })).toHaveClass(/is-invalid/);
+    await welch.locator('[data-step-hold]').click();
+    await expect(page.locator('.track-stage-bar')).toHaveAttribute('data-drawn', '0');
+    await expect(page.locator('[data-stage-headline]')).toHaveText('');
+    // ↶ takes the FFT out again.
+    await bar.locator('[data-action="step-undo"]').click();
+    await expect(welch).not.toHaveClass(/is-invalid/);
+    await expect(root).toBeVisible();
 });
 
 test('at 1280×720 the overlaid plot fits: the cursor spectrum folds while comparing, both axes are in sight, and it comes back after', async ({ page }) => {

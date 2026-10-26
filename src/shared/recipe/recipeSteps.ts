@@ -2,15 +2,15 @@
  * The step bar's view of a wandas Recipe: one chip per node, the parameters each one takes, the Frame
  * each gives, and edits written back in the Recipe's own encoding: a parameter set, a step added after
  * another or taken out. Which operations exist and which Frame each takes and gives is wandas' registry
- * (recipeCatalog.ts); wandas 0.9.0 has no `describe()` for their parameters, so the ones the analyzer
- * can set are listed here. `default_recipe_registry().describe()` replaces this table once a release has it.
+ * (recipeCatalog.ts), with each parameter's default and choices from wandas' own description; how the
+ * analyzer lets one be set (kind, unit, bounds, what a new step starts with) is listed here.
  */
 import type { RecipeDocument } from './recipeSelection';
 import { catalogOperation, INPUT_FRAME, outputOf, WANDAS_OPERATIONS, type CatalogOperation } from './recipeCatalog';
 
 /**
- * `default`: what wandas uses when the Recipe leaves the parameter out, shown and written as the actual value.
- * `initial`: what a new step starts with for a parameter wandas has no default for.
+ * `default`: what wandas uses when the Recipe leaves the parameter out (from its description), shown and
+ * written as the actual value. `initial`: what a new step starts with for a parameter wandas has no default for.
  */
 export type StepParam =
     | { name: string; kind: 'float'; unit?: string; min?: number; max?: 'nyquist' | number; optional?: boolean; default?: number; initial?: number }
@@ -19,34 +19,34 @@ export type StepParam =
 
 const WINDOWS = ['hann', 'hamming', 'blackman', 'boxcar'] as const;
 
-/** What the analyzer lets the step bar edit, per wandas operation id. Others are added with wandas' defaults. */
-export const STEP_PARAMS: Record<string, readonly StepParam[]> = {
-    'wandas.audio.highpass_filter': [{ name: 'cutoff', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', initial: 20 }, { name: 'order', kind: 'int', min: 1, max: 10, default: 4 }],
-    'wandas.audio.lowpass_filter': [{ name: 'cutoff', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', initial: 1000 }, { name: 'order', kind: 'int', min: 1, max: 10, default: 4 }],
+/** What the analyzer lets the step bar edit, per wandas operation id, before wandas' defaults are added. */
+const SETTABLE: Record<string, readonly StepParam[]> = {
+    'wandas.audio.highpass_filter': [{ name: 'cutoff', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', initial: 20 }, { name: 'order', kind: 'int', min: 1, max: 10 }],
+    'wandas.audio.lowpass_filter': [{ name: 'cutoff', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', initial: 1000 }, { name: 'order', kind: 'int', min: 1, max: 10 }],
     'wandas.audio.bandpass_filter': [
         { name: 'low_cutoff', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', initial: 100 },
         { name: 'high_cutoff', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', initial: 1000 },
-        { name: 'order', kind: 'int', min: 1, max: 10, default: 4 },
+        { name: 'order', kind: 'int', min: 1, max: 10 },
     ],
     'wandas.audio.welch': [
         { name: 'n_fft', kind: 'int', min: 64, max: 65536, powerOfTwo: true },
-        { name: 'window', kind: 'enum', options: WINDOWS, default: 'hann' },
+        { name: 'window', kind: 'enum', options: WINDOWS },
     ],
     'wandas.audio.stft': [
-        { name: 'n_fft', kind: 'int', min: 64, max: 65536, powerOfTwo: true, default: 2048 },
-        { name: 'window', kind: 'enum', options: WINDOWS, default: 'hann' },
+        { name: 'n_fft', kind: 'int', min: 64, max: 65536, powerOfTwo: true },
+        { name: 'window', kind: 'enum', options: WINDOWS },
     ],
     'wandas.audio.noct_spectrum': [
-        { name: 'fmin', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', default: 25 },
+        { name: 'fmin', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist' },
         // wandas' 20 kHz is above what most files give (MoSQITo stops at 0.88 × Nyquist): a new step starts at 6.3 kHz.
-        { name: 'fmax', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', default: 20000, initial: 6300 },
-        { name: 'n', kind: 'int', min: 1, max: 24, default: 3 },
+        { name: 'fmax', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', initial: 6300 },
+        { name: 'n', kind: 'int', min: 1, max: 24 },
     ],
     // A spectrum's 1/N-octave levels: wandas has no default band range, so a new step starts at 25 Hz–6.3 kHz.
     'wandas.spectral.noct_synthesis': [
         { name: 'fmin', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', initial: 25 },
         { name: 'fmax', kind: 'float', unit: 'Hz', min: 0, max: 'nyquist', initial: 6300 },
-        { name: 'n', kind: 'int', min: 1, max: 24, default: 3 },
+        { name: 'n', kind: 'int', min: 1, max: 24 },
     ],
     // wandas declares both of its selectors optional, but one is needed: the step bar sets the channel.
     'wandas.frame.get_channel': [{ name: 'channel_idx', kind: 'int', min: 0, max: 63, initial: 0, belowChannels: true }],
@@ -54,26 +54,19 @@ export const STEP_PARAMS: Record<string, readonly StepParam[]> = {
     'wandas.audio.fix_length': [{ name: 'duration', kind: 'float', unit: 's', min: 0, max: 3600, initial: 1 }],
     'wandas.audio.resampling': [{ name: 'target_sr', kind: 'float', unit: 'Hz', min: 0, max: 384000, initial: 16000 }],
     'wandas.audio.rms_trend': [
-        { name: 'frame_length', kind: 'int', min: 16, max: 65536, default: 2048 },
-        { name: 'hop_length', kind: 'int', min: 1, max: 65536, default: 512 },
+        { name: 'frame_length', kind: 'int', min: 16, max: 65536 },
+        { name: 'hop_length', kind: 'int', min: 1, max: 65536 },
     ],
-    'wandas.audio.fade': [{ name: 'fade_ms', kind: 'float', unit: 'ms', min: 0, max: 10000, default: 50 }],
+    'wandas.audio.fade': [{ name: 'fade_ms', kind: 'float', unit: 'ms', min: 0, max: 10000 }],
 };
+
+/** The settable parameters, each with the default wandas describes for it. */
+export const STEP_PARAMS: Record<string, readonly StepParam[]> = Object.fromEntries(Object.entries(SETTABLE).map(([id, params]) => [id, params.map(param => {
+    const described = catalogOperation(id)?.params.find(item => item.name === param.name)?.default;
+    return described === undefined || typeof described === 'boolean' || (param.kind === 'enum') !== (typeof described === 'string') ? param : { ...param, default: described } as StepParam;
+})]));
 
 export const TIME_SLICE = 'wandas.frame.time_slice';
-
-/**
- * The Frame type each operation the scan runs gives (wandas 0.9.0 has no way to ask: its registry's
- * describe() lands with a later release, which then replaces this and STEP_PARAMS).
- */
-export const STEP_OUTPUT: Record<string, string> = {
-    'wandas.audio.highpass_filter': 'ChannelFrame',
-    'wandas.audio.lowpass_filter': 'ChannelFrame',
-    'wandas.audio.bandpass_filter': 'ChannelFrame',
-    'wandas.frame.time_slice': 'ChannelFrame',
-    'wandas.audio.welch': 'SpectralFrame',
-    'wandas.audio.noct_spectrum': 'NOctFrame',
-};
 
 interface RecipeNode {
     id: string;
@@ -146,11 +139,14 @@ export interface RecipeStep {
     output: string;
     /** The parameter that breaks the step for this folder, if any ("" for the step itself); such a step is left out. */
     invalid?: string;
+    /** Bypassed in the step bar: kept in the chain but skipped, so it passes on the Frame it took. */
+    bypassed?: boolean;
     /**
      * Why: the value must stay below `limit`, or be a power of two from 64 up to `limit`; the step cannot
-     * take the Frame before it (`frame`); or it failed on a file (`failed`, wandas' own words in `text`).
+     * take the Frame before it (`frame`); it failed on a file (`failed`, wandas' own words in `text`); or a
+     * step before it cannot run (`after`, that step's id in `text`), so nothing after it can either.
      */
-    reason?: { kind: 'below' | 'above' | 'pow2' | 'integer' | 'frame' | 'failed'; limit: number; text?: string };
+    reason?: { kind: 'below' | 'above' | 'pow2' | 'integer' | 'frame' | 'failed' | 'after'; limit: number; text?: string };
 }
 
 export interface StepLimits {
@@ -198,18 +194,26 @@ function invalidParam(params: Record<string, ParamValue>, editable: readonly Ste
 /** The Frame an operation gives for `input`: from wandas' registry, or undefined when it cannot take it. */
 function stepOutput(operation: string, input: string): string | undefined {
     const known = catalogOperation(operation);
-    if (known) return outputOf(known, input);
-    // Not in this wandas' registry: the table of the scan's own steps, else it is taken as giving what it took.
-    return STEP_OUTPUT[operation] ?? input;
+    // Not in this wandas' registry: taken as giving what it took.
+    return known ? outputOf(known, input) : input;
+}
+
+/** What an operation gives when it does run, whatever it was handed: for naming the Frames past a break. */
+function declaredOutput(operation: string, input: string): string {
+    const known = catalogOperation(operation);
+    return known && known.output !== '*' ? known.output : input;
 }
 
 /**
  * The Recipe as step-bar chips, each with its parameters, the Frame it takes and gives, and whether it is
- * valid for the folder (`limits`, or a sample rate). A step left out (invalid) passes on the Frame it took.
+ * valid for the folder (`limits`, or a sample rate). The first step that cannot run breaks the chain: every
+ * step after it cannot run either (`after`), and keeps the Frames it would take and give had it run.
  */
 export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits): RecipeStep[] {
     const bounds: StepLimits = typeof limits === 'number' ? { sampleRate: limits } : limits ?? {};
     let frame = INPUT_FRAME;
+    let broken: string | undefined;
+    const skipped = new Set(bypassedSteps(recipe));
     return recipeChain(recipe).map(node => {
         const editable = STEP_PARAMS[node.operation] ?? [];
         // A parameter the Recipe leaves out has wandas' default: shown as that value, not as an empty field.
@@ -217,21 +221,36 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
         for (const [name, value] of node.params.entries) params[name] = decodeParam(value);
         const output = stepOutput(node.operation, frame);
         const failed = bounds.failed?.[node.id];
-        const invalid: Invalid = output === undefined ? { param: '', reason: { kind: 'frame', limit: 0, text: frame } }
+        const invalid: Invalid = broken !== undefined ? { param: '', reason: { kind: 'after', limit: 0, text: broken } }
+            : output === undefined ? { param: '', reason: { kind: 'frame', limit: 0, text: frame } }
             : failed !== undefined ? { param: '', reason: { kind: 'failed', limit: 0, text: failed } }
                 : invalidParam(params, editable, bounds);
         const step: RecipeStep = {
             id: node.id, operation: node.operation, name: node.operation.split('.').pop()!, params, editable,
-            input: frame, output: output ?? frame, ...(invalid ? { invalid: invalid.param, reason: invalid.reason } : {}),
+            input: frame, output: output ?? declaredOutput(node.operation, frame), ...(invalid ? { invalid: invalid.param, reason: invalid.reason } : {}),
+            ...(skipped.has(node.id) ? { bypassed: true } : {}),
         };
-        if (!invalid) frame = step.output;
+        if (invalid && broken === undefined) broken = step.id;
+        // Past a break the Frames are the ones the steps would take and give, to name and place them.
+        if ((!invalid || invalid.reason.kind === 'after') && !step.bypassed) frame = step.output;
         return step;
     });
 }
 
+/** The first step that cannot run, if any: the chain is broken there and nothing after it runs. */
+export function brokenStep(recipe: RecipeDocument, limits?: number | StepLimits): RecipeStep | undefined {
+    return recipeSteps(recipe, limits).find(step => step.invalid !== undefined);
+}
+
+/** The Frame the chain would give, past a break too (what decides whether it has the 1/3-octave branch). */
+export function chainEnd(recipe: RecipeDocument, limits?: number | StepLimits): string {
+    const steps = recipeSteps(recipe, limits).filter(step => !step.bypassed && (step.invalid === undefined || step.reason?.kind === 'after'));
+    return steps.length ? steps[steps.length - 1].output : INPUT_FRAME;
+}
+
 /** The Frame the chain gives once its invalid steps are left out. */
 export function chainOutput(recipe: RecipeDocument, limits?: number | StepLimits): string {
-    const valid = recipeSteps(recipe, limits).filter(step => step.invalid === undefined);
+    const valid = recipeSteps(recipe, limits).filter(step => step.invalid === undefined && !step.bypassed);
     return valid.length ? valid[valid.length - 1].output : INPUT_FRAME;
 }
 
@@ -241,7 +260,7 @@ export function chainOutput(recipe: RecipeDocument, limits?: number | StepLimits
  */
 export function timeSignalStep(recipe: RecipeDocument, limits?: number | StepLimits): RecipeStep | undefined {
     let last: RecipeStep | undefined;
-    for (const step of recipeSteps(recipe, limits).filter(item => item.invalid === undefined)) {
+    for (const step of recipeSteps(recipe, limits).filter(item => item.invalid === undefined && !item.bypassed)) {
         if (step.output !== INPUT_FRAME) break;
         last = step;
     }
@@ -386,6 +405,38 @@ export function withoutSteps(recipe: RecipeDocument, stepIds: readonly string[])
         if (copy.output === id) copy.output = replacement;
     }
     return copy;
+}
+
+/**
+ * Bypassed steps: the step bar's, kept beside the Recipe's nodes (not in them) so the chain keeps them in place.
+ * wandas does not know the key: the Recipe run and exported is `runnableRecipe`'s, without these steps or the key.
+ */
+export const BYPASS_KEY = 'awaBypassed';
+
+export function bypassedSteps(recipe: RecipeDocument): string[] {
+    const list = (recipe as unknown as Record<string, unknown>)[BYPASS_KEY];
+    const ids = new Set(nodes(recipe).map(node => node.id));
+    return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && ids.has(id)) : [];
+}
+
+/** The Recipe with `stepId` bypassed (or no longer). */
+export function withBypass(recipe: RecipeDocument, stepId: string, on: boolean): RecipeDocument {
+    const copy = JSON.parse(JSON.stringify(recipe)) as Record<string, unknown>;
+    const next = bypassedSteps(recipe).filter(id => id !== stepId).concat(on ? [stepId] : []);
+    if (next.length) copy[BYPASS_KEY] = next; else delete copy[BYPASS_KEY];
+    return copy as unknown as RecipeDocument;
+}
+
+/**
+ * The Recipe as wandas runs it: without the bypassed steps and without the step bar's key. The time slice
+ * stays: it is where the region goes, and a bypassed region is the whole file (the screen sends no region).
+ */
+export function withoutBypassed(recipe: RecipeDocument): RecipeDocument {
+    if (!(BYPASS_KEY in (recipe as unknown as Record<string, unknown>))) return recipe;
+    const skipped = bypassedSteps(recipe).filter(id => nodes(recipe).find(node => node.id === id)?.operation !== TIME_SLICE);
+    const copy = JSON.parse(JSON.stringify(withoutSteps(recipe, skipped))) as Record<string, unknown>;
+    delete copy[BYPASS_KEY];
+    return copy as unknown as RecipeDocument;
 }
 
 /** A short stable key for a Recipe, so stored scan results are reused only for the same Recipe. */

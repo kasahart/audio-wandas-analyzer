@@ -27,9 +27,9 @@ from wandas.pipeline import RecipePlan
 
 from operation_catalog import catalog, frames
 from optional_packages import OPTIONAL_MODULES
+from scan_service import TIME_SLICE_OPERATION, wandas_cause
 from stage_view import stage_view
 
-TIME_SLICE = "wandas.frame.time_slice"
 # The parameters a new step starts with where wandas has none (the step bar's STEP_PARAMS `initial`).
 INITIAL: Mapping[str, Mapping[str, float | int]] = {
     "wandas.audio.highpass_filter": {"cutoff": 20.0},
@@ -87,14 +87,6 @@ def _apply(operation: Mapping[str, Any], frame: object) -> object:
     return result.cache() if hasattr(result, "cache") else result
 
 
-def _cause(error: BaseException) -> str:
-    text = str(error).strip()
-    for line in text.splitlines():
-        if line.strip().startswith("Cause:"):
-            return line.strip()[len("Cause:") :].strip()[:160]
-    return (text.splitlines()[0] if text else type(error).__name__)[:160]
-
-
 def _recordings() -> dict[str, wd.ChannelFrame]:
     rng = np.random.default_rng(7)
 
@@ -134,7 +126,7 @@ def _run(operation: Mapping[str, Any], frame_type: str, label: str, frame: objec
         run["ok"] = True
         return run, result
     except Exception as error:  # noqa: BLE001 - every failure is a finding.
-        run["error"] = _cause(error)
+        run["error"] = wandas_cause(error)[:160]
         return run, None
 
 
@@ -147,7 +139,7 @@ def probe(depth: int = 2, recordings: int = 2) -> list[ProbeRun]:
     operations = [
         operation
         for operation in catalog()
-        if operation["id"] != TIME_SLICE
+        if operation["id"] != TIME_SLICE_OPERATION
         and not any(p["required"] for p in operation["params"] if p["name"] not in INITIAL.get(operation["id"], {}))
     ]
     bases = {frame["name"]: list(frame["bases"]) for frame in frames()}

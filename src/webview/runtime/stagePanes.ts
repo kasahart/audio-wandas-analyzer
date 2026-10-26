@@ -339,6 +339,11 @@ export interface StagePaintOptions {
      * only the part on screen, so its points are placed on the whole picture's axes.
      */
     axisView?: StageView | null;
+    /**
+     * The region compared: on a time axis before the region's step, the parts outside it are veiled and its
+     * ends drawn (`range`); a picture of the region alone says which part it is in a corner (`tag`).
+     */
+    region?: { start: number; end: number; mark: 'range' | 'tag'; label: string };
 }
 
 /** One picture on its own: the base, the compared file or their difference. */
@@ -517,6 +522,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         if (!heatmap) { context.beginPath(); context.moveTo(x, top); context.lineTo(x, top + plotHeight); context.stroke(); }
         context.fillText(tickText(value, xAxis.log), x - 6, height - 3);
     }
+    if (options.region) paintRegion(context, options.region, view, { left, top, width: plotWidth, height: plotHeight }, xAt, { muted, text });
     context.fillStyle = text;
     context.fillText(axes.x, left + plotWidth - context.measureText(axes.x).width, height - 3);
     // The level axis says what it measures, written up the left edge, in the text colour.
@@ -528,6 +534,36 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     context.restore();
 }
 
+
+/** The region on a plot, in neutral colours (the role colours are the files'): see StagePaintOptions.region. */
+function paintRegion(context: CanvasRenderingContext2D, region: NonNullable<StagePaintOptions['region']>, view: StageView, plot: { left: number; top: number; width: number; height: number }, xAt: (value: number) => number, colors: { muted: string; text: string }): void {
+    context.save();
+    context.beginPath(); context.rect(plot.left, plot.top, plot.width, plot.height); context.clip();
+    if (region.mark === 'range' && view.x === 'time') {
+        const a = Math.max(plot.left, Math.min(plot.left + plot.width, xAt(region.start)));
+        const b = Math.max(plot.left, Math.min(plot.left + plot.width, xAt(region.end)));
+        context.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        context.fillRect(plot.left, plot.top, a - plot.left, plot.height);
+        context.fillRect(b, plot.top, plot.left + plot.width - b, plot.height);
+        context.strokeStyle = colors.muted;
+        context.fillStyle = colors.muted;
+        context.setLineDash([4, 3]);
+        for (const [x, value] of [[a, region.start], [b, region.end]] as const) {
+            context.beginPath(); context.moveTo(x + 0.5, plot.top); context.lineTo(x + 0.5, plot.top + plot.height); context.stroke();
+            context.fillText(`${value.toFixed(2)} s`, x + 3, plot.top + plot.height - 4);
+        }
+    } else if (region.mark === 'tag') {
+        const width = context.measureText(region.label).width + 12;
+        const x = plot.left + plot.width - width - 4, y = plot.top + 4;
+        context.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        context.fillRect(x, y, width, 17);
+        context.strokeStyle = colors.muted;
+        context.strokeRect(x + 0.5, y + 0.5, width - 1, 16);
+        context.fillStyle = colors.text;
+        context.fillText(region.label, x + 6, y + 12);
+    }
+    context.restore();
+}
 
 /** The plot's margins on a pane (as paintOverlay leaves them without labels). */
 export const STAGE_MARGINS: PlotMargins = { left: PANE_LEFT, top: 4, right: 4, bottom: 16 };

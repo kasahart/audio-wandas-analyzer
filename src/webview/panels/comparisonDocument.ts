@@ -320,8 +320,6 @@ export function renderComparisonStyles(): string {
         .track-stage-box { position: fixed; z-index: 21; }
         .track-stage { position: relative; z-index: 20; display: flex; flex-direction: column; flex-shrink: 0; font-family: var(--font-ui); font-size: 12px; color: var(--text); }
         .track-stage-controls { display: flex; align-items: center; gap: 6px; padding: 2px 12px 4px; }
-        .track-stage-region input { width: 64px; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 3px; }
-        .track-stage-region input.is-invalid { border-color: #e8833a; }
         .track-stage.is-step-held .track-stage-panel, .track-stage.is-step-held ~ #stacked-wrap { outline: 2px solid #3fb950; outline-offset: -2px; }
         .track-stage-headline { margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .track-stage-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 220px; margin: 0 10px 8px; border: 1px solid var(--line); border-radius: 4px; position: relative; }
@@ -434,7 +432,11 @@ export function renderComparisonStyles(): string {
         /* The stage on screen: a soft fill, a double border, and its ⚙ inside the chip. */
         .step-bar .step-chip.is-current { background: color-mix(in srgb, var(--step-accent) 14%, var(--chip-bg)); border-color: var(--step-accent); box-shadow: inset 0 0 0 1px var(--step-accent); }
         .step-bar .step-chip.is-after { opacity: 0.6; }
-        .step-bar .step-chip.is-invalid { border-color: var(--step-err); background: color-mix(in srgb, var(--step-err) 14%, var(--chip-bg)); color: var(--text); }
+        /* A step that cannot run stays in place: dashed in the warning colour (not a role colour), muted, its dot a ⚠. */
+        .step-bar .step-chip.is-invalid { border: 1px dashed var(--entry-flag); background: transparent; color: var(--text); }
+        .step-bar .step-chip.is-invalid > .step-body { color: var(--muted); }
+        .step-bar .step-dot[data-kind=""] { width: auto; height: auto; border-radius: 0; background: none; color: var(--entry-flag); font-size: 11px; line-height: 1; }
+        .step-bar .step-dot[data-kind=""]::before { content: '⚠'; }
         .step-bar .step-chip.is-invalid .step-icon { stroke: var(--step-err); }
         .step-bar .step-chip.is-differs { border-style: dashed; }
         .entry-screen .step-bar .step-chip > .step-gear, .entry-screen .step-bar .step-chip > .step-reset, .step-bar.track-stage-bar .step-chip > .step-gear, .step-bar.track-stage-bar .step-chip > .step-reset { border-left: 0; padding: 0 0 0 2px; }
@@ -449,13 +451,33 @@ export function renderComparisonStyles(): string {
         /* The app's 1/3-octave branch stands apart at the bar's end: a thin rule, no arrow from the chain. */
         .step-bar .step-branch { display: inline-flex; align-items: center; padding-left: 10px; margin-left: 6px; border-left: 1px solid var(--line); }
         .step-bar .step-chip.is-dragging { opacity: 0.3; }
+        /* Room above the chips for the bypass button that sits on their top edge. */
+        .entry-screen .step-bar, .step-bar.track-stage-bar { padding-top: 14px; overflow: visible; }
+        /* ↶ ↷ at the bar's start: undo and redo the bar's edits. */
+        .step-bar .step-history { display: inline-flex; margin-right: 6px; padding-right: 6px; border-right: 1px solid var(--line); }
+        .entry-screen .step-bar .step-history > button, .step-bar.track-stage-bar .step-history > button { min-height: 28px; width: 26px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); font-size: 15px; }
+        .step-bar .step-history > button:disabled { color: var(--dim); opacity: 0.5; cursor: default; }
+        .step-bar .step-history > button:not(:disabled):hover { border-color: var(--muted); }
+        /* Bypass sits beside ×: an effect pedal's bypass, shown with ×; pressed, the chip is dashed and struck through. */
+        .entry-screen .step-bar .step-chip > .step-bypass, .step-bar.track-stage-bar .step-chip > .step-bypass { position: absolute; top: -13px; right: 14px; width: 24px; height: 17px; min-height: 0; padding: 0; border-radius: 6px; border: 1px solid var(--chip-line); background: var(--panel); color: var(--text); display: grid; place-items: center; opacity: 0; z-index: 1; }
+        .step-bar .step-bypass-icon { width: 14px; height: 12px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+        .step-bar .step-bypass-icon rect { fill: currentColor; fill-opacity: 0.35; }
+        .step-bar .step-chip:hover > .step-bypass, .step-bar .step-chip:focus-within > .step-bypass, .step-bar .step-chip.is-current > .step-bypass, .step-bar .step-chip.is-bypassed > .step-bypass { opacity: 1; }
+        .step-bar .step-bypass:hover { border-color: var(--text); }
+        .step-bar .step-chip.is-bypassed { border-style: dashed; background: transparent; }
+        .step-bar .step-chip.is-bypassed > .step-body { color: var(--dim); text-decoration: line-through; }
+        .entry-screen .step-bar .step-chip.is-bypassed > .step-bypass, .step-bar.track-stage-bar .step-chip.is-bypassed > .step-bypass { border-color: var(--text); background: var(--text); color: var(--panel); }
+        .step-bar .step-chip.is-bypassed > .step-bypass .step-bypass-icon rect { fill: none; stroke-dasharray: 1.2 1.2; }
+        /* The input is a chip on the comparison: pressed, the files' waveforms. */
+        .step-bar .step-chip.step-input > .step-body { cursor: pointer; }
+        .step-menu-item.is-earlier .step-menu-hint { color: var(--text); }
         .step-drop { position: absolute; width: 3px; border-radius: 2px; background: var(--step-accent); pointer-events: none; }
         .entry-screen .step-bar .step-add, .step-bar.track-stage-bar .step-add { height: 30px; min-height: 30px; min-width: 30px; padding: 0 10px; border-radius: 15px; border: 1px dashed var(--chip-line); background: transparent; color: var(--muted); }
         .step-bar .step-add:hover, .step-bar .step-add[aria-expanded="true"] { border-color: var(--step-accent); color: var(--step-accent); }
         .step-bar .step-node { display: inline-flex; flex-direction: column; align-items: center; }
-        .step-bar .step-link { display: inline-flex; flex-direction: column; align-items: center; gap: 0; padding: 0 2px; }
+        .step-bar .step-link { display: inline-flex; flex-direction: row; align-items: center; gap: 2px; padding: 0 2px; }
         .step-bar .step-link .step-frame { font-size: 10px; }
-        .entry-screen .step-bar .step-insert, .step-bar.track-stage-bar .step-insert { position: static; transform: none; opacity: 0.5; border-radius: 9px; }
+        .entry-screen .step-bar .step-insert, .step-bar.track-stage-bar .step-insert { position: static; transform: none; opacity: 0.75; border-radius: 9px; }
         .step-bar .step-link:hover .step-insert { opacity: 1; }
         .step-menu { width: 520px; max-width: calc(100vw - 24px); max-height: 440px; }
         .step-menu-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }

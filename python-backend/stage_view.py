@@ -92,9 +92,26 @@ class StageDetail(TypedDict):
 DETAIL_ROWS = 256
 
 
-def _db(values: np.ndarray) -> np.ndarray:
-    floored = np.maximum(np.nan_to_num(values, nan=spec.MIN_LEVEL_DB, neginf=spec.MIN_LEVEL_DB), spec.MIN_LEVEL_DB)
-    return np.round(floored, spec.DB_DECIMALS)
+def rounded_db(values: np.ndarray) -> np.ndarray:
+    """Levels as the app shows them: no lower than MIN_LEVEL_DB (silence, an undefined level), to DB_DECIMALS."""
+    floored = np.nan_to_num(values, nan=spec.MIN_LEVEL_DB, neginf=spec.MIN_LEVEL_DB, posinf=-spec.MIN_LEVEL_DB)
+    return np.round(np.maximum(floored, spec.MIN_LEVEL_DB), spec.DB_DECIMALS)
+
+
+def band_levels(levels_db: np.ndarray, freqs: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    """Each row's (levels_db: rows × freqs) levels in the bands between `edges`: the power mean of a band's bins,
+    or, for a band narrower than one bin, the level interpolated at its centre. The last band includes its top."""
+    centres = np.sqrt(edges[:-1] * edges[1:])
+    out = np.empty((levels_db.shape[0], edges.size - 1), dtype=np.float64)
+    for index in range(edges.size - 1):
+        upper = freqs < edges[index + 1] if index < edges.size - 2 else freqs <= edges[index + 1]
+        inside = (freqs >= edges[index]) & upper
+        if inside.any():
+            with np.errstate(divide="ignore"):
+                out[:, index] = 10.0 * np.log10(np.mean(10.0 ** (levels_db[:, inside] / 10.0), axis=1))
+        else:
+            out[:, index] = [np.interp(centres[index], freqs, row) for row in levels_db]
+    return out
 
 
 def _json(values: np.ndarray) -> list[float | None]:
@@ -113,10 +130,8 @@ def _rows(values: Any, channels: int) -> np.ndarray:
 
 def _log_points(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist: float) -> tuple[np.ndarray, np.ndarray]:
     """Levels on `points` log-spaced frequencies from 20 Hz to Nyquist, as the scan's spectrum."""
-    from scan_service import log_spectrum
-
     edges = np.geomspace(spec.SPECTRUM_MIN_HZ, nyquist, points + 1)
-    return np.sqrt(edges[:-1] * edges[1:]), log_spectrum(levels_db, freqs, points, nyquist)
+    return np.sqrt(edges[:-1] * edges[1:]), band_levels(levels_db, freqs, edges)
 
 
 def _waveform(
@@ -182,9 +197,15 @@ def _channel_view(frame: ChannelFrame) -> StageView:
         "xScale": "linear",
         "quantity": "level",
         "xs": _json(times[(edges[:-1] + edges[1:] - 1) // 2]),
-        "values": _json(_db(_power_mean(levels))),
+        "values": _json(rounded_db(_power_mean(levels))),
         "waveform": _waveform(frame),
     }
+
+
+def _cross_pairs(frame: CoherenceFrame, rows: np.ndarray) -> np.ndarray:
+    """The rows of pairs of two channels: a channel's coherence with itself is 1 and says nothing."""
+    cross = [index for index, pair in enumerate(frame.pairs) if pair.output.channel_id != pair.input.channel_id]
+    return rows[cross] if cross else rows
 
 
 def _spectral_view(frame: Any) -> StageView:
@@ -203,15 +224,13 @@ def _spectral_view(frame: Any) -> StageView:
     if nyquist <= spec.SPECTRUM_MIN_HZ or freqs.size < 2:
         return {"frame": type(frame).__name__, "kind": "none"}
     if quantity == "coherence":
-        # A channel's coherence with itself is 1 at every frequency: only the pairs of two channels say anything.
-        pairs = values[~np.all(np.isclose(values, 1.0), axis=1)]
-        values = pairs if pairs.size else values
+        values = _cross_pairs(frame, values)
         edges = np.geomspace(spec.SPECTRUM_MIN_HZ, nyquist, spec.SPECTRUM_POINTS + 1)
         centres = np.sqrt(edges[:-1] * edges[1:])
         line = np.round(np.interp(centres, freqs, np.mean(values, axis=0)), 4)
     else:
-        centres, levels = _log_points(_db(values), freqs, spec.SPECTRUM_POINTS, nyquist)
-        line = _db(_power_mean(levels))
+        centres, levels = _log_points(rounded_db(values), freqs, spec.SPECTRUM_POINTS, nyquist)
+        line = rounded_db(_power_mean(levels))
     return {
         "frame": type(frame).__name__,
         "kind": "line",
@@ -231,7 +250,7 @@ def _noct_view(frame: NOctFrame) -> StageView:
         "xScale": "log",
         "quantity": "level",
         "xs": _json(np.asarray(frame.freqs, dtype=np.float64)),
-        "values": _json(_db(_power_mean(_db(_rows(frame.dB, frame.n_channels))))),
+        "values": _json(rounded_db(_power_mean(rounded_db(_rows(frame.dB, frame.n_channels))))),
     }
 
 
@@ -265,7 +284,7 @@ def _spectrogram_view(frame: SpectrogramFrame, signal_s: float | None = None) ->
     nyquist = float(frame.sampling_rate) / 2
     if nyquist <= spec.SPECTRUM_MIN_HZ or freqs.size < 2:
         return {"frame": type(frame).__name__, "kind": "none"}
-    level = _power_mean(_db(planes))  # (freq, time)
+    level = _power_mean(rounded_db(planes))  # (freq, time)
     blocks = _time_blocks(level.shape[1])
     columns = np.stack([_power_mean(level[:, block].T) for block in blocks], axis=1)
     centres, matrix = _log_points(columns.T, freqs, HEATMAP_FREQUENCIES, nyquist)
@@ -279,7 +298,7 @@ def _spectrogram_view(frame: SpectrogramFrame, signal_s: float | None = None) ->
         "ys": _json(centres),
         "yAxis": "frequency",
         # One decimal: an image of a dB level needs no more, and a base sends one per file.
-        "matrix": [_json(row) for row in np.round(_db(matrix).T, 1)],
+        "matrix": [_json(row) for row in np.round(rounded_db(matrix).T, 1)],
         **_whole_columns(frame, blocks, signal_s),
     }
 
@@ -379,21 +398,12 @@ def _log_rows(
     levels_db: np.ndarray, freqs: np.ndarray, bounds: list[float], rows: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """A spectrogram's rows (levels_db: frequency × time) between `bounds` Hz: every bin there, or, with more bins
-    than `rows`, `rows` log-spaced bands each the power mean of its bins (as log_spectrum makes the spectra)."""
+    than `rows`, `rows` log-spaced bands (band_levels, as the spectra are made)."""
     inside = _inside(freqs, bounds) & (freqs > 0)
     if inside.sum() <= rows:
         return freqs[inside], levels_db[inside]
     edges = np.geomspace(max(min(bounds), freqs[inside][0]), max(bounds), rows + 1)
-    centres = np.sqrt(edges[:-1] * edges[1:])
-    out = np.empty((rows, levels_db.shape[1]))
-    for index in range(rows):
-        band = (freqs >= edges[index]) & (freqs < edges[index + 1] if index < rows - 1 else freqs <= edges[index + 1])
-        if band.any():
-            with np.errstate(divide="ignore"):
-                out[index] = 10.0 * np.log10(np.mean(10.0 ** (levels_db[band] / 10.0), axis=0))
-        else:
-            out[index] = [np.interp(centres[index], freqs, column) for column in levels_db.T]
-    return centres, out
+    return np.sqrt(edges[:-1] * edges[1:]), band_levels(levels_db.T, freqs, edges).T
 
 
 def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> StageView:
@@ -419,10 +429,9 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         )
         rows = np.asarray(raw, dtype=np.float64).reshape(-1, freqs.size)
         if coarse.get("quantity") == "coherence":
-            pairs = rows[~np.all(np.isclose(rows, 1.0), axis=1)]
-            line = np.mean(pairs if pairs.size else rows, axis=0)
+            line = np.mean(_cross_pairs(frame, rows), axis=0)
         else:
-            line = _power_mean(_db(rows))
+            line = _power_mean(rounded_db(rows))
         keep = _inside(freqs, bounds) & (freqs > 0)
         xs, values = _envelope(freqs[keep], line[keep], points)
         view.update(
@@ -453,7 +462,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         centres = np.array([(a + b - 1) // 2 for a, b in zip(edges[:-1], edges[1:], strict=True) if b > a])
         with np.errstate(divide="ignore"):
             levels = 10.0 * np.log10(power / refs**2)
-        view.update({"xs": _json(times[keep][centres]), "values": _json(_db(_power_mean(levels)))})
+        view.update({"xs": _json(times[keep][centres]), "values": _json(rounded_db(_power_mean(levels)))})
         return view
     if isinstance(frame, CepstralFrame):
         quefrencies = np.asarray(frame.quefrencies, dtype=np.float64)
@@ -466,7 +475,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         offset = _offset(frame)
         if isinstance(frame, SpectrogramFrame):
             planes = np.asarray(frame.dB, dtype=np.float64)
-            plane = _power_mean(_db(planes.reshape(-1, planes.shape[-2], planes.shape[-1])))
+            plane = _power_mean(rounded_db(planes.reshape(-1, planes.shape[-2], planes.shape[-1])))
             times = np.asarray(frame.times, dtype=np.float64)[: plane.shape[1]] + offset
         elif isinstance(frame, CepstrogramFrame):
             data = np.asarray(frame.data, dtype=np.float64)
@@ -500,7 +509,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
                 else [spec.SPECTRUM_MIN_HZ, float(frame.sampling_rate) / 2],
                 DETAIL_ROWS,
             )
-            matrix = np.round(_db(matrix), 1)
+            matrix = np.round(rounded_db(matrix), 1)
         elif isinstance(frame, CepstrogramFrame):
             columned = (
                 np.stack([np.mean(plane[:, block], axis=1) for block in blocks], axis=1) if blocks else plane[:, :0]

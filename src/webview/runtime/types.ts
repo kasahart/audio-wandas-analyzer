@@ -108,14 +108,6 @@ export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'remove
     removeEventListener<K extends keyof WindowEventMap>(type: K, listener: (event: WindowEventMap[K]) => void): void;
 }
 
-export interface SelectionTreeNode {
-    type: 'directory' | 'file';
-    name: string;
-    relativePath: string;
-    filePath?: string;
-    children?: SelectionTreeNode[];
-}
-
 export interface TrackRuntimeState {
     muted?: boolean;
     offsetSeconds: number;

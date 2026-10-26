@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withDefaults, withParam, withoutSteps, withStep, STEP_PARAMS } from '../shared/recipe/recipeSteps';
+import { brokenStep, chainEnd, bypassedSteps, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
@@ -31,10 +31,10 @@ test('an invalid setting marks its step and the scans leave that step out', () =
     assert.equal(recipeSteps(aboveNyquist, 16000)[0].invalid, 'cutoff');
     assert.equal(recipeSteps(aboveNyquist, 48000)[0].invalid, undefined);
     assert.equal(recipeSteps(withParam(entry, welch.id, welch.editable[0], 1000), 16000)[2].invalid, 'n_fft');
+    // The chain cannot run past it: the steps after it cannot either, and none of them is run without it.
+    assert.deepEqual(recipeSteps(aboveNyquist, 16000).map(step => step.reason?.kind), ['below', 'after', 'after']);
     const runnable = runnableRecipe(aboveNyquist, 16000) as unknown as { nodes: Array<{ id: string; operation: string; inputs: string[] }>; output: string };
-    assert.deepEqual(runnable.nodes.map(node => node.operation), ['wandas.frame.time_slice', 'wandas.audio.welch']);
-    // The slice now takes the Recipe's input directly.
-    assert.deepEqual(runnable.nodes[0].inputs, ['input-0']);
+    assert.deepEqual(runnable.nodes, []);
     assert.equal(withoutSteps(entry, []), entry);
 });
 
@@ -151,4 +151,38 @@ test('the ＋ menu groups operations by what they do, with a hint in the UI\'s l
     assert.equal(operationHint('wandas.audio.highpass_filter', 'ja'), '低い音を消す');
     assert.equal(operationHint('wandas.audio.highpass_filter', 'en'), 'remove what is below a frequency');
     assert.equal(operationHint('wandas.operator.add', 'ja'), '');
+});
+
+test('a bypassed step stays in the chain but is skipped: the Recipe run and exported has neither it nor the key', () => {
+    const [hpf, slice] = recipeSteps(entry, 16000);
+    const bypassed = withBypass(entry, hpf.id, true);
+    assert.deepEqual(bypassedSteps(bypassed), [hpf.id]);
+    const steps = recipeSteps(bypassed, 16000);
+    assert.equal(steps.length, 3);
+    assert.equal(steps[0].bypassed, true);
+    // The step after it takes what the bypassed step took.
+    assert.equal(steps[1].input, 'ChannelFrame');
+    const run = runnableRecipe(bypassed, 16000) as unknown as Record<string, unknown> & { nodes: Array<{ operation: string }> };
+    assert.deepEqual(run.nodes.map(node => node.operation), ['wandas.frame.time_slice', 'wandas.audio.welch']);
+    assert.equal(BYPASS_KEY in run, false);
+    // A bypassed region keeps its node: the screen sends no region instead.
+    const region = runnableRecipe(withBypass(entry, slice.id, true), 16000) as unknown as Record<string, unknown> & { nodes: Array<{ operation: string }> };
+    assert.equal(region.nodes.length, 3);
+    assert.equal(BYPASS_KEY in region, false);
+    // Off again, the Recipe is as it was.
+    assert.deepEqual(withBypass(bypassed, hpf.id, false), entry);
+    assert.notEqual(recipeKey(bypassed), recipeKey(entry));
+});
+
+test('the first step that cannot run breaks the chain: every step after it cannot run either, and nothing is run past it', () => {
+    const { recipe, id } = withStep(entry, 'node-0', catalogOperation('wandas.audio.stft')!);
+    const steps = recipeSteps(recipe, 16000);
+    // The region takes a time signal, not the STFT's spectrogram: it is the break; the average spectrum after it cannot run either.
+    assert.deepEqual(steps.map(step => [step.name, step.reason?.kind]), [['highpass_filter', undefined], ['stft', undefined], ['time_slice', 'frame'], ['welch', 'after']]);
+    assert.equal(steps[3].reason?.text, steps[2].id);
+    assert.equal(brokenStep(recipe, 16000)?.id, steps[2].id);
+    // The Recipe run stops before the break; the chain would still end in a spectrum.
+    assert.deepEqual(recipeSteps(runnableRecipe(recipe, 16000)).map(step => step.id), ['node-0', id]);
+    assert.equal(chainEnd(recipe, 16000), 'SpectralFrame');
+    assert.equal(brokenStep(entry, 16000), undefined);
 });

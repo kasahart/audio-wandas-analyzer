@@ -219,10 +219,36 @@ export interface UiStrings {
     stepRemove: string;
     stepNeedFrame: string;
     stepFailedOn: string;
+    stepAfterBroken: string;
+    stepOctaveBroken: string;
+    entryChainBroken: string;
     stepInsertHere: string;
     stepTapHint: string;
     stepAdded: string;
     stepRemoved: string;
+    stepUndo: string;
+    stepRedo: string;
+    stepUndone: string;
+    stepRedone: string;
+    stepBypass: string;
+    stepBypassOff: string;
+    stepBypassed: string;
+    stepUnbypassed: string;
+    stepBypassing: string;
+    stepMenuEarlier: string;
+    stepGoesBefore: string;
+    stepMenuOff: string;
+    stepRegionStart: string;
+    stepRegionEnd: string;
+    stepRegionPurpose: string;
+    stepRegionAdded: string;
+    stepRegionCleared: string;
+    stepRegionClear: string;
+    stepRegionOrder: string;
+    stepRegionThere: string;
+    stepCannotShow: string;
+    stepCannotShowFix: string;
+    stepInputHint: string;
     entryStaleTag: string;
     entryScanAll: string;
     entryScanCancel: string;
@@ -316,6 +342,8 @@ export interface UiStrings {
     helpRowEntryKeys: string;
     helpRowCompareKeys: string;
     helpRowStepKeys: string;
+    helpRowStepBypass: string;
+    helpRowStepUndo: string;
     helpRowStepDrag: string;
     helpRowZoomKeys: string;
     playbackTimePrefix: string;
@@ -720,12 +748,38 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepAverageFft: '{name} {n}',
         stepOctaveHint: 'The value in the table\'s band column',
         stepRemove: 'Remove',
-        stepNeedFrame: '{op} cannot take the result before it: left out until the steps before it change.',
-        stepFailedOn: 'Failed on a file ({reason}): left out until the Recipe changes.',
+        stepNeedFrame: '{op} cannot take the result before it. Move it or remove it.',
+        stepFailedOn: 'Failed on a file ({reason}). Change the step or remove it.',
+        stepAfterBroken: 'The step before ({op}) cannot run, so this one cannot either.',
+        stepOctaveBroken: "The steps cannot run, so the table's 1/3-octave values cannot be computed.",
+        entryChainBroken: "The steps cannot run · the table keeps the previous chain's values",
         stepInsertHere: 'Add a step here',
-        stepTapHint: "Press: see this step's Frame · hold: what this step does",
+        stepTapHint: "Press: see this step's result · bypass: see it without this step · hold: the same while held",
         stepAdded: 'Added {op}. The files on screen are measured again; Scan all updates the table.',
         stepRemoved: 'Removed {op}. Every file is measured again.',
+        stepUndo: 'Undo (Ctrl+Z)',
+        stepRedo: 'Redo (Ctrl+Shift+Z)',
+        stepUndone: 'Undone',
+        stepRedone: 'Redone',
+        stepBypass: 'Bypass: compute without this step (M)',
+        stepBypassOff: 'Turn the bypass off (M)',
+        stepBypassed: 'Computing without {op}. Press bypass again to bring it back.',
+        stepUnbypassed: '{op} is back in the chain',
+        stepBypassing: ' ({ops} bypassed)',
+        stepMenuEarlier: 'Goes in earlier',
+        stepGoesBefore: 'Goes in before {step}',
+        stepMenuOff: 'Not usable here',
+        stepRegionStart: 'Start s',
+        stepRegionEnd: 'End s',
+        stepRegionPurpose: 'Cut a time range',
+        stepRegionAdded: 'Added a region. ⚙ changes its range.',
+        stepRegionCleared: 'Back to the whole file',
+        stepRegionClear: 'Remove the region: the whole file again',
+        stepRegionOrder: 'Enter the region as start < end, within the file',
+        stepRegionThere: 'There is a region already (change it with its ⚙)',
+        stepCannotShow: 'This step cannot be shown: {why}',
+        stepCannotShowFix: 'Drag the ⚠ step to a place it fits, or remove it with ×',
+        stepInputHint: "Press: the files' waveforms as they come in",
         entryStaleTag: 'Chain changed · {n} rows from the previous chain',
         entryScanAll: 'Scan all {n} · about {time}',
         entryScanCancel: 'Cancel',
@@ -819,6 +873,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowEntryKeys: 'entry table: 0 base (hold: Δ), 1–3 slot, Enter open, Esc close (old screen: from the ? list), ↑/↓ row',
         helpRowCompareKeys: 'comparing: hold 1–3 to swap the compared file, tap 1–3 to keep it, 0 base on the compared file, D fix the difference, Esc back to the entry table',
         helpRowStepKeys: 'step bar: press a step to see its Frame in the comparison, hold it to see what it does, ＋ adds a wandas operation, Delete on a step removes it',
+        helpRowStepBypass: 'step bar: M on a step bypasses it (kept in place, skipped), M again brings it back',
+        helpRowStepUndo: 'step bar: undo and redo its edits (↶ ↷)',
         helpRowStepDrag: 'step bar: drag a step to move it (the region stays where it is)',
         helpRowZoomKeys: 'zoom in / out / reset',
         playbackTimePrefix: '▶',
@@ -1220,12 +1276,38 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepAverageFft: '{name}（FFT {n} 点）',
         stepOctaveHint: '表の帯域列の値',
         stepRemove: '外す',
-        stepNeedFrame: '{op} は前の手順の結果に使えません。前の手順を直すまで外して計算しています',
-        stepFailedOn: 'ファイルで失敗（{reason}）。レシピを変えるまで外して計算しています',
+        stepNeedFrame: '{op} は前の手順の結果に使えません。動かすか外してください',
+        stepFailedOn: 'ファイルで失敗（{reason}）。設定を変えるか外してください',
+        stepAfterBroken: '前の手順（{op}）が成立しないので表示できません',
+        stepOctaveBroken: '手順が成立しないので、表の 1/3 oct の値を計算できません',
+        entryChainBroken: '手順が成立しません · 表は前の手順の値です',
         stepInsertHere: 'ここに手順を足す',
-        stepTapHint: 'クリック: この手順の結果 · 長押し: この手順あり／なしを比べる',
+        stepTapHint: 'クリック: この手順の結果 · バイパス: この手順を飛ばして見る · 長押し: 押している間だけ飛ばして見る',
         stepAdded: '{op} を足しました。表示中のファイルを計算し直します。一覧は「全件を計算」で更新します。',
         stepRemoved: '{op} を外しました。全ファイルを計算し直します。',
+        stepUndo: '元に戻す（Ctrl+Z）',
+        stepRedo: 'やり直す（Ctrl+Shift+Z）',
+        stepUndone: '元に戻しました',
+        stepRedone: 'やり直しました',
+        stepBypass: 'バイパス：この手順を飛ばして計算する（M）',
+        stepBypassOff: 'バイパスを外す（M）',
+        stepBypassed: '{op} を飛ばして計算しています。もう一度バイパスを押すと戻ります',
+        stepUnbypassed: '{op} を戻しました',
+        stepBypassing: '（{ops} をバイパス中）',
+        stepMenuEarlier: '前の段に入る手順',
+        stepGoesBefore: '{step} の前に入ります',
+        stepMenuOff: 'ここでは使えない手順',
+        stepRegionStart: '始め s',
+        stepRegionEnd: '終わり s',
+        stepRegionPurpose: '時間の範囲を切り出す',
+        stepRegionAdded: '区間を足しました。⚙ で範囲を変えられます',
+        stepRegionCleared: 'ファイル全体に戻しました',
+        stepRegionClear: '区間を外してファイル全体に戻す',
+        stepRegionOrder: '区間は 0 ≤ 始め < 終わり で入れてください',
+        stepRegionThere: 'もう区間があります（区間のチップの ⚙ で変更）',
+        stepCannotShow: 'この手順は表示できません：{why}',
+        stepCannotShowFix: '⚠ の手順をドラッグで正しい位置へ動かすか、× で外してください',
+        stepInputHint: 'クリック: 入力のファイルの波形',
         entryStaleTag: '手順変更 · 表は前の手順 {n} 本',
         entryScanAll: '全件を計算 {n} 本 · 約 {time}',
         entryScanCancel: '中止',
@@ -1319,6 +1401,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowEntryKeys: 'ファイル一覧: 0 基準（長押しで差）、1–3 スロット、Enter 比較を表示、Esc 閉じる、↑/↓ 行',
         helpRowCompareKeys: '比較: 1–3 長押しで比較を入れ替え、押して固定、0 比較中を基準に、D 差を残す、Esc 一覧へ',
         helpRowStepKeys: '手順バー: 手順を押すとその結果、長押しでその手順あり／なし、＋ で wandas の操作を足す、手順で Delete で外す',
+        helpRowStepBypass: '手順バー: 手順で M を押すとバイパス（残したまま飛ばす）、もう一度で戻す',
+        helpRowStepUndo: '手順バー: 編集を元に戻す／やり直す（↶ ↷）',
         helpRowStepDrag: '手順バー: 手順をドラッグして並べ替え（区間は動かせない）',
         helpRowZoomKeys: 'ズームイン / アウト / リセット',
         playbackTimePrefix: '▶',

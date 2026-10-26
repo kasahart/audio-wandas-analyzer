@@ -158,3 +158,13 @@ def test_a_time_signal_carries_its_own_waveform_as_the_lanes_decimate_it(signal:
     # Zoomed into 10 ms: every sample there (160 at 16 kHz), not buckets.
     detail = stage_view(signal, None, {"x": [0.5, 0.51], "points": 2000})
     assert len(detail["waveform"]["min"]) == 161 and detail["waveform"]["min"] == detail["waveform"]["max"]
+
+
+def test_coherence_leaves_out_each_channel_with_itself_not_pairs_that_happen_to_be_one() -> None:
+    noise = np.random.default_rng(3).standard_normal((2, 48_000))
+    # ch0 and ch1 are the same signal (coherent at every frequency), ch2 is unrelated to both.
+    frame = wd.from_numpy(np.vstack([noise[0], noise[0], noise[1]]), sampling_rate=48_000).coherence(n_fft=1024)
+    view = stage_view(frame)
+    values = np.array([value for value in view["values"] if value is not None])
+    # The six pairs of two channels: two at 1, four near 0, so the mean is about a third.
+    assert 0.25 < np.median(values) < 0.45

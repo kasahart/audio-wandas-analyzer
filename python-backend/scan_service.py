@@ -34,7 +34,7 @@ from wandas.pipeline import RecipeExecutionError, RecipePlan
 import analysis_spec as spec
 from backend_errors import InputError
 from calibration_profile import resolve_calibration_profile
-from stage_view import StageView, stage_view
+from stage_view import StageView, band_levels, rounded_db, stage_view
 
 if TYPE_CHECKING:
     from analysis_engine import AnalysisEngine, CachedAnalysis
@@ -73,11 +73,11 @@ class StepFailure(InputError):
     """A step of the Recipe failed on this file: the result names it, so the step bar can leave it out."""
 
     def __init__(self, step: str, error: BaseException) -> None:
-        super().__init__(_cause_line(error))
+        super().__init__(wandas_cause(error))
         self.step = step
 
 
-def _cause_line(error: BaseException) -> str:
+def wandas_cause(error: BaseException) -> str:
     """The line that says why: wandas' "Recipe operation failed" errors give it as "Cause: …"."""
     text = str(error).strip()
     for line in text.splitlines():
@@ -135,6 +135,8 @@ WELCH_OPERATION = "wandas.audio.welch"
 NOCT_OPERATION = "wandas.audio.noct_spectrum"
 # The app's 1/3-octave branch beside the chain: not a Recipe node, but a step the comparison can show.
 OCTAVE_STAGE = "node-noct"
+# The input as the comparison draws it: the files' signals as they come in, before any step.
+INPUT_STAGE = "node-input"
 
 
 def welch_params(recipe: Mapping[str, object]) -> dict[str, object]:
@@ -332,8 +334,7 @@ def scan_plans(recipe: Mapping[str, object], start: float, end: float, sampling_
 def _levels(values: np.ndarray) -> np.ndarray:
     if np.isnan(values).any():
         raise InputError("Analysis produced undefined levels")
-    floored = np.maximum(np.nan_to_num(values, neginf=spec.MIN_LEVEL_DB, posinf=-spec.MIN_LEVEL_DB), spec.MIN_LEVEL_DB)
-    return np.round(floored, spec.DB_DECIMALS)
+    return rounded_db(values)
 
 
 def log_spectrum(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist: float) -> np.ndarray:
@@ -342,19 +343,7 @@ def log_spectrum(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist:
     Each point is the power mean of the Welch bins between its edges; a point narrower than one bin
     (the low end of a short FFT) takes the levels interpolated at its centre instead.
     """
-    edges = np.geomspace(spec.SPECTRUM_MIN_HZ, nyquist, points + 1)
-    centres = np.sqrt(edges[:-1] * edges[1:])
-    out = np.empty((levels_db.shape[0], points), dtype=np.float64)
-    for index in range(points):
-        upper = freqs < edges[index + 1] if index < points - 1 else freqs <= edges[index + 1]
-        inside = (freqs >= edges[index]) & upper
-        if inside.any():
-            power = np.mean(10.0 ** (levels_db[:, inside] / 10.0), axis=1)
-            with np.errstate(divide="ignore"):
-                out[:, index] = 10.0 * np.log10(power)
-        else:
-            out[:, index] = [np.interp(centres[index], freqs, row) for row in levels_db]
-    return out
+    return band_levels(levels_db, freqs, np.geomspace(spec.SPECTRUM_MIN_HZ, nyquist, points + 1))
 
 
 def _third_octave_bands(sampling_rate: float) -> tuple[float, ...]:
@@ -474,6 +463,8 @@ def scan_cached(
     known = {*plans["upstream"], plans["region"].output, *(step for step, _ in plans["steps"])}
     if plans["noct"] is not None:
         known.add(OCTAVE_STAGE)
+    if stage == INPUT_STAGE:
+        return _stage_result(described, stage_view(picked, _length_s(picked), detail))
     if stage is not None and stage not in known:
         raise InputError(f"The Recipe has no step {stage!r}")
     if stage is not None and stage in plans["upstream"]:

@@ -45,7 +45,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "validate_query_keys",
-                "required": false
+                "required": false,
+                "default": true
             }
         ]
     },
@@ -89,7 +90,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "reverse",
-                "required": false
+                "required": false,
+                "default": false
             }
         ]
     },
@@ -225,7 +227,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "order",
-                "required": false
+                "required": false,
+                "default": 4
             }
         ]
     },
@@ -241,7 +244,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "order",
-                "required": false
+                "required": false,
+                "default": 4
             }
         ]
     },
@@ -261,7 +265,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "order",
-                "required": false
+                "required": false,
+                "default": 4
             }
         ]
     },
@@ -273,11 +278,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "norm",
-                "required": false
+                "required": false,
+                "default": Infinity
             },
             {
                 "name": "axis",
-                "required": false
+                "required": false,
+                "default": -1
             },
             {
                 "name": "threshold",
@@ -318,7 +325,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "exponent",
-                "required": false
+                "required": false,
+                "default": 2.0
             }
         ]
     },
@@ -344,7 +352,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "start",
-                "required": false
+                "required": false,
+                "default": 0
             },
             {
                 "name": "end",
@@ -360,7 +369,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "start",
-                "required": false
+                "required": false,
+                "default": 0
             },
             {
                 "name": "end",
@@ -392,19 +402,23 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "frame_length",
-                "required": false
+                "required": false,
+                "default": 2048
             },
             {
                 "name": "hop_length",
-                "required": false
+                "required": false,
+                "default": 512
             },
             {
                 "name": "dB",
-                "required": false
+                "required": false,
+                "default": false
             },
             {
                 "name": "Aw",
-                "required": false
+                "required": false,
+                "default": false
             }
         ]
     },
@@ -416,15 +430,27 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "freq_weighting",
-                "required": false
+                "required": false,
+                "default": "Z",
+                "choices": [
+                    "A",
+                    "C",
+                    "Z"
+                ]
             },
             {
                 "name": "time_weighting",
-                "required": false
+                "required": false,
+                "default": "Fast",
+                "choices": [
+                    "Fast",
+                    "Slow"
+                ]
             },
             {
                 "name": "dB",
-                "required": false
+                "required": false,
+                "default": false
             }
         ]
     },
@@ -436,7 +462,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "other_channel",
-                "required": false
+                "required": false,
+                "default": 0
             }
         ]
     },
@@ -460,19 +487,23 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "kernel_size",
-                "required": false
+                "required": false,
+                "default": 31
             },
             {
                 "name": "power",
-                "required": false
+                "required": false,
+                "default": 2
             },
             {
                 "name": "margin",
-                "required": false
+                "required": false,
+                "default": 1
             },
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "default": 2048
             },
             {
                 "name": "hop_length",
@@ -484,15 +515,18 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "window",
-                "required": false
+                "required": false,
+                "default": "hann"
             },
             {
                 "name": "center",
-                "required": false
+                "required": false,
+                "default": true
             },
             {
                 "name": "pad_mode",
-                "required": false
+                "required": false,
+                "default": "constant"
             }
         ],
         "needs": [
@@ -508,19 +542,23 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "kernel_size",
-                "required": false
+                "required": false,
+                "default": 31
             },
             {
                 "name": "power",
-                "required": false
+                "required": false,
+                "default": 2
             },
             {
                 "name": "margin",
-                "required": false
+                "required": false,
+                "default": 1
             },
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "default": 2048
             },
             {
                 "name": "hop_length",
@@ -532,15 +570,18 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "window",
-                "required": false
+                "required": false,
+                "default": "hann"
             },
             {
                 "name": "center",
-                "required": false
+                "required": false,
+                "default": true
             },
             {
                 "name": "pad_mode",
-                "required": false
+                "required": false,
+                "default": "constant"
             }
         ],
         "needs": [
@@ -556,7 +597,12 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "field_type",
-                "required": false
+                "required": false,
+                "default": "free",
+                "choices": [
+                    "free",
+                    "diffuse"
+                ]
             }
         ]
     },
@@ -568,7 +614,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "overlap",
-                "required": false
+                "required": false,
+                "default": 0.5
             }
         ]
     },
@@ -580,7 +627,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "overlap",
-                "required": false
+                "required": false,
+                "default": 0.5
             }
         ]
     },
@@ -592,7 +640,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "fade_ms",
-                "required": false
+                "required": false,
+                "default": 50
             }
         ]
     },
@@ -604,11 +653,23 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "weighting",
-                "required": false
+                "required": false,
+                "default": "din",
+                "choices": [
+                    "din",
+                    "aures",
+                    "bismarck",
+                    "fastl"
+                ]
             },
             {
                 "name": "field_type",
-                "required": false
+                "required": false,
+                "default": "free",
+                "choices": [
+                    "free",
+                    "diffuse"
+                ]
             }
         ]
     },
@@ -624,11 +685,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "window",
-                "required": false
+                "required": false,
+                "default": "hann"
             },
             {
                 "name": "floor",
-                "required": false
+                "required": false,
+                "default": 1e-12
             }
         ]
     },
@@ -644,7 +707,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "window",
-                "required": false
+                "required": false,
+                "default": "hann"
             }
         ]
     },
@@ -656,7 +720,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "default": 2048
             },
             {
                 "name": "hop_length",
@@ -668,11 +733,17 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "window",
-                "required": false
+                "required": false,
+                "default": "hann"
             },
             {
                 "name": "average",
-                "required": false
+                "required": false,
+                "default": "mean",
+                "choices": [
+                    "mean",
+                    "median"
+                ]
             }
         ]
     },
@@ -684,23 +755,28 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "fmin",
-                "required": false
+                "required": false,
+                "default": 25
             },
             {
                 "name": "fmax",
-                "required": false
+                "required": false,
+                "default": 20000
             },
             {
                 "name": "n",
-                "required": false
+                "required": false,
+                "default": 3
             },
             {
                 "name": "G",
-                "required": false
+                "required": false,
+                "default": 10
             },
             {
                 "name": "fr",
-                "required": false
+                "required": false,
+                "default": 1000
             }
         ]
     },
@@ -712,7 +788,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "default": 2048
             },
             {
                 "name": "hop_length",
@@ -724,15 +801,21 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "window",
-                "required": false
+                "required": false,
+                "default": "hann"
             },
             {
                 "name": "allow_sparse",
-                "required": false
+                "required": false,
+                "default": false
             },
             {
                 "name": "detrend",
-                "required": false
+                "required": false,
+                "choices": [
+                    "constant",
+                    "linear"
+                ]
             }
         ]
     },
@@ -744,7 +827,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "default": 2048
             },
             {
                 "name": "hop_length",
@@ -756,11 +840,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "window",
-                "required": false
+                "required": false,
+                "default": "hann"
             },
             {
                 "name": "detrend",
-                "required": false
+                "required": false,
+                "default": "constant"
             }
         ]
     },
@@ -772,7 +858,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "default": 2048
             },
             {
                 "name": "hop_length",
@@ -784,19 +871,31 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "window",
-                "required": false
+                "required": false,
+                "default": "hann"
             },
             {
                 "name": "detrend",
-                "required": false
+                "required": false,
+                "default": "constant"
             },
             {
                 "name": "scaling",
-                "required": false
+                "required": false,
+                "default": "spectrum",
+                "choices": [
+                    "spectrum",
+                    "density"
+                ]
             },
             {
                 "name": "average",
-                "required": false
+                "required": false,
+                "default": "mean",
+                "choices": [
+                    "mean",
+                    "median"
+                ]
             }
         ]
     },
@@ -808,7 +907,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "default": 2048
             },
             {
                 "name": "hop_length",
@@ -820,19 +920,31 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "window",
-                "required": false
+                "required": false,
+                "default": "hann"
             },
             {
                 "name": "detrend",
-                "required": false
+                "required": false,
+                "default": "constant"
             },
             {
                 "name": "scaling",
-                "required": false
+                "required": false,
+                "default": "spectrum",
+                "choices": [
+                    "spectrum",
+                    "density"
+                ]
             },
             {
                 "name": "average",
-                "required": false
+                "required": false,
+                "default": "mean",
+                "choices": [
+                    "mean",
+                    "median"
+                ]
             }
         ]
     },
@@ -902,7 +1014,12 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "mode",
-                "required": false
+                "required": false,
+                "default": "low",
+                "choices": [
+                    "low",
+                    "high"
+                ]
             }
         ]
     },
@@ -925,7 +1042,12 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "mode",
-                "required": false
+                "required": false,
+                "default": "low",
+                "choices": [
+                    "low",
+                    "high"
+                ]
             }
         ]
     },
@@ -959,15 +1081,18 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "n",
-                "required": false
+                "required": false,
+                "default": 3
             },
             {
                 "name": "G",
-                "required": false
+                "required": false,
+                "default": 10
             },
             {
                 "name": "fr",
-                "required": false
+                "required": false,
+                "default": 1000
             }
         ]
     },
@@ -979,7 +1104,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "floor",
-                "required": false
+                "required": false,
+                "default": 1e-12
             }
         ]
     },
@@ -1017,7 +1143,12 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "scaling",
-                "required": false
+                "required": false,
+                "default": "spectrum",
+                "choices": [
+                    "spectrum",
+                    "density"
+                ]
             }
         ]
     }
