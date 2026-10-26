@@ -86,6 +86,22 @@ export async function pickAudioTarget(
     return selected?.[0];
 }
 
+/** Audio files to add beside the ones listed (＋ Add files): any number, from anywhere. */
+export async function pickAudioFiles(
+    showOpenDialog: OpenDialog = vscode.window.showOpenDialog,
+    language: string = vscode.env.language,
+): Promise<vscode.Uri[]> {
+    const strings = getStrings(language);
+    const selected = await showOpenDialog({
+        canSelectMany: true,
+        canSelectFiles: true,
+        canSelectFolders: false,
+        openLabel: strings.dialogSelectAudioFile,
+        filters: { [strings.dialogAudioFilesFilter]: SUPPORTED_AUDIO_DIALOG_EXTENSIONS },
+    });
+    return selected ?? [];
+}
+
 export function getDebugTargetUri(
     extensionUri: vscode.Uri,
     debugFilePath: string,

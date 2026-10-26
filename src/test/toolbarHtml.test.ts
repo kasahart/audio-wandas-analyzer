@@ -7,10 +7,6 @@ import { toolbarHtml, type ToolbarSpec } from '../webview/runtime/toolbarHtml';
 const strings = getStrings('en');
 const spec: ToolbarSpec = {
     contentType: 'waveform',
-    trackHeight: 120,
-    trackHeightRange: { min: 80, max: 400 },
-    spectrumHeight: 200,
-    spectrumHeightRange: { min: 100, max: 320 },
     appVersion: '1.2.3 (abc1234)',
 };
 
@@ -21,17 +17,13 @@ test('toolbar marks the active content type', () => {
     assert.ok(spectrogram.includes('<button class="tb-btn" data-action="content-waveform"'));
 });
 
-test('toolbar height inputs carry the current values and bounds', () => {
+test('toolbar has one menu, Export, which also saves or runs a Recipe; heights are dragged, not typed', () => {
     const html = toolbarHtml(spec, strings);
-    assert.ok(html.includes('min="80" max="400" step="1" value="120" data-action="track-height-input"'));
-    assert.ok(html.includes('min="100" max="320" step="1" value="200" data-action="spectrum-height-input"'));
-});
-
-test('toolbar groups adjust, workflow and export actions into menus', () => {
-    const html = toolbarHtml(spec, strings);
-    assert.equal(html.match(/<details class="tb-menu">/g)?.length, 3);
+    // The menu acts on the track lanes, so it is marked to hide in the steps view.
+    assert.equal(html.match(/<details class="tb-menu tb-track-only">/g)?.length, 1);
     assert.ok(html.includes('>' + escapeHtml(strings.toolbarExportLabel) + '</summary>'));
-    for (const action of ['run-recipe', 'copy-spec', 'export-png', 'export-csv', 'export-wav', 'export-report', 'zoom-to-selection', 'toggle-follow-cursor']) {
+    for (const absent of ['track-height-input', 'spectrum-height-input', 'copy-spec']) assert.ok(!html.includes('data-action="' + absent + '"'), absent);
+    for (const action of ['run-recipe', 'save-recipe', 'export-png', 'export-csv', 'export-wav', 'export-report', 'zoom-to-selection', 'toggle-follow-cursor']) {
         assert.ok(html.includes('data-action="' + action + '"'), action);
     }
     assert.ok(html.includes('id="cursor-display"'));

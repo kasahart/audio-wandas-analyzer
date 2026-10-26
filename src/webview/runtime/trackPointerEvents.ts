@@ -13,14 +13,29 @@ export interface TrackPointerHandlers {
 
 type PointerSurface = Pick<HTMLElement, 'addEventListener'>;
 
-export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener'>, handlers: TrackPointerHandlers): void {
+/** Which elements are plots (a double-click resets their zoom) and which are axes (it opens their range). */
+export interface PlotSelectors {
+    plot: string;
+    axis?: string;
+}
+
+const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-axis-canvas' };
+
+/**
+ * The analyzer's pointer gestures on its plots, as the track lanes define them: hover, press–drag–release
+ * (followed on the document), Ctrl+wheel to zoom, Shift+wheel to pan, double-click to reset (or, on an axis,
+ * to set its range). The comparison's panes use the same listeners through plotInteraction.ts.
+ */
+export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener'>, handlers: TrackPointerHandlers, selectors: PlotSelectors = TRACK_SELECTORS): void {
     tracksWrapper.addEventListener('dblclick', function (e) {
         const target = e.target as Partial<Element> | null;
-        const hit = target && target.closest ? target.closest('.track-canvas, .track-axis-canvas') : null;
+        const hit = target && target.closest ? target.closest([selectors.plot, selectors.axis].filter(Boolean).join(', ')) : null;
         if (!hit) {
             return;
         }
-        if (hit.classList.contains('track-axis-canvas') && handlers.openAxisRange(hit, e.clientX, e.clientY)) {
+        // Without axis elements of their own (the comparison's panes draw their axes in the plot's canvas), the
+        // plot itself says whether the double-click was on an axis.
+        if ((selectors.axis ? hit.matches(selectors.axis) : true) && handlers.openAxisRange(hit, e.clientX, e.clientY)) {
             return;
         }
         handlers.resetZoom();

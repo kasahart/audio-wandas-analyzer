@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
@@ -56,18 +56,27 @@ test('track identity survives add, reorder, remove, and analysis replacement', a
     await expect(page.locator('[data-track-index]')).toHaveCount(0);
 });
 
-test('directory checkbox remove/re-add keeps surviving offset, cursor, mute and document', async ({ page }) => {
+/** Shows a listed file as a track or takes it off, as the entry table's ＋ and × do (the e2e's test action). */
+async function showFiles(page: Page, filePaths: readonly string[], selected: boolean) {
+    await page.evaluate(({ filePaths, selected }) => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action', actions: filePaths.map(filePath => ({ action: 'set-file-selected', payload: { filePath, selected } })),
+    } })), { filePaths, selected });
+}
+
+test('directory file remove/re-add keeps surviving offset, cursor, mute and document', async ({ page }) => {
     await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
     const audioSource = 'data:audio/wav;base64,' + readFileSync(path.join(__dirname, '../fixtures/short-stereo.wav')).toString('base64');
     await page.evaluate(source => {
         (window as unknown as { __retentionAudioSource: string }).__retentionAudioSource = source;
     }, audioSource);
     const paths = ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'];
-    await page.locator('[data-action="selection-select-all"]').click();
+    await showFiles(page, paths, true);
     await page.evaluate(dispatchAnalysisUpdate, paths);
     await expect(page.locator('.track-row')).toHaveCount(2);
     const tree = page.locator('#selection-toolbar');
     await tree.evaluate(node => node.setAttribute('data-retention-sentinel', 'same-document'));
+    // The offset's steps are in the track's … menu.
+    await page.locator('.track-row[data-track-id="track-1"] details.track-more summary').click();
     await page.locator('[data-action="offset-up"][data-track-id="track-1"]').click();
     await page.locator('[data-action="toggle-mute"][data-track-id="track-1"]').click();
     const canvas = page.locator('#track-canvas-0');
@@ -84,9 +93,7 @@ test('directory checkbox remove/re-add keeps surviving offset, cursor, mute and 
     });
     const configured = await viewState();
     expect(configured.cursorNorm).toBeGreaterThan(.3);
-    const directory = page.locator('.selection-tree-directory').first();
-    if (await directory.getAttribute('aria-expanded') === 'false') await directory.click();
-    const checkbox = page.locator('.selection-file-checkbox[data-file-path="/tmp/session/sub/b.flac"]');
+    const checkbox = { setChecked: (selected: boolean) => showFiles(page, ['/tmp/session/sub/b.flac'], selected) };
     for (const selected of [false, true]) {
         await checkbox.setChecked(selected);
         await page.evaluate(dispatchAnalysisUpdate, selected ? paths : [paths[0]]);
@@ -101,7 +108,8 @@ test('directory checkbox remove/re-add keeps surviving offset, cursor, mute and 
         await expect(page.locator('#track-row-0 [data-action="toggle-mute"]')).toHaveAttribute('aria-pressed', 'true');
         expect(await page.locator('#track-audio-0').evaluate(node => (node as HTMLAudioElement).muted)).toBe(true);
         expect(await page.locator('audio').evaluateAll(nodes => nodes.every(node => (node as HTMLAudioElement).paused))).toBe(true);
-        await expect(checkbox).toBeChecked({ checked: selected });
+        expect(await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; filePaths: string[] }> }).__uiSmokePostedMessages
+            .filter(message => message.type === 'analyze-selected-files').at(-1)!.filePaths.includes('/tmp/session/sub/b.flac'))).toBe(selected);
     }
 });
 
@@ -109,11 +117,9 @@ test('directory checkbox remove/re-add keeps surviving offset, cursor, mute and 
 test('span-changing selection refreshes cursor labels while retaining normalized cursor and zoom', async ({ page }) => {
     await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
     const paths = ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'];
-    await page.locator('[data-action="selection-select-all"]').click();
+    await showFiles(page, paths, true);
     await page.evaluate(dispatchAnalysisUpdate, { paths, durations: [1, 2] });
-    const directory = page.locator('.selection-tree-directory').first();
-    if (await directory.getAttribute('aria-expanded') === 'false') await directory.click();
-    const checkbox = page.locator('.selection-file-checkbox[data-file-path="/tmp/session/sub/b.flac"]');
+    const checkbox = { setChecked: (selected: boolean) => showFiles(page, ['/tmp/session/sub/b.flac'], selected) };
     const snapshot = () => page.evaluate(() => {
         window.dispatchEvent(new MessageEvent('message', { data: {
             type: 'comparison-panel-test-action', actions: [], actionId: 'span-cursor-snapshot',
@@ -161,13 +167,14 @@ test('span-changing selection refreshes cursor labels while retaining normalized
 test('directory re-selection restores a removed track while ordinary refresh keeps it removed', async ({ page }) => {
     await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
     const paths = ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'];
-    await page.locator('[data-action="selection-select-all"]').click();
+    await showFiles(page, paths, true);
     await page.evaluate(dispatchAnalysisUpdate, paths);
+    await page.locator('.track-row[data-track-id="track-2"] details.track-more summary').click();
     await page.locator('[data-action="offset-up"][data-track-id="track-2"]').click();
     await page.locator('[data-action="remove-track"][data-track-id="track-1"]').click();
     await page.evaluate(dispatchAnalysisUpdate, paths);
     await expect(page.locator('.track-row')).toHaveCount(1);
-    const checkbox = page.locator('.selection-file-checkbox[data-file-path="/tmp/session/a.wav"]');
+    const checkbox = { setChecked: (selected: boolean) => showFiles(page, ['/tmp/session/a.wav'], selected) };
     await checkbox.setChecked(false);
     await page.evaluate(dispatchAnalysisUpdate, [paths[1]]);
     await checkbox.setChecked(true);
@@ -177,10 +184,10 @@ test('directory re-selection restores a removed track while ordinary refresh kee
     await expect(page.locator('.track-row[data-track-id="track-3"] .track-name')).toHaveText('a.wav');
 });
 
-test('recreated directory document restores host selection and audio before the next checkbox action', async ({ page }) => {
+test('recreated directory document restores host selection and audio before the next selection change', async ({ page }) => {
     await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
     const paths = ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'];
-    await page.locator('[data-action="selection-select-all"]').click();
+    await showFiles(page, paths, true);
     await page.evaluate(dispatchAnalysisUpdate, paths);
     await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
     const audioSource = 'data:audio/wav;base64,' + readFileSync(path.join(__dirname, '../fixtures/short-stereo.wav')).toString('base64');
@@ -192,17 +199,11 @@ test('recreated directory document restores host selection and audio before the 
         } }));
     }, { paths, audioSource });
     await expect(page.locator('.track-row')).toHaveCount(2);
-    const directory = page.locator('.selection-tree-directory').first();
-    if (await directory.getAttribute('aria-expanded') === 'false') await directory.click();
-    await expect(page.locator('.selection-file-checkbox')).toHaveCount(2);
-    for (const filePath of paths) {
-        await expect(page.locator(`.selection-file-checkbox[data-file-path="${filePath}"]`)).toBeChecked();
-    }
     expect(await page.locator('audio').evaluateAll(nodes => nodes.every(node => {
         const audio = node as HTMLAudioElement;
         return audio.src.startsWith('data:audio/wav;base64,') && audio.paused;
     }))).toBe(true);
-    await page.locator('.selection-file-checkbox[data-file-path="/tmp/session/a.wav"]').setChecked(false);
+    await showFiles(page, ['/tmp/session/a.wav'], false);
     const latestSelection = await page.evaluate(() => {
         const messages = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; filePaths: string[] }> }).__uiSmokePostedMessages;
         return messages.filter(message => message.type === 'analyze-selected-files').at(-1)!.filePaths;

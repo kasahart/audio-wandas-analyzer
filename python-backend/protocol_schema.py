@@ -478,6 +478,113 @@ DEFINITIONS: dict[str, Schema] = {
         "required": ["name", "recipe"],
         "properties": {"name": {"type": "string"}, "recipe": {"type": "object"}},
     },
+    # Seconds into the file; ``end`` is exclusive like ``ChannelFrame.trim``.
+    "ScanRegion": {
+        "type": "object",
+        "required": ["start", "end"],
+        "properties": {"start": {"type": "number", "minimum": 0}, "end": {"type": "number", "minimum": 0}},
+    },
+    # One file of the entry table: the analysis-spec metrics (analysis_spec.py) of ``region`` (null =
+    # the whole file) after ``recipe`` up to its time slice. ``recipe`` is ``RecipePlan.to_dict()``.
+    "ScanPayload": {
+        "type": "object",
+        "required": ["filePath", "recipe"],
+        "properties": {
+            "filePath": {"type": "string"},
+            "recipe": {"type": "object"},
+            "region": {"anyOf": [{"$ref": "#/$defs/ScanRegion"}, _NULL]},
+            "channels": {"anyOf": [{"type": "array", "items": {"type": "integer", "minimum": 0}}, _NULL]},
+            "calibration": {"$ref": "#/$defs/CalibrationProfile"},
+            # A step of the Recipe (its node id) whose Frame the result carries as ``stage``.
+            "stage": {"anyOf": [{"type": "string"}, _NULL]},
+            # The part of the step's picture on screen, drawn from the Frame's full resolution (a zoomed comparison).
+            "detail": {"anyOf": [{"$ref": "#/$defs/StageDetail"}, _NULL]},
+        },
+    },
+    # A zoomed picture's request: its horizontal (and for an image, vertical) range in the axis's own units
+    # (Hz, s, Bark), and how many points across it the screen can show.
+    "StageDetail": {
+        "type": "object",
+        "required": ["x", "points"],
+        "properties": {
+            "x": {"type": "array", "items": _NUMBER},
+            "y": {"type": "array", "items": _NUMBER},
+            "points": {"type": "integer", "minimum": 2, "maximum": 8000},
+        },
+    },
+    # One step's Frame as the comparison draws it (stage_view.py). Line and bar give ``values`` over
+    # ``xs``; a heatmap gives ``matrix`` rows over ``ys``, columns over ``xs``; "none" is a Frame not drawn.
+    "StageView": {
+        "type": "object",
+        "required": ["frame", "kind"],
+        "properties": {
+            "frame": {"type": "string"},
+            "kind": {"type": "string", "enum": ["line", "bar", "heatmap", "none"]},
+            "x": {"type": "string", "enum": ["frequency", "time", "band", "quefrency"]},
+            "xScale": {"type": "string", "enum": ["log", "linear"]},
+            "quantity": {"type": "string", "enum": ["level", "gain", "coherence", "value", "roughness", "cepstrum"]},
+            "unit": {"type": "string"},
+            "xs": _NUMBERS,
+            "ys": _NUMBERS,
+            "yAxis": {"type": "string", "enum": ["frequency", "bark", "quefrency"]},
+            "values": _NULLABLE_NUMBERS,
+            "matrix": {"type": "array", "items": _NULLABLE_NUMBERS},
+            "whole": {"type": "array", "items": {"type": "boolean"}},
+            # Set on a picture of only part of its axes (StageDetail): the range it covers.
+            "detail": {"type": "boolean"},
+            # A time signal's waveform as the lanes draw it: per bucket min and max at the times they occurred.
+            "waveform": {
+                "type": "object",
+                "required": ["min", "max", "minT", "maxT", "absolutePeak", "unit", "ref"],
+                "properties": {
+                    "min": _NULLABLE_NUMBERS,
+                    "max": _NULLABLE_NUMBERS,
+                    "minT": _NULLABLE_NUMBERS,
+                    "maxT": _NULLABLE_NUMBERS,
+                    "absolutePeak": _NUMBER,
+                    "unit": {"type": "string"},
+                    "ref": _NUMBER,
+                },
+            },
+        },
+    },
+    "ScanInput": {
+        "type": "object",
+        "required": ["id", "fs", "channels", "durationS", "unit", "ref"],
+        "properties": {
+            "id": {"type": "string"},
+            "fs": {"type": "integer", "minimum": 1},
+            "channels": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+            "durationS": _NUMBER,
+            "unit": {"type": "string"},
+            "ref": _NUMBER,
+        },
+    },
+    # A file that cannot be scanned answers ``ok: false`` with a one-line ``reason`` and nothing else;
+    # an ``ok`` result carries every other key. Per-channel arrays follow ``input.channels``.
+    "ScanResult": {
+        "type": "object",
+        "required": ["ok"],
+        "properties": {
+            "ok": {"type": "boolean"},
+            "reason": {"type": "string"},
+            "conditionId": {"type": "string"},
+            "input": {"$ref": "#/$defs/ScanInput"},
+            "leqDbA": _NUMBERS,
+            "peakHz": {"type": "array", "items": {"type": "integer"}},
+            "spectrumDb": {"type": "array", "items": _NUMBERS},
+            "thirdOctDb": {"type": "array", "items": _NULLABLE_NUMBERS},
+            "crest": _NUMBERS,
+            "specVersion": {"type": "integer", "minimum": 1},
+            "wandasVersion": {"type": "string"},
+            "elapsedMs": _NUMBER,
+            # The type of the Frame the Recipe's chain ends in, e.g. "SpectralFrame".
+            "endFrame": {"type": "string"},
+            "stage": {"$ref": "#/$defs/StageView"},
+            # With ``ok: false``: the Recipe step (node id) that failed on this file.
+            "failedStep": {"type": "string"},
+        },
+    },
     # Codes from backend_errors.py; hosts branch on them, never on the message text.
     "BackendErrorPayload": {
         "type": "object",
@@ -537,6 +644,7 @@ COMMANDS: dict[str, dict[str, str]] = {
     "export-wav-loop": {"payload": "ExportWavLoopPayload", "result": "ExportWavLoopResult"},
     "release-track-detail": {"payload": "ReleaseTrackDetailPayload", "result": "ReleaseTrackDetailResult"},
     "build-recipe": {"payload": "BuildRecipePayload", "result": "BuildRecipeResult"},
+    "scan": {"payload": "ScanPayload", "result": "ScanResult"},
 }
 
 

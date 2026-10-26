@@ -203,6 +203,18 @@ def handle_build_recipe(service: AnalysisService, command: Command) -> dict[str,
     )
 
 
+def handle_scan(service: AnalysisService, command: Command) -> dict[str, object]:
+    return service.scan(
+        str(command["filePath"]),
+        recipe=command["recipe"],
+        region=command.get("region"),
+        channels=command.get("channels"),
+        calibration_profile=command.get("calibration"),
+        stage=command.get("stage"),
+        detail=command.get("detail"),
+    )
+
+
 COMMANDS: dict[str, CommandHandler] = {
     "analyze": handle_analyze,
     "range": handle_range,
@@ -213,6 +225,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "export-wav-loop": handle_export_wav_loop,
     "run-recipe": handle_run_recipe,
     "build-recipe": handle_build_recipe,
+    "scan": handle_scan,
 }
 
 

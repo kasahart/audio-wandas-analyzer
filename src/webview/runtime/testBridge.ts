@@ -21,10 +21,6 @@ export class ComparisonTestBridge {
         });
     }
 
-    setTreeFilterFlush(handler: () => void): void {
-        this.browserWindow.__treeFilterFlush = handler;
-    }
-
     publish(renderedUi: Record<string, unknown>, actionId?: string): void {
         this.messenger.post({ type: 'comparison-panel-test-snapshot', actionId, renderedUi });
     }

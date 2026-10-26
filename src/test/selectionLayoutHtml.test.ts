@@ -7,18 +7,15 @@ import { selectionFolderButton, selectionLayoutHtml, type SelectionLayoutParts }
 const strings = getStrings('en');
 const parts: SelectionLayoutParts = {
     rootPath: '/data/a&b',
-    filterQuery: '"wav"',
-    treeHtml: '<ul>tree</ul>',
     resultsPaneHtml: '<div id="toolbar"></div>',
     python: { text: 'Python: py3', tooltip: '/usr/bin/<py3>', warning: false },
 };
 
-test('selection layout embeds the tree and results pane and escapes user text', () => {
+test('selection layout docks the entry table in the side panel beside the results pane', () => {
     const html = selectionLayoutHtml(parts, strings);
     assert.ok(html.startsWith('<div id="directory-selection-layout">'));
-    assert.ok(html.includes('<div class="selection-path">/data/a&amp;b</div>'));
-    assert.ok(html.includes('value="&quot;wav&quot;"'));
-    assert.ok(html.includes('aria-label="' + strings.ariaSelectionTree + '"><ul>tree</ul></div>'));
+    assert.ok(html.includes('<div id="entry-dock" data-empty-hint="' + strings.selectionEmptyHint + '"></div>'), 'says what the panel will hold before a folder is open');
+    assert.ok(!html.includes('selection-tree'), 'no folder tree');
     assert.ok(html.includes('<div id="selection-results-pane"><div id="toolbar"></div>'));
 });
 
@@ -32,7 +29,7 @@ test('selection layout python button reflects the warning state', () => {
 
 test('selection layout renders the selection actions', () => {
     const html = selectionLayoutHtml(parts, strings);
-    for (const action of ['open-file', 'open-folder', 'selection-select-all', 'selection-clear-all']) {
+    for (const action of ['open-file', 'open-folder']) {
         assert.ok(html.includes('data-action="' + action + '"'), action);
     }
 });

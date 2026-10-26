@@ -13,6 +13,13 @@ export const SHORTCUT_ROWS = [
     { shortcut: 'Double-click (resize edge)', labelKey: 'helpRowDoubleClickEdge' },
     { shortcut: '?', labelKey: 'helpRowQuestion' },
     { shortcut: 'Esc', labelKey: 'helpRowEsc' },
+    { shortcut: '0 / 1–3 / Enter / Esc (entry table)', labelKey: 'helpRowEntryKeys' },
+    { shortcut: '0 / 1–3 / D / Esc (comparing)', labelKey: 'helpRowCompareKeys' },
+    { shortcut: '? / F1 (entry table, comparison)', labelKey: 'screenHelpTitle' },
+    { shortcut: 'Delete (step chip)', labelKey: 'helpRowStepKeys' },
+    { shortcut: 'Drag (step chip)', labelKey: 'helpRowStepDrag' },
+    { shortcut: 'M (step chip)', labelKey: 'helpRowStepBypass' },
+    { shortcut: 'Ctrl+Z / Ctrl+Shift+Z (step bar)', labelKey: 'helpRowStepUndo' },
 ] as const;
 
 export type GlobalShortcutAction = 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'toggle-follow-cursor' | 'zoom-to-selection';

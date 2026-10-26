@@ -57,13 +57,19 @@ export function isCacheSufficient(
     if (!cache || cache.startNorm > reqStart || cache.endNorm < reqEnd || !cache.channels) {
         return false;
     }
-    const cacheDataRange = Math.max(cache.endNorm - cache.startNorm, 1e-9);
-    return Array.from({ length: channelCount }).every((_, channelIndex) => {
-        const channel = cache.channels[channelIndex];
-        const nPts = waveformPointCount(channel);
-        const ptsVisible = nPts * ((fileAtZoomEnd - fileAtZoomStart) / cacheDataRange);
-        return nPts >= points * RANGE_CACHE_MIN_POINT_RATIO && ptsVisible >= width * RANGE_CACHE_MIN_POINTS_PER_PIXEL;
-    });
+    return Array.from({ length: channelCount }).every((_, channelIndex) => rangeHasDetail(
+        waveformPointCount(cache.channels[channelIndex]), cache.startNorm, cache.endNorm, points, width, fileAtZoomStart, fileAtZoomEnd,
+    ));
+}
+
+/**
+ * Whether `cachedPoints` fetched over [cacheStart, cacheEnd] still draw the visible part finely enough: enough
+ * points in all, and enough per pixel inside the view. The lanes and the comparison's zoomed pictures reuse a range by it.
+ */
+export function rangeHasDetail(cachedPoints: number, cacheStart: number, cacheEnd: number, points: number, width: number, viewStart: number, viewEnd: number): boolean {
+    const cacheDataRange = Math.max(cacheEnd - cacheStart, 1e-9);
+    const ptsVisible = cachedPoints * ((viewEnd - viewStart) / cacheDataRange);
+    return cachedPoints >= points * RANGE_CACHE_MIN_POINT_RATIO && ptsVisible >= width * RANGE_CACHE_MIN_POINTS_PER_PIXEL;
 }
 
 export function visibleFileFraction(fileAtZoomStart: number, fileAtZoomEnd: number): number {

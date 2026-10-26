@@ -64,7 +64,7 @@ test('GUI triggerability inventory lists in-scope commands and excludes debug-on
     assert.deepEqual(inventory.GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS, [
         'audioWandasAnalyzer.analyzeDebugFile',
     ]);
-    assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('selection-select-all'));
+    assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('entry-row-slot'));
     assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('content-spectrogram'));
     assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('toggle-playback'));
     assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('configure-calibration'));

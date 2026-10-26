@@ -1,3 +1,5 @@
+import { promises as fs } from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import {
     type AnalysisResultWithError,
@@ -24,6 +26,8 @@ import {
     type CalibrationChangeEvent,
 } from './calibrationStore';
 import type { ExportFlows } from './exportFlows';
+import type { RecipeDocument } from '../shared/recipe/recipeSelection';
+import { isMetadataCandidate, type MetadataCandidate } from '../shared/analysis/entryMetadata';
 import type { PanelMessage } from '../shared/protocol/panelMessages';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../shared/session/comparisonSessionController';
 import {
@@ -44,6 +48,7 @@ import {
 } from '../shared/analysis/savedSpectrogramSettings';
 import {
     buildDirectoryTree,
+    pickAudioFiles,
     pickAudioTarget,
     type OpenDialog,
     type TargetFileSystem,
@@ -56,7 +61,9 @@ export interface PanelBackend extends Pick<AnalysisClient,
     | 'requestSpectrumSlice'
     | 'requestPairSpectrum'
     | 'exportWavLoop'
-    | 'buildRecipe'> {}
+    | 'buildRecipe'
+    | 'scan'
+    | 'calibrationFor'> {}
 
 export interface PanelAnalysis {
     analyzeFiles: AnalysisOrchestrator['analyzeFiles'];
@@ -361,13 +368,66 @@ export class PanelController implements vscode.Disposable {
             panelReady: (message) => this.handlePanelReady(session, message),
             selectPythonEnvironment: async () => { await this.host.executeCommand('audioWandasAnalyzer.selectPythonEnvironment'); },
             runRecipe: async () => { await this.host.executeCommand('audioWandasAnalyzer.runRecipe', session.getActiveFilePaths()); },
+            // The report folder goes inside a folder the user picks; nothing is written if they cancel.
+            saveReportFolder: async (folder, files) => {
+                const picked = await this.host.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: this.strings().compareReport });
+                if (!picked?.[0]) return;
+                const target = path.join(picked[0].fsPath, folder);
+                await fs.mkdir(target, { recursive: true });
+                for (const file of files) await fs.writeFile(path.join(target, file.name), file.bytes);
+                this.host.showInformation(this.strings().reportSaved + target);
+            },
+            entry: {
+                // Path, size and mtime: the same file unchanged gets its stored metrics back without a scan.
+                identity: async (filePath) => {
+                    try {
+                        const real = await fs.realpath(filePath);
+                        const stat = await fs.stat(real, { bigint: true });
+                        return `${real}|${stat.size}|${stat.mtimeNs}`;
+                    } catch {
+                        return undefined;
+                    }
+                },
+                calibration: (filePath) => JSON.stringify(this.backend.calibrationFor(filePath) ?? null),
+                scan: async (filePath, region, recipe, stage, detail) => this.backend.scan({ filePath, recipe: recipe ?? await this.entryRecipe(), ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}) }),
+                recipe: () => this.entryRecipe(),
+                readFile: async (filePath) => new Uint8Array(await fs.readFile(filePath)),
+                // Metadata beside the opened folder: its own CSV/TSV files and the folder above's.
+                metadataCandidates: async () => {
+                    const root = session.directorySelection?.rootPath;
+                    if (!root) return [];
+                    const found: MetadataCandidate[] = [];
+                    for (const directory of [root, path.dirname(root)]) {
+                        const names = await fs.readdir(directory).catch(() => [] as string[]);
+                        for (const name of names) {
+                            const filePath = path.join(directory, name);
+                            if (isMetadataCandidate(name) && !session.directorySelection?.allFilePaths.includes(filePath)) {
+                                found.push({ path: filePath, read: async () => new Uint8Array(await fs.readFile(filePath)) });
+                            }
+                        }
+                    }
+                    return found;
+                },
+                read: (key) => this.context.workspaceState.get(key),
+                write: (key, value) => this.context.workspaceState.update(key, value),
+            },
         };
+    }
+
+    private entryRecipeFile?: Promise<RecipeDocument>;
+
+    /** The fixed Recipe the entry table scans with, shipped beside the Python backend. */
+    private entryRecipe(): Promise<RecipeDocument> {
+        this.entryRecipeFile ??= fs.readFile(
+            path.join(this.context.extensionUri.fsPath, 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8',
+        ).then(text => JSON.parse(text) as RecipeDocument);
+        return this.entryRecipeFile;
     }
 
     private async handleSelection(session: PanelSession<PanelHandle>, message: AnalyzeSelectedFilesMessage): Promise<void> {
         const selection = session.directorySelection;
         if (!selection) { return; }
-        const selectedFilePaths = sanitizeSelectedAudioFilePaths(selection.tree, message.filePaths);
+        const selectedFilePaths = sanitizeSelectedAudioFilePaths(selection.tree, message.filePaths, selection.extraFilePaths);
         const delta = diffSelectedAudioFilePaths(selection.selectedFilePaths, selectedFilePaths);
         const revision = session.beginStateRequest(message.requestId);
         selection.selectedFilePaths = selectedFilePaths;
@@ -408,10 +468,38 @@ export class PanelController implements vscode.Disposable {
     }
 
     private async handleSelectTarget(session: PanelSession<PanelHandle>, targetKind: SelectionTargetKind): Promise<void> {
+        // ＋ Add files: the picked files join what is shown, from wherever they are; a folder opens on its entry table.
+        if (targetKind === 'file') {
+            const picked = (await pickAudioFiles(this.host.showOpenDialog, this.host.language())).map((uri) => uri.fsPath);
+            if (picked.length && !session.isDisposed) await this.addFiles(session, picked);
+            return;
+        }
         const selected = await pickAudioTarget(targetKind, this.host.showOpenDialog, this.host.language());
         if (selected && !session.isDisposed) {
             await this.analyzeTarget(selected, session.panel);
         }
+    }
+
+    /**
+     * Files added beside the folder's: listed (the entry table's "added files") and shown as tracks at once.
+     * A panel without a folder shows them beside its own files.
+     */
+    private async addFiles(session: PanelSession<PanelHandle>, filePaths: string[]): Promise<void> {
+        const selection = session.directorySelection;
+        if (!selection) {
+            const shown = session.getActiveFilePaths();
+            await this.analyzeMultipleFiles([...shown, ...filePaths.filter((filePath) => !shown.includes(filePath))], session.panel, session.beginStateRequest());
+            return;
+        }
+        const fresh = filePaths.filter((filePath) => !selection.allFilePaths.includes(filePath));
+        selection.extraFilePaths = [...(selection.extraFilePaths ?? []), ...fresh];
+        selection.allFilePaths = [...selection.allFilePaths, ...fresh];
+        await session.postMessage({ type: 'directory-selection', rootPath: selection.rootPath, filePaths: selection.allFilePaths });
+        await this.handleSelection(session, {
+            type: 'analyze-selected-files',
+            requestId: `add-files-${Date.now()}`,
+            filePaths: [...selection.selectedFilePaths, ...filePaths.filter((filePath) => !selection.selectedFilePaths.includes(filePath))],
+        });
     }
 
     private async reanalyze(
@@ -529,9 +617,11 @@ export class PanelController implements vscode.Disposable {
         results: AnalysisResultWithError[],
     ): Promise<void> {
         session.setActiveResults(results.map((result) => result.filePath));
+        // The selection goes with the results, so the webview's tracks follow files the host added (＋ Add files).
         await this.panelFactory.updateDirectoryResults(
             results,
             session.panel,
+            session.directorySelection?.selectedFilePaths,
         );
         this.postPythonEnvironmentState(session, this.host.getPythonEnvironment());
     }

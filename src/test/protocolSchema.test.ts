@@ -70,6 +70,26 @@ test('invalid response fixtures report the same path as Python and fail ajv', ()
     }
 });
 
+test('scan results are either a one-line failure or a full per-channel result', () => {
+    const ok = {
+        ok: true, conditionId: 'c', input: { id: 'i', fs: 16000, channels: [0, 1], durationS: 2, unit: 'FS', ref: 1 },
+        leqDbA: [-9, -21], peakHz: [1000, 3150], spectrumDb: [[-9], [-21]], thirdOctDb: [[null], [-23]], crest: [1.4, 1.4],
+        specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 80,
+    };
+    assert.deepEqual(parseBackendResult('scan', ok), ok);
+    assert.deepEqual(parseBackendResult('scan', { ok: false, reason: 'Unable to read audio' }), { ok: false, reason: 'Unable to read audio' });
+    assert.throws(() => parseBackendResult('scan', { ok: false }), /Invalid scan success response/);
+    assert.throws(() => parseBackendResult('scan', { ok: false, reason: 'x', leqDbA: [] }), /Invalid scan success response/);
+    assert.throws(() => parseBackendResult('scan', { ...ok, reason: 'x' }), /Invalid scan success response/);
+    assert.throws(() => parseBackendResult('scan', { ...ok, crest: undefined }), /Invalid scan success response/);
+    assert.throws(() => parseBackendResult('scan', { ...ok, leqDbA: [-9] }), /Invalid scan success response/);
+    // A step's picture comes alone: the input and the picture, none of the metrics.
+    const stage = { ok: true, input: ok.input, stage: { frame: 'NOctFrame', kind: 'bar', xs: [25], values: [-40] }, specVersion: 4, wandasVersion: '0.9.0', elapsedMs: 9 };
+    assert.deepEqual(parseBackendResult('scan', stage), stage);
+    assert.throws(() => parseBackendResult('scan', { ...stage, conditionId: 'c' }), /Invalid scan success response/);
+    assert.throws(() => parseBackendResult('scan', { ...stage, input: undefined }), /Invalid scan success response/);
+});
+
 test('analyze and track-detail results keep the invariants the schema cannot express', () => {
     const envelope = { min: [0, 1], max: [1, 2], samples: [0.5, 1.5], absolutePeak: 2 };
     const spectrogram = { values: [[-10, -20]], timeBins: 1, frequencyBins: 2, windowSize: 64, hopSize: 32, maxFrequencyHz: 8000, minDb: -20, maxDb: -10 };

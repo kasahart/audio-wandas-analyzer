@@ -10,12 +10,11 @@ function setup() {
         <button id="up" data-action="offset-up" data-track-id="t2"></button>
         <button id="gone" data-action="remove-track" data-track-id="missing"></button>
         <button id="unknown" data-action="constructor" data-track-id="t1"></button>
-        <span id="color" data-action="pick-color" data-track-id="t1" tabindex="0"></span>
     </div></body>`);
     const doc = dom.window.document;
     const calls: Array<{ action: TrackLaneAction; trackId: TrackId; trackIndex: number | null }> = [];
     const record = (action: TrackLaneAction) => (ctx: TrackLaneContext): void => { calls.push({ action, trackId: ctx.trackId, trackIndex: ctx.trackIndex }); };
-    const actions: TrackLaneAction[] = ['toggle-playback', 'toggle-mute', 'stop-playback', 'remove-track', 'configure-calibration', 'offset-up', 'offset-down', 'pick-color'];
+    const actions: TrackLaneAction[] = ['toggle-playback', 'toggle-mute', 'stop-playback', 'remove-track', 'configure-calibration', 'offset-up', 'offset-down'];
     const handlers = Object.fromEntries(actions.map((a) => [a, record(a)])) as TrackLaneHandlers;
     const indexes = new Map<string, number | null>([['t1', 0], ['t2', null]]);
     attachTrackLaneActions(doc.getElementById('wrap') as unknown as HTMLElement, {
@@ -26,12 +25,7 @@ function setup() {
         trackIndexForId: (id) => indexes.get(id) ?? null,
     }, handlers);
     const click = (id: string) => doc.getElementById(id)!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    const key = (id: string, k: string) => {
-        const event = new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
-        doc.getElementById(id)!.dispatchEvent(event);
-        return event.defaultPrevented;
-    };
-    return { calls, click, key };
+    return { calls, click };
 }
 
 test('click dispatches the target action with its resolved track id and index', () => {
@@ -51,11 +45,22 @@ test('click ignores unknown tracks and inherited action names', () => {
     assert.deepEqual(calls, []);
 });
 
-test('Enter or Space on the color swatch opens the picker; other keys and actions do nothing', () => {
-    const { calls, key } = setup();
-    assert.equal(key('color', 'Enter'), true);
-    assert.equal(key('color', ' '), true);
-    assert.equal(key('color', 'a'), false);
-    assert.equal(key('play', 'Enter'), false);
-    assert.deepEqual(calls.map((c) => c.action), ['pick-color', 'pick-color']);
+
+test('a used … item and a press elsewhere close the track\'s … menu', () => {
+    const dom = new JSDOM(`<body><div id="wrap"><details id="menu" class="track-more" open><summary>…</summary>
+        <button id="up" data-action="offset-up" data-track-id="t1"></button></details></div><div id="outside"></div></body>`);
+    const doc = dom.window.document;
+    const calls: string[] = [];
+    const handlers = { 'offset-up': () => calls.push('up') } as unknown as TrackLaneHandlers;
+    attachTrackLaneActions(doc.getElementById('wrap') as unknown as HTMLElement, {
+        trackIdFromElement: el => (el.getAttribute('data-track-id') as TrackId | null),
+        trackIndexForId: () => 0,
+    }, handlers);
+    const menu = doc.getElementById('menu') as HTMLDetailsElement;
+    doc.getElementById('up')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    assert.deepEqual(calls, ['up']);
+    assert.equal(menu.open, false);
+    menu.open = true;
+    doc.getElementById('outside')!.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }));
+    assert.equal(menu.open, false);
 });

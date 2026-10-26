@@ -152,28 +152,8 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'false');
     await expect(rectZoomButton).not.toHaveClass(/is-active/);
 
-    const heightBefore = await getUiSmokeState(page);
-    const overlayCanvas = page.locator('#spectrum-overlay-canvas');
-    const overlayBoxBefore = await overlayCanvas.boundingBox();
-    expect(overlayBoxBefore).not.toBeNull();
-    expect(overlayBoxBefore!.height).toBeGreaterThan(0);
-    await openToolbarMenu(page, 0);
-    await toolbar.locator('[data-action="track-height-input"]').fill('112');
-    await toolbar.locator('[data-action="spectrum-height-input"]').fill('180');
-    await expect(overlayCanvas).toHaveCSS('height', '180px');
-    const overlayBoxAfter = await overlayCanvas.boundingBox();
-    expect(overlayBoxAfter).not.toBeNull();
-    await expect.poll(async () => {
-        const state = await getUiSmokeState(page);
-        return state.spectrumZoom?.trackHeight;
-    }).toBeGreaterThan(heightBefore.spectrumZoom?.trackHeight ?? 0);
-    await expect.poll(async () => {
-        const state = await getUiSmokeState(page);
-        return state.spectrumZoom?.spectrumOverlayHeight;
-    }).toBeGreaterThan(heightBefore.spectrumZoom?.spectrumOverlayHeight ?? 0);
-    expect(overlayBoxAfter!.height).toBeGreaterThan(overlayBoxBefore!.height);
-    await toolbar.locator('[data-action="track-height-reset"]').click({ force: true });
-    await toolbar.locator('[data-action="spectrum-height-reset"]').click({ force: true });
+    // Heights are dragged at the lanes' edges: the toolbar has no height fields.
+    await expect(toolbar.locator('[data-action="track-height-input"], [data-action="spectrum-height-input"]')).toHaveCount(0);
 
     await toolbar.locator('[data-action="content-spectrogram"]').click({ force: true });
     await expect(toolbar.locator('[data-action="content-spectrogram"]')).toHaveClass(/is-active/);
@@ -194,11 +174,11 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
 
     await expect(toolbar.locator('[data-action="zoom-to-selection"]')).toBeDisabled();
 
-    await openToolbarMenu(page, 1);
+    // One menu: Export, which also saves or runs a Recipe.
+    await expect(page.locator('#toolbar details.tb-menu')).toHaveCount(1);
+    await openToolbarMenu(page, 0);
     await domClick(page, '#toolbar [data-action="run-recipe"]');
     await domClick(page, '#toolbar [data-action="save-recipe"]');
-    await domClick(page, '#toolbar [data-action="copy-spec"]');
-    await openToolbarMenu(page, 2);
     await domClick(page, '#toolbar [data-action="export-png"]');
     await domClick(page, '#toolbar [data-action="export-csv"]');
     await domClick(page, '#toolbar [data-action="export-wav"]');
@@ -246,7 +226,7 @@ test('export-wav without a loop posts a visible info message', async ({ page }) 
     await loadResultsUi(page);
     await clearPostedMessages(page);
 
-    await openToolbarMenu(page, 2);
+    await openToolbarMenu(page, 0);
     await page.locator('#toolbar [data-action="export-wav"]').click({ force: true });
 
     const messages = await getPostedMessages(page);
@@ -258,16 +238,11 @@ test('export-wav without a loop posts a visible info message', async ({ page }) 
     ]));
 });
 
-test('copy-spec / export-png / export-csv ボタンが #a11y-announce を更新する', async ({ page }) => {
+test('export-png / export-csv ボタンが #a11y-announce を更新する', async ({ page }) => {
     await loadResultsUi(page);
     const toolbar = page.locator('#toolbar');
 
-    await openToolbarMenu(page, 1);
-
-    // copy-spec: クリック後に a11y-announce に成功メッセージが出る
-    await toolbar.locator('[data-action="copy-spec"]').click({ force: true });
-    await openToolbarMenu(page, 2);
-    await expect(page.locator('#a11y-announce')).not.toBeEmpty();
+    await openToolbarMenu(page, 0);
 
     // export-png: クリック後に announce が更新される
     await page.evaluate(() => {
@@ -282,6 +257,8 @@ test('copy-spec / export-png / export-csv ボタンが #a11y-announce を更新�
         const el = document.getElementById('a11y-announce');
         if (el) { el.textContent = ''; }
     });
+    // A used item closes its menu: open it again for the next one.
+    await openToolbarMenu(page, 0);
     await toolbar.locator('[data-action="export-csv"]').click({ force: true });
     await expect(page.locator('#a11y-announce')).not.toBeEmpty();
 });
@@ -290,25 +267,15 @@ test('clicking every selection-toolbar button produces the expected GUI-side rea
     await loadSelectionUi(page);
 
     const toolbar = page.locator('#selection-toolbar');
-    const directory = page.locator('.selection-tree-directory').first();
-
     await toolbar.locator('[data-action="open-file"]').click({ force: true });
     await toolbar.locator('[data-action="open-folder"]').click({ force: true });
     await toolbar.locator('[data-action="select-python-environment"]').click({ force: true });
-    await page.locator('[data-action="selection-select-all"]').click({ force: true });
-    await expect(page.locator('#selection-count')).toContainText('2 / 2');
-    await page.locator('[data-action="selection-clear-all"]').click({ force: true });
-    await expect(page.locator('#selection-count')).toContainText('0 / 2');
-    await directory.click({ force: true });
-    await expect(directory).toHaveAttribute('aria-expanded', 'false');
 
     const messages = await getPostedMessages(page);
     expect(messages).toEqual(expect.arrayContaining([
         expect.objectContaining({ type: 'select-target', targetKind: 'file' }),
         expect.objectContaining({ type: 'select-target', targetKind: 'directory' }),
         expect.objectContaining({ type: 'select-python-environment' }),
-        expect.objectContaining({ type: 'analyze-selected-files', filePaths: ['/tmp/session/a.wav', '/tmp/session/sub/b.flac'] }),
-        expect.objectContaining({ type: 'analyze-selected-files', filePaths: [] }),
     ]));
 });
 
@@ -319,10 +286,8 @@ test('clicking every track control changes the per-track UI or its side effects'
 
     const offsetBefore = await page.locator('#offset-val-0').textContent();
 
-    await page.locator('[data-action="pick-color"]').click({ force: true });
-    await expect(page.locator('#color-picker-popover')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.locator('#color-picker-popover')).toBeHidden();
+    // The swatch shows the track's colour (its role's, when it has one); it is not a control.
+    await expect(page.locator('.track-color-swatch').first()).not.toHaveAttribute('data-action');
 
     await domClick(page, '[data-action="toggle-playback"]');
     await expect(page.locator('[data-action="toggle-playback"]')).toHaveClass(/is-playing/);

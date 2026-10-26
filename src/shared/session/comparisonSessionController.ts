@@ -6,6 +6,7 @@ import type {
     SpectrogramSettings,
     StftOptions,
 } from '../analysis/analysisTypes';
+import { ENTRY_CONDITIONS_KEY, runCompareScan, runEntryScan, type ComparePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
 import type { CalibrationRequestContext, PairSpectrumResult } from '../protocol/backendProtocol';
 import { parsePanelMessage, type PanelMessage, type SaveRecipeMessage } from '../protocol/panelMessages';
 import type { AnalyzeSelectedFilesMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
@@ -20,7 +21,9 @@ export type SessionPublication =
     | { type: 'reanalyze-start'; count: number }
     | { type: 'reanalyze-end' }
     | DistributiveOmit<LazyPublication, 'analysisRevision'>
-    | PairSpectrumPublication;
+    | PairSpectrumPublication
+    | EntryPublication
+    | ComparePublication;
 
 export type PairSpectrumPublication =
     | ({ type: 'pair-spectrum-result'; requestId: string } & Omit<PairSpectrumResult, 'analysisRevision' | 'calibrationSignature'>)
@@ -79,6 +82,10 @@ export interface ComparisonSessionPorts {
     panelReady?(message: ComparisonPanelReadyMessage): Promise<void>;
     selectPythonEnvironment?(): Promise<void>;
     runRecipe?(scope: SessionScope): Promise<void>;
+    /** Writes the comparison's report as one folder; the user may still cancel the destination. */
+    saveReportFolder?(folder: string, files: Array<{ name: string; bytes: Uint8Array }>): Promise<void>;
+    /** The entry table's scan and storage; a host without it routes entry messages to `unsupported`. */
+    entry?: EntryScanPorts;
 }
 
 export function reasonOf(error: unknown): string {
@@ -98,6 +105,15 @@ function thenable(value: unknown): value is PromiseLike<unknown> {
  * lazy result conversion and export planning live here.
  */
 export class ComparisonSessionController {
+    /** Advanced by every entry scan, so an older scan stops before its next file. */
+    private entryScans = 0;
+    /**
+     * The latest comparison scan per source (a request id's prefix: 'track-stage', 'entry-hold', 'row', ...): a newer
+     * one from the same source supersedes it; another source's (the side panel's table beside the comparison) does not.
+     */
+    private readonly compareScans = new Map<string, number>();
+    private compareScanCount = 0;
+
     constructor(private readonly ports: ComparisonSessionPorts) {}
 
     /** Parses and handles one raw Webview message; unknown shapes are ignored. */
@@ -133,6 +149,37 @@ export class ComparisonSessionController {
                     if (this.ports.runRecipe) await this.ports.runRecipe(scope); else this.ports.unsupported(message.type);
                     return;
                 case 'save-recipe': await this.saveRecipe(message); return;
+                case 'entry-scan': {
+                    const entry = this.ports.entry;
+                    if (!entry) { this.ports.unsupported(message.type); return; }
+                    const scan = ++this.entryScans;
+                    await runEntryScan(entry, message, publication => this.ports.publish(publication),
+                        () => scan === this.entryScans && scope.isCurrent());
+                    return;
+                }
+                case 'compare-scan': {
+                    const entry = this.ports.entry;
+                    if (!entry) { this.ports.unsupported(message.type); return; }
+                    const source = message.requestId.replace(/-[^-]*$/, '');
+                    const scan = ++this.compareScanCount;
+                    this.compareScans.set(source, scan);
+                    await runCompareScan(entry, message, publication => this.ports.publish(publication),
+                        () => this.compareScans.get(source) === scan && scope.isCurrent());
+                    return;
+                }
+                case 'save-report-folder':
+                    if (!this.ports.saveReportFolder) { this.ports.unsupported(message.type); return; }
+                    await this.ports.saveReportFolder(message.folder, message.files.map(file => ({
+                        name: file.name,
+                        bytes: file.base64 !== undefined ? Uint8Array.from(atob(file.base64), char => char.charCodeAt(0)) : new TextEncoder().encode(file.text!),
+                    })));
+                    return;
+                // The running entry scan stops after its current file: a newer scan number makes it stale.
+                case 'entry-scan-cancel': this.entryScans++; return;
+                case 'entry-save-conditions':
+                    if (this.ports.entry) { const pending = this.ports.entry.write(ENTRY_CONDITIONS_KEY, message.table); if (thenable(pending)) await pending; }
+                    else this.ports.unsupported(message.type);
+                    return;
             }
         } catch (error) {
             if (scope.isCurrent()) this.ports.showError(reasonOf(error));

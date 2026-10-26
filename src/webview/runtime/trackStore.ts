@@ -8,6 +8,7 @@ import type {
     WaveformCoverage,
     WaveformRangeCache,
 } from './types';
+import { HostRequests } from './hostRequests';
 
 export interface TrackRecord {
     readonly id: TrackId;
@@ -17,9 +18,8 @@ export interface TrackRecord {
     readonly runtime: TrackRuntimeState;
     waveformCoverage: WaveformCoverage | null;
     rangeCache: WaveformRangeCache | null;
-    pendingRangeRequest: string | null;
-    detailRequest: LazyRequestState | null;
-    readonly spectrumSliceRequests: Map<number, LazyRequestState>;
+    /** What the track asked the host for: its waveform range ('range'), spectrogram ('detail') and cursor spectrum ('slice'). */
+    readonly requests: HostRequests<LazyRequestState | null>;
     readonly spectrumSliceCache: Map<number, SpectrumSlice>;
     readonly spectrumPainted: Map<number, boolean>;
 }
@@ -213,9 +213,7 @@ export class TrackStore {
             runtime: this.createRuntime(),
             waveformCoverage: null,
             rangeCache: null,
-            pendingRangeRequest: null,
-            detailRequest: null,
-            spectrumSliceRequests: new Map(),
+            requests: new HostRequests(),
             spectrumSliceCache: new Map(),
             spectrumPainted: new Map(),
         };
@@ -232,9 +230,7 @@ export class TrackStore {
     }
 
     private clearAsyncState(record: TrackRecord): void {
-        record.pendingRangeRequest = null;
-        record.detailRequest = null;
-        record.spectrumSliceRequests.clear();
+        record.requests.clear();
         record.spectrumSliceCache.clear();
     }
 }

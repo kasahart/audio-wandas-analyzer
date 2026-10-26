@@ -3,11 +3,8 @@ import type { HeightResize } from './heightResize';
 
 export interface ToolbarActionHandlers {
     onAction(action: string): void;
-    onHeightInput(action: string | null, value: string | null): void;
 }
 
-// Height inputs are handled by their input/change events; a click on them must not also run as a toolbar action.
-const HEIGHT_INPUT_ACTIONS = new Set(['track-height-input', 'spectrum-height-input']);
 const HEIGHT_DRAG_HANDLE_SELECTOR = '[data-action="track-height-drag"], [data-action="spectrum-height-drag"]';
 
 function actionOf(element: Element | null): string | null {
@@ -21,17 +18,11 @@ export function attachToolbarActions(container: HTMLElement | null, handlers: To
     container.addEventListener('click', function (e) {
         const target = eventTarget(e) && eventTarget(e).closest ? eventTarget(e).closest('[data-action]') : eventTarget(e);
         const action = actionOf(target);
-        if (!action || HEIGHT_INPUT_ACTIONS.has(action)) {
+        if (!action) {
             return;
         }
         handlers.onAction(action);
     });
-    function onHeightInput(e: Event): void {
-        const target = eventTarget(e);
-        handlers.onHeightInput(actionOf(target), target ? (target as HTMLInputElement).value : null);
-    }
-    container.addEventListener('input', onHeightInput);
-    container.addEventListener('change', onHeightInput);
 }
 
 export function attachExclusiveMenus(toolbar: HTMLElement | null): void {
@@ -50,6 +41,29 @@ export function attachExclusiveMenus(toolbar: HTMLElement | null): void {
             });
         });
     });
+    // A menu closes once one of its items is used, on a press outside it, and on Esc.
+    const closeAll = function (except?: Element | null): void {
+        toolbar.querySelectorAll<HTMLDetailsElement>('details.tb-menu[open]').forEach(function (menu) {
+            if (!except || !menu.contains(except)) {
+                menu.open = false;
+            }
+        });
+    };
+    toolbar.addEventListener('click', function (e) {
+        const target = eventTarget(e);
+        const item = target && target.closest ? target.closest('.tb-menu-popover [data-action]') : null;
+        if (item) {
+            closeAll();
+        }
+    });
+    toolbar.ownerDocument.addEventListener('pointerdown', function (e) {
+        closeAll(eventTarget(e));
+    }, true);
+    toolbar.ownerDocument.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && toolbar.querySelector('details.tb-menu[open]')) {
+            closeAll();
+        }
+    }, true);
 }
 
 export function attachHeightResizeListeners(

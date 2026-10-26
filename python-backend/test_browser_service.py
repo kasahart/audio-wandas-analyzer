@@ -305,8 +305,8 @@ def _encoded(extension: str, data: np.ndarray, rate: int) -> bytes:
         ".au": ("AU", "PCM_16"),
         ".snd": ("AU", "PCM_16"),
         ".caf": ("CAF", "PCM_16"),
-        ".w64": ("W64", "PCM_16"),
         ".rf64": ("RF64", "PCM_16"),
+        ".w64": ("W64", "PCM_16"),
         ".wav": ("WAV", "PCM_16"),
     }
     assert extension in formats, f"add an encoder for {extension}, which the bundled wandas now reads"
@@ -329,6 +329,7 @@ def test_load_accepts_every_format_wandas_reads(extension: str) -> None:
     frame = service.engine.get_file(path).frame
     assert frame.sampling_rate == rate
     assert frame.shape == (2, 800)
+    # Lossy codecs do not give the samples back exactly.
     if extension not in {".ogg", ".oga", ".opus", ".mp3"}:
         np.testing.assert_allclose(frame.data, data.T, atol=1e-4)
 

@@ -426,202 +426,12 @@ test('selection open-folder ボタンが select-target(directory) を送信す�
     assert.equal(message.targetKind, 'directory');
 });
 
-test('directory selection mode renders file tree checkboxes for audio files', () => {
-    const { dom } = setupSelectionEnv();
-    const checkboxes = dom.window.document.querySelectorAll('.selection-file-checkbox');
-    const directoryLabels = dom.window.document.querySelectorAll('.selection-tree-directory');
-    const checked = dom.window.document.querySelectorAll('.selection-file-checkbox:checked');
-
-    assert.equal(checkboxes.length, 2);
-    assert.equal(checked.length, 0);
-    assert.equal(directoryLabels.length, 1);
-    assert.match(dom.window.document.body.textContent || '', /a\.wav/);
-    assert.match(dom.window.document.body.textContent || '', /b\.flac/);
-});
-
-test('ファイルツリーにフィルタ入力が存在する', () => {
-    const env = setupSelectionEnv();
-    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
-    assert.ok(filterInput, 'tree-filter-input が存在すること');
-    assert.equal(filterInput!.tagName.toLowerCase(), 'input', 'input 要素であること');
-    env.dom.window.close();
-});
-
-test('ファイルツリーにリサイザーが存在する', () => {
+test('the side panel docks the entry table and keeps its resizer', () => {
     const env = setupSelectionEnv();
     const resizer = env.dom.window.document.getElementById('tree-resizer');
     assert.ok(resizer, 'tree-resizer が存在すること');
-    env.dom.window.close();
-});
-
-test('ファイルツリーフィルタでファイルが絞り込まれる', () => {
-    const env = setupSelectionEnv();
-    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
-    assert.ok(filterInput, 'tree-filter-input が存在すること');
-    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
-
-    const checkboxesBefore = env.dom.window.document.querySelectorAll('.selection-file-checkbox');
-    assert.equal(checkboxesBefore.length, 2, 'フィルタ前に 2 件のファイルが表示されること');
-
-    // "flac" でフィルタ → b.flac のみ表示
-    filterInput!.value = 'flac';
-    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
-    flush();
-
-    const visibleRows = Array.from(env.dom.window.document.querySelectorAll('.selection-file-row'))
-        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
-    assert.equal(visibleRows.length, 1, 'flac でフィルタすると 1 件だけ表示されること');
-    assert.ok(
-        visibleRows[0].textContent?.includes('b.flac'),
-        '表示されるのが b.flac であること',
-    );
-
-    // フィルタをクリア → 全件表示
-    filterInput!.value = '';
-    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
-    flush();
-    const rowsAfterClear = Array.from(env.dom.window.document.querySelectorAll('.selection-file-row'))
-        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
-    assert.equal(rowsAfterClear.length, 2, 'フィルタクリア後に 2 件に戻ること');
-
-    env.dom.window.close();
-});
-
-test('フィルタ適用後も選択状態が維持される', () => {
-    const env = setupSelectionEnv();
-    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
-    assert.ok(filterInput);
-    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
-
-    // a.wav にチェックを入れる
-    const checkboxA = env.dom.window.document.querySelector(
-        '.selection-file-checkbox[data-file-path="/tmp/session/a.wav"]',
-    ) as HTMLInputElement | null;
-    assert.ok(checkboxA);
-    checkboxA!.checked = true;
-    checkboxA!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
-
-    // "flac" でフィルタ（a.wav は非表示になる）
-    filterInput!.value = 'flac';
-    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
-    flush();
-
-    // チェック状態は維持されていること
-    const checkboxAAfter = env.dom.window.document.querySelector(
-        '.selection-file-checkbox[data-file-path="/tmp/session/a.wav"]',
-    ) as HTMLInputElement | null;
-    assert.ok(checkboxAAfter!.checked, 'フィルタ後も a.wav のチェック状態が維持されること');
-
-    env.dom.window.close();
-});
-
-test('ファイルツリーフィルタはファイル選択後の Webview 再生成でも維持される', () => {
-    const env = setupSelectionEnv();
-    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
-    assert.ok(filterInput);
-    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
-
-    filterInput!.value = 'flac';
-    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
-    flush();
-
-    const checkbox = env.dom.window.document.querySelector(
-        '.selection-file-checkbox[data-file-path="/tmp/session/sub/b.flac"]',
-    ) as HTMLInputElement | null;
-    assert.ok(checkbox);
-    checkbox!.checked = true;
-    checkbox!.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }));
-
-    const persistedState = env.vscodeStates.at(-1);
-    assert.ok(persistedState, 'ファイル選択前のフィルタ状態が vscode state に保存されること');
-    env.dom.window.close();
-
-    const rerendered = setupEnvWithState(DUMMY_SELECTION_WITH_RESULTS_STATE, persistedState);
-    const restoredInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
-    assert.equal(restoredInput?.value, 'flac', 'Webview 再生成後もフィルタ文字列が復元されること');
-    const visibleRows = Array.from(rerendered.dom.window.document.querySelectorAll('.selection-file-row'))
-        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
-    assert.equal(visibleRows.length, 1, 'Webview 再生成後もフィルタ結果だけが表示されること');
-    assert.ok(visibleRows[0].textContent?.includes('b.flac'));
-    rerendered.dom.window.close();
-});
-
-test('ファイルツリーフィルタは別フォルダの Webview 再生成には持ち越されない', () => {
-    const env = setupSelectionEnv();
-    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
-    assert.ok(filterInput);
-    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
-
-    filterInput!.value = 'flac';
-    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
-    flush();
-    const persistedState = env.vscodeStates.at(-1);
-    assert.ok(persistedState);
-    env.dom.window.close();
-
-    const rerendered = setupEnvWithState(DIFFERENT_SELECTION_STATE, persistedState);
-    const restoredInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
-    assert.equal(restoredInput?.value, '', '別 rootPath では古いフィルタを復元しないこと');
-    const visibleRows = Array.from(rerendered.dom.window.document.querySelectorAll('.selection-file-row'))
-        .filter((el: Element) => (el.closest('li') as HTMLElement | null)?.style.display !== 'none');
-    assert.equal(visibleRows.length, 1, '別フォルダの初期表示は古いフィルタで空にならないこと');
-    assert.ok(visibleRows[0].textContent?.includes('c.wav'));
-    rerendered.dom.window.close();
-});
-
-test('ファイルツリーの折りたたみ状態は別フォルダのフィルタ結果に持ち越されない', () => {
-    const env = setupSelectionEnv();
-    const directory = env.dom.window.document.querySelector(
-        '.selection-tree-directory[data-relative-path="sub"]',
-    ) as HTMLElement | null;
-    assert.ok(directory);
-    directory!.click();
-    assert.equal(directory!.getAttribute('aria-expanded'), 'false', '事前条件: sub ディレクトリが閉じていること');
-    const persistedState = env.vscodeStates.at(-1);
-    assert.ok(persistedState);
-    env.dom.window.close();
-
-    const rerendered = setupEnvWithState(DIFFERENT_SELECTION_WITH_SUB_STATE, persistedState);
-    const filterInput = rerendered.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
-    assert.ok(filterInput);
-    const flush = (rerendered.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
-
-    filterInput!.value = 'flac';
-    filterInput!.dispatchEvent(new rerendered.dom.window.Event('input', { bubbles: true }));
-    flush();
-
-    const rerenderedDirectory = rerendered.dom.window.document.querySelector(
-        '.selection-tree-directory[data-relative-path="sub"]',
-    ) as HTMLElement | null;
-    assert.ok(rerenderedDirectory);
-    const childList = rerenderedDirectory!.nextElementSibling as HTMLElement | null;
-    assert.equal(rerenderedDirectory!.getAttribute('aria-expanded'), 'true');
-    assert.notEqual(childList?.style.display, 'none', '別 rootPath の古い折りたたみ状態で一致ファイルを隠さないこと');
-    rerendered.dom.window.close();
-});
-
-test('ファイルツリーフィルタ更新は閉じたディレクトリを展開しない', () => {
-    const env = setupSelectionEnv();
-    const directory = env.dom.window.document.querySelector(
-        '.selection-tree-directory[data-relative-path="sub"]',
-    ) as HTMLElement | null;
-    assert.ok(directory);
-    directory!.click();
-    assert.equal(directory!.getAttribute('aria-expanded'), 'false', '事前条件: sub ディレクトリが閉じていること');
-
-    const filterInput = env.dom.window.document.getElementById('tree-filter-input') as HTMLInputElement | null;
-    assert.ok(filterInput);
-    const flush = (env.dom.window as unknown as Record<string, () => void>).__treeFilterFlush;
-
-    filterInput!.value = 'flac';
-    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
-    flush();
-    assert.equal(directory!.getAttribute('aria-expanded'), 'false', 'フィルタ適用で閉じたディレクトリを開かないこと');
-
-    filterInput!.value = 'b.flac';
-    filterInput!.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }));
-    flush();
-    assert.equal(directory!.getAttribute('aria-expanded'), 'false', 'フィルタ更新でも閉じたディレクトリを開かないこと');
+    assert.ok(env.dom.window.document.getElementById('entry-dock'), 'the entry table docks in the side panel');
+    assert.equal(env.dom.window.document.querySelector('.selection-file-checkbox'), null, 'no folder tree');
     env.dom.window.close();
 });
 
@@ -686,16 +496,18 @@ test('python-environment-state message shortens Windows-style path in button lab
     assert.equal(button.dataset.hint, 'C:\\Python311\\python.exe — Click to select Python environment');
 });
 
-test('directory selection mode posts analyze-selected-files immediately when a checkbox is checked', () => {
+/** Shows or takes off a listed file, as the entry table's slots and ＋ do (the test action the e2e uses too). */
+function setFileShown(dom: ReturnType<typeof setupSelectionEnv>['dom'], filePath: string, selected: boolean): void {
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
+        data: { type: 'comparison-panel-test-action', actionId: `show-${filePath}-${selected}`, actions: [{ action: 'set-file-selected', payload: { filePath, selected } }] },
+    }));
+}
+
+test('directory selection mode posts analyze-selected-files immediately when a file is shown', () => {
     const { dom, postedMessages } = setupSelectionEnv();
-    const firstCheckbox = dom.window.document.querySelector('[data-file-path="/tmp/session/a.wav"]');
+    setFileShown(dom, '/tmp/session/a.wav', true);
 
-    assert.ok(firstCheckbox instanceof dom.window.HTMLInputElement);
-
-    firstCheckbox.checked = true;
-    firstCheckbox.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-
-    const message = postedMessages.at(-1) as { type?: string; requestId?: string; filePaths?: string[] } | undefined;
+    const message = postedMessages.filter(entry => (entry as { type?: string }).type === 'analyze-selected-files').at(-1) as { type?: string; requestId?: string; filePaths?: string[] } | undefined;
 
     assert.ok(message, 'analyze-selected-files message should be posted');
     assert.equal(message?.type, 'analyze-selected-files');
@@ -703,40 +515,31 @@ test('directory selection mode posts analyze-selected-files immediately when a c
     assert.deepEqual(message?.filePaths, ['/tmp/session/a.wav']);
 });
 
-test('directory selection mode posts checked files in user selection order', () => {
+test('directory selection mode posts shown files in the order they were shown', () => {
     const { dom, postedMessages } = setupSelectionEnv();
-    const checkboxB = dom.window.document.querySelector('[data-file-path="/tmp/session/sub/b.flac"]');
-    const checkboxA = dom.window.document.querySelector('[data-file-path="/tmp/session/a.wav"]');
+    setFileShown(dom, '/tmp/session/sub/b.flac', true);
+    setFileShown(dom, '/tmp/session/a.wav', true);
 
-    assert.ok(checkboxB instanceof dom.window.HTMLInputElement);
-    assert.ok(checkboxA instanceof dom.window.HTMLInputElement);
-
-    checkboxB.checked = true;
-    checkboxB.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-    checkboxA.checked = true;
-    checkboxA.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-
-    const message = postedMessages.at(-1) as { type?: string; filePaths?: string[] } | undefined;
+    const message = postedMessages.filter(entry => (entry as { type?: string }).type === 'analyze-selected-files').at(-1) as { type?: string; filePaths?: string[] } | undefined;
 
     assert.equal(message?.type, 'analyze-selected-files');
     assert.deepEqual(message?.filePaths, ['/tmp/session/sub/b.flac', '/tmp/session/a.wav']);
 });
 
-test('directory selection mode keeps the tree visible while rendering selected tracks', () => {
+test('directory selection mode keeps the side panel while rendering selected tracks', () => {
     const { dom } = setupSelectionResultsEnv();
-    const checkboxes = dom.window.document.querySelectorAll('.selection-file-checkbox');
     const trackCanvas = dom.window.document.getElementById('track-canvas-0');
     const toolbar = dom.window.document.getElementById('toolbar');
 
-    assert.equal(checkboxes.length, 2);
-    assert.ok(trackCanvas, 'selected track canvas should remain visible next to the tree');
+    assert.ok(dom.window.document.getElementById('entry-dock'));
+    assert.ok(trackCanvas, 'selected track canvas should remain visible next to the side panel');
     assert.ok(toolbar, 'comparison toolbar should be visible in selection mode');
 });
 
 test('directory selection mode keeps existing track color stable when a new earlier tree item appears', () => {
     const { dom } = setupEnvWithState(DUMMY_SELECTION_WITH_B_RESULT_STATE);
     const initialSwatch = dom.window.document.querySelector(
-        '[data-action="pick-color"][data-track-id="track-1"]',
+        '.track-color-swatch[data-track-id="track-1"]',
     ) as HTMLElement | null;
 
     assert.ok(initialSwatch);
@@ -792,53 +595,26 @@ test('directory selection mode keeps existing track color stable when a new earl
 
     const rows = Array.from(dom.window.document.querySelectorAll('.track-row'));
     const bRow = rows.find((row) => row.textContent?.includes('b.flac'));
-    const bSwatch = bRow?.querySelector('[data-action="pick-color"]') as HTMLElement | null;
+    const bSwatch = bRow?.querySelector('.track-color-swatch') as HTMLElement | null;
 
     assert.ok(bSwatch);
     assert.equal(bSwatch.style.background, initialBColor);
     assert.equal(bSwatch.getAttribute('data-track-id'), 'track-1');
     const aSwatch = rows.find((row) => row.textContent?.includes('a.wav'))
-        ?.querySelector('[data-action="pick-color"]');
+        ?.querySelector('.track-color-swatch');
     assert.equal(aSwatch?.getAttribute('data-track-id'), 'track-2');
 });
 
-test('directory selection mode posts an empty selection when a checked file is unchecked', () => {
+test('directory selection mode posts an empty selection when the shown file is taken off', () => {
     const { dom, postedMessages } = setupSelectionResultsEnv();
-    const firstCheckbox = dom.window.document.querySelector('[data-file-path="/tmp/session/a.wav"]');
+    setFileShown(dom, '/tmp/session/a.wav', false);
 
-    assert.ok(firstCheckbox instanceof dom.window.HTMLInputElement);
-
-    firstCheckbox.checked = false;
-    firstCheckbox.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-
-    const message = postedMessages.at(-1) as { type?: string; requestId?: string; filePaths?: string[] } | undefined;
+    const message = postedMessages.filter(entry => (entry as { type?: string }).type === 'analyze-selected-files').at(-1) as { type?: string; requestId?: string; filePaths?: string[] } | undefined;
 
     assert.ok(message, 'analyze-selected-files message should be posted when removing the last track');
     assert.equal(message?.type, 'analyze-selected-files');
     assert.match(message?.requestId || '', /^selection-/);
     assert.deepEqual(message?.filePaths, []);
-});
-
-test('directory selection mode select-all test action sends the full selection immediately', () => {
-    const { dom, postedMessages } = setupSelectionEnv();
-
-    dom.window.dispatchEvent(
-        new dom.window.MessageEvent('message', {
-            data: {
-                type: 'comparison-panel-test-action',
-                actionId: 'selection-select-all-action',
-                actions: ['selection-select-all'],
-            },
-        }),
-    );
-
-    const message = postedMessages.find((entry) => {
-        return typeof entry === 'object' && entry !== null && (entry as { type?: string }).type === 'analyze-selected-files';
-    }) as { type?: string; requestId?: string; filePaths?: string[] } | undefined;
-
-    assert.ok(message, 'selection-select-all test action should post analyze-selected-files');
-    assert.match(message?.requestId || '', /^selection-/);
-    assert.deepEqual(message?.filePaths, ['/tmp/session/a.wav', '/tmp/session/sub/b.flac']);
 });
 
 test('comparisonWaveform.js が window.renderWaveformPipeline を登録する', () => {
@@ -3182,19 +2958,6 @@ test('スペクトルズームツールバーのボタンが生成される', ()
 });
 
 
-test('高さ調整UIは数値入力とリセットボタンだけをツールバーに生成する', () => {
-    const { dom } = setupEnv();
-    assert.ok(dom.window.document.querySelector('[data-action="track-height-input"]'));
-    assert.ok(dom.window.document.querySelector('[data-action="track-height-reset"]'));
-    assert.ok(dom.window.document.querySelector('[data-action="spectrum-height-input"]'));
-    assert.ok(dom.window.document.querySelector('[data-action="spectrum-height-reset"]'));
-    assert.equal(dom.window.document.querySelector('[data-action="track-height-down"]'), null);
-    assert.equal(dom.window.document.querySelector('[data-action="track-height-up"]'), null);
-    assert.equal(dom.window.document.querySelector('[data-action="spectrum-height-down"]'), null);
-    assert.equal(dom.window.document.querySelector('[data-action="spectrum-height-up"]'), null);
-});
-
-
 test('トラック高さはヘッダー実寸より低くならない', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
@@ -3254,28 +3017,15 @@ test('高さの数値入力がトラックとパワースペクトルの canvas 
     assert.strictEqual(snap1?.renderedUi?.trackHeight, 112);
     assert.strictEqual(snap1?.renderedUi?.spectrumOverlayHeight, 180);
 
-    env.dom.window.dispatchEvent(
-        new env.dom.window.MessageEvent('message', {
-            data: {
-                type: 'comparison-panel-test-action',
-                actions: ['track-height-reset', 'spectrum-height-reset'],
-                actionId: 'height-reset',
-            },
-        }),
-    );
-    await nextAnimationFrame(env.dom);
-
-    assert.strictEqual(trackCanvas.height, 80);
-    assert.strictEqual(trackSpectrumCanvas.height, 80);
-    assert.strictEqual(overlayCanvas.height, 140);
-    assert.strictEqual(overlayCanvas.style.height, '140px');
-
     env.dom.window.close();
 });
 
 
 test('高さリサイズハンドルのドラッグがトラックとパワースペクトルの高さを変更する', async () => {
     const env = setupEnv();
+    await nextAnimationFrame(env.dom);
+    // The cursor spectrum starts folded; open it to drag its edge.
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'comparison-panel-test-action', actions: ['toggle-spectrum-panel'], actionId: 'open-dock' } }));
     await nextAnimationFrame(env.dom);
 
     const trackHandle = env.dom.window.document.querySelector('[data-action="track-height-drag"]') as HTMLElement | null;

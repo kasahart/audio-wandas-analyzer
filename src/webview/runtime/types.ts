@@ -30,6 +30,8 @@ export interface DirectorySelectionState {
     selectedFilePaths: string[];
     pythonEnvironmentState: PythonEnvironmentState;
     spectrogramSettings: SpectrogramSettings;
+    /** Opens the entry table on `allFilePaths` before the lane view. */
+    entry?: boolean;
 }
 
 export interface PythonEnvironmentState {
@@ -45,10 +47,12 @@ export interface PersistedWebviewState {
     spectrumBandsPerOctave?: 0 | 1 | 3;
     sidebarCollapsed?: boolean;
     spectrumCollapsed?: boolean;
-    directoryCollapseRootPath?: string;
-    directoryCollapseState?: Record<string, boolean>;
-    treeFilterRootPath?: string;
-    treeFilterQuery?: string;
+    /** Entry table slots 0–3 by file path. */
+    entrySlots?: (string | null)[];
+    /** Differences fixed while comparing (D), shown as derived rows of the entry table. */
+    entryDerived?: import('./entryTable').DerivedRow[];
+    /** The scan Recipe as edited in the step bar; read back with a warning if it no longer parses. */
+    entryRecipe?: unknown;
 }
 
 export interface WebviewHostApi {
@@ -80,7 +84,6 @@ export interface UiSmokeState {
 export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'removeEventListener'> {
     ResizeObserver: typeof ResizeObserver;
     __uiSmokeState?: UiSmokeState;
-    __treeFilterFlush?: () => void;
     renderWaveformPipeline?: (
         context: CanvasRenderingContext2D,
         width: number,
@@ -105,19 +108,10 @@ export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'remove
     removeEventListener<K extends keyof WindowEventMap>(type: K, listener: (event: WindowEventMap[K]) => void): void;
 }
 
-export interface SelectionTreeNode {
-    type: 'directory' | 'file';
-    name: string;
-    relativePath: string;
-    filePath?: string;
-    children?: SelectionTreeNode[];
-}
-
 export interface TrackRuntimeState {
     muted?: boolean;
     offsetSeconds: number;
     hidden: boolean;
-    color: string | null;
     defaultColor: string;
 }
 

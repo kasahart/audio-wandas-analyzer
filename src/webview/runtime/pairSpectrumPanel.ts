@@ -7,6 +7,7 @@ import {
     type PairCurve, type PairReference, type PairSpectrumResultMessage, type PairStrings,
 } from './pairSpectrum';
 import type { TrackId } from './types';
+import { HostRequests } from './hostRequests';
 
 /** One visible channel lane, in display order. */
 export interface PairChannelSource {
@@ -60,7 +61,8 @@ export class PairSpectrumPanel {
     private referenceState: PairReference | null = null;
     private sentKey: string | null = null;
     private observedKey: string | null = null;
-    private pendingRequestId: string | null = null;
+    /** The response spectra asked for ('pair'), as every on-demand request is kept. */
+    private readonly requests = new HostRequests<undefined>();
     private result: PairSpectrumResultMessage | null = null;
     private error: string | null = null;
     private timer: ReturnType<typeof setTimeout> | null = null;
@@ -87,7 +89,7 @@ export class PairSpectrumPanel {
         this.referenceState = next;
         this.sentKey = null;
         this.observedKey = null;
-        this.pendingRequestId = null;
+        this.requests.drop('pair');
         this.result = null;
         this.error = null;
         this.hoverPoint = null;
@@ -175,7 +177,7 @@ export class PairSpectrumPanel {
         }
         if (sources.responses.length === 0) {
             this.sentKey = null;
-            this.pendingRequestId = null;
+            this.requests.drop('pair');
             this.result = null;
             this.error = null;
             this.render();
@@ -196,9 +198,8 @@ export class PairSpectrumPanel {
             return;
         }
         this.sentKey = key;
-        this.pendingRequestId = this.host.nextRequestId();
         this.error = null;
-        this.host.post({ ...request, requestId: this.pendingRequestId });
+        this.requests.ask('pair', this.host.nextRequestId(), key, undefined, ({ requestId }) => this.host.post({ ...request, requestId }));
         this.render();
     }
 
@@ -207,10 +208,10 @@ export class PairSpectrumPanel {
         if (message.type !== 'pair-spectrum-result' && message.type !== 'pair-spectrum-error') {
             return false;
         }
-        if (message.requestId !== this.pendingRequestId || message.analysisId !== this.host.analysisId()) {
+        if (!this.requests.answering('pair', message.requestId) || message.analysisId !== this.host.analysisId()) {
             return true;
         }
-        this.pendingRequestId = null;
+        this.requests.settle(message.requestId);
         if (message.type === 'pair-spectrum-error') {
             this.error = message.error;
             this.result = null;
@@ -227,7 +228,7 @@ export class PairSpectrumPanel {
     }
 
     get waiting(): boolean {
-        return this.pendingRequestId !== null;
+        return this.requests.pending('pair') !== undefined;
     }
 
     get lastResult(): PairSpectrumResultMessage | null {

@@ -7,18 +7,13 @@ export interface SelectionLayoutParts {
     rootPath: string;
     isEmpty?: boolean;
     sidebarCollapsed?: boolean;
-    filterQuery: string;
-    treeHtml: string;
     resultsPaneHtml: string;
     python?: { text: string; tooltip: string; warning: boolean };
-    /** The Web host's Clear also empties the list, since it keeps no folder to list again. */
-    clearEmptiesList?: boolean;
 }
 
 export type SelectionLayoutStrings = Pick<UiStrings,
-    | 'selectionHeader' | 'btnOpenFile' | 'btnOpenFolder' | 'btnOpenAnotherFolder' | 'treeFilterPlaceholder'
-    | 'btnSelectAll' | 'btnClear' | 'ariaSelectionTree'
-    | 'hintOpenFile' | 'hintOpenFolder' | 'hintBrowserOpenFolder' | 'hintSelectAll' | 'hintClearAll' | 'hintClearList' | 'hintTreeFilter' | 'hintTreeResizer'> & PanelCollapseStrings;
+    | 'selectionEmptyHint' | 'btnOpenFile' | 'btnOpenFolder' | 'btnOpenAnotherFolder'
+    | 'hintOpenFile' | 'hintOpenFolder' | 'hintBrowserOpenFolder' | 'hintTreeResizer'> & PanelCollapseStrings;
 
 /** Until the panel lists something there is no "another" folder to open. */
 export function selectionFolderButton(listed: boolean, strings: SelectionLayoutStrings): { text: string; hint: string } {
@@ -36,8 +31,6 @@ export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: Select
     const layoutClasses = [parts.isEmpty ? 'is-empty' : '', parts.sidebarCollapsed ? 'sidebar-collapsed' : ''].filter(Boolean).join(' ');
     return '<div id="directory-selection-layout"' + (layoutClasses ? ' class="' + layoutClasses + '"' : '') + '>'
         + '  <div id="selection-toolbar">'
-        + '    <span style="font-weight:700;font-size:12px;color:var(--accent)">' + escapeHtml(strings.selectionHeader) + '</span>'
-        + '    <div class="tb-sep"></div>'
         + '    <button class="tb-btn" data-action="open-file"' + hintAttr(strings.hintOpenFile) + '>' + escapeHtml(strings.btnOpenFile) + '</button>'
         + '    <button class="tb-btn" data-action="open-folder"' + hintAttr(folder.hint) + '>' + escapeHtml(folder.text) + '</button>'
         + pythonButton
@@ -46,18 +39,8 @@ export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: Select
         + '    <button id="selection-sidebar-rail" data-action="toggle-selection-sidebar"' + hintAttr(strings.hintExpandSidebar) + ' aria-label="' + escapeHtml(strings.hintExpandSidebar) + '"><span>›</span><span id="selection-rail-count"></span></button>'
         + '    <div id="selection-sidebar">'
         + '      ' + panelToggleHtml('sidebar', Boolean(parts.sidebarCollapsed), strings)
-        + '      <div id="selection-summary">'
-        + '        <div class="selection-count" id="selection-count"></div>'
-        + '        <div class="selection-path">' + escapeHtml(parts.rootPath) + '</div>'
-        + '      </div>'
-        + '      <div id="tree-filter-wrap">'
-        + '        <input id="tree-filter-input" type="text" value="' + escapeHtml(parts.filterQuery) + '" placeholder="' + escapeHtml(strings.treeFilterPlaceholder || 'Filter files...') + '"' + hintAttr(strings.hintTreeFilter) + ' autocomplete="off" spellcheck="false">'
-        + '      </div>'
-        + '      <div id="selection-actions">'
-        + '        <button class="tb-btn" data-action="selection-select-all"' + hintAttr(strings.hintSelectAll) + '>' + escapeHtml(strings.btnSelectAll) + '</button>'
-        + '        <button class="tb-btn" data-action="selection-clear-all"' + hintAttr(parts.clearEmptiesList ? strings.hintClearList : strings.hintClearAll) + '>' + escapeHtml(strings.btnClear) + '</button>'
-        + '      </div>'
-        + '      <div id="selection-tree" role="group" aria-label="' + escapeHtml(strings.ariaSelectionTree) + '">' + parts.treeHtml + '</div>'
+        // The entry table sits here (entryRuntime mounts it); maximized, the same table covers the window.
+        + '      <div id="entry-dock" data-empty-hint="' + escapeHtml(strings.selectionEmptyHint) + '"></div>'
         + '    </div>'
         + '    <div class="tree-resizer" id="tree-resizer"' + hintAttr(strings.hintTreeResizer) + ' role="separator" aria-orientation="vertical"></div>'
         + '    <div id="selection-results-pane">'

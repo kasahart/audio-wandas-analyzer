@@ -126,3 +126,14 @@ test('Save as recipe asks the host for what the bottom panel shows: the bands, t
         responses: request.responses?.map(source => ({ filePath: source.filePath, channelIndex: source.channelIndex })),
     });
 });
+
+test('a fresh panel folds the cursor spectrum; a channel ◎ unfolds it to show the transfer function', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    // A fresh panel: no saved view state.
+    await page.setContent(buildExtensionHostPathUiSmokeHtml().replace('<head>', '<head><script>window.__uiSmokeViewState = null;</script>'), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#spectrum-overlay-wrap')).toBeHidden();
+    await expect(page.locator('#spectrum-section-header [data-action="toggle-spectrum-panel"]')).toHaveAttribute('aria-expanded', 'false');
+    await page.locator('[data-action="set-pair-reference"]').first().click();
+    await expect(page.locator('#spectrum-overlay-wrap')).toBeVisible();
+    await expect(page.locator('#pair-spectrum-wrap')).toBeVisible();
+});

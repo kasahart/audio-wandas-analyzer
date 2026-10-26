@@ -23,9 +23,9 @@ const REQUIRED_PACKAGES = [
         minimum: [0, 12, 0],
     },
     {
-        modules: ['wandas', 'mosqito'],
+        modules: ['wandas', 'mosqito', 'librosa'],
         distribution: 'wandas',
-        requirement: 'wandas[psychoacoustic]>=0.10.0,<0.11.0',
+        requirement: 'wandas[psychoacoustic,effects]>=0.10.0,<0.11.0',
         minimum: [0, 10, 0],
         maximum: [0, 11, 0],
     },

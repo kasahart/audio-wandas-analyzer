@@ -123,8 +123,10 @@ test('maximizing the spectrum gives its plot the tracks\' room and Esc restores 
 
     // Esc in a text field belongs to that field.
     await page.evaluate(() => {
-        document.querySelector('[data-action="track-height-input"]')!
-            .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        const field = document.createElement('input');
+        document.getElementById('toolbar')!.append(field);
+        field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        field.remove();
     });
     await expect(maximize).toHaveAttribute('aria-pressed', 'true');
 

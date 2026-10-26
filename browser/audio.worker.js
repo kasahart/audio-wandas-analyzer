@@ -82,7 +82,12 @@ async function initialize() {
 // Booting at Worker start (not on the first message) lets the host start Pyodide before any WAV is chosen.
 // The unsolicited `ready` message only drives the host's Python indicator; each command still reports a failed boot itself.
 const initialization = initialize();
-initialization.then(() => self.postMessage({ ready: true }), () => self.postMessage({ ready: false }));
+// With `lacks`: the optional packages this runtime cannot import, so the host offers only what runs here.
+initialization.then(() => {
+    let lacks = [];
+    try { lacks = JSON.parse(pyodide.runPython('import json, optional_packages; json.dumps(optional_packages.lacking())')); } catch { /* an older cached runtime: nothing reported */ }
+    self.postMessage({ ready: true, lacks });
+}, () => self.postMessage({ ready: false }));
 self.onmessage = ({ data }) => {
     queue = queue.then(async () => {
         try {

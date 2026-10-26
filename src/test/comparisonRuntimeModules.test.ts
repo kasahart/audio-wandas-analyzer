@@ -63,8 +63,8 @@ test('persisted state store merges patches through the host boundary', () => {
         setState: (state) => { writes.push(state); },
     };
     const store = new PersistedStateStore(host);
-    store.update({ treeFilterQuery: 'kick' });
-    assert.deepEqual(store.snapshot, { contentType: 'waveform', treeFilterQuery: 'kick' });
+    store.update({ sidebarCollapsed: true });
+    assert.deepEqual(store.snapshot, { contentType: 'waveform', sidebarCollapsed: true });
     assert.deepEqual(writes, [store.snapshot]);
 });
 

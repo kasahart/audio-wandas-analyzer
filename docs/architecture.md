@@ -20,7 +20,7 @@
 Comparison UI と DSP は同じソースを使う。解析コマンドの型・応答検証は
 `src/shared/protocol/backendProtocol.ts`、UI から host への型・入力検証は
 `src/shared/protocol/panelMessages.ts` に置く。Worker の正常応答も native IPC と同じ
-validator を通す。Web の load/unload/export-plan は Worker 専用であり共通7コマンド（`command_dispatch.COMMANDS`）と混同しない。
+validator を通す。Web の load/unload/export-plan は Worker 専用であり共通10コマンド（`command_dispatch.COMMANDS`）と混同しない。
 
 - `AnalysisClient` は analyze/detail/slice/range/export/recipe の要求を組み立てる。
   `executeLazyAnalysis` は detail/slice/range の UI 結果へ変換する。host は
@@ -173,7 +173,7 @@ flowchart LR
 責務:
 
 - stdin の NDJSON リクエストを検証し、`AnalysisService` に渡す
-- 共通9コマンド（analyze、range、track-detail、release-track-detail、spectrum-slice、pair-spectrum、export-wav-loop、run-recipe、build-recipe）を dispatch する
+- 共通10コマンド（analyze、range、track-detail、release-track-detail、spectrum-slice、pair-spectrum、export-wav-loop、run-recipe、build-recipe、scan）を dispatch する
 - request ID 付きの結果または error を stdout に返す
 - 起動通知・heartbeat と stderr の診断を提供する
 
@@ -239,6 +239,34 @@ flowchart LR
 - 単一ファイル、ディレクトリ選択、複数ファイル比較のすべてで `ComparisonPanel` に統一されている
 - 比較件数に応じてタイトルとレイアウト密度だけが変わり、基本的な描画パイプラインは共通である
 - 波形描画の定義元は `src/webview/waveform/waveformRenderer.ts`。ビルドで生成した `dist/webview/comparisonWaveform.js` を Webview が読み込む
+
+### 7.1 入口の表（entry table）
+
+対象: [src/webview/runtime/entryRuntime.ts](../src/webview/runtime/entryRuntime.ts) / [entryTable.ts](../src/webview/runtime/entryTable.ts) / [entryTableHtml.ts](../src/webview/runtime/entryTableHtml.ts) / [src/shared/analysis/entryScan.ts](../src/shared/analysis/entryScan.ts)
+
+フォルダを開くと（VS Code はディレクトリ解析、Web はフォルダ選択）、レーン表示の上に 1 行 1 ファイルの表が開く。Webview は `entry-scan` を 1 回送り、共通 controller の `runEntryScan` が保存済みの条件表を返したあと、1 件ずつ `scan`（固定レシピ `python-backend/recipes/entry-scan.recipe.json`）の結果を `entry-scan-result` で返す。同じファイル（VS Code はパス・size・mtime、Web は内容の sha256）と同じ校正なら保存済みの結果を使う。保存先は VS Code が workspaceState、Web が localStorage で、鍵は `awa.scanIndex.v1` / `awa.conditions.v1`（このフォルダの分だけ残す）。Web は 1 件ずつ load → scan → unload し、走査後に Worker を作り直して選択中のトラックを読み直す。表の数値・条件・Δ・外れ値・CSV は `entryTable.ts` の純関数。条件は諸元表から取る: フォルダ直下（VS Code は 1 つ上も）の CSV/TSV のうち、音源の 50% 以上に対応するものを自動で読み（`src/shared/analysis/entryMetadata.ts`、asd-insight と同じ規則: 区切りはタブとカンマの多い方、音声列 audio_file 等は開いたフォルダ直下からの相対パスで完全一致、ファイル名だけなら候補が 1 つのときだけ、無ければ sample_id 等に拡張子を補う、大小区別、1 音源に複数行なら最初の行、128 列・20 MiB まで）、表を貼る・表にドロップしても同じ規則で読む。サブフォルダの階層も条件列になる。諸元表もサブフォルダも無いときだけファイル名（`_`/`-` 区切りで最後のトークンの前の 2 つ）から取る。走査中は行をファイル（諸元の行）順に固定し、全件そろってから Δ 順に並べ直す。スロットに入れた未走査のファイルは先に走査する。キーは 0（押す: 基準、押さえる: Δ）、1–3（スロット）、Enter（比較台へ）、Esc（ファイルツリーへ）。入口が開いている間、レーン表示のショートカットは働かない。
+
+### 7.2 比較台（comparison bench）
+
+対象: [src/webview/runtime/benchRuntime.ts](../src/webview/runtime/benchRuntime.ts) / [benchPanes.ts](../src/webview/runtime/benchPanes.ts)
+
+入口の表で 1–3 にスロットを入れて Enter を押すと比較台が開く（スロット 1–3 が空なら開かず、フッタに「1–3」を出す）。左にスロットのカード、中央に 基準・比較・差 の 3 段で、どれも scan の `spectrumDb`（192 点、0〜fs/2 の同じ周波数軸）をチャンネル間でパワー平均して描く。基準はスロット 0 のファイル、無ければ比較中のファイルと同条件の点ごとの中央値（入口の表の群と同じ）。差段の見出しは 1/3 oct の Δ の絶対値が大きい 3 帯と Δ Leq で、Leq は 0.1 dB に丸めてから引くので表示上 基準 + Δ = 比較 になる。1–3 は押さえている間だけ比較を入れ替え、短く押すとその比較に切り替える。0 は比較中のファイルを基準にする（もう一度で群に戻す）。Esc で入口に戻り、スロットはそのまま。Enter はスロットのファイルを今までどおり `analyze-selected-files` で開くので、各段の ▶ は既存の再生を使い、Web が Frame を持つのはスロットのファイルだけになる。レーン表示は比較台の裏に残るが、比較台からは行けない（消すのは後の PR）。
+
+### 7.3 散布図・俯瞰帯・区間・差の固定（PR 4）
+
+入口の右に散布図（`entryPlots.ts`）。軸名のプルダウンがそのまま軸の選択で、候補は Leq・主成分 Hz・表の帯域と、諸元の数値列。点の形 = 条件、青 = フォーカス行の基準群、橙の輪 = 外れ値。点を押すとその行にフォーカスする。下に全件の 1/3 oct 俯瞰帯（行 = 表の順、表示中の範囲を枠で囲む）。1–3 は短く押すとスロットへ、押さえるとそのスロットの行（空ならフォーカス行）と基準群の差スペクトルが散布図の下に出て、離して 150 ms で消える（スロットのチップの長押しも同じ）。比較台の左下の区間を変えると、スロットのファイルと各比較の基準群（12 件まで）を `bench-scan` でその区間について scan し直し、終わるまで基準段・差段は灰で「未確定」。13 件以上の群は入口区間の基準を使い、差段の見出しに「基準 = 入口区間」。保存済みの指標は書き換えない。D で比較中の差を固定すると、左列に「Δ · 区間」カードが増え、入口の表では親の行の直下に派生行（親の条件、そのときの基準との Δ）が 1 行入る。派生行は群の件数・中央値・外れ値に入らず、CSV には区間列付きで出る。派生行は PersistedWebviewState（Web は localStorage の viewState）に残る。
+
+### 7.4 手順バー（PR 5）
+
+対象: [src/webview/runtime/stepBar.ts](../src/webview/runtime/stepBar.ts) / [src/shared/recipe/recipeSteps.ts](../src/shared/recipe/recipeSteps.ts)
+
+入口と比較台の上に、scan のレシピをチップで並べる。入口は「entry-scan › … › 指標 v2」、比較台は「entry-scan › … › 区間 › 平均スペクトル」に畳み、「…」で全部を開く。レシピはホストが `entry-conditions` で送る固定レシピ（`recipes/entry-scan.recipe.json`）。⚙ で開くフォームの項目は `STEP_PARAMS`（HPF・LPF・BPF の cutoff と order、welch の n_fft と window）で、wandas 0.9.0 に `default_recipe_registry().describe()` が無いための仮の表（wandas の次のリリースで置き換える）。値は wandas の符号化（float は big-endian IEEE 754 の 16 進）でレシピに書き戻す。標本化周波数に対して無効な値（cutoff ≥ fs/2、2 の冪でない n_fft など）のチップは赤くなり、そのステップを抜いたレシピ（`runnableRecipe`）で入口を最初から scan し直す（保存済みの結果はレシピ鍵が違うので使わない）。編集したレシピは PersistedWebviewState に残り、読めなくなっていたら 1 行の警告を出して標準のレシピに戻す。比較台では区間チップが「≠ 入口」の点線になり、平均スペクトルのチップを押さえている間は、基準がスロット 0 の 1 件のときに限り、レーン表示が持つスペクトログラムで 3 段を描く。
+
+### 7.5 報告の出口（PR 6）
+
+対象: [src/webview/runtime/benchReport.ts](../src/webview/runtime/benchReport.ts)
+
+比較台の「報告に」で、`<レシピ名>_<YYYYMMDD-HHMMSS>/` の 1 フォルダに、基準.png、スロットごとの 比較 n.png・差 n.png（1200×360、白地）、報告.csv、`<レシピ名>.recipe.json` を書き出す。報告.csv は 1 行 1 スロットで、列は ファイル・条件（列ごと）・区間・Leq dB(A)・基準 Leq・Δ Leq・帯域1〜3 Hz と Δ1〜3 dB・基準群 n・基準群ファイル（`;` 区切り）・解析仕様版・外れ値（UTF-8 BOM、dB は小数 1 桁、Hz は整数、欠損は空）。.recipe.json は scan のレシピの time_slice に比較台の区間を書き込んだもので、wandas の `RecipePlan.from_dict` でそのまま読める。ファイル名・見出しは UI の言語。Webview が中身を作り、`save-report-folder` でホストに渡す: VS Code は選んだフォルダの下にフォルダを作って書き、Web はフォルダ名の zip を 1 つダウンロードさせる。
 
 ### 8. Waveform Renderer
 
@@ -429,8 +457,10 @@ src/
     suite/index.ts          VS Code E2E スモークテスト
 python-backend/
   backend_server.py         常駐 NDJSON サーバー
-  command_dispatch.py       共通7コマンドの入力検証と dispatch
+  command_dispatch.py       共通10コマンドの入力検証と dispatch
   analysis_service.py       解析コマンドの実装
+  scan_service.py           scan: 1 ファイルの区間から解析仕様の指標を取る（入口の表の 1 行）
+  analysis_spec.py          解析仕様（版付きの固定値。版は scan の条件 ID に入る）
   analysis_engine.py        音声 frame と STFT のキャッシュ
   analyzer.py               frame から表示用結果を生成
   decimator.py              バケット argmin/argmax 波形エンベロープ生成

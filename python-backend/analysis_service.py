@@ -144,7 +144,7 @@ class RecipeBuildResult(TypedDict):
 _NOMINAL_BAND_CENTERS_HZ: dict[int, tuple[float, ...]] = {
     1: (31.5, 63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0),
     3: (
-        25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0, 125.0, 160.0, 200.0,
+        20.0, 25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0, 125.0, 160.0, 200.0,
         250.0, 315.0, 400.0, 500.0, 630.0, 800.0, 1000.0, 1250.0, 1600.0, 2000.0,
         2500.0, 3150.0, 4000.0, 5000.0, 6300.0, 8000.0, 10000.0, 12500.0, 16000.0, 20000.0,
     ),
@@ -585,6 +585,32 @@ class AnalysisService:
             window=window,
         )
         return {"name": "transfer-function", "recipe": recipe}
+
+    def scan(
+        self,
+        file_path: str,
+        *,
+        recipe: Mapping[str, object],
+        region: Mapping[str, float] | None = None,
+        channels: list[int] | None = None,
+        calibration_profile: object = None,
+        stage: str | None = None,
+        detail: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        from scan_service import scan
+
+        return dict(
+            scan(
+                self.engine,
+                file_path,
+                recipe=recipe,
+                region=region,
+                channels=channels,
+                calibration_profile=calibration_profile,
+                stage=stage,
+                detail=detail,
+            )
+        )
 
     def release_track_detail(self, file_path: str | Path) -> dict[str, object]:
         return {}

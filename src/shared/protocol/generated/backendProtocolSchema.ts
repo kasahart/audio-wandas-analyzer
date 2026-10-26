@@ -1031,6 +1031,420 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             },
             "additionalProperties": false
         },
+        "ScanRegion": {
+            "type": "object",
+            "required": [
+                "start",
+                "end"
+            ],
+            "properties": {
+                "start": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "end": {
+                    "type": "number",
+                    "minimum": 0
+                }
+            },
+            "additionalProperties": false
+        },
+        "ScanPayload": {
+            "type": "object",
+            "required": [
+                "filePath",
+                "recipe"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                },
+                "recipe": {
+                    "type": "object"
+                },
+                "region": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/ScanRegion"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "channels": {
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "integer",
+                                "minimum": 0
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "calibration": {
+                    "$ref": "#/$defs/CalibrationProfile"
+                },
+                "stage": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "detail": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/StageDetail"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": false
+        },
+        "StageDetail": {
+            "type": "object",
+            "required": [
+                "x",
+                "points"
+            ],
+            "properties": {
+                "x": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "y": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "points": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 8000
+                }
+            },
+            "additionalProperties": false
+        },
+        "StageView": {
+            "type": "object",
+            "required": [
+                "frame",
+                "kind"
+            ],
+            "properties": {
+                "frame": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "line",
+                        "bar",
+                        "heatmap",
+                        "none"
+                    ]
+                },
+                "x": {
+                    "type": "string",
+                    "enum": [
+                        "frequency",
+                        "time",
+                        "band",
+                        "quefrency"
+                    ]
+                },
+                "xScale": {
+                    "type": "string",
+                    "enum": [
+                        "log",
+                        "linear"
+                    ]
+                },
+                "quantity": {
+                    "type": "string",
+                    "enum": [
+                        "level",
+                        "gain",
+                        "coherence",
+                        "value",
+                        "roughness",
+                        "cepstrum"
+                    ]
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "xs": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "ys": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "yAxis": {
+                    "type": "string",
+                    "enum": [
+                        "frequency",
+                        "bark",
+                        "quefrency"
+                    ]
+                },
+                "values": {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "matrix": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "whole": {
+                    "type": "array",
+                    "items": {
+                        "type": "boolean"
+                    }
+                },
+                "detail": {
+                    "type": "boolean"
+                },
+                "waveform": {
+                    "type": "object",
+                    "required": [
+                        "min",
+                        "max",
+                        "minT",
+                        "maxT",
+                        "absolutePeak",
+                        "unit",
+                        "ref"
+                    ],
+                    "properties": {
+                        "min": {
+                            "type": "array",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "max": {
+                            "type": "array",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "minT": {
+                            "type": "array",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "maxT": {
+                            "type": "array",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "absolutePeak": {
+                            "type": "number"
+                        },
+                        "unit": {
+                            "type": "string"
+                        },
+                        "ref": {
+                            "type": "number"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
+        "ScanInput": {
+            "type": "object",
+            "required": [
+                "id",
+                "fs",
+                "channels",
+                "durationS",
+                "unit",
+                "ref"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "fs": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "durationS": {
+                    "type": "number"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "ref": {
+                    "type": "number"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ScanResult": {
+            "type": "object",
+            "required": [
+                "ok"
+            ],
+            "properties": {
+                "ok": {
+                    "type": "boolean"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "conditionId": {
+                    "type": "string"
+                },
+                "input": {
+                    "$ref": "#/$defs/ScanInput"
+                },
+                "leqDbA": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "peakHz": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "spectrumDb": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number"
+                        }
+                    }
+                },
+                "thirdOctDb": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "crest": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "specVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "wandasVersion": {
+                    "type": "string"
+                },
+                "elapsedMs": {
+                    "type": "number"
+                },
+                "endFrame": {
+                    "type": "string"
+                },
+                "stage": {
+                    "$ref": "#/$defs/StageView"
+                },
+                "failedStep": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
         "BackendErrorPayload": {
             "type": "object",
             "required": [
@@ -1167,6 +1581,10 @@ export const BACKEND_PROTOCOL_SCHEMA = {
         "build-recipe": {
             "payload": "BuildRecipePayload",
             "result": "BuildRecipeResult"
+        },
+        "scan": {
+            "payload": "ScanPayload",
+            "result": "ScanResult"
         }
     },
     "x-requestEnvelopeKeys": [
@@ -1178,7 +1596,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
     ]
 } as const;
 
-export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail' | 'build-recipe';
+export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail' | 'build-recipe' | 'scan';
 
 export interface StftOptions {
     nFft: number;
@@ -1439,6 +1857,79 @@ export interface BuildRecipePayload {
 export interface BuildRecipeResult {
     name: string;
     recipe: Record<string, unknown>;
+}
+
+export interface ScanRegion {
+    start: number;
+    end: number;
+}
+
+export interface ScanPayload {
+    filePath: string;
+    recipe: Record<string, unknown>;
+    region?: ScanRegion | null;
+    channels?: number[] | null;
+    calibration?: CalibrationProfile;
+    stage?: string | null;
+    detail?: StageDetail | null;
+}
+
+export interface StageDetail {
+    x: number[];
+    y?: number[];
+    points: number;
+}
+
+export interface StageView {
+    frame: string;
+    kind: "line" | "bar" | "heatmap" | "none";
+    x?: "frequency" | "time" | "band" | "quefrency";
+    xScale?: "log" | "linear";
+    quantity?: "level" | "gain" | "coherence" | "value" | "roughness" | "cepstrum";
+    unit?: string;
+    xs?: number[];
+    ys?: number[];
+    yAxis?: "frequency" | "bark" | "quefrency";
+    values?: (number | null)[];
+    matrix?: ((number | null)[])[];
+    whole?: boolean[];
+    detail?: boolean;
+    waveform?: {
+    min: (number | null)[];
+    max: (number | null)[];
+    minT: (number | null)[];
+    maxT: (number | null)[];
+    absolutePeak: number;
+    unit: string;
+    ref: number;
+};
+}
+
+export interface ScanInput {
+    id: string;
+    fs: number;
+    channels: number[];
+    durationS: number;
+    unit: string;
+    ref: number;
+}
+
+export interface ScanResult {
+    ok: boolean;
+    reason?: string;
+    conditionId?: string;
+    input?: ScanInput;
+    leqDbA?: number[];
+    peakHz?: number[];
+    spectrumDb?: number[][];
+    thirdOctDb?: ((number | null)[])[];
+    crest?: number[];
+    specVersion?: number;
+    wandasVersion?: string;
+    elapsedMs?: number;
+    endFrame?: string;
+    stage?: StageView;
+    failedStep?: string;
 }
 
 export interface BackendErrorPayload {

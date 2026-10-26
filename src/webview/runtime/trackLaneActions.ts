@@ -9,7 +9,8 @@ export type TrackLaneAction =
     | 'configure-calibration'
     | 'offset-up'
     | 'offset-down'
-    | 'pick-color'
+    | 'offset-edit'
+    | 'offset-reset'
     | 'set-pair-reference';
 
 export interface TrackLaneContext {
@@ -41,16 +42,16 @@ export function attachTrackLaneActions(wrapper: HTMLElement, resolver: TrackLane
         const ctx = laneContext(e, resolver);
         if (ctx && Object.hasOwn(handlers, ctx.action)) {
             handlers[ctx.action as TrackLaneAction](ctx);
+            // An item used closes the track's … menu.
+            const menu = ctx.target.closest ? ctx.target.closest('details.track-more') as HTMLDetailsElement | null : null;
+            if (menu) menu.open = false;
         }
     });
-    wrapper.addEventListener('keydown', function (e) {
-        if (e.key !== 'Enter' && e.key !== ' ') {
-            return;
-        }
-        const ctx = laneContext(e, resolver);
-        if (ctx && ctx.action === 'pick-color') {
-            e.preventDefault();
-            handlers['pick-color'](ctx);
-        }
-    });
+    // A press anywhere else closes an open … menu, as the toolbar's menus do.
+    wrapper.ownerDocument.addEventListener('pointerdown', function (e) {
+        const target = eventTarget(e);
+        wrapper.querySelectorAll<HTMLDetailsElement>('details.track-more[open]').forEach(function (menu) {
+            if (!target || !menu.contains(target)) menu.open = false;
+        });
+    }, true);
 }

@@ -55,9 +55,6 @@ export function buildBucketPoints(
     return tMin <= tMax ? [minPoint, maxPoint] : [maxPoint, minPoint];
 }
 
-export function computeDiv(visibleCount: number, W: number): number {
-    return Math.max(1, Math.floor(visibleCount / (W * 2)));
-}
 
 /**
  * renderWaveformData の最初の path 点として使うアンカーの x 座標を返す。
@@ -355,31 +352,6 @@ export function paintLoopRegion(
     ctx.restore();
 }
 
-/** 後方互換ファサード。内部は 3 層パイプラインを使用する。 */
-export function renderWaveform(
-    ctx: CanvasCtx,
-    W: number,
-    H: number,
-    env: WaveformEnv,
-    dataStart: number,
-    dataEnd: number,
-    offsetSeconds: number,
-    durationSeconds: number,
-    zoomStart: number,
-    zoomEnd: number,
-    color: string,
-    lineWidth: number = 1.5,
-): void {
-    const peak = env.absolutePeak || 1;
-    const offsetNorm = offsetSeconds / (durationSeconds || 1);
-
-    const range = computeViewRange(env, dataStart, dataEnd, offsetNorm, zoomStart, zoomEnd, W);
-    if (range.i1 < range.i0) { return; }
-
-    const points = decimateBuckets(env, range, dataStart, dataEnd);
-    const transform = makeCoordTransform(zoomStart, zoomEnd, offsetNorm, W, H, peak);
-    paintDecimatedPoints(ctx, points, transform, color, lineWidth);
-}
 
 export interface WaveformPipelineParams {
     zoomStart: number;

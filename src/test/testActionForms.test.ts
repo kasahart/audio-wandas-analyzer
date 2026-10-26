@@ -6,7 +6,6 @@ import {
     fillSpectrogramSettingsForm,
     heightDragFromPayload,
     loopRegionFromPayload,
-    setSelectionFileChecked,
     testActionTrackId,
 } from '../webview/runtime/testActionForms';
 import type { TrackId } from '../webview/runtime/types';
@@ -44,19 +43,6 @@ test('fillSpectrogramDisplayForm: 入力欄を埋め、数値以外は null の�
 test('fillSpectrogramSettingsForm: names the missing form field', () => {
     const doc = makeDoc('<input type="checkbox" id="spec-auto">');
     assert.throws(() => fillSpectrogramSettingsForm(doc, { auto: true, nFft: 2048 }), /Form field not found: spec-nfft/);
-});
-
-test('setSelectionFileChecked: 対象のチェックボックスを切り替えて change を発火する', () => {
-    const doc = makeDoc(`
-        <input type="checkbox" class="selection-file-checkbox" data-file-path="/a.wav">
-        <input type="checkbox" class="selection-file-checkbox" data-file-path="/b.wav">`);
-    const changed: string[] = [];
-    doc.addEventListener('change', (event) => { changed.push((event.target as Element).getAttribute('data-file-path') || ''); });
-    setSelectionFileChecked(doc, '/b.wav', true);
-    const boxes = Array.from(doc.querySelectorAll<HTMLInputElement>('.selection-file-checkbox'));
-    assert.deepEqual(boxes.map((b) => b.checked), [false, true]);
-    assert.deepEqual(changed, ['/b.wav']);
-    assert.throws(() => setSelectionFileChecked(doc, '/missing.wav', true), /Selection checkbox not found/);
 });
 
 test('loopRegionFromPayload: 0..1 に収め、幅がなければ null', () => {

@@ -1,4 +1,6 @@
 import { isSpectrogramSettings } from '../analysis/savedSpectrogramSettings';
+import { isRecipeChain } from '../recipe/recipeSteps';
+import { isEntryConditionTable, isEntryRegion, type CompareScanMessage, type EntrySaveConditionsMessage, type EntryScanCancelMessage, type EntryScanMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
 import type { BuildRecipePayload } from './backendProtocol';
 import { schemaViolation } from './schemaValidation';
 import type {
@@ -62,7 +64,12 @@ export type PanelMessage =
     | ExportReportOptionsMessage
     | RunRecipeMessage
     | SaveRecipeMessage
-    | ShowInfoMessage;
+    | ShowInfoMessage
+    | EntryScanMessage
+    | EntryScanCancelMessage
+    | EntrySaveConditionsMessage
+    | CompareScanMessage
+    | SaveReportFolderMessage;
 
 function hasType(value: unknown, type: string): boolean {
     return !!value && typeof value === 'object' && (value as { type?: unknown }).type === type;
@@ -100,6 +107,42 @@ function isSaveRecipeMessage(value: unknown): value is SaveRecipeMessage {
     return analysis['stftOptions'] === undefined && schemaViolation('BuildRecipePayload', analysis) === null;
 }
 
+function isEntryScanMessage(value: unknown): value is EntryScanMessage {
+    if (!hasType(value, 'entry-scan')) { return false; }
+    const message = value as Record<string, unknown>;
+    return typeof message['requestId'] === 'string' && Array.isArray(message['filePaths'])
+        && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0)
+        && (message['rootPath'] === undefined || typeof message['rootPath'] === 'string')
+        && (message['recipe'] === undefined || isRecipeChain(message['recipe']));
+}
+
+function isCompareScanMessage(value: unknown): value is CompareScanMessage {
+    if (!hasType(value, 'compare-scan')) { return false; }
+    const message = value as Record<string, unknown>;
+    return typeof message['requestId'] === 'string' && (message['region'] === undefined || isEntryRegion(message['region'])) && Array.isArray(message['filePaths'])
+        && (message['recipe'] === undefined || isRecipeChain(message['recipe']))
+        && (message['stage'] === undefined || typeof message['stage'] === 'string')
+        && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0);
+}
+
+const SAFE_NAME = /^[^\\/:*?"<>|\u0000-\u001f]+$/u;
+
+function isSaveReportFolderMessage(value: unknown): value is SaveReportFolderMessage {
+    if (!hasType(value, 'save-report-folder')) { return false; }
+    const message = value as Record<string, unknown>;
+    return typeof message['folder'] === 'string' && SAFE_NAME.test(message['folder']) && Array.isArray(message['files'])
+        && message['files'].length > 0 && message['files'].length <= 16
+        && message['files'].every(file => !!file && typeof file === 'object'
+            && typeof (file as Record<string, unknown>)['name'] === 'string' && SAFE_NAME.test((file as Record<string, string>)['name'])
+            && (typeof (file as Record<string, unknown>)['base64'] === 'string') !== (typeof (file as Record<string, unknown>)['text'] === 'string'));
+}
+
+function isEntrySaveConditionsMessage(value: unknown): value is EntrySaveConditionsMessage {
+    if (!hasType(value, 'entry-save-conditions')) { return false; }
+    const table = (value as Record<string, unknown>)['table'];
+    return table === null || isEntryConditionTable(table);
+}
+
 export function parsePanelMessage(value: unknown): PanelMessage | undefined {
     if (!value || typeof value !== 'object') { return undefined; }
     const type = (value as { type?: unknown }).type;
@@ -121,6 +164,11 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'export-report-options': return isExportReportOptionsMessage(value) ? value : undefined;
         case 'run-recipe': return { type: 'run-recipe' };
         case 'save-recipe': return isSaveRecipeMessage(value) ? value : undefined;
+        case 'entry-scan': return isEntryScanMessage(value) ? value : undefined;
+        case 'entry-scan-cancel': return { type: 'entry-scan-cancel' };
+        case 'entry-save-conditions': return isEntrySaveConditionsMessage(value) ? value : undefined;
+        case 'compare-scan': return isCompareScanMessage(value) ? value : undefined;
+        case 'save-report-folder': return isSaveReportFolderMessage(value) ? value : undefined;
         case 'show-info': {
             const message = (value as { message?: unknown }).message;
             return typeof message === 'string' ? { type: 'show-info', message } : undefined;

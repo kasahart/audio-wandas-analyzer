@@ -177,6 +177,44 @@
           }
         ]
       }
+    },
+    {
+      "command": "scan",
+      "request": {
+        "cmd": "scan",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "recipe": {
+          "schema": "wandas.recipe",
+          "version": 2,
+          "inputs": [],
+          "nodes": [],
+          "output": "input-0"
+        }
+      }
+    },
+    {
+      "command": "scan",
+      "request": {
+        "cmd": "scan",
+        "requestId": "r1",
+        "filePath": "tone.wav",
+        "recipe": {
+          "schema": "wandas.recipe",
+          "version": 2,
+          "inputs": [],
+          "nodes": [],
+          "output": "input-0"
+        },
+        "region": {
+          "start": 0.5,
+          "end": 1.5
+        },
+        "channels": [
+          0
+        ],
+        "calibration": null
+      }
     }
   ],
   "invalidRequests": [
@@ -703,6 +741,55 @@
           "output": "input-0"
         }
       }
+    },
+    {
+      "command": "scan",
+      "response": {
+        "requestId": "scan",
+        "ok": true,
+        "conditionId": "c0",
+        "input": {
+          "id": "sha256:00",
+          "fs": 16000,
+          "channels": [
+            0
+          ],
+          "durationS": 2,
+          "unit": "FS",
+          "ref": 1
+        },
+        "leqDbA": [
+          -9.03
+        ],
+        "peakHz": [
+          1000
+        ],
+        "spectrumDb": [
+          [
+            -9.03
+          ]
+        ],
+        "thirdOctDb": [
+          [
+            null,
+            -55.0
+          ]
+        ],
+        "crest": [
+          1.414
+        ],
+        "specVersion": 1,
+        "wandasVersion": "0.9.0",
+        "elapsedMs": 80.5
+      }
+    },
+    {
+      "command": "scan",
+      "response": {
+        "requestId": "scan",
+        "ok": false,
+        "reason": "Unable to read audio: Error in WAV file. No 'data' chunk marker."
+      }
     }
   ],
   "invalidResponses": [
@@ -1024,6 +1111,17 @@
         ]
       },
       "violation": "responses[0].status"
+    },
+    {
+      "command": "scan",
+      "response": {
+        "requestId": "scan",
+        "ok": true,
+        "peakHz": [
+          1000.5
+        ]
+      },
+      "violation": "peakHz[0]"
     }
   ],
   "errorCodes": [

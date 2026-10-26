@@ -26,7 +26,7 @@ test('buildComparisonPreviewHtml returns selection-mode ComparisonPanel HTML', (
 
     assert.match(html, /"mode":"directory-selection"/);
     assert.match(html, /id="selection-toolbar"/);
-    assert.match(html, /id="selection-tree"/);
+    assert.match(html, /id="entry-dock"/);
 });
 
 test('buildComparisonPreviewHtml injects a browser-safe vscode api stub', () => {

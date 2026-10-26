@@ -80,7 +80,7 @@ export function installHelpOverlay(document: Document, STR: UiStrings): void {
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
             return;
         }
-        if (ev.key === '?') {
+        if (ev.key === '?' || ev.key === 'F1') {
             if (isHelpOpen()) {
                 closeHelp();
             }

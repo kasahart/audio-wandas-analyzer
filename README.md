@@ -61,7 +61,7 @@ A virtual environment is recommended:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install "wandas[psychoacoustic]>=0.10.0,<0.11.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
+pip install "wandas[psychoacoustic,effects]>=0.10.0,<0.11.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
 ```
 
 ### 3. Select the Python environment in VS Code

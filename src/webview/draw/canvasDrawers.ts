@@ -209,7 +209,7 @@ export function drawWaveformAmplitudeAxis(ctx: CanvasDrawCtx, W: number, H: numb
     ctx.restore();
 }
 
-export function drawSpectrogramFrequencyAxis(ctx: CanvasDrawCtx, W: number, H: number, spec: SpectrogramSpecLike, opts: { maxFreq?: number } = {}, theme: DrawTheme = DEFAULT_THEME): void {
+export function drawSpectrogramFrequencyAxis(ctx: CanvasDrawCtx, W: number, H: number, spec: SpectrogramSpecLike, opts: { maxFreq?: number; label?: string } = {}, theme: DrawTheme = DEFAULT_THEME): void {
     const mutedColor = theme.mutedColor;
     const bgColor = theme.bgColor;
     const o = opts || {};
@@ -233,7 +233,7 @@ export function drawSpectrogramFrequencyAxis(ctx: CanvasDrawCtx, W: number, H: n
     ctx.rotate(-Math.PI / 2);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Freq', 0, 0);
+    ctx.fillText(o.label ?? 'Freq', 0, 0);
     ctx.restore();
     ctx.restore();
 }

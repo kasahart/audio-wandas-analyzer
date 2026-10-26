@@ -15,6 +15,8 @@ import numpy as np
 import wandas as wd
 from wandas.pipeline import RecipePlan
 
+ENTRY_HPF_HZ = 20.0
+
 
 class RecipeSource(NamedTuple):
     """One file the Recipe reads: what its stand-in must look like."""
@@ -31,18 +33,42 @@ def spectrum_recipe(
     source: RecipeSource,
     *,
     n_fft: int,
-    hop_length: int,
-    window: str,
+    hop_length: int | None = None,
+    window: str | None = None,
     band_centers_hz: Sequence[float] | None = None,
     bands_per_octave: int | None = None,
+    hpf_hz: float | None = None,
+    trim: tuple[float, float | None] | None = None,
 ) -> dict[str, Any]:
-    """Every channel's Welch spectrum, or its octave band levels when bands are given."""
+    """Every channel's Welch spectrum, or its octave band levels when bands are given.
+
+    ``hpf_hz`` high-passes the signal first and ``trim`` (seconds, end ``None`` = to the end) slices it
+    next, which is where ``scan`` cuts the Recipe to take its region. Unset Welch settings stay at
+    wandas' defaults.
+    """
     signal = _stand_in(source, 2 * n_fft)
+    if hpf_hz is not None:
+        signal = signal.high_pass_filter(cutoff=hpf_hz)
+    if trim is not None:
+        signal = signal.trim(start=trim[0], end=trim[1])
     if band_centers_hz:
         result = signal.noct_spectrum(fmin=band_centers_hz[0], fmax=band_centers_hz[-1], n=bands_per_octave)
     else:
-        result = signal.welch(n_fft=n_fft, hop_length=hop_length, window=window)
+        options = {key: value for key, value in (("hop_length", hop_length), ("window", window)) if value is not None}
+        result = signal.welch(n_fft=n_fft, **options)
     return RecipePlan.from_frame(result, input_names=("signal",)).to_dict()
+
+
+def entry_scan_recipe() -> dict[str, Any]:
+    """The fixed Recipe the entry table scans with (``recipes/entry-scan.recipe.json``).
+
+    Its float parameters are hex-encoded in the JSON, so the file is generated here rather than written
+    by hand; ``test_recipe_builder`` keeps the two equal.
+    """
+    from analysis_spec import WELCH_N_FFT
+
+    # The entry table's only filtering: drops DC and rumble below the audible range.
+    return spectrum_recipe(RecipeSource(1, 16000.0), n_fft=WELCH_N_FFT, hpf_hz=ENTRY_HPF_HZ, trim=(0.0, None))
 
 
 def transfer_recipe(
