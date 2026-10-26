@@ -13,14 +13,14 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import { addableOperations, brokenStep, chainEnd, chainOutput, movedStep, recipeSteps, timeSignalStep, withParam, withStep, withoutSteps, withoutBypassed, withBypass, TIME_SLICE, type RecipeStep, type StepLimits, type StepParam } from '../../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, CROSS_CHANNEL, SELECT_PAIR, chainEnd, chainOutput, movedStep, recipeSteps, timeSignalStep, withParam, withStep, withoutSteps, withoutBypassed, withBypass, TIME_SLICE, type RecipeStep, type StepLimits, type StepParam } from '../../shared/recipe/recipeSteps';
 import { OPERATION_GROUPS, operationGroup, operationHint, type OperationGroup } from '../../shared/recipe/operationGuide';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { outsideRecipe, reportOctaveRecipe } from './compareReport';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
 
-export type StepBarStrings = Pick<UiStrings, 'stepAfterBroken' | 'stepOctaveBroken' | 'stepUndo' | 'stepRedo' | 'stepUndone' | 'stepRedone' | 'stepBypass' | 'stepBypassOff' | 'stepBypassed' | 'stepUnbypassed' | 'stepMenuEarlier' | 'stepGoesBefore' | 'stepMenuOff' | 'stepRegionStart' | 'stepRegionEnd' | 'stepRegionPurpose' | 'stepRegionAdded' | 'stepRegionCleared' | 'stepRegionClear' | 'stepRegionOrder' | 'stepRegionThere' | 'stepInputHint' | 'stepNeedAbove' | 'stepNeedInteger' | 'stepRegion' | 'stepAll' | 'stepMetrics' | 'stepAverage' | 'stepSettings' | 'stepApply' | 'compareNotEntry' | 'stepNeedBelow' | 'stepNeedPow2' | 'hintStepChip' | 'stepRecipeName' | 'hintSpectrogramGroup' | 'stepNeedValue' | 'hintSpectrogram' | 'stepFrameHint' | 'hintRegionMark' | 'stepOpen' | 'stepClose' | 'stepOutsideHeading' | 'stepOctave' | 'stepHoldHint' | 'stepHintNoHold' | 'stepAdd' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepNeedFrame' | 'stepFailedOn' | 'stepTapHint' | 'stepNoSettings' | 'stepRemove' | 'stepMenuTitle' | 'stepMenuFilter' | 'stepOffFrame' | 'stepOffRequired' | 'stepOffRefuses' | 'stepOffUnavailable' | 'stepDefaultsOnly' | 'stepMenuTitle' | 'stepAdded' | 'stepRemoved' | 'btnStage' | 'stepInputFiles' | 'stepInput' | 'stepHintLocale' | 'stepGroupFilter' | 'stepGroupPrepare' | 'stepGroupTime' | 'stepGroupFrequency' | 'stepGroupOther' | 'stepDragHint' | 'stepMoved' | 'stepRemoveChip' | 'stepHighpass' | 'stepLowpass' | 'stepBandpass' | 'stepAverageFft' | 'stepOctaveHint'>;
+export type StepBarStrings = Pick<UiStrings, 'stepAfterBroken' | 'stepOctaveBroken' | 'stepUndo' | 'stepRedo' | 'stepUndone' | 'stepRedone' | 'stepBypass' | 'stepBypassOff' | 'stepBypassed' | 'stepUnbypassed' | 'stepMenuEarlier' | 'stepGoesBefore' | 'stepMenuOff' | 'stepRegionStart' | 'stepRegionEnd' | 'stepRegionPurpose' | 'stepRegionAdded' | 'stepRegionCleared' | 'stepRegionClear' | 'stepRegionOrder' | 'stepRegionThere' | 'stepInputHint' | 'stepNeedAbove' | 'stepNeedInteger' | 'stepRegion' | 'stepAll' | 'stepMetrics' | 'stepAverage' | 'stepSettings' | 'stepApply' | 'compareNotEntry' | 'stepNeedBelow' | 'stepNeedPow2' | 'hintStepChip' | 'stepRecipeName' | 'hintSpectrogramGroup' | 'stepNeedValue' | 'hintSpectrogram' | 'stepFrameHint' | 'hintRegionMark' | 'stepOpen' | 'stepClose' | 'stepOutsideHeading' | 'stepOctave' | 'stepHoldHint' | 'stepHintNoHold' | 'stepAdd' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepNeedFrame' | 'stepFailedOn' | 'stepTapHint' | 'stepNoSettings' | 'stepRemove' | 'stepMenuTitle' | 'stepMenuFilter' | 'stepOffFrame' | 'stepOffRequired' | 'stepOffRefuses' | 'stepOffUnavailable' | 'stepDefaultsOnly' | 'stepMenuTitle' | 'stepAdded' | 'stepRemoved' | 'btnStage' | 'stepInputFiles' | 'stepInput' | 'stepHintLocale' | 'stepGroupFilter' | 'stepGroupPrepare' | 'stepGroupTime' | 'stepGroupFrequency' | 'stepGroupOther' | 'stepDragHint' | 'stepMoved' | 'stepRemoveChip' | 'stepHighpass' | 'stepLowpass' | 'stepBandpass' | 'stepAverageFft' | 'stepOctaveHint' | 'stepNeedChannels' | 'stepPairSelf' | 'stepNeedChannel' | 'stepOffChannels' | 'stepPair' | 'stepPairOutput' | 'stepPairInput'>;
 
 /** A press shorter than this is a tap (see the step's Frame); longer is a hold (what the step does) until release. */
 export const STEP_TAP_MS = 250;
@@ -98,7 +98,13 @@ export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: 
     if (step.id === OCTAVE_BRANCH && step.invalid !== undefined) return strings.stepOctaveBroken;
     if (!step.reason) return '';
     const limit = Number.isFinite(step.reason.limit) ? String(Math.round(step.reason.limit * 1000) / 1000) : '∞';
+    // A channel is shown from 1: one below `limit` (wandas' index from 0) is the last channel there is.
+    if (step.reason.kind === 'below' && step.editable.some(param => param.kind === 'int' && param.channel && param.name === step.invalid)) {
+        return strings.stepNeedChannel.replace('{n}', limit);
+    }
     switch (step.reason.kind) {
+        case 'channels': return strings.stepNeedChannels;
+        case 'pair': return strings.stepPairSelf;
         case 'pow2': return strings.stepNeedPow2.replace('{max}', limit);
         case 'above': return strings.stepNeedAbove.replace('{min}', limit);
         case 'integer': return strings.stepNeedInteger;
@@ -110,6 +116,11 @@ export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: 
 }
 
 const formatNumber = (value: unknown): string => (typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : String(value ?? ''));
+
+/** A wandas channel index (from 0) as the bar shows it, from 1. */
+const channelText = (value: unknown): string => (typeof value === 'number' ? String(value + 1) : '?');
+/** A channel parameter's value as typed (from 1), back to wandas' index (from 0). */
+const fromShown = (param: StepParam, value: number): number => (param.kind === 'int' && param.channel ? value - 1 : value);
 
 const hzText = (value: unknown): string => (typeof value === 'number' ? (value >= 1000 ? `${Math.round(value / 100) / 10} kHz` : `${Math.round(value)} Hz`) : '');
 const bandRange = (p: Record<string, unknown>): string => (p['fmin'] !== undefined ? `${hzText(p['fmin'])}–${hzText(p['fmax'])}` : '');
@@ -124,6 +135,7 @@ function stepLabel(step: RecipeStep, strings: StepBarStrings, state: StepBarStat
         case 'welch': return strings.stepAverageFft.replace('{name}', strings.stepAverage).replace('{n}', formatNumber(p['n_fft']));
         case 'stft': return `STFT ${formatNumber(p['n_fft'])}`;
         case 'resampling': return `→ ${hzText(p['target_sr'])}`;
+        case 'select_pair': return strings.stepPair.replace('{output}', channelText(p['output'])).replace('{input}', channelText(p['input']));
         case 'noct_spectrum': {
             const octave = p['n'] !== undefined && p['n'] !== 3 ? `1/${formatNumber(p['n'])} oct` : strings.stepOctave;
             return expanded && bandRange(p) ? `${octave} ${bandRange(p)}` : octave;
@@ -346,9 +358,10 @@ export function createStepBar(deps: {
             const value = step.params[param.name];
             const input = param.kind === 'enum'
                 ? `<select data-step-param="${param.name}">${param.options.map(option => `<option${option === value ? ' selected' : ''}>${option}</option>`).join('')}</select>`
-                : `<input type="number" data-step-param="${param.name}" value="${escapeHtml(formatNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}">`;
+                : `<input type="number" data-step-param="${param.name}" value="${escapeHtml(param.kind === 'int' && param.channel ? channelText(value) : formatNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}"${param.kind === 'int' && param.channel ? ' min="1"' : ''}>`;
             const bad = step.invalid === param.name;
-            return `<label class="step-field${bad ? ' is-invalid' : ''}"${bad ? ` ${hintAttr(invalidReason(step, strings))}` : ''}>${escapeHtml(param.name)} ${input}${param.kind === 'float' && param.unit ? ` ${param.unit}` : ''}</label>`;
+            const name = param.kind === 'int' && param.channel ? (param.channel === 'output' ? strings.stepPairOutput : strings.stepPairInput) : param.name;
+            return `<label class="step-field${bad ? ' is-invalid' : ''}"${bad ? ` ${hintAttr(invalidReason(step, strings))}` : ''}>${escapeHtml(name)} ${input}${param.kind === 'float' && param.unit ? ` ${param.unit}` : ''}</label>`;
         };
         const title = `<div class="step-form-title">${escapeHtml(step.name)}</div>`;
         // A step left out for a reason other than one of its values says why at the top.
@@ -378,7 +391,9 @@ export function createStepBar(deps: {
         const locale = strings.stepHintLocale;
         const matches = (name: string, id: string, extra = ''): boolean => !needle || name.toLowerCase().includes(needle) || operationHint(id, locale).toLowerCase().includes(needle) || extra.toLowerCase().includes(needle);
         const byFrame = new Map<string, ReturnType<typeof addableOperations>>();
-        const at = (frame: string): ReturnType<typeof addableOperations> => { if (!byFrame.has(frame)) byFrame.set(frame, addableOperations(frame, lacks())); return byFrame.get(frame)!; };
+        const placed = menu.after ? recipeSteps(state.recipe, limits()).find(step => step.id === menu!.after) : undefined;
+        const channels = placed ? placed.channels : limits().channels;
+        const at = (frame: string): ReturnType<typeof addableOperations> => { if (!byFrame.has(frame)) byFrame.set(frame, addableOperations(frame, lacks(), channels)); return byFrame.get(frame)!; };
         const places = earlierPlaces(menu.after);
         type Entry = ReturnType<typeof addableOperations>[number];
         const here: Entry[] = [], earlier: Array<{ entry: Entry; after: string | null; next?: RecipeStep }> = [], off: Entry[] = [];
@@ -393,6 +408,7 @@ export function createStepBar(deps: {
             const output = entry.operation.output === '*' ? menu!.frame : entry.operation.output;
             const why = entry.off === 'frame' ? strings.stepOffFrame.replace('{frame}', menu!.frame)
                 : entry.off === 'refuses' ? strings.stepOffRefuses.replace('{frame}', menu!.frame).replace('{reason}', entry.why ?? '')
+                : entry.off === 'channels' ? strings.stepOffChannels
                 : entry.off === 'unavailable' ? strings.stepOffUnavailable.replace('{packages}', entry.why ?? '')
                 : entry.off === 'required' ? strings.stepOffRequired.replace('{params}', entry.operation.params.filter(param => param.required).map(param => param.name).join(', ')) : '';
             const tag = !entry.off && !entry.settable ? `<span class="step-menu-tag">${escapeHtml(strings.stepDefaultsOnly)}</span>` : '';
@@ -448,7 +464,7 @@ export function createStepBar(deps: {
         for (const param of step.editable) {
             const input = form.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-step-param="${param.name}"]`);
             if (!input || input.value === '') continue;
-            next = withParam(next, step.id, param, param.kind === 'enum' ? input.value : Number(input.value));
+            next = withParam(next, step.id, param, param.kind === 'enum' ? input.value : fromShown(param, Number(input.value)));
         }
         return next;
     }
@@ -517,15 +533,25 @@ export function createStepBar(deps: {
         const step = recipeSteps(state.recipe, limits()).find(item => item.id === stepId);
         if (!step || !removable(step)) return;
         open = null;
-        emit(withoutSteps(state.recipe, [stepId]));
+        // A cross-channel step takes the pair it was added with along.
+        const pair = CROSS_CHANNEL.has(step.operation) ? pairAfter(stepId) : undefined;
+        emit(withoutSteps(state.recipe, pair ? [stepId, pair] : [stepId]));
         footer(strings.stepRemoved.replace('{op}', step.name));
+    }
+    /** The select_pair step that reads `stepId`, if one does. */
+    function pairAfter(stepId: string): string | undefined {
+        const nodes = (state.recipe as unknown as { nodes?: Array<{ id: string; operation: string; inputs: string[] }> } | null)?.nodes ?? [];
+        return nodes.find(node => node.operation === SELECT_PAIR && node.inputs[0] === stepId)?.id;
     }
     /** Bypass on or off: the step stays in place; the chain runs without it meanwhile. */
     function bypass(stepId: string): void {
         if (!state.recipe) return;
         const step = recipeSteps(state.recipe, limits()).find(item => item.id === stepId);
         if (!step || step.id === OCTAVE_BRANCH || (!removable(step) && step.operation !== TIME_SLICE)) return;
-        emit(withBypass(state.recipe, stepId, !step.bypassed));
+        // A cross-channel step's pair goes with it: alone, it would have no pairs to pick from.
+        const pair = CROSS_CHANNEL.has(step.operation) ? pairAfter(stepId) : undefined;
+        const bypassed = withBypass(state.recipe, stepId, !step.bypassed);
+        emit(pair ? withBypass(bypassed, pair, !step.bypassed) : bypassed);
         const name = stepLabel(step, strings, state, expanded);
         footer(step.bypassed ? strings.stepUnbypassed.replace('{op}', name) : strings.stepBypassed.replace('{op}', name));
         element.querySelector<HTMLElement>(`[data-action="step-bypass"][data-step="${CSS.escape(stepId)}"]`)?.focus();
@@ -563,11 +589,14 @@ export function createStepBar(deps: {
         if (!operation) return;
         const steps = recipeSteps(state.recipe, limits());
         const before = after ? steps.find(step => step.id === after) : undefined;
-        const entry = addableOperations(before ? frameAfter(before) : INPUT_FRAME, lacks()).find(item => item.operation.id === operationId);
+        const entry = addableOperations(before ? frameAfter(before) : INPUT_FRAME, lacks(), before ? before.channels : limits().channels).find(item => item.operation.id === operationId);
         // An operation that cannot go there says why instead of being added.
         if (!entry || entry.off) { footer(element.querySelector(`[data-op="${CSS.escape(operationId)}"]`)?.getAttribute('data-hint') ?? ''); return; }
         const length = state.lengthS ?? (state.shortestSamples && state.sampleRate ? state.shortestSamples / state.sampleRate : undefined);
-        const { recipe, id } = withStep(state.recipe, after, operation, length ? { duration: Math.round(length * 1000) / 1000 } : {});
+        let { recipe, id } = withStep(state.recipe, after, operation, length ? { duration: Math.round(length * 1000) / 1000 } : {});
+        // A cross-channel step compares one pair, named in the chain: ch2 over the reference ch1 to start with.
+        const select = CROSS_CHANNEL.has(operationId) ? catalogOperation(SELECT_PAIR) : undefined;
+        if (select) ({ recipe, id } = withStep(recipe, id, select));
         menu = null;
         emit(recipe);
         deps.onStepShown?.(id);

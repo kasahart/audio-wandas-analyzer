@@ -530,6 +530,12 @@ DEFINITIONS: dict[str, Schema] = {
             "values": _NULLABLE_NUMBERS,
             "matrix": {"type": "array", "items": _NULLABLE_NUMBERS},
             "whole": {"type": "array", "items": {"type": "boolean"}},
+            # A cross-channel Frame's one drawn pair: the compared channel (output) over the reference (input), from 1.
+            "pair": {
+                "type": "object",
+                "required": ["output", "input"],
+                "properties": {"output": {"type": "integer", "minimum": 1}, "input": {"type": "integer", "minimum": 1}},
+            },
             # Set on a picture of only part of its axes (StageDetail): the range it covers.
             "detail": {"type": "boolean"},
             # A time signal's waveform as the lanes draw it: per bucket min and max at the times they occurred.

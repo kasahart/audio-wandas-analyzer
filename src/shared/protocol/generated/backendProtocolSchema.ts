@@ -1243,6 +1243,24 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "type": "boolean"
                     }
                 },
+                "pair": {
+                    "type": "object",
+                    "required": [
+                        "output",
+                        "input"
+                    ],
+                    "properties": {
+                        "output": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "input": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    "additionalProperties": false
+                },
                 "detail": {
                     "type": "boolean"
                 },
@@ -1893,6 +1911,10 @@ export interface StageView {
     values?: (number | null)[];
     matrix?: ((number | null)[])[];
     whole?: boolean[];
+    pair?: {
+    output: number;
+    input: number;
+};
     detail?: boolean;
     waveform?: {
     min: (number | null)[];

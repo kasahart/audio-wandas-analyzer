@@ -1163,6 +1163,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return tracks;
         },
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
+        channels: () => state.results.filter(result => !result.error).reduce<number | undefined>((fewest, result) => Math.min(fewest ?? Infinity, result.channelCount), undefined),
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),
         inFront: () => !entryScreen.isOpen(),

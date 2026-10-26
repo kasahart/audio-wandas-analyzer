@@ -28,3 +28,10 @@ test('one channel of a result scanned over every channel; a recording with fewer
     assert.deepEqual((ch2.input as { channels: number[] }).channels, [1]);
     assert.equal(channelResult(result, 3)?.ok, false);
 });
+
+test('a chain that compares two channels of the recording keeps them: a channel row adds no get_channel', () => {
+    const nodes = (recipe as unknown as { nodes: Array<Record<string, unknown>> }).nodes;
+    const cross = { ...recipe, nodes: [...nodes, { id: 'node-9', operation: 'wandas.audio.coherence', version: 2, inputs: [String(nodes.at(-1)!.id)], params: { $type: 'map', entries: [] } }], output: 'node-9' } as unknown as RecipeDocument;
+    assert.equal(withChannel(cross, 2), cross);
+    assert.equal(channelOfRecipe(withChannel(cross, 2)), null);
+});

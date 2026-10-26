@@ -28,9 +28,9 @@ async function answer(page: Page, view: Record<string, unknown> = spectrum): Pro
 }
 
 /** Slots the table's two top rows and presses Enter: the track view compares them, as tracks, on the chain's end. */
-async function openComparison(page: Page, language = 'en'): Promise<string[]> {
+async function openComparison(page: Page, language = 'en', files: ScannedFile[] = scanned!): Promise<string[]> {
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
-    await openEntry(page, scanned!, { language, recipe });
+    await openEntry(page, files, { language, recipe });
     // Rows are a recording's channels, in name order: the first row, and the first of another condition (rpm).
     const drawn = await page.locator('[data-entry-rows] tr.entry-row').evaluateAll(rows => rows.map(row => row.getAttribute('data-file-path')!));
     const rpm = (filePath: string): string => /_(\d+rpm)_/.exec(filePath)?.[1] ?? '';
@@ -541,4 +541,67 @@ test('a base group of more than 30 recordings is not analysed by opening a compa
     await page.locator('[data-action="stage-base-scan"]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBe(n);
     await expect(gate).toBeHidden();
+});
+
+test('coherence compares two channels of each recording: it comes with its pair (ch2 / ch1), which its settings change, and × takes both', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    // The fixture's two-channel recordings alone (its one-channel recording greys coherence: the next test).
+    const paths = await openComparison(page, 'en', scanned!.filter(file => (file.result.input as { channels?: number[] } | undefined)?.channels?.length === 2));
+    const bar = page.locator('.track-stage-bar');
+    await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-delete"]').click();
+    // While the host's tracks have one channel, ＋ greys it too.
+    await bar.locator('[data-action="step-add"]').click();
+    await bar.locator('[data-step-menu-filter]').fill('coherence');
+    await expect(bar.locator('.step-menu-item[data-op="wandas.audio.coherence"] .step-menu-hint')).toHaveText(STR.stepOffChannels);
+    await bar.locator('[data-step-menu-filter]').press('Escape');
+    // The recordings are two-channel, as the host's analysis of them says.
+    const lane = { peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } };
+    await page.evaluate(({ paths, lane }) => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: paths.map(filePath => ({
+        filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 2, sampleCount: 32000,
+        channels: [{ label: 'L', ...lane }, { label: 'R', ...lane }],
+    })) } })), { paths, lane });
+    await bar.locator('[data-action="step-add"]').click();
+    await bar.locator('[data-step-menu-filter]').fill('coherence');
+    await bar.locator('.step-menu-item[data-op="wandas.audio.coherence"]').click();
+    const pair = bar.locator('.step-chip', { hasText: 'ch2 / ch1' });
+    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', 'coherence', 'ch2 / ch1']);
+    // The pair is shown, and the slotted channel rows keep both channels: no get_channel before the pair.
+    await expect(bar).toHaveAttribute('data-stage', (await pair.getAttribute('data-step-id'))!);
+    const lastRecipe = async (): Promise<string[]> => (await stageScans(page)).filter(message => message.recipe).at(-1)!.recipe!.nodes.map(node => node.operation.split('.').pop()!);
+    await expect.poll(lastRecipe).toEqual(['highpass_filter', 'time_slice', 'coherence', 'select_pair']);
+    // Its settings name the channels from 1; a channel with itself is refused with why.
+    await pair.locator('[data-action="step-settings"]').click();
+    const output = bar.locator('[data-step-param="output"]');
+    await expect(output).toHaveValue('2');
+    await expect(bar.locator('[data-step-param="input"]')).toHaveValue('1');
+    await output.fill('1');
+    await output.dispatchEvent('input');
+    await expect(bar.locator('[data-action="step-apply"]')).toBeDisabled();
+    await expect(page.locator('#hint-footer')).toHaveText(STR.stepPairSelf);
+    await output.fill('2');
+    await output.dispatchEvent('input');
+    await bar.locator('[data-action="step-apply"]').click();
+    // Bypassing coherence bypasses its pair too; nothing is marked as unable to run.
+    const coherence = bar.locator('.step-chip', { hasText: 'coherence' });
+    await coherence.locator('[data-action="step-bypass"]').click();
+    await expect(pair).toHaveClass(/is-bypassed/);
+    await expect(bar.locator('.step-chip.is-invalid')).toHaveCount(0);
+    await coherence.locator('[data-action="step-bypass"]').click();
+    await expect(pair).not.toHaveClass(/is-bypassed/);
+    // × on coherence takes its pair too.
+    await bar.locator('.step-chip', { hasText: 'coherence' }).locator('[data-action="step-delete"]').click();
+    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz']);
+});
+
+test('a folder with a one-channel recording greys coherence on ＋ and says why', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openComparison(page);
+    const bar = page.locator('.track-stage-bar');
+    await bar.locator('.step-chip', { hasText: getStrings('en').stepAverage }).locator('[data-action="step-delete"]').click();
+    await bar.locator('[data-action="step-add"]').click();
+    await bar.locator('[data-step-menu-filter]').fill('coherence');
+    const item = bar.locator('.step-menu-item[data-op="wandas.audio.coherence"]');
+    await expect(item).toHaveClass(/is-off/);
+    await expect(item.locator('.step-menu-hint')).toHaveText(getStrings('en').stepOffChannels);
 });

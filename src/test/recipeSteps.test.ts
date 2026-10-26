@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { brokenStep, chainEnd, bypassedSteps, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
@@ -185,4 +185,33 @@ test('the first step that cannot run breaks the chain: every step after it canno
     assert.deepEqual(recipeSteps(runnableRecipe(recipe, 16000)).map(step => step.id), ['node-0', id]);
     assert.equal(chainEnd(recipe, 16000), 'SpectralFrame');
     assert.equal(brokenStep(entry, 16000), undefined);
+});
+
+test('a step that compares two channels needs two: one channel (or one picked by get_channel) has only itself', () => {
+    const [, slice, welch] = recipeSteps(entry, 16000);
+    const base = withoutSteps(entry, [welch.id]);
+    const { recipe: cross, id: coherence } = withStep(base, slice.id, catalogOperation('wandas.audio.coherence')!);
+    const { recipe: paired, id: pair } = withStep(cross, coherence, catalogOperation(SELECT_PAIR)!);
+    // A new pair is ch2 over the reference ch1 (wandas' indices 1 and 0).
+    const stereo = recipeSteps(paired, { sampleRate: 16000, channels: 2 });
+    assert.deepEqual(stereo.map(step => [step.name, step.invalid]), [['highpass_filter', undefined], ['time_slice', undefined], ['coherence', undefined], ['select_pair', undefined]]);
+    assert.deepEqual([stereo[3].params['output'], stereo[3].params['input']], [1, 0]);
+    // One channel: the coherence cannot run, and says why; the pair after it cannot either.
+    const mono = recipeSteps(paired, { sampleRate: 16000, channels: 1 });
+    assert.deepEqual(mono.find(step => step.id === coherence)!.reason, { kind: 'channels', limit: 2 });
+    assert.equal(mono.find(step => step.id === pair)!.reason?.kind, 'after');
+    // The channels are unknown until a file is scanned: nothing is refused yet.
+    assert.equal(brokenStep(paired, 16000), undefined);
+    // get_channel leaves one channel of two.
+    const { recipe: picked } = withStep(paired, null, catalogOperation('wandas.frame.get_channel')!);
+    assert.equal(recipeSteps(picked, { sampleRate: 16000, channels: 2 }).find(step => step.id === coherence)!.reason?.kind, 'channels');
+    // ＋ greys it on one channel, with that reason.
+    assert.equal(addableOperations('ChannelFrame', undefined, 1).find(item => item.name === 'coherence')!.off, 'channels');
+    assert.equal(addableOperations('ChannelFrame', undefined, 2).find(item => item.name === 'coherence')!.off, undefined);
+    // A channel over itself compares nothing; a channel past the last is refused.
+    const [output, input] = STEP_PARAMS[SELECT_PAIR];
+    const self = withParam(paired, pair, output, 0);
+    assert.deepEqual(recipeSteps(self, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.reason, { kind: 'pair', limit: 0 });
+    const beyond = withParam(paired, pair, input, 2);
+    assert.equal(recipeSteps(beyond, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, 'input');
 });

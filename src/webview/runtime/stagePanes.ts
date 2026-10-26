@@ -188,7 +188,9 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
             : view?.quantity === 'coherence' ? strings.axisCoherence
                 : view?.quantity === 'cepstrum' ? strings.axisCepstrum
                     : `${strings.dsValue}${unit}`;
-    return { x, y: diff ? `Δ ${y}` : y };
+    // A cross-channel Frame names its pair: which channel over which reference.
+    const pair = view?.pair ? ` · ch${view.pair.output} / ch${view.pair.input}` : '';
+    return { x, y: diff ? `Δ ${y}${pair}` : `${y}${pair}` };
 }
 
 const hz = (value: number): string => (value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)} kHz` : `${Math.round(value)} Hz`);

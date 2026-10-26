@@ -14,7 +14,7 @@ import { catalogOperation, INPUT_FRAME, outputOf, WANDAS_OPERATIONS, type Catalo
  */
 export type StepParam =
     | { name: string; kind: 'float'; unit?: string; min?: number; max?: 'nyquist' | number; optional?: boolean; default?: number; initial?: number }
-    | { name: string; kind: 'int'; min: number; max: number; powerOfTwo?: boolean; optional?: boolean; default?: number; initial?: number; belowChannels?: boolean }
+    | { name: string; kind: 'int'; min: number; max: number; powerOfTwo?: boolean; optional?: boolean; default?: number; initial?: number; belowChannels?: boolean; channel?: 'output' | 'input' }
     | { name: string; kind: 'enum'; options: readonly string[]; default?: string };
 
 const WINDOWS = ['hann', 'hamming', 'blackman', 'boxcar'] as const;
@@ -58,7 +58,25 @@ const SETTABLE: Record<string, readonly StepParam[]> = {
         { name: 'hop_length', kind: 'int', min: 1, max: 65536 },
     ],
     'wandas.audio.fade': [{ name: 'fade_ms', kind: 'float', unit: 'ms', min: 0, max: 10000 }],
+    // The pair a cross-channel step is drawn and measured for: the compared channel over the reference (wandas'
+    // source indices from 0; the step bar shows them from 1, as ch1, ch2).
+    'wandas.frame.select_pair': [
+        { name: 'output', kind: 'int', min: 0, max: 63, initial: 1, belowChannels: true, channel: 'output' },
+        { name: 'input', kind: 'int', min: 0, max: 63, initial: 0, belowChannels: true, channel: 'input' },
+    ],
 };
+
+/** Steps that compare the channels of one recording, pair by pair: they need two channels. */
+export const CROSS_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.csd', 'wandas.audio.transfer_function', 'wandas.spectrogram.csd']);
+export const SELECT_PAIR = 'wandas.frame.select_pair';
+
+/** The channels a step leaves of `channels`: one after get_channel, one fewer after remove_channel. */
+function channelsAfter(operation: string, channels: number | undefined): number | undefined {
+    if (channels === undefined) return undefined;
+    if (operation === 'wandas.frame.get_channel') return 1;
+    if (operation === 'wandas.channel.remove_channel') return Math.max(1, channels - 1);
+    return channels;
+}
 
 /** The settable parameters, each with the default wandas describes for it. */
 export const STEP_PARAMS: Record<string, readonly StepParam[]> = Object.fromEntries(Object.entries(SETTABLE).map(([id, params]) => [id, params.map(param => {
@@ -141,19 +159,21 @@ export interface RecipeStep {
     invalid?: string;
     /** Bypassed in the step bar: kept in the chain but skipped, so it passes on the Frame it took. */
     bypassed?: boolean;
+    /** The channels of the Frame after it, when the folder's are known. */
+    channels?: number;
     /**
      * Why: the value must stay below `limit`, or be a power of two from 64 up to `limit`; the step cannot
      * take the Frame before it (`frame`); it failed on a file (`failed`, wandas' own words in `text`); or a
      * step before it cannot run (`after`, that step's id in `text`), so nothing after it can either.
      */
-    reason?: { kind: 'below' | 'above' | 'pow2' | 'integer' | 'frame' | 'failed' | 'after'; limit: number; text?: string };
+    reason?: { kind: 'below' | 'above' | 'pow2' | 'integer' | 'frame' | 'failed' | 'after' | 'channels' | 'pair'; limit: number; text?: string };
 }
 
 export interface StepLimits {
     sampleRate?: number;
     /** Samples in the shortest file: an FFT longer than that has nothing to average. */
     shortestSamples?: number;
-    /** Channels of the folder's files: a channel index must stay below it. */
+    /** Channels of the folder's files (the fewest): a channel index must stay below it, a channel pair needs two. */
     channels?: number;
     /** Steps that failed on a file, with wandas' reason: left out until the Recipe changes. */
     failed?: Readonly<Record<string, string>>;
@@ -161,7 +181,7 @@ export interface StepLimits {
 
 type Invalid = { param: string; reason: NonNullable<RecipeStep['reason']> } | undefined;
 
-function invalidParam(params: Record<string, ParamValue>, editable: readonly StepParam[], limits: StepLimits): Invalid {
+function invalidParam(params: Record<string, ParamValue>, editable: readonly StepParam[], limits: StepLimits, channels = limits.channels): Invalid {
     const nyquist = limits.sampleRate ? limits.sampleRate / 2 : Infinity;
     for (const param of editable) {
         const value = params[param.name];
@@ -172,7 +192,7 @@ function invalidParam(params: Record<string, ParamValue>, editable: readonly Ste
             if (typeof value === 'number' && !Number.isInteger(value)) return { param: param.name, reason: { kind: 'integer', limit: 0 } };
             // The largest power of two that fits the shortest file, so the limit itself is a value one can type.
             const limit = param.powerOfTwo && limits.shortestSamples ? Math.min(param.max, 2 ** Math.floor(Math.log2(limits.shortestSamples)))
-                : param.belowChannels && limits.channels ? Math.min(param.max, limits.channels - 1) : param.max;
+                : param.belowChannels && channels ? Math.min(param.max, channels - 1) : param.max;
             const ok = typeof value === 'number' && Number.isInteger(value) && value >= param.min && value <= limit && (!param.powerOfTwo || (value & (value - 1)) === 0);
             if (!ok) return { param: param.name, reason: param.powerOfTwo ? { kind: 'pow2', limit } : { kind: 'below', limit: limit + 1 } };
             continue;
@@ -184,6 +204,9 @@ function invalidParam(params: Record<string, ParamValue>, editable: readonly Ste
             return { param: param.name, reason: { kind: 'below', limit: max } };
         }
     }
+    // A channel over itself is 1 (coherence), 0 dB (gain): nothing compared.
+    const output = params['output'], input = params['input'];
+    if (editable.some(param => param.kind === 'int' && param.channel) && typeof output === 'number' && output === input) return { param: 'output', reason: { kind: 'pair', limit: 0 } };
     const low = params['low_cutoff'], high = params['high_cutoff'];
     if (typeof low === 'number' && typeof high === 'number' && low >= high) return { param: 'high_cutoff', reason: { kind: 'below', limit: Math.min(nyquist, Infinity) } };
     const fmin = params['fmin'], fmax = params['fmax'];
@@ -213,6 +236,8 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
     const bounds: StepLimits = typeof limits === 'number' ? { sampleRate: limits } : limits ?? {};
     let frame = INPUT_FRAME;
     let broken: string | undefined;
+    // The channels the Frame here has, as far as the steps say (get_channel leaves one).
+    let channels = bounds.channels;
     const skipped = new Set(bypassedSteps(recipe));
     return recipeChain(recipe).map(node => {
         const editable = STEP_PARAMS[node.operation] ?? [];
@@ -222,9 +247,12 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
         const output = stepOutput(node.operation, frame);
         const failed = bounds.failed?.[node.id];
         const invalid: Invalid = broken !== undefined ? { param: '', reason: { kind: 'after', limit: 0, text: broken } }
-            : output === undefined ? { param: '', reason: { kind: 'frame', limit: 0, text: frame } }
+            // A bypassed step does not run, so the Frame before it is not its to take (a pair after a bypassed coherence).
+            : output === undefined && !skipped.has(node.id) ? { param: '', reason: { kind: 'frame', limit: 0, text: frame } }
             : failed !== undefined ? { param: '', reason: { kind: 'failed', limit: 0, text: failed } }
-                : invalidParam(params, editable, bounds);
+            // One channel has nothing to be compared with: its only pair is itself.
+            : CROSS_CHANNEL.has(node.operation) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2 } }
+                : invalidParam(params, editable, bounds, channels);
         const step: RecipeStep = {
             id: node.id, operation: node.operation, name: node.operation.split('.').pop()!, params, editable,
             input: frame, output: output ?? declaredOutput(node.operation, frame), ...(invalid ? { invalid: invalid.param, reason: invalid.reason } : {}),
@@ -232,7 +260,8 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
         };
         if (invalid && broken === undefined) broken = step.id;
         // Past a break the Frames are the ones the steps would take and give, to name and place them.
-        if ((!invalid || invalid.reason.kind === 'after') && !step.bypassed) frame = step.output;
+        if ((!invalid || invalid.reason.kind === 'after') && !step.bypassed) { frame = step.output; channels = channelsAfter(node.operation, channels); }
+        if (channels !== undefined) step.channels = channels;
         return step;
     });
 }
@@ -292,7 +321,7 @@ export interface AddableOperation {
      * Set when it cannot be added here: it does not take this Frame, it fails on it whatever the file
      * (`refuses`, with wandas' reason in `why`), or it needs a value the app cannot set.
      */
-    off?: 'frame' | 'refuses' | 'unavailable' | 'required';
+    off?: 'frame' | 'refuses' | 'unavailable' | 'required' | 'channels';
     why?: string;
     /** Parameters the step bar can set (STEP_PARAMS); without, it runs with wandas' defaults. */
     settable: boolean;
@@ -308,7 +337,7 @@ export interface AddableOperation {
  */
 const MENU_HIDDEN: ReadonlySet<string> = new Set([TIME_SLICE, 'wandas.numpy.ufunc']);
 
-export function addableOperations(frame: string, lacks?: ReadonlySet<string>): AddableOperation[] {
+export function addableOperations(frame: string, lacks?: ReadonlySet<string>, channels?: number): AddableOperation[] {
     return WANDAS_OPERATIONS.filter(operation => !MENU_HIDDEN.has(operation.id)).map(operation => {
         const settable = operation.id in STEP_PARAMS;
         const known = new Set((STEP_PARAMS[operation.id] ?? []).filter(param => param.kind === 'enum' || param.initial !== undefined || param.default !== undefined).map(param => param.name));
@@ -317,7 +346,7 @@ export function addableOperations(frame: string, lacks?: ReadonlySet<string>): A
         // A package the operation needs that the runtime reports it cannot import (the Web version's).
         const lacking = (operation.needs ?? []).filter(name => lacks?.has(name));
         const off: AddableOperation['off'] = outputOf(operation, frame) === undefined ? 'frame' : refused !== undefined ? 'refuses'
-            : lacking.length ? 'unavailable' : needs.length ? 'required' : undefined;
+            : lacking.length ? 'unavailable' : CROSS_CHANNEL.has(operation.id) && channels !== undefined && channels < 2 ? 'channels' : needs.length ? 'required' : undefined;
         const why = refused ?? (lacking.length ? lacking.join(', ') : undefined);
         return { operation, name: operation.id.split('.').pop()!, settable, ...(off ? { off } : {}), ...(why !== undefined ? { why } : {}) };
     }).sort((a, b) => Number(!!a.off) - Number(!!b.off));

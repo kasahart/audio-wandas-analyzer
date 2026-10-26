@@ -193,6 +193,13 @@ export interface UiStrings {
     stepBandpass: string;
     stepAverageFft: string;
     stepOctaveHint: string;
+    stepNeedChannels: string;
+    stepOffChannels: string;
+    stepPairSelf: string;
+    stepNeedChannel: string;
+    stepPair: string;
+    stepPairOutput: string;
+    stepPairInput: string;
     stepRemove: string;
     stepNeedFrame: string;
     stepFailedOn: string;
@@ -785,6 +792,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'BPF',
         stepAverageFft: '{name} {n}',
         stepOctaveHint: 'The value in the table\'s band column',
+        stepNeedChannels: 'Compares two channels of a recording, and a file here has one. Remove it, or compare recordings with two channels or more.',
+        stepOffChannels: 'Compares two channels of a recording, and a file here has one',
+        stepPairSelf: 'Choose two different channels: a channel compared with itself is always the same (coherence 1, gain 0 dB)',
+        stepNeedChannel: 'Must be a channel from 1 to {n}',
+        stepPair: 'ch{output} / ch{input}',
+        stepPairOutput: 'Channel',
+        stepPairInput: 'Reference channel',
         stepRemove: 'Remove',
         stepNeedFrame: '{op} cannot take the result before it. Move it or remove it.',
         stepFailedOn: 'Failed on a file ({reason}). Change the step or remove it.',
@@ -1374,6 +1388,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'バンドパス',
         stepAverageFft: '{name}（FFT {n} 点）',
         stepOctaveHint: '表の帯域列の値',
+        stepNeedChannels: '録音の 2 つのチャンネルを比べる解析ですが、1 チャンネルのファイルがあります。外すか、2 チャンネル以上の録音で使ってください',
+        stepOffChannels: '録音の 2 つのチャンネルを比べる解析ですが、1 チャンネルのファイルがあります',
+        stepPairSelf: '違う 2 つのチャンネルを選んでください。同じチャンネル同士は常に同じ値です（コヒーレンス 1、ゲイン 0 dB）',
+        stepNeedChannel: '1〜{n} のチャンネルにしてください',
+        stepPair: 'ch{output} / ch{input}',
+        stepPairOutput: 'チャンネル',
+        stepPairInput: '参照チャンネル',
         stepRemove: '外す',
         stepNeedFrame: '{op} は前の手順の結果に使えません。動かすか外してください',
         stepFailedOn: 'ファイルで失敗（{reason}）。設定を変えるか外してください',
