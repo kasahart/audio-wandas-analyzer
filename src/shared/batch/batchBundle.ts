@@ -38,7 +38,9 @@ export interface BatchTarget { path: string; channel: number | null; recipe: str
  * together, with the Recipe as it is. A recording only some of whose channels are there: one target per
  * channel, with that channel's Recipe.
  */
-export function batchTargets(input: Pick<BatchInput, 'rows' | 'allRows' | 'rootPath' | 'idColumn' | 'recipeName'>): BatchTarget[] {
+export function batchTargets(input: Pick<BatchInput, 'rows' | 'allRows' | 'rootPath' | 'idColumn' | 'recipeName'> & Partial<Pick<BatchInput, 'recipe'>>): BatchTarget[] {
+    // A Recipe that compares two channels of a recording names its own (withChannel leaves it): whole recordings.
+    const ownPair = !!input.recipe && withChannel(input.recipe, 1) === input.recipe;
     const chosen = new Set(input.rows.map(row => row.key));
     const whole = new Map<string, boolean>();
     for (const row of input.allRows) whole.set(row.filePath, (whole.get(row.filePath) ?? true) && chosen.has(row.key));
@@ -46,7 +48,7 @@ export function batchTargets(input: Pick<BatchInput, 'rows' | 'allRows' | 'rootP
     const seen = new Set<string>();
     for (const row of input.rows) {
         const all = whole.get(row.filePath) ?? true;
-        const channel = all || (row.channels ?? 1) <= 1 ? null : row.ch;
+        const channel = ownPair || all || (row.channels ?? 1) <= 1 ? null : row.ch;
         const key = `${row.filePath}#${channel ?? ''}`;
         if (seen.has(key)) continue;
         seen.add(key);

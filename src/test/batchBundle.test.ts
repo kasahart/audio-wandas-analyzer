@@ -41,3 +41,14 @@ test('a CSV id column called path, channel or recipe is written as id_<name>, so
     const { files } = batchBundle({ recipe, recipeName: 'Standard', rows: all, allRows: all, rootPath: '/d', idColumn: 'path', now: new Date(2026, 9, 26) });
     assert.equal(files.find(file => file.name === 'targets.csv')?.text, 'path,channel,recipe,id_path\r\na.wav,,Standard.recipe.json,/archive/a_original.wav\r\n');
 });
+
+test('a Recipe that compares two channels of a recording runs on whole recordings: one Recipe, no channel targets', () => {
+    const all = datasetRows(['/d/a.wav', '/d/b.wav'], '/d', new Map(), new Map(), new Map([['/d/a.wav', 2], ['/d/b.wav', 2]]));
+    const nodes = (recipe as unknown as { nodes: Array<{ id: string }> }).nodes;
+    const cross = { ...recipe, nodes: [...nodes, { id: 'node-9', operation: 'wandas.audio.coherence', version: 2, inputs: [nodes.at(-1)!.id], params: { $type: 'map', entries: [] } }], output: 'node-9' } as unknown as RecipeDocument;
+    // a.wav's ch 2 and both of b.wav's channels.
+    const rows = all.filter(row => row.filePath !== '/d/a.wav' || row.ch === 2);
+    const { files } = batchBundle({ recipe: cross, recipeName: 'Pair', rows, allRows: all, rootPath: '/d', idColumn: '', now: new Date(2026, 9, 26) });
+    assert.deepEqual(files.map(file => file.name), ['Pair.recipe.json', 'targets.csv', 'run_recipe.py', 'README.txt']);
+    assert.equal(files[1].text, 'path,channel,recipe\r\na.wav,,Pair.recipe.json\r\nb.wav,,Pair.recipe.json\r\n');
+});

@@ -5,6 +5,7 @@
  */
 import type { RecipeDocument } from './recipeSelection';
 import type { ScanResult } from '../protocol/backendProtocol';
+import { CROSS_CHANNEL } from './recipeSteps';
 
 export const GET_CHANNEL = 'wandas.frame.get_channel';
 export const CHANNEL_NODE = 'node-channel';
@@ -14,6 +15,8 @@ interface Node { id: string; operation: string; version?: number; inputs: string
 /** The Recipe with `get_channel(ch − 1)` on its frame input; `ch` counts from 1. Another selection there is replaced. */
 export function withChannel(recipe: RecipeDocument, ch: number): RecipeDocument {
     const copy = JSON.parse(JSON.stringify(recipe)) as RecipeDocument & { inputs: Array<{ id: string; kind?: string }>; nodes: Node[]; output: string };
+    // A chain that compares two channels of the recording names its own (select_pair): one channel alone has no pair.
+    if (copy.nodes.some(node => CROSS_CHANNEL.has(node.operation))) return recipe;
     const input = copy.inputs.find(item => item.kind === 'frame')?.id ?? copy.inputs[0]?.id;
     if (!input) return recipe;
     copy.nodes = copy.nodes.filter(node => node.id !== CHANNEL_NODE);
