@@ -108,3 +108,43 @@ test('100,000 recordings: first rows, the header probe, a filter, a sort, a new 
     expect(numbers.valueMs).toBeLessThan(300);
     expect(numbers.scrollWorstFrameMs).toBeLessThan(100);
 });
+
+test('100,000 recordings with their values: scrolling redraws the overview strip within its target', async ({ page }) => {
+    test.setTimeout(240_000);
+    const paths = Array.from({ length: N }, (_, index) => pathOf(index));
+    await page.setContent(buildUiSmokeEntryHtml(paths, 'ja'), { waitUntil: 'domcontentloaded' });
+    const scan = await page.waitForFunction(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; requestId: string }> }).__uiSmokePostedMessages.find(message => message.type === 'entry-scan'));
+    const { requestId } = await scan.jsonValue() as { requestId: string };
+    // Every recording's stored results come back, its 1/3-octave bands among them, as a host sends them.
+    await page.evaluate(async ({ requestId, paths }) => {
+        window.postMessage({ type: 'entry-conditions', requestId, table: null }, '*');
+        for (let at = 0; at < paths.length; at += 2000) {
+            paths.slice(at, at + 2000).forEach((filePath, offset) => {
+                const bands = Array.from({ length: 31 }, (_, band) => -60 + ((at + offset + band) % 20));
+                const result = {
+                    ok: true, conditionId: 'c', input: { id: filePath, fs: 16000, channels: [0], durationS: 10, unit: 'FS', ref: 1 },
+                    leqDbA: [-30], peakHz: [1000], spectrumDb: [[-30]], thirdOctDb: [bands], crest: [1.4], specVersion: 1, wandasVersion: '0.10.0', elapsedMs: 1,
+                };
+                window.postMessage({ type: 'entry-scan-result', requestId, filePath, result }, '*');
+            });
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        window.postMessage({ type: 'entry-scan-done', requestId }, '*');
+    }, { requestId, paths });
+    await expect(page.locator('[data-entry-rows] tr.entry-row').first()).toContainText('−30');
+    const worst = await page.evaluate(async () => {
+        const wrap = document.querySelector('.entry-table-wrap') as HTMLElement;
+        let worst = 0, last = performance.now();
+        for (let step = 0; step < 60; step++) {
+            wrap.scrollTop += 2400;
+            wrap.dispatchEvent(new Event('scroll'));
+            await new Promise(resolve => requestAnimationFrame(resolve));
+            const now = performance.now();
+            worst = Math.max(worst, now - last);
+            last = now;
+        }
+        return worst;
+    });
+    console.log(`scale100k with values ${JSON.stringify({ scrollWorstFrameMs: worst })}`);
+    expect(worst).toBeLessThan(100);
+});

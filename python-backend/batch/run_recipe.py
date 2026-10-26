@@ -43,8 +43,9 @@ def _check_wandas() -> None:
 
 
 def _output_name(relative: str, channel: str) -> str:
-    stem = re.sub(r"[\\/:]+", "__", relative.rsplit(".", 1)[0])
-    return f"{stem}{f'.ch{channel}' if channel else ''}.wdf"
+    # The recording's own path below --out, its extension kept: rec.wav and rec.flac, or L1/a.wav and L1__a.wav,
+    # never share an output.
+    return f"{relative}{f'.ch{channel}' if channel else ''}.wdf"
 
 
 def run_one(root: str, out: str, row: dict[str, str]) -> dict[str, str]:
@@ -68,7 +69,7 @@ def run_one(root: str, out: str, row: dict[str, str]) -> dict[str, str]:
     return {
         **row,
         "status": status,
-        "output": output.name if status == "ok" else "",
+        "output": Path(_output_name(relative, channel)).as_posix() if status == "ok" else "",
         "error": error,
         "seconds": f"{time.perf_counter() - started:.2f}",
     }

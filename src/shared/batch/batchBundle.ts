@@ -58,6 +58,9 @@ export function batchTargets(input: Pick<BatchInput, 'rows' | 'allRows' | 'rootP
     return targets;
 }
 
+const TARGET_COLUMNS = ['path', 'channel', 'recipe'];
+/** The CSV's id column as targets.csv names it: one called path, channel or recipe would hide the column run_recipe.py reads. */
+const idHeader = (column: string): string => (TARGET_COLUMNS.includes(column.trim().toLowerCase()) ? `id_${column}` : column);
 const recipeFile = (name: string, channel: number | null): string => `${name}${channel ? `.ch${channel}` : ''}.recipe.json`;
 const cell = (text: string): string => (/[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
 
@@ -73,7 +76,7 @@ export function batchBundle(input: BatchInput): { folder: string; files: BatchFi
         name: recipeFile(input.recipeName, channel),
         text: JSON.stringify(channel ? withChannel(input.recipe, channel) : input.recipe, null, 2) + '\n',
     }));
-    const header = ['path', 'channel', 'recipe', ...(input.idColumn ? [input.idColumn] : [])];
+    const header = [...TARGET_COLUMNS, ...(input.idColumn ? [idHeader(input.idColumn)] : [])];
     const targetsCsv = [header, ...targets.map(target => [target.path, target.channel ? String(target.channel) : '', target.recipe, ...(input.idColumn ? [target.id] : [])])]
         .map(line => line.map(cell).join(',')).join('\r\n') + '\r\n';
     const files = [...recipes, { name: 'targets.csv', text: targetsCsv }, { name: 'run_recipe.py', text: RUN_RECIPE_PY }, { name: 'README.txt', text: readme(input, targets.length, channels) }];
@@ -89,7 +92,7 @@ function readme(input: BatchInput, count: number, channels: ReadonlyArray<number
 
 中身
 - ${recipes}: wandas の Recipe。チャンネルごとのものは get_channel から始まります。
-- targets.csv: 実行する ${count} 件。録音の相対パス、チャンネル（空欄は全チャンネル）、使う Recipe${input.idColumn ? `、${input.idColumn}` : ''}。
+- targets.csv: 実行する ${count} 件。録音の相対パス、チャンネル（空欄は全チャンネル）、使う Recipe${input.idColumn ? `、${idHeader(input.idColumn)}` : ''}。
 - run_recipe.py: wandas の公開 API だけで、targets.csv の録音に Recipe を順に掛けます。
 - アプリの中では何も実行していません。
 
@@ -107,7 +110,7 @@ Running the Recipe over many recordings (exported by Audio Wandas Analyzer)
 
 Contents
 - ${recipes}: the wandas Recipe; a channel's starts with get_channel.
-- targets.csv: the ${count} targets: each recording's path relative to the folder, its channel (blank: all channels), the Recipe to use${input.idColumn ? `, and ${input.idColumn}` : ''}.
+- targets.csv: the ${count} targets: each recording's path relative to the folder, its channel (blank: all channels), the Recipe to use${input.idColumn ? `, and ${idHeader(input.idColumn)}` : ''}.
 - run_recipe.py: applies the Recipe to every recording in targets.csv, with the wandas public API only.
 - Nothing was run in the app.
 

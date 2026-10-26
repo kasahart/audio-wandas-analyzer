@@ -34,3 +34,10 @@ test('a recording whose channels are all targets runs whole; one with only some 
     assert.ok(readme.indexOf('実行') < readme.indexOf('Run (wandas'), 'Japanese first, English under it');
     assert.match(readme, /--root "\/d"/);
 });
+
+test('a CSV id column called path, channel or recipe is written as id_<name>, so it does not hide the column run_recipe.py reads', () => {
+    const attributes = new Map([['/d/a.wav', { path: '/archive/a_original.wav' }]]);
+    const all = datasetRows(['/d/a.wav'], '/d', attributes, new Map(), new Map([['/d/a.wav', 1]]));
+    const { files } = batchBundle({ recipe, recipeName: 'Standard', rows: all, allRows: all, rootPath: '/d', idColumn: 'path', now: new Date(2026, 9, 26) });
+    assert.equal(files.find(file => file.name === 'targets.csv')?.text, 'path,channel,recipe,id_path\r\na.wav,,Standard.recipe.json,/archive/a_original.wav\r\n');
+});

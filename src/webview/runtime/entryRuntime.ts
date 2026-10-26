@@ -257,6 +257,18 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     let filePaths: string[] = [];
     const results = new Map<string, ScanResult>();
+    /** Each scanned recording's bands (its channels' power mean) and the calibrated ones, kept as results arrive so scrolling does not redo them. */
+    const overviewLevels = new Map<string, (number | null)[]>();
+    const calibratedFiles = new Set<string>();
+    let overviewVersion = 0;
+    function noteResult(filePath: string, result: ScanResult): void {
+        results.set(filePath, result);
+        overviewVersion++;
+        if (result.ok && result.thirdOctDb?.length) overviewLevels.set(filePath, result.thirdOctDb[0].map((_, bandIndex) => powerMeanOrNull(result.thirdOctDb!.map(channel => channel[bandIndex]))));
+        else overviewLevels.delete(filePath);
+        if (result.ok && result.input?.unit !== undefined && result.input.unit !== 'FS') calibratedFiles.add(filePath);
+        else calibratedFiles.delete(filePath);
+    }
     /** The Recipe each result was measured with (recipeKey of the run): a result of another chain is greyed. */
     const resultKeys = new Map<string, string>();
     /** What the table asked the host for: the folder's stored results or a computation ('scan'), a fixed difference measured again. */
@@ -1028,15 +1040,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         // The side plots are drawn only while the table is wide enough to show them.
         if (screen.hidden || !side.offsetWidth) return;
         // The strip is the table's rows in the table's order (one per channel), each its recording's bands.
-        const levels = new Map<string, (number | null)[]>();
-        for (const [filePath, result] of results) {
-            if (result?.ok && result.thirdOctDb?.length) levels.set(filePath, result.thirdOctDb[0].map((_, bandIndex) => powerMeanOrNull(result.thirdOctDb!.map(channel => channel[bandIndex]))));
-        }
         const rowsOnScreen = shownRows;
         const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
-        paintOverview(overview, rowsOnScreen, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, focusedFile(), keepWindow('overview', String(rowsOnScreen.length)),
-            [...results.values()].some(result => result.ok && result.input?.unit !== undefined && result.input.unit !== 'FS'));
+        paintOverview(overview, rowsOnScreen, overviewLevels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, focusedFile(), keepWindow('overview', String(rowsOnScreen.length)),
+            calibratedFiles.size > 0, overviewVersion);
         // The zoom on each plot, for tests: "x0-x1|y0-y1".
         for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
             const window = plotWindow(name);
@@ -1714,6 +1722,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             rootPath = root;
             knownShortest = undefined;
             results.clear();
+            overviewLevels.clear();
+            calibratedFiles.clear();
+            overviewVersion++;
             resultKeys.clear();
             rowsDirty = true;
             knownRate = undefined;
@@ -1812,7 +1823,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 // What the table settled on at open is what is stored: only a change after it is saved.
                 if (loading) { savedSession = JSON.stringify(sessionOf()); sessionLoaded = true; }
             } else if (publication.type === 'entry-scan-result') {
-                results.set(publication.filePath, publication.result);
+                noteResult(publication.filePath, publication.result);
                 resultKeys.set(publication.filePath, requests.find(publication.requestId)?.key ?? currentKey());
                 rowsDirty = true;
                 if (scanning) {

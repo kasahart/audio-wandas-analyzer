@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -97,3 +98,13 @@ def test_an_exported_bundle_runs_its_recipe_over_its_targets_and_the_outputs_loa
     levels = np.atleast_2d(np.asarray(ch2.data))[0]
     peak = ch2.freqs[int(np.argmax(np.abs(levels)))]
     assert 3000 < peak < 3300
+
+
+def test_outputs_keep_the_recordings_path_and_extension_so_no_two_share_one() -> None:
+    spec = importlib.util.spec_from_file_location("run_recipe", REPO / "python-backend" / "batch" / "run_recipe.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    names = [module._output_name(path, "") for path in ("rec.wav", "rec.flac", "L1/a.wav", "L1__a.wav")]
+    assert names == ["rec.wav.wdf", "rec.flac.wdf", "L1/a.wav.wdf", "L1__a.wav.wdf"]
+    assert module._output_name("two.wav", "2") == "two.wav.ch2.wdf"
