@@ -286,6 +286,19 @@ export interface UiStrings {
     reportMemo: string;
     reportBaseDefinition: string;
     reportDerived: string;
+    dsExportNotes: string;
+    dsSlotTrackChannel: string;
+    dsBatch: string;
+    stageBaseGated: string;
+    stageBaseFromTable: string;
+    stageBaseScan: string;
+    hintBatch: string;
+    dsBatchFiltered: string;
+    dsBatchAll: string;
+    dsBatchNote: string;
+    dsBatchGo: string;
+    dsBatchSaved: string;
+    hintExportNotes: string;
     dsDistLabel: string;
     dsDistBack: string;
     dsDistBackHint: string;
@@ -865,6 +878,19 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportMemo: 'Memo',
         reportBaseDefinition: 'Base definition',
         reportDerived: 'Fixed Δ (D)',
+        dsExportNotes: 'Memos and exclusions as CSV',
+        dsSlotTrackChannel: 'The track shows ch{ch}',
+        dsBatch: 'Export the Recipe for many files',
+        stageBaseGated: "The base group has {n} recordings: they are not analysed until you ask.",
+        stageBaseFromTable: "Base: the table's computed levels ({m} of {n}); the steps' pictures need the {n} analysed.",
+        stageBaseScan: "Analyse the base group's {n} recordings · about {time}",
+        hintBatch: 'The Recipe, the list of recordings and a script that runs it with wandas, as one folder: nothing runs in the app',
+        dsBatchFiltered: 'Filtered: {n} recordings ({m} ch)',
+        dsBatchAll: 'All: {n} recordings ({m} ch)',
+        dsBatchNote: 'Nothing runs here: run run_recipe.py from the folder on your machine.',
+        dsBatchGo: 'Export',
+        dsBatchSaved: 'Exported the Recipe for {n} recordings: {folder}',
+        hintExportNotes: 'The picked CSV as it was, with a memo and an excluded column added, to give back to whoever made it',
         dsDistLabel: 'Distribution by group',
         dsDistBack: '← Back to the distribution',
         dsDistBackHint: 'Close the comparison and choose again from the distribution (⤢)',
@@ -1441,6 +1467,19 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportMemo: 'メモ',
         reportBaseDefinition: '基準の定義',
         reportDerived: '固定した差（D）',
+        dsExportNotes: 'メモと除外を CSV に書き出す',
+        dsSlotTrackChannel: 'トラックは ch{ch} で表示',
+        dsBatch: 'レシピをまとめて書き出す',
+        stageBaseGated: '基準の群は {n} 本です。押すまで解析しません。',
+        stageBaseFromTable: '基準は表で計算済みの値（{n} 本中 {m} 本）から。手順の絵には {n} 本の解析が要ります。',
+        stageBaseScan: '基準の群 {n} 本を解析する · 約 {time}',
+        hintBatch: 'Recipe と録音の一覧、それを wandas で実行するスクリプトを 1 つのフォルダに書き出します。アプリの中では実行しません',
+        dsBatchFiltered: '絞り込んだ {n} 本 ({m} ch)',
+        dsBatchAll: 'すべて {n} 本 ({m} ch)',
+        dsBatchNote: 'アプリの中では実行しません。書き出したフォルダの run_recipe.py を手元で実行します。',
+        dsBatchGo: '書き出す',
+        dsBatchSaved: '{n} 本分のレシピを書き出しました：{folder}',
+        hintExportNotes: '選んだ CSV をそのまま、メモと除外の列を足して書き出します。CSV を作った人に返せます',
         dsDistLabel: '群ごとの分布',
         dsDistBack: '← 分布に戻る',
         dsDistBackHint: '比較を閉じて、分布から選び直す（⤢）',

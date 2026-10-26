@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { auditAudioMatches, finiteNumber, parseCSV, resolveAudio, summarizeAudioCandidates, AUDIO_REASON_CANDIDATE_LIMIT } from '../shared/dataset/asdData';
-import { baseGroupMembers, columnValues, datasetRows, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type DatasetRow } from '../shared/dataset/datasetTable';
+import { annotatedCsv, baseGroupMembers, columnValues, datasetRows, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type DatasetRow } from '../shared/dataset/datasetTable';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 
 const file = (name: string): { name: string } => ({ name });
@@ -140,4 +140,24 @@ test('a base group is the group\'s other recordings in the pool, of the compared
     const ch2 = rows.filter(row => row.ch === 2);
     assert.deepEqual(baseGroupMembers(ch2, '/d/a.wav', 'csv:rpm', '900', 2), { paths: ['/d/b.wav'], fewerChannels: 0 });
     assert.deepEqual(baseGroupMembers(rows, '/d/a.wav', 'none', '', 2).paths, ['/d/b.wav', '/d/c.wav']);
+});
+
+test('memos and exclusions go back as the picked CSV with two columns after: per channel when a recording has several', () => {
+    const csv = readDatasetCsv(bytes('audio_file,line,score\nL1/a.wav,L1,0.2\nL2/b.wav,L2,0.9\nmissing.wav,L3,0.5\nL1/m.wav,L1,0.1\n'), 'm.csv');
+    const files = ['/d/L1/a.wav', '/d/L2/b.wav', '/d/L1/m.wav'];
+    const match = matchCsv(csv, files, '/d');
+    const rows = datasetRows(files, '/d', match.attributes, new Map(), new Map([['/d/L1/a.wav', 2], ['/d/L2/b.wav', 2], ['/d/L1/m.wav', 1]]));
+    const memo = new Map([['/d/L1/a.wav#ch2', 'rattle, 3 kHz'], ['/d/L1/m.wav', 'quiet']]);
+    const excluded = new Set(['/d/L2/b.wav#ch1', '/d/L2/b.wav#ch2', '/d/L1/a.wav#ch1']);
+    const text = annotatedCsv(csv, match, files, '/d', rows, memo, excluded);
+    assert.ok(text.startsWith('\uFEFF'));
+    assert.deepEqual(text.slice(1).trimEnd().split('\r\n'), [
+        'audio_file,line,score,memo,excluded',
+        'L1/a.wav,L1,0.2,"ch2: rattle, 3 kHz",ch1',
+        'L2/b.wav,L2,0.9,,1',
+        'missing.wav,L3,0.5,,',
+        'L1/m.wav,L1,0.1,quiet,',
+    ]);
+    // Without a CSV: one row per recording, by its path below the folder.
+    assert.deepEqual(annotatedCsv(null, null, files, '/d', rows, memo, excluded).slice(1).trimEnd().split('\r\n')[0], 'audio_file,memo,excluded');
 });

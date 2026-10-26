@@ -50,12 +50,15 @@ export interface OpenEntryOptions {
     recipe?: unknown;
     /** Answers only this many files and leaves the scan running. */
     answered?: number;
+    /** The folder's stored session and CSV, as a host gives them back at open. */
+    session?: Record<string, unknown>;
+    csv?: { name: string; text: string };
     /** What the files' headers say, by path: a channel count or an error. Every probe is answered and finished; `null` leaves it running. */
-    headers?: Record<string, number | string> | null;
+    headers?: Record<string, number | string | { channels: number; durationS: number }> | null;
 }
 
 export async function openEntry(page: Page, files: ScannedFile[], options: OpenEntryOptions | string = {}): Promise<number> {
-    const { language = 'en', table = null, metadataPath, recipe, answered = files.length, headers = {} } = typeof options === 'string' ? { language: options } : options;
+    const { language = 'en', table = null, metadataPath, recipe, answered = files.length, headers = {}, session, csv } = typeof options === 'string' ? { language: options } : options;
     const listed = [...files.map(file => file.filePath), ...(metadataPath ? [metadataPath] : [])];
     await page.setContent(buildUiSmokeEntryHtml(listed, language), { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#entry-screen')).toBeVisible();
@@ -63,9 +66,9 @@ export async function openEntry(page: Page, files: ScannedFile[], options: OpenE
         .__uiSmokePostedMessages.find(message => message.type === 'entry-scan'));
     const { requestId } = await request.jsonValue() as { requestId: string };
     if (headers) await answerProbe(page, headers);
-    return page.evaluate(({ requestId, files, table, metadataPath, recipe, answered }) => new Promise<number>(resolve => {
+    return page.evaluate(({ requestId, files, table, metadataPath, recipe, answered, session, csv }) => new Promise<number>(resolve => {
         const started = performance.now();
-        window.postMessage({ type: 'entry-conditions', requestId, table, ...(metadataPath ? { metadataPath } : {}), ...(recipe ? { recipe } : {}) }, '*');
+        window.postMessage({ type: 'entry-conditions', requestId, table, ...(metadataPath ? { metadataPath } : {}), ...(recipe ? { recipe } : {}), ...(session ? { session } : {}), ...(csv ? { csv } : {}) }, '*');
         for (const file of files.slice(0, answered)) window.postMessage({ type: 'entry-scan-result', requestId, filePath: file.filePath, result: file.result }, '*');
         if (answered === files.length) window.postMessage({ type: 'entry-scan-done', requestId }, '*');
         // Answered results draw as rows (one per channel): the table is ready once they are there.
@@ -74,7 +77,7 @@ export async function openEntry(page: Page, files: ScannedFile[], options: OpenE
             else requestAnimationFrame(check);
         };
         check();
-    }), { requestId, files, table, metadataPath, recipe, answered });
+    }), { requestId, files, table, metadataPath, recipe, answered, session, csv });
 }
 
 /** Visible words outside the rows: numbers, Δ and ✕ marks, file names in the slot chips do not count. */
@@ -101,7 +104,7 @@ export async function pickCsv(page: Page, name: string, text: string): Promise<v
 }
 
 /** Answers the entry screen's latest header probe as a host does: one result per named file, then done. */
-export async function answerProbe(page: Page, headers: Record<string, number | string>): Promise<void> {
+export async function answerProbe(page: Page, headers: Record<string, number | string | { channels: number; durationS: number }>): Promise<void> {
     const probe = await page.waitForFunction(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> })
         .__uiSmokePostedMessages.filter(message => message.type === 'entry-probe').at(-1));
     const { requestId, filePaths } = await probe.jsonValue() as unknown as { requestId: string; filePaths: string[] };
@@ -109,7 +112,7 @@ export async function answerProbe(page: Page, headers: Record<string, number | s
         for (const filePath of filePaths) {
             const header = headers[filePath];
             if (header === undefined) continue;
-            window.postMessage({ type: 'entry-probe-result', requestId, filePath, ...(typeof header === 'number' ? { channels: header } : { error: header }) }, '*');
+            window.postMessage({ type: 'entry-probe-result', requestId, filePath, ...(typeof header === 'number' ? { channels: header } : typeof header === 'string' ? { error: header } : header) }, '*');
         }
         window.postMessage({ type: 'entry-probe-done', requestId }, '*');
     }, { requestId, filePaths, headers });

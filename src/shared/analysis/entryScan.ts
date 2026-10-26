@@ -52,7 +52,7 @@ export interface EntryProbeCancelMessage {
 
 /** Host → webview: one file's header: its channels, unknown (a format read only by its decoder), or why it could not be read. */
 export type EntryProbePublication =
-    | { type: 'entry-probe-result'; requestId: string; filePath: string; channels?: number; unknown?: true; error?: string }
+    | { type: 'entry-probe-result'; requestId: string; filePath: string; channels?: number; durationS?: number; unknown?: true; error?: string }
     | { type: 'entry-probe-done'; requestId: string };
 
 /** Webview → host: stop the running entry scan after its current file; what it scanned stays. */
@@ -87,9 +87,16 @@ export interface SaveReportFolderMessage {
     files: Array<{ name: string; base64?: string; text?: string }>;
 }
 
-export interface EntrySaveConditionsMessage {
-    type: 'entry-save-conditions';
-    table: EntryConditionTable | null;
+/**
+ * Webview → host: the entry table's session for the opened folder (what the user chose: the value, the
+ * grouping, the filters, the base, the slots, memos, exclusions, fixed differences), and the CSV picked when it
+ * changed (null: none; omitted: as stored). The host keeps them in its own storage, never in the user's folder.
+ */
+export interface EntrySaveSessionMessage {
+    type: 'entry-save-session';
+    rootPath: string;
+    session: Record<string, unknown>;
+    csv?: { name: string; text: string } | null;
 }
 
 export type ComparePublication =
@@ -98,13 +105,21 @@ export type ComparePublication =
 
 export type EntryPublication =
     /** `metadataPath` is the listed file read as the metadata table; it is not scanned and gets no row. */
-    | { type: 'entry-conditions'; requestId: string; table: EntryConditionTable | null; metadataPath?: string; recipe?: RecipeDocument }
+    | { type: 'entry-conditions'; requestId: string; table: EntryConditionTable | null; metadataPath?: string; recipe?: RecipeDocument;
+        /** The folder's stored session and CSV, at open. */
+        session?: Record<string, unknown>; csv?: { name: string; text: string } }
     | { type: 'entry-scan-result'; requestId: string; filePath: string; result: ScanResult }
     | { type: 'entry-scan-done'; requestId: string };
 
 /** Storage keys; a new layout gets a new suffix and the old key is simply never read again. */
-export const ENTRY_SCAN_INDEX_KEY = 'awa.scanIndex.v1';
+export const ENTRY_SCAN_INDEX_KEY = 'awa.scanIndex.v2';
 export const ENTRY_CONDITIONS_KEY = 'awa.conditions.v1';
+export const ENTRY_SESSION_KEY = 'awa.session.v1';
+export const ENTRY_SESSION_CSV_KEY = 'awa.sessionCsv.v1';
+/** A folder's own key: one index and one session per opened folder, so a folder of 100,000 files does not rewrite another's. */
+export const folderKey = (key: string, rootPath: string): string => `${key}:${rootPath}`;
+/** Results kept per file: one per Recipe (a channel is one of the result's arrays), the most recent first. */
+const RECIPES_PER_FILE = 4;
 /** Results are written in batches of this many, so a 100-file scan stores a few times rather than 100. */
 const INDEX_WRITE_EVERY = 10;
 
@@ -117,7 +132,7 @@ interface ScanIndexEntry {
     recipe?: string;
     result: ScanResult;
 }
-type ScanIndex = Record<string, ScanIndexEntry>;
+type ScanIndex = Record<string, ScanIndexEntry[]>;
 
 /** Host-specific halves of the entry scan: how a file is identified, scanned and stored. */
 export interface EntryScanPorts {
@@ -131,6 +146,7 @@ export interface EntryScanPorts {
     readFile?(filePath: string): Promise<Uint8Array>;
     /** A file's first `length` bytes, for its header. */
     readHead?(filePath: string, length: number): Promise<Uint8Array>;
+    /** Stored values: the folder's index and session (large) may come from a file or IndexedDB, so a read may wait. */
     read(key: string): unknown;
     write(key: string, value: unknown): void | PromiseLike<void>;
     /** Runs once after the last file with how many were scanned, e.g. to give the browser's Worker its memory back. */
@@ -158,22 +174,32 @@ function isScanResult(value: unknown): value is ScanResult {
     try { parseBackendResult('scan', value); return true; } catch { return false; }
 }
 
-function readIndex(ports: EntryScanPorts): ScanIndex {
-    const stored = ports.read(ENTRY_SCAN_INDEX_KEY);
+async function readIndex(ports: EntryScanPorts, rootPath: string): Promise<ScanIndex> {
+    const stored = await ports.read(folderKey(ENTRY_SCAN_INDEX_KEY, rootPath));
     if (!isRecord(stored)) return {};
     const index: ScanIndex = {};
-    for (const [filePath, entry] of Object.entries(stored)) {
-        if (isRecord(entry) && typeof entry['identity'] === 'string' && typeof entry['calibration'] === 'string'
-            && isScanResult(entry['result']) && entry['result'].ok) {
-            index[filePath] = entry as unknown as ScanIndexEntry;
-        }
+    for (const [filePath, entries] of Object.entries(stored)) {
+        if (!Array.isArray(entries)) continue;
+        const valid = entries.filter((entry): entry is ScanIndexEntry => isRecord(entry) && typeof entry['identity'] === 'string' && typeof entry['calibration'] === 'string'
+            && isScanResult(entry['result']) && entry['result'].ok);
+        if (valid.length) index[filePath] = valid;
     }
     return index;
 }
 
-export function readConditionTable(ports: Pick<EntryScanPorts, 'read'>): EntryConditionTable | null {
-    const stored = ports.read(ENTRY_CONDITIONS_KEY);
-    return isEntryConditionTable(stored) ? stored : null;
+/** The folder's stored session and CSV, as the webview saved them. */
+async function readSession(ports: EntryScanPorts, rootPath: string): Promise<{ session?: Record<string, unknown>; csv?: { name: string; text: string } }> {
+    const session = await ports.read(folderKey(ENTRY_SESSION_KEY, rootPath));
+    const csv = await ports.read(folderKey(ENTRY_SESSION_CSV_KEY, rootPath));
+    return {
+        ...(isRecord(session) ? { session } : {}),
+        ...(isRecord(csv) && typeof csv['name'] === 'string' && typeof csv['text'] === 'string' ? { csv: { name: csv['name'], text: csv['text'] } } : {}),
+    };
+}
+
+export async function saveSession(ports: Pick<EntryScanPorts, 'write'>, message: EntrySaveSessionMessage): Promise<void> {
+    await ports.write(folderKey(ENTRY_SESSION_KEY, message.rootPath), message.session);
+    if (message.csv !== undefined) await ports.write(folderKey(ENTRY_SESSION_CSV_KEY, message.rootPath), message.csv);
 }
 
 function reason(error: unknown): string {
@@ -198,14 +224,18 @@ export async function runEntryScan(
     let standard: RecipeDocument | undefined;
     try { standard = await ports.recipe?.(); } catch { /* The step bar then shows no chips; scans still use the host's Recipe. */ }
     const used = recipeKey(message.recipe ?? standard);
-    await publish({ type: 'entry-conditions', requestId, table: null, ...(standard ? { recipe: standard } : {}) });
+    // At open (stored results only) the folder's session comes back with them: what the user chose, the CSV picked.
+    const stored = message.cachedOnly ? await readSession(ports, message.rootPath ?? '') : {};
+    await publish({ type: 'entry-conditions', requestId, table: null, ...(standard ? { recipe: standard } : {}), ...stored });
     const filePaths = message.filePaths.filter(filePath => !isMetadataCandidate(filePath));
-    const index = readIndex(ports);
-    const kept: ScanIndex = message.cachedOnly ? { ...index } : {};
+    const indexKey = folderKey(ENTRY_SCAN_INDEX_KEY, message.rootPath ?? '');
+    const index = await readIndex(ports, message.rootPath ?? '');
+    // Every stored result stays: a computation adds this Recipe's for its files, beside the other Recipes' (most recent first).
+    const kept: ScanIndex = { ...index };
     let unsaved = 0;
     let scanned = 0;
     let completed = false;
-    const save = async (): Promise<void> => { unsaved = 0; await ports.write(ENTRY_SCAN_INDEX_KEY, kept); };
+    const save = async (): Promise<void> => { unsaved = 0; await ports.write(indexKey, kept); };
     try {
         for (const filePath of filePaths) {
             if (!isCurrent()) return;
@@ -213,17 +243,18 @@ export async function runEntryScan(
             try {
                 const identity = await ports.identity(filePath);
                 const calibration = ports.calibration?.(filePath) ?? '';
-                const previous = index[filePath];
-                if (identity !== undefined && previous && previous.identity === identity && previous.calibration === calibration && previous.recipe === used) {
+                // The file as it is now (its size and time, or its content), its calibration and this Recipe: else it is not computed.
+                const previous = (index[filePath] ?? []).find(entry => entry.identity === identity && entry.calibration === calibration && entry.recipe === used);
+                if (identity !== undefined && previous) {
                     result = previous.result;
-                    kept[filePath] = previous;
                 } else if (message.cachedOnly) {
                     continue;
                 } else {
                     scanned++;
                     result = await ports.scan(filePath, undefined, message.recipe);
                     if (result.ok && identity !== undefined) {
-                        kept[filePath] = { identity, calibration, recipe: used, result };
+                        const others = (kept[filePath] ?? []).filter(entry => entry.recipe !== used && entry.identity === identity);
+                        kept[filePath] = [{ identity, calibration, recipe: used, result }, ...others].slice(0, RECIPES_PER_FILE);
                         if (++unsaved >= INDEX_WRITE_EVERY) await save();
                     }
                 }
@@ -233,7 +264,7 @@ export async function runEntryScan(
             if (!isCurrent()) return;
             await publish({ type: 'entry-scan-result', requestId, filePath, result });
         }
-        await save();
+        if (!message.cachedOnly) await save();
         completed = true;
     } finally {
         await ports.afterScan?.(scanned);

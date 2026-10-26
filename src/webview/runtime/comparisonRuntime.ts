@@ -1113,6 +1113,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             announce(text);
             hintFooter.show(text);
         },
+        saveFolder: (folder, files) => messaging.post({ type: 'save-report-folder', folder, files }),
         download(csv, fileName) {
             if (messaging.downloadFile(csv, fileName, 'text/csv;charset=utf-8')) return;
             downloadEntryCsv(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), fileName);
@@ -1132,7 +1133,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         baseTitle: (comparePath, group) => entryScreen.baseTitle(comparePath, group),
         stageChannel: (path, comparePath, group) => entryScreen.stageChannel(path, comparePath, group),
         rowInfo: path => entryScreen.rowInfo(path),
+        tableBaseBands: (comparePath, group) => entryScreen.tableBaseBands(comparePath, group),
+        cost: paths => entryScreen.cost(paths),
         showCompared: () => entryScreen.showCompared(),
+        batch: () => entryScreen.openBatch(),
         showLanes(visible) {
             const stacked = document.getElementById('stacked-wrap');
             if (stacked) stacked.style.display = visible ? '' : 'none';

@@ -14,4 +14,9 @@ export default defineConfig({
         viewport: { width: 1400, height: 900 },
         launchOptions: { executablePath: process.env['AWA_CHROMIUM_EXECUTABLE'] || undefined },
     },
+    // The 100,000-recording timings run alone, after the rest: beside other workers they measure the machine's load.
+    projects: [
+        { name: 'ui', testIgnore: /scale100k\.spec\.ts/ },
+        { name: 'scale', testMatch: /scale100k\.spec\.ts/, dependencies: ['ui'] },
+    ],
 });

@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { createFolderStore, isFolderKey } from './folderStore';
 import * as vscode from 'vscode';
 import {
     type AnalysisResultWithError,
@@ -160,7 +161,7 @@ export class PanelController implements vscode.Disposable {
     private readonly calibrationChangeDisposable: vscode.Disposable;
 
     constructor(
-        private readonly context: SpectrogramSettingsContext & { extensionUri: vscode.Uri },
+        private readonly context: SpectrogramSettingsContext & { extensionUri: vscode.Uri; storageUri?: vscode.Uri; globalStorageUri?: vscode.Uri },
         private readonly backend: PanelBackend,
         private readonly analysis: PanelAnalysis,
         private readonly exports: ExportFlows,
@@ -401,13 +402,26 @@ export class PanelController implements vscode.Disposable {
                         await handle.close();
                     }
                 },
-                read: (key) => this.context.workspaceState.get(key),
-                write: (key, value) => this.context.workspaceState.update(key, value),
+                // A folder's index, session and CSV go to files in the workspace storage; the rest to the state database.
+                read: (key) => (this.folderStore && isFolderKey(key) ? this.folderStore.read(key) : this.context.workspaceState.get(key)),
+                write: (key, value) => (this.folderStore && isFolderKey(key) ? this.folderStore.write(key, value) : this.context.workspaceState.update(key, value)),
             },
         };
     }
 
     private entryRecipeFile?: Promise<RecipeDocument>;
+
+    /** The workspace storage (else the extension's global storage) for a folder's index and session; none in tests. */
+    private folderStoreMade = false;
+    private folderStoreValue?: ReturnType<typeof createFolderStore>;
+    private get folderStore(): ReturnType<typeof createFolderStore> | undefined {
+        if (!this.folderStoreMade) {
+            this.folderStoreMade = true;
+            const base = this.context.storageUri ?? this.context.globalStorageUri;
+            this.folderStoreValue = base ? createFolderStore(path.join(base.fsPath, 'entry')) : undefined;
+        }
+        return this.folderStoreValue;
+    }
 
     /** The fixed Recipe the entry table scans with, shipped beside the Python backend. */
     private entryRecipe(): Promise<RecipeDocument> {

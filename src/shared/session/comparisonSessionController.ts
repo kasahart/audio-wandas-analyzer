@@ -6,7 +6,7 @@ import type {
     SpectrogramSettings,
     StftOptions,
 } from '../analysis/analysisTypes';
-import { ENTRY_CONDITIONS_KEY, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
+import { saveSession, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
 import type { CalibrationRequestContext, PairSpectrumResult } from '../protocol/backendProtocol';
 import { parsePanelMessage, type PanelMessage, type SaveRecipeMessage } from '../protocol/panelMessages';
 import type { AnalyzeSelectedFilesMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
@@ -186,8 +186,8 @@ export class ComparisonSessionController {
                     return;
                 // The running entry scan stops after its current file: a newer scan number makes it stale.
                 case 'entry-scan-cancel': this.entryScans++; return;
-                case 'entry-save-conditions':
-                    if (this.ports.entry) { const pending = this.ports.entry.write(ENTRY_CONDITIONS_KEY, message.table); if (thenable(pending)) await pending; }
+                case 'entry-save-session':
+                    if (this.ports.entry) await saveSession(this.ports.entry, message);
                     else this.ports.unsupported(message.type);
                     return;
             }

@@ -62,6 +62,8 @@ export function entryScreenHtml(strings: EntryStrings): string {
         <button type="button" class="step-chip entry-csv-pick" data-action="entry-pick-csv"${hintAttr(strings.hintPickCsv)}><span data-entry-source>${escapeHtml(strings.dsPickCsv)}</span></button>
         <input type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" data-entry-csv-input hidden>
         <button type="button" data-action="entry-export-csv">CSV ⤓</button>
+        <button type="button" data-action="entry-export-notes"${hintAttr(strings.hintExportNotes)}>${escapeHtml(strings.dsExportNotes)}</button>
+        <button type="button" data-action="entry-batch"${hintAttr(strings.hintBatch)}>${escapeHtml(strings.dsBatch)}</button>
         <button type="button" class="entry-primary" data-action="entry-open">${escapeHtml(strings.entryOpen)} <kbd>Enter</kbd></button>
         <button type="button" class="entry-size" data-action="entry-maximize" aria-pressed="false"${hintAttr(strings.hintEntryMaximize)}>⤢</button>
     </div>
@@ -262,6 +264,16 @@ export function slotMenuHtml(key: string, slots: readonly (string | null)[], str
         + '</div>';
 }
 
+/** 「レシピをまとめて書き出す」: the rows it is for (the filtered ones, or all), then 書き出す. */
+export function batchPopHtml(filtered: { recordings: number; channels: number }, all: { recordings: number; channels: number }, choice: 'filtered' | 'all', strings: EntryStrings): string {
+    const option = (value: 'filtered' | 'all', text: string): string => `<label class="entry-batch-opt"><input type="radio" name="entry-batch-scope" value="${value}" data-entry-batch-scope${choice === value ? ' checked' : ''}> ${escapeHtml(text)}</label>`;
+    const say = (text: string, count: { recordings: number; channels: number }): string => text.replace('{n}', count.recordings.toLocaleString()).replace('{m}', count.channels.toLocaleString());
+    return `<div class="entry-batch" role="dialog" aria-label="${escapeHtml(strings.dsBatch)}" data-entry-batch><b>${escapeHtml(strings.dsBatch)}</b>`
+        + option('filtered', say(strings.dsBatchFiltered, filtered)) + option('all', say(strings.dsBatchAll, all))
+        + `<div class="entry-fpop-label">${escapeHtml(strings.dsBatchNote)}</div>`
+        + `<div class="entry-fpop-bar"><button type="button" class="entry-primary" data-action="entry-batch-go">${escapeHtml(strings.dsBatchGo)}</button><button type="button" data-action="entry-batch-cancel">${escapeHtml(strings.dsCancel)}</button></div></div>`;
+}
+
 /** The empty base chip's menu: which group's median is the base (slot 1's by default), or the selected recording. */
 export function baseMenuHtml(groups: ReadonlyArray<{ name: string; label: string }>, chosen: string | null, canUseRow: boolean, strings: EntryStrings): string {
     const item = (name: string | null, label: string): string => `<button type="button" role="menuitemradio" aria-checked="${chosen === name}" class="entry-mi" data-action="entry-base-group" data-group="${escapeHtml(name ?? '')}" data-auto="${name === null}">${escapeHtml(label)}${chosen === name ? ' ✓' : ''}</button>`;
@@ -295,10 +307,12 @@ export function slotHtml(options: {
  * The slots 0–3: an empty one puts the selected row in when pressed; a filled one goes to its row (it is never
  * overwritten by a press); × empties it. Slot 0 empty is the group's median, which compares need no choice for.
  */
-export function entrySlotsHtml(slots: readonly (string | null)[], label: (key: string) => string, baseLabel: string, strings: EntryStrings, heldSlot: number | null = null): string {
+export function entrySlotsHtml(slots: readonly (string | null)[], label: (key: string) => string, baseLabel: string, strings: EntryStrings, heldSlot: number | null = null,
+    /** Per slot, a note on its chip: e.g. its file is another slot's track, shown as that slot's channel. */
+    notes: readonly (string | null)[] = []): string {
     return [0, 1, 2, 3].map(slot => {
         const key = slots[slot] ?? null;
-        const hint = key ? strings.dsSlotFilledHint : strings.dsSlotEmptyHint;
+        const hint = (key ? strings.dsSlotFilledHint : strings.dsSlotEmptyHint) + (notes[slot] ? ` · ${notes[slot]}` : '');
         const chip = slotHtml({
             slot, label: key ? label(key) : slot === 0 ? baseLabel : strings.slotEmpty, empty: !key && slot !== 0, active: slot === 0, held: heldSlot === slot && !!key, classes: 'entry-chip',
             attributes: ` data-action="entry-slot" data-slot="${slot}"${hintAttr(hint.replaceAll('{n}', String(slot)))}`,

@@ -167,13 +167,16 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
                 && value.filePaths.every(path => typeof path === 'string')
                 && (value.entry === undefined || typeof value.entry === 'boolean');
         case 'entry-conditions':
-            return hasString(value, 'requestId') && (value.table === null || isEntryConditionTable(value.table));
+            return hasString(value, 'requestId') && (value.table === null || isEntryConditionTable(value.table))
+                && (value.session === undefined || (!!value.session && typeof value.session === 'object' && !Array.isArray(value.session)))
+                && (value.csv === undefined || (!!value.csv && typeof value.csv === 'object' && typeof (value.csv as Record<string, unknown>).name === 'string' && typeof (value.csv as Record<string, unknown>).text === 'string'));
         case 'entry-scan-result':
             if (!hasString(value, 'requestId') || !hasString(value, 'filePath')) return false;
             try { parseBackendResult('scan', value.result); return true; } catch { return false; }
         case 'entry-probe-result':
             return hasString(value, 'requestId') && hasString(value, 'filePath')
                 && (value.channels === undefined || (typeof value.channels === 'number' && Number.isInteger(value.channels) && value.channels > 0))
+                && (value.durationS === undefined || (typeof value.durationS === 'number' && Number.isFinite(value.durationS) && value.durationS >= 0))
                 && (value.error === undefined || typeof value.error === 'string');
         case 'entry-probe-done':
         case 'entry-scan-done':

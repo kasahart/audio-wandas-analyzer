@@ -195,7 +195,7 @@ function mostTellingBand(rows: EntryRow[], files: Map<string, ScanResult>): numb
         for (const values of groups.values()) {
             if (values.length < MIN_TELLING_GROUP) continue;
             const center = median(values)!;
-            const spread = Math.max(...values.map(value => Math.abs(value - center)));
+            const spread = values.reduce((most, value) => Math.max(most, Math.abs(value - center)), -Infinity);
             if (spread > bestSpread) { bestSpread = spread; best = band; }
         }
     });

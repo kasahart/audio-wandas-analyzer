@@ -48,9 +48,13 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
     const asked = (await stageScans(page)).at(-1)!;
     expect(asked.stage).toBe('node-noct');
-    expect(asked.filePaths[0]).toBe(first);
-    expect(asked.filePaths.length).toBeGreaterThan(1);
-    await answer(page, { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] });
+    expect(asked.filePaths).toEqual([first]);
+    const view = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
+    await answer(page, view);
+    // The base (ungrouped: the folder's other recordings) is too large to scan unasked; asked, it is.
+    await page.locator('[data-action="stage-base-scan"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(1);
+    await answer(page, view);
     // Overlaid by default: the base group's median and the slotted track on one plot, the lanes out of the way.
     await expect(stage).toHaveAttribute('data-layout', 'overlay');
     await expect(bar).toHaveAttribute('data-drawn', '2');

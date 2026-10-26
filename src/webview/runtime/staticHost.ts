@@ -1,3 +1,4 @@
+import { createIdbStore } from './idbStore';
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal, type AnalysisContextPolicy } from '../../shared/analysis/analysisClient';
@@ -102,6 +103,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function save(key: string, value: unknown): void {
         try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage may be denied or full; keep working in memory. */ }
     }
+    const folderStore = createIdbStore((window as unknown as { indexedDB?: IDBFactory }).indexedDB, { read: readSaved, write: save });
     const settingsContext = { workspaceState: {
         get: readSaved,
         update: async (key: string, value: unknown): Promise<void> => { save(key, value); },
@@ -347,12 +349,36 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         });
     }
     /** Hashes a listed file's bytes, which is what the Worker would name it by too. */
-    async function contentIdentity(path: string): Promise<string | undefined> {
+    /**
+     * A picked folder is known by its name only (/sources/<name>): its stored index and session are also keyed by
+     * how many files it has and the first few files' content hashes, so another folder of the same name has its own.
+     */
+    const FOLDER_KEY = /^awa\.(scanIndex|session|sessionCsv)\./;
+    const folderTags = new Map<string, Promise<string>>();
+    function taggedKey(key: string): Promise<string> {
+        const root = key.slice(key.indexOf(':') + 1);
+        const paths = [...folder.keys()].filter(path => !root || path.startsWith(`${root}/`)).sort();
+        const listing = `${root}|${paths.length}|${paths.slice(0, 3).join('|')}`;
+        let tag = folderTags.get(listing);
+        if (!tag) {
+            tag = Promise.resolve(`${paths.length}:${shortHash(paths.slice(0, 3).map(path => fileIdentity(path) ?? '-').join('/'))}`);
+            folderTags.set(listing, tag);
+        }
+        return tag.then(value => `${key}#${value}`);
+    }
+    /**
+     * A picked file as the browser knows it without reading it: its name, size and time. Reading every file's
+     * content at open (to hash it) would read a folder of 10-minute recordings in full before showing a row.
+     */
+    function fileIdentity(path: string): string | undefined {
         const file = folder.get(path);
-        const subtle = window.crypto?.subtle;
-        if (!file || !subtle) return undefined;
-        const digest = new Uint8Array(await subtle.digest('SHA-256', await file.arrayBuffer()));
-        return `sha256:${Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('')}`;
+        return file ? `${file.name}|${file.size}|${(file as File & { lastModified?: number }).lastModified ?? ''}` : undefined;
+    }
+    /** FNV-1a, 32 bits, as hex: a short tag, not a security hash. */
+    function shortHash(text: string): string {
+        let hash = 0x811c9dc5;
+        for (let index = 0; index < text.length; index++) hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
+        return hash.toString(16).padStart(8, '0');
     }
 
     function resetWorker(reason: Error): void {
@@ -765,7 +791,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(strings.reportSaved + folder + '.zip');
         },
         entry: {
-            identity: contentIdentity,
+            identity: async path => fileIdentity(path),
             scan: (path, region, recipe, stage, detail) => scanEntryFile(path, region, recipe as Record<string, unknown> | undefined, stage, detail),
             recipe: async () => {
                 entryRecipe ??= fetchJson('./recipes/entry-scan.recipe.json') as Promise<Record<string, unknown>>;
@@ -783,8 +809,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 if (!file) throw new Error(strings.entrySourceGone);
                 return new Uint8Array(await file.slice(0, length).arrayBuffer());
             },
-            read: readSaved,
-            write: save,
+            // A folder's index, session and CSV in IndexedDB (they outgrow localStorage); the rest as before.
+            read: async key => (FOLDER_KEY.test(key) ? folderStore.read(await taggedKey(key)) : readSaved(key)),
+            write: async (key, value) => (FOLDER_KEY.test(key) ? folderStore.write(await taggedKey(key), value) : save(key, value)),
             // Pyodide's heap never shrinks, so after a folder scan the Worker is replaced and the selected tracks reload into it.
             // A few files (a comparison region over a base group) leave Pyodide's heap as it was; a folder's worth does not.
             afterScan: scanned => { if (scanned >= (deps.restartAfterScans ?? 20) && worker && !recovery) replaceWorkerBehind(); },

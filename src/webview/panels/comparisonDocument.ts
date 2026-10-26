@@ -359,6 +359,10 @@ export function renderComparisonStyles(): string {
         .compare-pane-head { display: flex; align-items: center; gap: 8px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
         .compare-value { font-family: var(--font-mono); }
         .compare-memo { color: var(--text); cursor: help; }
+        .entry-batch { display: grid; gap: 6px; max-width: 320px; }
+        .track-stage-gate { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); margin-left: 8px; }
+        .track-stage-gate[hidden] { display: none; }
+        .entry-batch-opt { display: flex; align-items: center; gap: 6px; }
         .entry-row.is-derived td { color: var(--muted); }
         .compare-play { padding: 0 6px !important; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 4px; font-size: 10px; line-height: 16px; cursor: pointer; }
         .compare-play:hover { border-color: var(--accent); color: var(--accent); }

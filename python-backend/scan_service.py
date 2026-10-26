@@ -18,18 +18,20 @@ import hashlib
 import json
 import math
 import re
-import struct
 import sys
 import time
 import traceback
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 import dask
+import dask.array as da
 import numpy as np
 import soundfile as sf
 import wandas as wd
 from wandas.pipeline import RecipeExecutionError, RecipePlan
+from wandas.pipeline.model import RecipeNode
+from wandas.processing.semantic import thaw_params
 
 import analysis_spec as spec
 from backend_errors import InputError
@@ -139,6 +141,11 @@ OCTAVE_STAGE = "node-noct"
 INPUT_STAGE = "node-input"
 
 
+def _decoded_nodes(recipe: Mapping[str, object]) -> list[tuple[RecipeNode, dict[str, Any]]]:
+    """The Recipe's nodes, each with its parameters as wandas decodes them."""
+    return [(node, thaw_params(node.params)) for node in RecipePlan.from_dict(dict(recipe)).nodes]
+
+
 def welch_params(recipe: Mapping[str, object]) -> dict[str, object]:
     """The FFT length and window of the Recipe's average-spectrum step, which the scan's spectrum uses.
 
@@ -146,15 +153,9 @@ def welch_params(recipe: Mapping[str, object]) -> dict[str, object]:
     spectrum and the dominant frequency. Without one, the analysis spec's defaults apply.
     """
     params: dict[str, object] = {"n_fft": spec.WELCH_N_FFT, "window": "hann"}
-    nodes = recipe.get("nodes")
-    for node in nodes if isinstance(nodes, list) else []:
-        if isinstance(node, Mapping) and node.get("operation") == WELCH_OPERATION:
-            entries = node.get("params", {}).get("entries", []) if isinstance(node.get("params"), Mapping) else []
-            for name, value in entries:
-                if name == "n_fft" and isinstance(value, int) and not isinstance(value, bool):
-                    params["n_fft"] = value
-                elif name == "window" and isinstance(value, str):
-                    params["window"] = value
+    for node, values in _decoded_nodes(recipe):
+        if node.operation == WELCH_OPERATION:
+            params.update({name: values[name] for name in ("n_fft", "window") if name in values})
     return params
 
 
@@ -165,30 +166,17 @@ FILTER_EDGES = {
 }
 
 
-def _decoded(value: object) -> float | None:
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return float(value)
-    if isinstance(value, Mapping) and value.get("kind") == "python-float" and isinstance(value.get("data"), str):
-        return float(struct.unpack(">d", bytes.fromhex(str(value["data"])))[0])
-    return None
-
-
 def passband(recipe: Mapping[str, object]) -> tuple[float, float]:
     """The frequencies the Recipe's filters let through: a band centred outside them measures the stopband."""
     low, high = 0.0, math.inf
-    nodes = recipe.get("nodes")
-    for node in nodes if isinstance(nodes, list) else []:
-        edges = FILTER_EDGES.get(node.get("operation")) if isinstance(node, Mapping) else None
-        params = node.get("params") if edges else None
-        entries = dict(params.get("entries", [])) if isinstance(params, Mapping) else {}
-        for name, side in edges or ():
-            value = _decoded(entries.get(name))
-            if value is None:
+    for node, values in _decoded_nodes(recipe):
+        for name, side in FILTER_EDGES.get(node.operation, ()):
+            if values.get(name) is None:
                 continue
             if side == "low":
-                low = max(low, value)
+                low = max(low, float(values[name]))
             else:
-                high = min(high, value)
+                high = min(high, float(values[name]))
     return low, high
 
 
@@ -329,6 +317,60 @@ def scan_plans(recipe: Mapping[str, object], start: float, end: float, sampling_
         "noct": noct,
         "sha256": recipe_sha256,
     }
+
+
+# A Welch step over a long region runs over parts of this many segments: scipy windows and transforms every
+# segment at once, so a 10-minute 48 kHz stereo file would hold about 3.5 GB; a part holds about 130 MB.
+WELCH_PART_SEGMENTS = 4096
+
+
+def _welch_shape(params: Mapping[str, object]) -> tuple[int, int]:
+    """The segment length and hop of a Welch step, as wandas defaults them (win_length = n_fft, hop = win // 4)."""
+    n_fft = int(params.get("n_fft", spec.WELCH_N_FFT))  # type: ignore[call-overload]
+    win = int(params.get("win_length") or n_fft)  # type: ignore[call-overload]
+    return win, int(params.get("hop_length") or win // 4)  # type: ignore[call-overload]
+
+
+def welch_in_parts(plan: RecipePlan, frame: wd.ChannelFrame, params: Mapping[str, object]) -> wd.SpectralFrame | None:
+    """The Welch step's result over a long frame, computed over parts of whole segments; None when short.
+
+    Welch is the mean of the segments' power spectra, and each part holds whole segments of the same grid
+    (a part starts at its first segment), so the segment-weighted mean of the parts' power is the result over
+    the whole frame. Only memory changes: the parts are computed one after another. A median of the
+    segments is not the parts' mean, so any other average is computed whole.
+    """
+    if str(params.get("average", "mean")) != "mean":
+        return None
+    win, hop = _welch_shape(params)
+    total = (frame.n_samples - win) // hop + 1 if frame.n_samples >= win else 0
+    if total <= WELCH_PART_SEGMENTS:
+        return None
+    power: np.ndarray | None = None
+    first: wd.SpectralFrame | None = None
+    for start_segment in range(0, total, WELCH_PART_SEGMENTS):
+        count = min(WELCH_PART_SEGMENTS, total - start_segment)
+        start = start_segment * hop
+        part = plan.apply({"region": frame[:, start : start + (count - 1) * hop + win]})
+        amplitude = np.asarray(part.data).reshape(frame.n_channels, -1)
+        first = first or part
+        # The step's spectrum is an amplitude whose square is proportional to the segments' mean power.
+        weighted = np.abs(amplitude) ** 2 * count
+        power = weighted if power is None else power + weighted
+    assert first is not None and power is not None
+    return wd.SpectralFrame(
+        data=da.from_array(np.sqrt(power / total).astype(np.asarray(first.data).dtype)),
+        sampling_rate=first.sampling_rate,
+        n_fft=first.n_fft,
+        window=first.window,
+        label=first.label,
+        metadata=dict(first.metadata),
+        channel_metadata=list(first.channels),
+        win_length=getattr(first, "win_length", None),
+    )
+
+
+def _node_params(recipe: Mapping[str, object], node_id: str) -> dict[str, object]:
+    return next((values for node, values in _decoded_nodes(recipe) if node.id == node_id), {})
 
 
 def _levels(values: np.ndarray) -> np.ndarray:
@@ -493,9 +535,19 @@ def scan_cached(
     leading = True
     # The last time signal in the chain: what an STFT after it was taken of, for its columns' windows.
     timed = region_frame
+    welch_steps = {
+        str(node["id"])
+        for node in RecipePlan.from_dict(dict(recipe)).to_dict()["nodes"]
+        if node["operation"] == WELCH_OPERATION
+    }
     for step, plan in plans["steps"]:
         try:
-            current = plan.apply({"region": current}).cache()
+            parts = (
+                welch_in_parts(plan, current, _node_params(recipe, step))
+                if step in welch_steps and isinstance(current, wd.ChannelFrame)
+                else None
+            )
+            current = parts.cache() if parts is not None else plan.apply({"region": current}).cache()
             # A step's picture needs nothing after it, and none of the metrics.
             if step == stage:
                 return _stage_result(described, stage_view(current, _length_s(timed), detail))
@@ -506,7 +558,11 @@ def scan_cached(
         leading = leading and isinstance(current, wd.ChannelFrame) and current.sampling_rate == sampling_rate
         if leading:
             signal = current
-    spectrum = current if isinstance(current, wd.SpectralFrame) else plans["welch"].apply({"region": signal})
+    spectrum = (
+        current
+        if isinstance(current, wd.SpectralFrame)
+        else welch_in_parts(plans["welch"], signal, welch_params(recipe)) or plans["welch"].apply({"region": signal})
+    )
     octave = plans["noct"].apply({"region": signal}) if plans["noct"] is not None else None
     if stage == OCTAVE_STAGE:
         return _stage_result(described, stage_view(octave, None, detail))

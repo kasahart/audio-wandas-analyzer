@@ -162,9 +162,18 @@ export interface DatasetView {
     excluded: ReadonlySet<string>;
 }
 
+/** Text in natural order ("run9" before "run10"); one collator, as a sort compares 100,000 rows many times. */
+const natural = new Intl.Collator(undefined, { numeric: true }).compare;
+
+/** The rows not excluded and through every filter, in their own order. */
+export function filteredRows(view: Pick<DatasetView, 'rows' | 'filters' | 'excluded'>, results: Results): DatasetRow[] {
+    if (!view.filters.length && !view.excluded.size) return view.rows.slice();
+    return view.rows.filter(row => !view.excluded.has(row.key) && view.filters.every(filter => passes(row, filter, results)));
+}
+
 /** The rows on screen: not excluded, through every filter, in the chosen order (ties by name, then channel). */
 export function visibleRows(view: DatasetView, results: Results): DatasetRow[] {
-    const rows = view.rows.filter(row => !view.excluded.has(row.key) && view.filters.every(filter => passes(row, filter, results)));
+    const rows = filteredRows(view, results);
     const by = view.sort.column;
     const keyOf = (row: DatasetRow): string | number | null => (by === 'name' ? row.name : by === 'ch' ? row.ch : by === 'group' ? groupOf(row, view.group) : valueOf(row, view.value, results));
     const sign = view.sort.descending ? -1 : 1;
@@ -172,8 +181,8 @@ export function visibleRows(view: DatasetView, results: Results): DatasetRow[] {
     keyed.sort((a, b) => {
         // A missing value sorts last whichever way.
         if (a.key === null || b.key === null) return a.key === b.key ? 0 : a.key === null ? 1 : -1;
-        const order = typeof a.key === 'number' && typeof b.key === 'number' ? a.key - b.key : String(a.key).localeCompare(String(b.key), undefined, { numeric: true });
-        return sign * order || a.row.name.localeCompare(b.row.name, undefined, { numeric: true }) || a.row.ch - b.row.ch;
+        const order = typeof a.key === 'number' && typeof b.key === 'number' ? a.key - b.key : natural(String(a.key), String(b.key));
+        return sign * order || natural(a.row.name, b.row.name) || a.row.ch - b.row.ch;
     });
     return keyed.map(item => item.row);
 }
@@ -182,7 +191,7 @@ export function visibleRows(view: DatasetView, results: Results): DatasetRow[] {
 export function columnValues(rows: readonly DatasetRow[], column: ColumnId, results: Results): Array<[string, number]> {
     const counts = new Map<string, number>();
     for (const row of rows) { const text = textOf(row, column, results); counts.set(text, (counts.get(text) ?? 0) + 1); }
-    return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+    return [...counts.entries()].sort(([a], [b]) => natural(a, b));
 }
 
 /** Middle ellipsis: a long name keeps its start and its end, where the number that tells files apart usually is. */
@@ -202,4 +211,38 @@ export function baseGroupMembers(pool: readonly DatasetRow[], comparePath: strin
     const members = channel ? others.filter(row => row.ch === channel) : others;
     const fewerChannels = channel ? new Set(others.filter(row => (row.channels ?? 1) < channel).map(row => row.filePath)).size : 0;
     return { paths: [...new Set(members.map(row => row.filePath))], fewerChannels };
+}
+
+/**
+ * 「メモと除外を CSV に書き出す」: the picked CSV as it was (its columns and rows, in order) with two columns
+ * after, `memo` and `excluded`, so it goes back to whoever made it. A recording's memos per channel read
+ * "ch1: …; ch2: …"; excluded is 1 for the whole recording, else its channels ("ch2"). Without a CSV, one row
+ * per recording by its path below the folder. UTF-8 with a BOM, as the Analyzer's other CSV files.
+ */
+export function annotatedCsv(csv: DatasetCsv | null, match: CsvMatch | null, filePaths: readonly string[], rootPath: string,
+    rows: readonly DatasetRow[], memo: ReadonlyMap<string, string>, excluded: ReadonlySet<string>): string {
+    const keysOf = new Map<string, DatasetRow[]>();
+    for (const row of rows) keysOf.set(row.filePath, [...(keysOf.get(row.filePath) ?? []), row]);
+    const memoOf = (filePath: string): string => {
+        const own = (keysOf.get(filePath) ?? []).filter(row => memo.has(row.key));
+        if (own.length === 1 && (own[0].channels ?? 1) <= 1) return memo.get(own[0].key)!;
+        return own.map(row => `ch${row.ch}: ${memo.get(row.key)}`).join('; ');
+    };
+    const excludedOf = (filePath: string): string => {
+        const all = keysOf.get(filePath) ?? [];
+        const out = all.filter(row => excluded.has(row.key));
+        if (!out.length) return '';
+        return out.length === all.length ? '1' : out.map(row => `ch${row.ch}`).join(';');
+    };
+    const cell = (text: string): string => (/[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
+    const name = (base: string, taken: readonly string[]): string => (taken.includes(base) ? `${base}_analyzer` : base);
+    let lines: string[][];
+    if (csv && match) {
+        const fileOfRow = new Map<DataRow, string>([...match.attributes].map(([filePath, row]) => [row, filePath]));
+        lines = [[...csv.columns, name('memo', csv.columns), name('excluded', csv.columns)],
+            ...csv.rows.map(row => { const filePath = fileOfRow.get(row); return [...csv.columns.map(column => row[column] ?? ''), filePath ? memoOf(filePath) : '', filePath ? excludedOf(filePath) : '']; })];
+    } else {
+        lines = [['audio_file', 'memo', 'excluded'], ...filePaths.map(filePath => [recordingKey(filePath, rootPath), memoOf(filePath), excludedOf(filePath)])];
+    }
+    return '\uFEFF' + lines.map(line => line.map(cell).join(',')).join('\r\n') + '\r\n';
 }

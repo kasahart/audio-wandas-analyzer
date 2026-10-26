@@ -549,3 +549,16 @@ test('the step bar names the steps in Japanese and says where the table\'s band 
     await bar.locator('.step-chip', { hasText: '1/3 oct' }).locator('.step-body').hover();
     await expect(page.locator('#hint-footer')).toContainText(STR.stepOctaveHint);
 });
+
+test('「計算」\'s estimate follows the recordings\' lengths from their headers, not only how many there are', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('ja');
+    const ten = scanned!.slice(0, 10);
+    // Ten 2-second recordings: seconds.
+    await openEntry(page, ten, { language: 'ja', answered: 0, headers: Object.fromEntries(ten.map(file => [file.filePath, { channels: 2, durationS: 2 }])) });
+    const compute = page.locator('[data-action="entry-compute"]');
+    await expect(compute).toHaveText(STR.dsCompute.replace('{n}', '10').replace('{time}', STR.entrySeconds.replace('{n}', '2')));
+    // The same ten as 10-minute recordings: minutes.
+    await openEntry(page, ten, { language: 'ja', answered: 0, headers: Object.fromEntries(ten.map(file => [file.filePath, { channels: 2, durationS: 600 }])) });
+    await expect(compute).toHaveText(STR.dsCompute.replace('{n}', '10').replace('{time}', STR.entryMinutes.replace('{n}', '4')));
+});
