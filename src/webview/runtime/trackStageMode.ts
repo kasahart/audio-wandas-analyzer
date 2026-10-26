@@ -85,6 +85,8 @@ export interface TrackStageDeps {
     /** 報告に: the comparison written as a report folder (over the region, from `measured`). */
     report(showDiff: boolean, region: EntryRegion | null, measured: ReadonlyMap<string, ScanResult>): void;
     sampleRate(): number | undefined;
+    /** The fewest channels of the compared files: a step that compares two channels needs two. */
+    channels?(): number | undefined;
     /** Shows or hides the track lanes (hidden while overlaid). */
     showLanes(visible: boolean): void;
     rerender(): void;
@@ -205,7 +207,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         else if (action === 'stage-report') {
             // A chain that cannot run has no values to report.
             const recipe = deps.recipe()?.recipe;
-            if (recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate() }))) deps.hint(strings.stepOctaveBroken);
+            if (recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() }))) deps.hint(strings.stepOctaveBroken);
             else deps.report(showDiff, liveRegion(), measured());
         }
         else if (action === 'stage-batch') deps.batch?.();
@@ -262,7 +264,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const path = comparedPath(deps.tracks());
             const region = liveRegion();
             const recipe = deps.recipe()?.recipe;
-            const refused = recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate() })) ? strings.stepOctaveBroken
+            const refused = recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() })) ? strings.stepOctaveBroken
                 : !path ? strings.compareRefuseSlot.replace('{n}', String(compared))
                 : region && !measured().has(path) ? strings.compareRefuseFix.replace('{why}', strings.comparePending)
                     : deps.fix(path, groupBase, region, measured());
@@ -288,7 +290,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     function chosen(): string | null {
         const recipe = deps.recipe()?.recipe;
         if (!recipe) return null;
-        const limits = stepLimits({ sampleRate: deps.sampleRate() });
+        const limits = stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() });
         const all = recipeSteps(recipe, limits);
         const steps = all.filter(step => step.invalid === undefined && !step.bypassed);
         if (stage === INPUT_STAGE) return INPUT_STAGE;
@@ -318,7 +320,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const recipe = deps.recipe();
         const id = chosen();
         if (!recipe || !id || step.id === OCTAVE_BRANCH || step.operation === TIME_SLICE) return undefined;
-        const limits = stepLimits({ sampleRate: deps.sampleRate() });
+        const limits = stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() });
         const steps = recipeSteps(recipe.recipe, limits).filter(item => item.invalid === undefined);
         const at = steps.findIndex(item => item.id === id);
         const shownOf = step.id === id ? steps[at - 1]?.id : id;
@@ -376,7 +378,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const recipe = deps.recipe();
             const id = chosen();
             const shownStage = stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === stage)?.bypassed ? stage : id;
-            stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), stage: shownStage ?? undefined, regionRange: regionSet });
+            stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), stage: shownStage ?? undefined, regionRange: regionSet });
             const tracks = deps.tracks();
             painted = false;
             stepBar.element.dataset.drawn = '0';
@@ -386,9 +388,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 for (const track of tracks) if (track.canvas) paintStage(track.canvas, null, { min: 0, max: 1 }, track.color, { x: '', y: '' }, { empty: strings.stepOpenCompare });
                 return;
             }
-            const steps = recipeSteps(recipe.recipe, stepLimits({ sampleRate: deps.sampleRate() }));
+            const steps = recipeSteps(recipe.recipe, stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() }));
             // A step that cannot run has no picture: the plot says why, and how to fix it.
-            const broken = brokenStep(recipe.recipe, stepLimits({ sampleRate: deps.sampleRate() }));
+            const broken = brokenStep(recipe.recipe, stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() }));
             const cannot = steps.find(step => step.id === id && step.invalid !== undefined) ?? (id === OCTAVE_BRANCH && broken ? { ...broken, id: OCTAVE_BRANCH } : undefined);
             if (cannot) {
                 deps.showLanes(false);

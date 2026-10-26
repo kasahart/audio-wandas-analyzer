@@ -107,6 +107,11 @@ def _takes(wanted: str, frame: str, bases: Mapping[str, list[str]]) -> bool:
     return wanted == "*" or wanted == frame or wanted in bases.get(frame, [])
 
 
+def _self_pairs_only(frame: object) -> bool:
+    pairs = getattr(frame, "pairs", None)
+    return pairs is not None and all(pair.output.index == pair.input.index for pair in pairs)
+
+
 def _run(operation: Mapping[str, Any], frame_type: str, label: str, frame: object) -> tuple[ProbeRun, object | None]:
     run: ProbeRun = {
         "operation": operation["id"],
@@ -122,7 +127,9 @@ def _run(operation: Mapping[str, Any], frame_type: str, label: str, frame: objec
             warnings.simplefilter("ignore")
             result = _apply(operation, frame)
             run["output"] = type(result).__name__
-            run["drawn"] = stage_view(result)["kind"] != "none"
+            # A pair of one channel with itself says nothing and is not drawn: the step bar does not run a
+            # cross-channel step on one channel (recipeSteps.ts CROSS_CHANNEL), so that is no gap.
+            run["drawn"] = stage_view(result)["kind"] != "none" or _self_pairs_only(result)
         run["ok"] = True
         return run, result
     except Exception as error:  # noqa: BLE001 - every failure is a finding.

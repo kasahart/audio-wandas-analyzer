@@ -63,11 +63,18 @@ class StageView(TypedDict):
     #: Per heatmap column of an STFT: whether every frame in it has its whole window inside the signal. A frame
     #: centred less than n_fft / 2 from either end reads padding; the headline leaves such columns out.
     whole: NotRequired[list[bool]]
+    #: A cross-channel Frame's one drawn pair: the compared channel over the reference (from 1).
+    pair: NotRequired[StagePair]
     #: A picture of only part of its axes, at the Frame's full resolution (a zoomed comparison's StageDetail).
     detail: NotRequired[bool]
     #: A time signal's own waveform, as the track lanes draw it: per bucket its minimum and maximum, each at the
     #: time it occurred (s into the file). ``values`` keep the level over time the headline and Δ are read from.
     waveform: NotRequired[StageWaveform]
+
+
+class StagePair(TypedDict):
+    output: int
+    input: int
 
 
 class StageWaveform(TypedDict):
@@ -202,15 +209,25 @@ def _channel_view(frame: ChannelFrame) -> StageView:
     }
 
 
-def _cross_pairs(frame: CoherenceFrame, rows: np.ndarray) -> np.ndarray:
-    """The rows of pairs of two channels: a channel's coherence with itself is 1 and says nothing."""
-    cross = [index for index, pair in enumerate(frame.pairs) if pair.output.channel_id != pair.input.channel_id]
-    return rows[cross] if cross else rows
+def _cross_pair(frame: Any) -> int | None:
+    """The row drawn of a cross-channel Frame: the pair a select_pair step left, else the first channel over
+    the first reference (ch2 / ch1). A channel's coherence with itself is 1, and its transfer function 0 dB:
+    they say nothing, so a Frame with no other pair (a one-channel recording) is not drawn."""
+    cross = [
+        (pair.input.index, pair.output.index, row)
+        for row, pair in enumerate(frame.pairs)
+        if pair.output.index != pair.input.index
+    ]
+    return min(cross)[2] if cross else None
 
 
-def _spectral_view(frame: Any) -> StageView:
-    freqs = np.asarray(frame.freqs, dtype=np.float64)
-    nyquist = float(frame.sampling_rate) / 2
+def _pair_of(frame: Any, row: int) -> StagePair:
+    pair = frame.pairs[row]
+    return {"output": int(pair.output.index) + 1, "input": int(pair.input.index) + 1}
+
+
+def _spectral_rows(frame: Any) -> tuple[str, np.ndarray]:
+    """What a spectrum-like Frame measures, and its values: one row per channel (or channel pair)."""
     if isinstance(frame, CoherenceFrame):
         quantity, raw = "coherence", frame.coherence
     elif isinstance(frame, TransferFunctionFrame):
@@ -219,19 +236,33 @@ def _spectral_view(frame: Any) -> StageView:
         quantity, raw = "level", frame.level_db
     else:
         quantity, raw = "level", frame.dB
-    # One row per channel (or channel pair).
-    values = np.asarray(raw, dtype=np.float64).reshape(-1, freqs.size)
+    return quantity, np.asarray(raw, dtype=np.float64).reshape(-1, np.asarray(frame.freqs).size)
+
+
+def _pairwise(frame: Any) -> bool:
+    return isinstance(frame, (CoherenceFrame, CrossSpectralFrame, TransferFunctionFrame))
+
+
+def _spectral_view(frame: Any) -> StageView:
+    freqs = np.asarray(frame.freqs, dtype=np.float64)
+    nyquist = float(frame.sampling_rate) / 2
+    quantity, values = _spectral_rows(frame)
     if nyquist <= spec.SPECTRUM_MIN_HZ or freqs.size < 2:
         return {"frame": type(frame).__name__, "kind": "none"}
+    pair: StagePair | None = None
+    if _pairwise(frame):
+        row = _cross_pair(frame)
+        if row is None:
+            return {"frame": type(frame).__name__, "kind": "none"}
+        values, pair = values[row : row + 1], _pair_of(frame, row)
     if quantity == "coherence":
-        values = _cross_pairs(frame, values)
         edges = np.geomspace(spec.SPECTRUM_MIN_HZ, nyquist, spec.SPECTRUM_POINTS + 1)
         centres = np.sqrt(edges[:-1] * edges[1:])
-        line = np.round(np.interp(centres, freqs, np.mean(values, axis=0)), 4)
+        line = np.round(np.interp(centres, freqs, values[0]), 4)
     else:
         centres, levels = _log_points(rounded_db(values), freqs, spec.SPECTRUM_POINTS, nyquist)
         line = rounded_db(_power_mean(levels))
-    return {
+    view: StageView = {
         "frame": type(frame).__name__,
         "kind": "line",
         "x": "frequency",
@@ -240,6 +271,9 @@ def _spectral_view(frame: Any) -> StageView:
         "xs": _json(centres),
         "values": _json(line),
     }
+    if pair is not None:
+        view["pair"] = pair
+    return view
 
 
 def _noct_view(frame: NOctFrame) -> StageView:
@@ -418,20 +452,11 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
     view["detail"] = True
     if isinstance(frame, (SpectralFrame, CoherenceFrame, CrossSpectralFrame, TransferFunctionFrame)):
         freqs = np.asarray(frame.freqs, dtype=np.float64)
-        raw = (
-            frame.coherence
-            if isinstance(frame, CoherenceFrame)
-            else frame.gain_db
-            if isinstance(frame, TransferFunctionFrame)
-            else frame.level_db
-            if isinstance(frame, CrossSpectralFrame)
-            else frame.dB
-        )
-        rows = np.asarray(raw, dtype=np.float64).reshape(-1, freqs.size)
-        if coarse.get("quantity") == "coherence":
-            line = np.mean(_cross_pairs(frame, rows), axis=0)
-        else:
-            line = _power_mean(rounded_db(rows))
+        _, rows = _spectral_rows(frame)
+        if _pairwise(frame):
+            row = _cross_pair(frame)
+            rows = rows[row : row + 1] if row is not None else rows
+        line = rows[0] if coarse.get("quantity") == "coherence" else _power_mean(rounded_db(rows))
         keep = _inside(freqs, bounds) & (freqs > 0)
         xs, values = _envelope(freqs[keep], line[keep], points)
         view.update(

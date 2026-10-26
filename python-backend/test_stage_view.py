@@ -160,11 +160,23 @@ def test_a_time_signal_carries_its_own_waveform_as_the_lanes_decimate_it(signal:
     assert len(detail["waveform"]["min"]) == 161 and detail["waveform"]["min"] == detail["waveform"]["max"]
 
 
-def test_coherence_leaves_out_each_channel_with_itself_not_pairs_that_happen_to_be_one() -> None:
+def test_a_pairwise_frame_draws_one_named_pair_of_two_channels_never_a_channel_with_itself() -> None:
     noise = np.random.default_rng(3).standard_normal((2, 48_000))
-    # ch0 and ch1 are the same signal (coherent at every frequency), ch2 is unrelated to both.
-    frame = wd.from_numpy(np.vstack([noise[0], noise[0], noise[1]]), sampling_rate=48_000).coherence(n_fft=1024)
-    view = stage_view(frame)
-    values = np.array([value for value in view["values"] if value is not None])
-    # The six pairs of two channels: two at 1, four near 0, so the mean is about a third.
-    assert 0.25 < np.median(values) < 0.45
+    # ch1 and ch2 are the same signal (coherent at every frequency), ch3 is unrelated to both.
+    stereo = wd.from_numpy(np.vstack([noise[0], noise[0], noise[1]]), sampling_rate=48_000)
+    # Every pair: ch2 over the reference ch1, which are the same signal.
+    view = _checked(stereo.coherence(n_fft=1024))
+    assert view["pair"] == {"output": 2, "input": 1}
+    assert min(value for value in view["values"] if value is not None) > 0.99
+    # The pair a select_pair step leaves: ch3 over ch1, unrelated.
+    picked = _checked(stereo.coherence(n_fft=1024).select_pair(2, 0))
+    assert picked["pair"] == {"output": 3, "input": 1}
+    assert np.median([value for value in picked["values"] if value is not None]) < 0.1
+    zoomed = stage_view(stereo.coherence(n_fft=1024).select_pair(2, 0), None, {"x": [100, 1000], "points": 400})
+    assert zoomed["pair"] == {"output": 3, "input": 1} and max(zoomed["values"]) < 0.5
+    gain = _checked(stereo.transfer_function(n_fft=1024).select_pair(1, 0))
+    assert gain["pair"] == {"output": 2, "input": 1} and abs(np.median(gain["values"])) < 0.1
+    # One channel has only itself to be compared with: coherence 1, gain 0 dB, which say nothing.
+    mono = wd.from_numpy(noise[:1], sampling_rate=48_000)
+    for frame in (mono.coherence(n_fft=1024), mono.transfer_function(n_fft=1024), mono.csd(n_fft=1024)):
+        assert _checked(frame)["kind"] == "none"

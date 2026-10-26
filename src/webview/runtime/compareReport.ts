@@ -381,7 +381,9 @@ export function reportFiles(document: Document, input: ReportInput, strings: Rep
         // A compared channel row is that channel in wandas too: a get_channel step at the Recipe's head; slots
         // of different channels get one Recipe each (".ch2"), the channels together none.
         const channels = [...new Set(comparisons.map(({ slot }) => input.rowInfo?.(input.slots[slot]!).channel ?? null))];
-        const variants = channels.length > 1 ? channels.map(ch => ({ suffix: ch ? `.ch${ch}` : '', ch })) : [{ suffix: '', ch: channels[0] ?? null }];
+        // A chain that compares two channels names its own (withChannel leaves it as it is): one Recipe.
+        const ownPair = withChannel(input.recipe, 1) === input.recipe;
+        const variants = ownPair ? [{ suffix: '', ch: null }] : channels.length > 1 ? channels.map(ch => ({ suffix: ch ? `.ch${ch}` : '', ch })) : [{ suffix: '', ch: channels[0] ?? null }];
         const fs = reportSampleRate(input);
         for (const { suffix, ch } of variants) {
             const recipe = ch ? withChannel(input.recipe, ch) : input.recipe;
