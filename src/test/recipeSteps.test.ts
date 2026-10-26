@@ -225,6 +225,12 @@ test('a step that compares two channels needs two: one channel (or one picked by
     const [output, input] = STEP_PARAMS[SELECT_PAIR];
     const self = withParam(paired, pair, output, 0);
     assert.deepEqual(recipeSteps(self, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.reason, { kind: 'pair', limit: 0 });
+    // A pair named by source ids is wandas' to resolve: kept, unless it is a channel with itself.
+    const named = JSON.parse(JSON.stringify(paired)) as { nodes: Array<{ id: string; params: { entries: Array<[string, unknown]> } }> };
+    named.nodes.find(node => node.id === pair)!.params.entries = [['output', 'c1'], ['input', 'c0']];
+    assert.equal(recipeSteps(named as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, undefined);
+    named.nodes.find(node => node.id === pair)!.params.entries = [['output', 'c0'], ['input', 'c0']];
+    assert.deepEqual(recipeSteps(named as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.reason, { kind: 'pair', limit: 0 });
     const beyond = withParam(paired, pair, input, 2);
     assert.equal(recipeSteps(beyond, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, 'input');
 });

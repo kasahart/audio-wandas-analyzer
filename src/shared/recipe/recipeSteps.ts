@@ -204,6 +204,8 @@ function invalidParam(params: Record<string, ParamValue>, editable: readonly Ste
         if (value === null || value === undefined) continue;
         if (param.kind === 'enum') { if (!param.options.includes(String(value))) return { param: param.name, reason: { kind: 'below', limit: 0 } }; continue; }
         if (param.kind === 'int') {
+            // A channel named by its source id (select_pair's "c1") is wandas' to resolve: kept as it is.
+            if (param.channel && typeof value === 'string') continue;
             // 2.5 is not an order: refused, not rounded.
             if (typeof value === 'number' && !Number.isInteger(value)) return { param: param.name, reason: { kind: 'integer', limit: 0 } };
             // The largest power of two that fits the shortest file, so the limit itself is a value one can type.
@@ -222,7 +224,7 @@ function invalidParam(params: Record<string, ParamValue>, editable: readonly Ste
     }
     // A channel over itself is 1 (coherence), 0 dB (gain): nothing compared.
     const output = params['output'], input = params['input'];
-    if (editable.some(param => param.kind === 'int' && param.channel) && typeof output === 'number' && output === input) return { param: 'output', reason: { kind: 'pair', limit: 0 } };
+    if (editable.some(param => param.kind === 'int' && param.channel) && (typeof output === 'number' || typeof output === 'string') && output === input) return { param: 'output', reason: { kind: 'pair', limit: 0 } };
     const low = params['low_cutoff'], high = params['high_cutoff'];
     if (typeof low === 'number' && typeof high === 'number' && low >= high) return { param: 'high_cutoff', reason: { kind: 'below', limit: Math.min(nyquist, Infinity) } };
     const fmin = params['fmin'], fmax = params['fmax'];

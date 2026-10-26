@@ -139,7 +139,9 @@ function stepLabel(step: RecipeStep, strings: StepBarStrings, state: StepBarStat
         case 'welch': return strings.stepAverageFft.replace('{name}', strings.stepAverage).replace('{n}', formatNumber(p['n_fft']));
         case 'stft': return `STFT ${formatNumber(p['n_fft'])}`;
         case 'resampling': return `→ ${hzText(p['target_sr'])}`;
-        case 'select_pair': return strings.stepPair.replace('{output}', channelText(p['output'])).replace('{input}', channelText(p['input']));
+        // Source ids ("c1") are named as wandas has them; indices as channels from 1.
+        case 'select_pair': return typeof p['output'] === 'string' || typeof p['input'] === 'string' ? `${String(p['output'])} / ${String(p['input'])}`
+            : strings.stepPair.replace('{output}', channelText(p['output'])).replace('{input}', channelText(p['input']));
         case 'noct_spectrum': {
             const octave = p['n'] !== undefined && p['n'] !== 3 ? `1/${formatNumber(p['n'])} oct` : strings.stepOctave;
             return expanded && bandRange(p) ? `${octave} ${bandRange(p)}` : octave;
