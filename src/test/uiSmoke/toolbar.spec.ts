@@ -309,6 +309,12 @@ test('the table shows where a recording goes, keeps its exports reachable by key
     await page.keyboard.press('Escape');
     await expect(menu).not.toHaveAttribute('open', '');
     await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
+    // Esc on one of its items gives the focus back to the menu, not to the page.
+    await menu.locator('summary').press('Enter');
+    await menu.locator('[data-action="entry-export-csv"]').focus();
+    await page.keyboard.press('Escape');
+    await expect(menu).not.toHaveAttribute('open', '');
+    await expect(menu.locator('summary')).toBeFocused();
     // A press outside it closes it too.
     await menu.locator('summary').click();
     await expect(menu).toHaveAttribute('open', '');

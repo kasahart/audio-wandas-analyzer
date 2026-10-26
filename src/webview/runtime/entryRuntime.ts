@@ -1498,7 +1498,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const exportMenu = query<HTMLDetailsElement>('#entry-export-menu');
     function closeExportMenu(): boolean {
         if (!exportMenu.open) return false;
+        // Focus on one of its items would fall to the page as they hide: it goes back to the menu's summary.
+        const hadFocus = exportMenu.contains(document.activeElement);
         exportMenu.open = false;
+        if (hadFocus) exportMenu.querySelector<HTMLElement>('summary')?.focus();
         return true;
     }
     // A press outside an open popover closes it (a memo is kept).

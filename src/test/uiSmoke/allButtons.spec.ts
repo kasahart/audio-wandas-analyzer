@@ -144,6 +144,9 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     await toolbar.locator('[data-action="zoom-reset"]').click({ force: true });
 
     // Box zoom, zoom to the selection and follow sit in the ⋯ menu.
+    const moreSummary = toolbar.locator('#tb-more-menu > summary');
+    const summaryBackground = () => moreSummary.evaluate(node => getComputedStyle(node).backgroundColor);
+    const idleBackground = await summaryBackground();
     await openToolbarMenu(page, 'tb-more-menu');
     const rectZoomButton = toolbar.locator('[data-action="wave-mode-rect-zoom"]');
     await expect(rectZoomButton).toBeEnabled();
@@ -151,11 +154,13 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     await rectZoomButton.click();
     await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'true');
     await expect(rectZoomButton).toHaveClass(/is-active/);
-    // A choice closes the menu.
+    // A choice closes the menu; ⋯ itself shows that a mode inside it is on.
+    await expect.poll(summaryBackground).not.toBe(idleBackground);
     await openToolbarMenu(page, 'tb-more-menu');
     await rectZoomButton.click();
     await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'false');
     await expect(rectZoomButton).not.toHaveClass(/is-active/);
+    await expect.poll(summaryBackground).toBe(idleBackground);
 
     // Heights are dragged at the lanes' edges: the toolbar has no height fields.
     await expect(toolbar.locator('[data-action="track-height-input"], [data-action="spectrum-height-input"]')).toHaveCount(0);

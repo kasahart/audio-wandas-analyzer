@@ -10,7 +10,7 @@ export interface ToolbarSpec {
 /** Controls marked tb-track-only act on the track lanes (time zoom, the lanes' exports) and hide in the steps view. */
 export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
     function toolbarMenu(label: string, hint: string, content: string, classes: string, id: string) {
-        return '<details class="tb-menu' + classes + '" id="' + id + '"><summary class="tb-btn"' + hintAttr(hint) + '>' + escapeHtml(label) + '</summary><div class="tb-menu-popover">' + content + '</div></details>';
+        return '<details class="tb-menu' + classes + '" id="' + id + '"><summary class="tb-btn"' + hintAttr(hint) + ' aria-label="' + escapeHtml(hint) + '">' + escapeHtml(label) + '</summary><div class="tb-menu-popover">' + content + '</div></details>';
     }
     // Every export of the panel is here: the lanes', the comparison's (steps view), the Recipe's and the table's.
     const exportMenu = '<button class="tb-btn tb-track-only" data-action="export-png"' + hintAttr(strings.btnExportPngTitle) + '>' + escapeHtml(strings.btnExportPng) + '</button>'

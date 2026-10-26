@@ -128,6 +128,8 @@ export function renderComparisonStyles(): string {
             flex-shrink: 0; flex-wrap: wrap; overflow: visible; position: relative; z-index: 25;
         }
         .tb-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+        /* A mode chosen inside ⋯ (box zoom, follow) stays in sight once the menu closes. */
+        #tb-more-menu:has([aria-pressed="true"], .is-active) > summary { background: var(--accent); color: #fff; border-color: var(--accent); }
         .tb-btn {
             font-size: 11px; padding: 2px 8px; border-radius: 3px;
             border: 1px solid var(--line); background: var(--surface);
