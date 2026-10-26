@@ -499,3 +499,30 @@ def test_a_long_region_s_welch_is_computed_in_parts_with_the_same_result(
     assert np.abs(split[heard] - single[heard]).max() <= 0.01
     assert parted["peakHz"] == whole["peakHz"]
     assert parted["leqDbA"] == whole["leqDbA"]
+
+
+def test_a_cross_channel_step_pairs_the_scanned_recording_with_the_reference_recording(tmp_path: Path) -> None:
+    service = AnalysisService(AnalysisEngine())
+    noise = np.random.default_rng(5).standard_normal((2, 2 * RATE)) * 0.1
+    base = _write(tmp_path / "base.wav", [noise[0]])
+    # The same signal plus as much again unrelated: coherence about 0.5; an unrelated one: near 0.
+    alike = _write(tmp_path / "alike.wav", [noise[0] + noise[1]])
+    other = _write(tmp_path / "other.wav", [noise[1]])
+    coherence = json.loads(json.dumps(ENTRY_RECIPE))
+    coherence["nodes"][2] = {**coherence["nodes"][2], "operation": "wandas.audio.coherence", "version": 2}
+    coherence["nodes"][2]["params"] = {"$type": "map", "entries": []}
+    reference = {"filePath": base, "step": "node-2", "recipe": coherence}
+
+    near = _scan(service, alike, recipe=coherence, stage="node-2", reference=reference)["stage"]
+    far = _scan(service, other, recipe=coherence, stage="node-2", reference=reference)["stage"]
+
+    # The pair is the recording over the base one, said so (not two channels of one recording).
+    assert near["pair"] == far["pair"] == {"output": 2, "input": 1, "base": True}
+    assert 0.35 < np.median(near["values"]) < 0.65
+    assert np.median(far["values"]) < 0.1
+    # Alone, a one-channel recording has only itself: nothing is drawn.
+    assert _scan(service, alike, recipe=coherence, stage="node-2")["stage"]["kind"] == "none"
+    # A reference at another sampling rate cannot be paired: this file's ✕, not the step's.
+    slow = _write(tmp_path / "slow.wav", [noise[0][:RATE]], rate=RATE // 2)
+    refused = _scan(service, alike, recipe=coherence, stage="node-2", reference={**reference, "filePath": slow})
+    assert refused["ok"] is False and "failedStep" not in refused

@@ -22,6 +22,7 @@ import type { ComparisonWindow } from './browserAdapter';
 import type { ComparisonTrackState, WebviewHostApi } from './types';
 import { sanitizePersistedState } from './stateStore';
 import type { AnalysisResult, AnalysisResultWithError } from '../../shared/analysis/analysisTypes';
+import type { ScanReference } from '../../shared/analysis/entryScan';
 
 interface Source {
     path: string;
@@ -328,23 +329,30 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
      * One entry-table file: loaded into the Worker only for its scan unless it is already a selected
      * track, so a folder of any size never holds more than one extra file in Pyodide.
      */
-    async function scanEntryFile(path: string, region?: { start: number; end: number }, override?: Record<string, unknown>, stage?: string, detail?: StageDetail): Promise<ScanResult> {
+    async function scanEntryFile(path: string, region?: { start: number; end: number }, override?: Record<string, unknown>, stage?: string, detail?: StageDetail, reference?: ScanReference): Promise<ScanResult> {
         const file = folder.get(path);
         if (!file) return { ok: false, reason: strings.entrySourceGone };
         const limit = browserLimits ?? await limits();
         if (file.size > limit.maxInputBytes) return { ok: false, reason: strings.browserInputTooLarge.replace('{mib}', mib(limit.maxInputBytes)) };
+        const pairedFile = reference ? folder.get(reference.filePath) : undefined;
+        if (reference && !pairedFile) return { ok: false, reason: strings.entrySourceGone };
         entryRecipe ??= fetchJson('./recipes/entry-scan.recipe.json') as Promise<Record<string, unknown>>;
         const recipe = override ?? await entryRecipe;
         return exclusive(async () => {
-            const over = { ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}) };
-            if (sources.get(path)) return analysisClient.scan({ filePath: path, recipe, ...over });
-            const bytes = await file.arrayBuffer();
-            let loaded: string | undefined;
+            // A file that is not a selected track is loaded into the Worker for this scan only (the reference too).
+            const loaded: string[] = [];
+            const workerPath = async (listed: string, bytes: File): Promise<string> => {
+                if (sources.get(listed)) return listed;
+                const into = String((await request({ cmd: 'load', sourceId: listed.slice('/sources/'.length) }, await bytes.arrayBuffer())).filePath);
+                loaded.push(into);
+                return into;
+            };
             try {
-                loaded = String((await request({ cmd: 'load', sourceId: path.slice('/sources/'.length) }, bytes)).filePath);
-                return await analysisClient.scan({ filePath: loaded, recipe, ...over });
+                const paired = reference && pairedFile ? { ...reference, filePath: await workerPath(reference.filePath, pairedFile) } : undefined;
+                const over = { ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}), ...(paired ? { reference: paired } : {}) };
+                return await analysisClient.scan({ filePath: await workerPath(path, file), recipe, ...over });
             } finally {
-                if (loaded) await request({ cmd: 'unload', filePath: loaded }).catch(() => undefined);
+                for (const into of loaded) await request({ cmd: 'unload', filePath: into }).catch(() => undefined);
             }
         });
     }
@@ -792,7 +800,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         entry: {
             identity: async path => fileIdentity(path),
-            scan: (path, region, recipe, stage, detail) => scanEntryFile(path, region, recipe as Record<string, unknown> | undefined, stage, detail),
+            scan: (path, region, recipe, stage, detail, reference) => scanEntryFile(path, region, recipe as Record<string, unknown> | undefined, stage, detail, reference),
             recipe: async () => {
                 entryRecipe ??= fetchJson('./recipes/entry-scan.recipe.json') as Promise<Record<string, unknown>>;
                 return await entryRecipe as unknown as RecipeDocument;

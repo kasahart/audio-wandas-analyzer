@@ -30,7 +30,7 @@ import { positionPopover } from './settingsPopover';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, recipeWithout, runnableRecipe, stepChipLabel, stepLimits, OCTAVE_BRANCH } from './stepBar';
 import { leqLabel } from './compareReport';
-import { brokenStep, chainEnd, isRecipeChain, recipeKey, recipeSteps, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { brokenStep, chainEnd, isRecipeChain, recipeKey, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
@@ -557,6 +557,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const choice = (screen.querySelector<HTMLInputElement>('[data-entry-batch-scope]:checked')?.value as 'filtered' | 'all' | undefined) ?? batchChoice ?? 'all';
         const recipe = runRecipe() ?? standardRecipe;
         if (!recipe || broken()) { deps.announce(strings.entryChainBroken); return; }
+        // A step measured against the base slot needs that one recording beside each: not a bundle of single files.
+        if (slotReferenced(editedRecipe).length) { deps.announce(strings.entryBatchNoBase); return; }
         const targets = batchRows(choice);
         const idColumn = csv && csv.idColumn && csv.idColumn !== csv.audioColumn ? csv.idColumn : undefined;
         // The Web host lists a picked folder as /sources/<name>: the README then asks for the folder instead.

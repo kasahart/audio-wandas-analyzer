@@ -212,6 +212,7 @@ def handle_scan(service: AnalysisService, command: Command) -> dict[str, object]
         calibration_profile=command.get("calibration"),
         stage=command.get("stage"),
         detail=command.get("detail"),
+        reference=command.get("reference"),
     )
 
 

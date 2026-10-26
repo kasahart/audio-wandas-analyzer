@@ -389,7 +389,7 @@ export class PanelController implements vscode.Disposable {
                     }
                 },
                 calibration: (filePath) => JSON.stringify(this.backend.calibrationFor(filePath) ?? null),
-                scan: async (filePath, region, recipe, stage, detail) => this.backend.scan({ filePath, recipe: recipe ?? await this.entryRecipe(), ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}) }),
+                scan: async (filePath, region, recipe, stage, detail, reference) => this.backend.scan({ filePath, recipe: recipe ?? await this.entryRecipe(), ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}), ...(reference ? { reference } : {}) }),
                 recipe: () => this.entryRecipe(),
                 readFile: async (filePath) => new Uint8Array(await fs.readFile(filePath)),
                 readHead: async (filePath, length) => {

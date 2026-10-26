@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
@@ -229,9 +229,22 @@ test('a step that compares two channels needs two: one channel (or one picked by
     }
     // Bypassed, coherence and its pair do not run, so they do not break the chain on one channel.
     assert.equal(brokenStep(withBypass(withBypass(paired, coherence, true), pair, true), { sampleRate: 16000, channels: 1 }), undefined);
-    // ＋ greys it on one channel, with that reason.
-    assert.equal(addableOperations('ChannelFrame', undefined, 1).find(item => item.name === 'coherence')!.off, 'channels');
-    assert.equal(addableOperations('ChannelFrame', undefined, 2).find(item => item.name === 'coherence')!.off, undefined);
+    // Referenced to the base slot, it compares the recording with the base slot's: one channel is enough, and the
+    // pair chip goes (each recording gives its channel); back to a channel, the pair comes back.
+    const slotted = withSlotReference(paired, coherence, true);
+    assert.deepEqual(slotReferenced(slotted), [coherence]);
+    assert.equal(recipeChain(slotted).some(node => node.operation === SELECT_PAIR), false);
+    const onSlot = recipeSteps(slotted, { sampleRate: 16000, channels: 1 }).find(step => step.id === coherence)!;
+    assert.equal(onSlot.reference, 'slot');
+    assert.equal(onSlot.invalid, undefined);
+    assert.equal(REFERENCE_KEY in (withoutBypassed(slotted) as unknown as Record<string, unknown>), false);
+    // The scans run it on one channel too, and the Recipe they run has no app key.
+    const run = runnableRecipe(slotted, { sampleRate: 16000, channels: 1 });
+    assert.equal(recipeChain(run).some(node => node.id === coherence), true);
+    assert.equal(REFERENCE_KEY in (run as unknown as Record<string, unknown>), false);
+    const back = withSlotReference(slotted, coherence, false);
+    assert.deepEqual(slotReferenced(back), []);
+    assert.equal(recipeChain(back).filter(node => node.operation === SELECT_PAIR).length, 1);
     // A channel over itself compares nothing; a channel past the last is refused.
     const [output, input] = STEP_PARAMS[SELECT_PAIR];
     const self = withParam(paired, pair, output, 0);

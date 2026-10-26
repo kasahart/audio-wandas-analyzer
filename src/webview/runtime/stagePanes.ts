@@ -20,7 +20,7 @@ import { niceTicks } from '../../shared/utils/ticks';
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -188,8 +188,8 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
             : view?.quantity === 'coherence' ? strings.axisCoherence
                 : view?.quantity === 'cepstrum' ? strings.axisCepstrum
                     : `${strings.dsValue}${unit}`;
-    // A cross-channel Frame names its pair: which channel over which reference.
-    const pair = view?.pair ? ` · ch${view.pair.output} / ch${view.pair.input}` : '';
+    // A cross-channel Frame names its pair: which channel over which reference, or the recording over the base slot's.
+    const pair = view?.pair?.base ? ` · ${strings.stagePairBase}` : view?.pair ? ` · ch${view.pair.output} / ch${view.pair.input}` : '';
     return { x, y: diff ? `Δ ${y}${pair}` : `${y}${pair}` };
 }
 

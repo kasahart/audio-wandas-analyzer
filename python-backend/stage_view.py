@@ -75,6 +75,8 @@ class StageView(TypedDict):
 class StagePair(TypedDict):
     output: int
     input: int
+    #: The pair is the recording over the comparison's base slot recording, not two channels of one recording.
+    base: NotRequired[bool]
 
 
 class StageWaveform(TypedDict):

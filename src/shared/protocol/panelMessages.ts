@@ -124,12 +124,19 @@ function isEntryProbeMessage(value: unknown): value is EntryProbeMessage {
     return typeof message['requestId'] === 'string' && Array.isArray(message['filePaths']) && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0);
 }
 
+function isScanReference(value: unknown): boolean {
+    if (typeof value !== 'object' || value === null) return false;
+    const reference = value as Record<string, unknown>;
+    return typeof reference['filePath'] === 'string' && reference['filePath'].length > 0 && typeof reference['step'] === 'string' && isRecipeChain(reference['recipe']);
+}
+
 function isCompareScanMessage(value: unknown): value is CompareScanMessage {
     if (!hasType(value, 'compare-scan')) { return false; }
     const message = value as Record<string, unknown>;
     return typeof message['requestId'] === 'string' && (message['region'] === undefined || isEntryRegion(message['region'])) && Array.isArray(message['filePaths'])
         && (message['recipe'] === undefined || isRecipeChain(message['recipe']))
         && (message['stage'] === undefined || typeof message['stage'] === 'string')
+        && (message['reference'] === undefined || isScanReference(message['reference']))
         && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0);
 }
 

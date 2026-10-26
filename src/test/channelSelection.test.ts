@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { channelOfRecipe, channelResult, withChannel, CHANNEL_NODE, GET_CHANNEL } from '../shared/recipe/channelSelection';
+import { channelOfRecipe, channelResult, withBaseInput, withChannel, BASE_INPUT, CHANNEL_NODE, GET_CHANNEL } from '../shared/recipe/channelSelection';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 
@@ -34,4 +34,26 @@ test('a chain that compares two channels of the recording keeps them: a channel 
     const cross = { ...recipe, nodes: [...nodes, { id: 'node-9', operation: 'wandas.audio.coherence', version: 2, inputs: [String(nodes.at(-1)!.id)], params: { $type: 'map', entries: [] } }], output: 'node-9' } as unknown as RecipeDocument;
     assert.equal(withChannel(cross, 2), cross);
     assert.equal(channelOfRecipe(withChannel(cross, 2)), null);
+});
+
+test('a step measured against the base slot is written with a base input: its steps up to it again, one channel of each, concat_frame, then the recording over the base', () => {
+    // entry-scan's welch as coherence: highpass → time_slice → coherence.
+    const coherence = JSON.parse(JSON.stringify(recipe)) as { nodes: Array<{ id: string; operation: string; version: number; inputs: string[]; params: unknown }> };
+    Object.assign(coherence.nodes[2], { operation: 'wandas.audio.coherence', version: 2, params: { $type: 'map', entries: [] } });
+    const paired = withBaseInput(coherence as unknown as RecipeDocument, 'node-2') as unknown as { inputs: Array<{ id: string }>; nodes: Array<{ id: string; operation: string; inputs: string[] }>; output: string };
+    assert.deepEqual(paired.inputs.map(input => input.id), ['input-0', BASE_INPUT]);
+    assert.deepEqual(paired.nodes.map(node => [node.id, node.operation.split('.').pop(), node.inputs.join('+')]), [
+        ['node-0', 'highpass_filter', 'input-0'],
+        ['node-1', 'time_slice', 'node-0'],
+        ['node-0-base', 'highpass_filter', BASE_INPUT],
+        ['node-1-base', 'time_slice', 'node-0-base'],
+        ['node-2-base-channel', 'get_channel', 'node-1-base'],
+        ['node-2-channel', 'get_channel', 'node-1'],
+        ['node-2-concat', 'concat_frame', 'node-2-base-channel+node-2-channel'],
+        ['node-2', 'coherence', 'node-2-concat'],
+        ['node-2-pair', 'select_pair', 'node-2'],
+    ]);
+    assert.equal(paired.output, 'node-2-pair');
+    // Once is enough: a Recipe with a base input is left as it is.
+    assert.equal(withBaseInput(paired as unknown as RecipeDocument, 'node-2'), paired);
 });

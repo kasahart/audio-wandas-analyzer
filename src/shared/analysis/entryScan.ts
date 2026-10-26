@@ -78,6 +78,14 @@ export interface CompareScanMessage {
     stage?: string;
     /** Only the part of that Frame's picture on screen (a zoomed comparison), at its full resolution. */
     detail?: StageDetail;
+    /** The recording a cross-channel step (`step`) pairs each scanned one with (the base slot's), and its own Recipe. */
+    reference?: ScanReference;
+}
+
+export interface ScanReference {
+    filePath: string;
+    step: string;
+    recipe: RecipeDocument;
 }
 
 /** Webview → host: the comparison's report, written as one folder of these files. */
@@ -139,7 +147,7 @@ export interface EntryScanPorts {
     /** A string that changes whenever the file's content may have; undefined never reuses a stored result. */
     identity(filePath: string): Promise<string | undefined>;
     calibration?(filePath: string): string;
-    scan(filePath: string, region?: EntryRegion, recipe?: RecipeDocument, stage?: string, detail?: StageDetail): Promise<ScanResult>;
+    scan(filePath: string, region?: EntryRegion, recipe?: RecipeDocument, stage?: string, detail?: StageDetail, reference?: ScanReference): Promise<ScanResult>;
     /** The entry Recipe the host scans with by default, shown in the step bar. */
     recipe?(): Promise<RecipeDocument>;
     /** The bytes of a listed file, for reading the CSV/TSV files among them as metadata tables. */
@@ -306,7 +314,7 @@ export async function runCompareScan(
             let result: ScanResult;
             try {
                 scanned++;
-                result = await ports.scan(filePath, message.region, message.recipe, message.stage, message.detail);
+                result = await ports.scan(filePath, message.region, message.recipe, message.stage, message.detail, message.reference);
             } catch (error) {
                 result = { ok: false, reason: reason(error) };
             }

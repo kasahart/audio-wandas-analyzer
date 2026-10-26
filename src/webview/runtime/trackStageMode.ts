@@ -15,7 +15,7 @@ import type { CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
-import { brokenStep, chainEnd, recipeKey, recipeSteps, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { brokenStep, chainEnd, recipeChain, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
 import { createStepBar, endsInSpectrum, invalidReason, recipeWithout, stepChipLabel, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
@@ -308,7 +308,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     function channelRecipe(recipe: RecipeDocument | undefined, ch: number | null): RecipeDocument | undefined {
         if (!ch) return recipe;
         const own = recipe ?? deps.recipe()?.recipe;
-        return own ? withChannel(own, ch) : undefined;
+        // A step measured against the base slot pairs one channel of each recording: the channel row's goes on.
+        return own ? withChannel(own, ch, slotReferenced(deps.recipe()?.recipe).length > 0) : undefined;
     }
     function spec(id: string, ch: number | null = null): StageSpec {
         const region = liveRegion();
@@ -379,20 +380,26 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const id = chosen();
             const shownStage = stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === stage)?.bypassed ? stage : id;
             stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), stage: shownStage ?? undefined, regionRange: regionSet });
-            const tracks = deps.tracks();
+            const allTracks = deps.tracks();
             painted = false;
             stepBar.element.dataset.drawn = '0';
             if (!recipe || !id) {
                 deps.showLanes(true);
                 panel.hidden = true;
-                for (const track of tracks) if (track.canvas) paintStage(track.canvas, null, { min: 0, max: 1 }, track.color, { x: '', y: '' }, { empty: strings.stepOpenCompare });
+                for (const track of allTracks) if (track.canvas) paintStage(track.canvas, null, { min: 0, max: 1 }, track.color, { x: '', y: '' }, { empty: strings.stepOpenCompare });
                 return;
             }
             const steps = recipeSteps(recipe.recipe, stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() }));
             // A step that cannot run has no picture: the plot says why, and how to fix it.
             const broken = brokenStep(recipe.recipe, stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() }));
             const cannot = steps.find(step => step.id === id && step.invalid !== undefined) ?? (id === OCTAVE_BRANCH && broken ? { ...broken, id: OCTAVE_BRANCH } : undefined);
-            if (cannot) {
+            // A step measured against the base slot's recording (at or before the one shown): each other recording is
+            // paired with it there, so the base is one recording, and it is the reference rather than a curve of its own.
+            const shownIndex = id === OCTAVE_BRANCH ? steps.length : steps.findIndex(step => step.id === id);
+            const slotStep = steps.find((step, index) => step.reference === 'slot' && !step.bypassed && step.invalid === undefined && index <= shownIndex);
+            const referencePath = slotStep && !groupBase ? deps.slots()[0] ?? null : null;
+            const needBase = !!slotStep && !referencePath;
+            if (cannot || needBase) {
                 deps.showLanes(false);
                 panel.hidden = false;
                 query<HTMLElement>('[data-stage-headline]').textContent = '';
@@ -401,12 +408,13 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 stepBar.element.dataset.stage = id;
                 painted = false;
                 paintOverlay(query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers: [] }, { min: 0, max: 1 }, { x: '', y: '' },
-                    { empty: `${strings.stepCannotShow.replace('{why}', invalidReason(cannot, strings, steps))} — ${strings.stepCannotShowFix}` });
+                    { empty: cannot ? `${strings.stepCannotShow.replace('{why}', invalidReason(cannot, strings, steps))} — ${strings.stepCannotShowFix}` : strings.stageNeedBaseFile });
                 return;
             }
+            const tracks = referencePath ? allTracks.filter(track => track.filePath !== referencePath) : allTracks;
             // The compared file (the slot tapped or held); its base: slot 0, or the others of its condition (0 switches).
             const comparePath = comparedPath(tracks);
-            const allBase = comparePath ? deps.basePaths(comparePath, groupBase) : [];
+            const allBase = comparePath && !referencePath ? deps.basePaths(comparePath, groupBase) : [];
             // A base group of more than LARGE_BASE recordings is not scanned until 「基準の群 n 本を解析する」.
             gateKey = comparePath ? `${comparePath}|${groupBase}|${allBase.length}|${allBase[0] ?? ''}|${allBase.at(-1) ?? ''}` : null;
             const cost = deps.cost?.(allBase) ?? { seconds: 0, ms: allBase.length * 150 };
@@ -417,7 +425,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const held_ = heldStep ? holdSpec(heldStep) : undefined;
             // Each file is drawn as the channel it is compared as (a channel row's slot, and its base's members of that channel).
             const channelFor = (path: string): number | null => deps.stageChannel?.(path, comparePath, groupBase) ?? null;
-            const specOf = (ch: number | null): StageSpec => (held_ ? holdSpec(heldStep!, ch) : undefined) ?? spec(id, ch);
+            const plain = (ch: number | null): StageSpec => (held_ ? holdSpec(heldStep!, ch) : undefined) ?? spec(id, ch);
+            // Measured against the base slot: the base recording's chain up to that step goes with the request.
+            const specOf = (ch: number | null): StageSpec => {
+                const own = plain(ch);
+                const theirs = referencePath ? plain(channelFor(referencePath)).message.recipe : undefined;
+                if (!referencePath || !slotStep || !theirs || !recipeChain(theirs).some(node => node.id === slotStep.id)) return own;
+                return { key: `${own.key}|vs|${referencePath}|${recipeKey(theirs)}`, message: { ...own.message, reference: { filePath: referencePath, step: slotStep.id, recipe: theirs } } };
+            };
             const byChannel = new Map<number | null, string[]>();
             for (const path of files) byChannel.set(channelFor(path), [...(byChannel.get(channelFor(path)) ?? []), path]);
             root.classList.toggle('is-step-held', !!held_);
@@ -447,7 +462,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const diffButton = query<HTMLButtonElement>('[data-action="stage-diff"]');
             diffButton.textContent = showDiff ? strings.compareDiffHide : strings.compareDiffShow;
             diffButton.setAttribute('aria-pressed', String(showDiff));
-            diffButton.hidden = !overlay;
+            diffButton.hidden = !overlay || !!referencePath;
             // Zoomed, the plots draw from the Frames' full resolution once it is in, the coarse pictures until then.
             const width = (overlay ? query<HTMLCanvasElement>('[data-stage-canvas="overlay"]') : tracks.find(track => track.canvas)?.canvas)?.clientWidth || 600;
             const fineSpecs = new Map<number | null, StageSpec | null>();
@@ -486,7 +501,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths, tableBase);
             shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
             const headline = query<HTMLElement>('[data-stage-headline]');
-            headline.textContent = waiting ? strings.comparePending : comparePath ? stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, strings) : '';
+            headline.textContent = waiting ? strings.comparePending
+                : referencePath ? strings.stageVsBase.replace('{file}', named(referencePath, 0).label)
+                : comparePath ? stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, strings) : '';
             // The steps bypassed are named: what is drawn is the chain without them.
             const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, regionSet));
             if (bypassed.length && !waiting) headline.textContent += strings.stepBypassing.replace('{ops}', bypassed.join(', '));
@@ -508,6 +525,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                         { empty, window: { x: window_.x, ...(heat ? { y: window_.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}) });
                     if (view) drawn++;
                 });
+                // The base slot's lane: the reference the others are measured against, not a picture of its own.
+                const referenceTrack = referencePath ? allTracks.find(track => track.filePath === referencePath) : undefined;
+                if (referenceTrack?.canvas) paintStage(referenceTrack.canvas, null, { min: 0, max: 1 }, referenceTrack.color, { x: '', y: '' }, { empty: strings.stageVsBase.replace('{file}', named(referencePath!, 0).label) });
                 stepBar.element.dataset.drawn = String(drawn);
                 return;
             }
@@ -522,7 +542,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             ];
             stepBar.element.dataset.drawn = String(layers.length);
             const items: LegendItem[] = [
-                ...(comparePath ? [{ color: ROLE_COLORS[0], label: deps.baseTitle(comparePath, groupBase) }] : []),
+                ...(comparePath && !referencePath ? [{ color: ROLE_COLORS[0], label: deps.baseTitle(comparePath, groupBase) }] : []),
                 ...(comparePath ? [{ color: colorOf(comparePath, ROLE_COLORS[1]), ...named(comparePath, role(comparePath)), active: true, held: held !== null }] : []),
                 ...plots.others.map(item => ({ color: colorOf(item.track.filePath, item.track.color), ...named(item.track.filePath, role(item.track.filePath)) })),
             ];
@@ -538,8 +558,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             drawnOn.set(query('[data-stage-canvas="overlay"]'), { picture, range, axes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff } });
             paintOverlay(query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers }, narrowed(range, window_.y), axes, { empty, window: { x: window_.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}) });
             const diffBox = query<HTMLElement>('[data-stage-diff]');
-            diffBox.hidden = !showDiff;
-            if (showDiff) {
+            diffBox.hidden = !showDiff || !!referencePath;
+            if (showDiff && !referencePath) {
                 query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? strings.comparePending : stageHeadline(plots.diff, strings);
                 const diffAxes = stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true);
                 drawnOn.set(query('[data-stage-canvas="diff"]'), { picture: coarsePlots.diff, range: stageDiffRange(coarsePlots.diff), axes: diffAxes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff } });
