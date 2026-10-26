@@ -132,6 +132,19 @@ test('a file added while the headers are read asks again for every header not re
     expect(last.filePaths.length).toBe(scanned!.length + 1);
 });
 
+test('a row slotted before its channels are known follows its file to ch 1 once they are', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!, { language: 'en', answered: 0, headers: null });
+    const row = rows(page).nth(1);
+    const key = (await row.getAttribute('data-key'))!;
+    expect(key).not.toContain('#ch');
+    await row.hover();
+    await row.locator('[data-action="entry-row-slotmenu"]').click();
+    await page.locator('[data-action="entry-row-slot"][data-slot="1"]').click();
+    await answerProbe(page, Object.fromEntries(scanned!.map(file => [file.filePath, 2])));
+    await expect.poll(async () => (await snapshot(page))?.slots).toEqual([null, `${key}#ch1`, null, null]);
+});
+
 test('rows are a recording and its channel; ch 2 alone, then a second filter, and one of two filters taken off (I16, I18, I20)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');

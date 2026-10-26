@@ -58,3 +58,12 @@ test('ticks fall on round values without floating-point drift', () => {
     assert.deepEqual(niceTicks(0.1, 0.7, 6), [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]);
     assert.deepEqual(niceTicks(-73.4, -12.1, 4), [-60, -40, -20]);
 });
+
+test('160,000 channel rows give their distribution (no spread of every value into Math.min)', () => {
+    const files = Array.from({ length: 2500 }, (_, index) => `/d/f${index}.wav`);
+    const results = new Map(files.map((file, index) => [file, ok(Array.from({ length: 64 }, (_, ch) => -40 + ((index + ch) % 20))) ] as const));
+    const rows = datasetRows(files, '/d', new Map(), results, new Map());
+    assert.equal(rows.length, 160_000);
+    const leq = distribution(rows, 'leq', 'none', results, null);
+    assert.ok(leq.low < -40 && leq.high > -21);
+});

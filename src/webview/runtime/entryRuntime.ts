@@ -34,7 +34,7 @@ import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/a
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { finiteNumber } from '../../shared/dataset/asdData';
 import {
-    baseGroupMembers, columnValues, datasetRows, fileOfKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
+    baseGroupMembers, columnValues, datasetRows, fileOfKey, rowKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
@@ -363,7 +363,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return [...own, ...computed.map(item => ({ ...item, computed: true, ready: false }))];
     }
     function groupOptions(): Array<{ id: GroupId; label: string }> {
-        const folders = Math.max(0, ...rows.map(row => row.folders.length));
+        const folders = rows.reduce((most, row) => Math.max(most, row.folders.length), 0);
         return [
             ...(csv?.attributes ?? []).map(column => ({ id: `csv:${column}` as GroupId, label: column })),
             ...Array.from({ length: folders }, (_, index) => ({ id: `folder:${index + 1}` as GroupId, label: strings.entryFolderLevel.replace('{n}', String(index + 1)) })),
@@ -405,10 +405,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const broken = new Set(unreadable().map(item => item.filePath));
         return match.unmatched.filter(item => !item.filePath || !broken.has(item.filePath));
     }
+    /** A row taken (slotted, left out, noted, focused) before its file's channels were known follows it to its ch 1 once they are. */
+    function followChannels(): void {
+        const keys = new Set(rows.map(row => row.key));
+        const moved = (key: string): string | null => (!keys.has(key) && fileOfKey(key) === key && keys.has(rowKey(key, 1, 2)) ? rowKey(key, 1, 2) : null);
+        slots = slots.map(key => (key && moved(key)) || key);
+        for (const key of [...excluded]) { const to = moved(key); if (to) { excluded.delete(key); excluded.add(to); } }
+        for (const [key, note] of [...memo]) { const to = moved(key); if (to) { memo.delete(key); if (!memo.has(to)) memo.set(to, note); } }
+        if (focused) focused = moved(focused) ?? focused;
+    }
     function rebuild(): void {
         builtModel = null;
         rows = datasetRows(filePaths, rootPath, match?.attributes ?? new Map(), results, headerChannels)
             .filter(row => !(headerErrors.has(row.filePath) && !results.get(row.filePath)?.ok) && (results.get(row.filePath)?.ok !== false || !!results.get(row.filePath)?.failedStep));
+        followChannels();
         // A value or grouping the data no longer has (another CSV, no subfolders) gives way to the first it has.
         const values = valueOptions();
         if (!values.some(option => option.id === value)) value = values[0]?.id ?? 'leq';
@@ -1168,7 +1178,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const pool = rows.filter(row => !excluded.has(row.key));
             if (column.numeric) {
                 const numbers = pool.map(row => (fpop!.column.startsWith('csv:') ? finiteNumber(row.attributes?.[fpop!.column.slice(4)] ?? '') : valueOf(row, fpop!.column as ValueId, results))).filter((item): item is number => item !== null);
-                const min = numbers.length ? formatColumn(fpop.column, Math.min(...numbers)) : '', max = numbers.length ? formatColumn(fpop.column, Math.max(...numbers)) : '';
+                const min = numbers.length ? formatColumn(fpop.column, numbers.reduce((a, b) => Math.min(a, b))) : '', max = numbers.length ? formatColumn(fpop.column, numbers.reduce((a, b) => Math.max(a, b))) : '';
                 pop.innerHTML = filterPopHtml({ column, anchored: fpop.anchored, columns: filterColumns(), sortKey: sortKeyOf(fpop.column), sort, filter: existing, search: '',
                     range: { low: existing?.kind === 'range' ? formatColumn(fpop.column, existing.low) : '', high: existing?.kind === 'range' ? formatColumn(fpop.column, existing.high) : '', min, max } }, text);
             } else {

@@ -64,8 +64,10 @@ export function distribution(rows: readonly DatasetRow[], value: ValueId, group:
         members.push({ key: row.key, filePath: row.filePath, value: number, inRange: !range || (number >= range.low && number <= range.high) });
         groups.set(name, members);
     }
-    const all = [...groups.values()].flat().map(member => member.value);
-    let low = all.length ? Math.min(...all) : 0, high = all.length ? Math.max(...all) : 1;
+    // A loop, not Math.min(...all): spreading 150,000 values overflows the call stack.
+    let low = Infinity, high = -Infinity;
+    for (const members of groups.values()) for (const { value } of members) { if (value < low) low = value; if (value > high) high = value; }
+    if (low > high) { low = 0; high = 1; }
     const pad = high > low ? (high - low) * 0.04 : Math.max(Math.abs(low) * 0.05, 0.5);
     low -= pad; high += pad;
     return {
