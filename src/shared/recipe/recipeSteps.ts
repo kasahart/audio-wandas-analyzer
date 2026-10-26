@@ -69,11 +69,19 @@ const SETTABLE: Record<string, readonly StepParam[]> = {
 /** Steps that compare the channels of one recording, pair by pair: they need two channels. */
 export const CROSS_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.csd', 'wandas.audio.transfer_function', 'wandas.spectrogram.csd']);
 export const SELECT_PAIR = 'wandas.frame.select_pair';
+/**
+ * Cross-channel steps that come with their pair (select_pair after them). A CSD does not: coherence and the
+ * transfer function derived from it need its auto-spectra, which select_pair would leave out.
+ */
+export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.transfer_function']);
 
-/** The channels a step leaves of `channels`: one after get_channel, one fewer after remove_channel. */
+/** Steps that leave one channel: one picked, or all summed or averaged into one. */
+const ONE_CHANNEL: ReadonlySet<string> = new Set(['wandas.frame.get_channel', 'wandas.audio.sum', 'wandas.audio.mean']);
+
+/** The channels a step leaves of `channels`: one after get_channel, sum or mean, one fewer after remove_channel. */
 function channelsAfter(operation: string, channels: number | undefined): number | undefined {
     if (channels === undefined) return undefined;
-    if (operation === 'wandas.frame.get_channel') return 1;
+    if (ONE_CHANNEL.has(operation)) return 1;
     if (operation === 'wandas.channel.remove_channel') return Math.max(1, channels - 1);
     return channels;
 }
