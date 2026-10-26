@@ -55,13 +55,17 @@ export interface OpenEntryOptions {
     csv?: { name: string; text: string };
     /** What the files' headers say, by path: a channel count or an error. Every probe is answered and finished; `null` leaves it running. */
     headers?: Record<string, number | string | { channels: number; durationS: number }> | null;
+    /** The table opens beside the tracks; most table checks widen it first (⤢), as a user looking at many rows does. */
+    docked?: boolean;
 }
 
 export async function openEntry(page: Page, files: ScannedFile[], options: OpenEntryOptions | string = {}): Promise<number> {
-    const { language = 'en', table = null, metadataPath, recipe, answered = files.length, headers = {}, session, csv } = typeof options === 'string' ? { language: options } : options;
+    const { language = 'en', table = null, metadataPath, recipe, answered = files.length, headers = {}, session, csv, docked = false } = typeof options === 'string' ? { language: options } : options;
     const listed = [...files.map(file => file.filePath), ...(metadataPath ? [metadataPath] : [])];
     await page.setContent(buildUiSmokeEntryHtml(listed, language), { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#entry-screen')).toBeVisible();
+    await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
+    if (!docked) await page.locator('[data-action="entry-maximize"]').click();
     const request = await page.waitForFunction(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; requestId?: string }> })
         .__uiSmokePostedMessages.find(message => message.type === 'entry-scan'));
     const { requestId } = await request.jsonValue() as { requestId: string };
@@ -116,4 +120,32 @@ export async function answerProbe(page: Page, headers: Record<string, number | s
         }
         window.postMessage({ type: 'entry-probe-done', requestId }, '*');
     }, { requestId, filePaths, headers });
+}
+
+/**
+ * Opens the track view's 比較解析 (the steps view), where the chain is edited: the focused row in slot 1, Enter,
+ * the host's tracks, and the first stage scan answered with `view`. Returns the slotted file.
+ */
+export async function openStepsView(page: Page, files: ScannedFile[], view: Record<string, unknown>): Promise<string> {
+    const first = (await page.locator('[data-entry-rows] tr.is-focused, [data-entry-rows] tr.entry-row').first().getAttribute('data-file-path'))!;
+    await page.keyboard.press('1');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
+    await page.evaluate(filePath => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
+        filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
+        channels: [{ label: 'L', peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
+    }] } })), first);
+    await expect(page.locator('.track-stage-bar')).toBeVisible();
+    type Scan = { type: string; requestId: string; filePaths: string[] };
+    const request = await page.waitForFunction(() => (window as unknown as { __uiSmokePostedMessages: Scan[] }).__uiSmokePostedMessages
+        .filter(message => message.type === 'compare-scan' && message.requestId.startsWith('track-stage')).at(-1));
+    const scan = await request.jsonValue() as Scan;
+    await page.evaluate(({ scan, view, files }) => {
+        for (const filePath of scan.filePaths) {
+            const file = files.find(item => item.filePath === filePath);
+            if (file) window.postMessage({ type: 'compare-scan-result', requestId: scan.requestId, filePath, result: { ...file.result, stage: view } }, '*');
+        }
+        window.postMessage({ type: 'compare-scan-done', requestId: scan.requestId }, '*');
+    }, { scan, view, files });
+    return first;
 }

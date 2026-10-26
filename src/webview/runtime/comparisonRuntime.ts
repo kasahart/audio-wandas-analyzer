@@ -1061,6 +1061,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         strings: STR,
         dock: document.getElementById('entry-dock'),
         maximizedChanged: () => scheduleRender(),
+        stepsChanged: () => scheduleRender(),
         shownTracks() {
             const shown = new Map<string, boolean>();
             selectedFilePaths.forEach(function (filePath: string) {
@@ -2670,6 +2671,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'export-csv': exportCsv,
             'export-wav': exportWavLoop,
             'export-report': exportReport,
+            'stage-report': () => stageMode?.report(),
+            'entry-batch': () => entryScreen.openBatch(),
+            'entry-export-csv': () => entryScreen.exportTable(),
+            'entry-export-notes': () => entryScreen.exportNotes(),
         } satisfies Record<GlobalShortcutAction, () => void> & Record<string, () => void>;
         if (Object.prototype.hasOwnProperty.call(toolbarActions, action)) {
             toolbarActions[action]();

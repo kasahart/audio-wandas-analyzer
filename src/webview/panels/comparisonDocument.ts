@@ -125,7 +125,7 @@ export function renderComparisonStyles(): string {
         #toolbar {
             display: flex; align-items: center; gap: 6px; padding: 4px 10px;
             background: var(--panel); border-bottom: 1px solid var(--line);
-            flex-shrink: 0; flex-wrap: wrap; overflow: visible; position: relative; z-index: 20;
+            flex-shrink: 0; flex-wrap: wrap; overflow: visible; position: relative; z-index: 25;
         }
         .tb-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
         .tb-btn {
@@ -178,10 +178,19 @@ export function renderComparisonStyles(): string {
         .entry-screen:is([data-cols="1"], [data-cols="2"]) .entry-col-group, .entry-screen:is([data-cols="1"], [data-cols="2"]) col.entry-col-group-w { display: none; }
         /* In the side panel the bar keeps the filter, the progress, Open and ⤢; the chain is one chip that widens the table. */
         .entry-screen:not(.is-max) .entry-bar { flex-wrap: wrap; row-gap: 4px; }
-        .entry-screen:not(.is-max):is([data-cols="1"], [data-cols="2"], [data-cols="3"]) :is([data-action="entry-export-csv"], .entry-keys) { display: none; }
+        .entry-screen:not(.is-max):is([data-cols="1"], [data-cols="2"], [data-cols="3"]) .entry-keys { display: none; }
+        /* Beside the tracks the slotted rows already are tracks: the table's Enter needs no button there. */
+        .entry-screen:not(.is-max) [data-action="entry-open"] { display: none; }
         .entry-screen:not(.is-max) [data-step-bar] { display: none; }
         .entry-screen:not(.is-max) .entry-footer { flex-wrap: wrap; row-gap: 4px; }
         .entry-screen .entry-size { padding: 2px 6px; }
+        /* The table's own 書き出し while it covers the window; beside the tracks the toolbar's menu has the same. */
+        .entry-screen:not(.is-max) .entry-export { display: none; }
+        .entry-export { position: relative; }
+        .entry-export > summary { list-style: none; cursor: pointer; border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; }
+        .entry-export > summary::-webkit-details-marker { display: none; }
+        .entry-export-pop { position: absolute; right: 0; top: calc(100% + 2px); z-index: 30; display: flex; flex-direction: column; gap: 2px; padding: 4px; min-width: 220px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
+        .entry-export-pop button { text-align: left; white-space: nowrap; }
         /* In the side panel the bar leaves the panel's own collapse button its corner. */
         .entry-screen:not(.is-max) .entry-bar { padding-right: 40px; }
         /* A row's own track controls: ＋ shows the file as a track, 👁 and × once it is one. */
@@ -234,10 +243,8 @@ export function renderComparisonStyles(): string {
         .entry-dist-brush { fill: currentColor; fill-opacity: 0.12; stroke: var(--text); stroke-dasharray: 3 2; }
         .entry-dist-empty { display: grid; place-items: center; min-height: 120px; color: var(--muted); text-align: center; padding: 8px; }
         .entry-dist-empty[hidden] { display: none; }
-        .entry-dist-back { display: none; }
         /* While a comparison is open the distribution folds into a low strip above the table, with a way back. */
         .entry-screen.is-dist-strip .entry-dist { flex: none; padding: 4px 10px 2px; border-bottom: 1px solid var(--line); background: var(--panel); }
-        .entry-screen.is-dist-strip .entry-dist-back { display: inline-block; }
         .entry-screen.is-dist-strip .entry-dist-note:empty { display: none; }
         .entry-screen.is-dist-strip .entry-dist-empty { min-height: 0; padding: 2px; }
         /* A held slot's Δ spectrum takes the distribution's frame while it is held, so nothing else moves. */
@@ -463,7 +470,7 @@ export function renderComparisonStyles(): string {
         .step-form-note { max-width: 260px; color: var(--muted); }
         .step-form-bar { display: flex; gap: 6px; justify-content: flex-end; }
         /* ── The step bar as the 手順バー prototype: "Steps", the input, round chips joined by →, a dot per Frame kind ── */
-        .step-bar { --step-accent: var(--text); --step-err: #ef6b6b; --kind-channel: #6fd0e8; --kind-spectrogram: #e879b9; --kind-spectrum: #c58cf2; --kind-other: #8b949e; }
+        .step-bar { --step-accent: var(--text); --step-err: #ef6b6b; --kind-channel: var(--muted); --kind-spectrogram: var(--muted); --kind-spectrum: var(--muted); --kind-other: var(--muted); }
         .step-bar .step-row { gap: 4px; align-items: center; }
         .step-label { color: var(--muted); font-size: 11px; letter-spacing: 0.06em; margin-right: 6px; }
         .step-arrow { color: var(--muted); font-size: 11px; padding: 0 1px; user-select: none; }
@@ -474,8 +481,9 @@ export function renderComparisonStyles(): string {
         .step-bar .step-chip > .step-body { gap: 6px; }
         .step-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--kind-other); }
         .step-dot[data-kind="ChannelFrame"] { background: var(--kind-channel); }
-        .step-dot[data-kind="SpectrogramFrame"], .step-dot[data-kind="CepstrogramFrame"], .step-dot[data-kind="RoughnessFrame"] { background: var(--kind-spectrogram); }
-        .step-dot[data-kind="SpectralFrame"], .step-dot[data-kind="NOctFrame"] { background: var(--kind-spectrum); }
+        .step-dot[data-kind="SpectrogramFrame"], .step-dot[data-kind="CepstrogramFrame"], .step-dot[data-kind="RoughnessFrame"] { background: var(--kind-spectrogram); border-radius: 1px; }
+        /* Colour belongs to the roles (base, slots): a Frame's kind is told by the dot's shape (time ●, image ■, spectrum ◆). */
+        .step-dot[data-kind="SpectralFrame"], .step-dot[data-kind="NOctFrame"] { background: var(--kind-spectrum); border-radius: 1px; transform: rotate(45deg) scale(0.85); }
         .step-dot[data-kind=""] { background: var(--step-err); }
         /* The stage on screen: a soft fill, a double border, and its ⚙ inside the chip. */
         .step-bar .step-chip.is-current { background: color-mix(in srgb, var(--step-accent) 14%, var(--chip-bg)); border-color: var(--step-accent); box-shadow: inset 0 0 0 1px var(--step-accent); }
@@ -640,8 +648,8 @@ export function renderComparisonStyles(): string {
         #directory-selection-layout.is-empty #entry-dock::before { content: attr(data-empty-hint); display: block; padding: 48px 20px; color: var(--muted); text-align: center; line-height: 1.6; }
         #directory-selection-layout.is-empty #toolbar > :not(#app-version), #directory-selection-layout.is-empty #spectrum-section,
         #directory-selection-layout.is-empty [data-action="spectrum-height-drag"] { display: none !important; }
-        /* Beside the steps view the slots already drive the comparison: Enter has nothing left to open. */
-        body.is-stage-view .entry-screen:not(.is-max) [data-action="entry-open"] { display: none; }
+        /* The 書き出し menu offers what can be written now: the comparison in the steps view, the table's exports while it is open. */
+        body:not(.is-stage-view) .tb-stage-only, body:not(:has(#entry-screen:not([hidden]))) .tb-entry-only { display: none !important; }
         #spectrum-section {
             border-top: 1px solid var(--line); background: var(--panel);
             display: flex; flex-direction: column; flex-shrink: 0; position: relative;
@@ -751,6 +759,8 @@ export function renderComparisonStyles(): string {
             background: var(--panel);
             flex-wrap: wrap;
         }
+        /* The interpreter is named only when it needs attention; the command palette chooses another any time. */
+        #selection-python-environment:not(.is-warning) { display: none; }
         #selection-python-environment {
             margin-left: auto;
             max-width: min(360px, 45vw);
@@ -800,6 +810,10 @@ export function renderComparisonStyles(): string {
                 linear-gradient(160deg, rgba(255,255,255,0.6), rgba(15,123,108,0.05));
         }
         @media (max-width: 900px) {
+            #selection-sidebar { max-width: 50vw; }
+        }
+        @media (max-width: 560px) {
+            #selection-sidebar { max-height: 40vh; overflow: auto; max-width: none; }
             #selection-body {
                 flex-direction: column;
             }

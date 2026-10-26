@@ -50,7 +50,7 @@ export interface TrackStageDeps {
     strings: UiStrings;
     post(message: CompareScanMessage): void;
     /** The Recipe the entry table scans with, and the one its scans run (the steps that cannot run left out). */
-    recipe(): { recipe: RecipeDocument; runRecipe?: RecipeDocument } | null;
+    recipe(): { recipe: RecipeDocument; runRecipe?: RecipeDocument; failed?: Readonly<Record<string, string>> } | null;
     recipeChanged(recipe: RecipeDocument): void;
     /** The tracks on screen, in display order. */
     tracks(): StageTrack[];
@@ -105,6 +105,8 @@ export interface TrackStageMode {
     role(filePath: string): number | undefined;
     /** Opens the mode for a comparison from the entry table, on `stage` (the chain's end without one). */
     open(stage?: string): void;
+    /** Writes the comparison as a report folder. */
+    report(): void;
     /** What the comparison shows, for tests. */
     snapshot(): TrackStageSnapshot;
 }
@@ -184,8 +186,6 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     root.innerHTML = `<div class="track-stage-controls">`
         + `<button type="button" class="tb-btn" data-action="stage-layout" aria-pressed="true">${escapeHtml(strings.stageLayoutSide)}</button>`
         + `<button type="button" class="tb-btn" data-action="stage-diff" aria-pressed="false">${escapeHtml(strings.compareDiffShow)}</button>`
-        + `<button type="button" class="tb-btn" data-action="stage-report">${escapeHtml(strings.compareReport)}</button>`
-        + `<button type="button" class="tb-btn" data-action="stage-batch"${hintAttr(strings.hintBatch)}>${escapeHtml(strings.dsBatch)}</button>`
         + `<span class="compare-value track-stage-headline" data-stage-headline></span>`
         + `<span class="track-stage-gate" data-stage-base-gate hidden><span data-stage-base-gate-why></span> <button type="button" class="tb-btn" data-action="stage-base-scan"></button></span></div>`
         + `<div class="track-stage-panel" data-stage-panel>`
@@ -198,17 +198,16 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     root.prepend(stepBar.element);
     const query = <T extends Element>(selector: string): T => root.querySelector<T>(selector)!;
     const panel = query<HTMLElement>('[data-stage-panel]');
+    /** The comparison written as a folder (the toolbar's 書き出し menu): a chain that cannot run has no values to report. */
+    function report(): void {
+        const recipe = deps.recipe()?.recipe;
+        if (recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate() }))) deps.hint(strings.stepOctaveBroken);
+        else deps.report(showDiff, liveRegion(), measured());
+    }
     root.addEventListener('click', event => {
         const action = (event.target as HTMLElement).closest('[data-action]')?.getAttribute('data-action');
         if (action === 'stage-layout') { overlaid = !overlaid; deps.rerender(); }
         else if (action === 'stage-diff') { showDiff = !showDiff; deps.rerender(); }
-        else if (action === 'stage-report') {
-            // A chain that cannot run has no values to report.
-            const recipe = deps.recipe()?.recipe;
-            if (recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate() }))) deps.hint(strings.stepOctaveBroken);
-            else deps.report(showDiff, liveRegion(), measured());
-        }
-        else if (action === 'stage-batch') deps.batch?.();
         // A large base group is scanned only when asked (a folder of 10,000 files is not analysed by opening a comparison).
         else if (action === 'stage-base-scan') { if (gateKey) baseAllowed.add(gateKey); deps.rerender(); }
         // The base group's ▾ says how its curve is made; "list" shows its files on the table.
@@ -353,6 +352,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     return {
         root,
         bar: stepBar.element,
+        report,
         active: () => on,
         role,
         open(next) {
@@ -376,7 +376,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const recipe = deps.recipe();
             const id = chosen();
             const shownStage = stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === stage)?.bypassed ? stage : id;
-            stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), stage: shownStage ?? undefined, regionRange: regionSet });
+            stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), stage: shownStage ?? undefined, regionRange: regionSet, failed: recipe?.failed });
             const tracks = deps.tracks();
             painted = false;
             stepBar.element.dataset.drawn = '0';
@@ -441,7 +441,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const layout = query<HTMLButtonElement>('[data-action="stage-layout"]');
             layout.textContent = overlaid ? strings.stageLayoutSide : strings.stageLayoutOverlay;
             layout.setAttribute('aria-pressed', String(overlaid));
-            layout.disabled = images;
+            // Images cannot be overlaid: the toggle has nothing to offer then.
+            layout.hidden = images;
             const diffButton = query<HTMLButtonElement>('[data-action="stage-diff"]');
             diffButton.textContent = showDiff ? strings.compareDiffHide : strings.compareDiffShow;
             diffButton.setAttribute('aria-pressed', String(showDiff));

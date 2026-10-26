@@ -61,9 +61,11 @@ export function entryScreenHtml(strings: EntryStrings): string {
         <button type="button" class="entry-filter" data-action="entry-view-excluded" aria-pressed="false"${hintAttr(strings.hintExcluded)}></button>
         <button type="button" class="step-chip entry-csv-pick" data-action="entry-pick-csv"${hintAttr(strings.hintPickCsv)}><span data-entry-source>${escapeHtml(strings.dsPickCsv)}</span></button>
         <input type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" data-entry-csv-input hidden>
-        <button type="button" data-action="entry-export-csv">CSV ⤓</button>
-        <button type="button" data-action="entry-export-notes"${hintAttr(strings.hintExportNotes)}>${escapeHtml(strings.dsExportNotes)}</button>
-        <button type="button" data-action="entry-batch"${hintAttr(strings.hintBatch)}>${escapeHtml(strings.dsBatch)}</button>
+        <details class="entry-export" id="entry-export-menu"><summary${hintAttr(strings.hintEntryExport)}>${escapeHtml(strings.toolbarExportLabel)} ▾</summary><div class="entry-export-pop">
+            <button type="button" data-action="entry-batch"${hintAttr(strings.hintBatch)}>${escapeHtml(strings.dsBatch)}</button>
+            <button type="button" data-action="entry-export-csv"${hintAttr(strings.dsExportTable)}>${escapeHtml(strings.dsExportTable)}</button>
+            <button type="button" data-action="entry-export-notes"${hintAttr(strings.hintExportNotes)}>${escapeHtml(strings.dsExportNotes)}</button>
+        </div></details>
         <button type="button" class="entry-primary" data-action="entry-open">${escapeHtml(strings.entryOpen)} <kbd>Enter</kbd></button>
         <button type="button" class="entry-size" data-action="entry-maximize" aria-pressed="false"${hintAttr(strings.hintEntryMaximize)}>⤢</button>
     </div>
@@ -96,7 +98,6 @@ export function entryScreenHtml(strings: EntryStrings): string {
 function distributionHtml(strings: EntryStrings): string {
     return `<div class="entry-dist" data-entry-dist>
                     <div class="entry-dist-head">
-                        <button type="button" class="entry-dist-back" data-action="entry-dist-back"${hintAttr(strings.dsDistBackHint)}>${escapeHtml(strings.dsDistBack)}</button>
                         <label class="entry-pick">${escapeHtml(strings.dsValue)} <select data-action="entry-value" aria-label="${escapeHtml(strings.dsValue)}"></select></label>
                         <label class="entry-pick">${escapeHtml(strings.dsGroup)} <select data-action="entry-group" aria-label="${escapeHtml(strings.dsGroup)}"></select></label>
                         <span class="entry-dist-n" data-entry-dist-count></span>
@@ -310,7 +311,8 @@ export function slotHtml(options: {
 export function entrySlotsHtml(slots: readonly (string | null)[], label: (key: string) => string, baseLabel: string, strings: EntryStrings, heldSlot: number | null = null,
     /** Per slot, a note on its chip: e.g. its file is another slot's track, shown as that slot's channel. */
     notes: readonly (string | null)[] = []): string {
-    return [0, 1, 2, 3].map(slot => {
+    // The base (a file, or a group's median when slot 0 is empty), then only the slots in use: an empty one says nothing the keys 1–3 do not.
+    return [0, 1, 2, 3].filter(slot => slot === 0 || slots[slot]).map(slot => {
         const key = slots[slot] ?? null;
         const hint = (key ? strings.dsSlotFilledHint : strings.dsSlotEmptyHint) + (notes[slot] ? ` · ${notes[slot]}` : '');
         const chip = slotHtml({

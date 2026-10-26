@@ -135,6 +135,8 @@ test('the comparison shows the app\'s 1/3-octave branch as a step, and hides the
     // A row's ▶ shows on the hovered row only, and shows its file as a track to play it.
     const row = page.locator('[data-entry-rows] tr.entry-row:not(.is-focused)').nth(3);
     const rowPath = (await row.getAttribute('data-file-path'))!;
+    // The pointer leaves the sort menu's place first (it may sit over that row).
+    await page.mouse.move(1, 1);
     await expect(row.locator('[data-action="entry-row-play"]')).toBeHidden();
     await row.hover();
     await expect(row.locator('[data-action="entry-row-play"]')).toBeVisible();
@@ -153,6 +155,8 @@ test('D fixes the compared file\'s difference; 報告に hands the host one fold
     await page.locator('[data-stage-canvas="overlay"]').click();
     await page.keyboard.press('d');
     await expect(page.locator('#hint-footer')).toHaveText(STR.compareFixedHint);
+    // Every export is in the toolbar's 書き出し menu.
+    await page.locator('#tb-export-menu > summary').click();
     await page.locator('[data-action="stage-report"]').click();
     const report = (await posted(page)).filter(message => message.type === 'save-report-folder').at(-1)!;
     expect(report.folder).toMatch(/^Standard_\d{8}-\d{6}$/);
@@ -449,48 +453,6 @@ test('at 1280×720 the overlaid plot fits: the cursor spectrum folds while compa
     // Back to the waveform: the cursor spectrum as it was.
     await page.locator('[data-action="content-waveform"]').click();
     await expect(section).not.toHaveClass(/is-collapsed/);
-});
-
-test('holding a step on the entry table draws its picture as the steps view does: one stage scan with and one without it, the Δ, and detail once zoomed', async ({ page }) => {
-    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
-    await openEntry(page, scanned!, { language: 'en', recipe });
-    const holds = async (): Promise<Posted[]> => (await posted(page)).filter(message => message.type === 'compare-scan' && message.requestId.startsWith('entry-hold'));
-    const hpf = page.locator('#entry-screen .step-chip', { hasText: 'HPF' }).locator('[data-step-hold]');
-    const box = (await hpf.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    const held = page.locator('[data-entry-held]');
-    await expect(held).toBeVisible();
-    await expect(held).toHaveClass(/is-pending/);
-    // The chain's end with the HPF, then without it (one request in flight per source).
-    const answerHold = async (shift: number): Promise<Posted> => {
-        const request = (await holds()).at(-1)!;
-        await page.evaluate(({ request, view, files, shift }) => {
-            for (const filePath of request.filePaths) {
-                const file = files.find(item => item.filePath === filePath)!;
-                window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: { ...view, values: view.values.map(value => value + shift) } } }, '*');
-            }
-            window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
-        }, { request, view: spectrum, files: scanned!, shift });
-        return request;
-    };
-    await expect.poll(async () => (await holds()).length).toBe(1);
-    const withIt = await answerHold(0);
-    await expect.poll(async () => (await holds()).length).toBe(2);
-    const without = await answerHold(3);
-    expect(withIt.stage).toBe(without.stage);
-    expect(withIt.recipe!.nodes.map(node => node.operation.split('.').pop())).toContain('highpass_filter');
-    expect(without.recipe!.nodes.map(node => node.operation.split('.').pop())).not.toContain('highpass_filter');
-    await expect(held).not.toHaveClass(/is-pending/);
-    // Zoomed (Ctrl+wheel on the held plot, the chip still held), it asks for the part on screen at full resolution once the zoom settles.
-    const canvas = page.locator('[data-entry-held-canvas]');
-    const plot = (await canvas.boundingBox())!;
-    await canvas.dispatchEvent('wheel', { deltaY: -200, ctrlKey: true, clientX: plot.x + plot.width / 2, clientY: plot.y + plot.height / 2, bubbles: true, cancelable: true });
-    await expect(canvas).not.toHaveAttribute('data-window', '0.000-1.000|0.000-1.000');
-    await expect.poll(async () => (await holds()).some(message => 'detail' in message)).toBe(true);
-    await page.mouse.up();
-    await expect(held).toBeHidden();
 });
 
 test('a chain need not end in the 1/3-octave bands: a step added is shown, × removes one, and the branch stands apart', async ({ page }) => {

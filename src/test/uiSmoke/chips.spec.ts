@@ -1,5 +1,4 @@
 import { expect, test, type Locator } from '@playwright/test';
-import { getStrings } from '../../shared/i18n/strings';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 
 let scanned: ScannedFile[] | undefined;
@@ -10,21 +9,22 @@ const BLUE = 'rgb(59, 130, 246)', YELLOW = 'rgb(212, 178, 15)';
 
 test('controls follow the chip design: slots by role and state, a white primary, a pressed toggle inverse', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    const STR = getStrings('en');
     await openEntry(page, scanned!);
     // The primary is white, not blue; every control is 28 px high.
     const open = page.locator('[data-action="entry-open"]');
     expect(await style(open, 'background-color')).not.toBe(BLUE);
     expect(await style(open, 'height')).toBe('28px');
-    // Slots: 0 tinted blue, empty ones dashed with "empty".
+    // Slots: 0 (the base) tinted blue; an empty slot 1–3 has no chip.
     const base = page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]');
     expect(await style(base, 'border-top-color')).toBe(BLUE);
-    const empty = page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="2"]');
-    await expect(empty).toHaveClass(/is-empty/);
-    expect(await style(empty, 'border-top-style')).toBe('dashed');
-    await expect(empty.locator('.awa-slot-label')).toHaveText(STR.slotEmpty);
-    // A list toggle (the excluded rows): on is the white inverse.
+    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="2"]')).toHaveCount(0);
+    // A list toggle (the excluded rows) shows once a row is taken out; on is the white inverse.
     const excludedList = page.locator('[data-action="entry-view-excluded"]');
+    await expect(excludedList).toBeHidden();
+    const last = page.locator('[data-entry-rows] tr.entry-row').nth(5);
+    await last.hover();
+    await last.locator('[data-action="entry-row-exclude"]').click();
+    await expect(excludedList).toBeVisible();
     await excludedList.click();
     await expect(excludedList).toHaveAttribute('aria-pressed', 'true');
     expect(await style(excludedList, 'background-color')).toBe(await style(page.locator('#entry-screen'), 'color'));

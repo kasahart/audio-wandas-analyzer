@@ -71,8 +71,10 @@ test('the CSV, value, group, filters, base, slots, memo and exclusions are saved
     expect((await saves(page)).length).toBe(before);
 
     // 「メモと除外を CSV に書き出す」: the CSV as it was, with memo and excluded after its columns.
-    await page.locator('[data-action="entry-export-notes"]').click();
-    await expect(page.locator('[data-action="entry-export-notes"]')).toHaveText(STR.dsExportNotes);
+    // The table's exports are in its 書き出し menu.
+    await page.locator('#entry-export-menu > summary').click();
+    await page.locator('#entry-export-menu [data-action="entry-export-notes"]').click();
+    await expect(page.locator('#entry-export-menu [data-action="entry-export-notes"]')).toHaveText(STR.dsExportNotes);
     const text = await page.evaluate(async () => {
         const downloads = (window as unknown as { __uiSmokeDownloads: Array<{ download: string; href: string }> }).__uiSmokeDownloads;
         const last = downloads.at(-1)!;

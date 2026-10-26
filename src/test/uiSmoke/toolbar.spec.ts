@@ -12,10 +12,9 @@ function workerFixture(entry: { command: string; response: Record<string, unknow
     return { ...entry, response };
 }
 
-/** An opened folder starts on the entry table, maximized; Esc shrinks it into the side panel beside the tracks. */
+/** An opened folder starts with the entry table in the side panel beside the tracks (⤢ widens it). */
 async function leaveEntryTable(page: Page) {
-    await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
-    await page.keyboard.press('Escape');
+    await expect(page.locator('#entry-screen')).toBeVisible();
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
 }
 
@@ -415,8 +414,9 @@ async function getPostedActionTypes(page: Page): Promise<string[]> {
     });
 }
 
-async function openToolbarMenu(page: Page, index: number): Promise<void> {
-    const menu = page.locator('#toolbar details.tb-menu').nth(index);
+/** Opens one of the toolbar's menus: 'tb-export-menu' (every export) or 'tb-more-menu' (the other zoom tools). */
+async function openToolbarMenu(page: Page, id: 'tb-export-menu' | 'tb-more-menu'): Promise<void> {
+    const menu = page.locator(`#toolbar #${id}`);
     await menu.locator('summary').evaluate((element) => {
         (element as HTMLElement).click();
     });
@@ -434,9 +434,9 @@ test('toolbar message assertions ignore initial panel bootstrap messages', async
         ];
     });
 
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
     await page.locator('[data-action="run-recipe"]').click({ force: true });
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
     await page.locator('[data-action="export-report"]').click({ force: true });
 
     expect(await getPostedActionTypes(page)).toEqual([
@@ -448,9 +448,9 @@ test('toolbar message assertions ignore initial panel bootstrap messages', async
 test('results toolbar posts VS Code messages for recipe run and report export', async ({ page }) => {
     await loadUi(page);
 
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
     await page.locator('[data-action="run-recipe"]').click({ force: true });
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
     await page.locator('[data-action="export-report"]').click({ force: true });
 
     expect(await getPostedActionTypes(page)).toEqual([

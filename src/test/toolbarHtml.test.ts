@@ -17,10 +17,12 @@ test('toolbar marks the active content type', () => {
     assert.ok(spectrogram.includes('<button class="tb-btn" data-action="content-waveform"'));
 });
 
-test('toolbar has one menu, Export, which also saves or runs a Recipe; heights are dragged, not typed', () => {
+test('toolbar has two menus, the other zoom tools (⋯) and Export, which holds every export; heights are dragged, not typed', () => {
     const html = toolbarHtml(spec, strings);
-    // The menu acts on the track lanes, so it is marked to hide in the steps view.
-    assert.equal(html.match(/<details class="tb-menu tb-track-only">/g)?.length, 1);
+    // ⋯ acts on the track lanes, so it hides in 比較解析; Export stays, offering what can be written there.
+    assert.equal(html.match(/<details class="tb-menu tb-track-only" id="tb-more-menu">/g)?.length, 1);
+    assert.equal(html.match(/<details class="tb-menu" id="tb-export-menu">/g)?.length, 1);
+    for (const action of ['stage-report', 'entry-batch', 'entry-export-csv', 'entry-export-notes']) assert.ok(html.includes('data-action="' + action + '"'), action);
     assert.ok(html.includes('>' + escapeHtml(strings.toolbarExportLabel) + '</summary>'));
     for (const absent of ['track-height-input', 'spectrum-height-input', 'copy-spec']) assert.ok(!html.includes('data-action="' + absent + '"'), absent);
     for (const action of ['run-recipe', 'save-recipe', 'export-png', 'export-csv', 'export-wav', 'export-report', 'zoom-to-selection', 'toggle-follow-cursor']) {

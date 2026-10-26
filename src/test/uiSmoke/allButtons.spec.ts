@@ -125,8 +125,9 @@ async function domClick(page: Page, selector: string): Promise<void> {
     });
 }
 
-async function openToolbarMenu(page: Page, index: number): Promise<void> {
-    const menu = page.locator('#toolbar details.tb-menu').nth(index);
+/** Opens one of the toolbar's menus: 'tb-export-menu' (every export) or 'tb-more-menu' (the other zoom tools). */
+async function openToolbarMenu(page: Page, id: 'tb-export-menu' | 'tb-more-menu'): Promise<void> {
+    const menu = page.locator(`#toolbar #${id}`);
     await menu.locator('summary').evaluate((element) => {
         (element as HTMLElement).click();
     });
@@ -142,12 +143,16 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     await toolbar.locator('[data-action="zoom-out"]').click({ force: true });
     await toolbar.locator('[data-action="zoom-reset"]').click({ force: true });
 
+    // Box zoom, zoom to the selection and follow sit in the ⋯ menu.
+    await openToolbarMenu(page, 'tb-more-menu');
     const rectZoomButton = toolbar.locator('[data-action="wave-mode-rect-zoom"]');
     await expect(rectZoomButton).toBeEnabled();
     await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'false');
     await rectZoomButton.click();
     await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'true');
     await expect(rectZoomButton).toHaveClass(/is-active/);
+    // A choice closes the menu.
+    await openToolbarMenu(page, 'tb-more-menu');
     await rectZoomButton.click();
     await expect(rectZoomButton).toHaveAttribute('aria-pressed', 'false');
     await expect(rectZoomButton).not.toHaveClass(/is-active/);
@@ -174,9 +179,9 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
 
     await expect(toolbar.locator('[data-action="zoom-to-selection"]')).toBeDisabled();
 
-    // One menu: Export, which also saves or runs a Recipe.
-    await expect(page.locator('#toolbar details.tb-menu')).toHaveCount(1);
-    await openToolbarMenu(page, 0);
+    // Two menus: the other zoom tools (⋯) and Export, which also saves or runs a Recipe.
+    await expect(page.locator('#toolbar details.tb-menu')).toHaveCount(2);
+    await openToolbarMenu(page, 'tb-export-menu');
     await domClick(page, '#toolbar [data-action="run-recipe"]');
     await domClick(page, '#toolbar [data-action="save-recipe"]');
     await domClick(page, '#toolbar [data-action="export-png"]');
@@ -195,6 +200,7 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
 test('waveform rect zoom drag shows a rubber band and zooms time plus amplitude', async ({ page }) => {
     await loadResultsUi(page);
     const toolbar = page.locator('#toolbar');
+    await openToolbarMenu(page, 'tb-more-menu');
     await toolbar.locator('[data-action="wave-mode-rect-zoom"]').click();
 
     const canvas = page.locator('#track-canvas-0');
@@ -226,7 +232,7 @@ test('export-wav without a loop posts a visible info message', async ({ page }) 
     await loadResultsUi(page);
     await clearPostedMessages(page);
 
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
     await page.locator('#toolbar [data-action="export-wav"]').click({ force: true });
 
     const messages = await getPostedMessages(page);
@@ -242,7 +248,7 @@ test('export-png / export-csv ボタンが #a11y-announce を更新する', asyn
     await loadResultsUi(page);
     const toolbar = page.locator('#toolbar');
 
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
 
     // export-png: クリック後に announce が更新される
     await page.evaluate(() => {
@@ -258,7 +264,7 @@ test('export-png / export-csv ボタンが #a11y-announce を更新する', asyn
         if (el) { el.textContent = ''; }
     });
     // A used item closes its menu: open it again for the next one.
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
     await toolbar.locator('[data-action="export-csv"]').click({ force: true });
     await expect(page.locator('#a11y-announce')).not.toBeEmpty();
 });
@@ -269,7 +275,9 @@ test('clicking every selection-toolbar button produces the expected GUI-side rea
     const toolbar = page.locator('#selection-toolbar');
     await toolbar.locator('[data-action="open-file"]').click({ force: true });
     await toolbar.locator('[data-action="open-folder"]').click({ force: true });
-    await toolbar.locator('[data-action="select-python-environment"]').click({ force: true });
+    // The interpreter's button shows only when it needs attention; it still answers a press.
+    await expect(toolbar.locator('[data-action="select-python-environment"]')).toBeHidden();
+    await domClick(page, '#selection-toolbar [data-action="select-python-environment"]');
 
     const messages = await getPostedMessages(page);
     expect(messages).toEqual(expect.arrayContaining([

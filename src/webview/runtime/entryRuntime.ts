@@ -107,6 +107,8 @@ export interface EntryScreenDeps {
     dock?: HTMLElement | null;
     /** The table was widened to the whole window, or shrunk back into the side panel. */
     maximizedChanged?(maximized: boolean): void;
+    /** A step failed on a file: the step bar that shows the chain marks it. */
+    stepsChanged?(): void;
     /** The files shown as tracks in the track view, each with whether it is hidden there (👁). */
     shownTracks?(): ReadonlyMap<string, boolean>;
     /** Shows a file as a track, or takes it off the track view. */
@@ -168,6 +170,9 @@ export interface EntryScreen {
     rowInfo(path: string): { label: string; value: string; memo: string };
     /** 「レシピをまとめて書き出す」 from the comparison: its choice of rows, then the bundle. */
     openBatch(): void;
+    /** The table's exports, from the toolbar's 書き出し menu. */
+    exportTable(): void;
+    exportNotes(): void;
     /** What the table is narrowed to, for the report. */
     selection(): { value: string; group: string; filters: string[]; excluded: number };
     /** The differences fixed with D. */
@@ -175,7 +180,8 @@ export interface EntryScreen {
     /** Turns the "Compared" filter on: the compared files and their base. */
     showCompared(): void;
     /** The Recipe the table scans with (its edited one, else the host's), and the one its scans run; null before either is known. */
-    recipes(): { recipe: RecipeDocument; runRecipe?: RecipeDocument } | null;
+    /** The chain the table measures with, the one its scans run, and the steps that failed on a file (with why). */
+    recipes(): { recipe: RecipeDocument; runRecipe?: RecipeDocument; failed?: Readonly<Record<string, string>> } | null;
     /** What the table currently shows, for tests. */
     snapshot(): {
         open: boolean; docked: boolean; cols: number; rows: number; visible: number; scanned: number; slots: (string | null)[]; focused: string | null;
@@ -247,8 +253,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         canHold: step => canHoldStep(step),
         onStepHold: step => holdStep(step),
     });
-    // Under the bar and its filters, as in the design: what to look at first, then how it was measured.
-    chipsBox.after(stepBar.element);
+    // The chain is edited where the analysis is decided: the track view's steps (trackStageMode.ts). The table
+    // only keeps its state, so its values are measured with the same chain.
     /** The host's entry Recipe, and the one edited in the step bar (which the scans then use). */
     let standardRecipe: RecipeDocument | null = null;
     let editedRecipe: RecipeDocument | null = null;
@@ -508,6 +514,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         unmatchedButton.setAttribute('data-hint', csv ? strings.hintUnmatched : strings.hintUnreadable);
         unmatchedButton.setAttribute('aria-pressed', String(mode === 'unmatched'));
         const excludedButton = query<HTMLButtonElement>('[data-action="entry-view-excluded"]');
+        // Shown only when something is taken out (or its list is open, to come back from it).
+        excludedButton.hidden = excluded.size === 0 && mode !== 'excluded';
         excludedButton.textContent = strings.dsExcluded.replace('{n}', String(excluded.size));
         excludedButton.setAttribute('aria-pressed', String(mode === 'excluded'));
         query('[data-entry-source]').textContent = csv && match ? strings.dsCsvSource.replace('{name}', csv.name).replace('{matched}', String(match.attributes.size)).replace('{total}', String(filePaths.length)) : strings.dsPickCsv;
@@ -804,6 +812,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         failed = { ...failed, [step]: reason };
         if (scanning) { deps.post({ type: 'entry-scan-cancel' }); scanning = false; }
         rebuild();
+        deps.stepsChanged?.();
     }
     /** A new Recipe from a step bar: every number changes, so the table scans again from the start. */
     /**
@@ -1003,7 +1012,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         distBox.dataset.unit = dist.unit;
         if (!drawn) {
             distGroups.innerHTML = ''; distAxis.innerHTML = ''; distScale = null;
-            distEmpty.hidden = false;
+            // Folded beside the tracks, nothing drawn says nothing: 「計算」 in the head is the way on.
+            distEmpty.hidden = strip;
             distEmpty.textContent = isComputed(value) && dist.missing ? strings.dsDistNotComputed.replace('{value}', valueLabel(value)) : strings.dsDistEmpty;
             return;
         }
@@ -1301,7 +1311,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (slotMenu) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(slotMenu)}"] [data-action="entry-row-slotmenu"]`);
         if (memoKey) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(memoKey)}"] .entry-nm`);
         if (baseMenu) return slotBar.querySelector<HTMLElement>('[data-action="entry-slot"][data-slot="0"]');
-        if (batchChoice) return query<HTMLElement>('[data-action="entry-batch"]');
+        // The bundle is offered from the toolbar's 書き出し menu; beside the table's bar when that is not on screen.
+        if (batchChoice) return maximized ? query<HTMLElement>('#entry-export-menu > summary') : document.querySelector<HTMLElement>('#tb-export-menu > summary') ?? query<HTMLElement>('.entry-bar');
         return null;
     }
     /** The open popover, drawn only when it opens or changes, so what is typed in it is kept while the table redraws. */
@@ -1460,7 +1471,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             deps.announce(baseGroup === null ? strings.dsBaseSetAuto : strings.dsBaseSet.replace('{group}', `${groupLabel(group)} ${baseGroup || strings.dsFilterBlank}`));
         },
         'entry-base-row': () => { baseMenu = false; renderPopovers(); if (focused) setSlot(0, focused); },
-        'entry-dist-back': () => setMaximized(true),
         'entry-batch': () => openBatch(),
         'entry-batch-go': () => exportBatch(),
         'entry-batch-cancel': () => closePopovers(),
@@ -1472,6 +1482,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     screen.addEventListener('click', event => {
         const target = event.target as HTMLElement;
         const action = target.closest<HTMLElement>('[data-action]');
+        // A choice in the table's 書き出し menu closes it.
+        if (action?.closest('#entry-export-menu')) action.closest('details')?.removeAttribute('open');
         if (action && action.tagName !== 'SELECT' && action.tagName !== 'INPUT' && actions[action.getAttribute('data-action')!]) {
             actions[action.getAttribute('data-action')!](action);
             return;
@@ -1483,7 +1495,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     // A press outside an open popover closes it (a memo is kept).
     document.addEventListener('pointerdown', event => {
         const target = event.target as Element;
-        if (screen.hidden || target.closest?.('[data-entry-pop], [data-action="entry-fhead"], [data-action="entry-fadd"], [data-action="entry-fchip"], [data-action="entry-row-slotmenu"], [data-action="entry-row-memo"], [data-action="entry-slot"][data-slot="0"], [data-action="entry-batch"], [data-action="stage-batch"]')) return;
+        if (screen.hidden || target.closest?.('[data-entry-pop], [data-action="entry-fhead"], [data-action="entry-fadd"], [data-action="entry-fchip"], [data-action="entry-row-slotmenu"], [data-action="entry-row-memo"], [data-action="entry-slot"][data-slot="0"], [data-action="entry-batch"], #tb-export-menu, #entry-export-menu')) return;
         closePopovers();
     }, true);
     screen.addEventListener('change', event => {
@@ -1717,7 +1729,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }, true);
 
     return {
-        open(paths: string[], root = '', maximize = true): void {
+        open(paths: string[], root = '', maximize = false): void {
             filePaths = paths.filter(path => !isMetadataCandidate(path));
             rootPath = root;
             knownShortest = undefined;
@@ -1750,7 +1762,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 try { csv = readDatasetCsv(new TextEncoder().encode(kept.text), kept.name); } catch { csv = null; deps.saveCsv?.(undefined); }
             }
             screen.hidden = false;
-            // A folder just opened is looked at first: the table over the whole window.
+            // A folder just opened keeps the table beside the tracks; ⤢ widens it when asked.
             setMaximized(maximize);
             applyCsv(csv);
             // What is stored for this chain comes back; nothing is computed until 「計算」. The headers say each file's channels.
@@ -1874,6 +1886,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         }),
         derivedRows: () => derived.slice(),
         openBatch: () => openBatch(),
+        exportTable: () => actions['entry-export-csv'](screen),
+        exportNotes: () => actions['entry-export-notes'](screen),
         showCompared() {
             const compared = slots.slice(1).filter((key): key is string => !!key);
             if (!compared.length) return;
@@ -1884,7 +1898,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         recipes() {
             const recipe = editedRecipe ?? standardRecipe;
-            return recipe ? { recipe, runRecipe: runRecipe() } : null;
+            return recipe ? { recipe, runRecipe: runRecipe(), failed } : null;
         },
         snapshot: () => ({
             open: !screen.hidden && maximized, docked: !screen.hidden && !maximized, cols: Number(screen.dataset.cols ?? 0), rows: rows.length, visible: shownRows.length,
