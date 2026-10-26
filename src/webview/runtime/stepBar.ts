@@ -480,7 +480,8 @@ export function createStepBar(deps: {
         let next = state.recipe;
         for (const param of step.editable) {
             const input = form.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-step-param="${param.name}"]`);
-            if (!input || input.value === '') continue;
+            // An untouched field keeps the stored value: a pair channel counted from the end stays relative on every recording.
+            if (!input || input.value === '' || (input instanceof HTMLInputElement && input.value === input.defaultValue)) continue;
             next = withParam(next, step.id, param, param.kind === 'enum' ? input.value : fromShown(param, Number(input.value)));
         }
         return next;

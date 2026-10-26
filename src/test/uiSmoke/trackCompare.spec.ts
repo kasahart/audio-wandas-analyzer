@@ -582,6 +582,19 @@ test('coherence compares two channels of each recording: it comes with its pair 
     await output.fill('2');
     await output.dispatchEvent('input');
     await bar.locator('[data-action="step-apply"]').click();
+    // A pair channel counted from the end (-1: the last) shows as its channel here and stays relative when applied untouched.
+    const outputParam = async (): Promise<unknown> => ((await stageScans(page)).filter(message => message.recipe).at(-1)!.recipe as unknown as { nodes: Array<{ operation: string; params: { entries: Array<[string, unknown]> } }> })
+        .nodes.find(node => node.operation.endsWith('select_pair'))!.params.entries.find(([name]) => name === 'output')?.[1];
+    await pair.locator('[data-action="step-settings"]').click();
+    await output.fill('-1');
+    await output.dispatchEvent('input');
+    await bar.locator('[data-action="step-apply"]').click();
+    await expect.poll(outputParam).toBe(-1);
+    await pair.locator('[data-action="step-settings"]').click();
+    await expect(output).toHaveValue('2');
+    await bar.locator('[data-action="step-apply"]').click();
+    await expect(bar.locator('[data-step-form]')).toBeHidden();
+    await expect.poll(outputParam).toBe(-1);
     // Bypassing coherence bypasses its pair too; nothing is marked as unable to run.
     const coherence = bar.locator('.step-chip', { hasText: 'coherence' });
     await coherence.locator('[data-action="step-bypass"]').click();
