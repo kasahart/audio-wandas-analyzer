@@ -96,7 +96,7 @@ export interface EntryScreenDeps {
     /** Leaves the entry screen for the comparison on these files. */
     openFiles(filePaths: string[], comparison: CompareData): void;
     /** New results or conditions while the comparison is open, so it can redraw. */
-    compareChanged?(comparison: CompareData): void;
+    compareChanged?(): void;
     announce(text: string): void;
     download(csv: string, fileName: string): void;
     /** Writes a folder of text files where the user picks (a recipe bundle). */
@@ -491,7 +491,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             : visibleRows({ rows, group, value, filters, sort, excluded }, results);
         if (!focusPicked || !focused || !rows.some(row => row.key === focused)) focused = shownRows[0]?.key ?? null;
         render();
-        if (!maximized) deps.compareChanged?.(compareData());
+        if (!maximized) deps.compareChanged?.();
     }
     /** Redraws the bar, the head and the rows; popovers that are open stay as they are (what is typed in them is kept). */
     function render(): void {
@@ -1105,7 +1105,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             for (const path of before) if (path && !after.includes(path)) deps.setShown?.(path, false);
         }
         render();
-        if (!maximized) deps.compareChanged?.(compareData());
+        if (!maximized) deps.compareChanged?.();
     }
     /** 「計算」: the value for the rows on screen that have none of this chain, slotted rows first. */
     function compute(): void {
