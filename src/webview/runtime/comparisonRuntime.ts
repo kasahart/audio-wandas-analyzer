@@ -705,6 +705,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // ── On-demand range cache ──
     let rangeRequestTimer: number | null = null;
     // Receive high-res range data from Extension Host
+    /** The files the host last reported selected: a file it newly selects is shown again even if its track was taken off. */
+    let hostSelection = new Set<string>();
     messaging.onMessage(function (msg) {
         if (!msg || msg.type !== 'waveform-range-result') {
             return;
@@ -3553,9 +3555,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
             if (isSelectionMode && msg.selectedFilePaths) {
+                // A file the host newly selects (opened again with the picker after its track was taken off) is shown
+                // again; one it still reports from before (an update that crossed the removal) stays off.
+                for (const path of msg.selectedFilePaths) if (!hostSelection.has(path)) trackStore.allowExplicitSelection(path);
+                hostSelection = new Set(msg.selectedFilePaths);
                 clearSelectedFilePaths();
                 msg.selectedFilePaths.forEach(addSelectedFilePath);
-                        syncSelectionSummary();
+                syncSelectionSummary();
             }
             __setReanalyzeBusy(false);
             invalidateDesiredSpectrumSliceRequests();

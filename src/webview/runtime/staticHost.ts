@@ -231,8 +231,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     webStyles.textContent = '#web-footer { display: flex; align-items: center; flex-shrink: 0; height: 22px; font-size: 11px; color: var(--muted);'
         + ' background: var(--panel); border-top: 1px solid var(--line); }'
         + ' #web-footer > #hint-footer { flex: 1; min-width: 0; border-top: 0; }'
-        // The lane view's status line ("3 tracks; add more") means nothing on the entry table or the comparison.
-        + ' body:has(#entry-screen:not([hidden])) #web-footer [role="status"] { visibility: hidden; }'
+        // The lane view's status line ("3 tracks; add more") means nothing while the entry table covers the window;
+        // docked beside the lanes, the lanes are on screen and their status stays.
+        + ' body:has(#entry-screen.is-max:not([hidden])) #web-footer [role="status"] { visibility: hidden; }'
         + ` ${UNAVAILABLE_ACTIONS} { opacity: 0.4; cursor: not-allowed; }`
         + ' @keyframes python-dot-pulse { 50% { opacity: 0.3; } }';
     bar.append(pick, folderPick, status, about, webStyles);

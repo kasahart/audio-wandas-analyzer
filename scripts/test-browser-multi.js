@@ -3,6 +3,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+/** Every track taken off with its lane's × (the entry table replaced the selection panel's clear-all), until none is left. */
+async function removeAllTracks(page, act = 'click') {
+    for (let left = await page.locator('.track-row').count(); left > 0; left = await page.locator('.track-row').count()) {
+        await page.locator('.track-row [data-action="remove-track"]').first()[act]();
+        await page.waitForFunction(count => document.querySelectorAll('.track-row').length < count, left);
+    }
+}
+
 module.exports = async function auditMulti({ browser, origin, root, nativeResults, compare }) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     const errors = [];
@@ -63,6 +71,8 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await page.locator('[data-action="content-waveform"]').click();
         await page.locator('[data-action="toggle-mute"]').first().click();
         assert.equal(await page.locator('audio').first().evaluate(audio=>audio.muted),true);
+        // The offset is in the lane's … menu.
+        await page.locator('.track-row .track-more > summary').first().click();
         await page.locator('[data-action="offset-up"]').first().click();
         assert.match(await page.locator('#offset-val-0').innerText(),/0\.010/);
         await page.waitForFunction(()=>{const c=document.querySelector('#track-canvas-0');return c?.width>0&&Math.abs(c.width-c.getBoundingClientRect().width)<1.1;});
@@ -93,8 +103,11 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         assert.equal(checked.status,0,checked.stderr);console.log('Multi-track global-time/offset WAV ZIP exact samples:',checked.stdout.trim());
         // Shared generators feed both save adapters; inspect real downloaded UTF-8 files.
         async function exportReport(choice, extension) {
-            page.once('dialog', dialog => dialog.accept(choice));
-            const [report] = await Promise.all([page.waitForEvent('download'), page.locator('[data-action="export-report"]').click()]);
+            // The export menu closes after each export: open it again. The format is asked in the page, not a browser prompt.
+            const menu = page.locator('details').filter({ has: page.locator('[data-action="export-report"]') });
+            if (!await menu.evaluate(node => node.open)) await menu.locator('summary').click();
+            await page.locator('[data-action="export-report"]').click();
+            const [report] = await Promise.all([page.waitForEvent('download'), page.locator('[data-web-choice] button').nth(Number(choice) - 1).click()]);
             assert.equal(report.suggestedFilename(), 'short-stereo.' + extension);
             return fs.readFileSync(await report.path(), 'utf8');
         }
@@ -106,9 +119,14 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         assert.match(code, /wd.read\("short-stereo.wav"\)/); assert.ok(!code.includes('/sources/'));
         const syntax = spawnSync(path.join(root,'.venv/bin/python'), ['-c', 'import sys; compile(sys.stdin.read(), "export.ipynb", "exec")'], {input:code,encoding:'utf8'});
         assert.equal(syntax.status, 0, syntax.stderr);
-        page.once('dialog', dialog => dialog.dismiss());
+        // Cancelled: Esc closes the format choice and nothing is downloaded.
+        const reportMenu = page.locator('details').filter({ has: page.locator('[data-action="export-report"]') });
+        if (!await reportMenu.evaluate(node => node.open)) await reportMenu.locator('summary').click();
         await page.locator('[data-action="export-report"]').click();
-        await page.locator('summary').filter({hasText:S.toolbarExportLabel}).click();
+        await page.locator('[data-web-choice]').waitFor();
+        await page.keyboard.press('Escape');
+        assert.equal(await page.locator('[data-web-choice]').count(), 0);
+        if (await reportMenu.evaluate(node => node.open)) await reportMenu.locator('summary').click();
         await page.locator('[data-action="toggle-playback"]').last().click();
         await page.waitForFunction(()=>!document.querySelectorAll('audio')[1].paused);
         await page.locator('[data-action="stop-playback"]').last().click();
@@ -151,7 +169,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await status.filter({hasText:S.browserWorkerFailed}).waitFor();assert.equal(await page.locator('.track-row').count(),0);
         assert.equal(await page.evaluate(async u=>{try{await fetch(u);return true;}catch{return false;}},firstUrl),false);
         await picker.setInputFiles(fixture('changing-stereo.wav'));await status.filter({hasText:tracks(1)}).waitFor({timeout:120000});
-        await page.locator('[data-action="selection-clear-all"]').click();assert.equal(await page.locator('.track-row').count(),0);
+        await removeAllTracks(page);assert.equal(await page.locator('.track-row').count(),0);
         assert.ok(errors.every(error=>error.includes('intentional-multi-worker-failure')),errors.join('\n'));
         await page.locator('[data-action="content-spectrogram"]').click();
         await page.reload();
@@ -164,15 +182,16 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         try {
             const japanese = await context.newPage(); await japanese.goto(origin+'/analyzer/');
             assert.equal(await japanese.locator('html').getAttribute('lang'),'ja');
-            assert.equal(await japanese.getByLabel('ファイルを開く',{exact:true}).count(),1);
+            assert.equal(await japanese.locator('input[data-action="browser-open-wav"]').count(),1);
             assert.equal(await japanese.evaluate(()=>window.__APP_STRINGS__.btnExportReport),'レポート');
-            await japanese.getByLabel('ファイルを開く',{exact:true}).setInputFiles({name:'測定.wav',mimeType:'audio/wav',buffer:bytes});
+            await japanese.locator('input[data-action="browser-open-wav"]').setInputFiles({name:'測定.wav',mimeType:'audio/wav',buffer:bytes});
             await japanese.locator('span[role="status"]').filter({hasText:'波形の準備完了'}).waitFor({timeout:120000});
             await japanese.locator('summary').filter({hasText:await japanese.evaluate(()=>window.__APP_STRINGS__.toolbarExportLabel)}).click();
-            japanese.once('dialog',dialog=>{assert.match(dialog.message(),/レポート形式を選択/);return dialog.accept('1');});
-            const [report] = await Promise.all([japanese.waitForEvent('download'),japanese.locator('[data-action="export-report"]').click()]);
+            await japanese.locator('[data-action="export-report"]').click();
+            assert.match(await japanese.locator('[data-web-choice]').getAttribute('aria-label'),/レポート形式を選択/);
+            const [report] = await Promise.all([japanese.waitForEvent('download'),japanese.locator('[data-web-choice] button').first().click()]);
             assert.equal(report.suggestedFilename(),'測定.md'); assert.match(fs.readFileSync(await report.path(),'utf8'),/測定.wav/);
-            await japanese.locator('[data-action="selection-clear-all"]').click();
+            await removeAllTracks(japanese);
         } finally { await context.close(); }
         console.log('Multi-track lifecycle, shared WAV names, real Markdown/notebook downloads and Python syntax, report cancel, persisted STFT/display mode and Japanese browser locale/Unicode report passed.');
     } finally { await page.close(); }

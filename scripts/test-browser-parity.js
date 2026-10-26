@@ -4,6 +4,14 @@ const http = require('node:http');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { chromium } = require('@playwright/test');
+
+/** Every track taken off with its lane's × (the entry table replaced the selection panel's clear-all), until none is left. */
+async function removeAllTracks(page, act = 'click') {
+    for (let left = await page.locator('.track-row').count(); left > 0; left = await page.locator('.track-row').count()) {
+        await page.locator('.track-row [data-action="remove-track"]').first()[act]();
+        await page.waitForFunction(count => document.querySelectorAll('.track-row').length < count, left);
+    }
+}
 const root = path.resolve(__dirname, '..');
 const fixtureNames = ['short-stereo.wav', 'changing-stereo.wav'];
 const fixtures = fixtureNames.map(name => ({ name, bytes: fs.readFileSync(path.join(root, 'src/test/fixtures', name)) }));
@@ -164,6 +172,16 @@ const server = http.createServer((req,res) => {
         await page.locator(OPEN_FILE).setInputFiles(path.join(root,'src/test/fixtures/short-stereo.wav'));
         await page.getByRole('status').filter({hasText:READY}).waitFor({timeout:120000});
         assert.ok(await page.locator('canvas').count()>0);
+        // Every track taken off with its lane's ×, as a user does (the entry table replaced the selection panel's
+        // clear-all): no track row stays, and the Worker lets go of their audio.
+        const clearAll = async () => {
+            for (let left = await page.locator('.track-row').count(); left > 0; left = await page.locator('.track-row').count()) {
+                await page.locator('.track-row [data-action="remove-track"]').first().click();
+                await page.waitForFunction(count => document.querySelectorAll('.track-row').length < count, left);
+            }
+        };
+        // The first track's canvas: track numbers go on counting after tracks are taken off, so it is not always 0.
+        const firstCanvas = async (target = page) => `#${await target.evaluate(() => [...document.querySelectorAll('.track-row canvas')].map(canvas => canvas.id).find(id => /^track-canvas-\d+$/.test(id)))}`;
         const recordHostMessages = () => page.evaluate(() => {
             window.__testInbound = [];
             window.__testOutbound = [];
@@ -252,18 +270,17 @@ const server = http.createServer((req,res) => {
         });
         assert.equal(await page.locator('.track-row').count(), trackCount);
         assert.equal(await page.locator('audio').evaluateAll(nodes=>nodes.every(audio=>audio.paused)),true);
-        await page.locator('[data-action="selection-clear-all"]').click();
-        await page.getByRole('status').filter({hasText:S.browserCleared}).waitFor();
+        await clearAll();
         assert.deepEqual(errors,[]);
         const picker = page.locator(OPEN_FILE);
         const status = page.getByRole('status');
         const fixturePath = name => path.join(root,'src/test/fixtures',name);
         async function loadFile(name) {
-            if (await page.locator('.track-row').count()) await page.locator('[data-action="selection-clear-all"]').click();
+            if (await page.locator('.track-row').count()) await clearAll();
             await picker.setInputFiles(fixturePath(name));
             await status.filter({hasText:`${name}: ${READY}`}).waitFor({timeout:120000});
             await page.waitForFunction(() => {
-                const canvas=document.querySelector('#track-canvas-0');
+                const canvas=[...document.querySelectorAll('.track-row canvas')].find(item=>/^track-canvas-\d+$/.test(item.id));
                 return canvas?.width>0 && Math.abs(canvas.width-canvas.getBoundingClientRect().width)<1.1;
             });
             assert.ok(await page.locator('audio').count() > 0);
@@ -285,15 +302,14 @@ const server = http.createServer((req,res) => {
         // Chromium decodes neither AIFF nor a CSV blob, so only the FLAC track gets transport audio.
         assert.equal(await page.locator('audio').count(),1);
         for (const name of ['take.aiff','accel.csv']) assert.ok(await page.locator('.track-row',{hasText:name}).locator('.track-btns [disabled]').count()>0, name);
-        await page.locator('[data-action="selection-clear-all"]').click();
-        await status.filter({hasText:S.browserCleared}).waitFor();
+        await clearAll();
         await loadFile('short-stereo.wav');
         const firstUrl = await page.locator('audio').first().getAttribute('src');
         await loadFile('changing-stereo.wav');
         const secondUrl = await page.locator('audio').first().getAttribute('src');
         assert.notEqual(firstUrl,secondUrl);
         assert.equal(await page.evaluate(async url => {try {await fetch(url);return true;} catch {return false;}},firstUrl),false);
-        const changingBox = await page.locator('#track-canvas-0').boundingBox();
+        const changingBox = await page.locator(await firstCanvas()).boundingBox();
         assert.ok(changingBox);
         await page.mouse.click(changingBox.x + changingBox.width * .2, changingBox.y + changingBox.height * .5);
         await page.waitForFunction(() => window.__testInbound.some(message => message.type==='spectrum-slice-result' && Math.abs(message.cursorNorm-.2)<.01));
@@ -315,7 +331,7 @@ const server = http.createServer((req,res) => {
         await status.filter({hasText:'up to 30 seconds'}).waitFor();
         assert.doesNotMatch(await page.locator('span[role="status"]').innerText(),/Traceback|PythonError|\n/);
         assert.equal(await page.locator('.track-row').count(),1);
-        await page.locator('[data-action="selection-clear-all"]').click();
+        await clearAll();
         // Clearing keeps a booted Worker, so a boot failure needs a fresh page; the failed boot is retried by the next WAV.
         await page.route('**/runtime/pyodide.mjs',route=>route.abort());
         await page.reload();
@@ -362,7 +378,7 @@ const server = http.createServer((req,res) => {
         await page.unroute('**/audio.worker.js');
         await loadFile('changing-stereo.wav');
         await recordHostMessages();
-        await page.locator('[data-action="selection-clear-all"]').click();
+        await clearAll();
         await picker.setInputFiles(tonePath);
         await status.filter({hasText:READY}).waitFor({timeout:120000});
         await page.locator('[data-action="content-spectrogram"]').click();
@@ -375,7 +391,7 @@ const server = http.createServer((req,res) => {
         await page.locator('#spec-apply').click();
         await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'track-detail-result'
             && m.channels.every(c => c.spectrogram?.windowSize === 2048)),undefined,{timeout:120000});
-        const toneCanvas = await page.locator('#track-canvas-0').boundingBox();
+        const toneCanvas = await page.locator(await firstCanvas()).boundingBox();
         await page.evaluate(() => {window.__testInbound = [];});
         await page.mouse.click(toneCanvas.x + (toneCanvas.width - 50) * .5, toneCanvas.y + toneCanvas.height * .5);
         await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'spectrum-slice-result' && Math.abs(m.cursorNorm - .5) < .01));
@@ -384,12 +400,13 @@ const server = http.createServer((req,res) => {
         const [toneCsvDownload] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-csv"]').click()]);
         const toneCsvRows = fs.readFileSync(await toneCsvDownload.path(),'utf8').trim().split('\n').slice(1).map(row=>row.split(',').map(Number));
         assert.equal(toneCsvRows.length,192);
-        await toneCsvMenu.locator('summary').click();
+        // The menu closes after an export; close it only if it is still open, or a click would open it over the spectra.
+        if (await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
         for (const [channel, hz] of [[0,440],[1,880]]) {
             const peakRow = toneCsvRows.reduce((best,row)=>row[channel*2+1]>best[channel*2+1]?row:best);
             const peakHz = peakRow[channel*2], peakDb = peakRow[channel*2+1];
             assert.ok(Math.abs(peakHz-hz)<=8000/191/2+16000/2048, `CSV ${hz} Hz tone exported as ${peakHz}`);
-            const canvasId = '#track-spectrum-0' + (channel ? '-1' : '');
+            const canvasId = (await firstCanvas()).replace('track-canvas-', 'track-spectrum-') + (channel ? '-1' : '');
             await page.locator(canvasId).scrollIntoViewIfNeeded();
             const spectrumBox = await page.locator(canvasId).boundingBox();
             assert.ok(spectrumBox);
@@ -399,7 +416,7 @@ const server = http.createServer((req,res) => {
                 const match=text.match(/(\d+(?:\.\d+)?) Hz \/ (-?\d+(?:\.\d+)?)/);
                 return match && Math.abs(Number(match[1])-expected.hz)<.11 && Math.abs(Number(match[2])-expected.db)<.11;
             },{hz:peakHz,db:peakDb});
-            const stftId = '#track-canvas-0' + (channel ? '-1' : '');
+            const stftId = (await firstCanvas()) + (channel ? '-1' : '');
             const band = await page.locator(stftId).evaluate(canvas=>{
                 const x=Math.floor((canvas.width-50)*.5), h=canvas.height;
                 const data=canvas.getContext('2d').getImageData(x,0,1,h).data;
@@ -413,7 +430,7 @@ const server = http.createServer((req,res) => {
         }
         await page.screenshot({path:path.join(root,'test-results/frequency-tones.png')});
         assert.equal(await page.locator('audio').evaluateAll(xs=>xs.every(x=>x.paused)),true);
-        await page.locator('[data-action="selection-clear-all"]').click();
+        await clearAll();
         const mobile=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
         await mobile.goto(origin+'/analyzer/');
         await mobile.locator(OPEN_FILE).setInputFiles(fixturePath('short-stereo.wav'));
@@ -437,7 +454,7 @@ const server = http.createServer((req,res) => {
             && message.channels.every(channel=>channel.spectrogram?.timeBins>0)),undefined,{timeout:120000});
         assert.equal(await mobile.locator('[data-action="content-spectrogram"]').evaluate(node=>node.classList.contains('is-active')),true);
         await mobile.screenshot({path:path.join(root,'test-results/static-mobile.png')});
-        await mobile.locator('[data-action="selection-clear-all"]').tap();
+        await removeAllTracks(mobile, 'tap');
         await mobile.close();
         await require('./test-browser-multi')({browser,origin,root,nativeResults,compare});
         await require('./test-browser-auto-96k')({browser,origin,root,compare});

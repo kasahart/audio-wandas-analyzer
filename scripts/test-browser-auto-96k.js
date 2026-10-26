@@ -3,6 +3,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+/** Every track taken off with its lane's × (the entry table replaced the selection panel's clear-all), until none is left. */
+async function removeAllTracks(page, act = 'click') {
+    for (let left = await page.locator('.track-row').count(); left > 0; left = await page.locator('.track-row').count()) {
+        await page.locator('.track-row [data-action="remove-track"]').first()[act]();
+        await page.waitForFunction(count => document.querySelectorAll('.track-row').length < count, left);
+    }
+}
+
 module.exports = async function auditAuto96k({browser,origin,root,compare}) {
     const rate=96000, frames=16*rate, bytes=Buffer.alloc(44+frames*2);
     bytes.write('RIFF');bytes.writeUInt32LE(bytes.length-8,4);bytes.write('WAVEfmt ',8);
@@ -35,7 +43,7 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
         assert.equal(result.channels[0].spectrogram.hopSize,2134);
         compare(JSON.parse(native.stdout).plain.channels,result.channels,'auto96k.native/Pyodide');
         assert.equal(await page.locator('audio').evaluateAll(xs=>xs.every(x=>x.paused)),true);
-        await page.locator('[data-action="selection-clear-all"]').click();
+        await removeAllTracks(page);
         const expected=JSON.parse(native.stdout);
         await page.route('**/auto-96k-fixture.wav',route=>route.fulfill({body:bytes,contentType:'audio/wav'}));
         const calibrated=await page.evaluate(async profile=>{
