@@ -78,12 +78,17 @@ export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coheren
 /** Steps that leave one channel: one picked, or all summed or averaged into one. */
 const ONE_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.sum', 'wandas.audio.mean']);
 
+/** wandas' Frames of channel pairs (PairwiseSpectralFrame and its kinds). */
+const PAIRWISE_FRAMES: ReadonlySet<string> = new Set(['PairwiseSpectralFrame', 'CrossSpectralFrame', 'CoherenceFrame', 'TransferFunctionFrame']);
+
 /**
  * The channels a step leaves of `channels`: one after sum or mean, one fewer after remove_channel, and after
  * get_channel as many as it selects (one index: one; a list: its length; a query or a mask: not known here).
  */
-function channelsAfter(node: RecipeNode, channels: number | undefined): number | undefined {
+function channelsAfter(node: RecipeNode, channels: number | undefined, frame: string): number | undefined {
     if (channels === undefined) return undefined;
+    // A pairwise Frame's rows are pairs: selecting some keeps the recording's channels.
+    if (PAIRWISE_FRAMES.has(frame)) return channels;
     if (ONE_CHANNEL.has(node.operation)) return 1;
     if (node.operation === 'wandas.frame.get_channel') {
         const index = node.params?.entries?.find(([name]) => name === 'channel_idx')?.[1] as { $type?: string; items?: unknown[] } | number | undefined;
@@ -284,7 +289,7 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
         if ((!invalid || invalid.reason.kind === 'after') && !step.bypassed) {
             frame = step.output;
             const before = channels;
-            channels = channelsAfter(node, channels);
+            channels = channelsAfter(node, channels, step.input);
             if (before !== undefined && before > 1 && channels === 1) narrowedBy = step.id;
         }
         if (channels !== undefined) step.channels = channels;

@@ -1163,7 +1163,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return tracks;
         },
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
-        channels: () => state.results.filter(result => !result.error).reduce<number | undefined>((fewest, result) => Math.min(fewest ?? Infinity, result.channelCount), undefined),
+        // The fewest channels of the tracks compared (a hidden track is not).
+        channels: () => trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => !record.runtime.hidden && !record.result.error)
+            .reduce<number | undefined>((fewest, record) => Math.min(fewest ?? Infinity, record.result.channelCount), undefined),
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),
         inFront: () => !entryScreen.isOpen(),

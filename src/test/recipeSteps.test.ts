@@ -211,6 +211,12 @@ test('a step that compares two channels needs two: one channel (or one picked by
     const listed = JSON.parse(JSON.stringify(picked)) as { nodes: Array<{ operation: string; params: { entries: Array<[string, unknown]> } }> };
     listed.nodes.find(node => node.operation === 'wandas.frame.get_channel')!.params.entries = [['channel_idx', { $type: 'list', items: [0, 1] }]];
     assert.equal(recipeSteps(listed as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === coherence)!.reason, undefined);
+    // On a pairwise Frame, get_channel selects pair rows: the recording keeps its channels, and a pair can follow.
+    const rows = JSON.parse(JSON.stringify(paired)) as { nodes: Array<{ id: string; operation: string; version: number; inputs: string[]; params: unknown }>; output: string };
+    const pairNode = rows.nodes.find(node => node.id === pair)!;
+    rows.nodes.splice(rows.nodes.indexOf(pairNode), 0, { id: 'rows', operation: 'wandas.frame.get_channel', version: 1, inputs: [coherence], params: { $type: 'map', entries: [['channel_idx', 1]] } });
+    pairNode.inputs = ['rows'];
+    assert.equal(recipeSteps(rows as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, undefined);
     // sum and mean leave one channel too.
     for (const one of ['wandas.audio.sum', 'wandas.audio.mean']) {
         const { recipe: summed } = withStep(paired, slice.id, catalogOperation(one)!);
