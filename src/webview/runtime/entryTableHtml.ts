@@ -47,9 +47,15 @@ export interface DatasetScreenView {
 export interface DerivedItem { key: string; label: string; value: string; stale: boolean; title: string; parentPath: string; region: string; baseLabel: string }
 
 /** The table's lines: each row, then the differences fixed on it. */
+/** Each view's lines, made once: scrolling 100,000 rows asks for them on every frame. */
+const linesOf = new WeakMap<object, Array<DatasetRow | DerivedItem>>();
 export function tableLines(view: Pick<DatasetScreenView, 'rows' | 'derived' | 'mode'>): Array<DatasetRow | DerivedItem> {
-    if (!view.derived || view.mode !== 'all') return [...view.rows];
-    return view.rows.flatMap(row => [row, ...view.derived!(row)]);
+    let lines = linesOf.get(view);
+    if (!lines) {
+        lines = !view.derived || view.mode !== 'all' ? [...view.rows] : view.rows.flatMap(row => [row, ...view.derived!(row)]);
+        linesOf.set(view, lines);
+    }
+    return lines;
 }
 const isDerived = (line: DatasetRow | DerivedItem): line is DerivedItem => 'baseLabel' in line;
 

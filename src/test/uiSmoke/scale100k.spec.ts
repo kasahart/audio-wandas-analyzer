@@ -36,8 +36,10 @@ test('100,000 recordings: first rows, the header probe, a filter, a sort, a new 
     page.on('console', message => { if (message.type() === 'error') console.log(`console ${message.text()}`); });
     const paths = Array.from({ length: N }, (_, index) => pathOf(index));
     const numbers: Record<string, number> = {};
+    // The page as the host hands it over; building it here is the test's own work, so the clock starts after.
+    const html = buildUiSmokeEntryHtml(paths, 'ja');
     let started = Date.now();
-    await page.setContent(buildUiSmokeEntryHtml(paths, 'ja'), { waitUntil: 'domcontentloaded' });
+    await page.setContent(html, { waitUntil: 'domcontentloaded' });
     // The stored results are asked for and none are there: the rows are the files.
     const scan = await page.waitForFunction(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; requestId: string }> }).__uiSmokePostedMessages.find(message => message.type === 'entry-scan'));
     const { requestId } = await scan.jsonValue() as { requestId: string };

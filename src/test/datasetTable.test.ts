@@ -119,6 +119,14 @@ test('rows are a recording and its channel; CSV attributes follow every channel,
     assert.deepEqual(columnValues(rows, 'csv:line', results), [['', 1], ['L1', 1], ['L2', 2]]);
 });
 
+test('rows sort by name in natural order, also after the folder changes and through a filter', () => {
+    const byName = (paths: string[], extra: object = {}): string[] => visibleRows({ rows: datasetRows(paths, '/d', new Map(), new Map()), group: 'none', value: 'leq', filters: [], sort: { column: 'name', descending: false }, excluded: new Set(), ...extra }, new Map()).map((row: DatasetRow) => row.name);
+    assert.deepEqual(byName(['/d/run10.wav', '/d/Run2.wav', '/d/run9.wav', '/d/run1.wav']), ['run1.wav', 'Run2.wav', 'run9.wav', 'run10.wav']);
+    // Another folder: its own names, in their own order.
+    assert.deepEqual(byName(['/d/b100.wav', '/d/a.wav', '/d/b20.wav']), ['a.wav', 'b20.wav', 'b100.wav']);
+    assert.deepEqual(byName(['/d/b100.wav', '/d/a.wav', '/d/b20.wav'], { excluded: new Set(['/d/a.wav']), sort: { column: 'name', descending: true } }), ['b100.wav', 'b20.wav']);
+});
+
 test('before anything is computed, the headers split a recording into its channels', () => {
     const rows = datasetRows(['/d/a.wav', '/d/b.wav'], '/d', new Map(), new Map(), new Map([['/d/a.wav', 2]]));
     assert.deepEqual(rows.map(row => [row.key, row.ch, row.channels]), [['/d/a.wav#ch1', 1, 2], ['/d/a.wav#ch2', 2, 2], ['/d/b.wav', 1, undefined]]);

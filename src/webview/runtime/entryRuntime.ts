@@ -530,7 +530,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         scheduleSessionSave();
     }
     /** Only the rows on screen are drawn: the rest are spacers, so 100,000 rows scroll as 40 do. */
-    function renderRows(view = datasetView()): void {
+    /** The view the rows on screen were drawn from: scrolling and resizing draw more of it instead of building it again. */
+    let rowsView: DatasetScreenView | null = null;
+    function renderRows(view = rowsView ?? datasetView()): void {
+        rowsView = view;
         if (mode === 'unmatched') { body.innerHTML = unmatchedRowsHtml(unmatchedItems(), unreadable(), text); return; }
         const first = Math.max(0, Math.floor(tableWrap.scrollTop / ROW_HEIGHT) - 10);
         const last = Math.min(tableLines(view).length, first + Math.ceil((tableWrap.clientHeight || 600) / ROW_HEIGHT) + 20);

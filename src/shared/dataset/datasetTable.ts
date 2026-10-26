@@ -171,18 +171,31 @@ export function filteredRows(view: Pick<DatasetView, 'rows' | 'filters' | 'exclu
     return view.rows.filter(row => !view.excluded.has(row.key) && view.filters.every(filter => passes(row, filter, results)));
 }
 
+/** Each name's place in natural order, kept between sorts while the names stay: a sort then compares numbers, not text. */
+let nameOrder = new Map<string, number>();
+function nameRanks(rows: readonly DatasetRow[]): ReadonlyMap<string, number> {
+    if (rows.every(row => nameOrder.has(row.name))) return nameOrder;
+    // Code-unit order first, which is cheap and mostly natural already: the collator's sort then confirms long runs.
+    const names = [...new Set(rows.map(row => row.name))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).sort(natural);
+    nameOrder = new Map();
+    // Names the collator holds equal share a place, so ties still fall to the channel.
+    names.forEach((name, index) => nameOrder.set(name, index > 0 && natural(names[index - 1], name) === 0 ? nameOrder.get(names[index - 1])! : index));
+    return nameOrder;
+}
+
 /** The rows on screen: not excluded, through every filter, in the chosen order (ties by name, then channel). */
 export function visibleRows(view: DatasetView, results: Results): DatasetRow[] {
     const rows = filteredRows(view, results);
     const by = view.sort.column;
-    const keyOf = (row: DatasetRow): string | number | null => (by === 'name' ? row.name : by === 'ch' ? row.ch : by === 'group' ? groupOf(row, view.group) : valueOf(row, view.value, results));
+    const rank = nameRanks(rows);
+    const keyOf = (row: DatasetRow): string | number | null => (by === 'name' ? rank.get(row.name)! : by === 'ch' ? row.ch : by === 'group' ? groupOf(row, view.group) : valueOf(row, view.value, results));
     const sign = view.sort.descending ? -1 : 1;
-    const keyed = rows.map(row => ({ row, key: keyOf(row) }));
+    const keyed = rows.map(row => ({ row, key: keyOf(row), place: rank.get(row.name)! }));
     keyed.sort((a, b) => {
         // A missing value sorts last whichever way.
         if (a.key === null || b.key === null) return a.key === b.key ? 0 : a.key === null ? 1 : -1;
         const order = typeof a.key === 'number' && typeof b.key === 'number' ? a.key - b.key : natural(String(a.key), String(b.key));
-        return sign * order || natural(a.row.name, b.row.name) || a.row.ch - b.row.ch;
+        return sign * order || a.place - b.place || a.row.ch - b.row.ch;
     });
     return keyed.map(item => item.row);
 }
