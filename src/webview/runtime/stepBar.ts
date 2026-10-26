@@ -122,9 +122,13 @@ export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: 
 const formatNumber = (value: unknown): string => (typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : String(value ?? ''));
 
 /** A wandas channel index (from 0) as the bar shows it, from 1. */
-const channelText = (value: unknown): string => (typeof value === 'number' ? String(value < 0 ? value : value + 1) : '?');
-/** A channel parameter's value as typed (from 1), back to wandas' index (from 0). */
-const fromShown = (param: StepParam, value: number): number => (param.kind === 'int' && param.channel ? value - 1 : value);
+/** A channel index as shown, from 1; a negative one (from the last) as its channel when the channels are known. */
+const channelText = (value: unknown, channels?: number): string => (typeof value !== 'number' ? '?' : value >= 0 ? String(value + 1) : channels ? String(value + channels + 1) : String(value));
+/**
+ * A channel parameter's value as typed (from 1), back to wandas' index (from 0). A negative one (from the last, as an
+ * imported Recipe may have it) stays as it is; there is no channel 0.
+ */
+const fromShown = (param: StepParam, value: number): number => (!(param.kind === 'int' && param.channel) || value < 0 ? value : value > 0 ? value - 1 : NaN);
 
 const hzText = (value: unknown): string => (typeof value === 'number' ? (value >= 1000 ? `${Math.round(value / 100) / 10} kHz` : `${Math.round(value)} Hz`) : '');
 const bandRange = (p: Record<string, unknown>): string => (p['fmin'] !== undefined ? `${hzText(p['fmin'])}–${hzText(p['fmax'])}` : '');
@@ -141,7 +145,7 @@ function stepLabel(step: RecipeStep, strings: StepBarStrings, state: StepBarStat
         case 'resampling': return `→ ${hzText(p['target_sr'])}`;
         // Source ids ("c1") are named as wandas has them; indices as channels from 1.
         case 'select_pair': return typeof p['output'] === 'string' || typeof p['input'] === 'string' ? `${String(p['output'])} / ${String(p['input'])}`
-            : strings.stepPair.replace('{output}', channelText(p['output'])).replace('{input}', channelText(p['input']));
+            : strings.stepPair.replace('{output}', channelText(p['output'], state.channels)).replace('{input}', channelText(p['input'], state.channels));
         case 'noct_spectrum': {
             const octave = p['n'] !== undefined && p['n'] !== 3 ? `1/${formatNumber(p['n'])} oct` : strings.stepOctave;
             return expanded && bandRange(p) ? `${octave} ${bandRange(p)}` : octave;
@@ -364,7 +368,7 @@ export function createStepBar(deps: {
             const value = step.params[param.name];
             const input = param.kind === 'enum'
                 ? `<select data-step-param="${param.name}">${param.options.map(option => `<option${option === value ? ' selected' : ''}>${option}</option>`).join('')}</select>`
-                : `<input type="number" data-step-param="${param.name}" value="${escapeHtml(param.kind === 'int' && param.channel ? channelText(value) : formatNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}"${param.kind === 'int' && param.channel ? ` min="1"${state.channels ? ` max="${state.channels}"` : ''}` : ''}>`;
+                : `<input type="number" data-step-param="${param.name}" value="${escapeHtml(param.kind === 'int' && param.channel ? channelText(value, state.channels) : formatNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}"${param.kind === 'int' && param.channel ? ` min="1"${state.channels ? ` max="${state.channels}"` : ''}` : ''}>`;
             const bad = step.invalid === param.name;
             const name = param.kind === 'int' && param.channel ? (param.channel === 'output' ? strings.stepPairOutput : strings.stepPairInput) : param.name;
             return `<label class="step-field${bad ? ' is-invalid' : ''}"${bad ? ` ${hintAttr(invalidReason(step, strings))}` : ''}>${escapeHtml(name)} ${input}${param.kind === 'float' && param.unit ? ` ${param.unit}` : ''}</label>`;
