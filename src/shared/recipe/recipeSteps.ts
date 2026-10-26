@@ -76,13 +76,21 @@ export const SELECT_PAIR = 'wandas.frame.select_pair';
 export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.transfer_function']);
 
 /** Steps that leave one channel: one picked, or all summed or averaged into one. */
-const ONE_CHANNEL: ReadonlySet<string> = new Set(['wandas.frame.get_channel', 'wandas.audio.sum', 'wandas.audio.mean']);
+const ONE_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.sum', 'wandas.audio.mean']);
 
-/** The channels a step leaves of `channels`: one after get_channel, sum or mean, one fewer after remove_channel. */
-function channelsAfter(operation: string, channels: number | undefined): number | undefined {
+/**
+ * The channels a step leaves of `channels`: one after sum or mean, one fewer after remove_channel, and after
+ * get_channel as many as it selects (one index: one; a list: its length; a query or a mask: not known here).
+ */
+function channelsAfter(node: RecipeNode, channels: number | undefined): number | undefined {
     if (channels === undefined) return undefined;
-    if (ONE_CHANNEL.has(operation)) return 1;
-    if (operation === 'wandas.channel.remove_channel') return Math.max(1, channels - 1);
+    if (ONE_CHANNEL.has(node.operation)) return 1;
+    if (node.operation === 'wandas.frame.get_channel') {
+        const index = node.params?.entries?.find(([name]) => name === 'channel_idx')?.[1] as { $type?: string; items?: unknown[] } | number | undefined;
+        if (typeof index === 'number') return 1;
+        return index?.$type === 'list' && Array.isArray(index.items) && index.items.every(item => typeof item === 'number') ? index.items.length : undefined;
+    }
+    if (node.operation === 'wandas.channel.remove_channel') return Math.max(1, channels - 1);
     return channels;
 }
 
@@ -274,7 +282,7 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
         if ((!invalid || invalid.reason.kind === 'after') && !step.bypassed) {
             frame = step.output;
             const before = channels;
-            channels = channelsAfter(node.operation, channels);
+            channels = channelsAfter(node, channels);
             if (before !== undefined && before > 1 && channels === 1) narrowedBy = step.id;
         }
         if (channels !== undefined) step.channels = channels;
