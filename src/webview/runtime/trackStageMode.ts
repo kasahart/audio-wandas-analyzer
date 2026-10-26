@@ -17,6 +17,7 @@ import type { ScanResult, StageView } from '../../shared/protocol/backendProtoco
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import { brokenStep, chainEnd, recipeKey, recipeSteps, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
+import { hintAttr } from './hintFooter';
 import { createStepBar, endsInSpectrum, invalidReason, recipeWithout, stepChipLabel, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
 import { createDetailPlanner } from './stageDetail';
@@ -184,7 +185,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         + `<button type="button" class="tb-btn" data-action="stage-layout" aria-pressed="true">${escapeHtml(strings.stageLayoutSide)}</button>`
         + `<button type="button" class="tb-btn" data-action="stage-diff" aria-pressed="false">${escapeHtml(strings.compareDiffShow)}</button>`
         + `<button type="button" class="tb-btn" data-action="stage-report">${escapeHtml(strings.compareReport)}</button>`
-        + `<button type="button" class="tb-btn" data-action="stage-batch" title="${escapeHtml(strings.hintBatch)}">${escapeHtml(strings.dsBatch)}</button>`
+        + `<button type="button" class="tb-btn" data-action="stage-batch"${hintAttr(strings.hintBatch)}>${escapeHtml(strings.dsBatch)}</button>`
         + `<span class="compare-value track-stage-headline" data-stage-headline></span>`
         + `<span class="track-stage-gate" data-stage-base-gate hidden><span data-stage-base-gate-why></span> <button type="button" class="tb-btn" data-action="stage-base-scan"></button></span></div>`
         + `<div class="track-stage-panel" data-stage-panel>`
