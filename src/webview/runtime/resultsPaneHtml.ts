@@ -17,7 +17,7 @@ export interface ResultsPaneParts {
 export type SpectrumBandsSetting = 0 | 1 | 3;
 
 export type ResultsPaneStrings = Pick<UiStrings,
-    | 'ariaToolbar' | 'spectrumSectionTitle' | 'spectrumZoomLabel'
+    | 'ariaToolbar' | 'spectrumSectionTitle' | 'heightSpectrumLabel'
     | 'ariaSpecZoomOut' | 'ariaSpecZoomIn' | 'ariaSpecZoomReset' | 'btnSpecZoomReset' | 'heightSpectrumLabel'
     | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'btnSpectrumSettingsTitle' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'
     | 'hintSpectrumFft' | 'hintSpectrumOctave1' | 'hintSpectrumOctave3'
@@ -41,7 +41,7 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '  <div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag"' + hintAttr(strings.hintSpectrumHeightResizer) + ' role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.heightSpectrumLabel + ' resize') + '"></div>'
         + '  <div id="spectrum-section-header"><span>' + escapeHtml(strings.spectrumSectionTitle) + '</span>' + spectrumMaximizeHtml(false, strings) + panelToggleHtml('spectrum', Boolean(parts.spectrumCollapsed), strings) + '</div>'
         + '  <div id="spectrum-zoom-toolbar" style="display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;">'
-        + '    <span class="tb-label">' + escapeHtml(strings.spectrumZoomLabel) + '</span>'
+        + '    <span class="tb-label">' + escapeHtml(strings.heightSpectrumLabel) + '</span>'
         + '    <button class="tb-btn" data-action="spec-zoom-out"' + hintAttr(strings.hintSpecZoomOut) + ' aria-label="' + escapeHtml(strings.ariaSpecZoomOut) + '">－</button>'
         + '    <button class="tb-btn" data-action="spec-zoom-in"' + hintAttr(strings.hintSpecZoomIn) + ' aria-label="' + escapeHtml(strings.ariaSpecZoomIn) + '">＋</button>'
         + '    <button class="tb-btn" data-action="spec-zoom-reset"' + hintAttr(strings.hintSpecZoomReset) + ' aria-label="' + escapeHtml(strings.ariaSpecZoomReset) + '">' + escapeHtml(strings.btnSpecZoomReset) + '</button>'

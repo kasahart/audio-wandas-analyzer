@@ -16,7 +16,7 @@ export function chartSpecGlobals(charts: ChartSpec[], strings: UiStrings): Chart
         __CHART_NO_RESULTS_LABEL__: strings.chartSpecNoResults,
         __CHART_SCALAR_HEADERS__: [
             strings.chartSpecScalarLabelHeader,
-            strings.chartSpecScalarValueHeader,
+            strings.dsValue,
             strings.chartSpecScalarUnitHeader,
         ],
         __CHART_RANGE_STRINGS__: rangePopoverStrings(strings),

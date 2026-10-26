@@ -15,19 +15,22 @@ import type { CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
-import { brokenStep, chainEnd, recipeKey, recipeSteps, withoutSteps, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { brokenStep, chainEnd, recipeKey, recipeSteps, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { createStepBar, endsInSpectrum, invalidReason, runnableRecipe, stepChipLabel, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
+import { createStepBar, endsInSpectrum, invalidReason, recipeWithout, stepChipLabel, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
 import { createDetailPlanner } from './stageDetail';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, DIFF_COLOR, medianView, paintOverlay, paintStage, rowFractionOf, rowValueAt, STAGE_MARGINS, stageAxes, stageDiffRange, stageDifference, stageHeadline, stageLevelsHeadline, stagePlotPoint, stageRange, stageReadout, type StageAxes, type StageLayer, ROLE_COLORS } from './stagePanes';
+import { axisFractionOf, axisValueAt, medianView, paintOverlay, paintStage, rowFractionOf, rowValueAt, STAGE_MARGINS, stageAxes, stageDiffRange, stageDifference, stageHeadline, stageLevelsHeadline, stagePlotPoint, stageRange, stageReadout, type StageAxes, type StageLayer } from './stagePanes';
+import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
-import { installRangePopover } from '../rangePopover';
+import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { positionPopover } from './settingsPopover';
 import { legendHtml, type LegendItem, type PaneRange } from './comparePanes';
-import { fileName, regionLabel } from './entryTable';
+import { regionLabel } from './entryTable';
+import { baseName } from '../../shared/analysis/entryMetadata';
+import { withChannel } from '../../shared/recipe/channelSelection';
 
 /** The roles' colours: the base blue, slots 1–3 yellow, purple, magenta (as their cards and badges). */
 
@@ -54,6 +57,10 @@ export interface TrackStageDeps {
     slots(): (string | null)[];
     basePaths(comparePath: string, group?: boolean): string[];
     baseTitle(comparePath: string, group?: boolean): string;
+    /** The channel a file is drawn with when `comparePath` is compared: a slot's channel row, the base's members of that channel. */
+    stageChannel?(path: string, comparePath: string | null, group?: boolean): number | null;
+    /** A file's name as the table has it (with its channel), its value on show and its memo, for the legend. */
+    rowInfo?(path: string): { label: string; value: string; memo: string };
     /** Lists the compared files and their base on the entry table (its "Compared" filter). */
     showCompared(): void;
     /** Whether the track view is the screen in front (the entry table not over it). */
@@ -273,13 +280,19 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         if (at >= 0 && all[at].bypassed) return all.slice(0, at).reverse().find(step => step.invalid === undefined && !step.bypassed)?.id ?? INPUT_STAGE;
         return stage && steps.some(step => step.id === stage) ? stage : steps.at(-1)?.id ?? null;
     }
-    function spec(id: string): StageSpec {
+    /** The Recipe a picture is scanned with: the run Recipe, with a get_channel step for one channel. */
+    function channelRecipe(recipe: RecipeDocument | undefined, ch: number | null): RecipeDocument | undefined {
+        if (!ch) return recipe;
+        const own = recipe ?? deps.recipe()?.recipe;
+        return own ? withChannel(own, ch) : undefined;
+    }
+    function spec(id: string, ch: number | null = null): StageSpec {
         const region = liveRegion();
-        const run = deps.recipe()?.runRecipe;
+        const run = channelRecipe(deps.recipe()?.runRecipe, ch);
         return { key: `stage|${recipeKey(run)}|${regionLabel(region)}|${id}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), stage: id } };
     }
     /** What holding `step` draws: the chain without it (and the steps that then cannot run), on the step on screen. */
-    function holdSpec(step: RecipeStep): StageSpec | undefined {
+    function holdSpec(step: RecipeStep, ch: number | null = null): StageSpec | undefined {
         const recipe = deps.recipe();
         const id = chosen();
         if (!recipe || !id || step.id === OCTAVE_BRANCH || step.operation === TIME_SLICE) return undefined;
@@ -288,11 +301,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const at = steps.findIndex(item => item.id === id);
         const shownOf = step.id === id ? steps[at - 1]?.id : id;
         if (!shownOf) return undefined;
-        const without = runnableRecipe(withoutSteps(recipe.runRecipe ?? recipe.recipe, [step.id]), limits);
+        const unselected = recipeWithout(recipe.runRecipe ?? recipe.recipe, step.id, shownOf, limits);
+        if (!unselected) return undefined;
+        const without = channelRecipe(unselected, ch)!;
         const region = liveRegion();
-        // The 1/3-octave branch is not a node: it is there while the chain without the step still ends in a spectrum.
-        const present = shownOf === OCTAVE_BRANCH ? endsInSpectrum(without, limits) : (without as unknown as { nodes: Array<{ id: string }> }).nodes.some(node => node.id === shownOf);
-        if (!present) return undefined;
         return { key: `hold|${recipeKey(without)}|${regionLabel(region)}|${shownOf}`, message: { recipe: without, ...(region ? { region } : {}), stage: shownOf } };
     }
     /** What the plots last drew, for placing the pointer on them, and the compared file's picture for tests. */
@@ -304,6 +316,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     type Drawn = { picture: StageView | null; range: PaneRange; axes: StageAxes; views: { base: StageView | null; compare: StageView | null; diff: StageView | null } };
     const drawnOn = new Map<Element, Drawn>();
     let shownCompare: { path: string | null; view: StageView | null | undefined } = { path: null, view: undefined };
+    /** A file in the legend: its role, name and channel, its value on show, ✎ with its memo. */
+    function named(path: string, slot: number | undefined): Pick<LegendItem, 'label' | 'value' | 'memo'> {
+        const info = deps.rowInfo?.(path) ?? { label: baseName(path), value: '', memo: '' };
+        return { label: `${slot ?? '·'} · ${info.label}`, ...(info.value ? { value: info.value } : {}), ...(info.memo ? { memo: info.memo } : {}) };
+    }
     function plotsOf(views: (path: string) => StageView | null | undefined, tracks: StageTrack[], comparePath: string | null, basePaths: readonly string[]) {
         const baseViews = basePaths.map(views).filter((view): view is StageView => !!view);
         const base = baseViews.length && baseViews.length === basePaths.length ? medianView(baseViews) : null;
@@ -369,10 +386,16 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const files = [...new Set([...tracks.map(track => track.filePath), ...basePaths])];
             // A step held: the picture without it, as scanned for that (the lanes and the plot framed green meanwhile).
             const held_ = heldStep ? holdSpec(heldStep) : undefined;
-            const coarseSpec = held_ ?? spec(id);
+            // Each file is drawn as the channel it is compared as (a channel row's slot, and its base's members of that channel).
+            const channelFor = (path: string): number | null => deps.stageChannel?.(path, comparePath, groupBase) ?? null;
+            const specOf = (ch: number | null): StageSpec => (held_ ? holdSpec(heldStep!, ch) : undefined) ?? spec(id, ch);
+            const byChannel = new Map<number | null, string[]>();
+            for (const path of files) byChannel.set(channelFor(path), [...(byChannel.get(channelFor(path)) ?? []), path]);
             root.classList.toggle('is-step-held', !!held_);
             root.dataset.held = held_ ? heldStep!.id : '';
-            const waiting = source.ensure(coarseSpec, files);
+            root.dataset.channels = files.map(path => `${baseName(path)}:${channelFor(path) ?? '*'}`).join(',');
+            let waiting = false;
+            for (const [ch, paths] of byChannel) waiting = source.ensure(specOf(ch), paths) || waiting;
             // Over a region, the files' metrics over it too, for D and the report.
             const region = liveRegion();
             if (region && !waiting && !broken) source.ensure(regionSpec(), files);
@@ -382,7 +405,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const shownAt = id === INPUT_STAGE ? -1 : id === OCTAVE_BRANCH ? steps.length : steps.findIndex(step => step.id === id);
             const regionMark = region ? { start: region.start, end: region.end, mark: shownAt < sliceAt ? 'range' as const : 'tag' as const, label: `${strings.stepRegion} ${region.start.toFixed(2)}–${region.end.toFixed(2)} s` } : undefined;
             root.dataset.regionMark = regionMark?.mark ?? '';
-            const coarse = (path: string) => source.view(coarseSpec, path);
+            const coarse = (path: string) => source.view(specOf(channelFor(path)), path);
             const picture = tracks.map(track => coarse(track.filePath)).find((view): view is StageView => !!view) ?? null;
             const images = !picture || picture.kind === 'heatmap' || picture.kind === 'none';
             const overlay = overlaid && !images;
@@ -398,8 +421,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             diffButton.hidden = !overlay;
             // Zoomed, the plots draw from the Frames' full resolution once it is in, the coarse pictures until then.
             const width = (overlay ? query<HTMLCanvasElement>('[data-stage-canvas="overlay"]') : tracks.find(track => track.canvas)?.canvas)?.clientWidth || 600;
-            const fineSpec = !waiting && !held_ && picture && picture.kind !== 'bar' && picture.kind !== 'none' ? detail.spec(coarseSpec, picture, window_.x, window_.y, width) : null;
-            const fine = fineSpec && !source.ensure(fineSpec, files) ? (path: string) => source.view(fineSpec, path) : null;
+            const fineSpecs = new Map<number | null, StageSpec | null>();
+            if (!waiting && !held_ && picture && picture.kind !== 'bar' && picture.kind !== 'none') {
+                for (const [ch, paths] of byChannel) {
+                    const fineSpec = detail.spec(specOf(ch), picture, window_.x, window_.y, width);
+                    fineSpecs.set(ch, fineSpec && !source.ensure(fineSpec, paths) ? fineSpec : null);
+                }
+            }
+            const fineReady = fineSpecs.size > 0 && [...fineSpecs.values()].every(item => !!item);
+            const fine = fineReady ? (path: string) => source.view(fineSpecs.get(channelFor(path))!, path) : null;
             const shown = (path: string) => (fine ? fine(path) : undefined) ?? coarse(path);
             stepBar.element.dataset.stage = id;
             stepBar.element.dataset.detail = String(!!fine);
@@ -447,10 +477,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             stepBar.element.dataset.drawn = String(layers.length);
             const items: LegendItem[] = [
                 ...(comparePath ? [{ color: ROLE_COLORS[0], label: deps.baseTitle(comparePath, groupBase) }] : []),
-                ...(comparePath ? [{ color: colorOf(comparePath, ROLE_COLORS[1]), label: `${role(comparePath)} · ${fileName(comparePath)}`, active: true, held: held !== null }] : []),
-                ...plots.others.map(item => ({ color: colorOf(item.track.filePath, item.track.color), label: `${role(item.track.filePath) ?? '·'} · ${fileName(item.track.filePath)}` })),
+                ...(comparePath ? [{ color: colorOf(comparePath, ROLE_COLORS[1]), ...named(comparePath, role(comparePath)), active: true, held: held !== null }] : []),
+                ...plots.others.map(item => ({ color: colorOf(item.track.filePath, item.track.color), ...named(item.track.filePath, role(item.track.filePath)) })),
             ];
             const legend = query<HTMLElement>('[data-stage-legend]');
+            legend.dataset.memos = items.filter(item => item.memo).length.toString();
             // A base group (not a slot-0 file) has a ▾ that says how its curve is made.
             const groupInfo = comparePath && (groupBase || !deps.slots()[0]);
             const html = legendHtml(items, strings).replace('</span></span>', groupInfo ? `</span><button type="button" class="tb-link stage-base-more" data-action="stage-base-info" aria-label="${escapeHtml(strings.stageBaseAggregate)}">▾</button></span>` : '</span></span>');
@@ -501,7 +532,6 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 return { left: rect.left + STAGE_MARGINS.left, top: rect.top + STAGE_MARGINS.top, width: Math.max(1, rect.width - STAGE_MARGINS.left - STAGE_MARGINS.right), height: Math.max(1, rect.height - STAGE_MARGINS.top - STAGE_MARGINS.bottom) };
             };
             const across = (fx: number): number => window_.x.start + fx * (window_.x.end - window_.x.start);
-            const shownNumber = (value: number): string => String(Math.round(value * 1000) / 1000);
             const gestures = (selector: string, container: HTMLElement): void => attachPlotInteraction(container, document, selector, {
                 locate(target, clientX, clientY): PlotHit | null {
                     const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
@@ -541,26 +571,13 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                     const picture = drawn.picture;
                     const heat = picture.kind === 'heatmap';
                     // An axis's values for a part of it (0–1), and the part for typed values: the picture's own axes.
-                    const mapping = hit.axis === 'x'
-                        ? { at: (f: number) => axisValueAt(picture, f), of: (v: number) => (axisFractionOf(picture, v)), label: drawn.axes.x }
-                        : heat ? { at: (f: number) => rowValueAt(picture, f), of: (v: number) => rowFractionOf(picture, v), label: drawn.axes.y }
-                            : { at: (f: number) => drawn.range.min + f * (drawn.range.max - drawn.range.min), of: (v: number) => (v - drawn.range.min) / (drawn.range.max - drawn.range.min || 1), label: drawn.axes.y };
-                    const current = hit.axis === 'x' ? window_.x : window_.y;
-                    const set = (part: { start: number; end: number }): void => {
-                        window_ = hit.axis === 'x' ? { ...window_, x: part } : { ...window_, y: part };
-                        detail.moved();
-                        deps.rerender();
-                    };
-                    rangePopover.open({
-                        axisLabel: mapping.label, horizontal: hit.axis === 'x',
-                        min: shownNumber(mapping.at(current.start)), max: shownNumber(mapping.at(current.end)),
-                        clientX, clientY,
-                        apply(min, max) {
-                            const start = min === null ? 0 : mapping.of(min), end = max === null ? 1 : mapping.of(max);
-                            if (!(end > start)) return strings.specRangeErrorMinMax;
-                            set({ start: Math.max(0, Math.min(1, start)), end: Math.max(0, Math.min(1, end)) });
-                        },
-                        auto() { set({ start: 0, end: 1 }); },
+                    const mapping: AxisMapping = hit.axis === 'x'
+                        ? { at: f => axisValueAt(picture, f), of: v => axisFractionOf(picture, v), label: drawn.axes.x }
+                        : heat ? { at: f => rowValueAt(picture, f), of: v => rowFractionOf(picture, v), label: drawn.axes.y }
+                            : linearAxis(drawn.range.min, drawn.range.max, drawn.axes.y);
+                    openAxisPart(rangePopover, {
+                        mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? window_.x : window_.y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                        set(part) { window_ = hit.axis === 'x' ? { ...window_, x: part } : { ...window_, y: part }; detail.moved(); deps.rerender(); },
                     });
                     return true;
                 },

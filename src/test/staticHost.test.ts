@@ -214,6 +214,18 @@ test('browser preferences restore safely across reloads and use shared Japanese 
     assert.equal(harness(storage, 'en', true).browser.__APP_STATE__.spectrogramSettings.auto, true);
 });
 
+test('the spectrum bands, an opened spectrum and the attribute CSV come back after a reload', () => {
+    const storage = new Map<string, string>();
+    const csv = { name: 'meta.csv', text: 'file,group\na.wav,A\n' };
+    harness(storage).host.setState({ spectrumBandsPerOctave: 3, spectrumCollapsed: false, entryCsv: csv });
+    const state = harness(storage).host.getState();
+    assert.equal(state?.spectrumBandsPerOctave, 3);
+    assert.equal(state?.spectrumCollapsed, false);
+    assert.deepEqual(state?.entryCsv, csv);
+    // The CSV has a key of its own, so one too big for the storage does not take the view's settings with it.
+    assert.ok(!storage.get('audioWandasAnalyzer.viewState')!.includes('meta.csv'));
+});
+
 test('the audio Worker starts with the page and serves the first WAV', async () => {
     const app = harness();
     assert.equal(app.workers.length, 1);
@@ -1203,7 +1215,7 @@ test('after a folder scan the next Worker boots behind the current one, which ke
     assert.equal(results('row-1'), 1);
 });
 
-test('a metadata CSV in an opened folder becomes the entry conditions and is not scanned', async () => {
+test('a CSV in an opened folder is neither read as conditions nor scanned (the user picks one on the table)', async () => {
     const app = harness();
     app.served['./recipes/entry-scan.recipe.json'] = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
     const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
@@ -1219,8 +1231,8 @@ test('a metadata CSV in an opened folder becomes the entry conditions and is not
         }
     }
     const conditions = app.received.find(message => message.type === 'entry-conditions')!;
-    assert.equal(conditions.metadataPath, '/sources/rec/motor.csv');
-    assert.deepEqual((conditions.table as { rows: Record<string, string[]> }).rows, { '/sources/rec/a.wav': ['L1'], '/sources/rec/b.wav': ['L2'] });
+    assert.equal(conditions.metadataPath, undefined);
+    assert.equal(conditions.table, null);
     assert.deepEqual(app.received.filter(message => message.type === 'entry-scan-result').map(message => message.filePath), ['/sources/rec/a.wav', '/sources/rec/b.wav']);
 });
 

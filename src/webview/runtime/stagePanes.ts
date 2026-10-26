@@ -8,13 +8,19 @@
  */
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
-import { HEADLINE_WITHIN_DB, median } from './entryTable';
+import { BAND_CENTERS_HZ, HEADLINE_WITHIN_DB } from './entryTable';
+import { median } from '../../shared/dataset/distribution';
 import { PANE_LEFT, paneAxes, type PaneRange } from './comparePanes';
 import type { NormalizedRange } from './waveformInteraction';
 import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { paintWaveformLayer, waveformRange } from '../plot/waveformLayer';
+import { drawValueAxis, fittedAxisTitle, readoutText, type AxisTick } from '../../shared/gui-core/index';
+import { niceTicks } from '../../shared/utils/ticks';
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'axisValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude'>;
+/** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
+const AXIS_TITLE_X = 10;
+
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -175,13 +181,13 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     if (view?.kind === 'heatmap') return { x, y: view.yAxis === 'bark' ? strings.axisBark : view.yAxis === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency };
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
     // A time signal is drawn as itself: its amplitude, in its unit (full scale while uncalibrated).
-    if (view?.waveform) return { x, y: `${strings.waveRangeAxisAmplitude} ${view.waveform.unit && view.waveform.unit !== 'FS' ? view.waveform.unit : 'FS'}` };
-    const unit = view?.unit ? ` ${view.unit}` : '';
+    if (view?.waveform) return { x, y: `${strings.waveRangeAxisAmplitude} [${view.waveform.unit && view.waveform.unit !== 'FS' ? view.waveform.unit : 'FS'}]` };
+    const unit = view?.unit ? ` [${view.unit}]` : '';
     const y = view?.quantity === 'level' ? paneAxes(strings, input).level.y
         : view?.quantity === 'gain' ? strings.axisGain
             : view?.quantity === 'coherence' ? strings.axisCoherence
                 : view?.quantity === 'cepstrum' ? strings.axisCepstrum
-                    : `${strings.axisValue}${unit}`;
+                    : `${strings.dsValue}${unit}`;
     return { x, y: diff ? `Δ ${y}` : y };
 }
 
@@ -225,7 +231,7 @@ export function stageReadout(views: { base: StageView | null; compare: StageView
     const delta = views.diff?.values?.[index];
     // Over a signal drawn as itself, the readout gives its level there (in dB, so it says so).
     const unit = view.waveform ? ' dB' : '';
-    return [atText(view, index), value(views.base) + unit, value(views.compare) + unit, delta === null || delta === undefined ? '—' : signed(delta, isDb(view))].join(' · ');
+    return readoutText([atText(view, index), value(views.base) + unit, value(views.compare) + unit, delta === null || delta === undefined ? '—' : signed(delta, isDb(view))]);
 }
 
 /**
@@ -250,9 +256,6 @@ function nearestIndex(axis: readonly number[], value: number, log: boolean): num
 type AxisScale = { low: number; high: number; log: boolean; fraction(value: number): number; at(fraction: number): number };
 
 /** The whole axis (0–1). */
-/** The roles' colours: the base blue, slots 1–3 yellow, purple and magenta; a difference green. */
-export const ROLE_COLORS: Readonly<Record<number, string>> = { 0: '#3b82f6', 1: '#d4b20f', 2: '#a371f7', 3: '#e85aad' };
-export const DIFF_COLOR = '#3fb950';
 
 export const FULL_WINDOW: NormalizedRange = { start: 0, end: 1 };
 
@@ -289,11 +292,7 @@ function axisScale(view: Pick<StageView, 'xs' | 'xScale'>): { low: number; high:
 
 function ticks(low: number, high: number, log: boolean): number[] {
     if (log) return [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].filter(value => value > low * 1.05 && value < high * 0.95);
-    const span = high - low;
-    const step = [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5, 10, 20, 50, 100].find(size => span / size <= 8) ?? 100;
-    const values: number[] = [];
-    for (let value = Math.ceil(low / step) * step; value <= high; value += step) values.push(Math.round(value * 1000) / 1000);
-    return values;
+    return niceTicks(low, high, 8);
 }
 
 const tickText = (value: number, log: boolean): string => (log ? (value >= 1000 ? `${value / 1000}k` : String(value)) : String(value));
@@ -344,6 +343,11 @@ export interface StagePaintOptions {
      * ends drawn (`range`); a picture of the region alone says which part it is in a corner (`tag`).
      */
     region?: { start: number; end: number; mark: 'range' | 'tag'; label: string };
+    /**
+     * A Δ figure's 1/3-octave Δ per band as steps under the curve: the headline's bands filled, a peak's
+     * same-signed neighbours (its leak through the band filters) outlined, the rest faint; `legend` names them.
+     */
+    bandSteps?: { deltas: readonly (number | null)[]; headline: readonly number[]; color: string; legend?: { headline: string; leak: string; line: string } };
 }
 
 /** One picture on its own: the base, the compared file or their difference. */
@@ -406,6 +410,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const yAxis = heatmap ? windowed(rowScale(whole), options.window?.y) : null;
     const yAt = (value: number): number => top + (1 - (Math.max(range.min, Math.min(range.max, value)) - range.min) / (range.max - range.min)) * plotHeight;
 
+    let levelTicks: AxisTick[] = [];
     if (heatmap && yAxis && view.matrix) {
         const image = context.createImageData(Math.round(plotWidth * ratio), Math.round(plotHeight * ratio));
         const extentAbs = Math.max(Math.abs(range.min), Math.abs(range.max), 1e-9);
@@ -439,11 +444,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             for (let px = 0; px < image.width; px++) pixels[offset + px] = columnOf[px] < 0 ? 0 : cells[columnOf[px]] ?? 0;
         }
         context.putImageData(image, Math.round(left * ratio), Math.round(top * ratio));
-        context.fillStyle = muted;
-        for (const value of ticks(yAxis.low, yAxis.high, yAxis.log)) {
-            const y = top + (1 - yAxis.fraction(value)) * plotHeight;
-            context.fillText(tickText(value, yAxis.log), 16, y + 3);
-        }
+        levelTicks = ticks(yAxis.low, yAxis.high, yAxis.log).map(value => ({ text: tickText(value, yAxis.log), fraction: yAxis.fraction(value) }));
         // The colours' range, top right, as the spectrograms say theirs.
         const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
         const span = options.diff || view.quantity === 'cepstrum'
@@ -454,12 +455,9 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     } else {
         context.strokeStyle = line;
         context.lineWidth = 1;
-        context.fillStyle = muted;
-        const step = (range.max - range.min) / 4;
-        for (let tick = 0; tick <= 4; tick++) {
-            const value = range.min + tick * step;
+        for (const value of niceTicks(range.min, range.max, 4)) {
             context.beginPath(); context.moveTo(left, yAt(value)); context.lineTo(left + plotWidth, yAt(value)); context.stroke();
-            context.fillText(levelText(value, range.max - range.min), 16, yAt(value) + (tick === 4 ? 10 : 3));
+            levelTicks.push({ text: levelText(value, range.max - range.min), fraction: (value - range.min) / (range.max - range.min) });
         }
         if (options.diff) {
             context.strokeStyle = muted;
@@ -469,6 +467,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         const ratioStep = bars && view.xs!.length > 1 ? Math.sqrt(view.xs![1] / view.xs![0]) : 1.12;
         context.save();
         context.beginPath(); context.rect(left, top, plotWidth, plotHeight); context.clip();
+        if (options.bandSteps) paintBandSteps(context, options.bandSteps, xAt, yAt);
         const wholeAxis = axisScale(whole);
         // Signals drawn as themselves share an amplitude axis: a picture without a signal (a group's median level) is left out.
         const signals = overlay.layers.some(layer => layer.view.waveform);
@@ -513,27 +512,66 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         }
         context.restore();
     }
-    // The frequency or time axis: ticks along the bottom, its name at the right end.
+    // The frequency or time axis: ticks along the bottom, its name at the right end; a tick label the name would
+    // overlap is left out (its gridline stays).
+    const xTitle = fittedAxisTitle(axes.x, plotWidth / 2, title => context.measureText(title).width);
+    const xTitleLeft = left + plotWidth - context.measureText(xTitle).width;
     context.fillStyle = muted;
     context.strokeStyle = line;
     context.lineWidth = 1;
     for (const value of ticks(xAxis.low, xAxis.high, xAxis.log)) {
-        const x = xAt(value);
+        const x = xAt(value), label = tickText(value, xAxis.log);
         if (!heatmap) { context.beginPath(); context.moveTo(x, top); context.lineTo(x, top + plotHeight); context.stroke(); }
-        context.fillText(tickText(value, xAxis.log), x - 6, height - 3);
+        if (x - 6 + context.measureText(label).width < xTitleLeft - 4) context.fillText(label, x - 6, height - 3);
     }
     if (options.region) paintRegion(context, options.region, view, { left, top, width: plotWidth, height: plotHeight }, xAt, { muted, text });
+    if (options.bandSteps?.legend) paintBandLegend(context, options.bandSteps.legend, options.bandSteps.color, left + plotWidth - 6, top, muted);
     context.fillStyle = text;
-    context.fillText(axes.x, left + plotWidth - context.measureText(axes.x).width, height - 3);
-    // The level axis says what it measures, written up the left edge, in the text colour.
+    context.fillText(xTitle, xTitleLeft, height - 3);
+    // The level axis: its ticks in the muted colour, and what it measures up the left edge in the text colour.
+    const frame = { left, top, width: plotWidth, height: plotHeight };
+    drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
+    drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
+}
+
+
+/** A Δ figure's band steps (see StagePaintOptions.bandSteps), on the plot's frequency axis. */
+function paintBandSteps(context: CanvasRenderingContext2D, steps: NonNullable<StagePaintOptions['bandSteps']>, xAt: (hz: number) => number, yAt: (value: number) => number): void {
+    const { deltas, headline } = steps;
+    const leak = (band: number): boolean => [band - 1, band + 1].some(peak => headline.includes(peak)
+        && Math.sign(deltas[peak] ?? 0) === Math.sign(deltas[band] ?? 0) && Math.abs(deltas[band] ?? 0) < Math.abs(deltas[peak] ?? 0));
     context.save();
-    context.translate(10, top + plotHeight / 2);
-    context.rotate(-Math.PI / 2);
-    context.textAlign = 'center';
-    context.fillText(axes.y, 0, 0);
+    context.fillStyle = steps.color;
+    context.strokeStyle = steps.color;
+    deltas.forEach((delta, band) => {
+        if (delta === null) return;
+        const center = BAND_CENTERS_HZ[band];
+        const x0 = xAt(center * 2 ** (-1 / 6)), x1 = xAt(center * 2 ** (1 / 6));
+        const box: [number, number, number, number] = [x0, Math.min(yAt(0), yAt(delta)), Math.max(1, x1 - x0), Math.abs(yAt(delta) - yAt(0))];
+        if (leak(band)) { context.globalAlpha = 0.6; context.setLineDash([3, 2]); context.strokeRect(...box); context.setLineDash([]); return; }
+        context.globalAlpha = headline.includes(band) ? 0.45 : 0.15;
+        context.fillRect(...box);
+    });
     context.restore();
 }
 
+/** Top right of a Δ figure: what the curve and the two kinds of step are. */
+function paintBandLegend(context: CanvasRenderingContext2D, legend: { headline: string; leak: string; line: string }, color: string, right: number, top: number, muted: string): void {
+    let x = right;
+    const item = (draw: (at: number) => void, label: string): void => {
+        x -= context.measureText(label).width;
+        context.fillStyle = muted;
+        context.fillText(label, x, top + 12);
+        x -= 16;
+        draw(x);
+        x -= 12;
+    };
+    context.save();
+    item(at => { context.strokeStyle = color; context.lineWidth = 1.5; context.beginPath(); context.moveTo(at, top + 8); context.lineTo(at + 12, top + 8); context.stroke(); }, legend.line);
+    item(at => { context.strokeStyle = color; context.lineWidth = 1; context.setLineDash([3, 2]); context.strokeRect(at, top + 3, 12, 10); context.setLineDash([]); }, legend.leak);
+    item(at => { context.fillStyle = color; context.globalAlpha = 0.45; context.fillRect(at, top + 3, 12, 10); context.globalAlpha = 1; }, legend.headline);
+    context.restore();
+}
 
 /** The region on a plot, in neutral colours (the role colours are the files'): see StagePaintOptions.region. */
 function paintRegion(context: CanvasRenderingContext2D, region: NonNullable<StagePaintOptions['region']>, view: StageView, plot: { left: number; top: number; width: number; height: number }, xAt: (value: number) => number, colors: { muted: string; text: string }): void {

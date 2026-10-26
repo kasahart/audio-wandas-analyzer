@@ -18,7 +18,8 @@ import { createRecipeMenus } from './recipePicker';
 import { zipStore } from './zipStore';
 import type { HostInboundMessage } from './hostMessaging';
 import type { ComparisonWindow } from './browserAdapter';
-import type { PersistedWebviewState, ComparisonTrackState, WebviewHostApi } from './types';
+import type { ComparisonTrackState, WebviewHostApi } from './types';
+import { sanitizePersistedState } from './stateStore';
 import type { AnalysisResult, AnalysisResultWithError } from '../../shared/analysis/analysisTypes';
 
 interface Source {
@@ -105,16 +106,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         get: readSaved,
         update: async (key: string, value: unknown): Promise<void> => { save(key, value); },
     } };
-    const restoredView = readSaved(VIEW_STATE_KEY) as PersistedWebviewState | undefined;
-    let persisted: PersistedWebviewState = {
-        ...(restoredView?.contentType === 'spectrogram' ? { contentType: 'spectrogram' } : {}),
-        ...(restoredView?.sidebarCollapsed === true ? { sidebarCollapsed: true } : {}),
-        ...(restoredView?.spectrumCollapsed === true ? { spectrumCollapsed: true } : {}),
-        ...(Array.isArray(restoredView?.entrySlots) && restoredView.entrySlots.every(slot => slot === null || typeof slot === 'string')
-            ? { entrySlots: restoredView.entrySlots } : {}),
-        ...(Array.isArray(restoredView?.entryDerived) ? { entryDerived: restoredView.entryDerived } : {}),
-        ...(restoredView?.entryRecipe !== undefined ? { entryRecipe: restoredView.entryRecipe } : {}),
-    };
+    // The attribute CSV is kept under its own key: a CSV too big for the storage then loses only itself.
+    const CSV_STATE_KEY = `${VIEW_STATE_KEY}.csv`;
+    let persisted = sanitizePersistedState({ ...(readSaved(VIEW_STATE_KEY) as object | null), entryCsv: readSaved(CSV_STATE_KEY) });
+    let savedCsv = persisted.entryCsv;
     browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
     let worker: Worker | undefined;
     let recovery: Promise<void> | undefined;
@@ -782,6 +777,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 if (!file) throw new Error(strings.entrySourceGone);
                 return new Uint8Array(await file.arrayBuffer());
             },
+            // Only the header: a slice of the file, so a folder of long recordings is read in a moment.
+            readHead: async (path, length) => {
+                const file = folder.get(path) ?? sources.get(path)?.file;
+                if (!file) throw new Error(strings.entrySourceGone);
+                return new Uint8Array(await file.slice(0, length).arrayBuffer());
+            },
             read: readSaved,
             write: save,
             // Pyodide's heap never shrinks, so after a folder scan the Worker is replaced and the selected tracks reload into it.
@@ -800,8 +801,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         getState: () => persisted,
         setState: (state): void => {
-            persisted = state;
-            save(VIEW_STATE_KEY, { contentType: state.contentType, sidebarCollapsed: state.sidebarCollapsed, spectrumCollapsed: state.spectrumCollapsed, entrySlots: state.entrySlots, entryDerived: state.entryDerived, entryRecipe: state.entryRecipe });
+            // Only the fields the runtime keeps are written: a key of an older page (a folder path) is not.
+            persisted = sanitizePersistedState(state);
+            const { entryCsv, ...view } = persisted;
+            save(VIEW_STATE_KEY, view);
+            if (entryCsv?.name !== savedCsv?.name || entryCsv?.text !== savedCsv?.text) { savedCsv = entryCsv; save(CSV_STATE_KEY, entryCsv ?? null); }
         },
         emptyMessage: strings.browserEmptyPrompt,
         selectionPanel: true,

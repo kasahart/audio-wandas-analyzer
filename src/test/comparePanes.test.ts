@@ -3,7 +3,9 @@ import test from 'node:test';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
-import { buildCompareModel, diffHeadline, levelsHeadline, paintPane, paneAxes } from '../webview/runtime/comparePanes';
+import { buildCompareModel, diffHeadline, levelsHeadline, paneAxes } from '../webview/runtime/comparePanes';
+import { paintOverlay } from '../webview/runtime/stagePanes';
+import type { StageView } from '../shared/protocol/backendProtocol';
 
 const STR = getStrings('en');
 const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);
@@ -112,14 +114,15 @@ test('every pane names its axes: level and frequency, Δ with its legend, in the
     const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: {}, getContext: () => context } as unknown as HTMLCanvasElement;
     const ja = getStrings('ja');
     const uncal = paneAxes(ja, { unit: 'FS', ref: 1 });
-    paintPane(canvas, [-40, -50], [100, 1000], { min: -80, max: 0 }, '#00f', false, undefined, undefined, undefined, undefined, uncal.level);
-    assert.ok(texts.includes('振幅 dBFS 未校正') && texts.includes('周波数 Hz'));
+    const view = (values: number[]): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000], values });
+    paintOverlay(canvas, { layers: [{ view: view([-40, -50]), color: '#00f' }] }, { min: -80, max: 0 }, uncal.level);
+    assert.ok(texts.includes('振幅 未校正 [dBFS]') && texts.includes('周波数 [Hz]'));
     // The top tick is a number only: the unit is in the axis name.
     assert.ok(!texts.some(text => /^0 dB$/.test(text)));
     texts.length = 0;
-    paintPane(canvas, [1, 2], [100, 1000], { min: -8, max: 8 }, '#0f0', true, undefined, undefined, { deltas: [], headline: [] }, undefined, uncal.delta);
-    assert.ok(['差 dB', '1/3 oct 見出し', '漏れ', '点ごとの差'].every(text => texts.includes(text)));
-    assert.equal(paneAxes(ja, { unit: 'Pa', ref: 2e-5 }).level.y, '振幅 dB re 0.00002 Pa');
+    paintOverlay(canvas, { layers: [{ view: view([1, 2]), color: '#0f0' }] }, { min: -8, max: 8 }, uncal.delta, { diff: true, bandSteps: { deltas: [], headline: [], color: '#0f0', legend: uncal.delta.legend } });
+    assert.ok(['差 [dB]', '1/3 oct 見出し', '漏れ', '点ごとの差'].every(text => texts.includes(text)));
+    assert.equal(paneAxes(ja, { unit: 'Pa', ref: 2e-5 }).level.y, '振幅 [dB re 0.00002 Pa]');
 });
 
 test('the headline gives both levels, and a band far below the loudest does not head it however large its Δ', () => {

@@ -7,7 +7,7 @@ import { hintAttr, hoverHintAttr } from './hintFooter';
 export type SpectrogramSettingsPopoverStrings = Pick<UiStrings,
     'specSettingsAuto' | 'specSettingsStftLegend' | 'specSettingsNFft' | 'specSettingsOverlap' | 'specSettingsWindow'
     | 'specSettingsDisplayLegend' | 'specSettingsDbMin' | 'specSettingsDbMax' | 'specSettingsMaxFreqHz'
-    | 'specSettingsReset' | 'specSettingsApply' | 'specSettingsPlaceholderAuto' | 'specSettingsPlaceholderNyquist'
+    | 'btnZoomReset' | 'stepApply' | 'specSettingsPlaceholderAuto' | 'specSettingsPlaceholderNyquist'
     | 'settingsApplyHint' | 'hintSpecAuto' | 'hintSpecNFft' | 'hintSpecOverlap' | 'hintSpecWindow' | 'hintSpecDisplay'
     | 'hintSpecReset' | 'hintSpecApply'>;
 
@@ -51,8 +51,8 @@ export function spectrogramSettingsPopoverHtml(strings: SpectrogramSettingsPopov
         + '<label>' + escapeHtml(strings.specSettingsMaxFreqHz) + ' <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="' + escapeHtml(strings.specSettingsPlaceholderNyquist) + '"' + hintAttr(strings.hintSpecDisplay) + '></label>'
         + '</fieldset>'
         + '<div style="display:flex;gap:6px;justify-content:flex-end">'
-        + '<button class="tb-btn" id="spec-reset"' + hintAttr(strings.hintSpecReset) + '>' + escapeHtml(strings.specSettingsReset) + '</button>'
-        + '<button class="tb-btn" id="spec-apply"' + hintAttr(strings.hintSpecApply) + '>' + escapeHtml(strings.specSettingsApply) + '</button>'
+        + '<button class="tb-btn" id="spec-reset"' + hintAttr(strings.hintSpecReset) + '>' + escapeHtml(strings.btnZoomReset) + '</button>'
+        + '<button class="tb-btn" id="spec-apply"' + hintAttr(strings.hintSpecApply) + '>' + escapeHtml(strings.stepApply) + '</button>'
         + '</div>'
         + '</div>';
 }

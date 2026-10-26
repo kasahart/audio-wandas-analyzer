@@ -9,6 +9,9 @@ import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { recipeSteps } from '../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
 import { reportCsv, reportDefinitions, reportFolderName, reportOctaveRecipe, reportRecipe } from '../webview/runtime/compareReport';
+import { buildCompareModel } from '../webview/runtime/comparePanes';
+import { withChannel } from '../shared/recipe/channelSelection';
+import type { BaseDefinition, DerivedRow } from '../webview/runtime/entryTable';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const entry = JSON.parse(readFileSync(path.join(repoRoot, 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
@@ -36,18 +39,19 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
     assert.ok(csv.startsWith('﻿'));
     const [header, row, ...rest] = csv.slice(1).trimEnd().split('\r\n');
     assert.equal(rest.length, 0);
-    assert.equal(header, `ファイル,Δ最大帯域 Hz,Δ最大帯域 dB,条件 1,条件 2,開始 s,終了 s,Leq dB(A) 未校正,基準 Leq,Δ Leq dB(A),${header.split(',').filter(name => /^Δ [\d.]+ k?Hz dB$/.test(name)).join(',')},基準群 n,基準群ファイル,解析仕様版,外れ値,手順`);
+    assert.equal(header, `ファイル,Δ最大帯域 Hz,Δ最大帯域 dB,条件 1,条件 2,開始 s,終了 s,Leq dB(A) 未校正,基準 Leq,Δ Leq dB(A),${header.split(',').filter(name => /^Δ [\d.]+ k?Hz dB$/.test(name)).join(',')},基準群 n,基準群ファイル,解析仕様版,手順,ch,メモ,基準の定義`);
     assert.ok(header.includes(',Δ 3.15 kHz dB,'));
     const cells = row.split(',');
     // Where the file differs most comes first.
     assert.deepEqual(cells.slice(0, 7), ['L1_900rpm_run3.wav', '3150', '20.5', 'L1', '900rpm', '0.50', '1.50']);
     assert.equal(Math.round((Number(cells[7]) - Number(cells[8])) * 10) / 10, Number(cells[9]));
     assert.equal(cells[header.split(',').indexOf('Δ 3.15 kHz dB')], '20.5');
-    assert.deepEqual(cells.slice(-5, -2), ['2', 'L1_900rpm_run1.wav;L1_900rpm_run2.wav', '2']);
+    const at = (name: string): string => cells[header.split(',').indexOf(name)];
+    assert.deepEqual([at('基準群 n'), at('基準群ファイル'), at('解析仕様版')], ['2', 'L1_900rpm_run1.wav;L1_900rpm_run2.wav', '2']);
     // Which chain the numbers are of: the Recipe beside the CSV, or the previous one where it was not measured again.
-    assert.equal(cells.at(-1), getStrings('ja').reportChainCurrent);
+    assert.equal(at('手順'), getStrings('ja').reportChainCurrent);
     const previous = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set(['/f/L1_900rpm_run1.wav']) }, getStrings('ja'));
-    assert.equal(previous.trimEnd().split('\r\n')[1].split(',').at(-1), getStrings('ja').reportChainPrevious);
+    assert.equal(previous.trimEnd().split('\r\n')[1].split(',')[header.split(',').indexOf('手順')], getStrings('ja').reportChainPrevious);
     const whole = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], region: null, recipe: entry, recipeName: 'entry-scan', now: new Date() }, getStrings('ja'));
     // The whole file is written as the region actually measured: its guarded ends are left out.
     assert.deepEqual(whole.split('\r\n')[1].split(',').slice(5, 7), ['0.15', '1.85']);
@@ -118,4 +122,49 @@ print(json.dumps({'spectral': type(spectral).__name__, 'octave': type(octave).__
     // The scan rounds levels to 0.01 dB.
     assert.ok(out.dSpec <= 0.01, String(out.dSpec));
     assert.ok(out.dOct <= 0.01, String(out.dOct));
+});
+
+test('the report says what the comparison was taken from: the value, the filters, each base with its channel, the memo, and the D rows', () => {
+    const results = new Map<string, ScanResult>([
+        ['/f/a.wav', scan(-20, -30)], ['/f/b.wav', scan(-21, -31)], ['/f/c.wav', scan(-10, -10)],
+    ]);
+    const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
+    const STR = getStrings('ja');
+    const base: BaseDefinition = { kind: 'group', group: { column: 'rpm', name: '1500' }, count: 2, channel: 2, filters: ['ch = 2'], fewerChannels: 1 };
+    const derived: DerivedRow = { parentPath: '/f/c.wav', ch: 2, region: 'all', result: scan(-10, -10), base: { leq: -20.5, bands: BAND_CENTERS_HZ.map(() => -30), label: '基準群 rpm 1500', paths: ['/f/a.wav', '/f/b.wav'], definition: base } };
+    const input = {
+        model, results, slots: [null, '/f/c.wav', null, null], region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(),
+        compare: (path: string) => buildCompareModel(model, results, path, null, STR, false, undefined, { paths: ['/f/a.wav', '/f/b.wav'], title: '基準群 rpm 1500' }),
+        rowInfo: () => ({ label: 'c.wav ch2', value: 'Leq A特性 [dBFS] −10.0', memo: 'ベアリングかも', channel: 2, base }),
+        selection: { value: 'Leq A特性 [dBFS]', group: 'rpm', filters: ['ch = 2'], excluded: 1 },
+        derived: [derived],
+    };
+    const [header, row, d] = reportCsv(input, STR).slice(1).trimEnd().split('\r\n');
+    const columns = header.split(',');
+    assert.ok(!columns.includes('外れ値'));
+    const cell = (line: string, name: string): string => line.split(',')[columns.indexOf(name)];
+    assert.equal(row.split(',')[0], 'c.wav ch2');
+    assert.deepEqual([cell(row, 'ch'), cell(row, 'Leq A特性 [dBFS]'), cell(row, 'メモ')], ['2', 'Leq A特性 [dBFS] −10.0', 'ベアリングかも']);
+    assert.equal(cell(row, '基準の定義'), '基準群 rpm 1500 · n=2 · ch2 · -1 (< ch2) · ch = 2');
+    assert.equal(cell(row, '基準群 n'), '2');
+    // A difference fixed with D: under the comparisons, against the base it was fixed with.
+    assert.match(d.split(',')[0], /^固定した差（D） · c\.wav ch2 · all$/);
+    assert.equal(cell(d, 'Δ Leq dB(A)'), '10.5');
+    assert.equal(cell(d, '基準の定義'), '基準群 rpm 1500 · n=2 · ch2 · -1 (< ch2) · ch = 2');
+    const definitions = reportDefinitions(input, 2, STR) as { selection: unknown; comparisons: Array<{ slot: number; file: string; channel: number; base: BaseDefinition }> };
+    assert.deepEqual(definitions.selection, input.selection);
+    assert.deepEqual(definitions.comparisons, [{ slot: 1, file: 'c.wav ch2', channel: 2, base }]);
+});
+
+test('a compared channel is a get_channel step in the exported Recipe, and wandas loads it', (t) => {
+    const recipe = reportRecipe(withChannel(entry, 2), { start: 0.5, end: 1.5 });
+    const steps = recipeSteps(recipe);
+    assert.equal(steps[0].operation, 'wandas.frame.get_channel');
+    assert.deepEqual(steps[0].params, { channel_idx: 1 });
+    const python = [path.join(repoRoot, '.venv', 'bin', 'python'), process.env.WANDAS_PYTHON].find(candidate => candidate && existsSync(candidate));
+    if (!python) { t.skip('no Python'); return; }
+    const run = spawnSync(python, ['-c', 'import json,sys; from wandas.pipeline import RecipePlan; print(len(RecipePlan.from_dict(json.load(sys.stdin)).to_dict()["nodes"]))'], { input: JSON.stringify(recipe), encoding: 'utf8' });
+    if (/No module named 'wandas'/.test(run.stderr)) { t.skip('wandas is not installed'); return; }
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout.trim(), '4');
 });

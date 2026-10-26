@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ENTRY_CONDITIONS_KEY, ENTRY_SCAN_INDEX_KEY, runEntryScan, type EntryPublication, type EntryScanPorts } from '../shared/analysis/entryScan';
+import { ENTRY_SCAN_INDEX_KEY, runEntryScan, type EntryPublication, type EntryScanPorts } from '../shared/analysis/entryScan';
 import { parsePanelMessage } from '../shared/protocol/panelMessages';
 import { isHostInboundMessage } from '../webview/runtime/hostMessaging';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
@@ -33,12 +33,11 @@ async function run(port: EntryScanPorts, filePaths: string[], isCurrent = () => 
     return published;
 }
 
-test('an entry scan publishes the stored conditions, one result per file in order, then done', async () => {
-    const table = { columns: ['line'], checked: [0], rows: { a: ['L1'] } };
-    const { port } = ports({ [ENTRY_CONDITIONS_KEY]: table }, { '/a.wav': 'a1' });
+test('an entry scan publishes the Recipe, one result per file in order, then done', async () => {
+    const { port } = ports({}, { '/a.wav': 'a1' });
     const published = await run(port, ['/a.wav', '/bad.wav']);
     assert.deepEqual(published.map(item => item.type), ['entry-conditions', 'entry-scan-result', 'entry-scan-result', 'entry-scan-done']);
-    assert.deepEqual(published[0], { type: 'entry-conditions', requestId: 'r', table });
+    assert.deepEqual(published[0], { type: 'entry-conditions', requestId: 'r', table: null });
     assert.deepEqual((published[2] as { result: ScanResult }).result, { ok: false, reason: 'Unable to read audio' });
 });
 
@@ -56,6 +55,18 @@ test('an unchanged file reuses its stored result; a changed one or a failure is 
     const third = ports(second.store, { '/c.wav': 'c1' });
     await run(third.port, ['/c.wav']);
     assert.deepEqual(Object.keys(third.store[ENTRY_SCAN_INDEX_KEY] as object), ['/c.wav']);
+});
+
+test('opening a folder computes nothing: with cachedOnly only stored results come back, and the index keeps the rest', async () => {
+    const first = ports({}, { '/a.wav': 'a1', '/b.wav': 'b1' });
+    await run(first.port, ['/a.wav']);
+    const second = ports(first.store, { '/a.wav': 'a1', '/b.wav': 'b1' });
+    const published: EntryPublication[] = [];
+    await runEntryScan(second.port, { type: 'entry-scan', requestId: 'r', filePaths: ['/a.wav', '/b.wav'], cachedOnly: true }, message => { published.push(message); }, () => true);
+    assert.deepEqual(second.scanned, []);
+    assert.deepEqual(published.filter(item => item.type === 'entry-scan-result').map(item => (item as { filePath: string }).filePath), ['/a.wav']);
+    assert.equal(published.at(-1)!.type, 'entry-scan-done');
+    assert.deepEqual(Object.keys(second.store[ENTRY_SCAN_INDEX_KEY] as object), ['/a.wav']);
 });
 
 test('a superseded scan stops before its next file and still releases the backend', async () => {
