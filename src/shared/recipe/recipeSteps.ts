@@ -246,6 +246,8 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
     let broken: string | undefined;
     // The channels the Frame here has, as far as the steps say (get_channel leaves one).
     let channels = bounds.channels;
+    // The step that left one channel, if one did (rather than the files having one).
+    let narrowedBy: string | undefined;
     const skipped = new Set(bypassedSteps(recipe));
     return recipeChain(recipe).map(node => {
         const editable = STEP_PARAMS[node.operation] ?? [];
@@ -259,7 +261,7 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
             : output === undefined && !skipped.has(node.id) ? { param: '', reason: { kind: 'frame', limit: 0, text: frame } }
             : failed !== undefined ? { param: '', reason: { kind: 'failed', limit: 0, text: failed } }
             // One channel has nothing to be compared with: its only pair is itself.
-            : CROSS_CHANNEL.has(node.operation) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2 } }
+            : CROSS_CHANNEL.has(node.operation) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2, ...(narrowedBy ? { text: narrowedBy } : {}) } }
                 : invalidParam(params, editable, bounds, channels);
         const step: RecipeStep = {
             id: node.id, operation: node.operation, name: node.operation.split('.').pop()!, params, editable,
@@ -268,7 +270,12 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
         };
         if (invalid && broken === undefined) broken = step.id;
         // Past a break the Frames are the ones the steps would take and give, to name and place them.
-        if ((!invalid || invalid.reason.kind === 'after') && !step.bypassed) { frame = step.output; channels = channelsAfter(node.operation, channels); }
+        if ((!invalid || invalid.reason.kind === 'after') && !step.bypassed) {
+            frame = step.output;
+            const before = channels;
+            channels = channelsAfter(node.operation, channels);
+            if (before !== undefined && before > 1 && channels === 1) narrowedBy = step.id;
+        }
         if (channels !== undefined) step.channels = channels;
         return step;
     });

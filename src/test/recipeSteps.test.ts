@@ -204,7 +204,9 @@ test('a step that compares two channels needs two: one channel (or one picked by
     assert.equal(brokenStep(paired, 16000), undefined);
     // get_channel leaves one channel of two.
     const { recipe: picked } = withStep(paired, null, catalogOperation('wandas.frame.get_channel')!);
-    assert.equal(recipeSteps(picked, { sampleRate: 16000, channels: 2 }).find(step => step.id === coherence)!.reason?.kind, 'channels');
+    // …and the reason names that step, not the files.
+    const narrowed = recipeSteps(picked, { sampleRate: 16000, channels: 2 });
+    assert.deepEqual(narrowed.find(step => step.id === coherence)!.reason, { kind: 'channels', limit: 2, text: narrowed[0].id });
     // sum and mean leave one channel too.
     for (const one of ['wandas.audio.sum', 'wandas.audio.mean']) {
         const { recipe: summed } = withStep(paired, slice.id, catalogOperation(one)!);

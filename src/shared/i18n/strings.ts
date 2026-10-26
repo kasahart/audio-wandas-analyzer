@@ -194,6 +194,7 @@ export interface UiStrings {
     stepAverageFft: string;
     stepOctaveHint: string;
     stepNeedChannels: string;
+    stepNarrowedChannels: string;
     stepOffChannels: string;
     stepPairSelf: string;
     stepNeedChannel: string;
@@ -792,10 +793,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'BPF',
         stepAverageFft: '{name} {n}',
         stepOctaveHint: 'The value in the table\'s band column',
-        stepNeedChannels: 'Compares two channels of a recording, and a file here has one. Remove it, or compare recordings with two channels or more.',
-        stepOffChannels: 'Compares two channels of a recording, and a file here has one',
-        stepPairSelf: 'Choose two different channels: a channel compared with itself is always the same (coherence 1, gain 0 dB)',
-        stepNeedChannel: 'Must be a channel from 1 to {n}',
+        stepNeedChannels: 'Needs two channels, and a file here has only one. Remove it, or use recordings with two channels or more.',
+        stepNarrowedChannels: '{op} leaves one channel: this step needs two. Move it before {op}, or remove one of them.',
+        stepOffChannels: 'Needs two channels: a file here has only one',
+        stepPairSelf: 'Choose two different channels: a channel with itself always gives the same',
+        stepNeedChannel: 'Channel 1 to {n}',
         stepPair: 'ch{output} / ch{input}',
         stepPairOutput: 'Channel',
         stepPairInput: 'Reference channel',
@@ -1388,10 +1390,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'バンドパス',
         stepAverageFft: '{name}（FFT {n} 点）',
         stepOctaveHint: '表の帯域列の値',
-        stepNeedChannels: '録音の 2 つのチャンネルを比べる解析ですが、1 チャンネルのファイルがあります。外すか、2 チャンネル以上の録音で使ってください',
-        stepOffChannels: '録音の 2 つのチャンネルを比べる解析ですが、1 チャンネルのファイルがあります',
-        stepPairSelf: '違う 2 つのチャンネルを選んでください。同じチャンネル同士は常に同じ値です（コヒーレンス 1、ゲイン 0 dB）',
-        stepNeedChannel: '1〜{n} のチャンネルにしてください',
+        stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。外すか、2 チャンネル以上の録音で使ってください',
+        stepNarrowedChannels: '{op} で 1 チャンネルになっています。この手順には 2 チャンネルが必要です。{op} より前に動かすか、どちらかを外してください',
+        stepOffChannels: '2 チャンネルが必要です（1 チャンネルのファイルあり）',
+        stepPairSelf: '別々のチャンネルを選んでください（同じチャンネル同士は常に同じ値）',
+        stepNeedChannel: 'チャンネルは 1〜{n}',
         stepPair: 'ch{output} / ch{input}',
         stepPairOutput: 'チャンネル',
         stepPairInput: '参照チャンネル',
