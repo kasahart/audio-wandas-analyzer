@@ -211,13 +211,13 @@ function invalidParam(params: Record<string, ParamValue>, editable: readonly Ste
         if (param.kind === 'int') {
             // A channel named by its source id (select_pair's "c1") is wandas' to resolve: kept as it is.
             if (param.channel && typeof value === 'string') continue;
+            // 2.5 is not an order: refused, not rounded.
+            if (typeof value === 'number' && !Number.isInteger(value)) return { param: param.name, reason: { kind: 'integer', limit: 0 } };
             // A negative channel counts from the last, as wandas resolves it.
             if (param.channel && typeof value === 'number' && value < 0) {
                 if (channels !== undefined && value < -channels) return { param: param.name, reason: { kind: 'below', limit: channels } };
                 continue;
             }
-            // 2.5 is not an order: refused, not rounded.
-            if (typeof value === 'number' && !Number.isInteger(value)) return { param: param.name, reason: { kind: 'integer', limit: 0 } };
             // The largest power of two that fits the shortest file, so the limit itself is a value one can type.
             const limit = param.powerOfTwo && limits.shortestSamples ? Math.min(param.max, 2 ** Math.floor(Math.log2(limits.shortestSamples)))
                 : param.belowChannels && channels ? Math.min(param.max, channels - 1) : param.max;
@@ -285,7 +285,8 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
             // One channel has nothing to be compared with: its only pair is itself. A bypassed step does not run,
             // so the channels there do not bound it.
             : CROSS_CHANNEL.has(node.operation) && !skipped.has(node.id) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2, ...(narrowedBy ? { text: narrowedBy } : {}) } }
-                : invalidParam(params, editable, bounds, skipped.has(node.id) ? undefined : channels);
+                // A pairwise Frame's rows are its pairs (n² of n channels): get_channel there picks a row.
+                : invalidParam(params, editable, bounds, skipped.has(node.id) ? undefined : PAIRWISE_FRAMES.has(frame) && node.operation === 'wandas.frame.get_channel' && channels !== undefined ? channels * channels : channels);
         const step: RecipeStep = {
             id: node.id, operation: node.operation, name: node.operation.split('.').pop()!, params, editable,
             input: frame, output: output ?? declaredOutput(node.operation, frame), ...(invalid ? { invalid: invalid.param, reason: invalid.reason } : {}),

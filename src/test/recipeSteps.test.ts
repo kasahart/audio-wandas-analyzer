@@ -217,6 +217,11 @@ test('a step that compares two channels needs two: one channel (or one picked by
     rows.nodes.splice(rows.nodes.indexOf(pairNode), 0, { id: 'rows', operation: 'wandas.frame.get_channel', version: 1, inputs: [coherence], params: { $type: 'map', entries: [['channel_idx', 1]] } });
     pairNode.inputs = ['rows'];
     assert.equal(recipeSteps(rows as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, undefined);
+    // Its rows are n² of n channels: row 3 of two channels is there, row 4 is not.
+    const row = (index: number) => { rows.nodes.find(node => node.id === 'rows')!.params = { $type: 'map', entries: [['channel_idx', index]] }; return recipeSteps(rows as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === 'rows')!.invalid; };
+    assert.equal(row(3), undefined);
+    assert.equal(row(4), 'channel_idx');
+    row(1);
     // sum and mean leave one channel too.
     for (const one of ['wandas.audio.sum', 'wandas.audio.mean']) {
         const { recipe: summed } = withStep(paired, slice.id, catalogOperation(one)!);
@@ -242,6 +247,9 @@ test('a step that compares two channels needs two: one channel (or one picked by
     assert.equal(recipeSteps(named as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, undefined);
     named.nodes.find(node => node.id === pair)!.params.entries = [['output', -1], ['input', 1]];
     assert.equal(recipeSteps(named as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.reason?.kind, 'pair');
+    // A fraction is no channel, counted from the last or not.
+    named.nodes.find(node => node.id === pair)!.params.entries = [['output', -1.5], ['input', 0]];
+    assert.deepEqual(recipeSteps(named as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.reason, { kind: 'integer', limit: 0 });
     const beyond = withParam(paired, pair, input, 2);
     assert.equal(recipeSteps(beyond, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, 'input');
 });
