@@ -175,7 +175,8 @@ export interface EntryScreen {
     /** Turns the "Compared" filter on: the compared files and their base. */
     showCompared(): void;
     /** The Recipe the table scans with (its edited one, else the host's), and the one its scans run; null before either is known. */
-    recipes(): { recipe: RecipeDocument; runRecipe?: RecipeDocument } | null;
+    /** The Recipe, and the one its scans run; `channels`: the fewest of the files they run on, when not the table's. */
+    recipes(channels?: number): { recipe: RecipeDocument; runRecipe?: RecipeDocument } | null;
     /** What the table currently shows, for tests. */
     snapshot(): {
         open: boolean; docked: boolean; cols: number; rows: number; visible: number; scanned: number; slots: (string | null)[]; focused: string | null;
@@ -785,9 +786,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return fewest;
     }
     /** The Recipe the scans run; undefined is the host's own, unchanged (nothing edited, no step left out). */
-    function runRecipe(): RecipeDocument | undefined {
+    function runRecipe(channels?: number): RecipeDocument | undefined {
         const recipe = editedRecipe ?? (Object.keys(failed).length ? standardRecipe : null);
-        return recipe ? runnableRecipe(recipe, limits()) : undefined;
+        return recipe ? runnableRecipe(recipe, channels ? { ...limits(), channels } : limits()) : undefined;
     }
     function compareData(stage?: string): CompareData {
         return { model: entryModel(), results, slots: slotFiles(), recipe: editedRecipe ?? standardRecipe, runRecipe: runRecipe(), failed, stale: stalePaths(), ...(stage ? { stage } : {}) };
@@ -1882,9 +1883,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             filters = [{ column: 'name', kind: 'values', values: [...new Set(rows.filter(row => wanted.has(row.filePath)).map(row => row.name))] }];
             mode = 'all'; tableWrap.scrollTop = 0; rebuild();
         },
-        recipes() {
+        recipes(channels) {
             const recipe = editedRecipe ?? standardRecipe;
-            return recipe ? { recipe, runRecipe: runRecipe() } : null;
+            return recipe ? { recipe, runRecipe: runRecipe(channels) } : null;
         },
         snapshot: () => ({
             open: !screen.hidden && maximized, docked: !screen.hidden && !maximized, cols: Number(screen.dataset.cols ?? 0), rows: rows.length, visible: shownRows.length,

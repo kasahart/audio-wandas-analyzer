@@ -145,7 +145,7 @@ function stepLabel(step: RecipeStep, strings: StepBarStrings, state: StepBarStat
         case 'resampling': return `→ ${hzText(p['target_sr'])}`;
         // Source ids ("c1") are named as wandas has them; indices as channels from 1.
         case 'select_pair': return typeof p['output'] === 'string' || typeof p['input'] === 'string' ? `${String(p['output'])} / ${String(p['input'])}`
-            : strings.stepPair.replace('{output}', channelText(p['output'], state.channels)).replace('{input}', channelText(p['input'], state.channels));
+            : strings.stepPair.replace('{output}', channelText(p['output'], step.channels ?? state.channels)).replace('{input}', channelText(p['input'], step.channels ?? state.channels));
         case 'noct_spectrum': {
             const octave = p['n'] !== undefined && p['n'] !== 3 ? `1/${formatNumber(p['n'])} oct` : strings.stepOctave;
             return expanded && bandRange(p) ? `${octave} ${bandRange(p)}` : octave;
@@ -364,11 +364,13 @@ export function createStepBar(deps: {
                 + field('start', strings.stepRegionStart, range.start) + field('end', strings.stepRegionEnd, range.end)
                 + `<div class="step-form-bar"><button type="button" data-action="step-region-clear">${escapeHtml(strings.stepRemove)}</button><button type="button" class="entry-primary" data-action="step-apply">${escapeHtml(strings.stepApply)}</button></div></div>`;
         }
+        // The channels at this step (a selection before it may leave fewer than the files have).
+        const channels = step.channels ?? state.channels;
         const field = (param: StepParam): string => {
             const value = step.params[param.name];
             const input = param.kind === 'enum'
                 ? `<select data-step-param="${param.name}">${param.options.map(option => `<option${option === value ? ' selected' : ''}>${option}</option>`).join('')}</select>`
-                : `<input type="number" data-step-param="${param.name}" value="${escapeHtml(param.kind === 'int' && param.channel ? channelText(value, state.channels) : formatNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}"${param.kind === 'int' && param.channel ? ` min="1"${state.channels ? ` max="${state.channels}"` : ''}` : ''}>`;
+                : `<input type="number" data-step-param="${param.name}" value="${escapeHtml(param.kind === 'int' && param.channel ? channelText(value, channels) : formatNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}"${param.kind === 'int' && param.channel ? ` min="1"${channels ? ` max="${channels}"` : ''}` : ''}>`;
             const bad = step.invalid === param.name;
             const name = param.kind === 'int' && param.channel ? (param.channel === 'output' ? strings.stepPairOutput : strings.stepPairInput) : param.name;
             return `<label class="step-field${bad ? ' is-invalid' : ''}"${bad ? ` ${hintAttr(invalidReason(step, strings))}` : ''}>${escapeHtml(name)} ${input}${param.kind === 'float' && param.unit ? ` ${param.unit}` : ''}</label>`;

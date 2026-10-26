@@ -1122,12 +1122,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     if (state.entry && allSelectableFilePaths.length) {
         entryScreen.open(allSelectableFilePaths, state.rootPath);
     }
+    /** The fewest channels of the tracks compared (a hidden track is not). */
+    const comparedChannels = (): number | undefined => trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => !record.runtime.hidden && !record.result.error)
+        .reduce<number | undefined>((fewest, record) => Math.min(fewest ?? Infinity, record.result.channelCount), undefined);
     stageMode = createTrackStageMode({
         document,
         window: window as unknown as TrackStageDeps['window'],
         strings: STR,
         post: message => messaging.post(message),
-        recipe: () => entryScreen.recipes(),
+        // The steps the comparison runs are bounded by the tracks it compares, not every file of the table.
+        recipe: () => entryScreen.recipes(comparedChannels()),
         slots: () => entryScreen.slots(),
         basePaths: (comparePath, group) => entryScreen.basePaths(comparePath, group),
         baseTitle: (comparePath, group) => entryScreen.baseTitle(comparePath, group),
@@ -1163,9 +1167,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return tracks;
         },
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
-        // The fewest channels of the tracks compared (a hidden track is not).
-        channels: () => trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => !record.runtime.hidden && !record.result.error)
-            .reduce<number | undefined>((fewest, record) => Math.min(fewest ?? Infinity, record.result.channelCount), undefined),
+        channels: () => comparedChannels(),
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),
         inFront: () => !entryScreen.isOpen(),
@@ -1194,7 +1196,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const data = entryScreen.compareData();
             const results = region ? new Map([...data.results, ...measured]) : data.results;
             const { folder, files } = reportFiles(document, {
-                model: data.model, results, slots: data.slots, region, recipe: data.runRecipe ?? data.recipe ?? null, recipeName: STR.stepRecipeName, now: new Date(), showDiff,
+                model: data.model, results, slots: data.slots, region, recipe: entryScreen.recipes(comparedChannels())?.runRecipe ?? data.recipe ?? null, recipeName: STR.stepRecipeName, now: new Date(), showDiff,
                 // The comparisons as the table defines their bases (grouping, filters, channel), and what it was narrowed to.
                 compare: path => entryScreen.comparison(path, false, results),
                 rowInfo: path => ({ ...entryScreen.rowInfo(path), channel: entryScreen.stageChannel(path, path), base: entryScreen.baseDefinition(path) }),
