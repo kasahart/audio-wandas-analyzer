@@ -1204,6 +1204,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     placeDistribution();
     function setMaximized(next: boolean): void {
         if (!next) stepBar.close();
+        // The table's 書き出し menu shows only maximized: it does not come back open.
+        if (!next) query<HTMLDetailsElement>('#entry-export-menu').open = false;
         maximized = next;
         placeDistribution();
         screen.classList.toggle('is-max', next);
@@ -1492,9 +1494,17 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const row = target.closest<HTMLElement>('tr[data-key]');
         if (row) { focused = row.getAttribute('data-key'); focusPicked = true; render(); }
     });
+    /** The maximized table's 書き出し menu: closed by a press outside it and by Esc, like the toolbar's menus. */
+    const exportMenu = query<HTMLDetailsElement>('#entry-export-menu');
+    function closeExportMenu(): boolean {
+        if (!exportMenu.open) return false;
+        exportMenu.open = false;
+        return true;
+    }
     // A press outside an open popover closes it (a memo is kept).
     document.addEventListener('pointerdown', event => {
         const target = event.target as Element;
+        if (!exportMenu.contains(target)) closeExportMenu();
         if (screen.hidden || target.closest?.('[data-entry-pop], [data-action="entry-fhead"], [data-action="entry-fadd"], [data-action="entry-fchip"], [data-action="entry-row-slotmenu"], [data-action="entry-row-memo"], [data-action="entry-slot"][data-slot="0"], [data-action="entry-batch"], #tb-export-menu, #entry-export-menu')) return;
         closePopovers();
     }, true);
@@ -1685,7 +1695,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** Maximized, the table takes the keys; in the side panel, only keys pressed while it has the focus. */
     const keysHere = (event: Event): boolean => !screen.hidden && (maximized || screen.contains(event.target as Node));
     /** A button, a field or a popover takes its own keys (Enter, Space, digits): the table's keys act on rows only. */
-    const ownKeys = (event: Event): boolean => !!(event.target as Element | null)?.closest?.('button, select, input, textarea, [data-entry-pop], [data-step-bar], #entry-range-popover');
+    const ownKeys = (event: Event): boolean => !!(event.target as Element | null)?.closest?.('button, summary, select, input, textarea, [data-entry-pop], [data-step-bar], #entry-range-popover');
     window.addEventListener('keydown', (event: KeyboardEvent) => {
         if (!keysHere(event)) return;
         if ((event.target as Element | null)?.closest?.('[data-step-bar], #entry-range-popover')) return;
@@ -1696,6 +1706,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             // Esc closes the innermost thing: a popover, the step bar's form, the unmatched or excluded list;
             // then the maximized table shrinks into the side panel, and the side panel hands the keys back.
             if (closePopovers()) return;
+            if (closeExportMenu()) return;
             if (stepBar.close()) return;
             if (mode !== 'all') { mode = 'all'; rebuild(); return; }
             // The range picked on the distribution goes before the table shrinks.

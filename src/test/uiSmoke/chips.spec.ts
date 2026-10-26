@@ -14,7 +14,7 @@ test('controls follow the chip design: slots by role and state, a white primary,
     const open = page.locator('[data-action="entry-open"]');
     expect(await style(open, 'background-color')).not.toBe(BLUE);
     expect(await style(open, 'height')).toBe('28px');
-    // Slots: 0 (the base) tinted blue; an empty slot 1–3 has no chip.
+    // Slots: 0 (the base) tinted blue; an empty slot 2–3 has no chip (an empty 1 shows while nothing is compared).
     const base = page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]');
     expect(await style(base, 'border-top-color')).toBe(BLUE);
     await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="2"]')).toHaveCount(0);

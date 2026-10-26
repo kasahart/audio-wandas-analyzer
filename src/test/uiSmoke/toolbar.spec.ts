@@ -284,6 +284,47 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(page.locator('.track-row')).toHaveCount(2);
 });
 
+test('the table shows where a recording goes, keeps its exports reachable by keys, and hides them with the folded panel', async ({ page }) => {
+    const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
+    mkdirSync(join(folder, 'rec'));
+    writeFileSync(join(folder, 'rec', 'first.wav'), tinyWav());
+    await openStaticPage(page, 'window.showDirectoryPicker = undefined;');
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('#selection-toolbar [data-action="open-folder"]').click();
+    await (await chooser).setFiles(join(folder, 'rec'));
+    await leaveEntryTable(page);
+    // Nothing compared yet: an empty slot 1 shows where a recording goes, and Enter lights it up.
+    const slot1 = page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="1"]');
+    await expect(slot1).toHaveClass(/is-empty/);
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('Enter');
+    await expect(slot1).toHaveClass(/is-flash/);
+
+    // The maximized table's 書き出し opens from the keyboard; Esc closes the menu before it shrinks the table.
+    await page.locator('#entry-screen [data-action="entry-maximize"]').click();
+    const menu = page.locator('#entry-export-menu');
+    await menu.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    await expect(menu).toHaveAttribute('open', '');
+    await page.keyboard.press('Escape');
+    await expect(menu).not.toHaveAttribute('open', '');
+    await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
+    // A press outside it closes it too.
+    await menu.locator('summary').click();
+    await expect(menu).toHaveAttribute('open', '');
+    await page.locator('[data-entry-table]').click({ position: { x: 5, y: 5 } });
+    await expect(menu).not.toHaveAttribute('open', '');
+    await page.locator('#entry-screen [data-action="entry-maximize"]').click();
+
+    // With the side panel folded, the table's exports leave the toolbar's 書き出し too.
+    await page.locator('#tb-export-menu > summary').click();
+    await expect(page.locator('#toolbar [data-action="entry-batch"]')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.locator('#selection-sidebar [data-action="toggle-selection-sidebar"]').click();
+    await page.locator('#tb-export-menu > summary').click();
+    await expect(page.locator('#toolbar [data-action="entry-batch"]')).toBeHidden();
+});
+
 test('static page recipe menu drops from the Export menu, stays in the window, closes on Escape and runs a local recipe file', async ({ page }) => {
     await openStaticPage(page);
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });

@@ -210,7 +210,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
             'entry-slot',
             'entry-base-group',
             'entry-base-row',
-                    'entry-derived-remove',
+            'entry-derived-remove',
             'entry-export-notes',
             'entry-batch',
             'entry-batch-go',

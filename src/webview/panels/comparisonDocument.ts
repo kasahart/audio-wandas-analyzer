@@ -649,7 +649,9 @@ export function renderComparisonStyles(): string {
         #directory-selection-layout.is-empty #toolbar > :not(#app-version), #directory-selection-layout.is-empty #spectrum-section,
         #directory-selection-layout.is-empty [data-action="spectrum-height-drag"] { display: none !important; }
         /* The 書き出し menu offers what can be written now: the comparison in the steps view, the table's exports while it is open. */
-        body:not(.is-stage-view) .tb-stage-only, body:not(:has(#entry-screen:not([hidden]))) .tb-entry-only { display: none !important; }
+        /* The table's exports show while the table does: not once the side panel holding it is folded. */
+        body:not(.is-stage-view) .tb-stage-only, body:not(:has(#entry-screen:not([hidden]))) .tb-entry-only,
+        body:has(#directory-selection-layout.sidebar-collapsed) .tb-entry-only { display: none !important; }
         #spectrum-section {
             border-top: 1px solid var(--line); background: var(--panel);
             display: flex; flex-direction: column; flex-shrink: 0; position: relative;

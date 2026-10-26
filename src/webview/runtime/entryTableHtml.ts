@@ -312,7 +312,9 @@ export function entrySlotsHtml(slots: readonly (string | null)[], label: (key: s
     /** Per slot, a note on its chip: e.g. its file is another slot's track, shown as that slot's channel. */
     notes: readonly (string | null)[] = []): string {
     // The base (a file, or a group's median when slot 0 is empty), then only the slots in use: an empty one says nothing the keys 1–3 do not.
-    return [0, 1, 2, 3].filter(slot => slot === 0 || slots[slot]).map(slot => {
+    // While nothing is compared, an empty slot 1 shows where a recording goes (and lights up when Enter finds nothing to compare).
+    const comparing = slots.slice(1).some(Boolean);
+    return [0, 1, 2, 3].filter(slot => slot === 0 || slots[slot] || (slot === 1 && !comparing)).map(slot => {
         const key = slots[slot] ?? null;
         const hint = (key ? strings.dsSlotFilledHint : strings.dsSlotEmptyHint) + (notes[slot] ? ` · ${notes[slot]}` : '');
         const chip = slotHtml({
