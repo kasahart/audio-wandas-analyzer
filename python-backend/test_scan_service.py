@@ -428,3 +428,45 @@ def test_a_steps_picture_comes_alone(tmp_path: Path) -> None:
     for stage in ("node-0", "node-1", "node-2"):
         result = _scan(service, path, stage=stage)
         assert set(result) == {"ok", "input", "stage", "specVersion", "wandasVersion", "elapsedMs"}
+
+
+def _with_channel(recipe: dict, index: int) -> dict:
+    """The webview's withChannel: a get_channel step at the head of the chain (channelSelection.ts)."""
+    copy = json.loads(json.dumps(recipe))
+    for node in copy["nodes"]:
+        node["inputs"] = ["node-channel" if item == "input-0" else item for item in node["inputs"]]
+    copy["nodes"].insert(
+        0,
+        {
+            "id": "node-channel",
+            "operation": "wandas.frame.get_channel",
+            "version": 1,
+            "inputs": ["input-0"],
+            "params": {"$type": "map", "entries": [["channel_idx", index]]},
+        },
+    )
+    return copy
+
+
+def test_a_recipe_that_starts_with_get_channel_scans_and_draws_that_channel(tmp_path: Path) -> None:
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "two.wav", [_sine(1000, 0.5), _sine(3150, 0.1)])
+    whole = _scan(service, path)
+    request = validate_request(
+        {"cmd": "scan", "requestId": "r", "filePath": path, "recipe": _with_channel(ENTRY_RECIPE, 1)}
+    )
+    ch2 = dispatch(request, service)
+    assert ch2["ok"] is True
+    assert ch2["leqDbA"] == pytest.approx(whole["leqDbA"][1:], abs=1e-6)
+    assert ch2["thirdOctDb"] == [whole["thirdOctDb"][1]]
+    # A step's picture is of that channel only (its 3.15 kHz tone, not the 1 kHz one of ch 1).
+    welch = next(node["id"] for node in ENTRY_RECIPE["nodes"] if node["operation"] == "wandas.audio.welch")
+    ch2_recipe = _with_channel(ENTRY_RECIPE, 1)
+    staged = dispatch(
+        validate_request({"cmd": "scan", "requestId": "r", "filePath": path, "recipe": ch2_recipe, "stage": welch}),
+        service,
+    )
+    assert staged["ok"] is True
+    view = staged["stage"]
+    peak = view["xs"][int(np.argmax([value if value is not None else -1e9 for value in view["values"]]))]
+    assert 2800 < peak < 3500

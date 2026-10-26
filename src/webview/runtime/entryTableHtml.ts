@@ -1,123 +1,76 @@
 /**
- * Markup for the entry screen: one row per file, the condition the row belongs to, and three numbers.
- * Text is limited to column names, numbers and a few button labels; actions are `data-action`
- * attributes handled by entryRuntime.ts.
+ * Markup for the entry screen: one row per recording and channel with four columns (the file, its channel, the
+ * group it belongs to and the value on show), each header with a spreadsheet-like ▾ (sort, search, a check list
+ * or a range); the row's tools (▶, its slot, a memo, take it out) right after its name; the filters as chips;
+ * the CSV rows and recordings that did not match, with why. Text is limited to names, numbers and short labels;
+ * actions are `data-action` attributes handled by entryRuntime.ts.
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
-import { BAND_CENTERS_HZ, bandLabel, isOutlierRow, maxBandDelta, type EntryColumn, type EntryConditionColumn, type EntryModel, type EntryRow } from './entryTable';
+import { groupOf, middleEllipsis, valueOf, type ColumnId, type DatasetFilter, type DatasetRow, type GroupId, type Results, type Unmatched, type ValueId } from '../../shared/dataset/datasetTable';
 
-export type EntryStrings = Pick<UiStrings,
-    | 'entryColFile' | 'entryColCondition' | 'entryColLeq' | 'entryColPeak' | 'entryOpen' | 'entryPasteConditions'
-    | 'entryOutliers' | 'entryBaseGroup' | 'entryBase' | 'entryCount' | 'entryNoOutliers' | 'entryKeyHoldDelta'
-    | 'entryKeySlot' | 'entryUnreadable' | 'entryConditionsApply' | 'entryConditionsClear' | 'entryConditionsClose'
-    | 'entryConditionsPlaceholder' | 'hintColumnsMore' | 'hintFailedFilter' | 'hintOutlierFilter' | 'hintSortMark' | 'hintOverview'
-    | 'slotEmpty' | 'entryUnavailable' | 'entryShape' | 'entryCalibrated' | 'entryBandUnit' | 'hintCalibratedColumn' | 'hintRowSlot' | 'hintRowBase' | 'hintRowHide' | 'hintRowRemove' | 'hintEntryMaximize' | 'hintLeqUncalibrated' | 'hintScatterAxis' | 'hintBandSelect' | 'hintEntryProgress' | 'hintBaseChip' | 'hintSlotCard' | 'hintSlotEmpty' | 'hintRowPlay' | 'hintRowStop' | 'hintComparedFilter' | 'entryCompared'>;
+export type EntryStrings = UiStrings;
 
-export interface EntryView {
-    model: EntryModel;
-    /** Files with a result so far, for the progress count. */
-    scanned: number;
-    total: number;
-    /** File paths in slots 0–3. */
+/** A column of the table, as its header names it. */
+export interface DatasetColumn { id: ColumnId; label: string; numeric: boolean; title?: string }
+
+export interface DatasetScreenView {
+    /** The rows on screen (filtered, sorted) and how many rows there are in all. */
+    rows: readonly DatasetRow[];
+    results: Results;
+    group: GroupId;
+    value: ValueId;
+    columns: { name: DatasetColumn; ch: DatasetColumn; group?: DatasetColumn; value: DatasetColumn };
+    filters: readonly DatasetFilter[];
+    sort: { column: 'name' | 'ch' | 'group' | 'value'; descending: boolean };
+    /** Row keys in slots 0–3. */
     slots: readonly (string | null)[];
     focused: string | null;
-    delta: boolean;
-    filter: 'all' | 'outliers' | 'failed' | 'compared';
-    /** Shows the metadata columns that do not decide the condition. */
-    expanded: boolean;
-    /** While 0 is held with a file in slot 0, Δ is against that file instead of each row's condition. */
-    baseRow?: EntryRow;
-    /** The Recipe's chain does not end in a spectrum or band levels: Leq only, no band columns. */
-    leqOnly?: boolean;
-    /** Rows measured with an earlier chain: shown greyed until scanned again. */
+    playing: string | null;
+    memo: ReadonlyMap<string, string>;
+    /** Whether the value on show is computed for every row on screen. */
+    valueReady: boolean;
+    /** Files whose results are of an earlier chain: greyed. */
     stale?: ReadonlySet<string>;
-    /** Files shown as tracks in the track view, and whether each is hidden there (👁). */
-    shown?: ReadonlyMap<string, boolean>;
-    /** What the files in slots 1–3 are compared against: the slot-0 file, or the other files of their conditions. */
-    base?: ReadonlySet<string>;
-    /** The file playing in the track view. */
-    playing?: string | null;
-    /**
-     * The rows in groups (the side panel's: by subfolder, files added from elsewhere first), each with its heading;
-     * a folded group shows its heading only. Without it, or with one group, the rows are not grouped.
-     */
-    groups?: { of(row: EntryRow): string; label(key: string): string; folded: ReadonlySet<string> };
+    /** Files shown as tracks in the track view: their names read bold. */
+    shown?: ReadonlySet<string>;
+    mode: 'all' | 'unmatched' | 'excluded';
+    unmatched: readonly Unmatched[];
+    /** A filter of a column shows ▼ (on) in its header. */
+    filtered: ReadonlySet<ColumnId>;
+    /** Differences fixed with D, under the row they were fixed on (muted, not counted anywhere). */
+    derived?: (row: DatasetRow) => readonly DerivedItem[];
 }
 
-/** The rows group by group, by key; each group keeps the rows' own order (the table's sort). */
-function grouped(rows: EntryRow[], of: (row: EntryRow) => string): Array<[string, EntryRow[]]> {
-    const groups = new Map<string, EntryRow[]>();
-    for (const row of rows) {
-        const key = of(row);
-        groups.set(key, [...(groups.get(key) ?? []), row]);
-    }
-    // Keys sort as the groups are shown: files added from elsewhere ('0') first, then the folders ('1…') by name.
-    return [...groups.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-}
+/** A difference fixed on the comparison (D), as its row under its parent shows it. */
+export interface DerivedItem { key: string; label: string; value: string; stale: boolean; title: string; parentPath: string; region: string; baseLabel: string }
 
-/** A row's own controls: ▶ plays it, 0 makes it the base, 1 2 3 put it in a slot; a file shown as a track has 👁 (show / hide) and ×. */
-function trackCell(row: EntryRow, view: Pick<EntryView, 'shown' | 'playing' | 'slots'>, strings: EntryStrings): string {
-    if (row.derived) return '<td class="entry-track-col"></td>';
-    const path = escapeHtml(row.filePath);
-    const hidden = view.shown?.get(row.filePath);
-    // ▶ plays the file alone (shown as a track while it plays); ■ stops it.
-    const playing = view.playing === row.filePath;
-    const playHint = playing ? strings.hintRowStop : strings.hintRowPlay;
-    const play = row.status === 'failed' ? ''
-        : `<button type="button" class="entry-row-btn entry-row-play${playing ? ' is-playing' : ''}" data-action="entry-row-play" data-path="${path}" aria-pressed="${playing}" aria-label="${escapeHtml(playHint)}"${hintAttr(playHint)}>${playing ? '■' : '▶'}</button>`;
-    const slotButtons = row.status !== 'ok' ? '' : [0, 1, 2, 3].map(slot => {
-        const hint = slot === 0 ? strings.hintRowBase : strings.hintRowSlot.replaceAll('{n}', String(slot));
-        const inSlot = view.slots[slot] === row.filePath;
-        return `<button type="button" class="entry-row-btn entry-row-slot slot-${slot}${inSlot ? ' is-in' : ''}" data-action="entry-row-slot" data-slot="${slot}" data-path="${path}" aria-pressed="${inSlot}" aria-label="${escapeHtml(hint)}"${hintAttr(hint)}>${slot}</button>`;
-    }).join('');
-    if (hidden === undefined) return `<td class="entry-track-col">${play}${slotButtons}</td>`;
-    return `<td class="entry-track-col is-shown">${play}${slotButtons}<button type="button" class="entry-row-btn" data-action="entry-row-hide" data-path="${path}" aria-pressed="${hidden}" aria-label="${escapeHtml(strings.hintRowHide)}"${hintAttr(strings.hintRowHide)}>${hidden ? '◌' : '👁'}</button>`
-        + `<button type="button" class="entry-row-btn" data-action="entry-row-remove" data-path="${path}" aria-label="${escapeHtml(strings.hintRowRemove)}"${hintAttr(strings.hintRowRemove)}>×</button></td>`;
+/** The table's lines: each row, then the differences fixed on it. */
+export function tableLines(view: Pick<DatasetScreenView, 'rows' | 'derived' | 'mode'>): Array<DatasetRow | DerivedItem> {
+    if (!view.derived || view.mode !== 'all') return [...view.rows];
+    return view.rows.flatMap(row => [row, ...view.derived!(row)]);
 }
-
-/** The condition columns on screen: the checked ones, and the rest while expanded. */
-export function shownColumns(view: Pick<EntryView, 'model' | 'expanded'>): EntryConditionColumn[] {
-    return view.model.columns.filter(column => column.checked || view.expanded);
-}
-
-/** The calibration column is shown only when some file is calibrated: a column that is always empty says nothing. */
-function calibratedColumn(model: EntryModel): boolean {
-    return model.rows.some(row => row.status === 'ok' && !row.derived && !row.uncalibrated);
-}
-
-function hiddenCount(view: Pick<EntryView, 'model'>): number {
-    return view.model.columns.filter(column => !column.checked).length;
-}
-
-const fmt = (value: number | null, digits: number): string => (value === null ? '—' : value.toFixed(digits).replace(/^-/, '−'));
-const signed = (value: number | null): string => (value === null ? '—' : `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(1)}`);
+const isDerived = (line: DatasetRow | DerivedItem): line is DerivedItem => 'baseLabel' in line;
 
 export function entryScreenHtml(strings: EntryStrings): string {
     return `<section id="entry-screen" class="entry-screen" data-entry-screen hidden aria-label="${escapeHtml(strings.entryColFile)}">
     <div class="entry-bar">
-        <div class="entry-seg" role="group">
-            <button type="button" class="entry-filter" data-action="entry-filter-outliers" aria-pressed="false"${hintAttr(strings.hintOutlierFilter)}><span class="entry-seg-dot" aria-hidden="true"></span>${escapeHtml(strings.entryOutliers)} <span data-entry-count="outliers">0</span></button>
-            <button type="button" class="entry-filter" data-action="entry-filter-failed" aria-pressed="false"${hintAttr(strings.hintFailedFilter)}>${escapeHtml(strings.entryUnavailable)} <span data-entry-count="failed">0</span></button>
-            <button type="button" class="entry-filter entry-filter-compared" data-action="entry-filter-compared" aria-pressed="false" hidden${hintAttr(strings.hintComparedFilter)}>${escapeHtml(strings.entryCompared)} <span data-entry-count="compared">0</span></button>
-        </div>
-        <button type="button" class="step-chip" data-action="entry-paste-conditions"><span data-entry-source>${escapeHtml(strings.entryPasteConditions)}</span><svg class="step-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 3h10M1 9h10"/><circle cx="4" cy="3" r="1.6"/><circle cx="8" cy="9" r="1.6"/></svg></button>
-        <span class="entry-progress awa-tag" data-entry-progress${hintAttr(strings.hintEntryProgress)}>0 / 0</span>
-        <span class="entry-stale" data-entry-stale></span>
         <span class="entry-spacer"></span>
-        <button type="button" data-action="entry-export-csv">CSV</button>
+        <button type="button" class="entry-filter" data-action="entry-view-unmatched" aria-pressed="false" hidden></button>
+        <button type="button" class="entry-filter" data-action="entry-view-excluded" aria-pressed="false"${hintAttr(strings.hintExcluded)}></button>
+        <button type="button" class="step-chip entry-csv-pick" data-action="entry-pick-csv"${hintAttr(strings.hintPickCsv)}><span data-entry-source>${escapeHtml(strings.dsPickCsv)}</span></button>
+        <input type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" data-entry-csv-input hidden>
+        <button type="button" data-action="entry-export-csv">CSV ⤓</button>
         <button type="button" class="entry-primary" data-action="entry-open">${escapeHtml(strings.entryOpen)} <kbd>Enter</kbd></button>
         <button type="button" class="entry-size" data-action="entry-maximize" aria-pressed="false"${hintAttr(strings.hintEntryMaximize)}>⤢</button>
     </div>
+    <div class="entry-chips" data-entry-chips></div>
     <div class="entry-body">
-        <div class="entry-table-wrap"><table class="entry-table" data-entry-table><thead data-entry-head></thead><tbody data-entry-rows></tbody></table></div>
+        <div class="entry-table-wrap"><table class="entry-table" data-entry-table><colgroup data-entry-cols></colgroup><thead data-entry-head></thead><tbody data-entry-rows></tbody></table></div>
         <aside class="entry-side">
-            <div class="entry-scatter">
-                <select data-action="entry-axis-y" aria-label="y"${hintAttr(strings.hintScatterAxis)}></select>
-                <canvas data-entry-scatter></canvas>
-                <select class="entry-axis-x" data-action="entry-axis-x" aria-label="x"${hintAttr(strings.hintScatterAxis)}></select>
-                <span class="entry-point-tip" data-entry-point-tip hidden></span>
+            <div class="entry-dist-area" data-entry-dist-area>
+                ${distributionHtml(strings)}
                 <div class="entry-held" data-entry-held hidden>
                     <span data-entry-held-title></span>
                     <canvas data-entry-held-canvas></canvas>
@@ -131,173 +84,197 @@ export function entryScreenHtml(strings: EntryStrings): string {
         <span class="entry-spacer"></span>
         <span class="entry-keys" data-entry-keys></span>
     </div>
-    <div class="entry-dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(strings.entryPasteConditions)}" data-entry-dialog hidden>
-        <textarea data-entry-paste rows="6" placeholder="${escapeHtml(strings.entryConditionsPlaceholder)}"></textarea>
-        <div class="entry-dialog-columns" data-entry-columns></div>
-        <div class="entry-dialog-bar">
-            <span data-entry-unmatched></span>
-            <span class="entry-spacer"></span>
-            <button type="button" data-action="entry-conditions-clear">${escapeHtml(strings.entryConditionsClear)}</button>
-            <button type="button" data-action="entry-conditions-close">${escapeHtml(strings.entryConditionsClose)}</button>
-            <button type="button" class="entry-primary" data-action="entry-conditions-apply">${escapeHtml(strings.entryConditionsApply)}</button>
-        </div>
-    </div>
 </section>`;
 }
 
-export function entryHeadHtml(view: Pick<EntryView, 'model' | 'delta' | 'expanded' | 'leqOnly'>, strings: EntryStrings): string {
-    const { model, delta } = view;
-    // While the scan runs the rows keep the files' order, so the arrow is greyed until they sort by Δ.
-    const sortMark = (column: EntryColumn): string => (model.sort === column
-        ? ` <span class="entry-sort${model.order === 'file' ? ' is-pending' : ''}"${hintAttr(strings.hintSortMark)}>▼Δ</span>` : '');
-    const level = (label: string, column: EntryColumn): string => (delta && column !== 'peak' ? `Δ ${label}` : label);
-    const conditionHeads = shownColumns(view).map((column, position) => (column.index < 0
-        ? `<th class="entry-col-cond">${escapeHtml(strings.entryColCondition.replace('{n}', String(position + 1)))}</th>`
-        : `<th class="entry-col-cond"><button type="button" class="entry-column${column.checked ? ' is-checked' : ''}" data-action="entry-column" data-column="${column.index}" aria-pressed="${column.checked}">${escapeHtml(column.name)}</button></th>`)).join('');
-    const hidden = hiddenCount(view);
-    const more = hidden ? `<th class="entry-more-col entry-col-cond"><button type="button" data-action="entry-columns-more" aria-expanded="${view.expanded}"${hintAttr(strings.hintColumnsMore)}>${view.expanded ? '−' : `+${hidden}`}</button></th>` : '';
-    // Only bands some file has a level for: the rest would fill the column with "—".
-    const measured = BAND_CENTERS_HZ.map((_, band) => band).filter(band => band === model.band || model.rows.some(row => row.levels?.[band] !== null && row.levels?.[band] !== undefined));
-    const bandOptions = measured.map(band => `<option value="${band}"${band === model.band ? ' selected' : ''}>${escapeHtml(bandLabel(band))}</option>`).join('');
-    const calibration = calibratedColumn(view.model) ? `<th class="entry-col-cal"${hintAttr(strings.hintCalibratedColumn)}>${escapeHtml(strings.entryCalibrated)}</th>` : '';
-    const unit = strings.entryBandUnit.replace('{unit}', view.model.rows.some(row => row.status === 'ok' && row.uncalibrated) && !calibratedColumn(view.model) ? 'dBFS' : 'dB');
-    return `<tr>
-        <th class="entry-badge-col"></th>
-        <th>${escapeHtml(strings.entryColFile)}</th>
-        <th class="entry-track-col"></th>
-        ${calibration}
-        ${conditionHeads}${more}
-        <th class="entry-num entry-col-leq${model.sort === 'leq' ? ' is-sorted' : ''}"><button type="button" class="entry-sort-button" data-action="entry-sort-leq"${model.rows.some(row => row.uncalibrated) ? hintAttr(strings.hintLeqUncalibrated) : ''}>${escapeHtml(level(strings.entryColLeq, 'leq'))}</button>${sortMark('leq')}</th>
-        ${view.leqOnly ? '' : `<th class="entry-num entry-col-peak">${escapeHtml(strings.entryColPeak)}</th>
-        <th class="entry-num entry-col-band${model.sort === 'band' ? ' is-sorted' : ''}"><select data-action="entry-band" aria-label="1/3 oct"${hintAttr(strings.hintBandSelect)}>${bandOptions}</select><button type="button" class="entry-sort-button" data-action="entry-sort-band">${delta ? 'Δ dB' : escapeHtml(unit)}</button>${sortMark('band')}</th>`}
-    </tr>`;
-}
-
-function badge(row: EntryRow, slots: readonly (string | null)[]): string {
-    const slot = slots.indexOf(row.filePath);
-    if (slot >= 0) return `<span class="entry-badge entry-slot-${slot}">${slot}</span>`;
-    if (row.status === 'failed') return '<span class="entry-badge entry-failed">✕</span>';
-    return '';
-}
-
-/** The row's Δ in `column`: against its condition's other files, or against the slot-0 file while 0 is held. */
-function deltaOf(row: EntryRow, column: EntryColumn, base: EntryRow | undefined): { value: number | null; band?: number } {
-    if (!base || row.derived) {
-        return column === 'peak' ? { value: row.delta.peak, band: row.values.peak === null ? undefined : BAND_CENTERS_HZ.indexOf(row.values.peak as typeof BAND_CENTERS_HZ[number]) } : { value: row.delta[column] };
-    }
-    if (column === 'peak') {
-        const max = row.levels && base.levels && row !== base ? maxBandDelta(row.levels, [base.levels]) : null;
-        return max ? { value: max.delta, band: max.band } : { value: null };
-    }
-    const value = row.values[column], reference = base.values[column];
-    return { value: value === null || reference === null ? null : value - reference };
-}
-
-/** One number of a row; its column's class lets a narrow table show only the columns that fit (the sorted one first). */
-function cell(row: EntryRow, column: EntryColumn, delta: boolean, sorted: EntryColumn, base?: EntryRow): string {
-    const columnClass = `entry-num entry-col-${column}${column === sorted ? ' is-sorted' : ''}`;
-    if (row.status !== 'ok') return `<td class="${columnClass}">—</td>`;
-    // A row fixed with D is a difference: it always reads as Δ.
-    if (row.derived) delta = true;
-    const classes = [columnClass];
-    if (row.outlier[column] && isOutlierRow(row) && !delta) classes.push('entry-outlier');
-    const shown = deltaOf(row, column, delta ? base : undefined);
-    // "Δ max band" always reads as a band and its Δ: "3.15 kHz +14.9".
-    if (column === 'peak') {
-        if (delta) classes.push('entry-delta');
-        return `<td class="${classes.join(' ')}">${shown.band === undefined || shown.band < 0 ? '—' : `${escapeHtml(bandLabel(shown.band))} ${signed(shown.value)}`}</td>`;
-    }
-    if (delta) {
-        classes.push('entry-delta');
-        return `<td class="${classes.join(' ')}">${signed(shown.value)}</td>`;
-    }
-    return `<td class="${classes.join(' ')}">${fmt(row.values[column], 1)}</td>`;
-}
-
-function rowVisible(row: EntryRow, filter: EntryView['filter']): boolean {
-    return filter === 'all' || (filter === 'failed' ? row.status === 'failed' || (row.status === 'mismatch' && !row.derived) : isOutlierRow(row));
-}
-
 /**
- * "Compared only": the files in slots 1–3, then their base, nearest its median first (the smallest
- * Δ max band), so the top base row is the one to listen to as the base's typical sound.
+ * The distribution: what it draws (value, group) and its count, the computation and its progress, the slots'
+ * legend; the groups' rows (they scroll) and the axis (it stays). Above the table while a comparison is open.
  */
-export function comparedRows(view: Pick<EntryView, 'model' | 'slots' | 'base'>): EntryRow[] {
-    const live = view.model.rows.filter(row => !row.derived);
-    const slotted = view.slots.slice(1).flatMap(path => live.filter(row => row.filePath === path));
-    const distance = (row: EntryRow): number => Math.abs(row.delta.peak ?? row.delta.leq ?? Infinity);
-    const base = live.filter(row => view.base?.has(row.filePath) && !slotted.includes(row)).sort((a, b) => distance(a) - distance(b));
-    // Each compared file is followed by its own base (its condition's files), so two conditions do not mix.
-    const listed = new Set<EntryRow>();
-    const rows: EntryRow[] = [];
-    for (const row of slotted) {
-        rows.push(row);
-        const own = view.slots[0] ? base : base.filter(member => member.group !== undefined && member.group === row.group);
-        for (const member of own) if (!listed.has(member)) { listed.add(member); rows.push(member); }
-    }
-    return [...rows, ...base.filter(member => !listed.has(member))];
+function distributionHtml(strings: EntryStrings): string {
+    return `<div class="entry-dist" data-entry-dist>
+                    <div class="entry-dist-head">
+                        <button type="button" class="entry-dist-back" data-action="entry-dist-back"${hintAttr(strings.dsDistBackHint)}>${escapeHtml(strings.dsDistBack)}</button>
+                        <label class="entry-pick">${escapeHtml(strings.dsValue)} <select data-action="entry-value" aria-label="${escapeHtml(strings.dsValue)}"></select></label>
+                        <label class="entry-pick">${escapeHtml(strings.dsGroup)} <select data-action="entry-group" aria-label="${escapeHtml(strings.dsGroup)}"></select></label>
+                        <span class="entry-dist-n" data-entry-dist-count></span>
+                        <span class="entry-compute" data-entry-compute></span>
+                        <span class="entry-spacer"></span>
+                        <span class="entry-dist-legend" data-entry-dist-legend></span>
+                    </div>
+                    <div class="entry-dist-note" data-entry-dist-note></div>
+                    <div class="entry-dist-groups" data-entry-dist-groups></div>
+                    <div class="entry-dist-axis" data-entry-dist-axis></div>
+                    <div class="entry-dist-empty" data-entry-dist-empty hidden></div>
+                </div>`;
 }
 
-export function entryRowsHtml(view: EntryView, strings: EntryStrings): string {
-    if (view.filter === 'compared') return rowsHtml(comparedRows(view), view, strings);
-    const rows = view.model.rows.filter(row => rowVisible(row, view.filter));
-    const groups = view.groups ? grouped(rows, view.groups.of) : [];
-    if (!view.groups || groups.length < 2) return rowsHtml(rows, view, strings);
-    // A group's heading folds or opens it; the number is how many of its rows the filter shows.
-    return groups.map(([key, members]) => {
-        const folded = view.groups!.folded.has(key);
-        return `<tr class="entry-group" data-group="${escapeHtml(key)}"><td colspan="99"><button type="button" data-action="entry-group-toggle" data-group="${escapeHtml(key)}" aria-expanded="${!folded}">`
-            + `${folded ? '▸' : '▾'} ${escapeHtml(view.groups!.label(key))} <span class="entry-group-count">${members.length}</span></button></td></tr>`
-            + (folded ? '' : rowsHtml(members, view, strings));
+/** The value and group selects' options: the CSV's numeric columns, then what is computed from the sound. */
+export function valueOptionsHtml(options: ReadonlyArray<{ id: ValueId; label: string; computed: boolean; ready: boolean }>, chosen: ValueId, strings: EntryStrings): string {
+    const group = (computed: boolean, title: string): string => {
+        const items = options.filter(option => option.computed === computed);
+        return items.length ? `<optgroup label="${escapeHtml(title)}">${items.map(option => `<option value="${escapeHtml(option.id)}"${option.id === chosen ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</optgroup>` : '';
+    };
+    return group(false, strings.dsFromCsv) + group(true, strings.dsFromSound);
+}
+
+export function groupOptionsHtml(options: ReadonlyArray<{ id: GroupId; label: string }>, chosen: GroupId): string {
+    return options.map(option => `<option value="${escapeHtml(option.id)}"${option.id === chosen ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
+}
+
+/** A filter as its chip says it: "ch = 2", "score 0.30 〜 0.90", "line = L1 ほか 2". */
+export function filterChipText(filter: DatasetFilter, label: (column: ColumnId) => string, format: (column: ColumnId, value: number) => string, strings: EntryStrings): string {
+    const short = (text: string): string => middleEllipsis(text || strings.dsFilterBlank, 18);
+    const name = label(filter.column);
+    return filter.kind === 'range'
+        ? `${name} ${format(filter.column, filter.low)} 〜 ${format(filter.column, filter.high)}`
+        : `${name} = ${filter.values.length > 2 ? `${short(filter.values[0])} ほか ${filter.values.length - 1}` : filter.values.map(short).join(', ')}`;
+}
+
+/** The filters as chips (× takes one off), then ＋ to filter by a column that is not on screen. */
+export function filterChipsHtml(filters: readonly DatasetFilter[], label: (column: ColumnId) => string, format: (column: ColumnId, value: number) => string, strings: EntryStrings): string {
+    const chips = filters.map(filter => {
+        const text = filterChipText(filter, label, format, strings);
+        return `<span class="entry-fchip" data-testid="fchip"><button type="button" class="entry-fchip-body" data-action="entry-fchip" data-column="${escapeHtml(filter.column)}"${hintAttr(strings.dsFilterOn)}>${escapeHtml(text)}</button>`
+            + `<button type="button" class="entry-fchip-x" data-action="entry-fchip-clear" data-column="${escapeHtml(filter.column)}" aria-label="${escapeHtml(strings.dsChipRemove)}"${hintAttr(strings.dsChipRemove)}>×</button></span>`;
     }).join('');
+    return chips + `<button type="button" class="entry-fadd" data-action="entry-fadd">${escapeHtml(strings.dsFilterAdd)}</button>`;
 }
 
-function rowsHtml(rows: EntryRow[], view: EntryView, strings: EntryStrings): string {
-    const withCalibration = calibratedColumn(view.model);
-    const calibration = (row: EntryRow): string => (withCalibration ? `<td class="entry-col-cal">${row.status === 'ok' && !row.uncalibrated ? '✓' : ''}</td>` : '');
-    const columns = shownColumns(view);
-    const span = columns.length + (hiddenCount(view) ? 1 : 0);
-    return rows.map(row => {
+export function datasetColsHtml(view: Pick<DatasetScreenView, 'columns' | 'mode'>): string {
+    // The name and its four tools, then the channel, group and value right after them; spare width stays at the right end.
+    const group = view.mode === 'all' && view.columns.group ? '<col class="entry-col-group-w">' : '';
+    return view.mode === 'unmatched'
+        ? '<col class="entry-col-name-w"><col class="entry-col-reason-w"><col>'
+        : `<col class="entry-col-name-w"><col class="entry-col-ch-w">${group}<col class="entry-col-value-w"><col>`;
+}
+
+export function datasetHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
+    if (view.mode === 'unmatched') return `<tr><th>${escapeHtml(strings.entryColFile)}</th><th>${escapeHtml(strings.dsReason)}</th><th></th></tr>`;
+    const head = (sortKey: DatasetScreenView['sort']['column'], column: DatasetColumn, extra = '', disabled = false): string => {
+        const sorted = view.sort.column === sortKey;
+        const on = view.filtered.has(column.id);
+        const arrow = sorted ? (view.sort.descending ? ' ↓' : ' ↑') : '';
+        const hint = disabled ? strings.dsNotComputed : on ? strings.dsFilterOn : strings.dsFilterHead;
+        return `<th class="${column.numeric ? 'entry-num ' : ''}${sorted ? 'is-sorted' : ''}" data-column="${escapeHtml(column.id)}"><span class="entry-th">`
+            + `<span class="entry-th-label"${disabled ? hintAttr(strings.dsNotComputed) : column.title ? hintAttr(column.title) : ''}>${escapeHtml(column.label)}${extra}${arrow}</span>`
+            // A value not computed yet has nothing to sort or filter by: no ▾, and its header says why.
+            + (disabled ? '' : `<button type="button" class="entry-fbtn${on ? ' is-on' : ''}" data-action="entry-fhead" data-column="${escapeHtml(column.id)}" data-sort="${sortKey}" aria-label="${escapeHtml(`${column.label} ${strings.dsFilterHead}`)}"${hintAttr(hint)}>${on ? '▼' : '▾'}</button>`) + '</span></th>';
+    };
+    const count = ` <span class="entry-th-count">${escapeHtml(strings.dsRows.replace('{n}', view.rows.length.toLocaleString()))}</span>`;
+    return `<tr>${head('name', view.columns.name, count)}${head('ch', view.columns.ch)}${view.columns.group ? head('group', view.columns.group) : ''}${head('value', view.columns.value, '', !view.valueReady)}<th></th></tr>`;
+}
+
+/** The value as the table shows it: one decimal for levels, whole hertz, two decimals for a ratio or a CSV number as written. */
+export function formatValue(value: ValueId, number: number | null): string {
+    if (number === null) return '—';
+    const text = value === 'peak' ? String(Math.round(number)) : value === 'crest' ? number.toFixed(2) : value.startsWith('csv:') ? String(+number.toPrecision(6)) : number.toFixed(1);
+    return text.replace(/^-/, '−');
+}
+
+/** A row's tools right after its name: ▶, its slot (the badge once in one), ✎, 外す; those carrying state always show. */
+function toolsHtml(row: DatasetRow, view: DatasetScreenView, strings: EntryStrings): string {
+    const key = escapeHtml(row.key);
+    if (view.mode === 'excluded') return `<button type="button" class="entry-rbtn" data-action="entry-row-restore" data-key="${key}"${hintAttr(strings.dsRowRestore)}>${escapeHtml(strings.dsRowRestore)}</button>`;
+    const playing = view.playing === row.filePath;
+    const slot = view.slots.indexOf(row.key);
+    const memo = view.memo.get(row.key);
+    const playHint = playing ? strings.hintRowStop : strings.hintRowPlay;
+    return `<button type="button" class="entry-rbtn${playing ? ' is-on' : ' is-hover'}" data-action="entry-row-play" data-key="${key}" aria-pressed="${playing}" aria-label="${escapeHtml(playHint)}"${hintAttr(playHint)}>${playing ? '■' : '▶'}</button>`
+        + `<button type="button" class="entry-rbtn entry-rbtn-slot${slot >= 0 ? ` is-on slot-${slot}` : ' is-hover'}" data-action="entry-row-slotmenu" data-key="${key}" aria-haspopup="menu" aria-label="${escapeHtml(strings.dsRowSlot)}"${hintAttr(strings.dsRowSlot)}>${slot >= 0 ? `<span class="entry-badge entry-slot-${slot}">${slot}</span>` : '0–3'}</button>`
+        + `<button type="button" class="entry-rbtn${memo ? ' is-on' : ' is-hover'}" data-action="entry-row-memo" data-key="${key}" aria-label="${escapeHtml(strings.dsRowMemo)}"${hintAttr(memo ?? strings.dsRowMemo)}>✎</button>`
+        + `<button type="button" class="entry-rbtn is-hover" data-action="entry-row-exclude" data-key="${key}" aria-label="${escapeHtml(strings.dsRowExclude)}"${hintAttr(strings.dsRowExclude)}>${escapeHtml(strings.dsRowExcludeShort)}</button>`;
+}
+
+/** The rows `first` to `last` of the view (the rest as spacers of `rowHeight`), so a table of 100,000 rows draws only what is on screen. */
+export function datasetRowsHtml(view: DatasetScreenView, first: number, last: number, rowHeight: number, strings: EntryStrings): string {
+    const spacer = (rows: number): string => (rows > 0 ? `<tr class="entry-spacer-row" aria-hidden="true" style="height:${rows * rowHeight}px"></tr>` : '');
+    const lines = tableLines(view);
+    const rows = lines.slice(first, last).map(line => {
+        if (isDerived(line)) {
+            return `<tr class="entry-row is-derived${line.stale ? ' is-stale' : ''}" data-derived="${escapeHtml(line.key)}">`
+                + `<td class="entry-name"><span class="entry-ncell"><span class="entry-nm" title="${escapeHtml(line.title)}">${escapeHtml(line.label)}</span><span class="entry-rowtools"><button type="button" class="entry-rbtn" data-action="entry-derived-remove" data-parent="${escapeHtml(line.parentPath)}" data-region="${escapeHtml(line.region)}" data-base="${escapeHtml(line.baseLabel)}" aria-label="${escapeHtml(strings.dsDerivedRemove)}"${hintAttr(strings.dsDerivedRemove)}>×</button></span></span></td>`
+                + `<td class="entry-num entry-col-ch is-single"></td>${view.columns.group ? '<td class="entry-col-group"></td>' : ''}<td class="entry-num entry-col-value">${escapeHtml(line.value)}</td><td></td></tr>`;
+        }
+        const row = line;
         const classes = ['entry-row'];
-        if (row.filePath === view.focused) classes.push('is-focused');
-        if (isOutlierRow(row)) classes.push('is-outlier');
-        if (row.status !== 'ok') classes.push(`is-${row.status}`);
-        const cells = columns.map(column => {
-            const value = row.cells[view.model.columns.indexOf(column)];
-            return `<td class="entry-col-cond${column.numeric ? ' entry-num' : ''}">${escapeHtml(value || '—')}</td>`;
-        }).join('') + (hiddenCount(view) ? '<td class="entry-col-cond"></td>' : '');
-        const conditions = row.status === 'mismatch'
-            ? `<td colspan="${span}" class="entry-mark entry-col-cond">${escapeHtml(row.derived ? row.mismatch! : `${strings.entryShape}：${row.mismatch!.replace(/^≠ /, '')}`)}</td>`
-            : row.status === 'failed'
-                ? `<td colspan="${span}" class="entry-mark entry-col-cond"${row.reason ? ' ' + hintAttr(row.reason) : ''}>${escapeHtml(strings.entryUnreadable)}</td>`
-                : cells;
-        if (row.derived) classes.push('is-derived');
+        if (row.key === view.focused) classes.push('is-focused');
         if (view.stale?.has(row.filePath)) classes.push('is-stale');
         if (view.shown?.has(row.filePath)) classes.push('is-shown');
-        if (view.base?.has(row.filePath)) classes.push('is-base');
-        return `<tr class="${classes.join(' ')}" data-file-path="${escapeHtml(row.filePath)}" aria-selected="${row.filePath === view.focused}">`
-            + `<td class="entry-badge-col">${badge(row, view.slots)}</td><td class="entry-name" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</td>${trackCell(row, view, strings)}${calibration(row)}${conditions}`
-            + `${cell(row, 'leq', view.delta, view.model.sort, view.baseRow)}${view.leqOnly ? '' : cell(row, 'peak', view.delta, view.model.sort, view.baseRow) + cell(row, 'band', view.delta, view.model.sort, view.baseRow)}</tr>`;
+        if (view.mode === 'excluded') classes.push('is-excluded');
+        const value = view.valueReady || valueOf(row, view.value, view.results) !== null ? formatValue(view.value, valueOf(row, view.value, view.results)) : '—';
+        const group = view.columns.group ? `<td class="entry-col-group" title="${escapeHtml(groupOf(row, view.group))}">${escapeHtml(middleEllipsis(groupOf(row, view.group), 16) || '—')}</td>` : '';
+        return `<tr class="${classes.join(' ')}" data-key="${escapeHtml(row.key)}" data-file-path="${escapeHtml(row.filePath)}" aria-selected="${row.key === view.focused}">`
+            + `<td class="entry-name"><span class="entry-ncell"><span class="entry-nm" title="${escapeHtml(row.name)}${(row.channels ?? 1) > 1 ? ` · ch ${row.ch} / ${row.channels}` : ''}">${escapeHtml(middleEllipsis(row.name))}</span><span class="entry-rowtools">${toolsHtml(row, view, strings)}</span></span></td>`
+            + `<td class="entry-num entry-col-ch${(row.channels ?? 1) > 1 ? '' : ' is-single'}">${row.channels === undefined ? '—' : row.ch}</td>${group}`
+            + `<td class="entry-num entry-col-value">${value}</td><td></td></tr>`;
     }).join('');
+    return spacer(first) + rows + spacer(lines.length - last);
 }
 
-/** The base-group chip's text: "Base group · L3 · 900rpm · 7 files", or the slot-0 file when the row has no condition. */
-export function baseChipText(view: Pick<EntryView, 'model' | 'slots' | 'focused'>, strings: EntryStrings): string {
-    // A file in slot 0 is the base that holding 0 measures against.
-    const slotted = view.slots[0] ? view.model.rows.find(row => row.filePath === view.slots[0]) : undefined;
-    if (slotted) return `${strings.entryBase} · ${slotted.name}`;
-    // The comparison measures slot 1 against its group, so the chip names that group once slot 1 is set.
-    const anchor = view.model.rows.find(row => row.filePath === (view.slots[1] ?? view.focused));
-    const members = anchor?.group ? view.model.groups.get(anchor.group) : undefined;
-    if (anchor && members) {
-        // The focused row is measured against the others of its condition, so they are what the chip counts.
-        const others = members.length - (members.includes(anchor) ? 1 : 0);
-        // Too few files to tell an outlier: the count only, never a reassuring "no outliers".
-        const count = members.length < 3 ? `n ${others}` : strings.entryCount.replace('{count}', String(others));
-        return [strings.entryBaseGroup, ...anchor.conditions, count].join(' · ');
-    }
-    const base = view.slots[0] ? view.model.rows.find(row => row.filePath === view.slots[0]) : undefined;
-    return base ? `${strings.entryBase} · ${base.name}` : `${strings.entryBaseGroup} · —`;
+/** The CSV rows and recordings that did not match, and the recordings that could not be read, with why. */
+export function unmatchedRowsHtml(items: readonly Unmatched[], unreadable: ReadonlyArray<{ filePath: string; reason: string }>, strings: EntryStrings): string {
+    const reason: Record<Unmatched['reason'], string> = { missing: strings.dsReasonMissing, ambiguous: strings.dsReasonAmbiguous, repeated: strings.dsReasonRepeated, 'no-row': strings.dsReasonNoRow };
+    const name = (path: string): string => path.slice(path.replace(/\\/g, '/').lastIndexOf('/') + 1);
+    return [
+        ...unreadable.map(item => `<tr class="entry-row is-unmatched"><td class="entry-name" title="${escapeHtml(item.filePath)}">${escapeHtml(middleEllipsis(name(item.filePath)))}</td><td class="entry-why">${escapeHtml(strings.dsReasonUnreadable)}</td><td class="entry-why-detail">${escapeHtml(item.reason)}</td></tr>`),
+        ...items.map(item => `<tr class="entry-row is-unmatched"${item.filePath ? ` data-file-path="${escapeHtml(item.filePath)}"` : ''}><td class="entry-name">${escapeHtml(item.filePath ? middleEllipsis(name(item.filePath)) : strings.dsCsvRow.replace('{n}', String(item.row)))}</td>`
+            + `<td class="entry-why">${escapeHtml(reason[item.reason])}</td><td class="entry-why-detail" title="${escapeHtml(item.detail)}">${escapeHtml(item.detail)}</td></tr>`),
+    ].join('');
+}
+
+/** The column's ▾: sort, clear, then a search and check list with each value's row count (a range for numbers); OK / Cancel. */
+export function filterPopHtml(options: {
+    column: DatasetColumn; anchored: boolean; columns: readonly DatasetColumn[]; sortKey?: DatasetScreenView['sort']['column']; sort: DatasetScreenView['sort'];
+    filter?: DatasetFilter; search: string; values?: ReadonlyArray<[string, number]>; checked?: ReadonlySet<string>; range?: { low: string; high: string; min: string; max: string };
+}, strings: EntryStrings): string {
+    const { column } = options;
+    const title = options.anchored ? `<b>${escapeHtml(column.label)}</b>`
+        : `<label class="entry-fpop-col">${escapeHtml(strings.dsFilterColumn)} <select data-action="entry-fcol" aria-label="${escapeHtml(strings.dsFilterColumn)}">${options.columns.map(item => `<option value="${escapeHtml(item.id)}"${item.id === column.id ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}</select></label>`;
+    const sort = options.sortKey ? [false, true].map(descending => `<button type="button" class="entry-mi" data-action="entry-fsort" data-sort="${options.sortKey}" data-descending="${descending}"><span class="entry-mi-ic">${column.numeric ? (descending ? '9↓' : '1↓') : (descending ? 'Z↓' : 'A↓')}</span>${escapeHtml(descending ? strings.dsSortDesc : strings.dsSortAsc)}${options.sort.column === options.sortKey && options.sort.descending === descending ? ' ✓' : ''}</button>`).join('') + '<hr>' : '';
+    const clear = `<button type="button" class="entry-mi" data-action="entry-fclear"${options.filter ? '' : ' disabled'}><span class="entry-mi-ic">⊘</span>${escapeHtml(strings.dsFilterClear.replace('{col}', column.label))}</button>`;
+    const body = options.range
+        ? `<div class="entry-fpop-label">${escapeHtml(strings.dsFilterRange)}</div><div class="entry-frange"><input type="number" step="any" data-entry-flow aria-label="${escapeHtml(strings.dsFilterLow)}" placeholder="${escapeHtml(options.range.min)}" value="${escapeHtml(options.range.low)}"> 〜 <input type="number" step="any" data-entry-fhigh aria-label="${escapeHtml(strings.dsFilterHigh)}" placeholder="${escapeHtml(options.range.max)}" value="${escapeHtml(options.range.high)}"></div>`
+        : `<input type="search" data-entry-fsearch aria-label="${escapeHtml(strings.dsFilterSearch)}" placeholder="${escapeHtml(strings.dsFilterSearch)}" value="${escapeHtml(options.search)}"><div class="entry-flist" data-entry-flist role="group" aria-label="${escapeHtml(column.label)}">${checkListHtml(options.values ?? [], options.checked ?? new Set(), options.search, strings)}</div>`;
+    return `<div class="entry-fpop" role="dialog" aria-label="${escapeHtml(column.label)}" data-entry-fpop>${title}${sort}${clear}${body}`
+        + `<div class="entry-fpop-bar"><button type="button" class="entry-primary" data-action="entry-fok">OK</button><button type="button" data-action="entry-fcancel">${escapeHtml(strings.dsCancel)}</button></div></div>`;
+}
+
+const LIST_MAX = 200;
+
+/** The check list of a column's values matching `search` (a tri-state "select all" over them), at most 200 drawn. */
+export function checkListHtml(values: ReadonlyArray<[string, number]>, checked: ReadonlySet<string>, search: string, strings: EntryStrings): string {
+    const needle = search.trim().toLowerCase();
+    const hit = values.filter(([value]) => !needle || value.toLowerCase().includes(needle));
+    const on = hit.filter(([value]) => checked.has(value)).length;
+    const all = on === 0 ? 'false' : on === hit.length ? 'true' : 'mixed';
+    return `<label class="entry-ck"><input type="checkbox" data-entry-fall${all === 'true' ? ' checked' : ''} aria-checked="${all}">${escapeHtml(needle ? strings.dsFilterAllFound : strings.dsFilterAll)}</label>`
+        + hit.slice(0, LIST_MAX).map(([value, count]) => `<label class="entry-ck" title="${escapeHtml(value)}"><input type="checkbox" data-entry-fvalue="${escapeHtml(value)}"${checked.has(value) ? ' checked' : ''}><span class="entry-ck-v">${escapeHtml(value ? middleEllipsis(value, 28) : strings.dsFilterBlank)}</span><span class="entry-ck-n">${count.toLocaleString()}</span></label>`).join('')
+        + (hit.length > LIST_MAX ? `<div class="entry-ck-more">${escapeHtml(strings.dsFilterMore.replace('{n}', (hit.length - LIST_MAX).toLocaleString()))}</div>` : '')
+        + (hit.length ? '' : `<div class="entry-ck-more">${escapeHtml(strings.dsFilterNone)}</div>`);
+}
+
+export function slotMenuHtml(key: string, slots: readonly (string | null)[], strings: EntryStrings): string {
+    const at = slots.indexOf(key);
+    return `<div class="entry-slotmenu" role="menu" aria-label="${escapeHtml(strings.dsRowSlot)}" data-entry-slotmenu>`
+        + [0, 1, 2, 3].map(slot => `<button type="button" role="menuitemradio" aria-checked="${at === slot}" class="entry-mi" data-action="entry-row-slot" data-slot="${slot}" data-key="${escapeHtml(key)}"><span class="entry-badge entry-slot-${slot}">${slot}</span> ${escapeHtml(slot === 0 ? strings.entryBase : strings.dsSlotCompare.replace('{n}', String(slot)))}<kbd>${slot}</kbd></button>`).join('')
+        + (at >= 0 ? `<button type="button" role="menuitem" class="entry-mi" data-action="entry-row-slot" data-slot="-1" data-key="${escapeHtml(key)}">${escapeHtml(strings.dsSlotOut)}</button>` : '')
+        + '</div>';
+}
+
+/** The empty base chip's menu: which group's median is the base (slot 1's by default), or the selected recording. */
+export function baseMenuHtml(groups: ReadonlyArray<{ name: string; label: string }>, chosen: string | null, canUseRow: boolean, strings: EntryStrings): string {
+    const item = (name: string | null, label: string): string => `<button type="button" role="menuitemradio" aria-checked="${chosen === name}" class="entry-mi" data-action="entry-base-group" data-group="${escapeHtml(name ?? '')}" data-auto="${name === null}">${escapeHtml(label)}${chosen === name ? ' ✓' : ''}</button>`;
+    return `<div class="entry-slotmenu entry-basemenu" role="menu" aria-label="${escapeHtml(strings.dsBaseMenu)}" data-entry-basemenu><b>${escapeHtml(strings.dsBaseMenu)}</b>`
+        + item(null, strings.dsBaseAuto)
+        + groups.map(group => item(group.name, strings.dsBaseGroupMedian.replace('{group}', group.label))).join('')
+        + `<button type="button" role="menuitem" class="entry-mi" data-action="entry-base-row"${canUseRow ? '' : ' disabled'}>${escapeHtml(strings.dsBaseRow)}</button></div>`;
+}
+
+export function memoPopHtml(name: string, text: string, strings: EntryStrings): string {
+    return `<div class="entry-memo" role="dialog" aria-label="${escapeHtml(strings.dsRowMemo)}" data-entry-memo><b>${escapeHtml(name)}</b>`
+        + `<textarea data-entry-memo-text aria-label="${escapeHtml(strings.dsRowMemo)}" placeholder="${escapeHtml(strings.dsMemoPlaceholder)}">${escapeHtml(text)}</textarea>`
+        + `<div class="entry-fpop-bar"><button type="button" class="entry-primary" data-action="entry-memo-close">${escapeHtml(strings.dsMemoClose)}</button></div></div>`;
 }
 
 /**
@@ -314,27 +291,25 @@ export function slotHtml(options: {
         + `<span class="awa-slot-num">${options.slot}</span> <span class="awa-slot-label">${escapeHtml(options.label)}</span></button>`;
 }
 
-export function entrySlotsHtml(view: EntryView, strings: EntryStrings, heldSlot: number | null = null): string {
-    const name = (filePath: string | null): string => (filePath ? view.model.rows.find(row => row.filePath === filePath)?.name ?? '' : '');
-    const chips = [slotHtml({
-        slot: 0, label: baseChipText(view, strings), active: true, held: view.delta, classes: 'entry-chip entry-chip-base',
-        attributes: ` data-action="entry-slot" data-slot="0"${hintAttr(strings.hintBaseChip)}`,
-    })];
-    for (let slot = 1; slot <= 3; slot++) {
-        const path = view.slots[slot] ?? null;
-        chips.push(slotHtml({
-            slot, label: path ? name(path) : strings.slotEmpty, empty: !path, held: heldSlot === slot && !!path, classes: 'entry-chip',
-            attributes: ` data-action="entry-slot" data-slot="${slot}"${hintAttr(path ? strings.hintSlotCard : strings.hintSlotEmpty.replace('{n}', String(slot)))}`,
-        }));
-    }
-    return chips.join('');
+/**
+ * The slots 0–3: an empty one puts the selected row in when pressed; a filled one goes to its row (it is never
+ * overwritten by a press); × empties it. Slot 0 empty is the group's median, which compares need no choice for.
+ */
+export function entrySlotsHtml(slots: readonly (string | null)[], label: (key: string) => string, baseLabel: string, strings: EntryStrings, heldSlot: number | null = null): string {
+    return [0, 1, 2, 3].map(slot => {
+        const key = slots[slot] ?? null;
+        const hint = key ? strings.dsSlotFilledHint : strings.dsSlotEmptyHint;
+        const chip = slotHtml({
+            slot, label: key ? label(key) : slot === 0 ? baseLabel : strings.slotEmpty, empty: !key && slot !== 0, active: slot === 0, held: heldSlot === slot && !!key, classes: 'entry-chip',
+            attributes: ` data-action="entry-slot" data-slot="${slot}"${hintAttr(hint.replaceAll('{n}', String(slot)))}`,
+        });
+        const clear = key ? `<button type="button" class="entry-slot-x" data-action="entry-slot-clear" data-slot="${slot}" aria-label="${escapeHtml(strings.dsSlotClear.replace('{n}', String(slot)))}"${hintAttr(strings.dsSlotClear.replace('{n}', String(slot)))}>×</button>` : '';
+        return `<span class="entry-slot-wrap">${chip}${clear}</span>`;
+    }).join('');
 }
 
-export function conditionColumnsHtml(columns: readonly string[], checked: readonly number[]): string {
-    return columns.map((column, index) => `<label><input type="checkbox" data-entry-column="${index}"${checked.includes(index) ? ' checked' : ''}> ${escapeHtml(column)}</label>`).join('');
-}
-
-/** The paste dialog closes on Escape, like every dialog in the panel. */
+/** Dialogs close on Escape, like every dialog in the panel. */
 export function closesEntryDialog(event: Pick<KeyboardEvent, 'key'>): boolean {
     return event.key === 'Escape';
 }
+

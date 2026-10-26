@@ -8,7 +8,7 @@ import {
 } from '../webview/runtime/playback';
 import { parseBoundedInteger, positionPopover } from '../webview/runtime/settingsPopover';
 import { spectrumBinAtFrequency } from '../webview/runtime/spectrumRuntime';
-import { PersistedStateStore } from '../webview/runtime/stateStore';
+import { PersistedStateStore, sanitizePersistedState } from '../webview/runtime/stateStore';
 import {
     amplitudeNormToCanvasY,
     canvasYToAmplitudeNorm,
@@ -66,6 +66,17 @@ test('persisted state store merges patches through the host boundary', () => {
     store.update({ sidebarCollapsed: true });
     assert.deepEqual(store.snapshot, { contentType: 'waveform', sidebarCollapsed: true });
     assert.deepEqual(writes, [store.snapshot]);
+});
+
+test('the saved view state comes back whole, with values of another type left out', () => {
+    const saved: PersistedWebviewState = {
+        contentType: 'spectrogram', spectrumBandsPerOctave: 3, sidebarCollapsed: true, spectrumCollapsed: false,
+        entrySlots: ['/a.wav', null], entryDerived: [], entryRecipe: { nodes: [] }, entryCsv: { name: 'meta.csv', text: 'file\na.wav\n' },
+    };
+    // Every field the runtime keeps survives a reload: an opened spectrum stays open, the bands and the CSV stay.
+    assert.deepEqual(sanitizePersistedState(JSON.parse(JSON.stringify(saved))), saved);
+    assert.deepEqual(sanitizePersistedState({ contentType: 'chart', spectrumBandsPerOctave: 2, entrySlots: [1], entryCsv: { name: 'x' } }), {});
+    assert.deepEqual(sanitizePersistedState(null), {});
 });
 
 test('host message validation rejects unknown and incomplete payloads', () => {

@@ -6,7 +6,10 @@
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, median, quantile, roundedDelta, type EntryModel } from './entryTable';
+import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, roundedDelta, type EntryModel } from './entryTable';
+import { baseName } from '../../shared/analysis/entryMetadata';
+import { median } from '../../shared/dataset/distribution';
+import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 
 type ScanOk = ScanResult & { ok: true };
 
@@ -56,8 +59,8 @@ function spreadOf(memberBands: ReadonlyArray<readonly (number | null)[]>): numbe
     return BAND_CENTERS_HZ.map((_, band) => {
         const levels = memberBands.map(bands => bands[band]).filter((level): level is number => level !== null);
         if (levels.length < 2) return MIN_HEADLINE_DB;
-        const center = median(levels);
-        return Math.max(3 * median(levels.map(level => Math.abs(level - center))) * 1.4826, MIN_HEADLINE_DB);
+        const center = median(levels)!;
+        return Math.max(3 * median(levels.map(level => Math.abs(level - center)))! * 1.4826, MIN_HEADLINE_DB);
     });
 }
 
@@ -78,24 +81,14 @@ function topEdge(frequencies: readonly number[]): number {
     return SPECTRUM_MIN_HZ * (frequencies[n - 1] / SPECTRUM_MIN_HZ) ** (n / (n - 0.5));
 }
 
-/** Where a frequency sits on the log axis, 0 at 20 Hz and 1 at Nyquist. */
-export function logFraction(hz: number, nyquist: number): number {
-    return Math.max(0, Math.min(1, Math.log(hz / SPECTRUM_MIN_HZ) / Math.log(nyquist / SPECTRUM_MIN_HZ)));
-}
-
-function powerMean(levels: readonly number[]): number {
-    return 10 * Math.log10(levels.reduce((sum, level) => sum + 10 ** (level / 10), 0) / levels.length);
-}
-
 /** One spectrum, Leq and band row per file: channels are power-averaged, as in the entry table. */
 function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
     const channels = result.spectrumDb!;
     return {
-        spectrumDb: channels[0].map((_, point) => powerMean(channels.map(row => row[point]))),
-        leq: powerMean(result.leqDbA!),
+        spectrumDb: channels[0].map((_, point) => powerMeanDb(channels.map(row => row[point]))),
+        leq: powerMeanDb(result.leqDbA!),
         bands: BAND_CENTERS_HZ.map((_, band) => {
-            const levels = result.thirdOctDb!.map(row => row[band]);
-            return levels.some(level => level === null) ? null : powerMean(levels as number[]);
+            return powerMeanOrNull(result.thirdOctDb!.map(row => row[band]));
         }),
     };
 }
@@ -119,17 +112,13 @@ function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>): Omi
     } : undefined;
     return {
         ...(spread ? { spread } : {}),
-        spectrumDb: sides[0].spectrumDb.map((_, point) => median(sides.map(side => side.spectrumDb[point]))),
-        leq: median(sides.map(side => side.leq)),
+        spectrumDb: sides[0].spectrumDb.map((_, point) => median(sides.map(side => side.spectrumDb[point]))!),
+        leq: median(sides.map(side => side.leq))!,
         bands: BAND_CENTERS_HZ.map((_, band) => {
             const levels = sides.map(side => side.bands[band]);
-            return levels.some(level => level === null) ? null : median(levels as number[]);
+            return levels.some(level => level === null) ? null : median(levels as number[])!;
         }),
     };
-}
-
-export function fileName(filePath: string): string {
-    return filePath.slice(filePath.replace(/\\/g, '/').lastIndexOf('/') + 1);
 }
 
 /**
@@ -147,13 +136,15 @@ export function buildCompareModel(
     entryRegionBase = false,
     /** How far below the loudest band a band may be and still head the list (Infinity: no limit). */
     headlineWithinDb = HEADLINE_WITHIN_DB,
+    /** The base group as the entry table defines it (its grouping, filters and channel), instead of the condition's other files. */
+    group?: { paths: readonly string[]; title: string },
 ): CompareModel {
     const ok = (path: string | null): ScanOk | undefined => {
         const result = path ? results.get(path) : undefined;
         return result?.ok ? result as ScanOk : undefined;
     };
     const compared = ok(comparePath);
-    const compare: CompareSide | null = compared ? { title: fileName(comparePath!), filePaths: [comparePath!], ...fileSide(compared) } : null;
+    const compare: CompareSide | null = compared ? { title: baseName(comparePath!), filePaths: [comparePath!], ...fileSide(compared) } : null;
     let base: CompareSide | null = null;
     /** The compared file is the only one of its condition: there is nothing to measure it against. */
     let loneGroup = false;
@@ -161,7 +152,7 @@ export function buildCompareModel(
     let bandSpread: number[] | null = null;
     const single = ok(basePath);
     if (single) {
-        base = { title: `${strings.entryBase} · ${fileName(basePath!)}`, filePaths: [basePath!], ...fileSide(single) };
+        base = { title: `${strings.entryBase} · ${baseName(basePath!)}`, filePaths: [basePath!], ...fileSide(single) };
         // A single base file still belongs to a condition: its other files (not the base, not the compare)
         // tell how far files of that condition differ by chance. Too few of them: the 1.5 dB floor alone.
         const baseRow = model.rows.find(item => item.filePath === basePath);
@@ -169,6 +160,13 @@ export function buildCompareModel(
             .filter(member => member.filePath !== basePath && member.filePath !== comparePath)
             .map(member => ok(member.filePath)).filter((result): result is ScanOk => !!result);
         bandSpread = peers.length >= 3 ? spreadOf(peers.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
+    } else if (comparePath && group) {
+        const members = group.paths.filter(path => path !== comparePath);
+        const sides = members.map(path => ok(path)).filter((result): result is ScanOk => !!result);
+        if (sides.length) {
+            bandSpread = sides.length >= 3 ? spreadOf(sides.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
+            base = { title: group.title, filePaths: members, ...medianSide(sides.map(fileSide)) };
+        } else loneGroup = true;
     } else if (comparePath) {
         const row = model.rows.find(item => item.filePath === comparePath);
         const members = (row?.group ? model.groups.get(row.group) ?? [] : []).filter(member => member.filePath !== comparePath);
@@ -278,6 +276,8 @@ export interface LegendItem {
     path?: string;
     active?: boolean;
     held?: boolean;
+    /** The file's memo: ✎, with the memo as its hint. */
+    memo?: string;
 }
 
 export function legendHtml(items: readonly LegendItem[], strings: Pick<UiStrings, 'comparePlay'>): string {
@@ -285,20 +285,12 @@ export function legendHtml(items: readonly LegendItem[], strings: Pick<UiStrings
         const mark = `<svg width="18" height="10" aria-hidden="true"><line x1="0" y1="5" x2="18" y2="5" stroke="${item.color}" stroke-width="${item.active ? 3 : 2}"/></svg>`;
         const play = item.path ? `<button type="button" class="compare-play" data-action="compare-play" data-path="${escapeHtml(item.path)}" aria-label="${escapeHtml(strings.comparePlay)}">▶</button>` : '';
         const value = item.value ? ` <span class="compare-value">${escapeHtml(item.value)}</span>` : '';
-        return `<span class="compare-legend-item${item.active ? ' is-active' : ''}${item.held ? ' is-held' : ''}">${mark}<span class="compare-legend-label">${escapeHtml(item.label)}</span>${value}${play}</span>`;
+        const memo = item.memo ? ` <span class="compare-memo" data-memo title="${escapeHtml(item.memo)}" data-hint="${escapeHtml(item.memo)}">✎</span>` : '';
+        return `<span class="compare-legend-item${item.active ? ' is-active' : ''}${item.held ? ' is-held' : ''}">${mark}<span class="compare-legend-label">${escapeHtml(item.label)}</span>${value}${memo}${play}</span>`;
     }).join('');
 }
 
 export interface PaneRange { min: number; max: number }
-
-/** ± an edge whose quarter is a whole number, so the five ticks read as integers (±16 → 8, 0). */
-export function diffRange(comparison: CompareModel): PaneRange {
-    let extent = 6;
-    for (const value of [...(comparison.diffDb ?? []), ...comparison.bandDeltas]) if (value !== null && Number.isFinite(value)) extent = Math.max(extent, Math.abs(value));
-    const unit = extent > 40 ? 20 : extent > 16 ? 8 : 4;
-    const edge = Math.ceil(extent / unit) * unit;
-    return { min: -edge, max: edge };
-}
 
 /** The plot's left edge: room for the tick numbers and the level axis' name written up the side. */
 export const PANE_LEFT = 52;
@@ -323,159 +315,5 @@ export function paneAxes(strings: Pick<UiStrings, 'axisFrequency' | 'axisLevelUn
     };
 }
 
-/** What a pane says about itself on its own, as in a report figure: a title and what each curve is. */
-export interface PaneLabels {
-    title: string;
-    legend: Array<{ color: string; text: string }>;
-}
-
-/**
- * Draws one pane: axis ticks with their units (dB on the top tick, Hz at the end of the frequency
- * axis), and for the difference a zero line. `labels` adds a title and legend above the plot.
- */
-export function paintPane(
-    canvas: HTMLCanvasElement, values: number[] | null, frequencies: number[], range: PaneRange, color: string, zeroLine: boolean,
-    size?: { width: number; height: number }, labels?: PaneLabels,
-    /**
-     * 1/3-octave Δ per band as steps under the curve: the headline's bands filled, a peak's same-signed
-     * neighbours (its leak through the band filters) outlined, the rest faint.
-     */
-    bandSteps?: { deltas: readonly (number | null)[]; headline: readonly number[] },
-    /** Another curve on the same axes, drawn first (the summary figure's base under its compare). */
-    under?: { values: number[]; color: string },
-    /** The axes' names, and for the Δ pane the legend of its curve and band steps. */
-    axes?: PaneAxes,
-    /** The part of the frequency axis on screen (zoomed), as fractions of the whole. */
-    window: { start: number; end: number } = { start: 0, end: 1 },
-): void {
-    const ratio = size ? 1 : canvas.ownerDocument.defaultView?.devicePixelRatio ?? 1;
-    const width = size?.width ?? (canvas.clientWidth || 600);
-    const height = size?.height ?? (canvas.clientHeight || 120);
-    canvas.width = Math.round(width * ratio);
-    canvas.height = Math.round(height * ratio);
-    const context = canvas.getContext('2d');
-    if (!context) return;
-    context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    context.clearRect(0, 0, width, height);
-    const style = canvas.ownerDocument.defaultView?.getComputedStyle(canvas);
-    const muted = style?.getPropertyValue('--muted').trim() || '#888';
-    const line = style?.getPropertyValue('--line').trim() || '#444';
-    const text = style?.getPropertyValue('--text').trim() || '#222';
-    const top = labels ? 40 : 4;
-    const left = PANE_LEFT, bottom = 16;
-    const plotWidth = width - left - 4, plotHeight = height - bottom - top;
-    const y = (value: number): number => top + (1 - (value - range.min) / (range.max - range.min)) * plotHeight;
-    // A fraction of the whole frequency axis, placed on the zoomed plot.
-    const fx = (fraction: number): number => left + (fraction - window.start) / (window.end - window.start || 1) * plotWidth;
-    if (labels) {
-        context.font = 'bold 14px sans-serif';
-        context.fillStyle = labels.legend.length ? '#222' : text;
-        context.fillText(labels.title, left, 18);
-        context.font = '12px sans-serif';
-        let x = left;
-        for (const item of labels.legend) {
-            context.fillStyle = item.color;
-            context.fillRect(x, 28, 16, 3);
-            context.fillStyle = '#444';
-            context.fillText(item.text, x + 20, 33);
-            x += 28 + context.measureText(item.text).width;
-        }
-    }
-    context.font = '10px sans-serif';
-    context.fillStyle = muted;
-    context.strokeStyle = line;
-    context.lineWidth = 1;
-    const step = (range.max - range.min) / 4;
-    for (let tick = 0; tick <= 4; tick++) {
-        const value = range.min + tick * step;
-        context.beginPath(); context.moveTo(left, y(value)); context.lineTo(left + plotWidth, y(value)); context.stroke();
-        const label = String(Math.round(value)).replace(/^-/, '−');
-        context.fillText(axes || tick !== 4 ? label : `${label} dB`, 16, y(value) + (tick === 4 ? 10 : 3));
-    }
-    if (axes) {
-        // The level axis says what it measures, written up the left edge.
-        context.save();
-        context.translate(10, top + plotHeight / 2);
-        context.rotate(-Math.PI / 2);
-        context.textAlign = 'center';
-        // Axis names are as large as the tick numbers and in the text colour, never dimmer than them.
-        context.fillStyle = text;
-        context.fillText(axes.y, 0, 0);
-        context.restore();
-    }
-    const nyquist = topEdge(frequencies);
-    // A log axis, as the 1/3-octave bands are: each decade as wide as the next.
-    for (const hz of [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].filter(value => value < nyquist * 0.9 && logFraction(value, nyquist) > window.start + 0.01 && logFraction(value, nyquist) < window.end - 0.01)) {
-        const x = fx(logFraction(hz, nyquist));
-        context.strokeStyle = line;
-        context.beginPath(); context.moveTo(x, y(range.max)); context.lineTo(x, y(range.min)); context.stroke();
-        context.fillText(hz >= 1000 ? `${hz / 1000}k` : String(hz), x - 6, height - 3);
-    }
-    const xName = axes?.x ?? 'Hz';
-    if (axes) context.fillStyle = text;
-    context.fillText(xName, left + plotWidth - context.measureText(xName).width, height - 3);
-    context.fillStyle = muted;
-    if (zeroLine) {
-        context.strokeStyle = muted;
-        context.beginPath(); context.moveTo(left, y(0)); context.lineTo(left + plotWidth, y(0)); context.stroke();
-    }
-    context.save();
-    context.beginPath(); context.rect(left, top, plotWidth, plotHeight); context.clip();
-    if (bandSteps?.deltas.length && nyquist > 0) {
-        const { deltas, headline } = bandSteps;
-        const leak = (band: number): boolean => [band - 1, band + 1].some(peak => headline.includes(peak)
-            && Math.sign(deltas[peak] ?? 0) === Math.sign(deltas[band] ?? 0) && Math.abs(deltas[band] ?? 0) < Math.abs(deltas[peak] ?? 0));
-        context.save();
-        context.fillStyle = color;
-        context.strokeStyle = color;
-        deltas.forEach((delta, band) => {
-            if (delta === null) return;
-            const center = BAND_CENTERS_HZ[band];
-            const x0 = fx(logFraction(center * 2 ** (-1 / 6), nyquist));
-            const x1 = fx(logFraction(center * 2 ** (1 / 6), nyquist));
-            const clamped = Math.max(range.min, Math.min(range.max, delta));
-            const box: [number, number, number, number] = [x0, Math.min(y(0), y(clamped)), Math.max(1, x1 - x0), Math.abs(y(clamped) - y(0))];
-            if (leak(band)) { context.globalAlpha = 0.6; context.setLineDash([3, 2]); context.strokeRect(...box); context.setLineDash([]); return; }
-            context.globalAlpha = headline.includes(band) ? 0.45 : 0.15;
-            context.fillRect(...box);
-        });
-        context.restore();
-    }
-    context.restore();
-    if (axes?.legend && bandSteps) {
-        // Top right: what the curve and the three kinds of step are.
-        const { headline, leak, line: perPoint } = axes.legend;
-        let x = left + plotWidth - 6;
-        const item = (draw: (at: number) => void, label: string): void => {
-            x -= context.measureText(label).width;
-            context.fillStyle = muted;
-            context.fillText(label, x, top + 12);
-            x -= 16;
-            draw(x);
-            x -= 12;
-        };
-        context.save();
-        item(at => { context.strokeStyle = color; context.lineWidth = 1.5; context.beginPath(); context.moveTo(at, top + 8); context.lineTo(at + 12, top + 8); context.stroke(); }, perPoint);
-        item(at => { context.strokeStyle = color; context.lineWidth = 1; context.setLineDash([3, 2]); context.strokeRect(at, top + 3, 12, 10); context.setLineDash([]); }, leak);
-        item(at => { context.fillStyle = color; context.globalAlpha = 0.45; context.fillRect(at, top + 3, 12, 10); context.globalAlpha = 1; }, headline);
-        context.restore();
-    }
-    const curve = (points: number[], stroke: string): void => {
-        context.strokeStyle = stroke;
-        context.lineWidth = 1.5;
-        context.beginPath();
-        points.forEach((value, index) => {
-            const x = fx((index + 0.5) / points.length);
-            const clamped = Math.max(range.min, Math.min(range.max, value));
-            if (index === 0) context.moveTo(x, y(clamped)); else context.lineTo(x, y(clamped));
-        });
-        context.stroke();
-    };
-    context.save();
-    context.beginPath(); context.rect(left, top, plotWidth, plotHeight); context.clip();
-    if (under?.values.length) curve(under.values, under.color);
-    if (values?.length) curve(values, color);
-    context.restore();
-}
 
 export { level as levelDb };

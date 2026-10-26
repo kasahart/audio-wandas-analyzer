@@ -6,7 +6,7 @@ import type {
     SpectrogramSettings,
     StftOptions,
 } from '../analysis/analysisTypes';
-import { ENTRY_CONDITIONS_KEY, runCompareScan, runEntryScan, type ComparePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
+import { ENTRY_CONDITIONS_KEY, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
 import type { CalibrationRequestContext, PairSpectrumResult } from '../protocol/backendProtocol';
 import { parsePanelMessage, type PanelMessage, type SaveRecipeMessage } from '../protocol/panelMessages';
 import type { AnalyzeSelectedFilesMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
@@ -23,6 +23,7 @@ export type SessionPublication =
     | DistributiveOmit<LazyPublication, 'analysisRevision'>
     | PairSpectrumPublication
     | EntryPublication
+    | EntryProbePublication
     | ComparePublication;
 
 export type PairSpectrumPublication =
@@ -107,6 +108,7 @@ function thenable(value: unknown): value is PromiseLike<unknown> {
 export class ComparisonSessionController {
     /** Advanced by every entry scan, so an older scan stops before its next file. */
     private entryScans = 0;
+    private entryProbes = 0;
     /**
      * The latest comparison scan per source (a request id's prefix: 'track-stage', 'entry-hold', 'row', ...): a newer
      * one from the same source supersedes it; another source's (the side panel's table beside the comparison) does not.
@@ -157,6 +159,14 @@ export class ComparisonSessionController {
                         () => scan === this.entryScans && scope.isCurrent());
                     return;
                 }
+                case 'entry-probe': {
+                    const entry = this.ports.entry;
+                    if (!entry) { this.ports.unsupported(message.type); return; }
+                    const probe = ++this.entryProbes;
+                    await runEntryProbe(entry, message, publication => this.ports.publish(publication), () => probe === this.entryProbes && scope.isCurrent());
+                    return;
+                }
+                case 'entry-probe-cancel': this.entryProbes++; return;
                 case 'compare-scan': {
                     const entry = this.ports.entry;
                     if (!entry) { this.ports.unsupported(message.type); return; }

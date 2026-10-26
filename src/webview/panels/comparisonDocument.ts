@@ -2,6 +2,7 @@ import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscapi
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import type { ComparisonState } from '../runtime/types';
 import { createNonce } from './nonce';
+import { DIFF_COLOR, FLAG_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 
 export interface ComparisonAssets {
     waveformScriptUri: string;
@@ -53,6 +54,8 @@ export function renderComparisonStyles(): string {
     return `
         :root {
             color-scheme: light dark;
+            /* Role colours (roleColors.ts): blue base and primary, yellow compare, green Δ, orange failure. */
+            --entry-base: ${ROLE_COLORS[0]}; --entry-compare: ${ROLE_COLORS[1]}; --entry-slot-2: ${ROLE_COLORS[2]}; --entry-slot-3: ${ROLE_COLORS[3]}; --entry-delta: ${DIFF_COLOR}; --entry-flag: ${FLAG_COLOR};
             --font-ui: var(--vscode-font-family, "Aptos", "Segoe UI", sans-serif);
             --font-mono: var(--vscode-editor-font-family, "Cascadia Mono", "SFMono-Regular", Consolas, monospace);
             --surface: #16181c;
@@ -111,10 +114,8 @@ export function renderComparisonStyles(): string {
         }
         body.vscode-high-contrast .tb-btn,
         body.vscode-high-contrast .track-btn,
-        body.vscode-high-contrast .track-offset-step,
         body.vscode-high-contrast-light .tb-btn,
-        body.vscode-high-contrast-light .track-btn,
-        body.vscode-high-contrast-light .track-offset-step {
+        body.vscode-high-contrast-light .track-btn {
             border-color: var(--vscode-contrastBorder) !important;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -139,11 +140,6 @@ export function renderComparisonStyles(): string {
         }
         .tb-btn.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
         .tb-btn:disabled { opacity: 0.4; cursor: default; }
-        .tb-number {
-            width: 54px; min-width: 54px; font-size: 11px; padding: 2px 4px;
-            border-radius: 3px; border: 1px solid var(--line); background: var(--surface);
-            color: var(--text); font-family: var(--font-mono); text-align: right;
-        }
         .tb-version { margin-left: auto; font-family: var(--font-mono); }
         .tb-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
         .tb-menu { position: relative; display: inline-flex; }
@@ -170,121 +166,178 @@ export function renderComparisonStyles(): string {
         #loop-time-display { font-size: 0.85em; font-family: var(--font-mono); color: #64a0ff; margin-left: 6px; cursor: pointer; }
 
         #app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-        /* Entry table: role colours only — blue base and primary, yellow compare, green Δ, orange outlier or failure. */
-        .entry-screen { --entry-base: #3b82f6; --entry-compare: #d4b20f; --entry-slot-2: #a371f7; --entry-slot-3: #e85aad; --entry-delta: #3fb950; --entry-flag: #e8833a;
+        .entry-screen {
             position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--surface);
             color: var(--text); font-family: var(--font-ui); font-size: 13px; }
         /* Maximized, the same table covers the window; in the side panel it fills the panel. */
         .entry-screen.is-max { position: fixed; inset: 0 0 22px 0; z-index: 50; }
         .entry-screen[hidden] { display: none; }
         #entry-dock { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-        /* What a narrow table shows (data-cols 1–6): the name and the sorted number, then Leq, the largest Δ band,
-           the conditions, the band levels and the side plots, each from the width it needs. */
-        .entry-screen[data-cols="1"] .entry-col-leq:not(.is-sorted),
-        .entry-screen:is([data-cols="1"], [data-cols="2"]) .entry-col-peak,
-        .entry-screen:is([data-cols="1"], [data-cols="2"], [data-cols="3"]) .entry-col-cond,
-        .entry-screen:is([data-cols="1"], [data-cols="2"], [data-cols="3"], [data-cols="4"]) .entry-col-band:not(.is-sorted),
+        /* The side plots need the whole window; in the side panel the table is the name, channel, group and value. */
         .entry-screen:not([data-cols="6"]) .entry-side { display: none; }
-        /* Sorted by a band in a narrow panel, that band's level takes Leq's place, and its band picker stays small. */
-        .entry-screen:is([data-cols="1"], [data-cols="2"]) .entry-table:has(th.entry-col-band.is-sorted) .entry-col-leq { display: none; }
-        .entry-screen:not(.is-max) .entry-col-band select { max-width: 7.5em; padding: 2px 2px; }
+        .entry-screen:is([data-cols="1"], [data-cols="2"]) .entry-col-group, .entry-screen:is([data-cols="1"], [data-cols="2"]) col.entry-col-group-w { display: none; }
         /* In the side panel the bar keeps the filter, the progress, Open and ⤢; the chain is one chip that widens the table. */
         .entry-screen:not(.is-max) .entry-bar { flex-wrap: wrap; row-gap: 4px; }
-        .entry-screen:not(.is-max):is([data-cols="1"], [data-cols="2"], [data-cols="3"]) :is([data-action="entry-export-csv"], [data-action="entry-paste-conditions"], [data-action="entry-filter-failed"], .entry-keys) { display: none; }
+        .entry-screen:not(.is-max):is([data-cols="1"], [data-cols="2"], [data-cols="3"]) :is([data-action="entry-export-csv"], .entry-keys) { display: none; }
         .entry-screen:not(.is-max) [data-step-bar] { display: none; }
         .entry-screen:not(.is-max) .entry-footer { flex-wrap: wrap; row-gap: 4px; }
         .entry-screen .entry-size { padding: 2px 6px; }
         /* In the side panel the bar leaves the panel's own collapse button its corner. */
         .entry-screen:not(.is-max) .entry-bar { padding-right: 40px; }
         /* A row's own track controls: ＋ shows the file as a track, 👁 and × once it is one. */
-        .entry-track-col { width: 1px; white-space: nowrap; padding: 0 2px; }
-        .entry-screen .entry-row-btn { border-color: transparent; padding: 0 3px; line-height: 1.2; color: var(--muted); }
         .entry-screen .entry-row-play { font-size: 13px; }
-        .entry-screen .entry-row-btn:hover { border-color: var(--line); color: var(--text); }
-        .entry-row:not(.is-shown):not(.is-focused):not(:hover) .entry-row-btn { visibility: hidden; }
         /* ▶ appears only on the row under the mouse (or in hand), and then plainly, in the text colour. */
         .entry-row:not(.is-focused):not(:hover) .entry-row-play:not(.is-playing) { visibility: hidden; }
-        .entry-screen .entry-row-btn.entry-row-play { color: var(--text); }
-        .entry-screen .entry-row-btn.entry-row-play.is-playing { visibility: visible; color: var(--accent); }
-        /* 0 1 2 3 put the row's file in that slot: outlined in the slot's role colour, filled while it is there. */
-        .entry-screen .entry-row-btn.entry-row-slot { --role: var(--entry-compare); border-color: var(--role); color: var(--role); font-size: 10px; min-width: 16px; margin-left: 2px; padding: 0 2px; }
-        .entry-screen .entry-row-btn.entry-row-slot.slot-0 { --role: var(--entry-base); }
-        .entry-screen .entry-row-btn.entry-row-slot.slot-2 { --role: var(--entry-slot-2); }
-        .entry-screen .entry-row-btn.entry-row-slot.slot-3 { --role: var(--entry-slot-3); }
-        .entry-screen .entry-row-btn.entry-row-slot.is-in { background: color-mix(in srgb, var(--role) 22%, transparent); }
-        .entry-screen .entry-row-btn.entry-row-slot:hover { border-color: var(--role); color: var(--text); }
-        .entry-col-cal { width: 1px; text-align: center; color: var(--muted); }
-        /* In the side panel the names need the width: slotting there is the keys and the slot cards. */
-        .entry-screen:not(.is-max) .entry-row-btn.entry-row-slot { display: none; }
-        /* The base of what slots 1–3 are compared with: a thin blue edge, the base role's colour. */
-        .entry-row.is-base > .entry-badge-col { box-shadow: inset 2px 0 0 var(--entry-base, #3b82f6); }
         .entry-row.is-shown .entry-name { font-weight: 600; }
         /* The name gives way (ellipsis) so the numbers and the row's buttons always fit the panel. */
-        .entry-table td.entry-name { max-width: 14em; overflow: hidden; text-overflow: ellipsis; }
-        /* In the side panel the name takes only the width the other columns leave. */
-        .entry-screen:not(.is-max) .entry-table td.entry-name { max-width: 0; width: 100%; }
-        .entry-bar, .entry-footer, .entry-dialog-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
+        .entry-table td.entry-name { overflow: hidden; text-overflow: ellipsis; }
+        .entry-bar, .entry-footer { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
         .entry-bar { border-bottom: 1px solid var(--line); background: var(--panel); }
         .entry-footer { border-top: 1px solid var(--line); background: var(--panel); }
         .entry-spacer { flex: 1; }
         .entry-screen button, .entry-screen select, .track-stage-bar button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
-        .entry-screen .entry-primary { background: var(--entry-base); border-color: var(--entry-base); color: #fff; }
+        .entry-screen .entry-primary { border-color: var(--text); }
         .entry-screen kbd { font-family: var(--font-mono); font-size: 11px; opacity: 0.8; }
         .entry-filter[aria-pressed="true"] { border-color: var(--entry-flag); }
-        .entry-progress, .entry-key { color: var(--muted); font-variant-numeric: tabular-nums; }
+        .entry-key { color: var(--muted); font-variant-numeric: tabular-nums; }
         .entry-body { flex: 1; display: flex; min-height: 0; }
         .entry-table-wrap { flex: 1; overflow: auto; min-width: 0; }
         .entry-side { width: 420px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-left: 1px solid var(--line); background: var(--panel); }
-        .entry-scatter { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 160px; }
-        .entry-scatter canvas { flex: 1; width: 100%; min-height: 0; }
-        .entry-scatter .entry-axis-x { align-self: flex-end; }
-        /* A held slot's Δ spectrum takes the scatter's frame while it is held, so nothing else moves. */
+        /* The distribution: neutral bars (lighter where a picked range takes them), the slots as ticks in their role colours. */
+        .entry-dist-area { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 160px; }
+        .entry-dist { display: flex; flex-direction: column; min-height: 0; flex: 1; --dist-bar: #5b6470; --dist-bar-in: #aab3be; }
+        .entry-dist-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 28px; color: var(--muted); font-size: 12px; }
+        .entry-dist-n { font-variant-numeric: tabular-nums; }
+        .entry-dist-legend { display: inline-flex; flex-wrap: wrap; gap: 10px; color: var(--text); }
+        .entry-dist-key { display: inline-flex; align-items: center; gap: 4px; }
+        .entry-dist-swatch { display: inline-block; width: 0; height: 12px; border-left: 2px solid var(--entry-compare); }
+        .entry-dist-swatch.slot-0 { border-left-color: var(--entry-base); }
+        .entry-dist-swatch.slot-2 { border-left-color: var(--entry-slot-2); }
+        .entry-dist-swatch.slot-3 { border-left-color: var(--entry-slot-3); }
+        .entry-dist-swatch.is-dashed { border-left-style: dashed; }
+        .entry-dist-note { min-height: 16px; color: var(--muted); font-size: 11px; }
+        .entry-dist-groups { overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; flex: 0 1 auto; }
+        .entry-dist-axis { overflow: hidden; scrollbar-gutter: stable; }
+        .entry-dist svg { display: block; }
+        .entry-dist-plot { cursor: crosshair; user-select: none; touch-action: none; }
+        .entry-dist-plot rect[data-bin], .entry-dist-plot circle { fill: var(--dist-bar); }
+        .entry-dist-plot rect[data-bin].is-in, .entry-dist-plot circle.is-in { fill: var(--dist-bar-in); }
+        .entry-dist-plot circle { cursor: pointer; }
+        .entry-dist-rug { stroke: var(--dist-bar-in); stroke-opacity: 0.55; stroke-width: 1; fill: none; }
+        .entry-dist-floor, .entry-dist-axis-line { stroke: var(--line); }
+        .entry-dist-axis-line { stroke: var(--muted); }
+        .entry-dist-name { fill: var(--text); font-size: 12px; }
+        .entry-dist-count { fill: var(--muted); font-size: 11px; font-family: var(--font-mono); }
+        .entry-dist-max { fill: var(--muted); opacity: 0.75; font-size: 10px; font-family: var(--font-mono); }
+        .entry-dist-tick { fill: var(--muted); font-size: 10px; font-family: var(--font-mono); }
+        .entry-dist-quantity { fill: var(--text); font-size: 11px; }
+        .entry-dist-brush { fill: currentColor; fill-opacity: 0.12; stroke: var(--text); stroke-dasharray: 3 2; }
+        .entry-dist-empty { display: grid; place-items: center; min-height: 120px; color: var(--muted); text-align: center; padding: 8px; }
+        .entry-dist-empty[hidden] { display: none; }
+        .entry-dist-back { display: none; }
+        /* While a comparison is open the distribution folds into a low strip above the table, with a way back. */
+        .entry-screen.is-dist-strip .entry-dist { flex: none; padding: 4px 10px 2px; border-bottom: 1px solid var(--line); background: var(--panel); }
+        .entry-screen.is-dist-strip .entry-dist-back { display: inline-block; }
+        .entry-screen.is-dist-strip .entry-dist-note:empty { display: none; }
+        .entry-screen.is-dist-strip .entry-dist-empty { min-height: 0; padding: 2px; }
+        /* A held slot's Δ spectrum takes the distribution's frame while it is held, so nothing else moves. */
         .entry-held { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--entry-delta); border-radius: 4px; padding: 2px 6px; }
-        .entry-held[hidden], .entry-progress[hidden] { display: none; }
-        .entry-point-tip { position: absolute; z-index: 2; pointer-events: none; padding: 1px 6px; font-size: 11px; white-space: nowrap; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 3px; }
-        .entry-point-tip[hidden] { display: none; }
+        .entry-held[hidden] { display: none; }
         .entry-held canvas { flex: 1; width: 100%; min-height: 0; }
         .entry-overview { height: 114px; width: 100%; }
         .entry-row.is-derived .entry-name { color: var(--muted); padding-left: 16px; }
         .entry-table { border-collapse: collapse; width: 100%; outline: 1px solid transparent; outline-offset: -1px; }
-        .entry-table.is-delta { outline-color: var(--entry-delta); }
         .entry-table th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
         .entry-table td { padding: 3px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
         .entry-table .entry-num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-        .entry-table th .entry-sort-button { border: 0; padding: 0; font-weight: 600; }
-        .entry-sort { color: var(--muted); }
         .entry-row { cursor: pointer; }
         /* Focus is not a role, so it is drawn without a role's colour. */
         .entry-row.is-focused { background: color-mix(in srgb, var(--text) 10%, transparent); outline: 1px solid color-mix(in srgb, var(--text) 55%, transparent); outline-offset: -1px; }
-        .entry-row.is-failed .entry-mark, .entry-row.is-failed .entry-badge { color: var(--entry-flag); }
-        .entry-row.is-mismatch .entry-mark { color: var(--muted); }
-        .entry-outlier { color: var(--entry-flag); font-weight: 600; }
-        .entry-delta { color: var(--entry-delta); }
-        .entry-badge-col { width: 24px; text-align: center; }
         .entry-badge { display: inline-block; min-width: 16px; border: 1px solid var(--muted); border-radius: 3px; font-size: 11px; text-align: center; }
         .entry-badge.entry-slot-0 { border-color: var(--entry-base); color: var(--entry-base); }
         .entry-badge.entry-slot-1 { border-color: var(--entry-compare); color: var(--entry-compare); }
         .entry-badge.entry-slot-2 { border-color: var(--entry-slot-2); color: var(--entry-slot-2); }
         .entry-badge.entry-slot-3 { border-color: var(--entry-slot-3); color: var(--entry-slot-3); }
-        .entry-dialog { position: absolute; top: 44px; left: 10px; width: min(560px, calc(100vw - 20px)); z-index: 2; background: var(--panel);
-            border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); padding: 10px; display: grid; gap: 8px; }
-        .entry-dialog[hidden] { display: none; }
-        .entry-dialog textarea { width: 100%; box-sizing: border-box; font-family: var(--font-mono); background: var(--surface); color: var(--text); border: 1px solid var(--line); }
-        .entry-dialog-columns { display: flex; flex-wrap: wrap; gap: 10px; }
+        /* The dataset table: four fixed columns (nothing scrolls sideways); a row's tools right after its name. */
+        .entry-table { table-layout: fixed; }
+        .entry-table col.entry-col-name-w { width: 21em; }
+        .entry-table col.entry-col-ch-w { width: 3.2em; }
+        .entry-table col.entry-col-group-w { width: 8em; }
+        .entry-table col.entry-col-value-w { width: 9em; }
+        .entry-table col.entry-col-reason-w { width: 7em; }
+        /* In the side panel the name takes what the channel, group and value leave. */
+        .entry-screen:not(.is-max) .entry-table col.entry-col-name-w { width: 50%; }
+        .entry-screen:not(.is-max) .entry-table col.entry-col-value-w { width: 6em; }
+        .entry-screen:not(.is-max) .entry-table col.entry-col-group-w { width: 6em; }
+        .entry-table tr { height: 24px; }
+        .entry-table td { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
+        .entry-table th { padding: 2px 8px; }
+        .entry-th { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; }
+        th.entry-num .entry-th { justify-content: flex-end; width: 100%; }
+        .entry-th-label { overflow: hidden; text-overflow: ellipsis; }
+        /* The value's name and unit wrap rather than being cut. */
+        .entry-table th.entry-num { white-space: normal; }
+        th.entry-num .entry-th-label { overflow: visible; }
+        .entry-th-count { color: var(--muted); font-weight: normal; }
+        .entry-screen .entry-fbtn { border: 0; padding: 0 3px; color: var(--muted); }
+        .entry-screen .entry-fbtn:hover:not(:disabled) { color: var(--text); background: var(--line); }
+        .entry-screen .entry-fbtn.is-on { color: var(--panel); background: var(--text); }
+        .entry-screen .entry-fbtn:disabled { opacity: 0.4; cursor: default; }
+        .entry-ncell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+        .entry-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .entry-rowtools { display: inline-flex; gap: 1px; flex: none; }
+        .entry-screen .entry-rbtn { min-width: 20px; height: 20px; padding: 0 3px; border-color: transparent; font-family: var(--font-mono); font-size: 11px; line-height: 1; }
+        .entry-screen .entry-rbtn:hover { border-color: var(--line); }
+        .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { visibility: hidden; }
+        /* In the side panel a row's hidden tools take no room, so its name has it. */
+        .entry-screen:not(.is-max) .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { display: none; }
+        .entry-screen .entry-rbtn-slot { color: var(--muted); }
+        .entry-col-ch.is-single { color: var(--muted); }
+        .entry-row.is-stale td:not(.entry-name) { color: var(--muted); }
+        .entry-row.is-excluded .entry-nm { color: var(--muted); }
+        .entry-why { color: var(--entry-flag); }
+        .entry-why-detail { color: var(--muted); }
+        .entry-spacer-row, .entry-spacer-row td { border: 0; padding: 0; }
+        .entry-pick { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+        .entry-pick select { color: var(--text); max-width: 14em; }
+        .entry-compute { display: inline-flex; align-items: center; gap: 6px; }
+        .entry-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 10px 4px; background: var(--panel); }
+        .entry-chips:empty { display: none; }
+        .entry-fchip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--text); border-radius: 12px; padding: 0 2px 0 8px; font-family: var(--font-mono); }
+        .entry-screen .entry-fchip button { border: 0; padding: 0 4px; max-width: 26em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .entry-screen .entry-fadd { border-style: dashed; color: var(--muted); }
+        .entry-pop { position: absolute; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); padding: 8px; }
+        .entry-fpop, .entry-slotmenu, .entry-memo { display: grid; gap: 4px; width: 280px; }
+        .entry-slotmenu { width: 190px; }
+        .entry-screen .entry-mi { display: flex; align-items: center; gap: 8px; border: 0; text-align: left; padding: 3px 6px; }
+        .entry-screen .entry-mi:hover:not(:disabled) { background: var(--surface); }
+        .entry-screen .entry-mi:disabled { color: var(--muted); cursor: default; }
+        .entry-mi-ic { width: 18px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+        .entry-mi kbd { margin-left: auto; }
+        .entry-pop hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
+        .entry-pop input[type=search], .entry-pop input[type=number], .entry-pop textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; }
+        .entry-pop textarea { min-height: 64px; resize: vertical; }
+        .entry-frange { display: flex; align-items: center; gap: 6px; }
+        .entry-frange input { width: 7em; }
+        .entry-fpop-label { color: var(--muted); }
+        .entry-flist { height: 170px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; padding: 4px; }
+        .entry-ck { display: flex; align-items: center; gap: 6px; height: 22px; white-space: nowrap; cursor: pointer; }
+        .entry-ck-v { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .entry-ck-n { margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+        .entry-ck-more { color: var(--muted); font-size: 11px; padding: 4px 2px; }
+        .entry-fpop-bar { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+        .entry-slot-wrap { display: inline-flex; align-items: center; gap: 2px; }
+        .entry-screen .entry-slot-x { border: 0; padding: 0 4px; color: var(--muted); }
         /* Step bar: the scan Recipe's chips; red = a step left out for invalid settings. */
-        .step-bar { --entry-flag: #e8833a; position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 10px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 12px; }
-        .step-field.is-invalid input, .step-field.is-invalid select { border-color: var(--entry-flag, #e8833a) !important; color: var(--entry-flag, #e8833a); }
+        .step-bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 10px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 12px; }
+        .step-field.is-invalid input, .step-field.is-invalid select { border-color: var(--entry-flag) !important; color: var(--entry-flag); }
         /* A condition column that groups the rows reads as checked. */
-        .entry-column.is-checked { font-weight: 700; }
-        .entry-column.is-checked::before { content: '✓ '; }
         .step-form { position: absolute; top: 100%; left: 10px; z-index: 3; display: grid; gap: 6px; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); }
-        .step-field.is-invalid { color: var(--entry-flag, #e8833a); }
+        .step-field.is-invalid { color: var(--entry-flag); }
         .step-form [data-action="step-apply"]:disabled { opacity: 0.4; cursor: not-allowed; }
-        .entry-return { position: fixed; top: 6px; right: 10px; z-index: 60; font: inherit; color: #fff; background: #3b82f6; border: 0; border-radius: 4px; padding: 3px 12px; cursor: pointer; }
-        .entry-return[hidden] { display: none; }
         .step-field input, .step-field select { width: 90px; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 3px; }
         /* A refused key or a new card lights up once. */
-        @keyframes awa-flash { 0%, 60% { box-shadow: 0 0 0 2px var(--entry-flag, #e8833a); } 100% { box-shadow: none; } }
+        @keyframes awa-flash { 0%, 60% { box-shadow: 0 0 0 2px var(--entry-flag); } 100% { box-shadow: none; } }
         .is-flash { animation: awa-flash 0.9s ease-out; }
         .entry-keys { display: inline-flex; gap: 8px; }
         .entry-keys .entry-key { font: inherit; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 3px; padding: 0 6px; cursor: pointer; user-select: none; }
@@ -297,7 +350,6 @@ export function renderComparisonStyles(): string {
         .screen-help table { border-collapse: collapse; }
         .screen-help th { text-align: left; padding: 2px 12px 2px 0; font-family: var(--font-mono); font-weight: normal; white-space: nowrap; color: var(--accent); }
         .screen-help td { padding: 2px 0; }
-        .screen-help-foot { margin-top: 12px; text-align: right; }
         .entry-footer [data-action="compare-report"]:disabled { opacity: 0.4; cursor: not-allowed; }
         /* The headline over the panes: both levels where they differ most among what is loud enough to hear. */
         .compare-legend { flex-wrap: wrap; row-gap: 2px; }
@@ -306,6 +358,8 @@ export function renderComparisonStyles(): string {
         .compare-legend-item.is-held { outline: 1px solid var(--entry-compare); border-radius: 3px; padding: 0 4px; }
         .compare-pane-head { display: flex; align-items: center; gap: 8px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
         .compare-value { font-family: var(--font-mono); }
+        .compare-memo { color: var(--text); cursor: help; }
+        .entry-row.is-derived td { color: var(--muted); }
         .compare-play { padding: 0 6px !important; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 4px; font-size: 10px; line-height: 16px; cursor: pointer; }
         .compare-play:hover { border-color: var(--accent); color: var(--accent); }
         .compare-readout { position: absolute; bottom: 30px; right: 14px; padding: 2px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; font-family: var(--font-mono); pointer-events: none; }
@@ -320,7 +374,7 @@ export function renderComparisonStyles(): string {
         .track-stage-box { position: fixed; z-index: 21; }
         .track-stage { position: relative; z-index: 20; display: flex; flex-direction: column; flex-shrink: 0; font-family: var(--font-ui); font-size: 12px; color: var(--text); }
         .track-stage-controls { display: flex; align-items: center; gap: 6px; padding: 2px 12px 4px; }
-        .track-stage.is-step-held .track-stage-panel, .track-stage.is-step-held ~ #stacked-wrap { outline: 2px solid #3fb950; outline-offset: -2px; }
+        .track-stage.is-step-held .track-stage-panel, .track-stage.is-step-held ~ #stacked-wrap { outline: 2px solid var(--entry-delta); outline-offset: -2px; }
         .track-stage-headline { margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .track-stage-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 220px; margin: 0 10px 8px; border: 1px solid var(--line); border-radius: 4px; position: relative; }
         .stage-base-more { border: none; background: none; color: var(--muted); padding: 0 2px; cursor: pointer; }
@@ -332,7 +386,7 @@ export function renderComparisonStyles(): string {
         .track-stage-panel > canvas { flex: 1 1 0; width: 100%; min-height: 0; }
         .track-stage-diff { display: flex; flex-direction: column; flex: 0 0 35%; min-height: 0; border-top: 1px solid var(--line); }
         .track-stage-diff > canvas { flex: 1 1 0; width: 100%; min-height: 0; }
-        .track-stage-bar { flex-shrink: 0; --entry-base: #3b82f6; --entry-compare: #d4b20f; --entry-slot-2: #a371f7; --entry-slot-3: #e85aad; --entry-delta: #3fb950; --entry-flag: #e8833a; font-family: var(--font-ui); }
+        .track-stage-bar { flex-shrink: 0; font-family: var(--font-ui); }
         .entry-zoom-box { position: absolute; border: 1px dashed var(--text); pointer-events: none; z-index: 2; }
         .entry-zoom-box[hidden] { display: none; }
         /* ── Controls of the entry table and the comparison (the approved chip design) ──
@@ -360,11 +414,7 @@ export function renderComparisonStyles(): string {
         .entry-screen .entry-primary:disabled { background: var(--chip-hover-bg); border-color: transparent; color: var(--dim); opacity: 1; }
         .entry-screen .entry-primary kbd { opacity: 0.7; }
         /* The filters are one segmented control; on is the white inverse. */
-        .entry-seg { display: inline-flex; min-height: 28px; box-sizing: border-box; border: 1px solid var(--chip-line); border-radius: 6px; overflow: hidden; }
-        .entry-seg .entry-filter { border: 0; border-radius: 0; display: inline-flex; align-items: center; gap: 6px; }
-        .entry-seg .entry-filter + .entry-filter { border-left: 1px solid var(--chip-line); }
-        .entry-screen .entry-seg button.entry-filter[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--chip-line); }
-        .entry-seg-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--entry-flag); display: inline-block; }
+        .entry-screen button.entry-filter[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--chip-line); }
         /* Information one cannot press. */
         .awa-tag { display: inline-flex; align-items: center; min-height: 20px; padding: 0 6px; border-radius: 3px; background: var(--chip-bg); color: var(--muted); font-size: 11px; white-space: nowrap; }
         /* Step bar = the wandas Recipe (the early plan's form): square chips joined by ">", folded to the stage
@@ -373,7 +423,6 @@ export function renderComparisonStyles(): string {
         .step-bar { display: block; padding: 6px 12px; }
         .step-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
         .step-gap { flex: 1 0 10px; }
-        .step-sep { color: var(--muted); font-size: 12px; }
         .step-chip { display: inline-flex; align-items: stretch; min-height: 28px; box-sizing: border-box; border: 1px solid var(--chip-line); border-radius: 6px; background: var(--chip-bg); color: var(--text); font-size: 12px; white-space: nowrap; overflow: hidden; }
         .entry-screen .step-chip > button, .track-stage-bar .step-chip > button { min-height: 26px; border: 0; border-radius: 0; background: transparent; color: inherit; padding: 0 10px; }
         .step-chip > .step-body { display: inline-flex; align-items: center; padding: 0 10px; }
@@ -391,11 +440,7 @@ export function renderComparisonStyles(): string {
         .step-reset { color: var(--muted) !important; }
         .entry-screen .step-more, .track-stage-bar .step-more { min-height: 28px; padding: 0 10px; }
         .entry-screen .step-add, .track-stage-bar .step-add { min-height: 28px; padding: 0 10px; color: var(--muted); }
-        .step-node { display: flex; flex-direction: column; align-items: center; }
-        .step-op { margin-top: 4px; font: 11px var(--font-mono); color: var(--dim); white-space: nowrap; }
         .step-link { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 2px; }
-        .step-out { flex-direction: row; gap: 6px; padding-top: 13px; }
-        .step-frame { font: 11px var(--font-mono); color: var(--muted); white-space: nowrap; }
         .step-outside-row { margin-top: 10px; }
         .step-outside-heading { font-size: 13px; color: var(--muted); margin-right: 4px; }
         .step-link { position: relative; }
@@ -408,7 +453,6 @@ export function renderComparisonStyles(): string {
         .entry-screen .step-menu-item, .track-stage-bar .step-menu-item { display: flex; align-items: baseline; gap: 8px; min-height: 26px; padding: 0 6px; border: 0; border-radius: 4px; background: transparent; color: var(--text); text-align: left; }
         .entry-screen .step-menu-item:hover, .step-menu-item:focus-visible, .track-stage-bar .step-menu-item:hover { background: var(--chip-hover-bg); }
         .step-menu-item.is-off { color: var(--dim); cursor: not-allowed; }
-        .step-menu-frame { font: 11px var(--font-mono); color: var(--muted); }
         .step-menu-tag { margin-left: auto; font-size: 11px; color: var(--muted); border: 1px solid var(--chip-line); border-radius: 4px; padding: 0 4px; }
         .step-form-title { font: 11px var(--font-mono); color: var(--muted); }
         .step-form-why { max-width: 280px; color: var(--entry-flag); }
@@ -447,7 +491,7 @@ export function renderComparisonStyles(): string {
         /* × shows on the chip under the pointer or with the focus, and on the chip on screen. */
         .step-bar .step-chip:hover > .step-x, .step-bar .step-chip:focus-within > .step-x, .step-bar .step-chip.is-current > .step-x { opacity: 1; }
         .step-bar .step-x::before { content: '×'; }
-        .step-bar .step-x:hover { color: var(--entry-flag, #e8833a); border-color: var(--entry-flag, #e8833a); }
+        .step-bar .step-x:hover { color: var(--entry-flag); border-color: var(--entry-flag); }
         /* The app's 1/3-octave branch stands apart at the bar's end: a thin rule, no arrow from the chain. */
         .step-bar .step-branch { display: inline-flex; align-items: center; padding-left: 10px; margin-left: 6px; border-left: 1px solid var(--line); }
         .step-bar .step-chip.is-dragging { opacity: 0.3; }
@@ -474,9 +518,7 @@ export function renderComparisonStyles(): string {
         .step-drop { position: absolute; width: 3px; border-radius: 2px; background: var(--step-accent); pointer-events: none; }
         .entry-screen .step-bar .step-add, .step-bar.track-stage-bar .step-add { height: 30px; min-height: 30px; min-width: 30px; padding: 0 10px; border-radius: 15px; border: 1px dashed var(--chip-line); background: transparent; color: var(--muted); }
         .step-bar .step-add:hover, .step-bar .step-add[aria-expanded="true"] { border-color: var(--step-accent); color: var(--step-accent); }
-        .step-bar .step-node { display: inline-flex; flex-direction: column; align-items: center; }
         .step-bar .step-link { display: inline-flex; flex-direction: row; align-items: center; gap: 2px; padding: 0 2px; }
-        .step-bar .step-link .step-frame { font-size: 10px; }
         .entry-screen .step-bar .step-insert, .step-bar.track-stage-bar .step-insert { position: static; transform: none; opacity: 0.75; border-radius: 9px; }
         .step-bar .step-link:hover .step-insert { opacity: 1; }
         .step-menu { width: 520px; max-width: calc(100vw - 24px); max-height: 440px; }
@@ -488,13 +530,10 @@ export function renderComparisonStyles(): string {
         .step-menu-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
         .step-menu-name { overflow-wrap: anywhere; }
         .step-menu-line .step-menu-tag { margin-left: auto; white-space: nowrap; }
-        .step-menu-hint .step-menu-frame { font-size: 10px; white-space: nowrap; }
         .step-menu-hint { color: var(--muted); font-size: 11px; }
         /* Rows of an earlier chain: greyed, their outlier marks too, until scanned again. */
         .entry-row.is-stale td { color: var(--dim); }
-        .entry-row.is-stale td.entry-outlier, .entry-row.is-stale td.entry-delta { color: var(--dim); }
         .entry-filter.is-stale [data-entry-count] { color: var(--dim); }
-        .entry-stale { display: inline-flex; gap: 6px; align-items: center; }
         /* Slots (entry footer, comparison cards): a role-coloured number box and a label. */
         .entry-screen .awa-slot { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px 0 5px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); background: transparent; }
         .awa-slot.role-base { --role: var(--entry-base); --role-tint: color-mix(in srgb, var(--entry-base) 16%, transparent); }
@@ -511,8 +550,6 @@ export function renderComparisonStyles(): string {
         .entry-screen button.awa-slot.is-held, .track-stage-bar button.awa-slot.is-held { border-color: var(--role); background: var(--role); color: #0b1220; }
         .awa-slot.is-held .awa-slot-num { background: #0b1220; color: var(--role); }
         .entry-chip { margin-right: 6px; }
-        /* A fixed Δ: green dashed with a Δ box; hover shows it can be removed; grey while its Recipe is not the current one. */
-        /* A step chip held: the container that changed is framed green until release. */
         /* A key that cannot act lights the focus ring once. */
         @keyframes awa-ring { 0%, 60% { box-shadow: var(--ring); } 100% { box-shadow: none; } }
         .awa-slot.is-flash, .entry-chip.is-flash { animation: awa-ring 0.9s ease-out; }
@@ -556,8 +593,6 @@ export function renderComparisonStyles(): string {
             color: var(--muted); cursor: pointer;
         }
         .track-btn.is-playing { background: var(--accent); color: #fff; border-color: var(--accent); }
-        .track-btn.is-muted { background: #555; color: #fff; }
-        .track-btn.is-solo { background: #c8a020; color: #fff; border-color: #c8a020; }
         .track-offset { display: none; align-items: center; gap: 2px; margin-top: 3px; }
         .track-row.is-shifted .track-offset { display: flex; }
         .track-more { position: relative; display: inline-block; }
@@ -571,7 +606,6 @@ export function renderComparisonStyles(): string {
             border-radius: 2px; padding: 1px 3px; width: 56px; text-align: right;
             cursor: text;
         }
-        .track-offset-step { font-size: 9px; padding: 1px 3px; border-radius: 2px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; }
         .track-offset-input { width: 5em; font-size: inherit; font-family: var(--font-mono); text-align: right; background: var(--vscode-input-background, #1e1e1e); color: var(--vscode-input-foreground, #d4d4d4); border: 1px solid var(--vscode-input-border, #3c3c3c); border-radius: 2px; }
         .track-canvas-wrap { flex: 1; display: flex; position: relative; overflow: hidden; background: var(--track-bg); }
         .track-axis-canvas { flex: none; display: block; }
@@ -686,8 +720,6 @@ export function renderComparisonStyles(): string {
         .track-drag-handle { cursor: grab; color: var(--muted); font-size: 12px; user-select: none; flex-shrink: 0; padding: 0 2px; line-height: 1; }
         .track-drag-handle:active { cursor: grabbing; }
         .track-color-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; border: 1px solid var(--line); }
-        .color-palette-swatch { width: 20px; height: 20px; border-radius: 3px; cursor: pointer; border: 1px solid var(--line); flex-shrink: 0; }
-        .color-palette-swatch:hover, .color-palette-swatch:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
         .track-row.drag-over { outline: 2px solid var(--accent); outline-offset: -2px; }
 
         /* ── Empty state ── */
@@ -792,15 +824,13 @@ export function renderComparisonStyles(): string {
         }
         /* Accessibility: visible focus rings */
         .tb-btn:focus-visible,
-        .track-btn:focus-visible,
-        .track-offset-step:focus-visible {
+        .track-btn:focus-visible {
             outline: 2px solid var(--vscode-focusBorder, #007fd4);
             outline-offset: 2px;
         }
         /* Suppress browser default outline on mouse/touch focus (non-keyboard) */
         .tb-btn:focus:not(:focus-visible),
-        .track-btn:focus:not(:focus-visible),
-        .track-offset-step:focus:not(:focus-visible) {
+        .track-btn:focus:not(:focus-visible) {
             outline: none;
         }
         `;

@@ -81,11 +81,13 @@ import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import { createEntryScreen, type EntryScreenDeps } from './entryRuntime';
-import { buildCompareModel, diffHeadline, fileName as fileNameOf } from './comparePanes';
+import { diffHeadline } from './comparePanes';
+import { baseName } from '../../shared/analysis/entryMetadata';
+import { channelResult } from '../../shared/recipe/channelSelection';
 import { reportFiles } from './compareReport';
 import { regionLabel } from './entryTable';
 import { recipeKey } from '../../shared/recipe/recipeSteps';
-import { ROLE_COLORS } from './stagePanes';
+import { ROLE_COLORS } from '../../shared/gui/roleColors';
 import { createTrackStageMode, type StageTrack, type TrackStageDeps, type TrackStageMode } from './trackStageMode';
 import { installScreenHelp } from './screenHelp';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
@@ -1093,6 +1095,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         loadSlots: () => persistedWebviewState.entrySlots,
         saveSlots: slots => persistWebviewState({ entrySlots: slots }),
         loadDerived: () => persistedWebviewState.entryDerived,
+        loadCsv: () => persistedWebviewState.entryCsv,
+        saveCsv: csv => persistWebviewState({ entryCsv: csv }),
         loadRecipe: () => persistedWebviewState.entryRecipe,
         saveRecipe: recipe => persistWebviewState({ entryRecipe: recipe }),
         saveDerived: rows => persistWebviewState({ entryDerived: rows }),
@@ -1124,8 +1128,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         post: message => messaging.post(message),
         recipe: () => entryScreen.recipes(),
         slots: () => entryScreen.slots(),
-        basePaths: comparePath => entryScreen.basePaths(comparePath),
-        baseTitle: comparePath => entryScreen.baseTitle(comparePath),
+        basePaths: (comparePath, group) => entryScreen.basePaths(comparePath, group),
+        baseTitle: (comparePath, group) => entryScreen.baseTitle(comparePath, group),
+        stageChannel: (path, comparePath, group) => entryScreen.stageChannel(path, comparePath, group),
+        rowInfo: path => entryScreen.rowInfo(path),
         showCompared: () => entryScreen.showCompared(),
         showLanes(visible) {
             const stacked = document.getElementById('stacked-wrap');
@@ -1164,17 +1170,30 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const data = entryScreen.compareData();
             // Over a region, the files' results over it take the entry table's place.
             const results = region ? new Map([...data.results, ...measured]) : data.results;
-            const result = results.get(comparePath);
-            const comparison = buildCompareModel(data.model, results, comparePath, groupBase ? null : data.slots[0] ?? null, STR);
+            // The compared file as the channel it is compared as, against its base as the table defines it.
+            const channel = entryScreen.stageChannel(comparePath, comparePath, groupBase);
+            const result = channel ? channelResult(results.get(comparePath), channel) : results.get(comparePath);
+            const comparison = entryScreen.comparison(comparePath, groupBase, results);
             if (!result?.ok || !comparison.base || comparison.blocked) return STR.compareRefuseFix.replace('{why}', diffHeadline(comparison, STR));
-            const baseLabel = data.slots[0] && !groupBase ? fileNameOf(data.slots[0]) : STR.entryBaseGroup;
-            entryScreen.addDerived({ parentPath: comparePath, region: regionLabel(region), result, recipeKey: recipeKey(data.runRecipe), base: { leq: comparison.base.leq, bands: comparison.base.bands, label: baseLabel, paths: comparison.base.filePaths } });
+            const definition = entryScreen.baseDefinition(comparePath, groupBase);
+            const baseLabel = definition.kind === 'file' ? definition.file ?? baseName(data.slots[0] ?? '') : entryScreen.baseTitle(comparePath, groupBase);
+            entryScreen.addDerived({
+                parentPath: comparePath, ...(channel ? { ch: channel } : {}), region: regionLabel(region), result, recipeKey: recipeKey(data.runRecipe),
+                base: { leq: comparison.base.leq, bands: comparison.base.bands, label: baseLabel, paths: comparison.base.filePaths, definition },
+            });
             return null;
         },
         report(showDiff, region, measured) {
             const data = entryScreen.compareData();
             const results = region ? new Map([...data.results, ...measured]) : data.results;
-            const { folder, files } = reportFiles(document, { model: data.model, results, slots: data.slots, region, recipe: data.runRecipe ?? data.recipe ?? null, recipeName: STR.stepRecipeName, now: new Date(), showDiff }, STR);
+            const { folder, files } = reportFiles(document, {
+                model: data.model, results, slots: data.slots, region, recipe: data.runRecipe ?? data.recipe ?? null, recipeName: STR.stepRecipeName, now: new Date(), showDiff,
+                // The comparisons as the table defines their bases (grouping, filters, channel), and what it was narrowed to.
+                compare: path => entryScreen.comparison(path, false, results),
+                rowInfo: path => ({ ...entryScreen.rowInfo(path), channel: entryScreen.stageChannel(path, path), base: entryScreen.baseDefinition(path) }),
+                selection: entryScreen.selection(),
+                derived: entryScreen.derivedRows(),
+            }, STR);
             messaging.post({ type: 'save-report-folder', folder, files });
             hintFooter.show(STR.reportSaved + folder);
         },

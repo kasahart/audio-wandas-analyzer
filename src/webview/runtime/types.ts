@@ -53,6 +53,8 @@ export interface PersistedWebviewState {
     entryDerived?: import('./entryTable').DerivedRow[];
     /** The scan Recipe as edited in the step bar; read back with a warning if it no longer parses. */
     entryRecipe?: unknown;
+    /** The attribute CSV picked on the entry table (name and text), when small enough to keep. */
+    entryCsv?: { name: string; text: string };
 }
 
 export interface WebviewHostApi {

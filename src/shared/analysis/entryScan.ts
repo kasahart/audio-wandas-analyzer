@@ -1,6 +1,7 @@
 import { parseBackendResult, type ScanResult, type StageDetail } from '../protocol/backendProtocol';
-import { isMetadataCandidate, pickMetadataTable, type MetadataAudit, type MetadataCandidate } from './entryMetadata';
+import { isMetadataCandidate } from './entryMetadata';
 import { recipeKey } from '../recipe/recipeSteps';
+import { AUDIO_HEAD_BYTES, channelsFromHeader, type ChannelProbe } from './audioHeader';
 import type { RecipeDocument } from '../recipe/recipeSelection';
 
 /**
@@ -15,8 +16,6 @@ export interface EntryConditionTable {
     rows: Record<string, string[]>;
     /** The recordings in the table's own row order. */
     order?: string[];
-    /** How the table's rows met the recordings. */
-    audit?: MetadataAudit;
     /** Columns whose values all read as numbers. */
     numeric?: boolean[];
     /** The metadata file's name, when the table came from one rather than a paste. */
@@ -32,7 +31,29 @@ export interface EntryScanMessage {
     rootPath?: string;
     /** The Recipe edited in the step bar; without it the host scans with the entry Recipe. */
     recipe?: RecipeDocument;
+    /**
+     * Only what is stored for these files (same file, calibration and Recipe) comes back: opening a folder
+     * computes nothing until the user asks (「計算」).
+     */
+    cachedOnly?: boolean;
 }
+
+/** Webview → host: read each file's channel count from its header (no audio decoded), for the rows by channel. */
+export interface EntryProbeMessage {
+    type: 'entry-probe';
+    requestId: string;
+    filePaths: string[];
+}
+
+/** Webview → host: stop reading headers after the current file. */
+export interface EntryProbeCancelMessage {
+    type: 'entry-probe-cancel';
+}
+
+/** Host → webview: one file's header: its channels, unknown (a format read only by its decoder), or why it could not be read. */
+export type EntryProbePublication =
+    | { type: 'entry-probe-result'; requestId: string; filePath: string; channels?: number; unknown?: true; error?: string }
+    | { type: 'entry-probe-done'; requestId: string };
 
 /** Webview → host: stop the running entry scan after its current file; what it scanned stays. */
 export interface EntryScanCancelMessage {
@@ -108,8 +129,8 @@ export interface EntryScanPorts {
     recipe?(): Promise<RecipeDocument>;
     /** The bytes of a listed file, for reading the CSV/TSV files among them as metadata tables. */
     readFile?(filePath: string): Promise<Uint8Array>;
-    /** Metadata tables beside the listed files that are not listed themselves, e.g. in the folder above. */
-    metadataCandidates?(filePaths: readonly string[]): Promise<MetadataCandidate[]>;
+    /** A file's first `length` bytes, for its header. */
+    readHead?(filePath: string, length: number): Promise<Uint8Array>;
     read(key: string): unknown;
     write(key: string, value: unknown): void | PromiseLike<void>;
     /** Runs once after the last file with how many were scanned, e.g. to give the browser's Worker its memory back. */
@@ -130,9 +151,7 @@ export function isEntryConditionTable(value: unknown): value is EntryConditionTa
         && Object.values(value['rows']).every(row => isStrings(row) && row.length === columns)
         && (value['order'] === undefined || isStrings(value['order']))
         && (value['numeric'] === undefined || (Array.isArray(value['numeric']) && value['numeric'].every(item => typeof item === 'boolean')))
-        && (value['source'] === undefined || typeof value['source'] === 'string')
-        && (value['audit'] === undefined || (isRecord(value['audit'])
-            && ['matched', 'recordings', 'missing', 'ambiguous', 'repeated'].every(key => Number.isInteger((value['audit'] as Record<string, unknown>)[key]))));
+        && (value['source'] === undefined || typeof value['source'] === 'string');
 }
 
 function isScanResult(value: unknown): value is ScanResult {
@@ -157,27 +176,17 @@ export function readConditionTable(ports: Pick<EntryScanPorts, 'read'>): EntryCo
     return isEntryConditionTable(stored) ? stored : null;
 }
 
-/** The listed CSV/TSV files and the host's extra candidates, matched against the other listed files. */
-async function findMetadata(ports: EntryScanPorts, filePaths: readonly string[], rootPath: string) {
-    const listed = ports.readFile ? filePaths.filter(isMetadataCandidate) : [];
-    const recordings = filePaths.filter(filePath => !isMetadataCandidate(filePath));
-    let extra: MetadataCandidate[] = [];
-    try { extra = await ports.metadataCandidates?.(filePaths) ?? []; } catch { /* An unreadable folder only means no extra candidates. */ }
-    const candidates: MetadataCandidate[] = [...listed.map(path => ({ path, read: () => ports.readFile!(path) })), ...extra];
-    const picked = await pickMetadataTable(candidates, recordings, rootPath);
-    return picked && { ...picked, listed: listed.includes(picked.path) };
-}
-
 function reason(error: unknown): string {
     const text = error instanceof Error ? error.message : String(error);
     return text.split('\n')[0] || 'Scan failed';
 }
 
 /**
- * Publishes the stored condition table, then one result per file in order: the stored one when the
- * file and its calibration are unchanged, otherwise a fresh scan. The stored index keeps only the
- * files of this scan, so it stays the size of one folder. Failures are results too (`ok: false`),
- * never kept, so the next scan tries the file again.
+ * Publishes the entry Recipe, then one result per file in order: the stored one when the file and its
+ * calibration are unchanged, otherwise a fresh scan (none with `cachedOnly`). The attribute CSV is the
+ * user's pick, read by the webview; the host no longer looks for one. The stored index keeps the files of
+ * this scan and, with `cachedOnly`, the rest it had, so it stays the size of one folder. Failures are
+ * results too (`ok: false`), never kept, so the next scan tries the file again.
  */
 export async function runEntryScan(
     ports: EntryScanPorts,
@@ -186,20 +195,13 @@ export async function runEntryScan(
     isCurrent: () => boolean,
 ): Promise<void> {
     const { requestId } = message;
-    const metadata = await findMetadata(ports, message.filePaths, message.rootPath ?? '');
-    const stored = readConditionTable(ports);
-    // A metadata file keeps the condition columns the user last checked for it.
-    const table = metadata
-        ? (stored && stored.source === metadata.table.source && JSON.stringify(stored.columns) === JSON.stringify(metadata.table.columns)
-            ? { ...metadata.table, checked: stored.checked } : metadata.table)
-        : stored;
     let standard: RecipeDocument | undefined;
     try { standard = await ports.recipe?.(); } catch { /* The step bar then shows no chips; scans still use the host's Recipe. */ }
     const used = recipeKey(message.recipe ?? standard);
-    await publish({ type: 'entry-conditions', requestId, table, ...(metadata?.listed ? { metadataPath: metadata.path } : {}), ...(standard ? { recipe: standard } : {}) });
-    const filePaths = metadata?.listed ? message.filePaths.filter(filePath => filePath !== metadata.path) : message.filePaths;
+    await publish({ type: 'entry-conditions', requestId, table: null, ...(standard ? { recipe: standard } : {}) });
+    const filePaths = message.filePaths.filter(filePath => !isMetadataCandidate(filePath));
     const index = readIndex(ports);
-    const kept: ScanIndex = {};
+    const kept: ScanIndex = message.cachedOnly ? { ...index } : {};
     let unsaved = 0;
     let scanned = 0;
     let completed = false;
@@ -215,6 +217,8 @@ export async function runEntryScan(
                 if (identity !== undefined && previous && previous.identity === identity && previous.calibration === calibration && previous.recipe === used) {
                     result = previous.result;
                     kept[filePath] = previous;
+                } else if (message.cachedOnly) {
+                    continue;
                 } else {
                     scanned++;
                     result = await ports.scan(filePath, undefined, message.recipe);
@@ -237,6 +241,24 @@ export async function runEntryScan(
     // Done only once the host has settled after the scan (a Web Worker restart), so whatever the table
     // asks for next (a fixed Δ measured again) is not cut short by it.
     if (completed) await publish({ type: 'entry-scan-done', requestId });
+}
+
+/** Reads each file's header for its channel count, one file at a time; a file it cannot open is an error, not a stop. */
+export async function runEntryProbe(
+    ports: EntryScanPorts,
+    message: EntryProbeMessage,
+    publish: (message: EntryProbePublication) => void | PromiseLike<unknown>,
+    isCurrent: () => boolean,
+): Promise<void> {
+    const read = ports.readHead ?? (ports.readFile ? (filePath: string) => ports.readFile!(filePath) : undefined);
+    for (const filePath of message.filePaths) {
+        if (!isCurrent()) return;
+        let probe: ChannelProbe;
+        try { probe = read ? channelsFromHeader(await read(filePath, AUDIO_HEAD_BYTES), filePath) : { unknown: true }; } catch (error) { probe = { error: reason(error) }; }
+        if (!isCurrent()) return;
+        await publish({ type: 'entry-probe-result', requestId: message.requestId, filePath, ...probe });
+    }
+    await publish({ type: 'entry-probe-done', requestId: message.requestId });
 }
 
 /** Scans the comparison's files over its region, one at a time, without touching the stored index. */

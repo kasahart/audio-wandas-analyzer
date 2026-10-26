@@ -4,7 +4,7 @@ import type {
     ChannelSummary,
 } from '../../shared/analysis/analysisTypes';
 import type { PairSpectrumPublication } from '../../shared/session/comparisonSessionController';
-import { isEntryConditionTable, type ComparePublication, type EntryPublication } from '../../shared/analysis/entryScan';
+import { isEntryConditionTable, type ComparePublication, type EntryProbePublication, type EntryPublication } from '../../shared/analysis/entryScan';
 import { parseBackendResult } from '../../shared/protocol/backendProtocol';
 import type { RangeWaveform, RuntimeWindow, WebviewHostApi } from './types';
 
@@ -65,6 +65,7 @@ export type HostInboundMessage =
     /** Lists a newly picked folder in the selection tree; no files leaves the tree for the plain results layout. `entry` opens the entry table on it. */
     | { type: 'directory-selection'; rootPath: string; rootLabel?: string; filePaths: string[]; entry?: boolean }
     | EntryPublication
+    | EntryProbePublication
     | ComparePublication
     | AnalysisUpdateMessage;
 
@@ -170,6 +171,11 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
         case 'entry-scan-result':
             if (!hasString(value, 'requestId') || !hasString(value, 'filePath')) return false;
             try { parseBackendResult('scan', value.result); return true; } catch { return false; }
+        case 'entry-probe-result':
+            return hasString(value, 'requestId') && hasString(value, 'filePath')
+                && (value.channels === undefined || (typeof value.channels === 'number' && Number.isInteger(value.channels) && value.channels > 0))
+                && (value.error === undefined || typeof value.error === 'string');
+        case 'entry-probe-done':
         case 'entry-scan-done':
         case 'compare-scan-done':
             return hasString(value, 'requestId');

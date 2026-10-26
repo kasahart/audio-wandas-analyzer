@@ -47,7 +47,6 @@ export interface UiStrings {
     panelTitle: string;
     emptyAllExcluded: string;
     emptyNoTracks: string;
-    selectionHeader: string;
     selectionEmptyHint: string;
     btnOpenFile: string;
     btnOpenAnotherFolder: string;
@@ -73,7 +72,6 @@ export interface UiStrings {
     btnSaveRecipe: string;
     chartSpecNoResults: string;
     chartSpecScalarLabelHeader: string;
-    chartSpecScalarValueHeader: string;
     chartSpecScalarUnitHeader: string;
     cursorDisplayHint: string;
     loopBadge: string;
@@ -114,32 +112,12 @@ export interface UiStrings {
     entryColLeq: string;
     entryColPeak: string;
     entryOpen: string;
-    entryPasteConditions: string;
-    entryOutliers: string;
     entryBaseGroup: string;
     entryBase: string;
     entryCount: string;
-    entryNoOutliers: string;
-    entryKeyHoldDelta: string;
     entryKeySlot: string;
-    entryUnreadable: string;
-    entryUnavailable: string;
-    entryShape: string;
-    entryCalibrated: string;
-    entryBandUnit: string;
-    hintCalibratedColumn: string;
-    hintRowSlot: string;
-    hintRowBase: string;
-    entryConditionsApply: string;
-    entryConditionsClear: string;
-    entryConditionsClose: string;
-    entryConditionsPlaceholder: string;
-    entryCsvRegion: string;
     entryCsvGroupSize: string;
     entrySourceGone: string;
-    entryMissing: string;
-    entryAmbiguous: string;
-    entryRepeated: string;
     entryFolderLevel: string;
     compareKeyHold: string;
     compareKeyBack: string;
@@ -199,7 +177,6 @@ export interface UiStrings {
     stepOffUnavailable: string;
     stepDefaultsOnly: string;
     stepNoSettings: string;
-    stepBarLabel: string;
     stepInputFiles: string;
     stepInput: string;
     stepHintLocale: string;
@@ -222,10 +199,105 @@ export interface UiStrings {
     stepAfterBroken: string;
     stepOctaveBroken: string;
     entryChainBroken: string;
-    stepInsertHere: string;
     stepTapHint: string;
     stepAdded: string;
     stepRemoved: string;
+    dsValue: string;
+    dsGroup: string;
+    dsGroupNone: string;
+    dsFromCsv: string;
+    dsFromSound: string;
+    dsLeq: string;
+    dsPeak: string;
+    dsCrest: string;
+    dsBand: string;
+    dsNotComputed: string;
+    dsRows: string;
+    dsPickCsv: string;
+    dsCsvSource: string;
+    hintPickCsv: string;
+    dsCsvError: string;
+    dsCsvRead: string;
+    dsUnmatched: string;
+    hintUnmatched: string;
+    dsUnreadable: string;
+    hintUnreadable: string;
+    dsExcluded: string;
+    hintExcluded: string;
+    dsReasonMissing: string;
+    dsReasonAmbiguous: string;
+    dsReasonRepeated: string;
+    dsReasonNoRow: string;
+    dsReasonUnreadable: string;
+    dsCsvRow: string;
+    dsReason: string;
+    dsCompute: string;
+    hintCompute: string;
+    dsComputing: string;
+    dsUncomputed: string;
+    dsRowSlot: string;
+    dsSlotCompare: string;
+    dsSlotOut: string;
+    dsRowMemo: string;
+    dsRowExclude: string;
+    dsRowExcludeShort: string;
+    dsRowRestore: string;
+    dsMemoPlaceholder: string;
+    dsMemoClose: string;
+    dsSortAsc: string;
+    dsSortDesc: string;
+    dsFilterClear: string;
+    dsFilterSearch: string;
+    dsFilterAll: string;
+    dsFilterAllFound: string;
+    dsFilterBlank: string;
+    dsFilterMore: string;
+    dsFilterNone: string;
+    dsFilterRange: string;
+    dsFilterLow: string;
+    dsFilterHigh: string;
+    dsFilterAdd: string;
+    dsFilterColumn: string;
+    dsFilterPickOne: string;
+    dsFilterApplied: string;
+    dsFilterRemoved: string;
+    dsFilterHead: string;
+    dsFilterOn: string;
+    dsChipRemove: string;
+    dsSlotEmptyHint: string;
+    dsSlotFilledHint: string;
+    dsSlotClear: string;
+    dsBaseReset: string;
+    dsCh: string;
+    dsCancel: string;
+    dsProbing: string;
+    dsDistMax: string;
+    dsUnitRecording: string;
+    dsDistCountAxis: string;
+    dsDistCsvAxis: string;
+    dsDistDrag: string;
+    dsDistNotComputed: string;
+    dsDistEmpty: string;
+    dsDistGroups: string;
+    dsDistAll: string;
+    dsDerivedRemove: string;
+    dsBaseNarrowed: string;
+    dsBaseFewer: string;
+    reportMemo: string;
+    reportBaseDefinition: string;
+    reportDerived: string;
+    dsDistLabel: string;
+    dsDistBack: string;
+    dsDistBackHint: string;
+    dsDistPicked: string;
+    dsComputeRest: string;
+    dsLegendBaseMedian: string;
+    dsBaseMenu: string;
+    dsBaseAuto: string;
+    dsBaseGroupMedian: string;
+    dsBaseRow: string;
+    dsBaseSet: string;
+    dsBaseSetAuto: string;
     stepUndo: string;
     stepRedo: string;
     stepUndone: string;
@@ -249,8 +321,6 @@ export interface UiStrings {
     stepCannotShow: string;
     stepCannotShowFix: string;
     stepInputHint: string;
-    entryStaleTag: string;
-    entryScanAll: string;
     entryScanCancel: string;
     entryMinutes: string;
     entrySeconds: string;
@@ -260,7 +330,6 @@ export interface UiStrings {
     stepNotDrawable: string;
     stepOpenCompare: string;
     axisLevel: string;
-    axisValue: string;
     axisGain: string;
     axisCoherence: string;
     axisBand: string;
@@ -278,7 +347,6 @@ export interface UiStrings {
     stepHeldWithout: string;
     stepHeldRow: string;
     stepHeldNoRow: string;
-    outsideLeq: string;
     outside192: string;
     outsideMedian: string;
     outsideDelta: string;
@@ -300,8 +368,6 @@ export interface UiStrings {
     compareNoSignificant: string;
     stepNeedAbove: string;
     stepNeedInteger: string;
-    compareRegionInvalid: string;
-    entryAxisMaxDelta: string;
     stepNeedValue: string;
     hintSpectrogram: string;
     compareRefuseFix: string;
@@ -314,29 +380,15 @@ export interface UiStrings {
     screenHelpCompare: string;
     screenHelpSymbols: string;
     keyHelp: string;
-    hintColumnsMore: string;
-    hintFailedFilter: string;
-    hintOutlierFilter: string;
-    hintSortMark: string;
     hintOverview: string;
-    hintScatterAxis: string;
-    hintBandSelect: string;
     hintBaseCard: string;
     hintSlotCard: string;
-    hintSlotEmpty: string;
     hintRegionMark: string;
     hintCompareMark: string;
     hintStepChip: string;
-    hintEntryProgress: string;
     hintEntryMaximize: string;
     hintRowPlay: string;
     hintRowStop: string;
-    hintComparedFilter: string;
-    entryCompared: string;
-    entryAddedGroup: string;
-    hintRowHide: string;
-    hintRowRemove: string;
-    hintBaseChip: string;
     compareSingleBase: string;
     compareRegionDiffers: string;
     helpRowEntryKeys: string;
@@ -370,8 +422,6 @@ export interface UiStrings {
     specSettingsDbMin: string;
     specSettingsDbMax: string;
     specSettingsMaxFreqHz: string;
-    specSettingsReset: string;
-    specSettingsApply: string;
     specSettingsPlaceholderAuto: string;
     specSettingsPlaceholderNyquist: string;
     btnExportPng: string;
@@ -450,7 +500,6 @@ export interface UiStrings {
     announceExportPngFailed: string;
     announceExportCsvStarted: string;
     announceExportCsvFailed: string;
-    spectrumZoomLabel: string;
     ariaSpecZoomIn: string;
     ariaSpecZoomOut: string;
     ariaSpecZoomReset: string;
@@ -462,7 +511,6 @@ export interface UiStrings {
     waveRangeErrorTooNarrow: string;
     specRangeMin: string;
     specRangeMax: string;
-    specRangeApply: string;
     specRangeAuto: string;
     specRangeErrorMinMax: string;
     specRangeClose: string;
@@ -548,7 +596,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         panelTitle: 'Audio Wandas Analyzer',
         emptyAllExcluded: 'All tracks are excluded',
         emptyNoTracks: 'Files you put in slots 0–3 or add with ＋ on the entry table appear here as tracks',
-        selectionHeader: 'Select files to analyze',
         selectionEmptyHint: 'Open a folder to list every file here',
         btnOpenFile: '＋ Add files',
         browserEmptyPrompt: 'Drop audio or CSV files here, or open files or a folder, to start comparing',
@@ -604,7 +651,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnSaveRecipe: 'Save as recipe',
         chartSpecNoResults: 'Recipe returned no charts.',
         chartSpecScalarLabelHeader: 'Label',
-        chartSpecScalarValueHeader: 'Value',
         chartSpecScalarUnitHeader: 'Unit',
         cursorDisplayHint: 'Cursor time: click a waveform, then fine-tune with ← → (Shift: 100 ms)',
         loopBadge: '🔁 Looping',
@@ -645,32 +691,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryColLeq: 'Leq dB(A)',
         entryColPeak: 'Δ max band',
         entryOpen: 'Compare',
-        entryPasteConditions: 'Paste conditions',
-        entryOutliers: 'Outliers',
         entryBaseGroup: 'Base group',
         entryBase: 'Base',
         entryCount: '{count} files',
-        entryNoOutliers: 'no outliers',
-        entryKeyHoldDelta: 'hold 0 Δ',
         entryKeySlot: '1–3 slot',
-        entryUnreadable: 'unreadable',
-        entryUnavailable: 'Not comparable',
-        entryShape: 'Different shape',
-        entryCalibrated: 'Cal.',
-        entryBandUnit: '{unit}',
-        hintCalibratedColumn: '✓ = calibrated (dB SPL). Empty: digital values (dBFS; dB(A) is relative)',
-        hintRowSlot: 'Put this file in slot {n} (key {n})',
-        hintRowBase: '0: make this file the base (again: back to the group median)',
-        entryConditionsApply: 'Apply',
-        entryConditionsClear: 'Clear',
-        entryConditionsClose: 'Close',
-        entryConditionsPlaceholder: 'Paste a table: file name, then condition columns',
-        entryCsvRegion: 'Region',
         entryCsvGroupSize: 'Base group n',
         entrySourceGone: 'The file is no longer listed',
-        entryMissing: 'unmatched',
-        entryAmbiguous: 'ambiguous',
-        entryRepeated: 'duplicate',
         entryFolderLevel: 'Folder {n}',
         compareKeyHold: 'hold 1–3 swap',
         compareKeyBack: 'Esc entry',
@@ -730,7 +756,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOffUnavailable: 'Not available in the Web version (no {packages})',
         stepDefaultsOnly: 'defaults',
         stepNoSettings: "No settings known for this step: it runs with wandas' defaults.",
-        stepBarLabel: 'Steps',
         stepInputFiles: 'Input · {n} files',
         stepInput: 'Input',
         stepHintLocale: 'en',
@@ -753,10 +778,105 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepAfterBroken: 'The step before ({op}) cannot run, so this one cannot either.',
         stepOctaveBroken: "The steps cannot run, so the table's 1/3-octave values cannot be computed.",
         entryChainBroken: "The steps cannot run · the table keeps the previous chain's values",
-        stepInsertHere: 'Add a step here',
         stepTapHint: "Press: see this step's result · bypass: see it without this step · hold: the same while held",
         stepAdded: 'Added {op}. The files on screen are measured again; Scan all updates the table.',
         stepRemoved: 'Removed {op}. Every file is measured again.',
+        dsValue: 'Value',
+        dsGroup: 'Group',
+        dsGroupNone: 'None',
+        dsFromCsv: 'CSV columns',
+        dsFromSound: 'Computed from the sound',
+        dsLeq: 'Leq A-weighted [dBFS]',
+        dsPeak: 'Peak frequency [Hz]',
+        dsCrest: 'Crest factor [ratio]',
+        dsBand: '{band} band [dBFS]',
+        dsNotComputed: 'Not computed: press 「Compute」 first',
+        dsRows: '{n} rows',
+        dsPickCsv: 'Pick a CSV',
+        dsCsvSource: '{name} · {matched}/{total}',
+        hintPickCsv: 'Pick one attribute CSV/TSV for these recordings (UTF-8, up to 20 MB and 128 columns)',
+        dsCsvError: 'Could not read the CSV: {reason}',
+        dsCsvRead: 'Read {name}: {matched} of {total} recordings matched',
+        dsUnmatched: 'Unmatched {n}',
+        hintUnmatched: 'CSV rows and recordings that did not match, and recordings that could not be read',
+        dsUnreadable: 'Unreadable {n}',
+        hintUnreadable: 'Recordings that could not be read',
+        dsExcluded: 'Excluded {n}',
+        hintExcluded: 'Recordings taken out of the table; restore them here',
+        dsReasonMissing: 'No recording',
+        dsReasonAmbiguous: 'Ambiguous',
+        dsReasonRepeated: 'Repeated, not used',
+        dsReasonNoRow: 'No CSV row',
+        dsReasonUnreadable: 'Unreadable',
+        dsCsvRow: 'CSV row {n}',
+        dsReason: 'Reason',
+        dsCompute: 'Compute {n} files · about {time}',
+        hintCompute: 'Compute the chosen value for the recordings in the table (its filters applied)',
+        dsComputing: 'Computing {done} / {n}',
+        dsUncomputed: 'Not computed {n} ch',
+        dsRowSlot: 'Put in a slot: 0 base, 1–3 compare (keys 0–3)',
+        dsSlotCompare: 'Compare {n}',
+        dsSlotOut: 'Take out of its slot',
+        dsRowMemo: 'Memo (M)',
+        dsRowExclude: 'Take out of the table (restore it from 「Excluded」)',
+        dsRowExcludeShort: 'Out',
+        dsRowRestore: 'Restore',
+        dsMemoPlaceholder: 'What you noticed',
+        dsMemoClose: 'Save and close',
+        dsSortAsc: 'Ascending',
+        dsSortDesc: 'Descending',
+        dsFilterClear: 'Clear the filter from 「{col}」',
+        dsFilterSearch: 'Search',
+        dsFilterAll: '(Select all)',
+        dsFilterAllFound: '(Select all found)',
+        dsFilterBlank: '(Blank)',
+        dsFilterMore: '{n} more: narrow with the search',
+        dsFilterNone: 'No matching values',
+        dsFilterRange: 'Range',
+        dsFilterLow: 'From',
+        dsFilterHigh: 'To',
+        dsFilterAdd: '＋ Filter',
+        dsFilterColumn: 'Column',
+        dsFilterPickOne: 'Pick at least one value',
+        dsFilterApplied: 'Narrowed to {n} rows',
+        dsFilterRemoved: 'Cleared the filter on {col}',
+        dsFilterHead: 'Sort or filter by this column',
+        dsFilterOn: 'Filtered: press to change',
+        dsChipRemove: 'Remove this filter',
+        dsSlotEmptyHint: 'Slot {n}: press to put the selected row in (or its slot button, key {n})',
+        dsSlotFilledHint: 'Slot {n}: press to go to its row',
+        dsSlotClear: 'Empty slot {n}',
+        dsBaseReset: 'The base was reset to the group median of the new grouping',
+        dsCh: 'ch',
+        dsCancel: 'Cancel',
+        dsProbing: 'Reading channels {done} / {n}',
+        dsDistMax: 'max {n}',
+        dsUnitRecording: 'recordings',
+        dsDistCountAxis: 'Height: {unit} per group',
+        dsDistCsvAxis: '{col} (CSV column)',
+        dsDistDrag: 'Drag on the distribution to pick a range',
+        dsDistNotComputed: '{value} is not computed yet: it is computed per channel.',
+        dsDistEmpty: 'No recording has this value under the filters.',
+        dsDistGroups: '{n} groups',
+        dsDistAll: 'All',
+        dsDerivedRemove: 'Delete this fixed difference',
+        dsBaseNarrowed: ' (within {filters})',
+        dsBaseFewer: ' · {n} without ch {ch} left out',
+        reportMemo: 'Memo',
+        reportBaseDefinition: 'Base definition',
+        reportDerived: 'Fixed Δ (D)',
+        dsDistLabel: 'Distribution by group',
+        dsDistBack: '← Back to the distribution',
+        dsDistBackHint: 'Close the comparison and choose again from the distribution (⤢)',
+        dsDistPicked: 'Narrowed to {n} rows: × on the chip takes it off',
+        dsComputeRest: 'Compute the rest · about {time}',
+        dsLegendBaseMedian: 'Base (median of {group})',
+        dsBaseMenu: 'Use as the base',
+        dsBaseAuto: 'Median of the group of slot 1',
+        dsBaseGroupMedian: 'Median of {group}',
+        dsBaseRow: 'The selected recording (0)',
+        dsBaseSet: 'The base is now the median of {group}',
+        dsBaseSetAuto: 'The base is now the median of the group of slot 1',
         stepUndo: 'Undo (Ctrl+Z)',
         stepRedo: 'Redo (Ctrl+Shift+Z)',
         stepUndone: 'Undone',
@@ -780,8 +900,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepCannotShow: 'This step cannot be shown: {why}',
         stepCannotShowFix: 'Drag the ⚠ step to a place it fits, or remove it with ×',
         stepInputHint: "Press: the files' waveforms as they come in",
-        entryStaleTag: 'Chain changed · {n} rows from the previous chain',
-        entryScanAll: 'Scan all {n} · about {time}',
         entryScanCancel: 'Cancel',
         entryMinutes: '{n} min',
         entrySeconds: '{n} s',
@@ -790,13 +908,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportChainPrevious: 'previous chain',
         stepNotDrawable: 'This step cannot be shown ({frame})',
         stepOpenCompare: 'Put files in slots 1–3 to compare them at this step.',
-        axisLevel: 'Level dB',
-        axisValue: 'Value',
-        axisGain: 'Gain dB',
+        axisLevel: 'Level [dB]',
+        axisGain: 'Gain [dB]',
         axisCoherence: 'Coherence',
-        axisBand: 'Band centre Hz',
-        axisBark: 'Critical band Bark',
-        axisQuefrency: 'Quefrency s',
+        axisBand: 'Band centre [Hz]',
+        axisBark: 'Critical band [Bark]',
+        axisQuefrency: 'Quefrency [s]',
         axisCepstrum: 'Real cepstrum',
         stageNoDelta: '— (Δ only between pictures of one kind on the same axes)',
         stageMaxDelta: 'largest Δ {at} {delta}',
@@ -809,7 +926,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepHeldWithout: 'without {step}',
         stepHeldRow: '{what} · {file}',
         stepHeldNoRow: 'Pick a row (click it) to see what the step does to it.',
-        outsideLeq: 'Leq dB(A)',
         outside192: '192 points',
         outsideMedian: 'group median',
         outsideDelta: 'Δ',
@@ -820,19 +936,17 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOctave: '1/3 oct',
         stepFrameHint: 'wandas {op}',
         slotEmpty: 'empty',
-        axisFrequency: 'Frequency Hz',
-        axisLevelUncal: 'Amplitude dBFS (uncal.)',
-        axisLevelCal: 'Amplitude dB re {ref} {unit}',
-        axisDelta: 'Δ dB',
-        axisTime: 'Time s',
+        axisFrequency: 'Frequency [Hz]',
+        axisLevelUncal: 'Amplitude, uncalibrated [dBFS]',
+        axisLevelCal: 'Amplitude [dB re {ref} {unit}]',
+        axisDelta: 'Δ [dB]',
+        axisTime: 'Time [s]',
         legendHeadline: '1/3 oct headline',
         legendLeak: 'leak',
         legendLine: 'per point',
         compareNoSignificant: 'no clear difference',
         stepNeedAbove: 'Must be above {min}',
         stepNeedInteger: 'Must be a whole number',
-        compareRegionInvalid: 'A region is 0 ≤ start < end ≤ {end} s; the fields went back to the region in force.',
-        entryAxisMaxDelta: 'Δ max band dB',
         stepNeedValue: 'Enter a value (the field is empty)',
         hintSpectrogram: 'Average spectrum (n_fft, window): the curves of the comparison; hold to show the spectrograms instead',
         compareRefuseFix: 'D: no Δ to fix ({why}). Put a file in slot 0 on the entry table, or wait for the scan.',
@@ -843,31 +957,17 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         screenHelpTitle: 'Keys and symbols',
         screenHelpEntry: '↑ / ↓\tmove between rows\n1–3\tput the row in a slot (hold: its Δ spectrum)\n0\tmake the row the base; on the base row, back to the group median (hold: show Δ)\nEnter\topen the slotted rows on the comparison\nEsc\tclose a setting, a filter, then the focused row (the old screen: the last line of this list)\n? / F1\tthis list',
         screenHelpCompare: '1–3\ttap: compare that slot; hold: compare it until released\n0\tswitch the base between the file in slot 0 and the group median\nD\tfix the comparison as a row of the entry table\nSteps / Overlay · Side by side\tthe tracks as a step of the Recipe, drawn over one another or each in its lane\nShow Δ\tshow the difference (compare − base) under the overlay\nEsc\tclose a setting, then go back to the entry table\n? / F1\tthis list',
-        screenHelpSymbols: '+N\thidden condition columns (click to show)\n✕\tfiles that could not be read\n≠ (chip)\tfiles of another shape, readable but not compared\n≠\ta region other than the entry table\'s, or a Δ that cannot be read\n▼Δ\tsorted by this column (grey: waits for the scan)\n● ▲ ■ ◆ ×\tone marker shape per condition in the scatter\nΔ max band\tthe 1/3-octave band where the row differs most from its condition, with that Δ\noutlier\tLeq or Δ max band beyond 3 MAD (the group\'s typical spread; 8 for the band) from the median of its condition\nslot\tthe four places 0–3 at the bottom: 0 the base, 1–3 the files to compare\nfilled / outlined step\ta headline band / its leak into the neighbouring band filter\nn=1\tthe base group is a single file\nstrip\tevery file\'s 1/3-octave levels (row = file, bright = loud)\nblue\tbase\nyellow / purple / magenta\tslots 1 / 2 / 3 (card, badge and line)\ngreen line\ta fixed comparison (D)\norange\toutlier or invalid value\ngreen\tΔ (compare − base), not good or bad',
+        screenHelpSymbols: 'distribution\tthe chosen value per group: bars, a dot per recording when a group has few, a tick per recording below them\ndrag on it\ta range of the value: a chip that narrows the table (× or Esc takes it off)\n┃ (coloured)\ta slotted row, in its slot\'s colour\n┆ (blue, dashed)\tthe base: the median of a group\nslot\tthe four places 0–3 at the bottom: 0 the base, 1–3 the files to compare\n└ Δ\ta difference fixed with D, under the row it was fixed on\nfilled / outlined step\ta headline band / its leak into the neighbouring band filter\nstrip\tthe table\'s rows as 1/3-octave levels (row = recording, bright = loud)\nblue\tbase\nyellow / purple / magenta\tslots 1 / 2 / 3 (card, badge and line)\ngreen\tΔ (compare − base), not good or bad\norange\ta step that cannot run, or a recording that could not be read',
         keyHelp: '?',
-        hintColumnsMore: 'Condition columns not used for grouping; click to show them',
-        hintFailedFilter: 'Files that cannot be compared: unreadable, or of another shape (channels, rate, unit); click to list only them',
-        hintOutlierFilter: 'Rows more than 3 MAD from their group median; click to list only them',
-        hintSortMark: 'Sorted by this column, largest |Δ| first; grey while the scan still runs',
         hintOverview: 'Every file\'s 1/3-octave levels: one row per file, brighter is louder; the frame is the rows on screen',
-        hintScatterAxis: 'What this axis of the scatter shows',
-        hintBandSelect: 'The 1/3-octave band this column shows',
         hintBaseCard: '0: the base the compared file is measured against',
         hintSlotCard: 'Tap to compare this file; hold to swap it in until released',
-        hintSlotEmpty: 'Empty: press to put the selected row here (key {n})',
         hintRegionMark: 'The comparison uses another region than the entry table; click to go back to it',
         hintCompareMark: 'No Δ to read against this base',
         hintStepChip: 'A step of the scan Recipe; ⚙ changes its settings',
-        hintEntryProgress: 'Files scanned / files in the folder',
         hintEntryMaximize: 'Widen the table to the whole window (⤢) or back into the side panel (⤡); a double click on this bar, or dragging the panel\'s edge past 60 % of the window, does the same. Esc shrinks it',
         hintRowPlay: 'Play this file alone (shown as a track)',
         hintRowStop: 'Stop',
-        hintComparedFilter: 'Only the compared files and their base, the base nearest its median first',
-        entryCompared: 'Compared',
-        entryAddedGroup: 'Added files',
-        hintRowHide: 'Hide or show this track in the track view',
-        hintRowRemove: 'Take this file off the track view (and out of its slot)',
-        hintBaseChip: 'Slot 0: the base; empty means each row\'s own group median',
         compareSingleBase: 'n=1',
         compareRegionDiffers: '≠ region',
         helpRowEntryKeys: 'entry table: 0 base (hold: Δ), 1–3 slot, Enter open, Esc close (old screen: from the ? list), ↑/↓ row',
@@ -901,8 +1001,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsDbMin: 'dB min',
         specSettingsDbMax: 'dB max',
         specSettingsMaxFreqHz: 'max freq Hz',
-        specSettingsReset: 'Reset',
-        specSettingsApply: 'Apply',
         specSettingsPlaceholderAuto: 'auto',
         specSettingsPlaceholderNyquist: 'Nyquist',
         btnExportPng: 'Export PNG',
@@ -980,7 +1078,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceExportPngFailed: 'PNG export failed: no visible canvases',
         announceExportCsvStarted: 'CSV export started',
         announceExportCsvFailed: 'CSV export failed: no spectrum data at cursor',
-        spectrumZoomLabel: 'Spectrum',
         ariaSpecZoomIn: 'Spectrum zoom in',
         ariaSpecZoomOut: 'Spectrum zoom out',
         ariaSpecZoomReset: 'Spectrum zoom reset',
@@ -992,7 +1089,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         waveRangeErrorTooNarrow: 'Range is too narrow for this channel',
         specRangeMin: 'Min',
         specRangeMax: 'Max',
-        specRangeApply: 'Apply',
         specRangeAuto: 'Auto',
         specRangeErrorMinMax: 'Min must be smaller than Max',
         specRangeClose: 'Close',
@@ -1076,7 +1172,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         panelTitle: 'Audio Wandas Analyzer',
         emptyAllExcluded: 'すべてのトラックが除外されています',
         emptyNoTracks: '一覧で 1–3 や ▶ を押したファイルが、ここにトラックとして表示されます',
-        selectionHeader: '選択して解析',
         selectionEmptyHint: 'フォルダを開くと、全ファイルの表がここに出ます',
         btnOpenFile: '＋ファイルを追加',
         browserEmptyPrompt: '音声ファイルやCSVをここにドロップするか、ファイルまたはフォルダを開いて比較を始めます',
@@ -1132,7 +1227,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnSaveRecipe: 'レシピとして保存',
         chartSpecNoResults: 'レシピは何もチャートを返しませんでした。',
         chartSpecScalarLabelHeader: '項目',
-        chartSpecScalarValueHeader: '値',
         chartSpecScalarUnitHeader: '単位',
         cursorDisplayHint: 'カーソル時刻: 波形をクリックし、← → で微調整（Shift: 100 ms）',
         loopBadge: '🔁 ループ再生中',
@@ -1173,32 +1267,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryColLeq: 'Leq dB(A)',
         entryColPeak: 'Δ最大帯域',
         entryOpen: '比較を表示',
-        entryPasteConditions: '条件表 貼る',
-        entryOutliers: '外れ値',
         entryBaseGroup: '基準群',
         entryBase: '基準',
         entryCount: '{count} 件',
-        entryNoOutliers: '外れ値なし',
-        entryKeyHoldDelta: '0 長押しで差',
         entryKeySlot: '1–3 スロット',
-        entryUnreadable: '読めない',
-        entryUnavailable: '比較不可',
-        entryShape: '形が違う',
-        entryCalibrated: '校正',
-        entryBandUnit: '帯 {unit}',
-        hintCalibratedColumn: '✓ = 校正値あり（dB SPL）。空欄はデジタル値（dBFS / dB(A) は相対）',
-        hintRowSlot: 'このファイルをスロット {n} に入れる（キー {n}）',
-        hintRowBase: '0：基準にする（もう一度押すと群の中央値に戻す）',
-        entryConditionsApply: '適用',
-        entryConditionsClear: '消去',
-        entryConditionsClose: '閉じる',
-        entryConditionsPlaceholder: '表を貼る: ファイル名、続けて条件の列',
-        entryCsvRegion: '区間',
         entryCsvGroupSize: '基準群 n',
         entrySourceGone: 'ファイルが一覧から外れました',
-        entryMissing: '未対応',
-        entryAmbiguous: '曖昧',
-        entryRepeated: '重複',
         entryFolderLevel: 'フォルダ階層{n}',
         compareKeyHold: '1–3 長押しで入れ替え',
         compareKeyBack: 'Esc 一覧へ',
@@ -1258,7 +1332,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOffUnavailable: 'Web 版では使えません（{packages} が無い）',
         stepDefaultsOnly: '既定値',
         stepNoSettings: '設定項目の情報なし（wandas の既定値で実行します）',
-        stepBarLabel: '手順',
         stepInputFiles: '入力 {n} 本',
         stepInput: '入力',
         stepHintLocale: 'ja',
@@ -1281,10 +1354,105 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepAfterBroken: '前の手順（{op}）が成立しないので表示できません',
         stepOctaveBroken: '手順が成立しないので、表の 1/3 oct の値を計算できません',
         entryChainBroken: '手順が成立しません · 表は前の手順の値です',
-        stepInsertHere: 'ここに手順を足す',
         stepTapHint: 'クリック: この手順の結果 · バイパス: この手順を飛ばして見る · 長押し: 押している間だけ飛ばして見る',
         stepAdded: '{op} を足しました。表示中のファイルを計算し直します。一覧は「全件を計算」で更新します。',
         stepRemoved: '{op} を外しました。全ファイルを計算し直します。',
+        dsValue: '値',
+        dsGroup: '群',
+        dsGroupNone: 'なし',
+        dsFromCsv: 'CSV の列',
+        dsFromSound: '音から計算',
+        dsLeq: 'Leq A特性 [dBFS]',
+        dsPeak: 'ピーク周波数 [Hz]',
+        dsCrest: '波高率 [比]',
+        dsBand: '{band} 帯 [dBFS]',
+        dsNotComputed: '未計算：先に「計算」を押してください',
+        dsRows: '{n} 行',
+        dsPickCsv: 'CSV を選ぶ',
+        dsCsvSource: '{name} · {matched}/{total}',
+        hintPickCsv: '録音の属性の CSV/TSV を 1 つ選ぶ（UTF-8、20 MB・128 列まで）',
+        dsCsvError: 'CSV を読めませんでした：{reason}',
+        dsCsvRead: '{name} を読みました：{total} 本中 {matched} 本が対応',
+        dsUnmatched: '対応なし {n}',
+        hintUnmatched: 'CSV と対応しなかった行と録音、読めなかった録音',
+        dsUnreadable: '読めない {n}',
+        hintUnreadable: '読めなかった録音',
+        dsExcluded: '除外 {n}',
+        hintExcluded: '集計から外した録音。ここから戻せます',
+        dsReasonMissing: '未対応',
+        dsReasonAmbiguous: '曖昧',
+        dsReasonRepeated: '重複で不採用',
+        dsReasonNoRow: '属性なし',
+        dsReasonUnreadable: '読めない',
+        dsCsvRow: 'CSV {n} 行目',
+        dsReason: '理由',
+        dsCompute: '計算 {n} 本 · 約 {time}',
+        hintCompute: '選んでいる値を、表に出ている録音で計算する（絞り込みのとおり）',
+        dsComputing: '計算中 {done} / {n}',
+        dsUncomputed: '未計算 {n} ch',
+        dsRowSlot: 'スロットに入れる：0 基準・1–3 比較（キー 0–3）',
+        dsSlotCompare: '比較 {n}',
+        dsSlotOut: 'スロットから外す',
+        dsRowMemo: 'メモ（M）',
+        dsRowExclude: '集計から外す（「除外」から戻せます）',
+        dsRowExcludeShort: '外す',
+        dsRowRestore: '戻す',
+        dsMemoPlaceholder: '気付いたこと',
+        dsMemoClose: '保存して閉じる',
+        dsSortAsc: '昇順',
+        dsSortDesc: '降順',
+        dsFilterClear: '「{col}」から絞り込みを外す',
+        dsFilterSearch: '検索',
+        dsFilterAll: '（すべて選択）',
+        dsFilterAllFound: '（検索結果をすべて選択）',
+        dsFilterBlank: '（空欄）',
+        dsFilterMore: 'ほか {n} 件。検索で絞ってください',
+        dsFilterNone: '当たる値がありません',
+        dsFilterRange: '範囲',
+        dsFilterLow: '下限',
+        dsFilterHigh: '上限',
+        dsFilterAdd: '＋ 絞り込み',
+        dsFilterColumn: '列',
+        dsFilterPickOne: '値を 1 つ以上選んでください',
+        dsFilterApplied: '{n} 行に絞りました',
+        dsFilterRemoved: '{col} の絞り込みを外しました',
+        dsFilterHead: 'この列で並べ替え・絞り込み',
+        dsFilterOn: '絞り込み中。押すと直せます',
+        dsChipRemove: 'この絞り込みを外す',
+        dsSlotEmptyHint: 'スロット {n}：押すと選んでいる行を入れます（行のスロットボタン、キー {n} でも）',
+        dsSlotFilledHint: 'スロット {n}：押すとその行へ移ります',
+        dsSlotClear: 'スロット {n} を空ける',
+        dsBaseReset: '群を変えたので、基準を群の中央値に戻しました',
+        dsCh: 'ch',
+        dsCancel: 'キャンセル',
+        dsProbing: 'チャンネル数を読み込み中 {done} / {n}',
+        dsDistMax: '最大 {n}',
+        dsUnitRecording: '録音',
+        dsDistCountAxis: '縦：{unit}数（群ごと）',
+        dsDistCsvAxis: '{col}（CSV の列）',
+        dsDistDrag: '分布をドラッグで範囲を囲む',
+        dsDistNotComputed: '{value} はまだ計算していません。チャンネルごとに計算します。',
+        dsDistEmpty: '絞り込みに当たる録音がありません。',
+        dsDistGroups: '{n} 群',
+        dsDistAll: '全体',
+        dsDerivedRemove: 'この固定した差を消す',
+        dsBaseNarrowed: '（{filters} に絞った中で）',
+        dsBaseFewer: ' · ch {ch} のない {n} 本は除外',
+        reportMemo: 'メモ',
+        reportBaseDefinition: '基準の定義',
+        reportDerived: '固定した差（D）',
+        dsDistLabel: '群ごとの分布',
+        dsDistBack: '← 分布に戻る',
+        dsDistBackHint: '比較を閉じて、分布から選び直す（⤢）',
+        dsDistPicked: '{n} 行に絞りました。チップの × で外せます',
+        dsComputeRest: '残りを計算 · 約 {time}',
+        dsLegendBaseMedian: '基準（{group} の中央値）',
+        dsBaseMenu: '基準にする',
+        dsBaseAuto: '比較 1 と同じ群の中央値',
+        dsBaseGroupMedian: '{group} の中央値',
+        dsBaseRow: '選んでいる録音を基準にする（0）',
+        dsBaseSet: '基準を {group} の中央値にしました',
+        dsBaseSetAuto: '基準を比較 1 と同じ群の中央値にしました',
         stepUndo: '元に戻す（Ctrl+Z）',
         stepRedo: 'やり直す（Ctrl+Shift+Z）',
         stepUndone: '元に戻しました',
@@ -1308,8 +1476,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepCannotShow: 'この手順は表示できません：{why}',
         stepCannotShowFix: '⚠ の手順をドラッグで正しい位置へ動かすか、× で外してください',
         stepInputHint: 'クリック: 入力のファイルの波形',
-        entryStaleTag: '手順変更 · 表は前の手順 {n} 本',
-        entryScanAll: '全件を計算 {n} 本 · 約 {time}',
         entryScanCancel: '中止',
         entryMinutes: '{n} 分',
         entrySeconds: '{n} 秒',
@@ -1318,13 +1484,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportChainPrevious: '前の手順',
         stepNotDrawable: 'この手順の結果は表示できません（{frame}）',
         stepOpenCompare: '行の 1–3 を押すと、この手順の結果を比べられます',
-        axisLevel: 'レベル dB',
-        axisValue: '値',
-        axisGain: '利得 dB',
+        axisLevel: 'レベル [dB]',
+        axisGain: '利得 [dB]',
         axisCoherence: 'コヒーレンス',
-        axisBand: '帯域中心 Hz',
-        axisBark: '臨界帯域 Bark',
-        axisQuefrency: 'ケフレンシー s',
+        axisBand: '帯域中心 [Hz]',
+        axisBark: '臨界帯域 [Bark]',
+        axisQuefrency: 'ケフレンシー [s]',
         axisCepstrum: '実ケプストラム',
         stageNoDelta: '— 差は同じ種類・同じ軸の結果どうしでだけ出せます',
         stageMaxDelta: '最大 Δ {at} {delta}',
@@ -1337,7 +1502,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepHeldWithout: '{step} なし',
         stepHeldRow: '{what} · {file}',
         stepHeldNoRow: '行を選ぶと（クリック）、その行で手順の効果を見せます。',
-        outsideLeq: 'Leq dB(A)',
         outside192: '192 点',
         outsideMedian: '群の中央値',
         outsideDelta: 'Δ',
@@ -1348,19 +1512,17 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOctave: '1/3 oct 帯域（表の値）',
         stepFrameHint: 'wandas {op}',
         slotEmpty: '空き',
-        axisFrequency: '周波数 Hz',
-        axisLevelUncal: '振幅 dBFS 未校正',
-        axisLevelCal: '振幅 dB re {ref} {unit}',
-        axisDelta: '差 dB',
-        axisTime: '時間 s',
+        axisFrequency: '周波数 [Hz]',
+        axisLevelUncal: '振幅 未校正 [dBFS]',
+        axisLevelCal: '振幅 [dB re {ref} {unit}]',
+        axisDelta: '差 [dB]',
+        axisTime: '時間 [s]',
         legendHeadline: '1/3 oct 見出し',
         legendLeak: '漏れ',
         legendLine: '点ごとの差',
         compareNoSignificant: '有意な差なし',
         stepNeedAbove: '{min} より大きくしてください',
         stepNeedInteger: '整数にしてください',
-        compareRegionInvalid: '区間は 0 ≤ 開始 < 終了 ≤ {end} s です。入力欄を今の区間に戻しました。',
-        entryAxisMaxDelta: 'Δ最大帯域 dB',
         stepNeedValue: '値を入れてください（欄が空）',
         hintSpectrogram: '平均スペクトルの設定（FFT 長・窓）。長押しでスペクトログラム',
         compareRefuseFix: 'D：残せる差がありません（{why}）。一覧でスロット 0 にファイルを入れるか、一括計算が終わるのを待ってください',
@@ -1371,31 +1533,17 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         screenHelpTitle: 'キーと記号',
         screenHelpEntry: '↑ / ↓\t行を移動\n1–3\t行をスロットに入れる（長押しの間は Δ スペクトル）\n0\t行を基準にする。基準の行でもう一度押すと群の中央値へ（長押しの間は Δ を表示）\nEnter\tスロットの行を比較を表示\nEsc\t設定 → 絞り込み → 行の選択の順に閉じる\n? / F1\tこの一覧',
         screenHelpCompare: '1–3\t押して比較を切り替え、長押しの間だけ入れ替え\n0\t基準をスロット 0 のファイル ⇄ 群の中央値で切り替え\nD\t比較を一覧の行として固定\n手順 / 重ねる・並べる\tトラックを手順で描く。1 枚に重ねるか、レーンに並べる\n差も表示\t重ね描きの下に差（比較 − 基準）を出す\nEsc\t設定を閉じる → 一覧へ\n? / F1\tこの一覧',
-        screenHelpSymbols: '+N\t隠れている条件列の数（押すと開く）\n✕\t読めなかったファイル\n≠（チップ）\t形が違うので比べないファイル\n≠\t一覧と違う区間、または読めない Δ\n▼Δ\tこの列で並べ替え中（灰色は計算が終わるまで待ち）\n● ▲ ■ ◆ ×\t散布図で条件ごとの形\nΔ最大帯域\t同じ条件の他のファイルと最も違う 1/3 oct 帯域と、その Δ\n外れ値\tLeq か Δ最大帯域が、条件の中央値から 3 MAD（群のふつうのばらつき。帯域は 8）を超える行\nスロット\t下の 0–3 の 4 つの枠。0 が基準、1–3 が比べるファイル\n塗りの帯 / 枠の帯\t見出しの帯域 / その隣の帯域フィルタへの漏れ\nn=1\t基準群が 1 本だけ\n俯瞰帯\t全ファイルの 1/3 oct（行＝ファイル、明るい＝大きい）\n青\t基準\n黄 / 紫 / 赤紫\tスロット 1 / 2 / 3（カード・番号・線）\n緑の線\t固定した比較（D）\n橙\t外れ値・無効な値\n緑\tΔ（比較 − 基準）。良し悪しではない',
+        screenHelpSymbols: '分布\t選んだ値の群ごとの分布。棒、録音が少ない群は 1 本ずつの点、下に 1 本ずつの目盛\n分布のドラッグ\t値の範囲。表を絞るチップになる（× か Esc で外す）\n┃（色付き）\tスロットに入れた行。スロットの色\n┆（青の破線）\t基準。群の中央値\nスロット\t下の 0–3 の 4 つの枠。0 が基準、1–3 が比べるファイル\n└ Δ\tD で固定した差。固定した行の下に出る\n塗りの帯 / 枠の帯\t見出しの帯域 / その隣の帯域フィルタへの漏れ\n俯瞰帯\t表の行の 1/3 oct（行＝録音、明るい＝大きい）\n青\t基準\n黄 / 紫 / 赤紫\tスロット 1 / 2 / 3（カード・番号・線）\n緑\tΔ（比較 − 基準）。良し悪しではない\n橙\t実行できない手順、読めなかった録音',
         keyHelp: '?',
-        hintColumnsMore: '群分けに使っていない条件列。押すと表示',
-        hintFailedFilter: '比べられないファイル（読めない、またはチャンネル数・サンプリング周波数・単位が違う）。押すとそれだけを表示',
-        hintOutlierFilter: '同じ条件の群の中央値から 3 MAD（中央絶対偏差）を超えて外れた行。押すとそれだけを表示',
-        hintSortMark: '差の大きい順。灰色は計算中',
         hintOverview: '全ファイルの 1/3 oct。1 行が 1 ファイル、明るいほど大きい。枠は表に見えている行',
-        hintScatterAxis: '散布図のこの軸に出す値',
-        hintBandSelect: 'この列に出す 1/3 oct 帯域',
         hintBaseCard: '0: 比較するファイルの基準',
         hintSlotCard: 'クリックで比較、長押しの間だけ入れ替え',
-        hintSlotEmpty: '空き：押すと、選んでいる行をここに入れる（キー {n}）',
         hintRegionMark: '比較の区間が一覧と違う。押すと一覧の区間に戻す',
         hintCompareMark: 'この基準とは差を出せない（形が違う）',
         hintStepChip: '一覧の計算に使う手順。⚙ で設定',
-        hintEntryProgress: '計算済み / フォルダのファイル数',
         hintEntryMaximize: '表をウィンドウ全体に広げる（⤢）／左パネルに戻す（⤡）。このバーのダブルクリック、パネルの端をウィンドウの 6 割より先までドラッグしても同じ。Esc で縮める',
         hintRowPlay: 'このファイルだけを再生（トラックにも表示）',
         hintRowStop: '止める',
-        hintComparedFilter: '比較中のファイルとその基準だけを表示。基準は中央値に近い順',
-        entryCompared: '比較中',
-        entryAddedGroup: '追加したファイル',
-        hintRowHide: 'トラック表示でこのトラックを隠す／出す',
-        hintRowRemove: 'このファイルをトラック表示から外す（スロットからも外す）',
-        hintBaseChip: '基準。空なら同じ条件の群の中央値',
         compareSingleBase: 'n=1',
         compareRegionDiffers: '≠ 区間',
         helpRowEntryKeys: 'ファイル一覧: 0 基準（長押しで差）、1–3 スロット、Enter 比較を表示、Esc 閉じる、↑/↓ 行',
@@ -1429,8 +1577,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         specSettingsDbMin: 'dB 最小',
         specSettingsDbMax: 'dB 最大',
         specSettingsMaxFreqHz: '最大周波数 Hz',
-        specSettingsReset: 'リセット',
-        specSettingsApply: '適用',
         specSettingsPlaceholderAuto: '自動',
         specSettingsPlaceholderNyquist: 'ナイキスト',
         btnExportPng: 'PNG 出力',
@@ -1508,7 +1654,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceExportPngFailed: 'PNG 出力失敗：表示中のキャンバスがありません',
         announceExportCsvStarted: 'CSV 出力を開始しました',
         announceExportCsvFailed: 'CSV 出力失敗：カーソル位置にスペクトルデータがありません',
-        spectrumZoomLabel: 'スペクトル',
         ariaSpecZoomIn: 'スペクトル拡大',
         ariaSpecZoomOut: 'スペクトル縮小',
         ariaSpecZoomReset: 'スペクトルズームリセット',
@@ -1520,7 +1665,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         waveRangeErrorTooNarrow: 'このチャンネルには狭すぎる範囲です',
         specRangeMin: 'Min',
         specRangeMax: 'Max',
-        specRangeApply: '適用',
         specRangeAuto: '自動',
         specRangeErrorMinMax: 'Min は Max より小さい値を入力してください',
         specRangeClose: '閉じる',
@@ -1617,7 +1761,7 @@ export function rangePopoverStrings(strings: UiStrings) {
         title: strings.specRangeTitle,
         min: strings.specRangeMin,
         max: strings.specRangeMax,
-        apply: strings.specRangeApply,
+        apply: strings.stepApply,
         auto: strings.specRangeAuto,
         close: strings.specRangeClose,
         invalid: strings.specRangeErrorMinMax,

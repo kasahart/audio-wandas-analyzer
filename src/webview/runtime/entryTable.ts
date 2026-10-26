@@ -1,28 +1,20 @@
 /**
- * The entry table's model: what each row shows, which rows share a condition, Δ against the median
- * of the condition's other files, outliers and the CSV. Pure functions over scan results, so the
- * runtime only renders and the numbers are unit-tested.
+ * The comparison's model of the files: what each file measured, which files share a condition, Δ against
+ * the median of the condition's other files, and the CSV of it all. Pure functions over scan results.
  *
- * A row is never part of its own base: its Δ, its outlier mark and its "Δ max band" are measured
- * against the other files of its condition, as on the comparison.
+ * A file is never part of its own base: its Δ and its "Δ max band" are measured against the other files of
+ * its condition, as on the comparison. No file is marked as an outlier: the user reads that off the
+ * distribution.
  */
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import type { EntryConditionTable } from '../../shared/analysis/entryScan';
+import { baseName } from '../../shared/analysis/entryMetadata';
+import { median } from '../../shared/dataset/distribution';
+import { powerMeanOrNull } from '../../shared/utils/levels';
 
 
-/** U-02: a cell is an outlier beyond the condition's median ± k × MAD (scaled to σ for normal data). */
-export const OUTLIER_K = 3;
-/**
- * The same test for the row's most different band, which is the largest of some 26 band deviations:
- * the largest of many is large by chance (low bands of the entry100 fixture reach 6 MAD in normal
- * files), so it has to stand out further. The fixture's three resonances are at 26–28 MAD.
- */
-export const OUTLIER_K_BAND = 8;
-const MAD_TO_SIGMA = 1.4826;
-/** Smaller groups get Δ but no outlier marks: a median of one or two rows says nothing about spread. */
-export const MIN_OUTLIER_GROUP = 3;
-/** Spread floors, so a group of near-identical rows does not flag a 0.1 dB difference. */
-const MIN_SPREAD_DB = 0.5;
+/** A group of fewer files says nothing about which band separates them. */
+const MIN_TELLING_GROUP = 3;
 /** The 27 nominal centres the scan reports (analysis_spec.THIRD_OCTAVE_CENTERS_HZ). */
 export const BAND_CENTERS_HZ = [
     20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600,
@@ -32,9 +24,6 @@ const FALLBACK_BAND = BAND_CENTERS_HZ.indexOf(1000);
 
 /** `peak` is the "Δ max band" column: values.peak its centre in Hz, delta.peak its Δ in dB. */
 export type EntryColumn = 'leq' | 'peak' | 'band';
-export type EntrySortColumn = 'leq' | 'band';
-/** Rows by Δ, or in the files' own order (the metadata table's, else by name) while a scan runs. */
-export type EntryOrder = 'delta' | 'file';
 
 export interface EntryConditionColumn {
     /** The metadata column's name; empty for the two conditions read from file names. */
@@ -47,17 +36,39 @@ export interface EntryConditionColumn {
 }
 
 /**
+ * What a compared file is measured against, as the report and a fixed difference record it: the slot-0 file,
+ * or the median of a group's recordings over the table's filters (the value's own range not applied), of one
+ * channel when the compared row is a channel; recordings without that channel are left out and counted.
+ */
+export interface BaseDefinition {
+    kind: 'file' | 'group';
+    /** The slot-0 recording ("name ch2"), for a file base. */
+    file?: string;
+    /** The grouping column and the group's value, for a group base ('' when not grouped). */
+    group?: { column: string; name: string };
+    /** Recordings the median is taken over. */
+    count: number;
+    channel: number | null;
+    /** The filters applied, as their chips say them. */
+    filters: string[];
+    /** Recordings of the group left out for having fewer channels than `channel`. */
+    fewerChannels: number;
+}
+
+/**
  * A difference fixed on the comparison (D): the compared file over a region, with the base it was compared
  * against. It joins the table under its parent row, keeps the parent's condition and never counts
  * toward a group's size or median.
  */
 export interface DerivedRow {
     parentPath: string;
+    /** The channel compared (a channel row's slot), else the recording's channels together. */
+    ch?: number;
     /** "0.50–1.50", as the table and the CSV write regions. */
     region: string;
     result: ScanResult;
     /** What it was measured against: the slot-0 file or the group's other files (`paths`), named by `label`. */
-    base: { leq: number; bands: (number | null)[]; label?: string; paths?: string[] };
+    base: { leq: number; bands: (number | null)[]; label?: string; paths?: string[]; definition?: BaseDefinition };
     /** The Recipe it was measured under (recipeKey). */
     recipeKey?: string;
     /** Fixed under another Recipe and not measured again yet: shown as ≠. */
@@ -88,7 +99,6 @@ export interface EntryRow {
     group?: string;
     values: Record<EntryColumn, number | null>;
     delta: Record<EntryColumn, number | null>;
-    outlier: Record<EntryColumn, boolean>;
     groupSize: number;
     /** The file's length, which the measured region is cut from. */
     durationS?: number;
@@ -103,15 +113,9 @@ export interface EntryRow {
 export interface EntryModel {
     rows: EntryRow[];
     band: number;
-    sort: EntrySortColumn;
-    order: EntryOrder;
     /** Checked columns first, then the rest of the metadata table's columns. */
     columns: EntryConditionColumn[];
     groups: Map<string, EntryRow[]>;
-}
-
-export function fileName(filePath: string): string {
-    return filePath.slice(filePath.replace(/\\/g, '/').lastIndexOf('/') + 1);
 }
 
 /**
@@ -119,25 +123,20 @@ export function fileName(filePath: string): string {
  * two before it are the conditions. Names with fewer than three tokens carry none.
  */
 export function filenameConditions(filePath: string): string[] {
-    const name = fileName(filePath);
+    const name = baseName(filePath);
     const dot = name.lastIndexOf('.');
     const tokens = (dot > 0 ? name.slice(0, dot) : name).split(/[_-]/).filter(Boolean);
     return tokens.length >= 3 ? tokens.slice(-3, -1) : [];
 }
 
-function powerMean(levels: readonly (number | null)[]): number | null {
-    if (!levels.length || levels.some(level => level === null)) return null;
-    const mean = (levels as number[]).reduce((sum, level) => sum + 10 ** (level / 10), 0) / levels.length;
-    return 10 * Math.log10(mean);
-}
 
 /** One number per file: levels are power-averaged over channels, the dominant frequency is the loudest channel's. */
 function fileValues(result: Extract<ScanResult, { ok: true }> | ScanResult, band: number): Record<EntryColumn, number | null> {
     const leq = result.leqDbA ?? [];
     return {
-        leq: powerMean(leq),
+        leq: powerMeanOrNull(leq),
         peak: null,
-        band: powerMean((result.thirdOctDb ?? []).map(row => row[band] ?? null)),
+        band: powerMeanOrNull((result.thirdOctDb ?? []).map(row => row[band] ?? null)),
     };
 }
 
@@ -155,12 +154,6 @@ function mismatchLabel(result: ScanResult, reference: ScanResult): string {
     if (input.unit !== base.unit || input.ref !== base.ref) parts.push(input.unit);
     if (result.specVersion !== reference.specVersion) parts.push(`v${result.specVersion}`);
     return `≠ ${parts.join(' · ')}`;
-}
-
-export function median(values: readonly number[]): number {
-    const sorted = [...values].sort((a, b) => a - b);
-    const middle = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 function conditionColumns(table: EntryConditionTable | null): EntryConditionColumn[] {
@@ -200,8 +193,8 @@ function mostTellingBand(rows: EntryRow[], files: Map<string, ScanResult>): numb
             groups.set(row.group, [...(groups.get(row.group) ?? []), value]);
         }
         for (const values of groups.values()) {
-            if (values.length < MIN_OUTLIER_GROUP) continue;
-            const center = median(values);
+            if (values.length < MIN_TELLING_GROUP) continue;
+            const center = median(values)!;
             const spread = Math.max(...values.map(value => Math.abs(value - center)));
             if (spread > bestSpread) { bestSpread = spread; best = band; }
         }
@@ -209,11 +202,11 @@ function mostTellingBand(rows: EntryRow[], files: Map<string, ScanResult>): numb
     return best;
 }
 
-/** Builds the table: rows in file order with their values, conditions, Δ and outlier marks, then sorted. */
+/** Builds the model: a row per file with its values, condition and Δ, in the table's order (else by name). */
 export function buildEntryModel(
     files: readonly EntryFile[],
     table: EntryConditionTable | null,
-    options: { band?: number; sort?: EntrySortColumn; order?: EntryOrder; derived?: readonly DerivedRow[] } = {},
+    options: { band?: number; derived?: readonly DerivedRow[] } = {},
 ): EntryModel {
     const columns = conditionColumns(table);
     const results = new Map<string, ScanResult>();
@@ -226,12 +219,12 @@ export function buildEntryModel(
     });
     const reference = [...counts.values()].sort((a, b) => b.count - a.count)[0]?.result;
     const rows: EntryRow[] = files.map(file => {
-        const name = fileName(file.filePath);
+        const name = baseName(file.filePath);
         const empty = { leq: null, peak: null, band: null };
         const { cells, conditions } = rowConditions(file.filePath, table, columns);
         const row: EntryRow = {
             filePath: file.filePath, name, status: 'pending', conditions, cells,
-            values: { ...empty }, delta: { ...empty }, outlier: { leq: false, peak: false, band: false }, groupSize: 0,
+            values: { ...empty }, delta: { ...empty }, groupSize: 0,
         };
         const result = file.result;
         if (!result) return row;
@@ -268,29 +261,17 @@ export function buildEntryModel(
                 const value = row.values[column];
                 const values = others.map(member => member.values[column]).filter((item): item is number => item !== null);
                 if (value === null || !values.length) continue;
-                const center = median(values);
-                const spread = Math.max(median(values.map(item => Math.abs(item - center))) * MAD_TO_SIGMA, MIN_SPREAD_DB);
-                row.delta[column] = roundedDelta(value, center);
-                row.outlier[column] = members.length >= MIN_OUTLIER_GROUP && Math.abs(value - center) > OUTLIER_K * spread;
+                row.delta[column] = roundedDelta(value, median(values)!);
             }
             const max = maxBandDelta(levels.get(row.filePath)!, others.map(member => levels.get(member.filePath)!));
             if (max) {
                 row.values.peak = BAND_CENTERS_HZ[max.band];
                 const level = levels.get(row.filePath)![max.band]!;
                 row.delta.peak = roundedDelta(level, level - max.delta);
-                // The band that stands out most decides with Leq whether the row is an outlier, so the
-                // set does not change with the band column on show.
-                const reference = others.map(member => levels.get(member.filePath)![max.band]).filter((item): item is number => item !== null);
-                const center = median(reference);
-                const spread = Math.max(median(reference.map(item => Math.abs(item - center))) * MAD_TO_SIGMA, MIN_SPREAD_DB);
-                row.outlier.peak = members.length >= MIN_OUTLIER_GROUP && Math.abs(max.delta) > OUTLIER_K_BAND * spread;
             }
         }
     }
-    const sort = options.sort ?? 'band';
-    const order = options.order ?? 'delta';
-    const sorted = order === 'delta' ? sortRows(rows, sort) : fileOrder(rows, table);
-    return { rows: withDerived(sorted, options.derived ?? [], band), band, sort, order, columns, groups };
+    return { rows: withDerived(fileOrder(rows, table), options.derived ?? [], band), band, columns, groups };
 }
 
 /**
@@ -302,38 +283,25 @@ export function roundedDelta(value: number, reference: number): number {
 }
 
 /** A file's 1/3-octave levels, channels power-averaged. */
-export function bandLevels(result: ScanResult): (number | null)[] {
-    return BAND_CENTERS_HZ.map((_, band) => powerMean((result.thirdOctDb ?? []).map(row => row[band] ?? null)));
+function bandLevels(result: ScanResult): (number | null)[] {
+    return BAND_CENTERS_HZ.map((_, band) => powerMeanOrNull((result.thirdOctDb ?? []).map(row => row[band] ?? null)));
 }
 
 /** The band where a file differs most from the median of `others`: the "Δ max band" column. */
-export function maxBandDelta(levels: readonly (number | null)[], others: ReadonlyArray<readonly (number | null)[]>): { band: number; delta: number } | null {
+function maxBandDelta(levels: readonly (number | null)[], others: ReadonlyArray<readonly (number | null)[]>): { band: number; delta: number } | null {
     let best: { band: number; delta: number } | null = null;
     levels.forEach((level, band) => {
         const reference = others.map(item => item[band]).filter((item): item is number => item !== null && item !== undefined);
         if (level === null || !reference.length) return;
-        const delta = level - median(reference);
+        const delta = level - median(reference)!;
         if (!best || Math.abs(delta) > Math.abs(best.delta)) best = { band, delta };
     });
     return best;
 }
 
-const STATUS_ORDER: Record<EntryRow['status'], number> = { ok: 0, mismatch: 1, failed: 2, pending: 3 };
-
-/** Largest Δ first; rows without Δ follow by value, then the rows that cannot be compared. */
-export function sortRows(rows: EntryRow[], column: EntrySortColumn): EntryRow[] {
-    const rank = (row: EntryRow): number => (row.status !== 'ok' ? 2 + STATUS_ORDER[row.status] : row.delta[column] !== null ? 0 : 1);
-    return [...rows].sort((a, b) => {
-        const byRank = rank(a) - rank(b);
-        if (byRank) return byRank;
-        const key = (row: EntryRow): number => row.delta[column] ?? row.values[column] ?? -Infinity;
-        return key(b) - key(a) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
-    });
-}
-
 /** One fixed difference per parent, region and base. */
-export function derivedKey(item: Pick<DerivedRow, 'parentPath' | 'region' | 'base'>): string {
-    return `${item.parentPath}#${item.region}#${item.base.label ?? ''}`;
+export function derivedKey(item: Pick<DerivedRow, 'parentPath' | 'region' | 'base' | 'ch'>): string {
+    return `${item.parentPath}#${item.region}#${item.base.label ?? ''}${item.ch ? `#ch${item.ch}` : ''}`;
 }
 
 /** Each derived row right under its parent, in the order they were fixed; Δ is against the base it was fixed with. */
@@ -360,7 +328,6 @@ function withDerived(rows: EntryRow[], derived: readonly DerivedRow[], band: num
                     peak: max ? Math.round(max.delta * 10) / 10 : null,
                     band: values.band === null || reference === null ? null : roundedDelta(values.band, reference),
                 },
-                outlier: { leq: false, peak: false, band: false },
                 derived: { parent: row.filePath, region: item.region },
             });
         });
@@ -369,23 +336,13 @@ function withDerived(rows: EntryRow[], derived: readonly DerivedRow[], band: num
 }
 
 /** The metadata table's row order, then the remaining files by name: a scan fills rows without moving them. */
-export function fileOrder(rows: EntryRow[], table: EntryConditionTable | null): EntryRow[] {
+function fileOrder(rows: EntryRow[], table: EntryConditionTable | null): EntryRow[] {
     const position = new Map((table?.order ?? Object.keys(table?.rows ?? {})).map((key, index) => [key, index]));
     return [...rows].sort((a, b) => {
         const byTable = (position.get(a.filePath) ?? Infinity) - (position.get(b.filePath) ?? Infinity);
         if (byTable) return byTable;
         return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
     });
-}
-
-/** Leq or the row's most different band beyond k MAD; the band column on show does not change the set. */
-export function isOutlierRow(row: EntryRow): boolean {
-    return row.outlier.leq || row.outlier.peak;
-}
-
-/** Whether any condition has the three files an outlier needs to be told apart. */
-export function canFlagOutliers(model: EntryModel): boolean {
-    return [...model.groups.values()].some(members => members.length >= MIN_OUTLIER_GROUP);
 }
 
 export function bandLabel(band: number): string {
@@ -445,20 +402,20 @@ export function regionCells(region: string | { start: number; end: number } | nu
  * The entry table as CSV, UTF-8 with a BOM so spreadsheet apps read Japanese names (U-01). Rows keep
  * the table's order; the same input always gives the same bytes.
  */
-export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; leq: string; peak: string; band: string; deltaLeq: string; deltaBand: string; groupSize: string; outlier: string }): string {
+export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; leq: string; peak: string; band: string; deltaLeq: string; deltaBand: string; groupSize: string; status: string }): string {
     // Every metadata column goes out, checked ones first, so the CSV keeps what the table was read from.
-    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.leq, `${labels.peak} Hz`, `${labels.peak} dB`, labels.band, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.outlier];
+    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.leq, `${labels.peak} Hz`, `${labels.peak} dB`, labels.band, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.status];
     const dB = (value: number | null): string => csvNumber(value, 1);
     const lines = [header.map(csvCell).join(',')];
     for (const row of model.rows) {
         const ok = row.status === 'ok';
         lines.push([
-            row.derived ? fileName(row.derived.parent) : row.name,
+            row.derived ? baseName(row.derived.parent) : row.name,
             // The region the numbers were measured over, never blank: the scan skips the file's guarded ends.
             ...row.cells, ...regionCells(ok ? measuredRegion(row.derived?.region, row.durationS) : row.derived?.region),
             ok ? dB(row.values.leq) : null, ok ? csvNumber(row.values.peak, 0) : null, ok ? dB(row.delta.peak) : null, ok ? dB(row.values.band) : null,
             dB(row.delta.leq), dB(row.delta.band), row.groupSize ? String(row.groupSize) : null,
-            row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch! : isOutlierRow(row) ? '1' : '',
+            row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch! : '',
         ].map(csvCell).join(','));
     }
     return '﻿' + lines.join('\r\n') + '\r\n';

@@ -27,7 +27,6 @@ import {
 } from './calibrationStore';
 import type { ExportFlows } from './exportFlows';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
-import { isMetadataCandidate, type MetadataCandidate } from '../shared/analysis/entryMetadata';
 import type { PanelMessage } from '../shared/protocol/panelMessages';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../shared/session/comparisonSessionController';
 import {
@@ -392,21 +391,15 @@ export class PanelController implements vscode.Disposable {
                 scan: async (filePath, region, recipe, stage, detail) => this.backend.scan({ filePath, recipe: recipe ?? await this.entryRecipe(), ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}) }),
                 recipe: () => this.entryRecipe(),
                 readFile: async (filePath) => new Uint8Array(await fs.readFile(filePath)),
-                // Metadata beside the opened folder: its own CSV/TSV files and the folder above's.
-                metadataCandidates: async () => {
-                    const root = session.directorySelection?.rootPath;
-                    if (!root) return [];
-                    const found: MetadataCandidate[] = [];
-                    for (const directory of [root, path.dirname(root)]) {
-                        const names = await fs.readdir(directory).catch(() => [] as string[]);
-                        for (const name of names) {
-                            const filePath = path.join(directory, name);
-                            if (isMetadataCandidate(name) && !session.directorySelection?.allFilePaths.includes(filePath)) {
-                                found.push({ path: filePath, read: async () => new Uint8Array(await fs.readFile(filePath)) });
-                            }
-                        }
+                readHead: async (filePath, length) => {
+                    const handle = await fs.open(filePath, 'r');
+                    try {
+                        const buffer = new Uint8Array(length);
+                        const { bytesRead } = await handle.read(buffer, 0, length, 0);
+                        return buffer.subarray(0, bytesRead);
+                    } finally {
+                        await handle.close();
                     }
-                    return found;
                 },
                 read: (key) => this.context.workspaceState.get(key),
                 write: (key, value) => this.context.workspaceState.update(key, value),

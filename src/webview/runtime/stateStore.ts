@@ -37,11 +37,28 @@ export function normalizeRuntimeState(state: ComparisonState): RuntimeState {
     };
 }
 
+/** The view state as it was saved, each field kept only when it still has its type (a newer or older build's is dropped). */
+export function sanitizePersistedState(saved: unknown): PersistedWebviewState {
+    const raw = (saved && typeof saved === 'object' ? saved : {}) as Record<string, unknown>;
+    const csv = raw['entryCsv'] as { name?: unknown; text?: unknown } | undefined;
+    const slots = raw['entrySlots'];
+    return {
+        ...(raw['contentType'] === 'waveform' || raw['contentType'] === 'spectrogram' ? { contentType: raw['contentType'] } : {}),
+        ...(raw['spectrumBandsPerOctave'] === 0 || raw['spectrumBandsPerOctave'] === 1 || raw['spectrumBandsPerOctave'] === 3 ? { spectrumBandsPerOctave: raw['spectrumBandsPerOctave'] } : {}),
+        ...(typeof raw['sidebarCollapsed'] === 'boolean' ? { sidebarCollapsed: raw['sidebarCollapsed'] } : {}),
+        ...(typeof raw['spectrumCollapsed'] === 'boolean' ? { spectrumCollapsed: raw['spectrumCollapsed'] } : {}),
+        ...(Array.isArray(slots) && slots.every(slot => slot === null || typeof slot === 'string') ? { entrySlots: slots as (string | null)[] } : {}),
+        ...(Array.isArray(raw['entryDerived']) ? { entryDerived: raw['entryDerived'] as PersistedWebviewState['entryDerived'] } : {}),
+        ...(raw['entryRecipe'] !== undefined && raw['entryRecipe'] !== null ? { entryRecipe: raw['entryRecipe'] } : {}),
+        ...(csv && typeof csv.name === 'string' && typeof csv.text === 'string' ? { entryCsv: { name: csv.name, text: csv.text } } : {}),
+    };
+}
+
 export class PersistedStateStore {
     private state: PersistedWebviewState;
 
     constructor(private readonly host: WebviewHostApi) {
-        this.state = host.getState() ?? {};
+        this.state = sanitizePersistedState(host.getState());
     }
 
     get snapshot(): PersistedWebviewState {

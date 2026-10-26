@@ -7,11 +7,15 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
-import { BAND_CENTERS_HZ, bandLabel, csvNumber, EDGE_GUARD_S, fileName, HEADLINE_WITHIN_DB, isOutlierRow, measuredRegion, regionCells, type EntryModel } from './entryTable';
-import { buildCompareModel, diffHeadline, diffRange, levelsHeadline, paintPane, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
-import { paintOverlay, stageRange } from './stagePanes';
+import { BAND_CENTERS_HZ, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
+import { withChannel } from '../../shared/recipe/channelSelection';
+import { buildCompareModel, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
+import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
+import { baseName } from '../../shared/analysis/entryMetadata';
+import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
+import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 
 export interface ReportFile {
     name: string;
@@ -21,8 +25,8 @@ export interface ReportFile {
 }
 
 export type ReportStrings = CompareStrings & Pick<UiStrings,
-    | 'entryColFile' | 'entryColCondition' | 'entryCsvRegion' | 'entryColLeq' | 'entryColPeak' | 'entryCsvGroupSize' | 'entryOutliers'
-    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outsideLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious'>;
+    | 'entryColFile' | 'entryColCondition' | 'stepRegion' | 'entryColLeq' | 'entryColPeak' | 'entryCsvGroupSize' | 'entryBase' | 'entryBaseGroup'
+    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
 
 export interface ReportInput {
     model: EntryModel;
@@ -38,7 +42,27 @@ export interface ReportInput {
     stale?: ReadonlySet<string>;
     /** The comparison shows the difference pane: the report has its Δ figures too. */
     showDiff?: boolean;
+    /** A compared file's comparison as the entry table defines its base (its grouping, filters and channel). */
+    compare?(path: string): CompareModel;
+    /** A compared file as the table has it: its name with its channel, its value on show, its memo, and its base. */
+    rowInfo?(path: string): { label: string; value: string; memo: string; channel: number | null; base: BaseDefinition };
+    /** What the table was narrowed to. */
+    selection?: { value: string; group: string; filters: string[]; excluded: number };
+    /** The differences fixed with D, written after the comparisons. */
+    derived?: readonly DerivedRow[];
 }
+
+/** A base as one line: the slot-0 recording, or the group, its count, channel and the filters it was taken within. */
+export function baseDefinitionText(definition: BaseDefinition, strings: Pick<UiStrings, 'entryBase' | 'entryBaseGroup'>): string {
+    const what = definition.kind === 'file' ? `${strings.entryBase} ${definition.file ?? ''}` : `${strings.entryBaseGroup} ${[definition.group?.column, definition.group?.name].filter(Boolean).join(' ')}`.trim();
+    return [
+        what, `n=${definition.count}`, ...(definition.channel ? [`ch${definition.channel}`] : []),
+        ...(definition.fewerChannels ? [`-${definition.fewerChannels} (< ch${definition.channel})`] : []), ...definition.filters,
+    ].join(' · ');
+}
+
+const comparisonOf = (input: ReportInput, path: string, strings: CompareStrings): CompareModel =>
+    input.compare?.(path) ?? buildCompareModel(input.model, input.results, path, input.slots[0] ?? null, strings, input.entryRegionBase?.(path));
 
 const dB = (value: number | null | undefined): string => csvNumber(value, 1);
 
@@ -97,7 +121,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
     const columns = input.model.columns;
     const comparisons = [1, 2, 3].flatMap(slot => {
         const path = input.slots[slot];
-        return path ? [{ path, comparison: buildCompareModel(input.model, input.results, path, input.slots[0] ?? null, strings, input.entryRegionBase?.(path)) }] : [];
+        return path ? [{ path, comparison: comparisonOf(input, path, strings) }] : [];
     });
     const bandDelta = (comparison: CompareModel, band: number): number | null => {
         const level = comparison.compare?.bands[band], reference = comparison.base?.bands[band];
@@ -109,7 +133,8 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
         ...columns.map((column, index) => column.name || strings.entryColCondition.replace('{n}', String(index + 1))),
         strings.reportRegionStart, strings.reportRegionEnd, leqLabel(input.model, strings), strings.reportBaseLeq, `Δ ${strings.entryColLeq}`,
         ...bands.map(band => strings.reportBandDelta.replace('{band}', bandLabel(band))),
-        strings.entryCsvGroupSize, strings.reportGroupFiles, strings.reportSpecVersion, strings.entryOutliers, strings.reportChain,
+        strings.entryCsvGroupSize, strings.reportGroupFiles, strings.reportSpecVersion, strings.reportChain,
+        strings.dsCh, ...(input.selection ? [input.selection.value] : []), strings.reportMemo, strings.reportBaseDefinition,
     ];
     const lines = [header.map(cell).join(',')];
     for (const { path, comparison } of comparisons) {
@@ -117,16 +142,45 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
         const result = input.results.get(path);
         lines.push([
             // What a reader looks for first: where the file differs most from its base, and by how much.
-            fileName(path), ...maxBandCells(comparison), ...(row?.cells ?? columns.map(() => '')), ...regionCells(measuredRegion(input.region, reportDuration(input))),
+            input.rowInfo?.(path).label ?? baseName(path), ...maxBandCells(comparison), ...(row?.cells ?? columns.map(() => '')), ...regionCells(measuredRegion(input.region, reportDuration(input))),
             dB(comparison.leq?.compare ?? comparison.compare?.leq), dB(comparison.leq?.base), dB(comparison.leq?.delta),
             ...bands.map(band => dB(bandDelta(comparison, band))),
-            comparison.base ? String(comparison.base.filePaths.length) : '', (comparison.base?.filePaths ?? []).map(fileName).join(';'),
-            result?.ok ? String(result.specVersion) : '', row && isOutlierRow(row) ? '1' : '',
+            comparison.base ? String(comparison.base.filePaths.length) : '', (comparison.base?.filePaths ?? []).map(baseName).join(';'),
+            result?.ok ? String(result.specVersion) : '',
             // Which chain the row's numbers are of: the Recipe written beside it, or the one before.
             [path, ...(comparison.base?.filePaths ?? [])].some(file => input.stale?.has(file)) ? strings.reportChainPrevious : strings.reportChainCurrent,
+            ...infoCells(input, path, strings),
+        ].map(cell).join(','));
+    }
+    // The differences fixed with D: each against the base it was fixed with, as that base was defined then.
+    for (const item of input.derived ?? []) {
+        if (!item.result.ok) continue;
+        const leq = powerMeanDb(item.result.leqDbA ?? []);
+        const bandLevel = (band: number): number | null => powerMeanOrNull((item.result.thirdOctDb ?? []).map(channel => channel[band]));
+        const definition = item.base.definition;
+        lines.push([
+            `${strings.reportDerived} · ${baseName(item.parentPath)}${item.ch ? ` ch${item.ch}` : ''} · ${item.region}`, '', '', ...columns.map(() => ''),
+            ...regionCells(measuredRegion(item.region === 'all' ? null : parseRegion(item.region), item.result.input?.durationS)),
+            dB(leq), dB(item.base.leq), dB(leq - item.base.leq),
+            ...bands.map(band => { const level = bandLevel(band), reference = item.base.bands[band]; return dB(level === null || reference === null || reference === undefined ? null : level - reference); }),
+            String(item.base.paths?.length ?? ''), (item.base.paths ?? []).map(baseName).join(';'), String(item.result.specVersion ?? ''),
+            item.stale ? strings.reportChainPrevious : strings.reportChainCurrent,
+            item.ch ? String(item.ch) : '', ...(input.selection ? [''] : []), '', definition ? baseDefinitionText(definition, strings) : item.base.label ?? '',
         ].map(cell).join(','));
     }
     return '﻿' + lines.join('\r\n') + '\r\n';
+}
+
+/** "0.50–1.50" back to its seconds. */
+function parseRegion(text: string): EntryRegion | null {
+    const [start, end] = text.split('–').map(Number);
+    return Number.isFinite(start) && Number.isFinite(end) ? { start, end } : null;
+}
+
+/** The compared row's channel, its value on show, its memo and its base, as the CSV's last columns. */
+function infoCells(input: ReportInput, path: string, strings: ReportStrings): string[] {
+    const info = input.rowInfo?.(path);
+    return [info?.channel ? String(info.channel) : '', ...(input.selection ? [info?.value ?? ''] : []), info?.memo ?? '', info ? baseDefinitionText(info.base, strings) : ''];
 }
 
 const PNG_SIZE = { width: 1200, height: 400 };
@@ -135,13 +189,12 @@ const PNG_SIZE = { width: 1200, height: 400 };
  * What the app computes outside the Recipe, from its frames: one list for 定義.json (the full text) and
  * for the step bar (the short tag), so the two never say different things.
  */
-export function outsideRecipe(strings: Pick<UiStrings, 'outsideLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers'>, welch?: Record<string, unknown>): Array<{ tag: string; text: string }> {
+export function outsideRecipe(strings: Pick<UiStrings, 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers'>, welch?: Record<string, unknown>): Array<{ tag: string; text: string }> {
     return [
-        { tag: strings.outsideLeq, text: 'Leq dB(A) = 20·log10(rms / ref) of the time slice\'s frame.a_weighting(): an RMS is an array, not a frame, so it is not a Recipe step' },
+        { tag: strings.entryColLeq, text: 'Leq dB(A) = 20·log10(rms / ref) of the time slice\'s frame.a_weighting(): an RMS is an array, not a frame, so it is not a Recipe step' },
         { tag: strings.outside192, text: `spectrum: the SpectralFrame's dB (n_fft ${welch?.['n_fft'] ?? 1024}, ${welch?.['window'] ?? 'hann'}), bins power-averaged into 192 log-spaced points from 20 Hz to Nyquist (narrower than a bin: interpolated); 1/3 octave: the NOctFrame's dB, bands centred outside the Recipe's filter passband left empty; channels: power mean (10·log10 of the mean of 10^(L/10))` },
         { tag: strings.outsideMedian, text: 'base: the slot-0 file, or the median per point and band of the compared file\'s condition without it' },
         { tag: strings.outsideDelta, text: 'Δ = round(compare, 0.1 dB) − round(base, 0.1 dB); Δ max band = the band with the largest |Δ|; headline: see "headline"' },
-        { tag: strings.outsideOutliers, text: 'outliers: Leq beyond 3 MAD, or the Δ max band beyond 8 MAD, from the condition\'s other files' },
     ];
 }
 
@@ -185,7 +238,7 @@ function reportDuration(input: ReportInput): number | undefined {
 }
 
 /** What the scan computes, in words and decimals, beside the Recipe (whose own floats are hex). */
-export function reportDefinitions(input: ReportInput, specVersion: number | undefined, strings: Pick<UiStrings, 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outsideLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers'>): Record<string, unknown> {
+export function reportDefinitions(input: ReportInput, specVersion: number | undefined, strings: Pick<UiStrings, 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers'>): Record<string, unknown> {
     const welch = input.recipe ? recipeSteps(input.recipe).find(step => step.name === 'welch') : undefined;
     return {
         specVersion: specVersion ?? null,
@@ -210,6 +263,12 @@ export function reportDefinitions(input: ReportInput, specVersion: number | unde
         headlineWithinDb: HEADLINE_WITHIN_DB,
         headlineEdges: strings.defHeadlineEdges,
         steps: input.recipe ? recipeSteps(reportRecipe(input.recipe, input.region, reportDuration(input))).map(step => ({ operation: step.operation, params: step.params })) : [],
+        // What the comparison was taken from: the value and grouping on show, the filters, and each base.
+        ...(input.selection ? { selection: input.selection } : {}),
+        comparisons: [1, 2, 3].filter(slot => input.slots[slot] && input.rowInfo).map(slot => {
+            const info = input.rowInfo!(input.slots[slot]!);
+            return { slot, file: info.label, channel: info.channel, base: info.base };
+        }),
     };
 }
 
@@ -226,27 +285,36 @@ function pngOf(document: Document, paint: (canvas: HTMLCanvasElement) => void): 
     return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
 }
 
-const BASE_COLOR = '#3b82f6';
-/** The comparison's slot colours: slot 1 yellow, 2 purple, 3 magenta. */
-const SLOT_COLORS: Readonly<Record<number, string>> = { 1: '#d4b20f', 2: '#a371f7', 3: '#e85aad' };
-
 /** One slot's base and compare on one set of axes, as the comparison's overlay: solid lines, no fills. */
 function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel, slot: number, title: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
     const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).level;
     const base = sideView(comparison.base, comparison.frequencies);
     const compare = sideView(comparison.compare, comparison.frequencies);
-    const color = SLOT_COLORS[slot] ?? SLOT_COLORS[1];
+    const color = ROLE_COLORS[slot] ?? ROLE_COLORS[1];
     paintOverlay(canvas, {
-        layers: [...(base ? [{ view: base, color: BASE_COLOR, width: 2 }] : []), ...(compare ? [{ view: compare, color, width: 2 }] : [])],
+        layers: [...(base ? [{ view: base, color: ROLE_COLORS[0], width: 2 }] : []), ...(compare ? [{ view: compare, color, width: 2 }] : [])],
     }, stageRange([base, compare]), { x: axes.x, y: axes.y }, {
         size,
         labels: {
             title,
             legend: [
-                { color: BASE_COLOR, text: `${strings.reportBase}: ${comparison.base?.title ?? '—'}` },
+                { color: ROLE_COLORS[0], text: `${strings.reportBase}: ${comparison.base?.title ?? '—'}` },
                 { color, text: `${strings.reportCompare} ${slot}: ${comparison.compare?.title ?? '—'}` },
             ],
         },
+    });
+}
+
+/** A Δ figure: compare − base per point, the 1/3-octave Δ as steps under it, titled and with its legend. */
+function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, title: string, curve: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
+    const view = comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
+    const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
+    // The range covers the band steps too, so a band's step is never cut off.
+    const range = stageDiffRange(view && { ...view, values: [...(view.values ?? []), ...comparison.bandDeltas] });
+    paintOverlay(canvas, { layers: view ? [{ view, color: DIFF_COLOR, width: 1.5 }] : [] }, range, { x: axes.x, y: axes.y }, {
+        size, diff: true,
+        labels: { title, legend: [{ color: DIFF_COLOR, text: curve }, { color: DIFF_COLOR, text: strings.reportStepsLegend }] },
+        bandSteps: { deltas: comparison.bandDeltas, headline: comparison.topBands.map(item => item.band), color: DIFF_COLOR, legend: axes.legend },
     });
 }
 
@@ -269,12 +337,11 @@ export function summaryPng(document: Document, input: ReportInput, comparisons: 
     context.fillRect(0, 0, page.width, page.height);
     context.fillStyle = '#222';
     context.font = 'bold 18px sans-serif';
-    const outliers = input.model.rows.filter(row => !row.derived && isOutlierRow(row)).length;
     const uncalibrated = input.model.rows.some(row => row.uncalibrated);
-    context.fillText([input.recipeName, `${strings.entryOutliers} ${outliers}`, ...(uncalibrated ? [strings.hintLeqUncalibrated] : [])].join(' · '), 16, 24);
+    context.fillText([input.recipeName, ...(input.selection?.filters ?? []), ...(uncalibrated ? [strings.hintLeqUncalibrated] : [])].join(' · '), 16, 24);
     context.font = '13px sans-serif';
     const measured = measuredRegion(input.region, reportDuration(input));
-    context.fillText(`${strings.entryCsvRegion} ${measured ? `${measured.start.toFixed(2)}–${measured.end.toFixed(2)} s` : strings.reportWhole}`, 16, 46);
+    context.fillText(`${strings.stepRegion} ${measured ? `${measured.start.toFixed(2)}–${measured.end.toFixed(2)} s` : strings.reportWhole}`, 16, 46);
     comparisons.forEach(({ slot, comparison }, index) => {
         const top = head + index * pane * perSlot;
         const levels = document.createElement('canvas');
@@ -282,10 +349,7 @@ export function summaryPng(document: Document, input: ReportInput, comparisons: 
         context.drawImage(levels, 0, top);
         if (!input.showDiff) return;
         const delta = document.createElement('canvas');
-        paintPane(delta, comparison.diffDb, comparison.frequencies, diffRange(comparison), '#3fb950', true, { width, height: pane }, {
-            title: `${slot} · ${diffHeadline(comparison, strings)}`,
-            legend: [{ color: '#3fb950', text: strings.compareDelta }, { color: '#3fb950', text: strings.reportStepsLegend }],
-        }, { deltas: comparison.bandDeltas, headline: comparison.topBands.map(item => item.band) }, undefined, axesFor(comparison).delta);
+        paintDeltaFigure(delta, comparison, `${slot} · ${diffHeadline(comparison, strings)}`, strings.compareDelta, strings, input, { width, height: pane });
         context.drawImage(delta, 0, top + pane);
     });
     return page.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
@@ -297,7 +361,7 @@ export function reportFiles(document: Document, input: ReportInput, strings: Rep
     const files: ReportFile[] = [];
     const comparisons: Array<{ slot: number; comparison: CompareModel }> = [1, 2, 3]
         .filter(slot => input.slots[slot])
-        .map(slot => ({ slot, comparison: buildCompareModel(input.model, input.results, input.slots[slot]!, input.slots[0] ?? null, strings, input.entryRegionBase?.(input.slots[slot]!)) }));
+        .map(slot => ({ slot, comparison: comparisonOf(input, input.slots[slot]!, strings) }));
     const region = `${regionText(input.region, strings)}${input.region ? ' s' : ''}`;
     // Each figure says on its own what it is: role, file, region, and the base it is against.
     for (const { slot, comparison } of comparisons) {
@@ -308,18 +372,22 @@ export function reportFiles(document: Document, input: ReportInput, strings: Rep
         // The Δ figure also says what its steps are: filled = a headline band, outlined = its leak.
         files.push({
             name: `${strings.reportDiff} ${slot}.png`,
-            base64: pngOf(document, canvas => paintPane(canvas, comparison.diffDb, comparison.frequencies, diffRange(comparison), '#3fb950', true, PNG_SIZE, {
-                title: `${strings.reportDiff} ${slot} · ${diffHeadline(comparison, strings)} · ${region}`,
-                legend: [{ color: '#3fb950', text: `${strings.compareDelta} · ${baseName}` }, { color: '#3fb950', text: strings.reportStepsLegend }],
-            }, { deltas: comparison.bandDeltas, headline: comparison.topBands.map(item => item.band) }, undefined, axesFor(comparison).delta)),
+            base64: pngOf(document, canvas => paintDeltaFigure(canvas, comparison, `${strings.reportDiff} ${slot} · ${diffHeadline(comparison, strings)} · ${region}`, `${strings.compareDelta} · ${baseName}`, strings, input, PNG_SIZE)),
         });
     }
     if (comparisons.length) files.unshift({ name: `${strings.reportSummary}.png`, base64: summaryPng(document, input, comparisons, strings) });
     files.push({ name: `${strings.reportCsv}.csv`, text: reportCsv(input, strings) });
     if (input.recipe) {
-        files.push({ name: `${input.recipeName}.recipe.json`, text: JSON.stringify(reportRecipe(input.recipe, input.region, reportDuration(input)), null, 2) + '\n' });
+        // A compared channel row is that channel in wandas too: a get_channel step at the Recipe's head; slots
+        // of different channels get one Recipe each (".ch2"), the channels together none.
+        const channels = [...new Set(comparisons.map(({ slot }) => input.rowInfo?.(input.slots[slot]!).channel ?? null))];
+        const variants = channels.length > 1 ? channels.map(ch => ({ suffix: ch ? `.ch${ch}` : '', ch })) : [{ suffix: '', ch: channels[0] ?? null }];
         const fs = reportSampleRate(input);
-        if (fs) files.push({ name: `${input.recipeName}.1-3oct.recipe.json`, text: JSON.stringify(reportOctaveRecipe(input.recipe, input.region, reportDuration(input), fs), null, 2) + '\n' });
+        for (const { suffix, ch } of variants) {
+            const recipe = ch ? withChannel(input.recipe, ch) : input.recipe;
+            files.push({ name: `${input.recipeName}${suffix}.recipe.json`, text: JSON.stringify(reportRecipe(recipe, input.region, reportDuration(input)), null, 2) + '\n' });
+            if (fs) files.push({ name: `${input.recipeName}${suffix}.1-3oct.recipe.json`, text: JSON.stringify(reportOctaveRecipe(recipe, input.region, reportDuration(input), fs), null, 2) + '\n' });
+        }
     }
     const specVersion = comparisons.map(({ comparison }) => comparison.compare?.filePaths[0]).map(path => input.results.get(path ?? '')).find(result => result?.ok)?.specVersion;
     files.push({ name: `${strings.reportDefinitions}.json`, text: JSON.stringify(reportDefinitions(input, specVersion, strings), null, 2) + '\n' });

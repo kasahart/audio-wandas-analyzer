@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { getStrings } from '../../shared/i18n/strings';
-import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
+import { entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
 
 let scanned: ScannedFile[] | undefined;
+const STR_EN = getStrings('en');
 test.beforeAll(() => { scanned = entry100Results(); });
 
 type Posted = { type: string; requestId: string; filePaths: string[]; stage?: string; region?: { start: number; end: number }; recipe?: { nodes: Array<{ operation: string }> }; folder?: string; files?: Array<{ name: string; text?: string }> };
@@ -30,11 +31,21 @@ async function answer(page: Page, view: Record<string, unknown> = spectrum): Pro
 async function openComparison(page: Page, language = 'en'): Promise<string[]> {
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
     await openEntry(page, scanned!, { language, recipe });
-    const paths = await page.locator('[data-entry-rows] tr').evaluateAll(rows => rows.slice(0, 2).map(row => row.getAttribute('data-file-path')!));
+    // Rows are a recording's channels, in name order: the first row, and the first of another condition (rpm).
+    const drawn = await page.locator('[data-entry-rows] tr.entry-row').evaluateAll(rows => rows.map(row => row.getAttribute('data-file-path')!));
+    const rpm = (filePath: string): string => /_(\d+rpm)_/.exec(filePath)?.[1] ?? '';
+    const other = drawn.findIndex(filePath => rpm(filePath) !== rpm(drawn[0]));
+    const paths = [drawn[0], drawn[other]];
     await page.keyboard.press('1');
-    await page.keyboard.press('ArrowDown');
+    for (let step = 0; step < other; step++) await page.keyboard.press('ArrowDown');
     await page.keyboard.press('2');
     await page.keyboard.press('Enter');
+    await showTracks(page, paths);
+    return paths;
+}
+
+/** After Enter: the host analyses the slotted files as tracks; the steps mode asks for its pictures and gets them. */
+async function showTracks(page: Page, paths: string[]): Promise<void> {
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
     // The slotted files are analysed as tracks.
     await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths).toEqual(paths);
@@ -46,7 +57,6 @@ async function openComparison(page: Page, language = 'en'): Promise<string[]> {
     await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
     await answer(page);
     await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'overlay');
-    return paths;
 }
 
 test('Enter on the entry table compares the slotted files in the track view: overlaid, both levels in the headline, roles by colour', async ({ page }) => {
@@ -55,16 +65,17 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     const root = page.locator('.track-stage');
     await expect(root).toHaveAttribute('data-compared', '1');
     await expect(page.locator('[data-stage-headline]')).toHaveText(/^[\d.]+ k?Hz base −?\d+\.\d \/ compare −?\d+\.\d dB$/);
-    await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, `1 · ${first.split('/').pop()}`, `2 · ${second.split('/').pop()}`]);
+    await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, new RegExp(`^1 · ${first.split('/').pop()} ch1 ${STR_EN.dsLeq.replace(/[[\]]/g, '\\$&')} −?\\d`), new RegExp(`^2 · ${second.split('/').pop()} ch1 `)]);
     expect(await page.locator('[data-stage-legend] line').evaluateAll(lines => lines.map(line => line.getAttribute('stroke')))).toEqual(['#3b82f6', '#d4b20f', '#a371f7']);
     // The base group's ▾ says how its curve is made; "Show on the list" lists the compared files and their base on the table.
     const STR = getStrings('en');
-    await expect(page.locator('[data-stage-legend] .compare-legend-item').first()).toContainText(STR.entryBaseMedian.replace('{count}', '6'));
+    await expect(page.locator('[data-stage-legend] .compare-legend-item').first()).toContainText(new RegExp(STR.entryBaseMedian.replace('{count}', '\\d+')));
     await page.locator('[data-action="stage-base-info"]').click();
     await expect(page.locator('[data-stage-base-info]')).toContainText(STR.stageBaseAggregate);
     await page.locator('[data-action="stage-base-list"]').click();
     await expect(page.locator('[data-stage-base-info]')).toBeHidden();
-    await expect(page.locator('[data-action="entry-filter-compared"]')).toHaveAttribute('aria-pressed', 'true');
+    // On the list: a filter of the file column (a chip, × takes it off) to the compared files and their base.
+    await expect(page.locator('[data-testid="fchip"]')).toHaveCount(1);
     // Hold 2: slot 2 is compared until released; a tap keeps it.
     await page.keyboard.down('2');
     await expect(root).toHaveAttribute('data-compared', '2');
@@ -79,28 +90,29 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
     await expect(page.locator('.entry-badge.entry-slot-1')).toHaveCount(1);
     await expect(page.locator('.entry-badge.entry-slot-2')).toHaveCount(1);
-    // A row's 0 makes its file the base, as 1–3 slot theirs; pressed again, the base is the group median again.
-    // The base re-sorts the table, so the row is found by its file.
-    const otherPath = (await page.locator('[data-entry-rows] tr.entry-row').nth(2).getAttribute('data-file-path'))!;
-    const other = page.locator(`[data-entry-rows] tr.entry-row[data-file-path="${otherPath}"]`);
-    const otherName = otherPath.split('/').pop()!;
-    await other.hover();
-    const zero = other.locator('[data-action="entry-row-slot"][data-slot="0"]');
-    await zero.click();
-    await expect(zero).toHaveAttribute('aria-pressed', 'true');
+    // A row's slot menu makes it the base (0), as 1–3 slot theirs; chosen again, the base is the group median again.
+    const otherKey = (await page.locator('[data-entry-rows] tr.entry-row').nth(2).getAttribute('data-key'))!;
+    const other = page.locator(`[data-entry-rows] tr.entry-row[data-key="${otherKey}"]`);
+    const otherName = otherKey.replace(/#ch\d+$/, '').split('/').pop()!;
+    const slotZero = async (): Promise<void> => {
+        await other.hover();
+        await other.locator('[data-action="entry-row-slotmenu"]').click();
+        await page.locator('[data-action="entry-row-slot"][data-slot="0"]').click();
+    };
+    await slotZero();
     await expect(other.locator('.entry-badge.entry-slot-0')).toHaveCount(1);
-    await expect(page.locator('[data-entry-slots] .entry-chip-base')).toContainText(otherName);
+    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]')).toContainText(otherName);
     // The comparison's legend names that file as the base.
+    await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('[data-stage-legend] .compare-legend-item').first()).toContainText(otherName);
     await page.keyboard.press('Escape');
     await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
-    await other.hover();
-    await zero.click();
-    await expect(zero).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.locator('[data-entry-slots] .entry-chip-base')).toContainText(STR.entryBaseGroup);
+    await slotZero();
+    await expect(other.locator('.entry-badge.entry-slot-0')).toHaveCount(0);
+    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]')).toContainText(STR.entryBaseGroup);
     await page.keyboard.press('Enter');
-    await expect(page.locator('[data-stage-legend] .compare-legend-item').first()).toContainText(STR.entryBaseMedian.replace('{count}', '6'));
+    await expect(page.locator('[data-stage-legend] .compare-legend-item').first()).toContainText(new RegExp(STR.entryBaseMedian.replace('{count}', '\\d+')));
 });
 
 test('the comparison shows the app\'s 1/3-octave branch as a step, and hides the lanes\' own controls', async ({ page }) => {
@@ -115,30 +127,26 @@ test('the comparison shows the app\'s 1/3-octave branch as a step, and hides the
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
     await answer(page, { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] });
     await expect(page.locator('.track-stage-bar')).toHaveAttribute('data-stage', 'node-noct');
-    // Sorted by a band in the side panel, the table still fits: the band's level takes Leq's place.
-    await page.locator('[data-action="entry-sort-band"]').click();
-    await expect(page.locator('th.entry-col-band')).toHaveClass(/is-sorted/);
-    await expect(page.locator('th.entry-col-leq')).toBeHidden();
+    // In the side panel the table keeps its four columns and never scrolls sideways; its ▾ sorts.
+    await page.locator('th[data-column="leq"] [data-action="entry-fhead"]').click();
+    await page.locator('[data-action="entry-fsort"][data-descending="true"]').click();
+    await expect(page.locator('th[data-column="leq"]')).toHaveClass(/is-sorted/);
     expect(await page.locator('.entry-table-wrap').evaluate(wrap => wrap.scrollWidth - wrap.clientWidth)).toBeLessThanOrEqual(0);
-    // "Compared" lists the slotted files with their base (marked); a base row's ▶ shows it as a track to play it.
-    await page.locator('[data-action="entry-filter-compared"]').click();
-    const rows = page.locator('[data-entry-rows] tr.entry-row');
-    await expect(rows.first()).toHaveAttribute('data-file-path', first);
-    const baseRow = page.locator('[data-entry-rows] tr.entry-row.is-base').first();
-    await expect(baseRow).toBeVisible();
-    const basePath = (await baseRow.getAttribute('data-file-path'))!;
-    // ▶ shows on the hovered row only.
-    await expect(baseRow.locator('[data-action="entry-row-play"]')).toBeHidden();
-    await baseRow.hover();
-    await expect(baseRow.locator('[data-action="entry-row-play"]')).toBeVisible();
-    await baseRow.locator('[data-action="entry-row-play"]').click();
-    await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths).toContain(basePath);
+    // A row's ▶ shows on the hovered row only, and shows its file as a track to play it.
+    const row = page.locator('[data-entry-rows] tr.entry-row:not(.is-focused)').nth(3);
+    const rowPath = (await row.getAttribute('data-file-path'))!;
+    await expect(row.locator('[data-action="entry-row-play"]')).toBeHidden();
+    await row.hover();
+    await expect(row.locator('[data-action="entry-row-play"]')).toBeVisible();
+    await row.locator('[data-action="entry-row-play"]').click();
+    await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths).toContain(rowPath);
+    void first;
     // Back on the waveform view the lanes' controls return.
     await page.locator('[data-action="content-waveform"]').click();
     await expect(page.locator('[data-action="zoom-in"]')).toBeVisible();
 });
 
-test('D fixes the compared file\'s difference as a row of the entry table; 報告に hands the host one folder', async ({ page }) => {
+test('D fixes the compared file\'s difference; 報告に hands the host one folder', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
     const [first] = await openComparison(page);
@@ -150,11 +158,97 @@ test('D fixes the compared file\'s difference as a row of the entry table; 報�
     expect(report.folder).toMatch(/^Standard_\d{8}-\d{6}$/);
     expect(report.files!.map(file => file.name)).toEqual(['summary.png', 'compare 1.png', 'compare 2.png', 'report.csv', 'Standard.recipe.json', 'Standard.1-3oct.recipe.json', 'definitions.json']);
     expect(report.files![3].text!).toContain('Δ 3.15 kHz dB');
+    // The fixed difference is in the report, against its base as it was defined.
+    expect(report.files![3].text!).toContain(`${STR.reportDerived} · ${first.split('/').pop()} ch1 · all`);
+    // On the table it is a muted row right under the row it was fixed on, counted nowhere, with × to delete it.
     await page.keyboard.press('Escape');
     await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
-    const names = await page.locator('[data-entry-rows] .entry-name').allTextContents();
-    const at = names.indexOf(first.split('/').pop()!);
-    expect(names[at + 1]).toMatch(/^└ Δ /);
+    const derived = page.locator('[data-entry-rows] tr.is-derived');
+    await expect(derived).toHaveCount(1);
+    await expect(derived.locator('.entry-nm')).toHaveText(new RegExp(`^└ Δ · ${STR.entryBaseGroup}`));
+    const parent = await derived.evaluate(row => (row.previousElementSibling as HTMLElement).getAttribute('data-key'));
+    expect(parent).toBe(`${first}#ch1`);
+    const counts = await page.evaluate(() => {
+        window.dispatchEvent(new MessageEvent('message', { data: { type: 'comparison-panel-test-action', actionId: 'entry-snapshot', actions: [] } }));
+        const entry = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; renderedUi: { entry: { rows: number; dist: { groups: Array<{ n: number }> } } } }> }).__uiSmokePostedMessages.filter(message => message.type === 'comparison-panel-test-snapshot').at(-1)!.renderedUi.entry;
+        return [entry.rows, entry.dist.groups.reduce((sum, group) => sum + group.n, 0)];
+    });
+    expect(counts).toEqual([197, 197]);
+    await derived.locator('[data-action="entry-derived-remove"]').click();
+    await expect(derived).toHaveCount(0);
+});
+
+test('narrowed to ch 2, the base is the group\'s ch-2 recordings within the filter, and the compared row shows its channel, value and memo', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { recipe });
+    await pickCsv(page, 'motor.csv', entry100Metadata());
+    await page.locator('[data-action="entry-group"]').selectOption('csv:rpm');
+    await page.locator('th[data-column="ch"] [data-action="entry-fhead"]').click();
+    await page.locator('[data-entry-fvalue="1"]').uncheck();
+    await page.locator('[data-action="entry-fok"]').click();
+    // The first ch-2 row: a memo on it, then slot 1, then compare.
+    const first = page.locator('[data-entry-rows] tr.entry-row').first();
+    const key = (await first.getAttribute('data-key'))!;
+    expect(key).toMatch(/#ch2$/);
+    const filePath = key.replace(/#ch2$/, '');
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('m');
+    await page.locator('[data-entry-memo-text]').fill('rattle at 3 kHz');
+    await page.keyboard.press('Escape');
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('1');
+    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="1"]')).toContainText(' ch2');
+    await page.keyboard.press('Enter');
+    await showTracks(page, [filePath]);
+    const legend = page.locator('[data-stage-legend] .compare-legend-item');
+    // The base: rpm's group of the compared row, its ch-2 recordings, within the filter.
+    await expect(legend.first()).toContainText(`${STR.entryBaseGroup} rpm `);
+    await expect(legend.first()).toContainText(` · ${STR.dsCh}2`);
+    await expect(legend.first()).toContainText(STR.dsBaseNarrowed.replace('{filters}', `${STR.dsCh} = 2`));
+    // The compared row: its name with the channel, its value on show, ✎ with its memo.
+    await expect(legend.nth(1)).toContainText(`1 · ${filePath.split('/').pop()} ch2`);
+    await expect(legend.nth(1).locator('.compare-value')).toHaveText(new RegExp(`^${STR.dsLeq.replace(/[[\]]/g, '\\$&')} −\\d+\\.\\d$`));
+    await expect(legend.nth(1).locator('[data-memo]')).toHaveAttribute('data-hint', 'rattle at 3 kHz');
+});
+
+test('a ch-2 slot is drawn as channel 2: its scans select it first, its base\'s too, and the picture is that channel\'s', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { recipe });
+    await page.locator('[data-entry-table]').focus();
+    // The second row is the first recording's ch 2.
+    await page.keyboard.press('ArrowDown');
+    const key = (await page.locator('[data-entry-rows] tr.is-focused').getAttribute('data-key'))!;
+    expect(key).toMatch(/#ch2$/);
+    const filePath = key.replace(/#ch2$/, '');
+    await page.keyboard.press('1');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
+    await page.evaluate(paths => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: paths.map(path => ({
+        filePath: path, fileName: path.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 2, sampleCount: 32000,
+        channels: [0, 1].map(index => ({ label: `ch${index + 1}`, peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } })),
+    })) } })), [filePath]);
+    await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
+    // Every scan of the comparison selects channel 2 (index 1) at the head of its Recipe: the compared file and its base.
+    const request = (await stageScans(page)).at(-1)!;
+    const head = (request.recipe as unknown as { nodes: Array<{ operation: string; params: { entries: Array<[string, unknown]> } }> }).nodes[0];
+    expect(head.operation).toBe('wandas.frame.get_channel');
+    expect(head.params.entries).toEqual([['channel_idx', 1]]);
+    expect(request.filePaths).toContain(filePath);
+    expect(request.filePaths.length).toBeGreaterThan(1);
+    await expect(page.locator('.track-stage')).toHaveAttribute('data-channels', new RegExp(`${filePath.split('/').pop()}:2`));
+    // A host answers as wandas does: channel 2's picture (here −10 dB under channel 1's), and that is what is drawn.
+    await page.evaluate(({ request, files }) => {
+        for (const filePath of request.filePaths) {
+            const file = files.find(item => item.filePath === filePath)!;
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-50, -40, -60] } } }, '*');
+        }
+        window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+    }, { request, files: scanned! });
+    await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'overlay');
+    await expect(page.locator('[data-stage-legend] .compare-legend-item').nth(1)).toContainText(`1 · ${filePath.split('/').pop()} ch2`);
 });
 
 test('the comparison\'s step bar grows the chain with ＋, offers only what takes the Frame there, and the plot answers the lanes\' gestures', async ({ page }) => {
@@ -169,6 +263,7 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
         await bar.locator('[data-step-menu-filter]').fill(name);
         await bar.locator('.step-menu-item', { hasText: name }).first().click();
     };
+    // The slotted rows are channel 1 of two-channel recordings: each scan selects it first (get_channel).
     const lastRecipe = async (): Promise<string[]> => (await stageScans(page)).filter(message => message.recipe).at(-1)!.recipe!.nodes.map(node => node.operation.split('.').pop()!);
     await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-settings"]').click();
     await bar.locator('[data-action="step-remove"]').click();
@@ -183,7 +278,7 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await bar.locator('[data-step-menu-filter]').press('Escape');
     // The whole file is no region: no region chip.
     await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', 'a_weighting', 'fft', STR.stepOctave]);
-    await expect.poll(lastRecipe).toEqual(['highpass_filter', 'time_slice', 'a_weighting', 'fft']);
+    await expect.poll(lastRecipe).toEqual(['get_channel', 'highpass_filter', 'time_slice', 'a_weighting', 'fft']);
     await answer(page);
     await expect(page.locator('[data-stage-headline]')).toHaveText(/ base /);
     // The overlaid plot: hover says what the pointer can do; Shift+wheel pans, Ctrl+wheel zooms, a double-click resets.
@@ -195,7 +290,7 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await expect(page.locator('#hint-footer')).toHaveText(STR.compareHintPlot);
     // As on the lanes: a cursor line and the values under the pointer (where, base, compare, Δ).
     await expect(page.locator('.track-stage-cursor')).toBeVisible();
-    await expect(page.locator('.track-stage-readout')).toHaveText(/^[\d.]+ k?Hz · −?\d+\.\d · −?\d+\.\d · [+−]\d+\.\d dB$/);
+    await expect(page.locator('.track-stage-readout')).toHaveText(/^[\d.]+ k?Hz \/ −?\d+\.\d \/ −?\d+\.\d \/ [+−]\d+\.\d dB$/);
     // + and − zoom about the middle.
     await page.keyboard.press('+');
     await expect(root).toHaveAttribute('data-x-window', '0.150-0.850');
@@ -265,7 +360,7 @@ test('a region set with its chip compares only that part of the files, shows on 
     await page.mouse.down();
     await expect(root).toHaveAttribute('data-held', 'node-0');
     await expect(root).toHaveClass(/is-step-held/);
-    await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.map(node => node.operation.split('.').pop())).toEqual(['time_slice', 'welch']);
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.map(node => node.operation.split('.').pop())).toEqual(['get_channel', 'time_slice', 'welch']);
     await page.mouse.up();
     await expect(root).toHaveAttribute('data-held', '');
     // The region chip's ×: the whole files again, and no region chip.
@@ -293,14 +388,17 @@ test('bypass keeps a step in place but runs the chain without it; ↶ ↷ and Ct
     await hpf.locator('[data-action="step-bypass"]').click();
     await expect(hpf).toHaveClass(/is-bypassed/);
     await expect(hpf.locator('[data-action="step-bypass"]')).toHaveAttribute('aria-pressed', 'true');
-    await expect.poll(lastRecipe).toEqual(['time_slice', 'welch']);
+    await expect.poll(lastRecipe).toEqual(['get_channel', 'time_slice', 'welch']);
     await answer(page);
     await expect(page.locator('[data-stage-headline]')).toContainText(STR.stepBypassing.replace('{ops}', 'HPF 20 Hz'));
     // M on the chip brings it back.
     await hpf.locator('[data-step-hold]').focus();
     await page.keyboard.press('m');
     await expect(hpf).not.toHaveClass(/is-bypassed/);
-    await expect.poll(lastRecipe).toEqual(['highpass_filter', 'time_slice', 'welch']);
+    // The whole chain again: the picture scanned at the start (its channel selected) is drawn, not asked for again.
+    const scanned_ = async (): Promise<boolean> => (await stageScans(page)).some(message => message.recipe?.nodes.map(node => node.operation.split('.').pop()).join() === 'get_channel,highpass_filter,time_slice,welch');
+    await expect.poll(scanned_).toBe(true);
+    await expect(page.locator('[data-stage-headline]')).not.toContainText(STR.stepBypassing.replace('{ops}', 'HPF 20 Hz'));
     // Ctrl+Z undoes that (bypassed again), Ctrl+Shift+Z redoes it.
     await page.keyboard.press('Control+z');
     await expect(hpf).toHaveClass(/is-bypassed/);

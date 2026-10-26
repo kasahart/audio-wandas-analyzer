@@ -1,6 +1,6 @@
 import { isSpectrogramSettings } from '../analysis/savedSpectrogramSettings';
 import { isRecipeChain } from '../recipe/recipeSteps';
-import { isEntryConditionTable, isEntryRegion, type CompareScanMessage, type EntrySaveConditionsMessage, type EntryScanCancelMessage, type EntryScanMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
+import { isEntryConditionTable, isEntryRegion, type CompareScanMessage, type EntrySaveConditionsMessage, type EntryScanCancelMessage, type EntryScanMessage, type EntryProbeMessage, type EntryProbeCancelMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
 import type { BuildRecipePayload } from './backendProtocol';
 import { schemaViolation } from './schemaValidation';
 import type {
@@ -67,6 +67,8 @@ export type PanelMessage =
     | ShowInfoMessage
     | EntryScanMessage
     | EntryScanCancelMessage
+    | EntryProbeMessage
+    | EntryProbeCancelMessage
     | EntrySaveConditionsMessage
     | CompareScanMessage
     | SaveReportFolderMessage;
@@ -114,6 +116,12 @@ function isEntryScanMessage(value: unknown): value is EntryScanMessage {
         && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0)
         && (message['rootPath'] === undefined || typeof message['rootPath'] === 'string')
         && (message['recipe'] === undefined || isRecipeChain(message['recipe']));
+}
+
+function isEntryProbeMessage(value: unknown): value is EntryProbeMessage {
+    if (!hasType(value, 'entry-probe')) { return false; }
+    const message = value as Record<string, unknown>;
+    return typeof message['requestId'] === 'string' && Array.isArray(message['filePaths']) && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0);
 }
 
 function isCompareScanMessage(value: unknown): value is CompareScanMessage {
@@ -166,6 +174,8 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'save-recipe': return isSaveRecipeMessage(value) ? value : undefined;
         case 'entry-scan': return isEntryScanMessage(value) ? value : undefined;
         case 'entry-scan-cancel': return { type: 'entry-scan-cancel' };
+        case 'entry-probe': return isEntryProbeMessage(value) ? value : undefined;
+        case 'entry-probe-cancel': return { type: 'entry-probe-cancel' };
         case 'entry-save-conditions': return isEntrySaveConditionsMessage(value) ? value : undefined;
         case 'compare-scan': return isCompareScanMessage(value) ? value : undefined;
         case 'save-report-folder': return isSaveReportFolderMessage(value) ? value : undefined;
