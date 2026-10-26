@@ -120,6 +120,18 @@ test('the files\' headers split rows by channel before anything is computed, so 
     await expect(page.locator('[data-action="entry-compute"]')).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '98').replace(' · 約 {time}', '')}`));
 });
 
+test('a file added while the headers are read asks again for every header not read yet', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!, { language: 'en', answered: 0, headers: null });
+    const added = '/data/added.flac';
+    await page.evaluate(({ added }) => window.postMessage({ type: 'directory-selection', rootPath: '', rootLabel: '', filePaths: [added] }, '*'), { added });
+    const probes = async (): Promise<Array<{ filePaths: string[] }>> => (await posted(page)).filter(message => message.type === 'entry-probe') as unknown as Array<{ filePaths: string[] }>;
+    await expect.poll(async () => (await probes()).length).toBe(2);
+    const last = (await probes()).at(-1)!;
+    expect(last.filePaths).toContain(added);
+    expect(last.filePaths.length).toBe(scanned!.length + 1);
+});
+
 test('rows are a recording and its channel; ch 2 alone, then a second filter, and one of two filters taken off (I16, I18, I20)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');

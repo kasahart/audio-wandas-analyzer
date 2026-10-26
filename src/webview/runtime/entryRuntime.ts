@@ -1604,7 +1604,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (screen.hidden) { this.open(fresh, '', false); return; }
             filePaths = [...filePaths, ...fresh];
             if (csv) match = matchCsv(csv, filePaths, rootPath);
-            probe(fresh);
+            // A new probe replaces one still running, so it asks again for every header not read yet.
+            probe(filePaths);
             rebuild();
         },
         tracksChanged: () => { if (!screen.hidden) render(); },

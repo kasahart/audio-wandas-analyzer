@@ -21,6 +21,8 @@ function wav(bytes: Uint8Array): ChannelProbe {
         // Chunks are word-aligned; an RF64 size of 0xFFFFFFFF is in its ds64 chunk, and fmt comes before data anyway.
         if (id === 'data') break;
         at += 8 + size + (size % 2);
+        // A chunk before fmt (cover art, a long LIST or iXML) can reach past the bytes read; the decoder still reads the file.
+        if (at + 8 > bytes.length && bytes.length >= AUDIO_HEAD_BYTES) return { unknown: true };
     }
     return { error: 'no fmt chunk' };
 }

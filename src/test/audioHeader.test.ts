@@ -22,6 +22,13 @@ test('a WAV header says its channels, a chunk before fmt (odd-sized, padded) ski
     assert.ok('error' in channelsFromHeader(new Uint8Array(), 'empty.wav'));
 });
 
+test('a WAV whose chunks before fmt reach past the bytes read is unknown, not broken', () => {
+    const big = [...ascii('LIST'), ...le32(70 * 1024), ...new Array<number>(70 * 1024).fill(0)];
+    assert.deepEqual(channelsFromHeader(wav(2, [big]).subarray(0, 64 * 1024), 'a.wav'), { unknown: true });
+    // The whole file read and still no fmt chunk: broken.
+    assert.ok('error' in channelsFromHeader(wav(2, [big]).subarray(0, 1000), 'a.wav'));
+});
+
 test('FLAC, Ogg and MP3 headers; a format without one here is unknown', () => {
     const flac = new Uint8Array(42);
     flac.set(ascii('fLaC'));
