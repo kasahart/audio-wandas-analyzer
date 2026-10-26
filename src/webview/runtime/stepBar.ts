@@ -375,13 +375,13 @@ export function createStepBar(deps: {
         const remove = removable(step) ? `<button type="button" data-action="step-remove" data-step="${escapeHtml(step.id)}">${escapeHtml(strings.stepRemove)}</button>` : '';
         return `<div class="step-form" role="dialog" aria-label="${escapeHtml(step.name)}" data-step-form="${escapeHtml(step.id)}">${title}${why}${fields}<div class="step-form-bar">${remove}${apply}</div></div>`;
     }
-    /** The places before ＋'s, nearest first: after which step (null: the input), the Frame there, and the chip that follows. */
-    function earlierPlaces(after: string | null): Array<{ after: string | null; frame: string; next?: RecipeStep }> {
+    /** The places before ＋'s, nearest first: after which step (null: the input), the Frame and channels there, and the chip that follows. */
+    function earlierPlaces(after: string | null): Array<{ after: string | null; frame: string; channels?: number; next?: RecipeStep }> {
         const steps = recipeSteps(state.recipe!, limits());
         const at = after ? steps.findIndex(step => step.id === after) : -1;
-        const places: Array<{ after: string | null; frame: string; next?: RecipeStep }> = [];
+        const places: Array<{ after: string | null; frame: string; channels?: number; next?: RecipeStep }> = [];
         for (let index = at - 1; index >= -1; index--) {
-            places.push({ after: index >= 0 ? steps[index].id : null, frame: index >= 0 ? frameAfter(steps[index]) : INPUT_FRAME, next: steps.slice(index + 1).find(shownStep) });
+            places.push({ after: index >= 0 ? steps[index].id : null, frame: index >= 0 ? frameAfter(steps[index]) : INPUT_FRAME, channels: index >= 0 ? steps[index].channels : limits().channels, next: steps.slice(index + 1).find(shownStep) });
         }
         return places;
     }
@@ -397,15 +397,20 @@ export function createStepBar(deps: {
         const byFrame = new Map<string, ReturnType<typeof addableOperations>>();
         const placed = menu.after ? recipeSteps(state.recipe, limits()).find(step => step.id === menu!.after) : undefined;
         const channels = placed ? placed.channels : limits().channels;
-        const at = (frame: string): ReturnType<typeof addableOperations> => { if (!byFrame.has(frame)) byFrame.set(frame, addableOperations(frame, lacks(), channels)); return byFrame.get(frame)!; };
+        // What a place offers depends on its Frame and on its channels (a cross-channel step needs two).
+        const at = (frame: string, count = channels): ReturnType<typeof addableOperations> => {
+            const key = `${frame}|${count ?? ''}`;
+            if (!byFrame.has(key)) byFrame.set(key, addableOperations(frame, lacks(), count));
+            return byFrame.get(key)!;
+        };
         const places = earlierPlaces(menu.after);
         type Entry = ReturnType<typeof addableOperations>[number];
         const here: Entry[] = [], earlier: Array<{ entry: Entry; after: string | null; next?: RecipeStep }> = [], off: Entry[] = [];
         for (const entry of at(menu.frame)) {
             if (!matches(entry.name, entry.operation.id)) continue;
             if (!entry.off) { here.push(entry); continue; }
-            const place = entry.off === 'frame' ? places.find(item => !at(item.frame).find(other => other.operation.id === entry.operation.id)?.off) : undefined;
-            if (place) earlier.push({ entry: at(place.frame).find(other => other.operation.id === entry.operation.id)!, after: place.after, next: place.next });
+            const place = entry.off === 'frame' || entry.off === 'channels' ? places.find(item => !at(item.frame, item.channels).find(other => other.operation.id === entry.operation.id)?.off) : undefined;
+            if (place) earlier.push({ entry: at(place.frame, place.channels).find(other => other.operation.id === entry.operation.id)!, after: place.after, next: place.next });
             else off.push(entry);
         }
         const item = (entry: Entry, after?: { after: string | null; next?: RecipeStep }): string => {

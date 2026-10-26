@@ -189,7 +189,7 @@ export interface StepLimits {
 
 type Invalid = { param: string; reason: NonNullable<RecipeStep['reason']> } | undefined;
 
-function invalidParam(params: Record<string, ParamValue>, editable: readonly StepParam[], limits: StepLimits, channels = limits.channels): Invalid {
+function invalidParam(params: Record<string, ParamValue>, editable: readonly StepParam[], limits: StepLimits, channels: number | undefined): Invalid {
     const nyquist = limits.sampleRate ? limits.sampleRate / 2 : Infinity;
     for (const param of editable) {
         const value = params[param.name];
@@ -260,9 +260,10 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
             // A bypassed step does not run, so the Frame before it is not its to take (a pair after a bypassed coherence).
             : output === undefined && !skipped.has(node.id) ? { param: '', reason: { kind: 'frame', limit: 0, text: frame } }
             : failed !== undefined ? { param: '', reason: { kind: 'failed', limit: 0, text: failed } }
-            // One channel has nothing to be compared with: its only pair is itself.
-            : CROSS_CHANNEL.has(node.operation) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2, ...(narrowedBy ? { text: narrowedBy } : {}) } }
-                : invalidParam(params, editable, bounds, channels);
+            // One channel has nothing to be compared with: its only pair is itself. A bypassed step does not run,
+            // so the channels there do not bound it.
+            : CROSS_CHANNEL.has(node.operation) && !skipped.has(node.id) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2, ...(narrowedBy ? { text: narrowedBy } : {}) } }
+                : invalidParam(params, editable, bounds, skipped.has(node.id) ? undefined : channels);
         const step: RecipeStep = {
             id: node.id, operation: node.operation, name: node.operation.split('.').pop()!, params, editable,
             input: frame, output: output ?? declaredOutput(node.operation, frame), ...(invalid ? { invalid: invalid.param, reason: invalid.reason } : {}),

@@ -212,6 +212,8 @@ test('a step that compares two channels needs two: one channel (or one picked by
         const { recipe: summed } = withStep(paired, slice.id, catalogOperation(one)!);
         assert.equal(recipeSteps(summed, { sampleRate: 16000, channels: 2 }).find(step => step.id === coherence)!.reason?.kind, 'channels');
     }
+    // Bypassed, coherence and its pair do not run, so they do not break the chain on one channel.
+    assert.equal(brokenStep(withBypass(withBypass(paired, coherence, true), pair, true), { sampleRate: 16000, channels: 1 }), undefined);
     // ＋ greys it on one channel, with that reason.
     assert.equal(addableOperations('ChannelFrame', undefined, 1).find(item => item.name === 'coherence')!.off, 'channels');
     assert.equal(addableOperations('ChannelFrame', undefined, 2).find(item => item.name === 'coherence')!.off, undefined);
