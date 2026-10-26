@@ -237,7 +237,6 @@ test('a ch-2 slot is drawn as channel 2: its scans select it first, its base\'s 
     expect(head.operation).toBe('wandas.frame.get_channel');
     expect(head.params.entries).toEqual([['channel_idx', 1]]);
     expect(request.filePaths).toContain(filePath);
-    expect(request.filePaths.length).toBeGreaterThan(1);
     await expect(page.locator('.track-stage')).toHaveAttribute('data-channels', new RegExp(`${filePath.split('/').pop()}:2`));
     // A host answers as wandas does: channel 2's picture (here −10 dB under channel 1's), and that is what is drawn.
     await page.evaluate(({ request, files }) => {
@@ -249,6 +248,11 @@ test('a ch-2 slot is drawn as channel 2: its scans select it first, its base\'s 
     }, { request, files: scanned! });
     await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'overlay');
     await expect(page.locator('[data-stage-legend] .compare-legend-item').nth(1)).toContainText(`1 · ${filePath.split('/').pop()} ch2`);
+    // The base (the folder's other recordings, ungrouped) is too large to scan unasked: asked, it is scanned as ch 2 too.
+    await page.locator('[data-action="stage-base-scan"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(30);
+    const baseRequest = (await stageScans(page)).at(-1)!;
+    expect((baseRequest.recipe as unknown as { nodes: Array<{ params: { entries: Array<[string, unknown]> } }> }).nodes[0].params.entries).toEqual([['channel_idx', 1]]);
 });
 
 test('the comparison\'s step bar grows the chain with ＋, offers only what takes the Frame there, and the plot answers the lanes\' gestures', async ({ page }) => {
@@ -279,6 +283,10 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     // The whole file is no region: no region chip.
     await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', 'a_weighting', 'fft', STR.stepOctave]);
     await expect.poll(lastRecipe).toEqual(['get_channel', 'highpass_filter', 'time_slice', 'a_weighting', 'fft']);
+    await answer(page);
+    // The base group (98 recordings, ungrouped) is scanned once asked.
+    await page.locator('[data-action="stage-base-scan"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(30);
     await answer(page);
     await expect(page.locator('[data-stage-headline]')).toHaveText(/ base /);
     // The overlaid plot: hover says what the pointer can do; Shift+wheel pans, Ctrl+wheel zooms, a double-click resets.
@@ -355,7 +363,11 @@ test('a region set with its chip compares only that part of the files, shows on 
     await expect.poll(async () => (await stageScans(page)).some(message => message.region?.start === 0.5 && message.stage === undefined)).toBe(true);
     // Holding the HPF chip: the comparison without the HPF, framed green, until released.
     const hpf = bar.locator('.step-chip', { hasText: 'HPF' }).locator('[data-step-hold]');
-    const box = (await hpf.boundingBox())!;
+    // The bar is drawn again as the region's scans come in: its chip is read once it stands still.
+    await expect(hpf).toBeVisible();
+    let box = await hpf.boundingBox();
+    await expect.poll(async () => (box = await hpf.boundingBox()) !== null).toBe(true);
+    box = box!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await expect(root).toHaveAttribute('data-held', 'node-0');
@@ -508,4 +520,25 @@ test('a chain need not end in the 1/3-octave bands: a step added is shown, × re
     await expect(branch.locator('.step-chip')).toHaveCount(1);
     expect(await branch.evaluate(element => element.previousElementSibling?.classList.contains('step-arrow'))).toBe(false);
     await expect(branch.locator('[data-action="step-delete"]')).toHaveCount(0);
+});
+
+test('a base group of more than 30 recordings is not analysed by opening a comparison: the table\'s computed bands stand in until 「解析する」 is pressed', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openComparison(page);
+    // Ungrouped, the base is the folder's other 97 recordings: only the compared files were asked for.
+    const gate = page.locator('[data-stage-base-gate]');
+    await expect(gate).toBeVisible();
+    await expect(page.locator('.track-stage')).toHaveAttribute('data-base-gate', /^\d{2,}$/);
+    const n = Number(await page.locator('.track-stage').getAttribute('data-base-gate'));
+    expect(n).toBeGreaterThan(30);
+    expect((await stageScans(page)).every(request => request.filePaths.length <= 3)).toBe(true);
+    await expect(page.locator('[data-action="stage-base-scan"]')).toHaveText(new RegExp(`^${STR.stageBaseScan.replace('{n}', String(n)).replace(' · about {time}', '')}`));
+    // On the 1/3-octave bands (where the comparison opens), the base is the table's computed levels, said so.
+    await expect(page.locator('[data-stage-base-gate-why]')).toHaveText(STR.stageBaseFromTable.replace('{m}', String(n)).replace(/\{n\}/g, String(n)));
+    await expect(page.locator('[data-stage-headline]')).toContainText('base');
+    // Pressed: the base group is asked for, and the button goes.
+    await page.locator('[data-action="stage-base-scan"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBe(n);
+    await expect(gate).toBeHidden();
 });

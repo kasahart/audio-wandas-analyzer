@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
+import wandas as wd
 
 import analysis_spec as spec
 from analysis_engine import AnalysisEngine
@@ -470,3 +471,31 @@ def test_a_recipe_that_starts_with_get_channel_scans_and_draws_that_channel(tmp_
     view = staged["stage"]
     peak = view["xs"][int(np.argmax([value if value is not None else -1e9 for value in view["values"]]))]
     assert 2800 < peak < 3500
+
+
+def test_a_median_welch_is_never_split_into_parts(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scan_service
+
+    monkeypatch.setattr(scan_service, "WELCH_PART_SEGMENTS", 2)
+    frame = wd.from_numpy(np.zeros((1, 48_000)), sampling_rate=48_000)
+    # The median of all segments is not a mean of the parts' medians: the step runs over the whole frame.
+    assert scan_service.welch_in_parts(None, frame, {"n_fft": 1024, "average": "median"}) is None  # type: ignore[arg-type]
+
+
+def test_a_long_region_s_welch_is_computed_in_parts_with_the_same_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scan_service
+
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "long.wav", [_sine(1000, 0.5, seconds=6.0), _sine(3150, 0.1, seconds=6.0)])
+    whole = _scan(service, path)
+    # Parts of a few segments: the result is the segments' mean power all the same.
+    monkeypatch.setattr(scan_service, "WELCH_PART_SEGMENTS", 37)
+    parted = _scan(AnalysisService(AnalysisEngine()), path)
+    # To the output's hundredth of a dB, where there is signal (far below it is rounding noise of a pure tone).
+    split, single = np.array(parted["spectrumDb"]), np.array(whole["spectrumDb"])
+    heard = single > -150
+    assert np.abs(split[heard] - single[heard]).max() <= 0.01
+    assert parted["peakHz"] == whole["peakHz"]
+    assert parted["leqDbA"] == whole["leqDbA"]

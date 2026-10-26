@@ -64,10 +64,10 @@ export function distribution(rows: readonly DatasetRow[], value: ValueId, group:
         members.push({ key: row.key, filePath: row.filePath, value: number, inRange: !range || (number >= range.low && number <= range.high) });
         groups.set(name, members);
     }
-    // A loop, not Math.min(...all): spreading 150,000 values overflows the call stack.
-    let low = Infinity, high = -Infinity;
-    for (const members of groups.values()) for (const { value } of members) { if (value < low) low = value; if (value > high) high = value; }
-    if (low > high) { low = 0; high = 1; }
+    const all = [...groups.values()].flat().map(member => member.value);
+    // A loop, not Math.min(...all): 100,000 arguments overflow the stack.
+    let low = all.length ? Infinity : 0, high = all.length ? -Infinity : 1;
+    for (const number of all) { if (number < low) low = number; if (number > high) high = number; }
     const pad = high > low ? (high - low) * 0.04 : Math.max(Math.abs(low) * 0.05, 0.5);
     low -= pad; high += pad;
     return {
@@ -95,7 +95,7 @@ export function binCounts(members: readonly DistributionMember[], low: number, h
 export function groupLabels(names: readonly string[]): Map<string, string> {
     const labels = new Map(names.map(name => [name, name]));
     if (names.length < 2) return labels;
-    const shortest = Math.min(...names.map(name => name.length));
+    const shortest = names.reduce((least, name) => Math.min(least, name.length), Infinity);
     let head = 0, tail = 0;
     while (head < shortest && names.every(name => name[head] === names[0][head])) head++;
     while (tail < shortest - head && names.every(name => name[name.length - 1 - tail] === names[0][names[0].length - 1 - tail])) tail++;

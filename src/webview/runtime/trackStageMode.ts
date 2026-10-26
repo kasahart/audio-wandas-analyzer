@@ -59,6 +59,13 @@ export interface TrackStageDeps {
     baseTitle(comparePath: string, group?: boolean): string;
     /** The channel a file is drawn with when `comparePath` is compared: a slot's channel row, the base's members of that channel. */
     stageChannel?(path: string, comparePath: string | null, group?: boolean): number | null;
+    /**
+     * A base group too large to scan unasked: its median 1/3-octave levels from what the table has computed
+     * (the channel compared), and how many of its recordings have them; null when none do.
+     */
+    tableBaseBands?(comparePath: string, group?: boolean): { centers: number[]; values: (number | null)[]; count: number } | null;
+    /** How much audio these files are (seconds) and about how long analysing them takes (ms). */
+    cost?(paths: readonly string[]): { seconds: number; ms: number };
     /** A file's name as the table has it (with its channel), its value on show and its memo, for the legend. */
     rowInfo?(path: string): { label: string; value: string; memo: string };
     /** Lists the compared files and their base on the entry table (its "Compared" filter). */
@@ -72,6 +79,8 @@ export interface TrackStageDeps {
      * be. Over a region, `measured` holds the files' results over it (metrics, not the entry table's).
      */
     fix(comparePath: string, groupBase: boolean, region: EntryRegion | null, measured: ReadonlyMap<string, ScanResult>): string | null;
+    /** 「レシピをまとめて書き出す」: the chain taken out for the table's rows (its choice of rows opens on the table). */
+    batch?(): void;
     /** 報告に: the comparison written as a report folder (over the region, from `measured`). */
     report(showDiff: boolean, region: EntryRegion | null, measured: ReadonlyMap<string, ScanResult>): void;
     sampleRate(): number | undefined;
@@ -124,6 +133,10 @@ function pictureSummary(view: StageView | null | undefined): { stageValues: numb
 /** A press shorter than this is a tap (compare that slot); longer is a hold (compare it until released), as on the entry table. */
 const TAP_MS = 250;
 
+/** A base group of more recordings than this, or more audio (s), is not scanned for the comparison's pictures until the user asks. */
+export const LARGE_BASE = 30;
+export const LARGE_BASE_S = 30 * 60;
+
 const narrowed = (range: PaneRange, y: { start: number; end: number }): PaneRange => ({ min: range.min + y.start * (range.max - range.min), max: range.min + y.end * (range.max - range.min) });
 
 export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
@@ -146,6 +159,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         return slice?.bypassed ? null : regionSet;
     }
     let heldStep: RecipeStep | null = null;
+    /** Large base groups the user asked to scan, and the one on screen. */
+    const baseAllowed = new Set<string>();
+    let gateKey: string | null = null;
     const source = createStageSource('track-stage', message => deps.post(message), () => deps.rerender());
     const detail = createDetailPlanner(deps.window.performance, deps.window, () => deps.rerender());
     const stepBar = createStepBar({
@@ -168,7 +184,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         + `<button type="button" class="tb-btn" data-action="stage-layout" aria-pressed="true">${escapeHtml(strings.stageLayoutSide)}</button>`
         + `<button type="button" class="tb-btn" data-action="stage-diff" aria-pressed="false">${escapeHtml(strings.compareDiffShow)}</button>`
         + `<button type="button" class="tb-btn" data-action="stage-report">${escapeHtml(strings.compareReport)}</button>`
-        + `<span class="compare-value track-stage-headline" data-stage-headline></span></div>`
+        + `<button type="button" class="tb-btn" data-action="stage-batch" title="${escapeHtml(strings.hintBatch)}">${escapeHtml(strings.dsBatch)}</button>`
+        + `<span class="compare-value track-stage-headline" data-stage-headline></span>`
+        + `<span class="track-stage-gate" data-stage-base-gate hidden><span data-stage-base-gate-why></span> <button type="button" class="tb-btn" data-action="stage-base-scan"></button></span></div>`
         + `<div class="track-stage-panel" data-stage-panel>`
         + `<div class="compare-pane-head compare-legend" data-stage-legend></div>`
         + `<div class="track-stage-base-info" data-stage-base-info hidden><div>${escapeHtml(strings.stageBaseAggregate)}</div>`
@@ -189,6 +207,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             if (recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate() }))) deps.hint(strings.stepOctaveBroken);
             else deps.report(showDiff, liveRegion(), measured());
         }
+        else if (action === 'stage-batch') deps.batch?.();
+        // A large base group is scanned only when asked (a folder of 10,000 files is not analysed by opening a comparison).
+        else if (action === 'stage-base-scan') { if (gateKey) baseAllowed.add(gateKey); deps.rerender(); }
         // The base group's ▾ says how its curve is made; "list" shows its files on the table.
         else if (action === 'stage-base-info') { const info = query<HTMLElement>('[data-stage-base-info]'); info.hidden = !info.hidden; }
         else if (action === 'stage-base-list') { query<HTMLElement>('[data-stage-base-info]').hidden = true; deps.showCompared(); }
@@ -321,9 +342,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const info = deps.rowInfo?.(path) ?? { label: baseName(path), value: '', memo: '' };
         return { label: `${slot ?? '·'} · ${info.label}`, ...(info.value ? { value: info.value } : {}), ...(info.memo ? { memo: info.memo } : {}) };
     }
-    function plotsOf(views: (path: string) => StageView | null | undefined, tracks: StageTrack[], comparePath: string | null, basePaths: readonly string[]) {
+    function plotsOf(views: (path: string) => StageView | null | undefined, tracks: StageTrack[], comparePath: string | null, basePaths: readonly string[], fallback: StageView | null = null) {
         const baseViews = basePaths.map(views).filter((view): view is StageView => !!view);
-        const base = baseViews.length && baseViews.length === basePaths.length ? medianView(baseViews) : null;
+        const base = baseViews.length && baseViews.length === basePaths.length ? medianView(baseViews) : fallback;
         const compare = comparePath ? views(comparePath) ?? null : null;
         const others = tracks.filter(track => track.filePath !== comparePath && !basePaths.includes(track.filePath)).map(track => ({ track, view: views(track.filePath) ?? null }));
         return { base, compare, others, diff: comparePath && !basePaths.includes(comparePath) ? stageDifference(base, compare) : null };
@@ -382,7 +403,12 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             }
             // The compared file (the slot tapped or held); its base: slot 0, or the others of its condition (0 switches).
             const comparePath = comparedPath(tracks);
-            const basePaths = comparePath ? deps.basePaths(comparePath, groupBase) : [];
+            const allBase = comparePath ? deps.basePaths(comparePath, groupBase) : [];
+            // A base group of more than LARGE_BASE recordings is not scanned until 「基準の群 n 本を解析する」.
+            gateKey = comparePath ? `${comparePath}|${groupBase}|${allBase.length}|${allBase[0] ?? ''}|${allBase.at(-1) ?? ''}` : null;
+            const cost = deps.cost?.(allBase) ?? { seconds: 0, ms: allBase.length * 150 };
+            const gated = (allBase.length > LARGE_BASE || cost.seconds > LARGE_BASE_S) && !baseAllowed.has(gateKey!);
+            const basePaths = gated ? [] : allBase;
             const files = [...new Set([...tracks.map(track => track.filePath), ...basePaths])];
             // A step held: the picture without it, as scanned for that (the lanes and the plot framed green meanwhile).
             const held_ = heldStep ? holdSpec(heldStep) : undefined;
@@ -437,7 +463,24 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // The zoom, for tests: "start–end" of the horizontal axis.
             root.dataset.xWindow = `${window_.x.start.toFixed(3)}-${window_.x.end.toFixed(3)}`;
             painted = true;
-            const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths);
+            // Gated, the 1/3-octave picture still has a base: the group's levels the table has computed, on the compared file's bands.
+            const tableBands = gated && comparePath && id === OCTAVE_BRANCH ? deps.tableBaseBands?.(comparePath, groupBase) ?? null : null;
+            const compareCoarse = comparePath ? coarse(comparePath) ?? null : null;
+            const tableBase = tableBands && compareCoarse?.values && compareCoarse.xs
+                ? { ...compareCoarse, waveform: undefined, values: compareCoarse.xs.map(x => { const at = tableBands.centers.findIndex(center => Math.abs(center - x) / x < 0.06); return at >= 0 ? tableBands.values[at] : null; }) } as StageView
+                : null;
+            const gate = query<HTMLElement>('[data-stage-base-gate]');
+            gate.hidden = !gated;
+            root.dataset.baseGate = gated ? String(allBase.length) : '';
+            if (gated) {
+                const seconds = Math.ceil(cost.ms / 1000);
+                const time = seconds >= 60 ? strings.entryMinutes.replace('{n}', String(Math.ceil(seconds / 60))) : strings.entrySeconds.replace('{n}', String(seconds));
+                query<HTMLElement>('[data-stage-base-gate-why]').textContent = tableBase
+                    ? strings.stageBaseFromTable.replace('{m}', String(tableBands!.count)).replaceAll('{n}', String(allBase.length))
+                    : strings.stageBaseGated.replace('{n}', String(allBase.length));
+                query<HTMLElement>('[data-action="stage-base-scan"]').textContent = strings.stageBaseScan.replace('{n}', String(allBase.length)).replace('{time}', time);
+            }
+            const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths, tableBase);
             shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
             const headline = query<HTMLElement>('[data-stage-headline]');
             headline.textContent = waiting ? strings.comparePending : comparePath ? stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, strings) : '';
@@ -466,7 +509,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 return;
             }
             // Overlaid: the base, the other tracks and the compared one on one plot, as the comparison draws them.
-            const plots = plotsOf(shown, tracks, comparePath, basePaths);
+            const plots = plotsOf(shown, tracks, comparePath, basePaths, tableBase);
             root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
             root.dataset.base = groupBase || !deps.slots()[0] ? 'group' : 'file';
             const layers: StageLayer[] = [

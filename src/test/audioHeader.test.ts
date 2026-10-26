@@ -14,9 +14,13 @@ function wav(channels: number, before: number[][] = []): Uint8Array {
 }
 
 test('a WAV header says its channels, a chunk before fmt (odd-sized, padded) skipped', () => {
-    assert.deepEqual(channelsFromHeader(wav(2), 'a.wav'), { channels: 2 });
+    assert.deepEqual(channelsFromHeader(wav(2), 'a.wav'), { channels: 2, durationS: 0 });
     const list = [...ascii('LIST'), ...le32(3), 1, 2, 3, 0];
-    assert.deepEqual(channelsFromHeader(wav(8, [list]), 'a.wav'), { channels: 8 });
+    assert.deepEqual(channelsFromHeader(wav(8, [list]), 'a.wav'), { channels: 8, durationS: 0 });
+    // The length: the data chunk's size over the byte rate (10 minutes of 48 kHz 16-bit stereo).
+    const long = wav(2);
+    new DataView(long.buffer).setUint32(long.length - 4, 600 * 48000 * 2 * 2, true);
+    assert.deepEqual(channelsFromHeader(long, 'long.wav'), { channels: 2, durationS: 600 });
     assert.ok('error' in channelsFromHeader(wav(0), 'a.wav'));
     assert.ok('error' in channelsFromHeader(new Uint8Array(ascii('not a wav file')), 'b.wav'));
     assert.ok('error' in channelsFromHeader(new Uint8Array(), 'empty.wav'));
@@ -35,6 +39,11 @@ test('FLAC, Ogg and MP3 headers; a format without one here is unknown', () => {
     flac[4] = 0x80; // the last metadata block, STREAMINFO
     flac[20] = (3 << 1); // 4 channels
     assert.deepEqual(channelsFromHeader(flac, 'a.flac'), { channels: 4 });
+    // 48 kHz and 28,800,000 samples: 10 minutes.
+    flac[18] = 0x0b; flac[19] = 0xb8; flac[20] = (0x0 << 4) | (3 << 1);
+    const samples = 600 * 48000;
+    flac[21] = Math.floor(samples / 2 ** 32) & 0x0f; flac[22] = (samples >>> 24) & 0xff; flac[23] = (samples >>> 16) & 0xff; flac[24] = (samples >>> 8) & 0xff; flac[25] = samples & 0xff;
+    assert.deepEqual(channelsFromHeader(flac, 'a.flac'), { channels: 4, durationS: 600 });
     const ogg = new Uint8Array(60);
     ogg.set(ascii('OggS'));
     ogg[26] = 1;

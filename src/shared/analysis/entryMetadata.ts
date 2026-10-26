@@ -40,7 +40,8 @@ export function withFolderColumns(
     label: (level: number) => string,
 ): EntryConditionTable | null {
     const folders = new Map(recordings.map(filePath => [filePath, audioKey(filePath, rootPath).split('/').slice(0, -1)]));
-    const levels = [...folders.values()].reduce((most, parts) => Math.max(most, parts.length), 0);
+    let levels = 0;
+    for (const parts of folders.values()) levels = Math.max(levels, parts.length);
     if (!levels) return table;
     const base = table ?? { columns: [], checked: [], rows: {}, order: [] };
     const width = base.columns.length;

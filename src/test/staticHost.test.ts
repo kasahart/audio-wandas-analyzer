@@ -1159,16 +1159,22 @@ test('an entry scan loads each listed file only for its scan, reuses unchanged f
     for (const until = Date.now() + 5000; Date.now() < until && app.workers.length < 2;) await new Promise(resolve => setTimeout(resolve, 2));
     assert.equal(scanWorker.terminated, true, 'the scan Worker is replaced so Pyodide gives its heap back');
     assert.equal(app.workers.length, 2);
-    assert.deepEqual(Object.keys(JSON.parse(app.storage.get('awa.scanIndex.v1')!)), filePaths);
+    // Without IndexedDB (here) the folder's index falls back to localStorage, under the folder's own key: its
+    // name, and its file count and a tag of its first files' names, sizes and times (another folder of the same name has another).
+    const stored = (prefix: string): string => app.storage.get([...app.storage.keys()].find(key => key.startsWith(prefix))!)!;
+    assert.ok([...app.storage.keys()].some(key => /^awa\.scanIndex\.v2:#2:[0-9a-f]{8}$/.test(key)));
+    assert.deepEqual(Object.keys(JSON.parse(stored('awa.scanIndex.v2:#'))), filePaths);
 
     const again = await scanFolder('e2');
     assert.equal(again.length, 2);
     assert.ok(!app.workers.slice(1).some(worker => worker.commands.some(command => command.cmd === 'scan')), 'unchanged files are not scanned again');
     assert.equal(app.workers.length, 2, 'a scan that scanned nothing keeps the Worker');
 
-    app.host.postMessage({ type: 'entry-save-conditions', table: { columns: ['line'], checked: [0], rows: { a: ['L1'] } } });
-    await flush();
-    assert.deepEqual(JSON.parse(app.storage.get('awa.conditions.v1')!), { columns: ['line'], checked: [0], rows: { a: ['L1'] } });
+    app.host.postMessage({ type: 'entry-save-session', rootPath: '/sources/rec', session: { version: 1, value: 'leq' }, csv: { name: 'm.csv', text: 'a' } });
+    // The CSV is written last: wait for it.
+    for (const until = Date.now() + 5000; Date.now() < until && ![...app.storage.keys()].some(key => key.startsWith('awa.sessionCsv.v1:/sources/rec#2:'));) await new Promise(resolve => setTimeout(resolve, 2));
+    assert.deepEqual(JSON.parse(stored('awa.session.v1:/sources/rec#2:')), { version: 1, value: 'leq' });
+    assert.deepEqual(JSON.parse(stored('awa.sessionCsv.v1:/sources/rec#2:')), { name: 'm.csv', text: 'a' });
     app.host.setState({ entrySlots: [null, '/sources/rec/a.wav', null, null] });
     assert.deepEqual(harness(app.storage).host.getState()?.entrySlots, [null, '/sources/rec/a.wav', null, null]);
 });

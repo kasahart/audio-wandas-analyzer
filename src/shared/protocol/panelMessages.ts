@@ -1,6 +1,6 @@
 import { isSpectrogramSettings } from '../analysis/savedSpectrogramSettings';
 import { isRecipeChain } from '../recipe/recipeSteps';
-import { isEntryConditionTable, isEntryRegion, type CompareScanMessage, type EntrySaveConditionsMessage, type EntryScanCancelMessage, type EntryScanMessage, type EntryProbeMessage, type EntryProbeCancelMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
+import { isEntryConditionTable, isEntryRegion, type CompareScanMessage, type EntrySaveSessionMessage, type EntryScanCancelMessage, type EntryScanMessage, type EntryProbeMessage, type EntryProbeCancelMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
 import type { BuildRecipePayload } from './backendProtocol';
 import { schemaViolation } from './schemaValidation';
 import type {
@@ -69,7 +69,7 @@ export type PanelMessage =
     | EntryScanCancelMessage
     | EntryProbeMessage
     | EntryProbeCancelMessage
-    | EntrySaveConditionsMessage
+    | EntrySaveSessionMessage
     | CompareScanMessage
     | SaveReportFolderMessage;
 
@@ -145,10 +145,12 @@ function isSaveReportFolderMessage(value: unknown): value is SaveReportFolderMes
             && (typeof (file as Record<string, unknown>)['base64'] === 'string') !== (typeof (file as Record<string, unknown>)['text'] === 'string'));
 }
 
-function isEntrySaveConditionsMessage(value: unknown): value is EntrySaveConditionsMessage {
-    if (!hasType(value, 'entry-save-conditions')) { return false; }
-    const table = (value as Record<string, unknown>)['table'];
-    return table === null || isEntryConditionTable(table);
+function isEntrySaveSessionMessage(value: unknown): value is EntrySaveSessionMessage {
+    if (!hasType(value, 'entry-save-session')) { return false; }
+    const record = value as Record<string, unknown>;
+    const csv = record['csv'];
+    return typeof record['rootPath'] === 'string' && !!record['session'] && typeof record['session'] === 'object' && !Array.isArray(record['session'])
+        && (csv === undefined || csv === null || (typeof csv === 'object' && typeof (csv as Record<string, unknown>)['name'] === 'string' && typeof (csv as Record<string, unknown>)['text'] === 'string'));
 }
 
 export function parsePanelMessage(value: unknown): PanelMessage | undefined {
@@ -176,7 +178,7 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'entry-scan-cancel': return { type: 'entry-scan-cancel' };
         case 'entry-probe': return isEntryProbeMessage(value) ? value : undefined;
         case 'entry-probe-cancel': return { type: 'entry-probe-cancel' };
-        case 'entry-save-conditions': return isEntrySaveConditionsMessage(value) ? value : undefined;
+        case 'entry-save-session': return isEntrySaveSessionMessage(value) ? value : undefined;
         case 'compare-scan': return isCompareScanMessage(value) ? value : undefined;
         case 'save-report-folder': return isSaveReportFolderMessage(value) ? value : undefined;
         case 'show-info': {

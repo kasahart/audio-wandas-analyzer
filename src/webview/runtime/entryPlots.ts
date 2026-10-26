@@ -42,12 +42,14 @@ const OVERVIEW_TICKS = [0, 5, 10, 14, 17, 20, 23, 26];
 
 export function paintOverview(
     canvas: HTMLCanvasElement,
-    rows: EntryRow[],
+    rows: ReadonlyArray<Pick<EntryRow, 'filePath'>>,
     bands: ReadonlyMap<string, (number | null)[]>,
     visible: { first: number; last: number },
     focused: string | null,
     /** The part on screen (zoomed): x of the bands, y of the rows (0 at the bottom). */
     window: PlotWindow = FULL_PLOT_WINDOW,
+    /** Some level is calibrated: the scale reads dB, else dBFS. */
+    calibrated = false,
 ): void {
     const prepared = prepare(canvas);
     if (!prepared) return;
@@ -108,7 +110,7 @@ export function paintOverview(
     context.textAlign = 'right';
     context.fillText('Hz', left + width, top + height + 15);
     // The colour scale: the strip's own darkest and brightest levels.
-    const unit = rows.some(row => row.status === 'ok' && !row.uncalibrated) ? 'dB' : 'dBFS';
+    const unit = calibrated ? 'dB' : 'dBFS';
     const barWidth = 60, barRight = left + width - 2;
     context.textBaseline = 'middle';
     context.fillText(`${minus(high.toFixed(0))} ${unit}`, left + width, top / 2);

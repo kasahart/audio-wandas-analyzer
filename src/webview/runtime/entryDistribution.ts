@@ -90,7 +90,9 @@ export function distributionSvg(dist: Distribution, picture: DistributionPicture
                 svg += `<rect data-bin="${bin}" x="${num(x0)}" y="${num(base - barHeight)}" width="${num(Math.max(1, x1 - x0 - 1))}" height="${num(barHeight)}" class="${range && inRange[bin] ? 'is-in' : ''}"><title>${escapeHtml(`${label} · ${from}–${to} · ${count} ${picture.unitLabel}`)}</title></rect>`;
             });
             // The rug: a tick per member, so a few far from the rest show even where their bar is 2 px.
-            svg += `<path class="entry-dist-rug" d="${group.members.map(member => `M${num(x(member.value))} ${base + 1}v5`).join('')}"/>`;
+            // Thinned to one tick per half pixel: 30,000 members draw what can be seen, not 30,000 segments.
+            const ticks = [...new Set(group.members.map(member => Math.round(x(member.value) * 2) / 2))];
+            svg += `<path class="entry-dist-rug" d="${ticks.map(tick => `M${tick} ${base + 1}v5`).join('')}"/>`;
             if (!strip) svg += `<text x="4" y="${top + 43}" class="entry-dist-max">${escapeHtml(strings.dsDistMax.replace('{n}', String(max)))}</text>`;
         }
         // The slots: the rows in 1–3 (and 0) as ticks in their colours; the base as the group's median when 0 is empty.

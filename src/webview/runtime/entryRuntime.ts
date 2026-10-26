@@ -8,13 +8,14 @@
  */
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
-import type { ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveConditionsMessage } from '../../shared/analysis/entryScan';
+import type { ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
 import { channelResult } from '../../shared/recipe/channelSelection';
+import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
 import { baseOf, buildCompareModel, sideView, type CompareModel } from './comparePanes';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
-import { compareGroupNames, distribution, DISTRIBUTION_BINS, groupLabels, type Distribution } from '../../shared/dataset/distribution';
+import { compareGroupNames, distribution, DISTRIBUTION_BINS, groupLabels, median, type Distribution } from '../../shared/dataset/distribution';
 import { DIST_ROW_MAX, DIST_ROW_MIN, DIST_STRIP_ROW, distributionSvg, type DistributionScale } from './entryDistribution';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageDifference, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
@@ -26,6 +27,7 @@ import type { PaneRange } from './comparePanes';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { positionPopover } from './settingsPopover';
+import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, recipeWithout, runnableRecipe, stepChipLabel, stepLimits, OCTAVE_BRANCH } from './stepBar';
 import { leqLabel } from './compareReport';
 import { brokenStep, chainEnd, isRecipeChain, recipeKey, recipeSteps, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
@@ -34,12 +36,12 @@ import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/a
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { finiteNumber } from '../../shared/dataset/asdData';
 import {
-    baseGroupMembers, columnValues, datasetRows, fileOfKey, rowKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
+    annotatedCsv, baseGroupMembers, columnValues, datasetRows, filteredRows, fileOfKey, rowKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
     closesEntryDialog, filterChipText, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, entrySlotsHtml, filterChipsHtml, filterPopHtml, checkListHtml, formatValue,
-    baseMenuHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml,
+    baseMenuHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml,
     type DatasetColumn, type DatasetScreenView, type EntryStrings,
 } from './entryTableHtml';
 
@@ -56,6 +58,8 @@ const REDRAW_MS = 250;
 const ROW_HEIGHT = 24;
 /** A CSV larger than this is read but not kept for the next session (the webview's state would grow too large). */
 const KEEP_CSV_BYTES = 2 * 1024 ** 2;
+/** The session is saved this long after the last change, so typing or dragging saves once. */
+const SESSION_SAVE_MS = 600;
 
 /** What a comparison of the slotted files needs of the entry table (the track view's steps mode, D and the report). */
 export interface CompareData {
@@ -77,7 +81,7 @@ export interface EntryScreenDeps {
     document: Document;
     window: Pick<Window, 'addEventListener' | 'setTimeout' | 'clearTimeout' | 'requestAnimationFrame'> & { performance: Pick<Performance, 'now'> };
     strings: UiStrings;
-    post(message: EntryScanMessage | EntryScanCancelMessage | EntryProbeMessage | EntryProbeCancelMessage | EntrySaveConditionsMessage | CompareScanMessage): void;
+    post(message: EntryScanMessage | EntryScanCancelMessage | EntryProbeMessage | EntryProbeCancelMessage | EntrySaveSessionMessage | CompareScanMessage): void;
     loadSlots(): readonly (string | null)[] | undefined;
     saveSlots(slots: (string | null)[]): void;
     /** Differences fixed on the comparison, kept across sessions like the slots. */
@@ -95,6 +99,8 @@ export interface EntryScreenDeps {
     compareChanged?(comparison: CompareData): void;
     announce(text: string): void;
     download(csv: string, fileName: string): void;
+    /** Writes a folder of text files where the user picks (a recipe bundle). */
+    saveFolder?(folder: string, files: Array<{ name: string; text: string }>): void;
     /** "? list": the keys and symbols overlay. */
     help?(): void;
     /** Where the table sits while it is not maximized: the track view's side panel (the page's body without one). */
@@ -154,8 +160,14 @@ export interface EntryScreen {
     stageChannel(path: string, comparePath: string | null, group?: boolean): number | null;
     /** The comparison of a file with its base, as the table defines the base (over `results` when given, e.g. a region's). */
     comparison(comparePath: string, group?: boolean, results?: ReadonlyMap<string, ScanResult>, entryRegionBase?: boolean): CompareModel;
+    /** A base group's median 1/3-octave levels from the table's computed values (the compared channel), for a base too large to scan unasked. */
+    tableBaseBands(comparePath: string, group?: boolean): { centers: number[]; values: (number | null)[]; count: number } | null;
+    /** How much audio these files are and about how long computing them takes, by the files' lengths. */
+    cost(paths: readonly string[]): { seconds: number; ms: number };
     /** A compared file's name (with its channel), its value on show and its memo. */
     rowInfo(path: string): { label: string; value: string; memo: string };
+    /** 「レシピをまとめて書き出す」 from the comparison: its choice of rows, then the bundle. */
+    openBatch(): void;
     /** What the table is narrowed to, for the report. */
     selection(): { value: string; group: string; filters: string[]; excluded: number };
     /** The differences fixed with D. */
@@ -258,10 +270,22 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const key = currentKey();
         return new Set(filePaths.filter(path => results.has(path) && resultKeys.get(path) !== key));
     }
-    /** Time per file of the last computation, for the estimate on 「計算」. */
-    let perFileMs = 150;
+    /**
+     * What a computation takes, for the estimate on 「計算」: a fixed part per file and a part per second of audio
+     * (a 10-minute recording takes far longer than a 2-second one). The per-second part is measured once a
+     * computation has done a few files. A file whose length is not known yet counts as UNKNOWN_DURATION_S.
+     */
+    const PER_FILE_MS = 100, UNKNOWN_DURATION_S = 10;
+    let perAudioSecondMs = 35;
     let scanStarted = 0;
     let scanCount = 0;
+    let scannedSeconds = 0;
+    /** Each file's length: from its result, else from its header (WAV, FLAC). */
+    const headerDurations = new Map<string, number>();
+    const durationOf = (path: string): number | undefined => results.get(path)?.input?.durationS ?? headerDurations.get(path);
+    function estimateMs(paths: readonly string[]): number {
+        return paths.reduce((sum, path) => sum + PER_FILE_MS + perAudioSecondMs * (durationOf(path) ?? UNKNOWN_DURATION_S), 0);
+    }
     /** The files of the running computation, for its progress. */
     let computingFiles = 0;
     let rootPath = '';
@@ -296,9 +320,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let derived: DerivedRow[] = [];
     /** The group whose median is the base while slot 0 is empty; null: slot 1's group. */
     let baseGroup: string | null = null;
+    /**
+     * The folder's session, kept by the host (its workspace storage, IndexedDB on the Web): saved a moment after
+     * each change once the stored one has come back at open (so the defaults of a fresh open never overwrite it).
+     */
+    let sessionLoaded = false;
+    let sessionTimer: number | undefined;
+    let savedSession = '';
+    /** The CSV to save with the next session: undefined when unchanged since the last. */
+    let csvToSave: { name: string; text: string } | null | undefined;
     /** Just folded above the table: its two rows in view go to the compared row's group. */
     let stripToSlot = false;
     let baseMenu = false;
+    /** 「レシピをまとめて書き出す」 open: for the filtered rows or all. */
+    let batchChoice: 'filtered' | 'all' | null = null;
     let sidePending = false;
     /** The slot key or chip being pressed: a tap acts on release, a hold shows the slot's Δ until then. */
     let pressing: { slot: number; at: number; timer: number } | undefined;
@@ -326,12 +361,17 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         builtModel = buildEntryModel(filePaths.map(filePath => ({ filePath, result: results.get(filePath) })), table, { derived });
         return builtModel;
     }
+    /** The rows through the filters but the value's own (unsorted), kept until the next rebuild. */
+    let pool: DatasetRow[] | null = null;
+    /** The rows are made again only when the files, their results, their headers or the CSV change, not on every redraw. */
+    let rowsDirty = true;
     let redrawTimer: number | undefined;
     let lastRedraw = 0;
     let redrawCost = 0;
     const focusedFile = (): string | null => (focused ? fileOfKey(focused) : null);
     const slotFiles = (): (string | null)[] => slots.map(key => (key ? fileOfKey(key) : null));
-    const rowOf = (key: string | null): DatasetRow | undefined => (key ? rows.find(row => row.key === key) : undefined);
+    let byKey = new Map<string, DatasetRow>();
+    const rowOf = (key: string | null): DatasetRow | undefined => (key ? byKey.get(key) : undefined);
     function scheduleRebuild(): void {
         if (redrawTimer !== undefined) return;
         // A big table takes longer to draw, so it waits longer: drawing stays under a fifth of the time.
@@ -416,9 +456,14 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     function rebuild(): void {
         builtModel = null;
-        rows = datasetRows(filePaths, rootPath, match?.attributes ?? new Map(), results, headerChannels)
-            .filter(row => !(headerErrors.has(row.filePath) && !results.get(row.filePath)?.ok) && (results.get(row.filePath)?.ok !== false || !!results.get(row.filePath)?.failedStep));
-        followChannels();
+        pool = null;
+        if (rowsDirty) {
+            rowsDirty = false;
+            rows = datasetRows(filePaths, rootPath, match?.attributes ?? new Map(), results, headerChannels)
+                .filter(row => !(headerErrors.has(row.filePath) && !results.get(row.filePath)?.ok) && (results.get(row.filePath)?.ok !== false || !!results.get(row.filePath)?.failedStep));
+            byKey = new Map(rows.map(row => [row.key, row]));
+            followChannels();
+        }
         // A value or grouping the data no longer has (another CSV, no subfolders) gives way to the first it has.
         const values = valueOptions();
         if (!values.some(option => option.id === value)) value = values[0]?.id ?? 'leq';
@@ -457,12 +502,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         cols.innerHTML = datasetColsHtml(view);
         head.innerHTML = datasetHeadHtml(view, text);
         renderRows(view);
-        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, heldSlot);
+        // One file in two slots as different channels: it is one track, drawn as the first slot's channel (1–3, then 0).
+        const notes = slots.map(key => {
+            const shown = key ? slotRowOf(fileOfKey(key)) : undefined;
+            return key && shown && shown.key !== key && (shown.channels ?? 1) > 1 ? strings.dsSlotTrackChannel.replace('{ch}', String(shown.ch)) : null;
+        });
+        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, heldSlot, notes);
+        notes.forEach((note, slot) => slotBar.querySelector(`[data-action="entry-slot"][data-slot="${slot}"]`)?.setAttribute('data-track-note', note ?? ''));
         const wanted = `<button type="button" class="entry-key" data-action="entry-key-hint" data-key="help">${escapeHtml(strings.keyHelp)}</button>`;
         if (keyHints.innerHTML !== wanted) keyHints.innerHTML = wanted;
         stepBar.set({ recipe: editedRecipe ?? standardRecipe, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed, files: filePaths.length });
         screen.dataset.mode = mode;
         scheduleSide();
+        scheduleSessionSave();
     }
     /** Only the rows on screen are drawn: the rest are spacers, so 100,000 rows scroll as 40 do. */
     function renderRows(view = datasetView()): void {
@@ -474,6 +526,71 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function rowName(key: string): string {
         const row = rowOf(key);
         return row ? ((row.channels ?? 1) > 1 ? `${row.name} ch${row.ch}` : row.name) : baseName(fileOfKey(key));
+    }
+    /** The rows a recipe bundle is for: those the table shows through its filters, or every row not excluded. */
+    function batchRows(choice: 'filtered' | 'all'): DatasetRow[] {
+        return choice === 'filtered' ? visibleRows({ rows, group, value, filters, sort, excluded }, results) : rows.filter(row => !excluded.has(row.key));
+    }
+    function openBatch(): void {
+        fpop = null; slotMenu = null; memoKey = null; baseMenu = false;
+        batchChoice = filters.length ? 'filtered' : 'all';
+        renderPopovers();
+    }
+    /** The bundle: the Recipe as it runs (per channel when the rows are channels), targets.csv, run_recipe.py, README. */
+    function exportBatch(): void {
+        const choice = (screen.querySelector<HTMLInputElement>('[data-entry-batch-scope]:checked')?.value as 'filtered' | 'all' | undefined) ?? batchChoice ?? 'all';
+        const recipe = runRecipe() ?? standardRecipe;
+        if (!recipe || broken()) { deps.announce(strings.entryChainBroken); return; }
+        const targets = batchRows(choice);
+        const idColumn = csv && csv.idColumn && csv.idColumn !== csv.audioColumn ? csv.idColumn : undefined;
+        // The Web host lists a picked folder as /sources/<name>: the README then asks for the folder instead.
+        const runRoot = rootPath.startsWith('/sources/') ? '' : rootPath;
+        const { folder, files } = batchBundle({ recipe, recipeName: strings.stepRecipeName, rows: targets, allRows: rows, rootPath, runRoot, idColumn, now: new Date() });
+        closePopovers();
+        deps.saveFolder?.(folder, files);
+        deps.announce(strings.dsBatchSaved.replace('{n}', String(batchCount(targets).recordings)).replace('{folder}', folder));
+    }
+    function sessionOf(): Record<string, unknown> {
+        return {
+            version: 1, value, group, filters, sort, baseGroup, slots, memo: [...memo], excluded: [...excluded], derived,
+            ...(editedRecipe ? { recipe: editedRecipe } : {}),
+        };
+    }
+    function scheduleSessionSave(): void {
+        if (!sessionLoaded || sessionTimer !== undefined) return;
+        sessionTimer = window.setTimeout(() => {
+            sessionTimer = undefined;
+            const session = sessionOf();
+            const text = JSON.stringify(session);
+            if (text === savedSession && csvToSave === undefined) return;
+            savedSession = text;
+            deps.post({ type: 'entry-save-session', rootPath, session, ...(csvToSave !== undefined ? { csv: csvToSave } : {}) });
+            csvToSave = undefined;
+        }, SESSION_SAVE_MS);
+    }
+    /** The stored session, as it came back at open: anything that no longer fits these files is left out. */
+    function applySession(session: Record<string, unknown> | undefined, stored: { name: string; text: string } | undefined): void {
+        if (stored) {
+            try { applyCsv(readDatasetCsv(new TextEncoder().encode(stored.text), stored.name)); } catch { /* A CSV that no longer reads is dropped. */ }
+        }
+        if (!session || session['version'] !== 1) return;
+        const files = new Set(filePaths);
+        const keyOk = (key: unknown): key is string => typeof key === 'string' && files.has(fileOfKey(key));
+        if (typeof session['value'] === 'string') value = session['value'] as ValueId;
+        if (typeof session['group'] === 'string') group = session['group'] as GroupId;
+        if (Array.isArray(session['filters'])) filters = (session['filters'] as DatasetFilter[]).filter(filter => !!filter && typeof filter.column === 'string' && (filter.kind === 'values' ? Array.isArray(filter.values) : filter.kind === 'range' && typeof filter.low === 'number' && typeof filter.high === 'number'));
+        const savedSort = session['sort'] as DatasetScreenView['sort'] | undefined;
+        if (savedSort && ['name', 'ch', 'group', 'value'].includes(savedSort.column)) sort = { column: savedSort.column, descending: !!savedSort.descending };
+        baseGroup = typeof session['baseGroup'] === 'string' ? session['baseGroup'] : null;
+        if (Array.isArray(session['slots'])) { slots = [0, 1, 2, 3].map(slot => { const key = (session['slots'] as unknown[])[slot]; return keyOk(key) ? key : null; }); deps.saveSlots(slots); }
+        memo.clear();
+        if (Array.isArray(session['memo'])) for (const item of session['memo'] as unknown[]) if (Array.isArray(item) && keyOk(item[0]) && typeof item[1] === 'string') memo.set(item[0], item[1]);
+        excluded.clear();
+        if (Array.isArray(session['excluded'])) for (const key of session['excluded'] as unknown[]) if (keyOk(key)) excluded.add(key);
+        if (Array.isArray(session['derived'])) { derived = (session['derived'] as DerivedRow[]).filter(row => !!row && files.has(row.parentPath) && !!row.result && !!row.base); deps.saveDerived?.(derived); }
+        // A chain saved with the session is the one its stored values are of: they are asked for again under it.
+        const recipe = session['recipe'];
+        if (isRecipeChain(recipe) && recipeKey(recipe) !== recipeKey(editedRecipe ?? undefined)) { editedRecipe = recipe; deps.saveRecipe?.(recipe); loadStored(); }
     }
     /** The slotted row of a file the comparison shows (slots 1–3 first, then 0). */
     function slotRowOf(filePath: string): DatasetRow | undefined {
@@ -585,7 +702,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The rows the distribution draws from: not excluded, through every filter but the one on the value itself. */
     function distributionPool(): DatasetRow[] {
-        return visibleRows({ rows, group, value, filters: filters.filter(filter => filter.column !== value), sort, excluded }, results);
+        pool ??= filteredRows({ rows, filters: filters.filter(filter => filter.column !== value), excluded }, results);
+        return pool;
     }
     /** The range picked on the value drawn: it marks the distribution and narrows the table. */
     function valueRange(): { low: number; high: number } | null {
@@ -608,7 +726,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         } else {
             const pending = computeTargets();
             if (pending.length) {
-                const minutes = pending.length * perFileMs / 60000;
+                const minutes = estimateMs(pending) / 60000;
                 const estimate = minutes >= 1 ? strings.entryMinutes.replace('{n}', String(Math.ceil(minutes))) : strings.entrySeconds.replace('{n}', String(Math.max(1, Math.ceil(minutes * 60))));
                 // Some rows have the value: the rest is said in channels and offered (never started by itself).
                 const pool = isComputed(value) ? distributionPool() : view.rows;
@@ -686,10 +804,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!result?.ok || !base) return null;
         return { ...row, result, base: { ...row.base, ...base }, recipeKey: recipeKey(runRecipe()), stale: false };
     }
+    /**
+     * Fixed differences of an earlier chain, measured again after a computation the user started (never at open);
+     * one over a region whose base is a large group stays ≠ rather than scanning that group unasked.
+     */
     function remeasureStale(): void {
         if (broken()) return;
         derived.forEach(row => {
             if (!row.stale || !row.base.paths?.length) return;
+            if (row.region !== 'all' && (row.base.paths.length > LARGE_BASE || row.base.paths.reduce((sum, path) => sum + (durationOf(path) ?? UNKNOWN_DURATION_S), 0) > LARGE_BASE_S)) return;
             if (row.region === 'all') {
                 const next = remeasured(row, results);
                 if (next) derived = derived.map(item => (item === row ? next : item));
@@ -820,7 +943,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         deps.saveDerived?.(derived);
         rebuild();
     }
-    function scheduleSide(): void {
+    /** Whether the next side paint draws the distribution again; scrolling the table moves only the strip's window. */
+    let distPending = true;
+    function scheduleSide(distribution = true): void {
+        distPending ||= distribution;
         if (sidePending) return;
         sidePending = true;
         window.requestAnimationFrame(() => { sidePending = false; paintSide(); });
@@ -898,18 +1024,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The distribution, the held row's Δ spectrum and the overview strip. */
     function paintSide(): void {
-        paintDistribution();
+        if (distPending) { distPending = false; paintDistribution(); }
         // The side plots are drawn only while the table is wide enough to show them.
         if (screen.hidden || !side.offsetWidth) return;
+        // The strip is the table's rows in the table's order (one per channel), each its recording's bands.
         const levels = new Map<string, (number | null)[]>();
-        for (const row of entryModel().rows) {
-            const result = results.get(row.filePath);
-            if (result?.ok && !row.derived) levels.set(row.filePath, result.thirdOctDb![0].map((_, bandIndex) => powerMeanOrNull(result.thirdOctDb!.map(channel => channel[bandIndex]))));
+        for (const [filePath, result] of results) {
+            if (result?.ok && result.thirdOctDb?.length) levels.set(filePath, result.thirdOctDb[0].map((_, bandIndex) => powerMeanOrNull(result.thirdOctDb!.map(channel => channel[bandIndex]))));
         }
-        const rowsOnScreen = entryModel().rows.filter(row => !row.derived);
+        const rowsOnScreen = shownRows;
         const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
-        paintOverview(overview, rowsOnScreen, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, focusedFile(), keepWindow('overview', String(rowsOnScreen.length)));
+        paintOverview(overview, rowsOnScreen, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, focusedFile(), keepWindow('overview', String(rowsOnScreen.length)),
+            [...results.values()].some(result => result.ok && result.input?.unit !== undefined && result.input.unit !== 'FS'));
         // The zoom on each plot, for tests: "x0-x1|y0-y1".
         for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
             const window = plotWindow(name);
@@ -972,6 +1099,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         scanning = true;
         scanStarted = window.performance.now();
         scanCount = 0;
+        scannedSeconds = 0;
         computingFiles = pending.length;
         const recipe = runRecipe();
         deps.post({ type: 'entry-scan', requestId, rootPath, filePaths: [...slotted, ...pending.filter(path => !slotted.includes(path))], ...(recipe ? { recipe } : {}) });
@@ -1098,9 +1226,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             regionEnd: strings.reportRegionEnd,
             leq: leqLabel(model, strings),
             peak: strings.entryColPeak,
-            band: `${bandLabel(entryModel().band)} dB`,
+            band: `${bandLabel(model.band)} dB`,
             deltaLeq: `Δ ${strings.entryColLeq}`,
-            deltaBand: `Δ ${bandLabel(entryModel().band)} dB`,
+            deltaBand: `Δ ${bandLabel(model.band)} dB`,
             groupSize: strings.entryCsvGroupSize,
             status: strings.dsReason,
         });
@@ -1109,8 +1237,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     // ---- the CSV: picked (or dropped) by the user, read by asd-insight's rules; nothing is looked for by itself.
     function applyCsv(next: DatasetCsv | null, keep?: { name: string; text: string }): void {
+        const had = csv !== null;
         csv = next;
         match = next ? matchCsv(next, filePaths, rootPath) : null;
+        rowsDirty = true;
         filters = filters.filter(filter => !filter.column.startsWith('csv:') || !!next?.columns.includes(filter.column.slice(4)));
         // A new CSV opens on its first numeric column, grouped by its first column that is not a number.
         if (next) {
@@ -1122,8 +1252,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (value.startsWith('csv:')) value = 'leq';
             if (group.startsWith('csv:')) group = 'none';
         }
-        if (keep !== undefined) deps.saveCsv?.(keep.text.length <= KEEP_CSV_BYTES ? keep : undefined);
-        if (next === null) deps.saveCsv?.(undefined);
+        if (keep !== undefined) { deps.saveCsv?.(keep.text.length <= KEEP_CSV_BYTES ? keep : undefined); csvToSave = keep; }
+        if (next === null) { deps.saveCsv?.(undefined); if (had) csvToSave = null; }
         rebuild();
     }
     function readCsvFile(file: File): void {
@@ -1163,12 +1293,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (slotMenu) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(slotMenu)}"] [data-action="entry-row-slotmenu"]`);
         if (memoKey) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(memoKey)}"] .entry-nm`);
         if (baseMenu) return slotBar.querySelector<HTMLElement>('[data-action="entry-slot"][data-slot="0"]');
+        if (batchChoice) return query<HTMLElement>('[data-action="entry-batch"]');
         return null;
     }
     /** The open popover, drawn only when it opens or changes, so what is typed in it is kept while the table redraws. */
     function renderPopovers(): void {
         screen.querySelector('[data-entry-pop]')?.remove();
-        if (!fpop && !slotMenu && !memoKey && !baseMenu) return;
+        if (!fpop && !slotMenu && !memoKey && !baseMenu && !batchChoice) return;
         const pop = document.createElement('div');
         pop.className = 'entry-pop';
         pop.setAttribute('data-entry-pop', '');
@@ -1178,7 +1309,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const pool = rows.filter(row => !excluded.has(row.key));
             if (column.numeric) {
                 const numbers = pool.map(row => (fpop!.column.startsWith('csv:') ? finiteNumber(row.attributes?.[fpop!.column.slice(4)] ?? '') : valueOf(row, fpop!.column as ValueId, results))).filter((item): item is number => item !== null);
-                const min = numbers.length ? formatColumn(fpop.column, numbers.reduce((a, b) => Math.min(a, b))) : '', max = numbers.length ? formatColumn(fpop.column, numbers.reduce((a, b) => Math.max(a, b))) : '';
+                const min = numbers.length ? formatColumn(fpop.column, numbers.reduce((least, item) => Math.min(least, item))) : '', max = numbers.length ? formatColumn(fpop.column, numbers.reduce((most, item) => Math.max(most, item))) : '';
                 pop.innerHTML = filterPopHtml({ column, anchored: fpop.anchored, columns: filterColumns(), sortKey: sortKeyOf(fpop.column), sort, filter: existing, search: '',
                     range: { low: existing?.kind === 'range' ? formatColumn(fpop.column, existing.low) : '', high: existing?.kind === 'range' ? formatColumn(fpop.column, existing.high) : '', min, max } }, text);
             } else {
@@ -1188,6 +1319,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             }
         } else if (slotMenu) pop.innerHTML = slotMenuHtml(slotMenu, slots, text);
         else if (memoKey) pop.innerHTML = memoPopHtml(rowName(memoKey), memo.get(memoKey) ?? '', text);
+        else if (batchChoice) pop.innerHTML = batchPopHtml(batchCount(batchRows('filtered')), batchCount(batchRows('all')), batchChoice, text);
         else if (baseMenu) {
             const names = [...new Set(distributionPool().map(row => datasetGroupOf(row, group)))].sort(compareGroupNames);
             const labels = groupLabels(names);
@@ -1211,10 +1343,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (all) all.indeterminate = all.getAttribute('aria-checked') === 'mixed';
     }
     function closePopovers(): boolean {
-        if (!fpop && !slotMenu && !memoKey && !baseMenu) return false;
+        if (!fpop && !slotMenu && !memoKey && !baseMenu && !batchChoice) return false;
         const hadMemo = !!memoKey;
         if (memoKey) saveMemo();
-        fpop = null; slotMenu = null; memoKey = null; baseMenu = false;
+        fpop = null; slotMenu = null; memoKey = null; baseMenu = false; batchChoice = null;
         renderPopovers();
         // A memo kept shows on its row (✎ lit, its text as the hint).
         if (hadMemo) render();
@@ -1282,6 +1414,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-compute-cancel': () => cancelCompute(),
         'entry-probe-cancel': () => cancelProbe(),
         'entry-export-csv': exportCsv,
+        'entry-export-notes': () => {
+            const name = csv ? csv.name.replace(/\.(csv|tsv)$/i, '') : 'recordings';
+            deps.download(annotatedCsv(csv, match, filePaths, rootPath, rows, memo, excluded), `${name}-notes.csv`);
+        },
         'entry-open': () => openSlotted(),
         'entry-maximize': () => setMaximized(!maximized),
         'entry-fhead': target => { const column = target.getAttribute('data-column') as ColumnId; if (fpop?.column === column) closePopovers(); else openFilter(column, true); },
@@ -1317,11 +1453,14 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         'entry-base-row': () => { baseMenu = false; renderPopovers(); if (focused) setSlot(0, focused); },
         'entry-dist-back': () => setMaximized(true),
+        'entry-batch': () => openBatch(),
+        'entry-batch-go': () => exportBatch(),
+        'entry-batch-cancel': () => closePopovers(),
         'entry-derived-remove': target => removeDerived(target.getAttribute('data-parent')!, target.getAttribute('data-region')!, target.getAttribute('data-base') ?? undefined),
         'entry-slot-clear': target => setSlot(Number(target.getAttribute('data-slot')), null),
         'entry-key-hint': target => { if (target.getAttribute('data-key') === 'help') deps.help?.(); },
     };
-    tableWrap.addEventListener('scroll', () => { renderRows(); scheduleSide(); });
+    tableWrap.addEventListener('scroll', () => { renderRows(); scheduleSide(false); });
     screen.addEventListener('click', event => {
         const target = event.target as HTMLElement;
         const action = target.closest<HTMLElement>('[data-action]');
@@ -1336,7 +1475,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     // A press outside an open popover closes it (a memo is kept).
     document.addEventListener('pointerdown', event => {
         const target = event.target as Element;
-        if (screen.hidden || target.closest?.('[data-entry-pop], [data-action="entry-fhead"], [data-action="entry-fadd"], [data-action="entry-fchip"], [data-action="entry-row-slotmenu"], [data-action="entry-row-memo"], [data-action="entry-slot"][data-slot="0"]')) return;
+        if (screen.hidden || target.closest?.('[data-entry-pop], [data-action="entry-fhead"], [data-action="entry-fadd"], [data-action="entry-fchip"], [data-action="entry-row-slotmenu"], [data-action="entry-row-memo"], [data-action="entry-slot"][data-slot="0"], [data-action="entry-batch"], [data-action="stage-batch"]')) return;
         closePopovers();
     }, true);
     screen.addEventListener('change', event => {
@@ -1356,6 +1495,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (!slots[0] && slots[1] && baseText() !== baseBefore) deps.announce(strings.dsBaseReset);
             return;
         }
+        if (target.matches('[data-entry-batch-scope]')) { batchChoice = (target as HTMLInputElement).value as 'filtered' | 'all'; return; }
         if (target.matches('[data-action="entry-fcol"]') && fpop) {
             const column = (target as HTMLSelectElement).value as ColumnId;
             const existing = filters.find(filter => filter.column === column);
@@ -1403,14 +1543,14 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     });
     // A click on the strip goes to that file's row.
     overview.addEventListener('click', event => {
-        const rows = entryModel().rows.filter(row => !row.derived);
+        const rows = shownRows;
         const box = overview.getBoundingClientRect();
         // The strip's rows (top first) over the part of it on screen.
         const window = plotWindow('overview');
         const plotTop = box.top + OVERVIEW_MARGINS.top, plotHeight = box.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom;
         const row = rows[Math.floor(((1 - window.y.end) + (event.clientY - plotTop) / Math.max(1, plotHeight) * (window.y.end - window.y.start)) * rows.length)];
         if (!row) return;
-        focusFile(row.filePath);
+        focusRow(row.key, true);
     });
     // A double click on a row slots it in the first free slot and opens the comparison, like 1 then Enter.
     body.addEventListener('dblclick', event => {
@@ -1575,12 +1715,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             knownShortest = undefined;
             results.clear();
             resultKeys.clear();
+            rowsDirty = true;
             knownRate = undefined;
             excluded.clear();
             memo.clear();
             filters = [];
             mode = 'all';
             fpop = null; slotMenu = null; memoKey = null;
+            baseGroup = null;
+            sessionLoaded = false; savedSession = ''; csvToSave = undefined;
+            if (sessionTimer !== undefined) { window.clearTimeout(sessionTimer); sessionTimer = undefined; }
             const saved = deps.loadSlots() ?? [];
             slots = [0, 1, 2, 3].map(slot => (saved[slot] && filePaths.includes(fileOfKey(saved[slot]!)) ? saved[slot]! : null));
             focused = null; focusPicked = false;
@@ -1600,7 +1744,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             applyCsv(csv);
             // What is stored for this chain comes back; nothing is computed until 「計算」. The headers say each file's channels.
             loadStored();
-            headerChannels.clear(); headerErrors.clear(); probing = null;
+            headerChannels.clear(); headerErrors.clear(); headerDurations.clear(); probing = null;
             probe(filePaths);
             table.setAttribute('tabindex', '0');
             table.focus?.();
@@ -1613,6 +1757,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (!fresh.length) return;
             if (screen.hidden) { this.open(fresh, '', false); return; }
             filePaths = [...filePaths, ...fresh];
+            rowsDirty = true;
             if (csv) match = matchCsv(csv, filePaths, rootPath);
             // A new probe replaces one still running, so it asks again for every header not read yet.
             probe(filePaths);
@@ -1644,8 +1789,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 if (!probing || header.requestId !== probing.requestId) return true;
                 if (header.type === 'entry-probe-done') { probing = null; rebuild(); return true; }
                 probing.done++;
+                if (header.durationS !== undefined) headerDurations.set(header.filePath, header.durationS);
                 if (header.channels) headerChannels.set(header.filePath, header.channels);
                 else if (header.error) headerErrors.set(header.filePath, header.error);
+                rowsDirty = true;
                 scheduleRebuild();
                 return true;
             }
@@ -1654,13 +1801,25 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (!requests.answering('scan', publication.requestId)) return true;
             if (publication.type === 'entry-conditions') {
                 if (publication.recipe) standardRecipe = publication.recipe;
+                // At open the folder's session comes back with what is stored; from then on, changes are saved.
+                const loading = !sessionLoaded;
+                if (loading) {
+                    applySession(publication.session, publication.csv);
+                    // A CSV kept by the webview alone (before sessions) goes to the host's store with the next save.
+                    if (!publication.csv && csv) csvToSave = deps.loadCsv?.() ?? undefined;
+                }
                 rebuild();
+                // What the table settled on at open is what is stored: only a change after it is saved.
+                if (loading) { savedSession = JSON.stringify(sessionOf()); sessionLoaded = true; }
             } else if (publication.type === 'entry-scan-result') {
                 results.set(publication.filePath, publication.result);
                 resultKeys.set(publication.filePath, requests.find(publication.requestId)?.key ?? currentKey());
+                rowsDirty = true;
                 if (scanning) {
                     scanCount++;
-                    if (scanCount >= 5) perFileMs = (window.performance.now() - scanStarted) / scanCount;
+                    scannedSeconds += durationOf(publication.filePath) ?? UNKNOWN_DURATION_S;
+                    const elapsed = window.performance.now() - scanStarted;
+                    if (scanCount >= 5 && scannedSeconds > 0) perAudioSecondMs = Math.max(1, (elapsed - PER_FILE_MS * scanCount) / scannedSeconds);
                 }
                 const { failedStep, reason } = publication.result;
                 if (failedStep) { stepFailed(failedStep, reason ?? ''); return true; }
@@ -1669,8 +1828,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             } else if (publication.type === 'entry-scan-done') {
                 if (redrawTimer !== undefined) { window.clearTimeout(redrawTimer); redrawTimer = undefined; }
                 requests.settle(publication.requestId);
+                // Only a computation the user started measures fixed differences again; reading what is stored does not.
+                const started = scanning;
                 scanning = false;
-                remeasureStale();
+                if (started) remeasureStale();
                 rebuild();
             }
             return true;
@@ -1683,11 +1844,25 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         stageChannel: (path, comparePath, byGroup = false) => stageChannel(path, comparePath, byGroup),
         comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => comparisonOf(comparePath, byGroup, over, entryRegionBase),
         rowInfo: path => rowInfo(path),
+        cost: paths => ({ seconds: paths.reduce((sum, path) => sum + (durationOf(path) ?? UNKNOWN_DURATION_S), 0), ms: estimateMs(paths) }),
+        tableBaseBands: (comparePath, byGroup = false) => {
+            const base = resolveBase(comparePath, byGroup);
+            const levels = base.paths.flatMap(path => {
+                const result = base.channel ? channelResult(results.get(path), base.channel) : results.get(path);
+                if (!result?.ok || isStale(path) || !result.thirdOctDb?.length) return [];
+                // A recording's channels together, power-averaged, as the comparison's sides are.
+                return [result.thirdOctDb[0].map((_, band) => powerMeanOrNull(result.thirdOctDb!.map(channel => channel[band])))];
+            });
+            if (!levels.length) return null;
+            const values = levels[0].map((_, band) => median(levels.map(item => item[band]).filter((value): value is number => value !== null)));
+            return { centers: BAND_CENTERS_HZ.slice(0, values.length), values, count: levels.length };
+        },
         selection: () => ({
             value: valueLabel(value), group: group === 'none' ? strings.dsGroupNone : groupLabel(group),
             filters: filters.map(filter => chipText(filter)), excluded: excluded.size,
         }),
         derivedRows: () => derived.slice(),
+        openBatch: () => openBatch(),
         showCompared() {
             const compared = slots.slice(1).filter((key): key is string => !!key);
             if (!compared.length) return;
