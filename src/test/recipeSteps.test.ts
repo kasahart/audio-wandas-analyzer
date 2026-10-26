@@ -237,6 +237,11 @@ test('a step that compares two channels needs two: one channel (or one picked by
     assert.equal(recipeSteps(named as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, undefined);
     named.nodes.find(node => node.id === pair)!.params.entries = [['output', 'c0'], ['input', 'c0']];
     assert.deepEqual(recipeSteps(named as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.reason, { kind: 'pair', limit: 0 });
+    // A negative channel counts from the last (wandas resolves it): -1 over 0 is ch2 over ch1; -1 over 1 is ch2 with itself.
+    named.nodes.find(node => node.id === pair)!.params.entries = [['output', -1], ['input', 0]];
+    assert.equal(recipeSteps(named as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, undefined);
+    named.nodes.find(node => node.id === pair)!.params.entries = [['output', -1], ['input', 1]];
+    assert.equal(recipeSteps(named as unknown as RecipeDocument, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.reason?.kind, 'pair');
     const beyond = withParam(paired, pair, input, 2);
     assert.equal(recipeSteps(beyond, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, 'input');
 });

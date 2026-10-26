@@ -122,7 +122,7 @@ export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: 
 const formatNumber = (value: unknown): string => (typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : String(value ?? ''));
 
 /** A wandas channel index (from 0) as the bar shows it, from 1. */
-const channelText = (value: unknown): string => (typeof value === 'number' ? String(value + 1) : '?');
+const channelText = (value: unknown): string => (typeof value === 'number' ? String(value < 0 ? value : value + 1) : '?');
 /** A channel parameter's value as typed (from 1), back to wandas' index (from 0). */
 const fromShown = (param: StepParam, value: number): number => (param.kind === 'int' && param.channel ? value - 1 : value);
 
