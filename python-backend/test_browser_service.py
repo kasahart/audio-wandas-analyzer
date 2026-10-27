@@ -45,7 +45,7 @@ def test_browser_source_bounds_release_and_stale_identity() -> None:
         service.engine.get_file(source.path)
 
 
-def test_cursor_spectrum_transforms_the_window_centred_on_the_cursor() -> None:
+def test_cursor_spectrum_transforms_the_stft_frame_nearest_the_cursor() -> None:
     service = create_service()
     changing_fixture = FIXTURE.with_name("changing-stereo.wav")
     service.engine.load("selected.wav", changing_fixture.read_bytes())
@@ -53,7 +53,8 @@ def test_cursor_spectrum_transforms_the_window_centred_on_the_cursor() -> None:
     service.engine.get_spectrogram(path, 256, 64, "hann")
     _cached, frame, _resolved = service.engine.get_analysis(path, None)
     cursor = 0.437
-    start = int(round(cursor * frame.n_samples)) - 128
+    # 75 % overlap of 256 points: frames sit every 64 samples.
+    start = int(round(cursor * frame.n_samples / 64)) * 64 - 128
     expected = np.asarray(frame[:, start : start + 256].fft(n_fft=256, window="hann").dB)
     result = service.spectrum_slice(
         path, cursor_norm=cursor, stft_options={"nFft": 256, "overlapPercent": 75, "window": "hann"}
