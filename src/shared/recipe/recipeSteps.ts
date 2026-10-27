@@ -306,7 +306,8 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
         if ((!invalid || invalid.reason.kind === 'after') && !step.bypassed) {
             frame = step.output;
             const before = channels;
-            channels = channelsAfter(node, channels, step.input);
+            // Measured against the base slot, it runs on the joined pair: a channel of each recording.
+            channels = channelsAfter(node, slotted.has(node.id) ? 2 : channels, step.input);
             if (before !== undefined && before > 1 && channels === 1) narrowedBy = step.id;
         }
         if (channels !== undefined) step.channels = channels;
@@ -531,6 +532,12 @@ export function slotReferenced(recipe: RecipeDocument | null | undefined): strin
     const list = (recipe as unknown as Record<string, unknown>)[REFERENCE_KEY];
     const ids = new Set(nodes(recipe).filter(node => SLOT_REFERABLE.has(node.operation)).map(node => node.id));
     return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && ids.has(id)) : [];
+}
+
+/** The steps measured against the base slot that run: a bypassed one pairs nothing. */
+export function activeSlotReferenced(recipe: RecipeDocument | null | undefined): string[] {
+    const skipped = recipe ? bypassedSteps(recipe) : [];
+    return slotReferenced(recipe).filter(id => !skipped.includes(id));
 }
 
 /**

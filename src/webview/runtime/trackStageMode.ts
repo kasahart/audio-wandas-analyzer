@@ -15,7 +15,7 @@ import type { CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
-import { brokenStep, chainEnd, recipeChain, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { activeSlotReferenced, brokenStep, chainEnd, recipeChain, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
 import { createStepBar, endsInSpectrum, invalidReason, recipeWithout, stepChipLabel, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
@@ -309,7 +309,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         if (!ch) return recipe;
         const own = recipe ?? deps.recipe()?.recipe;
         // A step measured against the base slot pairs one channel of each recording: the channel row's goes on.
-        return own ? withChannel(own, ch, slotReferenced(deps.recipe()?.recipe).length > 0) : undefined;
+        return own ? withChannel(own, ch, activeSlotReferenced(deps.recipe()?.recipe).length > 0) : undefined;
     }
     function spec(id: string, ch: number | null = null): StageSpec {
         const region = liveRegion();

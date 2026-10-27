@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
@@ -254,6 +254,14 @@ test('a step that compares two channels needs two: one channel (or one picked by
     const csdDoc = JSON.parse(JSON.stringify(slotted)) as { nodes: Array<{ id: string; operation: string }> };
     csdDoc.nodes.find(node => node.id === coherence)!.operation = 'wandas.audio.csd';
     assert.equal(recipeChain(withSlotReference(csdDoc as unknown as RecipeDocument, coherence, false)).some(node => node.operation === SELECT_PAIR), false);
+    // On one channel, a CSD against the base runs on the joined pair: a pair chip after it picks the recording over the base.
+    const csdPaired = withStep(csdDoc as unknown as RecipeDocument, coherence, catalogOperation(SELECT_PAIR)!);
+    const monoCsd = recipeSteps(csdPaired.recipe, { sampleRate: 16000, channels: 1 });
+    assert.equal(monoCsd.find(step => step.id === csdPaired.id)!.invalid, undefined);
+    assert.equal(recipeChain(runnableRecipe(csdPaired.recipe, { sampleRate: 16000, channels: 1 })).some(node => node.id === csdPaired.id), true);
+    // A bypassed one pairs nothing: the scans and the report do not take a channel of each recording for it.
+    assert.deepEqual(activeSlotReferenced(slotted), [coherence]);
+    assert.deepEqual(activeSlotReferenced(withBypass(slotted, coherence, true)), []);
     // A spectrogram's CSD has no join of two recordings: it keeps to channels, and ＋ greys it on one.
     assert.equal(addableOperations('SpectrogramFrame', undefined, 1).find(item => item.operation.id === 'wandas.spectrogram.csd')!.off, 'channels');
     assert.equal(addableOperations('ChannelFrame', undefined, 1).find(item => item.name === 'coherence')!.off, undefined);
