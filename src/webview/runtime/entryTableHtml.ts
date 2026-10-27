@@ -220,7 +220,7 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
         const group = view.columns.group ? `<td class="entry-col-group" title="${escapeHtml(groupOf(row, view.group))}">${escapeHtml(middleEllipsis(groupOf(row, view.group), 16) || '—')}</td>` : '';
         return `<tr class="${classes.join(' ')}" data-key="${escapeHtml(row.key)}" data-file-path="${escapeHtml(row.filePath)}" aria-selected="${row.key === view.focused}">`
             // ● on a track, ○ not: a click on the row (on ● when the table is maximized) shows or takes off its track.
-            + (view.mode === 'excluded' ? '<td class="entry-mark"></td>' : `<td class="entry-mark" data-action="entry-row-track" data-key="${escapeHtml(row.key)}" role="button" aria-pressed="${shown}" aria-label="${escapeHtml(strings.dsTrackMark)}">${shown ? '●' : '○'}</td>`)
+            + (view.mode === 'excluded' ? '<td class="entry-mark"></td>' : `<td class="entry-mark" data-action="entry-row-track" data-key="${escapeHtml(row.key)}" role="button" aria-pressed="${shown}" aria-label="${escapeHtml(`${strings.dsTrackMark}: ${row.name}`)}">${shown ? '●' : '○'}</td>`)
             + `<td class="entry-name"><span class="entry-ncell"><span class="entry-nm" title="${escapeHtml(row.name)}${(row.channels ?? 1) > 1 ? ` · ch ${row.ch} / ${row.channels}` : ''}">${escapeHtml(middleEllipsis(row.name))}</span><span class="entry-rowtools">${toolsHtml(row, view, strings)}</span></span></td>`
             + `<td class="entry-num entry-col-ch${(row.channels ?? 1) > 1 ? '' : ' is-single'}">${row.channels === undefined ? '—' : row.ch}</td>${group}`
             + `<td class="entry-num entry-col-value">${value}</td><td></td></tr>`;

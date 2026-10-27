@@ -1509,8 +1509,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const action = target.closest<HTMLElement>('[data-action]');
         // A choice in the table's 書き出し menu closes it, the focus back on its summary.
         if (action?.closest('#entry-export-menu')) closeExportMenu();
+        // The second click of a double click does not take the track off again.
+        const repeated = event.detail > 1;
         if (action && action.tagName !== 'SELECT' && action.tagName !== 'INPUT' && actions[action.getAttribute('data-action')!]) {
-            actions[action.getAttribute('data-action')!](action);
+            if (!(repeated && action.getAttribute('data-action') === 'entry-row-track')) actions[action.getAttribute('data-action')!](action);
             return;
         }
         if (target.closest('[data-entry-pop]')) return;
@@ -1519,7 +1521,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         focused = row.getAttribute('data-key');
         focusPicked = true;
         // Beside the tracks, a click anywhere on a row shows its file as a track, and a second click takes it off.
-        if (!maximized && mode !== 'excluded') toggleTrack(focused!);
+        if (!maximized && mode !== 'excluded' && !repeated) toggleTrack(focused!);
         render();
     });
     /** The maximized table's 書き出し menu: closed by a press outside it and by Esc, like the toolbar's menus. */
