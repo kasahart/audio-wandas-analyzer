@@ -609,3 +609,17 @@ test('a CSV value with a long name with no spaces still stays inside its column,
         }
     }
 });
+
+test('「トラックのみ」 computes only the files on a track', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!, { language: 'ja', answered: 0, docked: true });
+    const first = rows(page).first();
+    await first.locator('.entry-col-value').click();
+    await expect(first).toHaveClass(/is-shown/);
+    await page.locator('[data-action="entry-tracks-only"]').click();
+    await expect(rows(page)).toHaveCount(1);
+    await page.locator('[data-action="entry-compute"]').click();
+    const scan = (await entryScans(page)).at(-1)!;
+    expect(scan.cachedOnly).toBeUndefined();
+    expect(scan.filePaths).toEqual([await first.getAttribute('data-file-path')]);
+});

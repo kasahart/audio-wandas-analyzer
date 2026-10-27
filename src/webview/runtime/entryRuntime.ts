@@ -780,7 +780,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function computeTargets(): string[] {
         // A computed value: the distribution's rows (a range on the value takes only computed rows, so it is not applied).
         const pool = isComputed(value) ? distributionPool() : mode === 'all' ? shownRows : visibleRows({ rows, group, value, filters, sort, excluded }, results);
-        return [...new Set(pool.map(row => row.filePath))].filter(path => !results.has(path) || isStale(path));
+        // 「トラックのみ」 computes only the files on a track, as the table shows.
+        const onTracks = tracksOnly && mode === 'all' ? shownFiles() : null;
+        return [...new Set(pool.map(row => row.filePath))].filter(path => (!onTracks || onTracks.has(path)) && (!results.has(path) || isStale(path)));
     }
     /** The folder's sample rate, kept when a new Recipe clears the results so its steps are still checked against it. */
     let knownRate: number | undefined;
@@ -1858,6 +1860,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         trackRemoved(filePath) {
             const slot = slots.findIndex(key => key && fileOfKey(key) === filePath);
             if (slot >= 0) setSlot(slot, null, false); else if (!screen.hidden) render();
+            // With 「トラックのみ」 on, the row leaves with its lane.
+            if (tracksOnly) rebuild();
         },
         setRecipe,
         stepFailed,

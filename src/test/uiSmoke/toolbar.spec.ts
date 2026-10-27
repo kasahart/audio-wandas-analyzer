@@ -296,7 +296,8 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(tracksOnly).toHaveText(getStrings('en').dsTracksOnly.replace('{n}', '1'));
     await tracksOnly.click();
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(1);
-    await entryRow(page, '/sources/rec/first.wav').locator('.entry-col-value').click();
+    // A lane's × takes the row off too.
+    await page.locator('[data-action="remove-track"]').first().click();
     await expect(page.locator('.track-row')).toHaveCount(0);
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(0);
     await tracksOnly.click();
