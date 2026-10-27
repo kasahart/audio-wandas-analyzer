@@ -271,7 +271,7 @@ export function renderComparisonStyles(): string {
         /* The dataset table: four fixed columns (nothing scrolls sideways); a row's tools right after its name. */
         .entry-table { table-layout: fixed; }
         .entry-table col.entry-col-name-w { width: 21em; }
-        .entry-table col.entry-col-ch-w { width: 3.2em; }
+        .entry-table col.entry-col-ch-w { width: 3.8em; }
         .entry-table col.entry-col-group-w { width: 8em; }
         .entry-table col.entry-col-value-w { width: 9em; }
         .entry-table col.entry-col-reason-w { width: 7em; }

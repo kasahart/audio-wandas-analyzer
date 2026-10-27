@@ -572,6 +572,7 @@ const headerFit = (page: Page, column: string) => page.locator(`th[data-column="
     return {
         wordLines: at < 0 ? 1 : new Set(rects(at, at + 3).map(rect => Math.round(rect.top))).size,
         inside: rects(0, text.textContent!.length).every(rect => rect.left >= cell.left - 0.5 && rect.right <= cell.right + 0.5),
+        lines: new Set(rects(0, text.textContent!.length).map(rect => Math.round(rect.top))).size,
     };
 });
 
@@ -587,6 +588,8 @@ for (const language of ['ja', 'en'] as const) {
             const where = maximized ? 'maximized' : 'docked';
             expect(fit.wordLines, where).toBe(1);
             expect(fit.inside, where).toBe(true);
+            // A word that fits is never broken: "ch" stays "ch", not "c / h".
+            expect((await headerFit(page, 'ch')).lines, `ch ${where}`).toBe(1);
         }
     });
 }
