@@ -291,6 +291,20 @@ export function buildUiSmokeHtml(): string {
     return finalizeUiSmokeHtml(buildResultsPreviewHtml());
 }
 
+/** The results preview with `count` copies of its first file, none of them with a spectrogram yet (they ask for it). */
+export function buildUiSmokeManyTracksHtml(count: number): string {
+    return finalizeUiSmokeHtml(replaceAppState(buildResultsPreviewHtml(), (state) => {
+        const first = state.results[0];
+        state.results = Array.from({ length: count }, (_, i) => {
+            const copy = JSON.parse(JSON.stringify(first)) as PreviewResult;
+            copy.filePath = `/preview/take${String(i).padStart(2, '0')}.wav`;
+            copy.fileName = `take${String(i).padStart(2, '0')}.wav`;
+            copy.channels.forEach((channel) => { delete channel['spectrogram']; });
+            return copy;
+        });
+    }));
+}
+
 export function buildUiSmokeCalibrationHtml(): string {
     return finalizeUiSmokeHtml(buildCalibrationStateHtml());
 }

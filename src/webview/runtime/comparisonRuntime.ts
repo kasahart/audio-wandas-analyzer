@@ -986,10 +986,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const overviews = channelsForResult(result).map(function (ch: ChannelSummary) { return ch && ch.waveform ? ch.waveform : null; });
         return isOverviewSufficient(overviews, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd);
     }
+    /** Lanes are drawn (and fetch their spectrogram and zoom detail) only within about a screen of the track area's view. */
+    let drawEveryLane = false;
+    function laneInView(trackIndex: number): boolean {
+        if (drawEveryLane) return true;
+        const wrapper = document.getElementById('tracks-wrapper');
+        const row = document.getElementById('track-row-' + trackIndex);
+        if (!wrapper || !row) return true;
+        const view = wrapper.getBoundingClientRect();
+        if (view.height <= 0) return true;
+        const lane = row.getBoundingClientRect();
+        return lane.bottom >= view.top - view.height && lane.top <= view.bottom + view.height;
+    }
     function checkAndRequestRanges() {
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
             const record = trackRecordAtIndex(i);
-            if (!record || record.runtime.hidden || result.error) {
+            if (!record || record.runtime.hidden || result.error || !laneInView(i)) {
                 return;
             }
             const canvas = canvasById(document, trackCanvasId(i, 0));
@@ -1665,6 +1677,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 }
                 return;
             }
+            if (!laneInView(i)) {
+                return;
+            }
             const color = trackColor(i);
             channelsForResult(result).forEach(function (_, channelIndex: number) {
                 const canvas = canvasById(document, trackCanvasId(i, channelIndex));
@@ -2201,6 +2216,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             attachDirectorySelectionEvents();
         }
         const tracksWrapper = requiredElementById(document, 'tracks-wrapper');
+        // Lanes scrolled into view are drawn then.
+        tracksWrapper.addEventListener('scroll', function () { scheduleRender(); }, { passive: true });
         const toolbarHandlers = { onAction: handleToolbarAction };
         attachToolbarActions(document.getElementById('toolbar'), toolbarHandlers);
         attachToolbarActions(document.getElementById('spectrum-zoom-toolbar'), toolbarHandlers);
@@ -2822,6 +2839,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         btn.classList.toggle('is-active', active);
     }
     function exportPng() {
+        // The image holds every shown lane, also those scrolled out of view.
+        drawEveryLane = true;
+        try { renderStackedTracks(); } finally { drawEveryLane = false; }
         const wrapper = document.getElementById('tracks-wrapper');
         const canvases = visibleExportCanvases(wrapper as unknown as Element | null);
         const failed = STR.announceExportPngFailed || 'PNG export failed: no visible canvases';
