@@ -1484,7 +1484,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-fcancel': () => closePopovers(),
         'entry-row-play': target => deps.play?.(fileOfKey(target.getAttribute('data-key')!)),
         'entry-row-track': target => { focused = target.getAttribute('data-key')!; focusPicked = true; toggleTrack(focused); render(); },
-        'entry-tracks-only': () => { tracksOnly = !tracksOnly; rebuild(); },
+        'entry-tracks-only': () => { tracksOnly = !tracksOnly; tableWrap.scrollTop = 0; rebuild(); },
         'entry-row-slotmenu': target => { const key = target.getAttribute('data-key')!; fpop = null; memoKey = null; slotMenu = slotMenu === key ? null : key; focused = key; focusPicked = true; render(); renderPopovers(); },
         'entry-row-slot': target => { const key = target.getAttribute('data-key')!; slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); },
         'entry-row-memo': target => openMemo(target.getAttribute('data-key')!),
