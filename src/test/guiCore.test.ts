@@ -85,3 +85,19 @@ test('STFT bright-band centers agree with CSV/hover coordinates across full and 
         }
     }
 });
+
+test('frame centres place each spectrogram cell on its STFT window instead of spreading bins over the duration', () => {
+    // 1 s file, 4 frames centred at -0.25, 0, 0.25, 0.5 s: frame 1's cell is [-0.125, 0.125] s.
+    const spec: SpectrogramData = {
+        values: [[-100], [0], [-100], [-100]], timeBins: 4, frequencyBins: 1, windowSize: 512, hopSize: 128,
+        maxFrequencyHz: 24000, minDb: -100, maxDb: 0, timeCentersSec: [-0.25, 0, 0.25, 0.5],
+    };
+    const width = 80;
+    const { pixels } = paintSpectrogramRaster(spec, width, 1, { zoomStart: 0, zoomEnd: 1, trackStart: 0, trackDurRatio: 1, dbLo: -100, dbHi: 0, maxFrequencyHz: 24000, durationSec: 1 });
+    const bright = Array.from({ length: width }, (_, x) => x).filter(x => pixels[x * 4] === 253);
+    assert.deepEqual([bright[0], bright.at(-1)], [0, 9]);
+    // Without a duration the legacy even split still applies: frame 1 covers [0.25, 0.5).
+    const legacy = paintSpectrogramRaster(spec, width, 1, { zoomStart: 0, zoomEnd: 1, trackStart: 0, trackDurRatio: 1, dbLo: -100, dbHi: 0, maxFrequencyHz: 24000 });
+    const legacyBright = Array.from({ length: width }, (_, x) => x).filter(x => legacy.pixels[x * 4] === 253);
+    assert.deepEqual([legacyBright[0], legacyBright.at(-1)], [20, 39]);
+});

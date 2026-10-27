@@ -243,6 +243,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "levelReferenceLabel": {
                     "type": "string"
+                },
+                "timeCentersSec": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
                 }
             },
             "additionalProperties": false
@@ -1706,6 +1712,7 @@ export interface SpectrogramData {
     referenceValue?: number;
     referenceUnit?: string;
     levelReferenceLabel?: string;
+    timeCentersSec?: number[];
 }
 
 export interface ChannelSummary {
