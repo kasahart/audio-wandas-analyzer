@@ -6,7 +6,7 @@ import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, de
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
-import { recipeWithout, runnableRecipe } from '../webview/runtime/stepBar';
+import { recipeWithout, runnableRecipe, unpairedRecipe } from '../webview/runtime/stepBar';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 
@@ -262,6 +262,10 @@ test('a step that compares two channels needs two: one channel (or one picked by
     // A bypassed one pairs nothing: the scans and the report do not take a channel of each recording for it.
     assert.deepEqual(activeSlotReferenced(slotted), [coherence]);
     assert.deepEqual(activeSlotReferenced(withBypass(slotted, coherence, true)), []);
+    // The table's and a region's scans do not pair the base: they run the chain before the step measured against it.
+    const unpaired = unpairedRecipe(runnableRecipe(csdPaired.recipe, { sampleRate: 16000, channels: 1 }), csdPaired.recipe)!;
+    assert.deepEqual(recipeChain(unpaired).map(node => node.operation.split('.').pop()), ['highpass_filter', 'time_slice']);
+    assert.equal(unpairedRecipe(run, withBypass(slotted, coherence, true)), run);
     // A spectrogram's CSD has no join of two recordings: it keeps to channels, and ＋ greys it on one.
     assert.equal(addableOperations('SpectrogramFrame', undefined, 1).find(item => item.operation.id === 'wandas.spectrogram.csd')!.off, 'channels');
     assert.equal(addableOperations('ChannelFrame', undefined, 1).find(item => item.name === 'coherence')!.off, undefined);

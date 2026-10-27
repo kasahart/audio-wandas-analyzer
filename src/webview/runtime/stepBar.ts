@@ -13,7 +13,7 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import { addableOperations, brokenStep, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, chainEnd, chainOutput, movedStep, recipeSteps, timeSignalStep, withParam, withStep, withoutSteps, withoutBypassed, withBypass, withSlotReference, slotReferenced, REFERENCE_KEY, TIME_SLICE, type RecipeStep, type StepLimits, type StepParam } from '../../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, chainEnd, chainOutput, movedStep, recipeSteps, timeSignalStep, withParam, withStep, withoutSteps, withoutBypassed, withBypass, withSlotReference, slotReferenced, activeSlotReferenced, recipeChain, REFERENCE_KEY, TIME_SLICE, type RecipeStep, type StepLimits, type StepParam } from '../../shared/recipe/recipeSteps';
 import { OPERATION_GROUPS, operationGroup, operationHint, type OperationGroup } from '../../shared/recipe/operationGuide';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { outsideRecipe, reportOctaveRecipe } from './compareReport';
@@ -76,6 +76,18 @@ export function runnableRecipe(recipe: RecipeDocument, limits?: number | StepLim
     const slotted = slotReferenced(recipe);
     const judged = slotted.length ? { ...run, [REFERENCE_KEY]: slotted } as RecipeDocument : run;
     return withoutSteps(run, recipeSteps(judged, limits).filter(step => step.invalid !== undefined).map(step => step.id));
+}
+
+/**
+ * What a scan without the base recording runs (the table's metrics and a region's): the run Recipe before its first
+ * step measured against the base slot, which pairs nothing there. `editor` is the bar's Recipe, which names them.
+ */
+export function unpairedRecipe(run: RecipeDocument | undefined, editor: RecipeDocument | null | undefined): RecipeDocument | undefined {
+    const referenced = new Set(activeSlotReferenced(editor));
+    if (!run || !referenced.size) return run;
+    const chain = recipeChain(run).map(node => node.id);
+    const at = chain.findIndex(id => referenced.has(id));
+    return at < 0 ? run : withoutSteps(run, chain.slice(at).reverse());
 }
 
 /** Whether the chain ends in a spectrum or band levels, so the app's 1/3-octave columns and branch apply. */

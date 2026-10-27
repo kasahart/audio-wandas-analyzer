@@ -18,7 +18,7 @@ import type { EntryRegion } from '../../shared/analysis/entryScan';
 import { activeSlotReferenced, brokenStep, chainEnd, recipeChain, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
-import { createStepBar, endsInSpectrum, invalidReason, recipeWithout, stepChipLabel, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
+import { createStepBar, endsInSpectrum, invalidReason, recipeWithout, stepChipLabel, unpairedRecipe, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
 import { createDetailPlanner } from './stageDetail';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotWindow } from './plotInteraction';
@@ -221,7 +221,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     /** The files' scans over the region (their metrics), for D and the report; asked for while a region is set. */
     function regionSpec(): StageSpec {
         const region = liveRegion();
-        const run = deps.recipe()?.runRecipe;
+        // The metrics: the base recording is not paired in this scan, so the steps measured against it are left out.
+        const run = unpairedRecipe(deps.recipe()?.runRecipe, deps.recipe()?.recipe);
         return { key: `region|${recipeKey(run)}|${regionLabel(region)}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}) } };
     }
     function measured(): ReadonlyMap<string, ScanResult> {

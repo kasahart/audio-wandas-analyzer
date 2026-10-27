@@ -68,8 +68,12 @@ test('a step measured against the base slot is written with a base input: its st
     const slices = (doc: RecipeDocument): unknown[] => (doc as unknown as { nodes: Array<{ id: string; params?: { entries: Array<[string, unknown]> } }> }).nodes
         .filter(node => node.id.startsWith('node-1')).map(node => node.params?.entries.find(([name]) => name === 'end')?.[1]);
     const sliced = JSON.parse(JSON.stringify(coherence)) as { nodes: Array<{ id: string; params: { entries: Array<[string, unknown]> } }> };
-    sliced.nodes.find(node => node.id === 'node-1')!.params.entries = [['start', 0.15], ['end', 3.85]];
-    assert.deepEqual(slices(withBaseInput(sliced as unknown as RecipeDocument, 'node-2', { endS: 1.85 })), [3.85, 1.85]);
+    sliced.nodes.find(node => node.id === 'node-1')!.params.entries = [['end', 3.85], ['start', 0.15]];
+    const shortBase = withBaseInput(sliced as unknown as RecipeDocument, 'node-2', { endS: 1.85 });
+    assert.deepEqual(slices(shortBase), [3.85, 1.85]);
+    // …with its keys in wandas' canonical (sorted) order.
+    const baseSlice = (shortBase as unknown as { nodes: Array<{ id: string; params: { entries: Array<[string, unknown]> } }> }).nodes.find(node => node.id === 'node-1-base')!;
+    assert.deepEqual(baseSlice.params.entries.map(([name]) => name), ['end', 'start']);
     assert.deepEqual(slices(withBaseInput(sliced as unknown as RecipeDocument, 'node-2', { endS: 9 })), [3.85, 3.85]);
     // A CSD keeps its auto-spectra (the cross-spectral steps after it need them): no pair after it.
     Object.assign(coherence.nodes[2], { operation: 'wandas.audio.csd' });
