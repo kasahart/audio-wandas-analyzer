@@ -8,7 +8,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
-import { withChannel } from '../../shared/recipe/channelSelection';
+import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
 import { buildCompareModel, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
 import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
@@ -50,6 +50,8 @@ export interface ReportInput {
     selection?: { value: string; group: string; filters: string[]; excluded: number };
     /** The differences fixed with D, written after the comparisons. */
     derived?: readonly DerivedRow[];
+    /** Cross-channel steps measured against the base slot's recording: written with a `base` input. */
+    slotReference?: readonly string[];
 }
 
 /** A base as one line: the slot-0 recording, or the group, its count, channel and the filters it was taken within. */
@@ -381,13 +383,20 @@ export function reportFiles(document: Document, input: ReportInput, strings: Rep
         // A compared channel row is that channel in wandas too: a get_channel step at the Recipe's head; slots
         // of different channels get one Recipe each (".ch2"), the channels together none.
         const channels = [...new Set(comparisons.map(({ slot }) => input.rowInfo?.(input.slots[slot]!).channel ?? null))];
-        // A chain that compares two channels names its own (withChannel leaves it as it is): one Recipe.
-        const ownPair = withChannel(input.recipe, 1) === input.recipe;
+        // A chain that compares two channels names its own (withChannel leaves it as it is): one Recipe. One that
+        // measures against the base slot takes a channel of each recording, the slots' rows'.
+        const slotted = input.slotReference ?? [];
+        const ownPair = !slotted.length && withChannel(input.recipe, 1) === input.recipe;
         const variants = ownPair ? [{ suffix: '', ch: null }] : channels.length > 1 ? channels.map(ch => ({ suffix: ch ? `.ch${ch}` : '', ch })) : [{ suffix: '', ch: channels[0] ?? null }];
         const fs = reportSampleRate(input);
         for (const { suffix, ch } of variants) {
-            const recipe = ch ? withChannel(input.recipe, ch) : input.recipe;
-            files.push({ name: `${input.recipeName}${suffix}.recipe.json`, text: JSON.stringify(reportRecipe(recipe, input.region, reportDuration(input)), null, 2) + '\n' });
+            const recipe = ch ? withChannel(input.recipe, ch, slotted.length > 0) : input.recipe;
+            const baseChannel = input.slots[0] ? input.rowInfo?.(input.slots[0]).channel ?? null : null;
+            // The base is sliced within its own length, as the scan does (its end guard, not the compared file's).
+            const baseResult = input.slots[0] ? input.results.get(input.slots[0]) : undefined;
+            const baseEnd = baseResult?.ok && baseResult.input ? baseResult.input.durationS - EDGE_GUARD_S : undefined;
+            const measured = slotted.reduce((paired, id) => withBaseInput(paired, id, { channel: baseChannel, endS: baseEnd }), reportRecipe(recipe, input.region, reportDuration(input)));
+            files.push({ name: `${input.recipeName}${suffix}.recipe.json`, text: JSON.stringify(measured, null, 2) + '\n' });
             if (fs) files.push({ name: `${input.recipeName}${suffix}.1-3oct.recipe.json`, text: JSON.stringify(reportOctaveRecipe(recipe, input.region, reportDuration(input), fs), null, 2) + '\n' });
         }
     }

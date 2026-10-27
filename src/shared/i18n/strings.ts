@@ -196,6 +196,15 @@ export interface UiStrings {
     stepNeedChannels: string;
     stepNarrowedChannels: string;
     stepOffChannels: string;
+    stepReference: string;
+    stepReferenceChannel: string;
+    stepReferenceSlot: string;
+    stepReferenceSet: string;
+    stagePairBase: string;
+    stageVsBase: string;
+    stageBaseLane: string;
+    entryBatchNoBase: string;
+    stageNeedBaseFile: string;
     stepPairSelf: string;
     stepNeedChannel: string;
     stepPair: string;
@@ -796,9 +805,18 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'BPF',
         stepAverageFft: '{name} {n}',
         stepOctaveHint: 'The value in the table\'s band column',
-        stepNeedChannels: 'Needs two channels, and a file here has only one. Remove it, or use recordings with two channels or more.',
+        stepNeedChannels: 'Needs two channels, and a file here has only one. Set its reference to the base recording (⚙), or remove it.',
         stepNarrowedChannels: '{op} leaves one channel: this step needs two. Move it before {op}, or remove one of them.',
         stepOffChannels: 'Needs two channels: a file here has only one',
+        stepReference: 'Reference',
+        stepReferenceChannel: 'Channel of this recording',
+        stepReferenceSlot: 'Base recording',
+        stepReferenceSet: '{op}: reference {reference}',
+        stagePairBase: 'vs base',
+        stageVsBase: 'Measured against the base: {file}',
+        stageBaseLane: 'Base (the reference): {file}',
+        entryBatchNoBase: 'A step here compares each file with the base recording, so it cannot be exported for many files. Set its reference to a channel (⚙) first.',
+        stageNeedBaseFile: 'This step compares each recording with the base recording: choose one recording as Base (a group cannot be the reference)',
         stepPairSelf: 'Choose two different channels: a channel with itself always gives the same',
         stepNeedChannel: 'Channel 1 to {n}',
         stepPair: 'ch{output} / ch{input}',
@@ -1396,9 +1414,18 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'バンドパス',
         stepAverageFft: '{name}（FFT {n} 点）',
         stepOctaveHint: '表の帯域列の値',
-        stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。外すか、2 チャンネル以上の録音で使ってください',
+        stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。⚙ で基準を「基準の録音」にするか、外してください',
         stepNarrowedChannels: '{op} で 1 チャンネルになっています。この手順には 2 チャンネルが必要です。{op} より前に動かすか、どちらかを外してください',
         stepOffChannels: '2 チャンネルが必要です（1 チャンネルのファイルあり）',
+        stepReference: '基準',
+        stepReferenceChannel: 'この録音のチャンネル',
+        stepReferenceSlot: '基準の録音',
+        stepReferenceSet: '{op}：基準 = {reference}',
+        stagePairBase: '対 基準',
+        stageVsBase: '基準 {file} と比べた値',
+        stageBaseLane: '基準（比べる相手）：{file}',
+        entryBatchNoBase: '各ファイルを基準の録音と比べる手順があるため、多数のファイル向けには書き出せません。先に ⚙ で基準を「この録音のチャンネル」にしてください',
+        stageNeedBaseFile: 'この手順は各録音を基準の録音と比べます。基準に録音を 1 本選んでください（群は基準にできません）',
         stepPairSelf: '別々のチャンネルを選んでください（同じチャンネル同士は常に同じ値）',
         stepNeedChannel: 'チャンネルは 1〜{n}',
         stepPair: 'ch{output} / ch{input}',

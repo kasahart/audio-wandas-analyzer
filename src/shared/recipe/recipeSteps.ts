@@ -74,6 +74,11 @@ export const SELECT_PAIR = 'wandas.frame.select_pair';
  * transfer function derived from it need its auto-spectra, which select_pair would leave out.
  */
 export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.transfer_function']);
+/**
+ * Cross-channel steps that can take the base slot's recording as their reference: those on a time signal, which is
+ * where the two recordings are joined (wandas joins time signals; a spectrogram's CSD has no such join).
+ */
+export const SLOT_REFERABLE: ReadonlySet<string> = new Set([...CROSS_CHANNEL].filter(id => id !== 'wandas.spectrogram.csd'));
 
 /** Steps that leave one channel: one picked, or all summed or averaged into one. */
 const ONE_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.sum', 'wandas.audio.mean']);
@@ -180,6 +185,8 @@ export interface RecipeStep {
     invalid?: string;
     /** Bypassed in the step bar: kept in the chain but skipped, so it passes on the Frame it took. */
     bypassed?: boolean;
+    /** A cross-channel step's reference is the comparison's base slot (another recording), not a channel. */
+    reference?: 'slot';
     /** The channels of the Frame after it, when the folder's are known. */
     channels?: number;
     /**
@@ -271,6 +278,7 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
     // The step that left one channel, if one did (rather than the files having one).
     let narrowedBy: string | undefined;
     const skipped = new Set(bypassedSteps(recipe));
+    const slotted = new Set(slotReferenced(recipe));
     return recipeChain(recipe).map(node => {
         const editable = STEP_PARAMS[node.operation] ?? [];
         // A parameter the Recipe leaves out has wandas' default: shown as that value, not as an empty field.
@@ -284,20 +292,22 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
             : failed !== undefined ? { param: '', reason: { kind: 'failed', limit: 0, text: failed } }
             // One channel has nothing to be compared with: its only pair is itself. A bypassed step does not run,
             // so the channels there do not bound it.
-            : CROSS_CHANNEL.has(node.operation) && !skipped.has(node.id) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2, ...(narrowedBy ? { text: narrowedBy } : {}) } }
+            : CROSS_CHANNEL.has(node.operation) && !skipped.has(node.id) && !slotted.has(node.id) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2, ...(narrowedBy ? { text: narrowedBy } : {}) } }
                 // A pairwise Frame's rows are its pairs (n² of n channels): get_channel there picks a row.
                 : invalidParam(params, editable, bounds, skipped.has(node.id) ? undefined : PAIRWISE_FRAMES.has(frame) && node.operation === 'wandas.frame.get_channel' && channels !== undefined ? channels * channels : channels);
         const step: RecipeStep = {
             id: node.id, operation: node.operation, name: node.operation.split('.').pop()!, params, editable,
             input: frame, output: output ?? declaredOutput(node.operation, frame), ...(invalid ? { invalid: invalid.param, reason: invalid.reason } : {}),
             ...(skipped.has(node.id) ? { bypassed: true } : {}),
+            ...(slotted.has(node.id) ? { reference: 'slot' as const } : {}),
         };
         if (invalid && broken === undefined) broken = step.id;
         // Past a break the Frames are the ones the steps would take and give, to name and place them.
         if ((!invalid || invalid.reason.kind === 'after') && !step.bypassed) {
             frame = step.output;
             const before = channels;
-            channels = channelsAfter(node, channels, step.input);
+            // Measured against the base slot, it runs on the joined pair: a channel of each recording.
+            channels = channelsAfter(node, slotted.has(node.id) ? 2 : channels, step.input);
             if (before !== undefined && before > 1 && channels === 1) narrowedBy = step.id;
         }
         if (channels !== undefined) step.channels = channels;
@@ -385,7 +395,8 @@ export function addableOperations(frame: string, lacks?: ReadonlySet<string>, ch
         // A package the operation needs that the runtime reports it cannot import (the Web version's).
         const lacking = (operation.needs ?? []).filter(name => lacks?.has(name));
         const off: AddableOperation['off'] = outputOf(operation, frame) === undefined ? 'frame' : refused !== undefined ? 'refuses'
-            : lacking.length ? 'unavailable' : CROSS_CHANNEL.has(operation.id) && channels !== undefined && channels < 2 ? 'channels' : needs.length ? 'required' : undefined;
+            // One channel: a cross-channel step goes against the base slot's recording, where it can.
+            : lacking.length ? 'unavailable' : CROSS_CHANNEL.has(operation.id) && !SLOT_REFERABLE.has(operation.id) && channels !== undefined && channels < 2 ? 'channels' : needs.length ? 'required' : undefined;
         const why = refused ?? (lacking.length ? lacking.join(', ') : undefined);
         return { operation, name: operation.id.split('.').pop()!, settable, ...(off ? { off } : {}), ...(why !== undefined ? { why } : {}) };
     }).sort((a, b) => Number(!!a.off) - Number(!!b.off));
@@ -500,10 +511,49 @@ export function withBypass(recipe: RecipeDocument, stepId: string, on: boolean):
  * stays: it is where the region goes, and a bypassed region is the whole file (the screen sends no region).
  */
 export function withoutBypassed(recipe: RecipeDocument): RecipeDocument {
-    if (!(BYPASS_KEY in (recipe as unknown as Record<string, unknown>))) return recipe;
+    const keys = recipe as unknown as Record<string, unknown>;
+    if (!(BYPASS_KEY in keys) && !(REFERENCE_KEY in keys)) return recipe;
     const skipped = bypassedSteps(recipe).filter(id => nodes(recipe).find(node => node.id === id)?.operation !== TIME_SLICE);
     const copy = JSON.parse(JSON.stringify(withoutSteps(recipe, skipped))) as Record<string, unknown>;
     delete copy[BYPASS_KEY];
+    delete copy[REFERENCE_KEY];
+    return copy as unknown as RecipeDocument;
+}
+
+/**
+ * Cross-channel steps whose reference is the comparison's base slot (another recording), not a channel of the
+ * same one: the step bar's, kept beside the Recipe's nodes like the bypass. The scans pair each compared
+ * recording with the base slot's at that step (scan_service.py's `reference`).
+ */
+export const REFERENCE_KEY = 'awaSlotReference';
+
+export function slotReferenced(recipe: RecipeDocument | null | undefined): string[] {
+    if (!recipe) return [];
+    const list = (recipe as unknown as Record<string, unknown>)[REFERENCE_KEY];
+    const ids = new Set(nodes(recipe).filter(node => SLOT_REFERABLE.has(node.operation)).map(node => node.id));
+    return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && ids.has(id)) : [];
+}
+
+/** The steps measured against the base slot that run: a bypassed one pairs nothing. */
+export function activeSlotReferenced(recipe: RecipeDocument | null | undefined): string[] {
+    const skipped = recipe ? bypassedSteps(recipe) : [];
+    return slotReferenced(recipe).filter(id => !skipped.includes(id));
+}
+
+/**
+ * The Recipe with the cross-channel step `stepId` referenced to the base slot (or to a channel again). The pair of
+ * channels after it goes with the base slot (each recording gives its channel) and comes back with a channel.
+ */
+export function withSlotReference(recipe: RecipeDocument, stepId: string, on: boolean): RecipeDocument {
+    const pair = nodes(recipe).find(node => node.operation === SELECT_PAIR && node.inputs[0] === stepId)?.id;
+    let next = on && pair ? withoutSteps(recipe, [pair]) : recipe;
+    const select = catalogOperation(SELECT_PAIR);
+    // Back to a channel: the pair chip again, where adding the step gives one (a CSD keeps its auto-spectra).
+    const operation = nodes(recipe).find(node => node.id === stepId)?.operation ?? '';
+    if (!on && !pair && select && PAIRED_ON_ADD.has(operation)) next = withStep(next, stepId, select).recipe;
+    const copy = JSON.parse(JSON.stringify(next)) as Record<string, unknown>;
+    const list = slotReferenced(recipe).filter(id => id !== stepId).concat(on ? [stepId] : []);
+    if (list.length) copy[REFERENCE_KEY] = list; else delete copy[REFERENCE_KEY];
     return copy as unknown as RecipeDocument;
 }
 

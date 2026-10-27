@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
-import { runnableRecipe } from '../webview/runtime/stepBar';
+import { recipeWithout, runnableRecipe, unpairedRecipe } from '../webview/runtime/stepBar';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 
@@ -229,9 +229,49 @@ test('a step that compares two channels needs two: one channel (or one picked by
     }
     // Bypassed, coherence and its pair do not run, so they do not break the chain on one channel.
     assert.equal(brokenStep(withBypass(withBypass(paired, coherence, true), pair, true), { sampleRate: 16000, channels: 1 }), undefined);
-    // ＋ greys it on one channel, with that reason.
-    assert.equal(addableOperations('ChannelFrame', undefined, 1).find(item => item.name === 'coherence')!.off, 'channels');
-    assert.equal(addableOperations('ChannelFrame', undefined, 2).find(item => item.name === 'coherence')!.off, undefined);
+    // Referenced to the base slot, it compares the recording with the base slot's: one channel is enough, and the
+    // pair chip goes (each recording gives its channel); back to a channel, the pair comes back.
+    const slotted = withSlotReference(paired, coherence, true);
+    assert.deepEqual(slotReferenced(slotted), [coherence]);
+    assert.equal(recipeChain(slotted).some(node => node.operation === SELECT_PAIR), false);
+    const onSlot = recipeSteps(slotted, { sampleRate: 16000, channels: 1 }).find(step => step.id === coherence)!;
+    assert.equal(onSlot.reference, 'slot');
+    assert.equal(onSlot.invalid, undefined);
+    assert.equal(REFERENCE_KEY in (withoutBypassed(slotted) as unknown as Record<string, unknown>), false);
+    // The scans run it on one channel too, and the Recipe they run has no app key.
+    const run = runnableRecipe(slotted, { sampleRate: 16000, channels: 1 });
+    assert.equal(recipeChain(run).some(node => node.id === coherence), true);
+    assert.equal(REFERENCE_KEY in (run as unknown as Record<string, unknown>), false);
+    // Holding the filter on that run Recipe shows the coherence without it: the editor's reference goes with it.
+    const filter = recipeChain(slotted)[0].id;
+    const held = recipeWithout(run, filter, coherence, { sampleRate: 16000, channels: 1 }, slotReferenced(slotted));
+    assert.equal(!!held && recipeChain(held).some(node => node.id === coherence), true);
+    assert.equal(recipeWithout(run, filter, coherence, { sampleRate: 16000, channels: 1 }), null);
+    const back = withSlotReference(slotted, coherence, false);
+    assert.deepEqual(slotReferenced(back), []);
+    assert.equal(recipeChain(back).filter(node => node.operation === SELECT_PAIR).length, 1);
+    // A CSD back to a channel keeps its auto-spectra: no pair chip comes with it.
+    const csdDoc = JSON.parse(JSON.stringify(slotted)) as { nodes: Array<{ id: string; operation: string }> };
+    csdDoc.nodes.find(node => node.id === coherence)!.operation = 'wandas.audio.csd';
+    assert.equal(recipeChain(withSlotReference(csdDoc as unknown as RecipeDocument, coherence, false)).some(node => node.operation === SELECT_PAIR), false);
+    // On one channel, a CSD against the base runs on the joined pair: a pair chip after it picks the recording over the base.
+    const csdPaired = withStep(csdDoc as unknown as RecipeDocument, coherence, catalogOperation(SELECT_PAIR)!);
+    const monoCsd = recipeSteps(csdPaired.recipe, { sampleRate: 16000, channels: 1 });
+    assert.equal(monoCsd.find(step => step.id === csdPaired.id)!.invalid, undefined);
+    assert.equal(recipeChain(runnableRecipe(csdPaired.recipe, { sampleRate: 16000, channels: 1 })).some(node => node.id === csdPaired.id), true);
+    // A bypassed one pairs nothing: the scans and the report do not take a channel of each recording for it.
+    assert.deepEqual(activeSlotReferenced(slotted), [coherence]);
+    assert.deepEqual(activeSlotReferenced(withBypass(slotted, coherence, true)), []);
+    // The table's and a region's scans do not pair the base: they run the chain before the step measured against it.
+    const unpaired = unpairedRecipe(runnableRecipe(csdPaired.recipe, { sampleRate: 16000, channels: 1 }), csdPaired.recipe)!;
+    assert.deepEqual(recipeChain(unpaired).map(node => node.operation.split('.').pop()), ['highpass_filter', 'time_slice']);
+    assert.equal(unpairedRecipe(run, withBypass(slotted, coherence, true)), run);
+    // A spectrogram's CSD has no join of two recordings: it keeps to channels, and ＋ greys it on one.
+    assert.equal(addableOperations('SpectrogramFrame', undefined, 1).find(item => item.operation.id === 'wandas.spectrogram.csd')!.off, 'channels');
+    assert.equal(addableOperations('ChannelFrame', undefined, 1).find(item => item.name === 'coherence')!.off, undefined);
+    const spectrogramCsd = JSON.parse(JSON.stringify(slotted)) as { nodes: Array<{ id: string; operation: string }> };
+    spectrogramCsd.nodes.find(node => node.id === coherence)!.operation = 'wandas.spectrogram.csd';
+    assert.deepEqual(slotReferenced(spectrogramCsd as unknown as RecipeDocument), []);
     // A channel over itself compares nothing; a channel past the last is refused.
     const [output, input] = STEP_PARAMS[SELECT_PAIR];
     const self = withParam(paired, pair, output, 0);

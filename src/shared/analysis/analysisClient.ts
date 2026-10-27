@@ -222,7 +222,9 @@ export abstract class AnalysisClient {
     /** One file's entry-table metrics, under the calibration the host keeps for it. */
     scan(payload: ScanPayload): Promise<ScanResult> {
         const calibration = payload.calibration ?? this.calibrationFor(payload.filePath);
-        return this.request('scan', { ...payload, ...(calibration ? { calibration } : {}) });
+        // The recording a step is measured against is calibrated as its own.
+        const reference = payload.reference ? { ...payload.reference, ...(this.calibrationFor(payload.reference.filePath) ? { calibration: this.calibrationFor(payload.reference.filePath) } : {}) } : undefined;
+        return this.request('scan', { ...payload, ...(calibration ? { calibration } : {}), ...(reference ? { reference } : {}) });
     }
 
     protected calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {

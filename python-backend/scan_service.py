@@ -44,6 +44,17 @@ if TYPE_CHECKING:
 TIME_SLICE_OPERATION = "wandas.frame.time_slice"
 
 
+class ScanReference(TypedDict):
+    """Another recording a cross-channel step pairs each scanned one with (the comparison's base slot)."""
+
+    #: The cross-channel step (node id) whose input is the pair: the reference's channel, then the scanned one's.
+    step: str
+    #: The reference's own Recipe (its channel row's get_channel), run like the scanned one's up to that step.
+    recipe: Mapping[str, object]
+    #: The reference recording's own calibration (None: uncalibrated).
+    calibration: NotRequired[object]
+
+
 class ScanInput(TypedDict):
     id: str
     fs: int
@@ -470,6 +481,7 @@ def scan_cached(
     calibration_profile: object,
     stage: str | None = None,
     detail: Mapping[str, object] | None = None,
+    reference: tuple[CachedAnalysis, ScanReference] | None = None,
 ) -> ScanResult:
     source = cached.frame
     sampling_rate = float(source.sampling_rate)
@@ -540,7 +552,30 @@ def scan_cached(
         for node in RecipePlan.from_dict(dict(recipe)).to_dict()["nodes"]
         if node["operation"] == WELCH_OPERATION
     }
+    # With a reference, its own frame goes through the same steps until the cross-channel step pairs the two.
+    paired_at = reference[1]["step"] if reference is not None else None
+    ref_current, ref_steps = (
+        _reference_region(reference, start, end, sampling_rate) if reference is not None else (None, {})
+    )
+    vs_base = False
+    # A CSD keeps its auto-spectra for the cross-spectral steps after it; its picture draws the recording over the
+    # base (ch2 / ch1) all the same.
+    paired_csd = paired_at is not None and any(
+        str(node["id"]) == paired_at and str(node["operation"]).endswith(".csd")
+        for node in RecipePlan.from_dict(dict(recipe)).to_dict()["nodes"]
+    )
+    # Where the base is shorter than this recording's region, the pair is as long as the base: a step that then
+    # fails says so, rather than failing as this recording's.
+    short_base: float | None = None
     for step, plan in plans["steps"]:
+        if step == paired_at and ref_current is not None:
+            if (
+                isinstance(ref_current, wd.ChannelFrame)
+                and isinstance(current, wd.ChannelFrame)
+                and ref_current.n_samples < current.n_samples
+            ):
+                short_base = _length_s(ref_current)
+            current = _paired(ref_current, current)
         try:
             parts = (
                 welch_in_parts(plan, current, _node_params(recipe, step))
@@ -548,10 +583,18 @@ def scan_cached(
                 else None
             )
             current = parts.cache() if parts is not None else plan.apply({"region": current}).cache()
+            if step == paired_at:
+                # The scanned recording over the reference: the pair's one row.
+                current = current if paired_csd else current.select_pair(1, 0).cache()
+                ref_current, vs_base = None, True
+            elif ref_current is not None:
+                ref_current = _reference_step(ref_steps, step, ref_current)
             # A step's picture needs nothing after it, and none of the metrics.
             if step == stage:
-                return _stage_result(described, stage_view(current, _length_s(timed), detail))
+                return _stage_result(described, _against_base(stage_view(current, _length_s(timed), detail), vs_base))
         except Exception as error:  # noqa: BLE001 - as above.
+            if step == paired_at and short_base is not None:
+                raise InputError(f"The base recording gives only {short_base:.2f} s of this region: {error}") from error
             raise StepFailure(step, error) from error
         if isinstance(current, wd.ChannelFrame):
             timed = current
@@ -565,7 +608,7 @@ def scan_cached(
     )
     octave = plans["noct"].apply({"region": signal}) if plans["noct"] is not None else None
     if stage == OCTAVE_STAGE:
-        return _stage_result(described, stage_view(octave, None, detail))
+        return _stage_result(described, _against_base(stage_view(octave, None, detail), vs_base))
     metrics = measure(signal, spectrum, octave, passband=passband(recipe))
     return {
         "ok": True,
@@ -585,6 +628,61 @@ def scan_cached(
         "wandasVersion": wd.__version__,
         "endFrame": type(current).__name__,
     }
+
+
+def _reference_region(
+    reference: tuple[CachedAnalysis, ScanReference],
+    start: float,
+    end: float,
+    sampling_rate: float,
+) -> tuple[wd.ChannelFrame, dict[str, RecipePlan]]:
+    """The reference recording over the same region, through its Recipe's steps up to the slice; its later steps."""
+    cached, described = reference
+    source = cached.frame
+    if float(source.sampling_rate) != sampling_rate:
+        raise InputError(
+            f"The base recording is at {source.sampling_rate:g} Hz and this one at {sampling_rate:g} Hz:"
+            " they cannot be paired"
+        )
+    calibrated = resolve_calibration_profile(
+        described.get("calibration"), source, source_peaks=cached.source_peaks
+    ).apply(source)
+    duration = source.n_samples / sampling_rate
+    end = min(end, duration - spec.EDGE_GUARD_S)
+    if end <= start:
+        raise InputError(
+            f"The base recording ({duration:.2f} s) does not reach this region, which starts at {start:.2f} s"
+        )
+    plans = scan_plans(described["recipe"], start, end, sampling_rate)
+    region = plans["region"].apply({plans["region"].inputs[0].name: calibrated}).cache()
+    return region, dict(plans["steps"])
+
+
+def _reference_step(steps: Mapping[str, RecipePlan], step: str, frame: wd.ChannelFrame) -> wd.ChannelFrame:
+    if step not in steps:
+        raise InputError(f"The base recording's Recipe has no step {step!r}")
+    return steps[step].apply({"region": frame}).cache()
+
+
+def _paired(reference: object, frame: object) -> wd.ChannelFrame:
+    """The reference's first channel and the scanned recording's, over their common length, as one frame."""
+    if not isinstance(reference, wd.ChannelFrame) or not isinstance(frame, wd.ChannelFrame):
+        raise InputError("A recording is paired with the base as a time signal")
+    first = reference if reference.n_channels == 1 else reference.get_channel(0)
+    second = frame if frame.n_channels == 1 else frame.get_channel(0)
+    length = min(first.n_samples, second.n_samples)
+    if first.n_samples != length:
+        first = first.fix_length(length=length)
+    if second.n_samples != length:
+        second = second.fix_length(length=length)
+    return first.concat_frame(second, label_prefix="compare", suffix_on_dup="_compare")
+
+
+def _against_base(view: StageView, vs_base: bool) -> StageView:
+    """A picture past the step that paired the recording with the base slot's: that is its pair, not two channels."""
+    if vs_base and "pair" in view:
+        view["pair"] = {**view["pair"], "base": True}
+    return view
 
 
 def _length_s(frame: wd.ChannelFrame) -> float:
@@ -620,12 +718,17 @@ def scan(
     calibration_profile: object = None,
     stage: str | None = None,
     detail: Mapping[str, object] | None = None,
+    reference: tuple[str, ScanReference] | None = None,
 ) -> ScanResult:
     started = time.perf_counter()
     was_cached = engine.is_cached(file_path)
     cached = None
+    paired: CachedAnalysis | None = None
+    paired_was_cached = reference is None or engine.is_cached(reference[0])
     try:
         cached = engine.get_file(file_path)
+        if reference is not None:
+            paired = engine.get_file(reference[0])
         # One short file's graph gains nothing from threads, which only add scheduling overhead.
         with dask.config.set(scheduler="synchronous"):
             result = scan_cached(
@@ -636,6 +739,7 @@ def scan(
                 calibration_profile=calibration_profile,
                 stage=stage,
                 detail=detail,
+                reference=(paired, reference[1]) if paired is not None and reference is not None else None,
             )
     except Exception as error:  # noqa: BLE001 - every failure becomes this file's ✕ row.
         if not isinstance(error, (InputError, OSError, sf.LibsndfileError)):
@@ -647,6 +751,8 @@ def scan(
         # Files opened only for the scan are not kept: a 100-file scan must not hold 100 frames.
         if cached is not None and not was_cached:
             engine.discard(cached.path)
+        if paired is not None and not paired_was_cached and paired.path != (cached.path if cached else None):
+            engine.discard(paired.path)
     if result["ok"]:
         result["elapsedMs"] = round((time.perf_counter() - started) * 1000, 1)
     return result

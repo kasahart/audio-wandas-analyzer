@@ -499,6 +499,19 @@ DEFINITIONS: dict[str, Schema] = {
             "stage": {"anyOf": [{"type": "string"}, _NULL]},
             # The part of the step's picture on screen, drawn from the Frame's full resolution (a zoomed comparison).
             "detail": {"anyOf": [{"$ref": "#/$defs/StageDetail"}, _NULL]},
+            # Another recording a cross-channel step (``step``) pairs this one with, and that recording's own Recipe.
+            "reference": {"anyOf": [{"$ref": "#/$defs/ScanReference"}, _NULL]},
+        },
+    },
+    "ScanReference": {
+        "type": "object",
+        "required": ["filePath", "step", "recipe"],
+        "properties": {
+            "filePath": {"type": "string"},
+            "step": {"type": "string"},
+            "recipe": {"type": "object"},
+            # The reference recording's own calibration, as the host keeps it for that file.
+            "calibration": {"$ref": "#/$defs/CalibrationProfile"},
         },
     },
     # A zoomed picture's request: its horizontal (and for an image, vertical) range in the axis's own units
@@ -534,7 +547,12 @@ DEFINITIONS: dict[str, Schema] = {
             "pair": {
                 "type": "object",
                 "required": ["output", "input"],
-                "properties": {"output": {"type": "integer", "minimum": 1}, "input": {"type": "integer", "minimum": 1}},
+                "properties": {
+                    "output": {"type": "integer", "minimum": 1},
+                    "input": {"type": "integer", "minimum": 1},
+                    # The recording over the base slot's recording (a step measured against it), not two channels.
+                    "base": {"type": "boolean"},
+                },
             },
             # Set on a picture of only part of its axes (StageDetail): the range it covers.
             "detail": {"type": "boolean"},

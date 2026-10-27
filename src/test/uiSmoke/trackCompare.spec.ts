@@ -8,7 +8,7 @@ let scanned: ScannedFile[] | undefined;
 const STR_EN = getStrings('en');
 test.beforeAll(() => { scanned = entry100Results(); });
 
-type Posted = { type: string; requestId: string; filePaths: string[]; stage?: string; region?: { start: number; end: number }; recipe?: { nodes: Array<{ operation: string }> }; folder?: string; files?: Array<{ name: string; text?: string }> };
+type Posted = { type: string; requestId: string; filePaths: string[]; stage?: string; reference?: { filePath: string; step: string; recipe: { nodes: Array<{ operation: string }> } }; region?: { start: number; end: number }; recipe?: { nodes: Array<{ operation: string }> }; folder?: string; files?: Array<{ name: string; text?: string }> };
 const posted = (page: Page): Promise<Posted[]> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Posted[] }).__uiSmokePostedMessages);
 const stageScans = async (page: Page): Promise<Posted[]> => (await posted(page)).filter(message => message.type === 'compare-scan' && message.requestId.startsWith('track-stage'));
 const spectrum = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
@@ -28,7 +28,7 @@ async function answer(page: Page, view: Record<string, unknown> = spectrum): Pro
 }
 
 /** Slots the table's two top rows and presses Enter: the track view compares them, as tracks, on the chain's end. */
-async function openComparison(page: Page, language = 'en', files: ScannedFile[] = scanned!): Promise<string[]> {
+async function openComparison(page: Page, language = 'en', files: ScannedFile[] = scanned!, baseSlot = false): Promise<string[]> {
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
     await openEntry(page, files, { language, recipe });
     // Rows are a recording's channels, in name order: the first row, and the first of another condition (rpm).
@@ -36,9 +36,10 @@ async function openComparison(page: Page, language = 'en', files: ScannedFile[] 
     const rpm = (filePath: string): string => /_(\d+rpm)_/.exec(filePath)?.[1] ?? '';
     const other = drawn.findIndex(filePath => rpm(filePath) !== rpm(drawn[0]));
     const paths = [drawn[0], drawn[other]];
-    await page.keyboard.press('1');
+    // With `baseSlot`, the first row is the base (slot 0) and the other the compared one (slot 1).
+    await page.keyboard.press(baseSlot ? '0' : '1');
     for (let step = 0; step < other; step++) await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('2');
+    await page.keyboard.press(baseSlot ? '1' : '2');
     await page.keyboard.press('Enter');
     await showTracks(page, paths);
     return paths;
@@ -513,15 +514,10 @@ test('a base group of more than 30 recordings is not analysed by opening a compa
 test('coherence compares two channels of each recording: it comes with its pair (ch2 / ch1), which its settings change, and × takes both', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
-    // The fixture's two-channel recordings alone (its one-channel recording greys coherence: the next test).
+    // The fixture's two-channel recordings alone (with its one-channel recording, coherence is against the base slot: the next test).
     const paths = await openComparison(page, 'en', scanned!.filter(file => (file.result.input as { channels?: number[] } | undefined)?.channels?.length === 2));
     const bar = page.locator('.track-stage-bar');
     await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-delete"]').click();
-    // While the host's tracks have one channel, ＋ greys it too.
-    await bar.locator('[data-action="step-add"]').click();
-    await bar.locator('[data-step-menu-filter]').fill('coherence');
-    await expect(bar.locator('.step-menu-item[data-op="wandas.audio.coherence"] .step-menu-hint')).toHaveText(STR.stepOffChannels);
-    await bar.locator('[data-step-menu-filter]').press('Escape');
     // The recordings are two-channel, as the host's analysis of them says.
     const lane = { peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } };
     await page.evaluate(({ paths, lane }) => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: paths.map(filePath => ({
@@ -574,14 +570,46 @@ test('coherence compares two channels of each recording: it comes with its pair 
     await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz']);
 });
 
-test('a folder with a one-channel recording greys coherence on ＋ and says why', async ({ page }) => {
+test('with a one-channel recording, coherence is measured against the base slot: the compared recording over the base one, and ⚙ switches the reference', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    await openComparison(page);
+    const STR = getStrings('en');
+    const [base, compared] = await openComparison(page, 'en', scanned!, true);
     const bar = page.locator('.track-stage-bar');
-    await bar.locator('.step-chip', { hasText: getStrings('en').stepAverage }).locator('[data-action="step-delete"]').click();
+    await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-delete"]').click();
     await bar.locator('[data-action="step-add"]').click();
     await bar.locator('[data-step-menu-filter]').fill('coherence');
-    const item = bar.locator('.step-menu-item[data-op="wandas.audio.coherence"]');
-    await expect(item).toHaveClass(/is-off/);
-    await expect(item.locator('.step-menu-hint')).toHaveText(getStrings('en').stepOffChannels);
+    await bar.locator('.step-menu-item[data-op="wandas.audio.coherence"]').click();
+    // No pair of channels: the chip names its reference, and nothing is marked as unable to run.
+    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', `coherence · ${STR.stagePairBase}`]);
+    await expect(bar.locator('.step-chip.is-invalid')).toHaveCount(0);
+    const coherence = bar.locator('.step-chip', { hasText: 'coherence' });
+    const id = (await coherence.getAttribute('data-step-id'))!;
+    // The compared recording is scanned with the base one as its reference at that step; the base is not a curve of its own.
+    await expect.poll(async () => (await stageScans(page)).at(-1)!.reference?.step).toBe(id);
+    const request = (await stageScans(page)).at(-1)!;
+    expect(request.reference!.filePath).toBe(base);
+    expect(request.filePaths).toEqual([compared]);
+    // Each side is its slot's channel row: one channel of each recording makes the pair.
+    const operations = (recipe: { nodes: Array<{ operation: string }> }): string[] => recipe.nodes.map(node => node.operation.split('.').pop()!);
+    expect(operations(request.recipe!)).toEqual(['get_channel', 'highpass_filter', 'time_slice', 'coherence']);
+    expect(operations(request.reference!.recipe)).toEqual(['get_channel', 'highpass_filter', 'time_slice', 'coherence']);
+    await answer(page, { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'coherence', unit: '', xs: [100, 1000, 5000], values: [0.2, 0.5, 0.9], pair: { output: 2, input: 1, base: true } });
+    await expect(page.locator('[data-stage-headline]')).toContainText(STR.stageVsBase.split('{file}')[0]);
+    // ⚙: the reference back to a channel brings the pair, which one channel cannot give (said why); back to the base slot.
+    await coherence.locator('[data-action="step-settings"]').click();
+    await bar.locator('[data-action="step-reference"][data-mode="channel"]').click();
+    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', 'coherence', 'ch2 / ch1']);
+    await expect(bar.locator('.step-chip.is-invalid')).not.toHaveCount(0);
+    // The form stays open on the choice made, to switch back.
+    await expect(bar.locator('[data-action="step-reference"][data-mode="channel"]')).toHaveAttribute('aria-pressed', 'true');
+    await bar.locator('[data-action="step-reference"][data-mode="slot"]').click();
+    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', `coherence · ${STR.stagePairBase}`]);
+    // The report's Recipe replays it in wandas: a base input through the same steps, one channel of each, the pair.
+    await page.locator('#tb-export-menu > summary').click();
+    await page.locator('[data-action="stage-report"]').click();
+    await expect.poll(async () => (await posted(page)).some(message => message.type === 'save-report-folder')).toBe(true);
+    const folder = (await posted(page)).filter(message => message.type === 'save-report-folder').at(-1)!;
+    const written = JSON.parse(folder.files!.find(file => file.name === `${STR.stepRecipeName}.recipe.json`)!.text!) as { inputs: Array<{ name: string }>; nodes: Array<{ operation: string }> };
+    expect(written.inputs.map(input => input.name)).toEqual(['signal', 'base']);
+    expect(written.nodes.map(node => node.operation.split('.').pop()).slice(-3)).toEqual(['concat_frame', 'coherence', 'select_pair']);
 });

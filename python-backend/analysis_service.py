@@ -596,6 +596,7 @@ class AnalysisService:
         calibration_profile: object = None,
         stage: str | None = None,
         detail: Mapping[str, object] | None = None,
+        reference: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         from scan_service import scan
 
@@ -609,6 +610,19 @@ class AnalysisService:
                 calibration_profile=calibration_profile,
                 stage=stage,
                 detail=detail,
+                # Another recording a cross-channel step pairs this one with: its path, step and own Recipe.
+                reference=(
+                    (
+                        str(reference["filePath"]),
+                        {
+                            "step": str(reference["step"]),
+                            "recipe": reference["recipe"],
+                            "calibration": reference.get("calibration"),
+                        },  # type: ignore[typeddict-item]
+                    )
+                    if reference is not None
+                    else None
+                ),
             )
         )
 

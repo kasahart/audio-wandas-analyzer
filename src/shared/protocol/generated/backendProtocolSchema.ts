@@ -1108,6 +1108,39 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "type": "null"
                         }
                     ]
+                },
+                "reference": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/ScanReference"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": false
+        },
+        "ScanReference": {
+            "type": "object",
+            "required": [
+                "filePath",
+                "step",
+                "recipe"
+            ],
+            "properties": {
+                "filePath": {
+                    "type": "string"
+                },
+                "step": {
+                    "type": "string"
+                },
+                "recipe": {
+                    "type": "object"
+                },
+                "calibration": {
+                    "$ref": "#/$defs/CalibrationProfile"
                 }
             },
             "additionalProperties": false
@@ -1257,6 +1290,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "input": {
                             "type": "integer",
                             "minimum": 1
+                        },
+                        "base": {
+                            "type": "boolean"
                         }
                     },
                     "additionalProperties": false
@@ -1890,6 +1926,14 @@ export interface ScanPayload {
     calibration?: CalibrationProfile;
     stage?: string | null;
     detail?: StageDetail | null;
+    reference?: ScanReference | null;
+}
+
+export interface ScanReference {
+    filePath: string;
+    step: string;
+    recipe: Record<string, unknown>;
+    calibration?: CalibrationProfile;
 }
 
 export interface StageDetail {
@@ -1914,6 +1958,7 @@ export interface StageView {
     pair?: {
     output: number;
     input: number;
+    base?: boolean;
 };
     detail?: boolean;
     waveform?: {

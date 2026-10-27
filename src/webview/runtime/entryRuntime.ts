@@ -28,9 +28,9 @@ import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from 
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { positionPopover } from './settingsPopover';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
-import { createStepBar, endsInSpectrum, recipeWithout, runnableRecipe, stepChipLabel, stepLimits, OCTAVE_BRANCH } from './stepBar';
+import { createStepBar, endsInSpectrum, recipeWithout, runnableRecipe, stepChipLabel, stepLimits, unpairedRecipe, OCTAVE_BRANCH } from './stepBar';
 import { leqLabel } from './compareReport';
-import { brokenStep, chainEnd, isRecipeChain, recipeKey, recipeSteps, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
@@ -66,7 +66,10 @@ export interface CompareData {
     model: EntryModel;
     results: ReadonlyMap<string, ScanResult>;
     slots: (string | null)[];
-    /** The step bar's Recipe, and the one scans run (invalid steps left out; undefined = the host's own). */
+    /**
+     * The step bar's Recipe, and the one the table's scans run (invalid steps and steps measured against the base
+     * slot left out; undefined = the host's own).
+     */
     recipe?: RecipeDocument | null;
     runRecipe?: RecipeDocument;
     /** Steps that failed on a file, left out of the scans. */
@@ -282,7 +285,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const remeasuring = new HostRequests<{ row: DerivedRow; results: Map<string, ScanResult> }>();
     /** Whether the chain cannot run (a step that cannot, and so nothing after it): the table then has no values for it. */
     const broken = (): boolean => { const recipe = editedRecipe ?? standardRecipe; return !!recipe && !!brokenStep(recipe, limits()); };
-    const currentKey = (): string => (broken() ? 'broken' : recipeKey(runRecipe()));
+    const currentKey = (): string => (broken() ? 'broken' : recipeKey(scanRecipe()));
     const isStale = (path: string): boolean => results.has(path) && resultKeys.get(path) !== currentKey();
     function stalePaths(): Set<string> {
         const key = currentKey();
@@ -564,6 +567,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const choice = (screen.querySelector<HTMLInputElement>('[data-entry-batch-scope]:checked')?.value as 'filtered' | 'all' | undefined) ?? batchChoice ?? 'all';
         const recipe = runRecipe() ?? standardRecipe;
         if (!recipe || broken()) { deps.announce(strings.entryChainBroken); return; }
+        // A step measured against the base slot needs that one recording beside each: not a bundle of single files.
+        if (activeSlotReferenced(editedRecipe).length) { deps.announce(strings.entryBatchNoBase); return; }
         const targets = batchRows(choice);
         const idColumn = csv && csv.idColumn && csv.idColumn !== csv.audioColumn ? csv.idColumn : undefined;
         // The Web host lists a picked folder as /sources/<name>: the README then asks for the folder instead.
@@ -800,8 +805,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const recipe = editedRecipe ?? (Object.keys(failed).length ? standardRecipe : null);
         return recipe ? runnableRecipe(recipe, channels ? { ...limits(), channels } : limits()) : undefined;
     }
+    /** What the table's scans run: without the steps measured against the base slot, which they do not pair. */
+    function scanRecipe(): RecipeDocument | undefined {
+        return unpairedRecipe(runRecipe(), editedRecipe);
+    }
     function compareData(stage?: string): CompareData {
-        return { model: entryModel(), results, slots: slotFiles(), recipe: editedRecipe ?? standardRecipe, runRecipe: runRecipe(), failed, stale: stalePaths(), ...(stage ? { stage } : {}) };
+        return { model: entryModel(), results, slots: slotFiles(), recipe: editedRecipe ?? standardRecipe, runRecipe: scanRecipe(), failed, stale: stalePaths(), ...(stage ? { stage } : {}) };
     }
     /**
      * A step that failed on a file breaks the chain (⚠ on its chip and on every step after it): the computation
@@ -826,7 +835,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const result = results.get(row.parentPath);
         const base = baseOf(results, row.base.paths ?? []);
         if (!result?.ok || !base) return null;
-        return { ...row, result, base: { ...row.base, ...base }, recipeKey: recipeKey(runRecipe()), stale: false };
+        return { ...row, result, base: { ...row.base, ...base }, recipeKey: recipeKey(scanRecipe()), stale: false };
     }
     /**
      * Fixed differences of an earlier chain, measured again after a computation the user started (never at open);
@@ -843,7 +852,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 return;
             }
             const [start, end] = row.region.split('–').map(Number);
-            const recipe = runRecipe();
+            const recipe = scanRecipe();
             const id = `derived-${++requestCount}`;
             remeasuring.ask(id, id, derivedKey(row), { row, results: new Map() }, () => deps.post({ type: 'compare-scan', requestId: id, filePaths: [row.parentPath, ...row.base.paths!], region: { start, end }, ...(recipe ? { recipe } : {}) }));
         });
@@ -880,7 +889,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!recipe) return null;
         if (step.name === 'welch') return { with: holdSpec(recipe, step.id) };
         const end = recipeSteps(recipe, limits()).filter(item => item.invalid === undefined).at(-1)?.id;
-        const without = end ? recipeWithout(recipe, step.id, end, limits()) : null;
+        const without = end ? recipeWithout(recipe, step.id, end, limits(), slotReferenced(editedRecipe ?? standardRecipe)) : null;
         return end && without ? { with: holdSpec(recipe, end), without: holdSpec(without, end) } : null;
     }
     /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */
@@ -962,7 +971,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (focused) focusPicked = true;
         // Differences fixed under another Recipe stay, marked ≠ until measured again under this one
         // (after the scan); one fixed under this very Recipe needs nothing.
-        const key = recipeKey(runRecipe());
+        const key = recipeKey(scanRecipe());
         derived = derived.map(row => ({ ...row, stale: row.recipeKey !== key }));
         deps.saveDerived?.(derived);
         rebuild();
@@ -1122,13 +1131,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         scanCount = 0;
         scannedSeconds = 0;
         computingFiles = pending.length;
-        const recipe = runRecipe();
+        const recipe = scanRecipe();
         deps.post({ type: 'entry-scan', requestId, rootPath, filePaths: [...slotted, ...pending.filter(path => !slotted.includes(path))], ...(recipe ? { recipe } : {}) });
         render();
     }
     /** The results stored for this chain come back without computing anything. */
     function loadStored(): void {
-        const recipe = runRecipe();
+        const recipe = scanRecipe();
         requests.ask('scan', `entry-${++requestCount}`, currentKey(), undefined, ({ requestId }) => deps.post({ type: 'entry-scan', requestId, rootPath, filePaths, cachedOnly: true, ...(recipe ? { recipe } : {}) }));
     }
     /** Reads the files' headers for their channels, so rows split by channel before anything is computed. */

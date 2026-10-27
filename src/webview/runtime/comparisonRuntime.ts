@@ -86,7 +86,7 @@ import { baseName } from '../../shared/analysis/entryMetadata';
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { reportFiles } from './compareReport';
 import { regionLabel } from './entryTable';
-import { recipeKey } from '../../shared/recipe/recipeSteps';
+import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
 import { ROLE_COLORS } from '../../shared/gui/roleColors';
 import { createTrackStageMode, type StageTrack, type TrackStageDeps, type TrackStageMode } from './trackStageMode';
 import { installScreenHelp } from './screenHelp';
@@ -1203,6 +1203,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 rowInfo: path => ({ ...entryScreen.rowInfo(path), channel: entryScreen.stageChannel(path, path), base: entryScreen.baseDefinition(path) }),
                 selection: entryScreen.selection(),
                 derived: entryScreen.derivedRows(),
+                slotReference: activeSlotReferenced(data.recipe),
             }, STR);
             messaging.post({ type: 'save-report-folder', folder, files });
             hintFooter.show(STR.reportSaved + folder);
