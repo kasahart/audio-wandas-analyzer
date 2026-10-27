@@ -17,6 +17,8 @@ test('spectrogramTimeBinEdges is null without usable frame centres', () => {
     assert.equal(spectrogramTimeBinEdges({ timeBins: 1, timeCentersSec: [0.5] }, 1), null);
     assert.equal(spectrogramTimeBinEdges({ timeBins: 2, timeCentersSec: [0, NaN] }, 1), null);
     assert.equal(spectrogramTimeBinEdges({ timeBins: 2, timeCentersSec: [0, 0.5] }, 0), null);
+    assert.equal(spectrogramTimeBinEdges({ timeBins: 3, timeCentersSec: [0, 0.5, 0.5] }, 1), null);
+    assert.equal(spectrogramTimeBinEdges({ timeBins: 2, timeCentersSec: [0.5, 0] }, 1), null);
 });
 
 test('spectrogramTimeBinAt and spectrogramTimeBinSpan pick the cells under a time and a span', () => {

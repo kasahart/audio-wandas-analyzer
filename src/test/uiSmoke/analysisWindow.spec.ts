@@ -46,6 +46,7 @@ test('the spectrogram lane does not repeat the analysis window band', async ({ p
         const spectrogram = {
             values: Array.from({ length: 8 }, () => Array.from({ length: 4 }, () => -60)),
             timeBins: 8, frequencyBins: 4, windowSize: 512, hopSize: 256, maxFrequencyHz: 4000, minDb: -100, maxDb: 0,
+            timeCentersSec: Array.from({ length: 8 }, (_, k) => -0.05 + k * 0.15),
         };
         window.postMessage({
             type: 'track-detail-result', requestId: request.requestId, analysisId: request.analysisId,

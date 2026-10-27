@@ -5,13 +5,14 @@ type TimeBinSource = Pick<SpectrogramData, 'timeBins' | 'timeCentersSec'>;
 /**
  * Edges of each spectrogram time bin as track-local norms (0 = file start, 1 = file end), timeBins + 1 long.
  * With frame centres each cell is centred on its STFT window and ends halfway to its neighbours, so the
- * outer cells may reach past the file. Null when the centres are unknown: the bins then split the duration evenly.
+ * outer cells may reach past the file. Null when the centres are unknown or not increasing: the bins then split
+ * the duration evenly.
  */
 export function spectrogramTimeBinEdges(spec: TimeBinSource, durationSec: number | undefined): number[] | null {
     const count = spec.timeBins;
     const centers = spec.timeCentersSec;
     if (!centers || centers.length !== count || count < 2 || !durationSec || !(durationSec > 0)
-        || !centers.every(Number.isFinite)) {
+        || !centers.every((center, k) => Number.isFinite(center) && (k === 0 || center > centers[k - 1]))) {
         return null;
     }
     const edges = new Array<number>(count + 1);

@@ -47,6 +47,8 @@ test('extractSpectrumAtCursor: frame centres pick the frame whose window is cent
     assert.deepEqual(extractSpectrumAtCursor(source, 0, 0.1, { startSec: 0, spanSec: 1 })!.values, [-70, -50, -30, -10]);
     // Past the last centre the last frame stays selected.
     assert.deepEqual(extractSpectrumAtCursor(source, 0, 0.9, { startSec: 0, spanSec: 1 })!.values, [-50, -30, -10, -5]);
+    // At the file end the cursor still reads the silence floor, not the last frame.
+    assert.deepEqual(extractSpectrumAtCursor(source, 0, 1, { startSec: 0, spanSec: 1 })!.values, [-90, -90, -90, -90]);
 });
 
 test('extractSpectrumAtCursor: cursor at end returns the production silence floor', () => {
