@@ -527,7 +527,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 });
                 // The base slot's lane: the reference the others are measured against, not a picture of its own.
                 const referenceTrack = referencePath ? allTracks.find(track => track.filePath === referencePath) : undefined;
-                if (referenceTrack?.canvas) paintStage(referenceTrack.canvas, null, { min: 0, max: 1 }, referenceTrack.color, { x: '', y: '' }, { empty: strings.stageVsBase.replace('{file}', named(referencePath!, 0).label) });
+                if (referenceTrack?.canvas) paintStage(referenceTrack.canvas, null, { min: 0, max: 1 }, referenceTrack.color, { x: '', y: '' }, { empty: strings.stageBaseLane.replace('{file}', named(referencePath!, 0).label) });
                 stepBar.element.dataset.drawn = String(drawn);
                 return;
             }

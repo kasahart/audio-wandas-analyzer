@@ -613,7 +613,7 @@ test('with a one-channel recording, coherence is measured against the base slot:
     await bar.locator('[data-step-menu-filter]').fill('coherence');
     await bar.locator('.step-menu-item[data-op="wandas.audio.coherence"]').click();
     // No pair of channels: the chip names its reference, and nothing is marked as unable to run.
-    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', `coherence · ${STR.stepReferenceSlot}`]);
+    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', `coherence · ${STR.stagePairBase}`]);
     await expect(bar.locator('.step-chip.is-invalid')).toHaveCount(0);
     const coherence = bar.locator('.step-chip', { hasText: 'coherence' });
     const id = (await coherence.getAttribute('data-step-id'))!;
@@ -636,7 +636,7 @@ test('with a one-channel recording, coherence is measured against the base slot:
     // The form stays open on the choice made, to switch back.
     await expect(bar.locator('[data-action="step-reference"][data-mode="channel"]')).toHaveAttribute('aria-pressed', 'true');
     await bar.locator('[data-action="step-reference"][data-mode="slot"]').click();
-    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', `coherence · ${STR.stepReferenceSlot}`]);
+    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', `coherence · ${STR.stagePairBase}`]);
     // The report's Recipe replays it in wandas: a base input through the same steps, one channel of each, the pair.
     await page.locator('[data-action="stage-report"]').click();
     await expect.poll(async () => (await posted(page)).some(message => message.type === 'save-report-folder')).toBe(true);
