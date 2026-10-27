@@ -277,7 +277,7 @@ export function renderComparisonStyles(): string {
         .entry-table col.entry-col-reason-w { width: 7em; }
         /* In the side panel the name takes what the channel, group and value leave. */
         .entry-screen:not(.is-max) .entry-table col.entry-col-name-w { width: 50%; }
-        .entry-screen:not(.is-max) .entry-table col.entry-col-value-w { width: 6em; }
+        .entry-screen:not(.is-max) .entry-table col.entry-col-value-w { width: 7em; }
         .entry-screen:not(.is-max) .entry-table col.entry-col-group-w { width: 6em; }
         .entry-table tr { height: 24px; }
         .entry-table td { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
@@ -285,9 +285,9 @@ export function renderComparisonStyles(): string {
         .entry-th { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; }
         th.entry-num .entry-th { justify-content: flex-end; width: 100%; }
         .entry-th-label { overflow: hidden; text-overflow: ellipsis; }
-        /* The value's name and unit wrap rather than being cut. */
+        /* The value's name and unit wrap between words rather than being cut: "A特性" stays whole; only a word wider than the column breaks, at its edge. */
         .entry-table th.entry-num { white-space: normal; }
-        th.entry-num .entry-th-label { overflow: visible; }
+        th.entry-num .entry-th-label { min-width: 0; overflow: visible; word-break: keep-all; overflow-wrap: break-word; }
         .entry-th-count { color: var(--muted); font-weight: normal; }
         .entry-screen .entry-fbtn { border: 0; padding: 0 3px; color: var(--muted); }
         .entry-screen .entry-fbtn:hover:not(:disabled) { color: var(--text); background: var(--line); }
