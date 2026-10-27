@@ -283,9 +283,14 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(entryRow(page, '/sources/rec/first.wav').locator('.entry-badge')).toHaveCount(0);
     await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
     await expect(page.locator('.track-row')).toHaveCount(1);
-    // A double click counts once: the second row goes on and stays.
+    // A double click on ○/● counts once and does not open the comparison: on, then off.
     await entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark').dblclick();
     await expect(entryRow(page, '/sources/rec/day2/second.wav')).toHaveClass(/is-shown/);
+    await expect(entryRow(page, '/sources/rec/day2/second.wav').locator('.entry-badge')).toHaveCount(0);
+    await entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark').dblclick();
+    await expect(entryRow(page, '/sources/rec/day2/second.wav')).not.toHaveClass(/is-shown/);
+    await expect(entryRow(page, '/sources/rec/day2/second.wav').locator('.entry-badge')).toHaveCount(0);
+    await entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark').click();
     await entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark').click();
     await expect(entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark')).toHaveText('○');
     // The row and its lane light up together under the mouse, from either side.

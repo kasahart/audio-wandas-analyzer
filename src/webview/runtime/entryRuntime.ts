@@ -1642,7 +1642,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     body.addEventListener('dblclick', event => {
         const target = event.target as HTMLElement;
         const key = target.closest<HTMLElement>('tr[data-key]')?.getAttribute('data-key');
-        if (!key || mode !== 'all' || target.closest('button')) return;
+        if (!key || mode !== 'all' || target.closest('button, [data-action="entry-row-track"]')) return;
         if (!slots.slice(1).includes(key)) setSlot([1, 2, 3].find(slot => !slots[slot]) ?? 1, key);
         openSlotted();
     });
