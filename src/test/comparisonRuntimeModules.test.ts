@@ -59,23 +59,23 @@ test('persisted state store merges patches through the host boundary', () => {
     const writes: PersistedWebviewState[] = [];
     const host: WebviewHostApi = {
         postMessage: () => undefined,
-        getState: () => ({ contentType: 'waveform' }),
+        getState: () => ({ waveShare: 0.5 }),
         setState: (state) => { writes.push(state); },
     };
     const store = new PersistedStateStore(host);
     store.update({ sidebarCollapsed: true });
-    assert.deepEqual(store.snapshot, { contentType: 'waveform', sidebarCollapsed: true });
+    assert.deepEqual(store.snapshot, { waveShare: 0.5, sidebarCollapsed: true });
     assert.deepEqual(writes, [store.snapshot]);
 });
 
 test('the saved view state comes back whole, with values of another type left out', () => {
     const saved: PersistedWebviewState = {
-        contentType: 'spectrogram', spectrumBandsPerOctave: 3, sidebarCollapsed: true, spectrumCollapsed: false,
+        waveShare: 0.3, spectrumBandsPerOctave: 3, sidebarCollapsed: true, spectrumCollapsed: false,
         entrySlots: ['/a.wav', null], entryDerived: [], entryRecipe: { nodes: [] }, entryCsv: { name: 'meta.csv', text: 'file\na.wav\n' },
     };
     // Every field the runtime keeps survives a reload: an opened spectrum stays open, the bands and the CSV stay.
     assert.deepEqual(sanitizePersistedState(JSON.parse(JSON.stringify(saved))), saved);
-    assert.deepEqual(sanitizePersistedState({ contentType: 'chart', spectrumBandsPerOctave: 2, entrySlots: [1], entryCsv: { name: 'x' } }), {});
+    assert.deepEqual(sanitizePersistedState({ contentType: 'spectrogram', waveShare: 'half', spectrumBandsPerOctave: 2, entrySlots: [1], entryCsv: { name: 'x' } }), {});
     assert.deepEqual(sanitizePersistedState(null), {});
 });
 

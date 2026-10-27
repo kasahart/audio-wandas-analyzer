@@ -13,7 +13,7 @@ export function visibleExportCanvases(wrapper: Element | null): HTMLCanvasElemen
     if (!wrapper) {
         return [];
     }
-    return Array.from(wrapper.querySelectorAll<HTMLCanvasElement>('canvas:not(.track-axis-canvas)')).filter(canvas =>
+    return Array.from(wrapper.querySelectorAll<HTMLCanvasElement>('canvas:not(.track-axis-canvas):not(.track-spectrogram-overlay)')).filter(canvas =>
         canvas.offsetParent !== null && canvas.getAttribute('data-calibration-hidden') !== 'true');
 }
 

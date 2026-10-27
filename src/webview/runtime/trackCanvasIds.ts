@@ -25,3 +25,15 @@ export function trackCanvasWrapId(trackIndex: number, channelIndex: number): str
 export function trackSpectrumWrapId(trackIndex: number, channelIndex: number): string {
     return 'track-spectrum-wrap-' + trackIndex + channelCanvasSuffix(channelIndex);
 }
+
+export function trackSpecCanvasId(trackIndex: number, channelIndex: number): string {
+    return 'track-spec-canvas-' + trackIndex + channelCanvasSuffix(channelIndex);
+}
+
+export function trackSpecAxisCanvasId(trackIndex: number, channelIndex: number): string {
+    return 'track-spec-axis-canvas-' + trackIndex + channelCanvasSuffix(channelIndex);
+}
+
+export function trackSpecWrapId(trackIndex: number, channelIndex: number): string {
+    return 'track-spec-wrap-' + trackIndex + channelCanvasSuffix(channelIndex);
+}

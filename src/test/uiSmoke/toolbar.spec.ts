@@ -514,7 +514,6 @@ test('results toolbar posts VS Code messages for recipe run and report export', 
 test('spectrogram settings apply posts a reanalyze request', async ({ page }) => {
     await loadUi(page);
 
-    await page.locator('[data-action="content-spectrogram"]').click({ force: true });
     await page.locator('[data-action="spectrogram-settings"]').click({ force: true });
     await expect(page.locator('#spec-settings-popover')).toBeVisible();
 
@@ -531,6 +530,66 @@ test('spectrogram settings apply posts a reanalyze request', async ({ page }) =>
         return messages.filter((message) => message.type === 'request-reanalyze').at(-1)?.settings?.stft;
     });
     expect(stft).toMatchObject({ nFft: 1024, overlapPercent: 50 });
+});
+
+test('a lane shows the waveform over its spectrogram on one time axis, split by a drag', async ({ page }) => {
+    await loadUi(page);
+    const wave = page.locator('#track-canvas-0');
+    const spec = page.locator('#track-spec-canvas-0');
+    await expect(wave).toBeVisible();
+    await expect(spec).toBeVisible();
+    const box = async () => ({ wave: (await wave.boundingBox())!, spec: (await spec.boundingBox())! });
+    const before = await box();
+    // Both plots start at the same time; the waveform stops where the spectrogram's colour bar begins.
+    expect(before.wave.x).toBeCloseTo(before.spec.x, 0);
+    expect(before.spec.y).toBeGreaterThan(before.wave.y + before.wave.height - 1);
+    expect(before.spec.width - before.wave.width).toBeCloseTo(50, 0);
+    // Hovering either plot moves the same cursor time.
+    await page.mouse.move(before.spec.x + before.wave.width / 2, before.spec.y + before.spec.height / 2);
+    const fromSpec = await page.locator('#cursor-display').textContent();
+    await page.mouse.move(before.wave.x + before.wave.width / 2, before.wave.y + before.wave.height / 2);
+    expect(await page.locator('#cursor-display').textContent()).toBe(fromSpec);
+    // A click on the spectrogram gives the lane the keys: → moves the cursor.
+    await spec.click({ position: { x: before.wave.width / 4, y: before.spec.height / 2 } });
+    await expect(spec).toBeFocused();
+    await page.mouse.move(0, 0);
+    const clicked = await page.locator('#cursor-display').textContent();
+    await page.keyboard.press('Shift+ArrowRight');
+    await expect(page.locator('#cursor-display')).not.toHaveText(clicked ?? '');
+    // Box zoom is the waveform's: over the spectrogram the hint names the loop drag that will run.
+    await page.locator('#tb-more-menu > summary').click();
+    await page.locator('#toolbar [data-action="wave-mode-rect-zoom"]').click();
+    await page.mouse.move(before.wave.x + before.wave.width / 3, before.wave.y + before.wave.height / 2);
+    const waveHint = await page.locator('#hint-footer').textContent();
+    await page.mouse.move(before.spec.x + before.wave.width / 3, before.spec.y + before.spec.height / 2);
+    await expect(page.locator('#hint-footer')).not.toHaveText(waveHint ?? '');
+    await page.locator('#tb-more-menu > summary').click();
+    await page.locator('#toolbar [data-action="wave-mode-rect-zoom"]').click();
+
+    const split = page.locator('.track-split').first();
+    const handle = (await split.boundingBox())!;
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 + 30, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(async () => (await wave.boundingBox())!.height).toBeGreaterThan(before.wave.height + 20);
+    const after = await box();
+    expect(after.wave.height + after.spec.height).toBeCloseTo(before.wave.height + before.spec.height, 0);
+    // Dragged to the top, the waveform keeps room for its axis.
+    const moved = (await split.boundingBox())!;
+    await page.mouse.move(moved.x + moved.width / 2, moved.y + moved.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(moved.x + moved.width / 2, moved.y - 400, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(async () => (await wave.boundingBox())!.height).toBeLessThan(after.wave.height);
+    expect((await wave.boundingBox())!.height).toBeGreaterThanOrEqual(39);
+
+    // 比較解析 gives the lane to its plot: the spectrogram and the split hide.
+    await page.locator('#toolbar [data-action="content-stage"]').click();
+    await expect(spec).toBeHidden();
+    await expect(split).toBeHidden();
+    await page.locator('#toolbar [data-action="content-waveform"]').click();
+    await expect(spec).toBeVisible();
 });
 
 test('static page opens a folder through the File System Access picker without the input upload prompt', async ({ page }) => {

@@ -165,8 +165,9 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
     // Heights are dragged at the lanes' edges: the toolbar has no height fields.
     await expect(toolbar.locator('[data-action="track-height-input"], [data-action="spectrum-height-input"]')).toHaveCount(0);
 
-    await toolbar.locator('[data-action="content-spectrogram"]').click({ force: true });
-    await expect(toolbar.locator('[data-action="content-spectrogram"]')).toHaveClass(/is-active/);
+    // The lanes show the waveform over the spectrogram, so there is no spectrogram toggle; ⚙ is always there.
+    await expect(toolbar.locator('[data-action="content-spectrogram"]')).toHaveCount(0);
+    await expect(toolbar.locator('[data-action="spectrogram-settings"]')).toBeVisible();
     await toolbar.locator('[data-action="spectrogram-settings"]').click({ force: true });
     await expect(page.locator('#spec-settings-popover')).toBeVisible();
 

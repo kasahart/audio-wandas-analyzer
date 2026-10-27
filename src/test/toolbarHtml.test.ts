@@ -10,11 +10,15 @@ const spec: ToolbarSpec = {
     appVersion: '1.2.3 (abc1234)',
 };
 
-test('toolbar marks the active content type', () => {
-    assert.ok(toolbarHtml(spec, strings).includes('<button class="tb-btn is-active" data-action="content-waveform"'));
-    const spectrogram = toolbarHtml({ ...spec, contentType: 'spectrogram' }, strings);
-    assert.ok(spectrogram.includes('<button class="tb-btn is-active" data-action="content-spectrogram"'));
-    assert.ok(spectrogram.includes('<button class="tb-btn" data-action="content-waveform"'));
+test('toolbar marks the active view; the tracks show waveform and spectrogram together, so there is no spectrogram toggle', () => {
+    const html = toolbarHtml(spec, strings);
+    assert.ok(html.includes('<button class="tb-btn is-active" data-action="content-waveform"'));
+    assert.ok(!html.includes('data-action="content-spectrogram"'));
+    // The STFT settings belong to the tracks' spectrograms: shown with them, hidden in 比較解析.
+    assert.ok(html.includes('aria-label="' + escapeHtml(strings.btnSpectrogramSettingsTitle) + '">⚙'));
+    const stage = toolbarHtml({ ...spec, contentType: 'stage' }, strings);
+    assert.ok(stage.includes('<button class="tb-btn is-active" data-action="content-stage"'));
+    assert.ok(stage.includes('style="display:none">⚙'));
 });
 
 test('toolbar has two menus, the other zoom tools (⋯) and Export, which holds every export; heights are dragged, not typed', () => {

@@ -36,7 +36,7 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
         const S=await page.evaluate(()=>window.__APP_STRINGS__);
         await page.locator('input[data-action="browser-open-wav"]').setInputFiles(fixture);
         await page.locator('span[role="status"]').filter({hasText:S.browserReady.slice(0,S.browserReady.indexOf('{count}')).trim()}).waitFor({timeout:120000});
-        await page.locator('[data-action="content-spectrogram"]').click();
+        // The lanes show each track's spectrogram under its waveform: its detail is asked for without a toggle.
         await page.waitForFunction(()=>window.__auto96k.some(m=>m.type==='track-detail-result'||m.type==='track-detail-error'),undefined,{timeout:120000});
         const result=await page.evaluate(()=>window.__auto96k.find(m=>m.type==='track-detail-result'||m.type==='track-detail-error'));
         assert.equal(result.type,'track-detail-result',result.error);

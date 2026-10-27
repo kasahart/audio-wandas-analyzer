@@ -14,6 +14,9 @@ const base: ChannelLaneSpec = {
     axisWidth: 64,
     spectrumTitle: 'Spectrum',
     axisHint: 'Double-click: reset',
+    spectrogramAxisHint: 'Double-click: reset zoom',
+    splitHint: 'Drag the split',
+    splitLabel: 'Split',
     spectrumHint: 'Spectrum / ← →',
 };
 
@@ -32,7 +35,7 @@ test('multi-channel lane shows the label header with the metric summary', () => 
     assert.ok(html.includes('<span class="track-channel-lane-label">Ch &lt;2&gt;</span><span>Peak 80.0 dB</span>'));
     assert.ok(html.includes('id="track-canvas-1-1"'));
     assert.ok(html.includes('id="track-spectrum-wrap-1-1"'));
-    assert.equal(html.match(/data-track-id="t1" data-channel-index="1"/g)?.length, 5);
+    assert.equal(html.match(/data-track-id="t1" data-channel-index="1"/g)?.length, 8);
 });
 
 test('spectrum canvas aria-label escapes the file name', () => {

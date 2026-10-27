@@ -55,7 +55,6 @@ export interface UiStrings {
     spectrumSectionTitle: string;
     toolbarTrackLabel: string;
     btnWaveform: string;
-    btnSpectrogram: string;
     btnStage: string;
     stageLayoutSide: string;
     stageLayoutOverlay: string;
@@ -554,7 +553,8 @@ export interface UiStrings {
     helpRowWaveRectZoom: string;
     waveModeLabelRectZoom: string;
     hintContentWaveform: string;
-    hintContentSpectrogram: string;
+    hintTrackSplit: string;
+    trackSplitLabel: string;
     hintZoomOut: string;
     hintZoomIn: string;
     hintZoomReset: string;
@@ -665,9 +665,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnOpenFolder: 'Open Folder',
         selectionNoSupported: 'No supported audio files found.',
         spectrumSectionTitle: 'Power spectrum at cursor (all tracks overlaid)',
-        toolbarTrackLabel: 'Track:',
-        btnWaveform: 'Waveform',
-        btnSpectrogram: 'Spectrogram',
+        toolbarTrackLabel: 'View:',
+        btnWaveform: 'Tracks',
         btnStage: 'Compare',
         stageLayoutSide: 'Side by side',
         stageLayoutOverlay: 'Overlay',
@@ -1164,8 +1163,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowSpectrumDrag: 'drag zoom (spectrum)',
         helpRowWaveRectZoom: 'drag zoom (waveform zoom mode)',
         waveModeLabelRectZoom: 'Rect Zoom',
-        hintContentWaveform: 'Show tracks as waveforms',
-        hintContentSpectrogram: 'Show tracks as spectrograms (⚙ for STFT settings)',
+        hintContentWaveform: 'Show each track as its waveform over its spectrogram (⚙ for STFT settings)',
+        hintTrackSplit: 'Drag to share the track between waveform and spectrogram (all tracks)',
+        trackSplitLabel: 'Waveform / spectrogram split',
         hintZoomOut: 'Zoom out in time (key: −)',
         hintZoomIn: 'Zoom in in time (key: +)',
         hintZoomReset: 'Show the whole time range (key: 0, or double-click a waveform)',
@@ -1274,9 +1274,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnOpenFolder: 'フォルダを開く',
         selectionNoSupported: '対応する音声ファイルは見つかりませんでした。',
         spectrumSectionTitle: 'カーソル時刻のパワースペクトル（全トラック重ね合わせ）',
-        toolbarTrackLabel: 'トラック:',
-        btnWaveform: '波形',
-        btnSpectrogram: 'スペクトログラム',
+        toolbarTrackLabel: '表示:',
+        btnWaveform: 'トラック',
         btnStage: '比較解析',
         stageLayoutSide: '並べる',
         stageLayoutOverlay: '重ねる',
@@ -1773,8 +1772,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowSpectrumDrag: '矩形ズーム (スペクトル)',
         helpRowWaveRectZoom: '矩形ズーム (波形ズームモード時)',
         waveModeLabelRectZoom: '矩形ズーム',
-        hintContentWaveform: 'トラックを波形で表示',
-        hintContentSpectrogram: 'トラックをスペクトログラムで表示（⚙ で STFT 設定）',
+        hintContentWaveform: 'トラックごとに波形とその下のスペクトログラムを表示（⚙ で STFT 設定）',
+        hintTrackSplit: 'ドラッグで波形とスペクトログラムの高さの配分を変更（全トラック共通）',
+        trackSplitLabel: '波形とスペクトログラムの境目',
         hintZoomOut: '時間方向にズームアウト（キー: −）',
         hintZoomIn: '時間方向にズームイン（キー: +）',
         hintZoomReset: '全体を表示（キー: 0、または波形をダブルクリック）',

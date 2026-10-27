@@ -44,9 +44,10 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await status.filter({hasText:tracks(2)}).waitFor({timeout:120000});
         assert.equal(await page.locator('.track-row').count(),2);
         assert.equal(await page.evaluate(()=>window.__workers.length),1,'one shared Python runtime');
-        const initial = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='analysis-update').at(-1).results);
+        // The lanes ask for each track's spectrogram at once and merge it into the result: the overview is compared without it, the STFT below.
+        const initial = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='analysis-update').at(-1).results
+            .map(result=>({...result,channels:result.channels.map(channel=>({...channel,spectrogram:null}))})));
         for(let i=0;i<2;i++) compare(nativeResults[i][0].channels,initial[i].channels,`multi.waveform[${i}]`);
-        await page.locator('[data-action="content-spectrogram"]').click();
         await page.waitForFunction(()=>new Set(window.__multiIn.filter(m=>m.type==='track-detail-result'&&m.channels.every(c=>c.spectrogram?.timeBins>0)).map(m=>m.filePath)).size===2,undefined,{timeout:120000});
         await page.locator('[data-action="spectrogram-settings"]').click();
         await page.locator('#spec-auto').uncheck();await page.locator('#spec-nfft').selectOption('256');await page.locator('#spec-overlap').selectOption('75');
@@ -150,34 +151,30 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         assert.equal(await page.evaluate(()=>window.__workers.length),1);
         const waitStftPainted = async () => {
             await page.waitForFunction(() => {
-                const canvases = Array.from(document.querySelectorAll('canvas[id^="track-canvas-"]'));
+                const canvases = Array.from(document.querySelectorAll('canvas[id^="track-spec-canvas-"]'));
                 return canvases.length === 16 && canvases.every(canvas => {
                     const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width - 20, canvas.height).data;
                     return pixels.some((value, index) => index % 4 === 3 && value > 0);
                 });
             }, undefined, {timeout:30000});
         };
-        await page.locator('[data-action="content-spectrogram"]').click();
         await waitStftPainted();
         await page.locator('[data-action="remove-track"]').last().click();
         await picker.setInputFiles({name:'replacement.wav',mimeType:'audio/wav',buffer:bytes});
         await status.filter({hasText:tracks(8)}).waitFor();
         await waitStftPainted();
-        assert.equal(await page.locator('[data-action="content-spectrogram"]').evaluate(button=>button.classList.contains('is-active')),true);
-        console.log('Eight-track STFT remove/add: all 16 real Canvas rasters repainted without mode toggling.');
+        console.log('Eight-track STFT remove/add: all 16 real Canvas rasters repainted.');
         await page.evaluate(()=>window.__workers[0].postMessage({cmd:'__test_throw',requestId:'test-fault'}));
         await status.filter({hasText:S.browserWorkerFailed}).waitFor();assert.equal(await page.locator('.track-row').count(),0);
         assert.equal(await page.evaluate(async u=>{try{await fetch(u);return true;}catch{return false;}},firstUrl),false);
         await picker.setInputFiles(fixture('changing-stereo.wav'));await status.filter({hasText:tracks(1)}).waitFor({timeout:120000});
         await removeAllTracks(page);assert.equal(await page.locator('.track-row').count(),0);
         assert.ok(errors.every(error=>error.includes('intentional-multi-worker-failure')),errors.join('\n'));
-        await page.locator('[data-action="content-spectrogram"]').click();
         await page.reload();
         assert.equal(await page.locator('.track-row').count(),0,'audio is never persisted');
         const preferences = await page.evaluate(() => ({ settings: window.__APP_STATE__.spectrogramSettings, view: window.__AWA_HOST__.getState() }));
         assert.equal(preferences.settings.stft.nFft,256); assert.equal(preferences.settings.stft.overlapPercent,75);
-        assert.equal(preferences.settings.auto,false); assert.equal(preferences.view.contentType,'spectrogram');
-        assert.equal(await page.locator('[data-action="content-spectrogram"]').evaluate(button=>button.classList.contains('is-active')),true);
+        assert.equal(preferences.settings.auto,false);
         const context = await browser.newContext({locale:'ja-JP'});
         try {
             const japanese = await context.newPage(); await japanese.goto(origin+'/analyzer/');

@@ -15,11 +15,11 @@ test('triggerAnchorDownload clicks a temporary anchor and removes it', () => {
     assert.equal(document.querySelectorAll('a').length, 0);
 });
 
-test('visibleExportCanvases skips axis canvases, hidden canvases and calibration-blanked canvases', () => {
+test('visibleExportCanvases skips axis canvases, the spectrogram overlay, hidden canvases and calibration-blanked canvases', () => {
     const dom = new JSDOM('<div id="w"><canvas id="a"></canvas><canvas id="b" class="track-axis-canvas"></canvas>'
-        + '<canvas id="c" data-calibration-hidden="true"></canvas><canvas id="d"></canvas></div>');
+        + '<canvas id="c" data-calibration-hidden="true"></canvas><canvas id="d"></canvas><canvas id="e" class="track-spectrogram-overlay"></canvas></div>');
     const wrapper = dom.window.document.getElementById('w');
-    const parents: Record<string, unknown> = { a: wrapper, b: wrapper, c: wrapper, d: null };
+    const parents: Record<string, unknown> = { a: wrapper, b: wrapper, c: wrapper, d: null, e: wrapper };
     wrapper!.querySelectorAll('canvas').forEach(canvas => {
         Object.defineProperty(canvas, 'offsetParent', { get: () => parents[canvas.id] });
     });

@@ -3,6 +3,7 @@ import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import type { ComparisonState } from '../runtime/types';
 import { createNonce } from './nonce';
 import { DIFF_COLOR, FLAG_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
+import { SPECTROGRAM_COLORBAR_WIDTH } from '../draw/canvasDrawers';
 
 export interface ComparisonAssets {
     waveformScriptUri: string;
@@ -621,7 +622,14 @@ export function renderComparisonStyles(): string {
             cursor: text;
         }
         .track-offset-input { width: 5em; font-size: inherit; font-family: var(--font-mono); text-align: right; background: var(--vscode-input-background, #1e1e1e); color: var(--vscode-input-foreground, #d4d4d4); border: 1px solid var(--vscode-input-border, #3c3c3c); border-radius: 2px; }
-        .track-canvas-wrap { flex: 1; display: flex; position: relative; overflow: hidden; background: var(--track-bg); }
+        .track-canvas-stack { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        /* The right padding is the spectrogram's colour bar, so both plots share one time axis. */
+        .track-canvas-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); padding-right: ${SPECTROGRAM_COLORBAR_WIDTH}px; }
+        .track-spec-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); }
+        .track-split { flex: none; height: 5px; cursor: row-resize; background: var(--line); opacity: 0.5; }
+        .track-split:hover, body.is-split-resizing .track-split { opacity: 1; background: color-mix(in srgb, var(--accent) 45%, transparent); }
+        body.is-stage-view .track-split, body.is-stage-view .track-spec-wrap { display: none; }
+        body.is-stage-view .track-canvas-wrap { padding-right: 0; }
         .track-axis-canvas { flex: none; display: block; }
         .track-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
         .track-spectrum-wrap { width: 180px; flex-shrink: 0; border-left: 1px solid var(--line); background: var(--track-bg); }

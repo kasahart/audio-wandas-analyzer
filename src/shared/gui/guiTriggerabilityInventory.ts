@@ -53,7 +53,6 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'open-folder',
     'select-python-environment',
     'content-waveform',
-    'content-spectrogram',
     'content-stage',
     'stage-layout',
     'stage-diff',
@@ -73,6 +72,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'spectrum-octave-1',
     'spectrum-octave-3',
     'track-height-drag',
+    'track-split-drag',
     'spectrum-height-drag',
     'toggle-selection-sidebar',
     'toggle-spectrum-panel',
@@ -301,9 +301,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'switch-content-view',
-        label: 'Switch between waveform, spectrogram and steps views; in steps, overlay the tracks or set them side by side, and show their difference',
+        label: 'Switch between the tracks (waveform over spectrogram) and the compare view; in compare, overlay the tracks or set them side by side, and show their difference',
         entryPoints: ['results-toolbar'],
-        triggers: ['content-waveform', 'content-spectrogram', 'content-stage', 'stage-layout', 'stage-diff', 'stage-report', 'stage-base-info', 'stage-base-list', 'spectrogram-settings'],
+        triggers: ['content-waveform', 'content-stage', 'stage-layout', 'stage-diff', 'stage-report', 'stage-base-info', 'stage-base-list', 'spectrogram-settings'],
         regressionLayers: ['node:test', 'ui-smoke', 'vscode-e2e'],
     },
     {
@@ -413,9 +413,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'visual-height-controls',
-        label: 'Adjust track and power spectrum heights by dragging their edges',
+        label: 'Adjust track and power spectrum heights, and the waveform/spectrogram split, by dragging their edges',
         entryPoints: ['canvas-gesture'],
-        triggers: ['track-height-drag', 'spectrum-height-drag'],
+        triggers: ['track-height-drag', 'track-split-drag', 'spectrum-height-drag'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

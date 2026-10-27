@@ -43,7 +43,8 @@ export interface PythonEnvironmentState {
 export type ComparisonState = ComparisonResultsState | DirectorySelectionState;
 
 export interface PersistedWebviewState {
-    contentType?: 'waveform' | 'spectrogram';
+    /** The waveform's share of a lane's height; the spectrogram under it takes the rest. */
+    waveShare?: number;
     spectrumBandsPerOctave?: 0 | 1 | 3;
     sidebarCollapsed?: boolean;
     spectrumCollapsed?: boolean;
@@ -179,6 +180,8 @@ export interface RectZoomSelection {
 
 export interface WaveformDragState {
     trackId: TrackId;
+    /** The pressed canvas: the lane's waveform or its spectrogram, whose time spans differ in width. */
+    canvasId: string;
     startClientX: number;
     startClientY: number;
     startOffset: number;

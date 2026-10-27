@@ -202,12 +202,12 @@ test('browser preferences restore safely across reloads and use shared Japanese 
     const settings = { auto: false, stft: { nFft: 256, overlapPercent: 75, window: 'hann' }, display: { dbMin: -80, dbMax: 0, maxFrequencyHz: 4000 } };
     app.host.postMessage({ type: 'update-spectrogram-settings', settings });
     // A key the page no longer keeps (the old file tree's) is not saved.
-    app.host.setState({ contentType: 'spectrogram', ...({ directoryCollapseRootPath: '/private/path' } as object), sidebarCollapsed: true, spectrumCollapsed: true });
+    app.host.setState({ waveShare: 0.3, ...({ directoryCollapseRootPath: '/private/path' } as object), sidebarCollapsed: true, spectrumCollapsed: true });
     const restored = harness(storage);
     assert.equal(restored.host.getState()?.sidebarCollapsed, true);
     assert.equal(restored.host.getState()?.spectrumCollapsed, true);
     assert.equal(JSON.stringify(restored.browser.__APP_STATE__.spectrogramSettings), JSON.stringify(settings));
-    assert.equal(restored.host.getState()?.contentType, 'spectrogram');
+    assert.equal(restored.host.getState()?.waveShare, 0.3);
     assert.ok(!storage.get('audioWandasAnalyzer.viewState')!.includes('/private/path'));
     storage.set('audioWandasAnalyzer.spectrogramSettings', '{broken');
     assert.equal(harness(storage).browser.__APP_STATE__.spectrogramSettings.auto, true);

@@ -127,7 +127,7 @@ test('span-changing selection refreshes cursor labels while retaining normalized
         const messages = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; renderedUi: { cursorNorm: number; zoomStart: number; zoomEnd: number } }> }).__uiSmokePostedMessages;
         return messages.filter(message => message.type === 'comparison-panel-test-snapshot').at(-1)!.renderedUi;
     });
-    for (const mode of ['waveform', 'spectrogram']) {
+    for (const mode of ['waveform']) {
         await page.evaluate(mode => window.dispatchEvent(new MessageEvent('message', { data: {
             type: 'comparison-panel-test-action', actions: [
                 'content-' + mode,

@@ -190,8 +190,6 @@ const server = http.createServer((req,res) => {
             window.__AWA_HOST__.onMessage(message => window.__testInbound.push(message));
         });
         await recordHostMessages();
-        await page.locator('[data-action="content-spectrogram"]').click();
-        await page.waitForFunction(() => document.querySelector('[data-action="content-spectrogram"]')?.classList.contains('is-active'));
         await page.waitForFunction(() => window.__testInbound.some(message => message.type === 'track-detail-result'
             && message.channels.every(channel => channel.spectrogram?.timeBins > 0)), undefined, {timeout:120000});
         assert.equal(await page.getByRole('status').filter({hasText:'Error'}).count(),0);
@@ -381,7 +379,6 @@ const server = http.createServer((req,res) => {
         await clearAll();
         await picker.setInputFiles(tonePath);
         await status.filter({hasText:READY}).waitFor({timeout:120000});
-        await page.locator('[data-action="content-spectrogram"]').click();
         await page.locator('[data-action="spectrogram-settings"]').click();
         await page.locator('#spec-auto').uncheck();
         await page.locator('#spec-nfft').selectOption('2048');
@@ -391,7 +388,8 @@ const server = http.createServer((req,res) => {
         await page.locator('#spec-apply').click();
         await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'track-detail-result'
             && m.channels.every(c => c.spectrogram?.windowSize === 2048)),undefined,{timeout:120000});
-        const toneCanvas = await page.locator(await firstCanvas()).boundingBox();
+        // The spectrogram under the waveform: its plot ends 50 px before the canvas does, at the colour bar.
+        const toneCanvas = await page.locator((await firstCanvas()).replace('track-canvas-', 'track-spec-canvas-')).boundingBox();
         await page.evaluate(() => {window.__testInbound = [];});
         await page.mouse.click(toneCanvas.x + (toneCanvas.width - 50) * .5, toneCanvas.y + toneCanvas.height * .5);
         await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'spectrum-slice-result' && Math.abs(m.cursorNorm - .5) < .01));
@@ -416,7 +414,7 @@ const server = http.createServer((req,res) => {
                 const match=text.match(/(\d+(?:\.\d+)?) Hz \/ (-?\d+(?:\.\d+)?)/);
                 return match && Math.abs(Number(match[1])-expected.hz)<.11 && Math.abs(Number(match[2])-expected.db)<.11;
             },{hz:peakHz,db:peakDb});
-            const stftId = (await firstCanvas()) + (channel ? '-1' : '');
+            const stftId = (await firstCanvas()).replace('track-canvas-', 'track-spec-canvas-') + (channel ? '-1' : '');
             const band = await page.locator(stftId).evaluate(canvas=>{
                 const x=Math.floor((canvas.width-50)*.5), h=canvas.height;
                 const data=canvas.getContext('2d').getImageData(x,0,1,h).data;
@@ -449,10 +447,13 @@ const server = http.createServer((req,res) => {
         await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
         assert.equal(await mobile.locator('#loop-time-display').isVisible(),false,'documented prototype limitation: no touch-drag region');
         console.log('390px touch tap/STFT passed; touch-drag region remains unavailable.');
-        await mobile.locator('[data-action="content-spectrogram"]').tap();
-        await mobile.waitForFunction(()=>window.__testInbound.some(message=>message.type==='track-detail-result'
-            && message.channels.every(channel=>channel.spectrogram?.timeBins>0)),undefined,{timeout:120000});
-        assert.equal(await mobile.locator('[data-action="content-spectrogram"]').evaluate(node=>node.classList.contains('is-active')),true);
+        // The spectrogram under the waveform is painted without a toggle (its detail may have come before the listener).
+        await mobile.waitForFunction(()=>{
+            const canvas=document.getElementById('track-spec-canvas-0');
+            if(!canvas?.width) return false;
+            const data=canvas.getContext('2d').getImageData(0,0,Math.max(1,canvas.width-50),canvas.height).data;
+            return data.some((value,index)=>index%4===3&&value>0);
+        },undefined,{timeout:120000});
         await mobile.screenshot({path:path.join(root,'test-results/static-mobile.png')});
         await removeAllTracks(mobile, 'tap');
         await mobile.close();

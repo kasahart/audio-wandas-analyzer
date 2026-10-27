@@ -28,10 +28,10 @@ test('pickLocale: undefined / 空文字 / 非文字列は en', () => {
 test('getStrings: ja で日本語、en で英語の対応キーを返す', () => {
     const ja = getStrings('ja');
     const en = getStrings('en-US');
-    assert.equal(ja.btnWaveform, '波形');
-    assert.equal(en.btnWaveform, 'Waveform');
-    assert.equal(ja.btnSpectrogram, 'スペクトログラム');
-    assert.equal(en.btnSpectrogram, 'Spectrogram');
+    assert.equal(ja.btnWaveform, 'トラック');
+    assert.equal(en.btnWaveform, 'Tracks');
+    assert.equal(ja.btnStage, '比較解析');
+    assert.equal(en.btnStage, 'Compare');
 });
 
 test('getStrings: en と ja は同じキー集合を持つ (キー欠落の防止)', () => {
