@@ -269,6 +269,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                     : deps.fix(path, groupBase, region, measured());
             deps.hint(refused ?? strings.compareFixedHint);
         } else if (event.key === 'Escape') {
+            // An open toolbar menu takes Esc first: it closes, and the comparison stays.
+            if (root.ownerDocument?.querySelector?.('details.tb-menu[open]')) return;
             event.preventDefault(); event.stopImmediatePropagation();
             deps.back();
         }

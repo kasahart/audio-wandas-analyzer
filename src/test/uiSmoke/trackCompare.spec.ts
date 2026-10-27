@@ -85,6 +85,11 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     await page.keyboard.press('2');
     await expect(root).toHaveAttribute('data-compared', '2');
     await page.keyboard.press('1');
+    // Esc with the toolbar's 書き出し open closes it and stays in the comparison.
+    await page.locator('#tb-export-menu > summary').click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#tb-export-menu')).not.toHaveAttribute('open', '');
+    await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
     // Esc: back to the entry table, maximized, slots kept.
     await page.keyboard.press('Escape');
     await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
