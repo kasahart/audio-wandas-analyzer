@@ -397,6 +397,13 @@ test('the head\'s ○ asks before it shows more than 30 files as tracks', async 
     // The browser keeps its own limit on the tracks it holds (8): the rest stay off, the head half on.
     await expect(page.locator('.track-row')).toHaveCount(8, { timeout: 60_000 });
     await expect(headMark).toHaveText('◐');
+    await expect(headMark).toBeFocused();
+    // Showing the rest was just tried, so ◐ now takes them all off.
+    await expect(headMark).toHaveAttribute('aria-label', strings.dsTracksNone.replace('{n}', '31'));
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    await expect(headMark).toHaveText('○');
+    await expect(headMark).toBeFocused();
 });
 
 test('the table shows where a recording goes, keeps its exports reachable by keys, and hides them with the folded panel', async ({ page }) => {

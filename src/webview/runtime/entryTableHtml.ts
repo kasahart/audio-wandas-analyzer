@@ -35,6 +35,8 @@ export interface DatasetScreenView {
     stale?: ReadonlySet<string>;
     /** Files shown as tracks in the track view: ● in the first column and a bold name. */
     shown?: ReadonlySet<string>;
+    /** The head's ◐ takes the listed files off: showing the rest was just tried and they did not all come (the browser's limit). */
+    tracksAllOff?: boolean;
     mode: 'all' | 'unmatched' | 'excluded';
     unmatched: readonly Unmatched[];
     /** A filter of a column shows ▼ (on) in its header. */
@@ -190,7 +192,7 @@ function trackHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
     if (view.mode !== 'all' || !files.size) return '<th class="entry-mark"></th>';
     const on = [...files].filter(filePath => view.shown?.has(filePath)).length;
     const state = on === 0 ? 'none' : on === files.size ? 'all' : 'some';
-    const label = state === 'all' ? strings.dsTracksNone.replace('{n}', files.size.toLocaleString())
+    const label = state === 'all' || (state === 'some' && view.tracksAllOff) ? strings.dsTracksNone.replace('{n}', files.size.toLocaleString())
         : state === 'some' ? strings.dsTracksRest.replace('{n}', (files.size - on).toLocaleString())
             : strings.dsTracksAll.replace('{n}', files.size.toLocaleString());
     return `<th class="entry-mark is-${state}"><button type="button" class="entry-mark-all" data-action="entry-tracks-all" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${escapeHtml(label)}"${hintAttr(label)}>${state === 'all' ? '●' : state === 'some' ? '◐' : '○'}</button></th>`;

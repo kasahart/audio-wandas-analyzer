@@ -327,6 +327,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let tracksOnly = false;
     /** The files a click on the head would show, waiting for the count to be confirmed (more than LARGE_BASE). */
     let pendingAll: string[] | null = null;
+    /** The listed files the head last tried to show all of: a second click while they are not all on takes them off. */
+    let triedAll: string | null = null;
     /** The file whose row and lane are lit under the mouse. */
     let linkedPath: string | null = null;
     /** Channels read from the files' headers at open (no audio decoded), and the files whose header could not be read. */
@@ -451,7 +453,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const stale = stalePaths();
         const ready = !isComputed(value) || shownRows.every(row => results.has(row.filePath) && !stale.has(row.filePath));
         return {
-            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group, value, filters, sort, slots, focused, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, mode, shown: shownFiles(),
+            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group, value, filters, sort, slots, focused, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, mode, shown: shownFiles(), tracksAllOff: triedAll !== null && triedAll === listedFiles().join('\n'),
             unmatched: match?.unmatched ?? [], filtered: new Set(filters.map(filter => filter.column)),
             columns: {
                 name: { id: 'name', label: strings.entryColFile, numeric: false },
@@ -503,7 +505,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             : visibleRows({ rows, group, value, filters, sort, excluded }, results).filter(row => !onTracks || onTracks.has(row.filePath));
         if (!focusPicked || !focused || !rows.some(row => row.key === focused)) focused = shownRows[0]?.key ?? null;
         // An open question about showing the listed files counts the rows listed now.
-        if (pendingAll) { const adding = notShown(listedFiles()); pendingAll = adding.length ? adding : null; }
+        if (pendingAll) { const adding = mode === 'all' ? notShown(listedFiles()) : []; pendingAll = adding.length ? adding : null; }
         render();
         if (!maximized) deps.compareChanged?.();
     }
@@ -534,7 +536,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         excludedButton.setAttribute('aria-pressed', String(mode === 'excluded'));
         query('[data-entry-source]').textContent = csv && match ? strings.dsCsvSource.replace('{name}', csv.name).replace('{matched}', String(match.attributes.size)).replace('{total}', String(filePaths.length)) : strings.dsPickCsv;
         cols.innerHTML = datasetColsHtml(view);
+        // The head is drawn again: a focus on its ○/◐/● stays there.
+        const headFocused = !!document.activeElement?.closest?.('[data-action="entry-tracks-all"]') && head.contains(document.activeElement);
         head.innerHTML = datasetHeadHtml(view, text);
+        if (headFocused) focusHeadMark();
         renderRows(view);
         // One file in two slots as different channels: it is one track, drawn as the first slot's channel (1–3, then 0).
         const notes = slots.map(key => {
@@ -1122,7 +1127,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     /** The files shown as tracks now (a hidden track is not). */
     const shownFiles = (): Set<string> => new Set([...deps.shownTracks?.() ?? []].filter(([, hidden]) => !hidden).map(([filePath]) => filePath));
+    const focusHeadMark = (): void => { head.querySelector<HTMLElement>('[data-action="entry-tracks-all"]')?.focus(); };
     function toggleTrack(key: string): void {
+        triedAll = null;
         const filePath = fileOfKey(key);
         if (!shownFiles().has(filePath)) { deps.setShown?.(filePath, true); return; }
         // Off the tracks is out of its slots too, as a lane's × does; the last slot it leaves takes the track off.
@@ -1133,15 +1140,17 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The head's ○/◐/●: shows every listed file as a track (many only once confirmed), or takes them all off. */
     function toggleAllTracks(): void {
         const listed = listedFiles();
-        const adding = notShown(listed);
+        const tried = triedAll === listed.join('\n');
+        const adding = tried ? [] : notShown(listed);
         pendingAll = null;
+        triedAll = null;
         if (adding.length > LARGE_BASE) {
             pendingAll = adding;
             render();
             screen.querySelector<HTMLElement>('[data-action="entry-tracks-all-go"]')?.focus();
             return;
         }
-        if (adding.length) { deps.setShownMany?.(adding, true); return; }
+        if (adding.length) { showAll(listed, adding); return; }
         // Off the tracks is out of the slots too, as a row's ● does; Tracks only would be left with no rows.
         const off = new Set(listed);
         slots.forEach((item, slot) => { if (item && off.has(fileOfKey(item))) setSlot(slot, null, false); });
@@ -1149,6 +1158,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         tracksOnly = false;
         deps.setShownMany?.(listed, false);
         if (wasOnly) rebuild();
+    }
+    function showAll(listed: readonly string[], adding: readonly string[]): void {
+        triedAll = listed.join('\n');
+        deps.setShownMany?.(adding, true);
     }
     const listedFiles = (): string[] => [...new Set(shownRows.map(row => row.filePath))];
     const notShown = (filePaths: readonly string[]): string[] => { const shown = shownFiles(); return filePaths.filter(filePath => !shown.has(filePath)); };
@@ -1514,8 +1527,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-row-track': target => { focused = target.getAttribute('data-key')!; focusPicked = true; toggleTrack(focused); render(); },
         'entry-tracks-all': () => { if (mode === 'all') toggleAllTracks(); },
         // The rows listed now: a filter changed while the question was open counts.
-        'entry-tracks-all-go': () => { pendingAll = null; const files = notShown(listedFiles()); if (files.length) deps.setShownMany?.(files, true); render(); },
-        'entry-tracks-all-cancel': () => { pendingAll = null; render(); },
+        'entry-tracks-all-go': () => { pendingAll = null; const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); render(); focusHeadMark(); },
+        'entry-tracks-all-cancel': () => { pendingAll = null; render(); focusHeadMark(); },
         'entry-tracks-only': () => { tracksOnly = !tracksOnly; tableWrap.scrollTop = 0; rebuild(); },
         'entry-row-slotmenu': target => { const key = target.getAttribute('data-key')!; fpop = null; memoKey = null; slotMenu = slotMenu === key ? null : key; focused = key; focusPicked = true; render(); renderPopovers(); },
         'entry-row-slot': target => { const key = target.getAttribute('data-key')!; slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); },
@@ -1794,7 +1807,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             // Esc closes the innermost thing: a popover, the step bar's form, the unmatched or excluded list;
             // then the maximized table shrinks into the side panel, and the side panel hands the keys back.
             if (closePopovers()) return;
-            if (pendingAll) { pendingAll = null; render(); return; }
+            if (pendingAll) { pendingAll = null; render(); focusHeadMark(); return; }
             if (closeExportMenu()) return;
             if (stepBar.close()) return;
             if (mode !== 'all') { mode = 'all'; rebuild(); return; }
@@ -1891,6 +1904,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         // With "tracks only" on, the rows follow the tracks.
         tracksChanged: () => { if (tracksOnly) rebuild(); else if (!screen.hidden) render(); },
         trackRemoved(filePath) {
+            triedAll = null;
             const slot = slots.findIndex(key => key && fileOfKey(key) === filePath);
             if (slot >= 0) setSlot(slot, null, false); else if (!screen.hidden) render();
             // With 「トラックのみ」 on, the row leaves with its lane.
