@@ -91,7 +91,8 @@ test('the separated high tail of the 3.15 kHz band, by rpm: dragged, the table k
     const strip = (await page.locator('[data-entry-dist]').boundingBox())!;
     const table = (await page.locator('.entry-table-wrap').boundingBox())!;
     expect(strip.y + strip.height).toBeLessThanOrEqual(table.y + 1);
-    await page.locator('[data-action="entry-dist-back"]').click();
+    // ⤢ widens the table back to the distribution beside it.
+    await page.locator('.entry-size').click();
     await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
     await expect.poll(async () => (await dist(page))?.strip).toBe(false);
     // × on the chip takes the range off; a range dragged again goes with Esc, before the table shrinks.

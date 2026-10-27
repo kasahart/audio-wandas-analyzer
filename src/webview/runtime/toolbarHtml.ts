@@ -9,17 +9,26 @@ export interface ToolbarSpec {
 
 /** Controls marked tb-track-only act on the track lanes (time zoom, the lanes' exports) and hide in the steps view. */
 export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
-    function toolbarMenu(label: string, hint: string, content: string) {
-        return '<details class="tb-menu tb-track-only"><summary class="tb-btn"' + hintAttr(hint) + '>' + escapeHtml(label) + '</summary><div class="tb-menu-popover">' + content + '</div></details>';
+    function toolbarMenu(label: string, hint: string, content: string, classes: string, id: string) {
+        return '<details class="tb-menu' + classes + '" id="' + id + '"><summary class="tb-btn"' + hintAttr(hint) + ' aria-label="' + escapeHtml(hint) + '">' + escapeHtml(label) + '</summary><div class="tb-menu-popover">' + content + '</div></details>';
     }
-    const exportMenu = '<button class="tb-btn" data-action="export-png"' + hintAttr(strings.btnExportPngTitle) + '>' + escapeHtml(strings.btnExportPng) + '</button>'
-        + '<button class="tb-btn" data-action="export-csv"' + hintAttr(strings.btnExportCsvTitle) + '>' + escapeHtml(strings.btnExportCsv) + '</button>'
-        + '<button class="tb-btn" data-action="export-wav"' + hintAttr(strings.btnExportWavTitle) + '>' + escapeHtml(strings.btnExportWav) + '</button>'
-        + '<button class="tb-btn" data-action="export-report"' + hintAttr(strings.btnExportReportTitle) + '>' + escapeHtml(strings.btnExportReport) + '</button>'
-        // The Recipe is the step bar's chain: it is saved, or one read and run, from here.
+    // Every export of the panel is here: the lanes', the comparison's (steps view), the Recipe's and the table's.
+    const exportMenu = '<button class="tb-btn tb-track-only" data-action="export-png"' + hintAttr(strings.btnExportPngTitle) + '>' + escapeHtml(strings.btnExportPng) + '</button>'
+        + '<button class="tb-btn tb-track-only" data-action="export-csv"' + hintAttr(strings.btnExportCsvTitle) + '>' + escapeHtml(strings.btnExportCsv) + '</button>'
+        + '<button class="tb-btn tb-track-only" data-action="export-wav"' + hintAttr(strings.btnExportWavTitle) + '>' + escapeHtml(strings.btnExportWav) + '</button>'
+        + '<button class="tb-btn tb-track-only" data-action="export-report"' + hintAttr(strings.btnExportReportTitle) + '>' + escapeHtml(strings.btnExportReport) + '</button>'
+        + '<button class="tb-btn tb-stage-only" data-action="stage-report"' + hintAttr(strings.compareReport) + '>' + escapeHtml(strings.compareReport) + '</button>'
+        // The Recipe is the step bar's chain: it is saved, or one read and run, or written for many files, from here.
         + '<div class="tb-menu-sep"></div>'
         + '<button class="tb-btn" data-action="save-recipe"' + hintAttr(strings.hintSaveRecipe) + '>' + escapeHtml(strings.btnSaveRecipe) + '</button>'
-        + '<button class="tb-btn" data-action="run-recipe"' + hintAttr(strings.hintRunRecipe) + '>' + escapeHtml(strings.btnRunRecipe) + '</button>';
+        + '<button class="tb-btn" data-action="run-recipe"' + hintAttr(strings.hintRunRecipe) + '>' + escapeHtml(strings.btnRunRecipe) + '</button>'
+        + '<button class="tb-btn tb-entry-only" data-action="entry-batch"' + hintAttr(strings.hintBatch) + '>' + escapeHtml(strings.dsBatch) + '</button>'
+        + '<div class="tb-menu-sep tb-entry-only"></div>'
+        + '<button class="tb-btn tb-entry-only" data-action="entry-export-csv"' + hintAttr(strings.dsExportTable) + '>' + escapeHtml(strings.dsExportTable) + '</button>'
+        + '<button class="tb-btn tb-entry-only" data-action="entry-export-notes"' + hintAttr(strings.hintExportNotes) + '>' + escapeHtml(strings.dsExportNotes) + '</button>';
+    const moreMenu = '<button class="tb-btn" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom"' + hintAttr(strings.hintRectZoom) + ' aria-pressed="false">' + escapeHtml(strings.waveModeLabelRectZoom) + '</button>'
+        + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection"' + hintAttr(strings.btnZoomToSelectionTitle) + ' disabled>' + escapeHtml(strings.btnZoomToSelection) + '</button>'
+        + '<button class="tb-btn" data-action="toggle-follow-cursor"' + hintAttr(strings.btnFollowCursorTitle) + '>' + escapeHtml(strings.btnFollowCursor) + '</button>';
     return '<span class="tb-label">' + escapeHtml(strings.toolbarTrackLabel) + '</span>'
         + '<button class="tb-btn' + (spec.contentType === 'waveform' ? ' is-active' : '') + '" data-action="content-waveform"' + hintAttr(strings.hintContentWaveform) + '>' + escapeHtml(strings.btnWaveform) + '</button>'
         + '<button class="tb-btn' + (spec.contentType === 'spectrogram' ? ' is-active' : '') + '" data-action="content-spectrogram"' + hintAttr(strings.hintContentSpectrogram) + '>' + escapeHtml(strings.btnSpectrogram) + '</button>'
@@ -30,11 +39,9 @@ export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
         + '<button class="tb-btn tb-track-only" data-action="zoom-out"' + hintAttr(strings.hintZoomOut) + ' aria-label="' + escapeHtml(strings.ariaZoomOut) + '">－</button>'
         + '<button class="tb-btn tb-track-only" data-action="zoom-in"' + hintAttr(strings.hintZoomIn) + ' aria-label="' + escapeHtml(strings.ariaZoomIn) + '">＋</button>'
         + '<button class="tb-btn tb-track-only" data-action="zoom-reset"' + hintAttr(strings.hintZoomReset) + ' aria-label="' + escapeHtml(strings.ariaZoomReset) + '">' + escapeHtml(strings.btnZoomReset) + '</button>'
-        + '<button class="tb-btn tb-track-only" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom"' + hintAttr(strings.hintRectZoom) + ' aria-pressed="false">' + escapeHtml(strings.waveModeLabelRectZoom) + '</button>'
-        + '<button class="tb-btn tb-track-only" id="btn-zoom-to-selection" data-action="zoom-to-selection"' + hintAttr(strings.btnZoomToSelectionTitle) + ' disabled>' + escapeHtml(strings.btnZoomToSelection) + '</button>'
-        + '<button class="tb-btn tb-track-only" data-action="toggle-follow-cursor"' + hintAttr(strings.btnFollowCursorTitle) + '>' + escapeHtml(strings.btnFollowCursor) + '</button>'
-        + '<div class="tb-sep tb-track-only"></div>'
-        + toolbarMenu(strings.toolbarExportLabel, strings.hintMenuExport, exportMenu)
+        + toolbarMenu('⋯', strings.toolbarMore, moreMenu, ' tb-track-only', 'tb-more-menu')
+        + '<div class="tb-sep"></div>'
+        + toolbarMenu(strings.toolbarExportLabel, strings.hintMenuExport, exportMenu, '', 'tb-export-menu')
         + '<div class="tb-sep tb-track-only"></div>'
         + '<span id="cursor-display" class="tb-track-only"' + hintAttr(strings.cursorDisplayHint) + '>—</span>'
         + '<span id="playback-display"' + hintAttr(strings.playbackDisplayTitle) + '></span>'

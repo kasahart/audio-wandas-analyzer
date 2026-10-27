@@ -25,7 +25,7 @@ interface TestSnapshot {
     lastActionId?: string;
     renderedUi?: {
         /** The entry table and the comparison, as their own snapshots report them. */
-        entry?: { open: boolean; rows: number; scanned: number; slots: (string | null)[] };
+        entry?: { open: boolean; docked: boolean; rows: number; scanned: number; slots: (string | null)[] };
         comparison?: { open: boolean; stage: string | null; frame: string | null; kind: string | null; stageValues: number; stageMedian: number | null; invalidSteps: number };
         hasToolbar: boolean;
         toolbarActions: string[];
@@ -231,8 +231,13 @@ export async function run(): Promise<void> {
                     'export-csv',
                     'export-wav',
                     'export-report',
+                    'stage-report',
                     'save-recipe',
                     'run-recipe',
+                    // The entry table's exports share the toolbar's 書き出し menu.
+                    'entry-batch',
+                    'entry-export-csv',
+                    'entry-export-notes',
                 ]);
                 assert.deepEqual(
                     snapshot.renderedUi.displayOrder,
@@ -436,7 +441,7 @@ export async function run(): Promise<void> {
                 await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
                 const scanned = await pollSnapshot('entry-scanned', snapshot => {
                     const entry = snapshot.renderedUi?.entry;
-                    return !!entry?.open && entry.rows > 0 && entry.scanned === entry.rows;
+                    return !!(entry?.open || entry?.docked) && entry.rows > 0 && entry.scanned === entry.rows;
                 }, COMMAND_TIMEOUT_MS);
                 assert.ok(scanned.renderedUi?.entry?.rows, `entry table did not scan: ${JSON.stringify(scanned.renderedUi?.entry)}`);
                 await openComparison('hpss', scanned);
@@ -480,7 +485,7 @@ export async function run(): Promise<void> {
                 await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
                 const scanned = await pollSnapshot('entry-scanned', snapshot => {
                     const entry = snapshot.renderedUi?.entry;
-                    return !!entry?.open && entry.rows > 0 && entry.scanned === entry.rows;
+                    return !!(entry?.open || entry?.docked) && entry.rows > 0 && entry.scanned === entry.rows;
                 }, COMMAND_TIMEOUT_MS);
                 await openComparison('cepstrum', scanned);
                 const click = (selector: string) => ({ action: 'mouse-event', payload: { type: 'click', selector } });
@@ -948,7 +953,10 @@ async function runMultiTrackOffsetScenario(): Promise<TestSnapshot> {
  */
 async function openComparison(label: string, scanned: TestSnapshot): Promise<TestSnapshot> {
     const slotted = !!scanned.renderedUi?.entry?.slots?.[1];
+    // Docked beside the tracks, the table takes keys only with the focus in it: maximized, it takes them all.
+    const docked = !scanned.renderedUi?.entry?.open;
     return postActionsAndWait(`${label}-open-${Date.now()}`, [
+        ...(docked ? [{ action: 'mouse-event', payload: { type: 'click', selector: '#entry-screen [data-action="entry-maximize"]' } }] : []),
         ...(slotted ? [] : [{ action: 'press-key', payload: { key: '1' } }]),
         { action: 'press-key', payload: { key: 'Enter' } },
     ]);

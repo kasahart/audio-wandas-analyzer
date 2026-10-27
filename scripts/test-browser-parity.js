@@ -237,7 +237,7 @@ const server = http.createServer((req,res) => {
         await page.mouse.down();
         await page.mouse.move(box.x + box.width * .63, box.y + box.height * .5, { steps: 4 });
         await page.mouse.up();
-        await page.locator('summary').filter({hasText:S.toolbarExportLabel}).click();
+        await page.locator('#tb-export-menu > summary').click();
         const [download] = await Promise.all([
             page.waitForEvent('download', {timeout:15000}),
             page.locator('[data-action="export-wav"]').click(),

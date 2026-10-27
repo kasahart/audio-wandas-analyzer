@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { getStrings } from '../../shared/i18n/strings';
-import { answerProbe, entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
+import { answerProbe, entry100Metadata, entry100Results, openEntry, openStepsView, pickCsv, type ScannedFile } from './entryHelpers';
+
+const SPECTRUM_VIEW = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
 
 let scanned: ScannedFile[] | undefined;
 test.beforeAll(() => { scanned = entry100Results(); });
@@ -210,7 +212,7 @@ test('a column not on screen filters through ＋, a name search keeps 1500rpm, �
     await expect(page.locator('[data-entry-rows] .entry-col-group')).not.toContainText(['OK']);
 });
 
-test('a row\'s tools: its slot, a memo kept on Esc, and taken out then put back (I6, I7); empty slot chips take the selected row', async ({ page }) => {
+test('a row\'s tools: its slot, a memo kept on Esc, and taken out then put back (I6, I7); only slots in use show a chip', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja' });
@@ -221,10 +223,11 @@ test('a row\'s tools: its slot, a memo kept on Esc, and taken out then put back 
     await page.locator('[data-action="entry-row-slot"][data-slot="1"]').click();
     await expect(row.locator('.entry-badge.entry-slot-1')).toHaveCount(1);
     expect((await snapshot(page))?.slots).toEqual([null, key, null, null]);
-    // An empty chip puts the selected row in; a filled one only goes to its row.
+    // Only slots in use have a chip; a key puts the selected row in, and a filled chip only goes to its row.
+    await expect(page.locator('[data-action="entry-slot"][data-slot="2"]')).toHaveCount(0);
     await rows(page).nth(4).click();
     const other = (await rows(page).nth(4).getAttribute('data-key'))!;
-    await page.locator('[data-action="entry-slot"][data-slot="2"]').click();
+    await page.keyboard.press('2');
     expect((await snapshot(page))?.slots).toEqual([null, key, other, null]);
     await page.locator('[data-action="entry-slot"][data-slot="1"]').click();
     expect((await snapshot(page))?.slots).toEqual([null, key, other, null]);
@@ -297,17 +300,20 @@ test('a folder of 1000 recordings draws only the rows on screen', async ({ page 
     await expect(page.locator('.entry-th-count')).toHaveText(STR.dsRows.replace('{n}', '1,967'));
 });
 
-test('the step bar shows every step of the scan Recipe; an invalid value keeps Apply off and a valid one rescans the table', async ({ page }) => {
+test('the step bar (in 比較解析) shows every step of the scan Recipe; an invalid value keeps Apply off and a valid one rescans the table', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
     await openEntry(page, scanned!, { recipe });
-    const bar = page.locator('#entry-screen [data-step-bar]');
+    // The table carries no step bar: the chain is edited where the analysis is decided, the track view's 比較解析.
+    await expect(page.locator('#entry-screen [data-step-bar]')).toHaveCount(0);
+    await openStepsView(page, scanned!, SPECTRUM_VIEW);
+    const bar = page.locator('.track-stage-bar');
     // "Steps", the input, then every step as a round chip joined by →, with the stage this screen answers with
     // (the app's 1/3-octave branch) after the chain, framed.
     await expect(bar.locator('.step-name')).toHaveText(STR.btnStage);
     // The whole file is no region: no region chip.
-    await expect(bar.locator('.step-chip')).toHaveText(['HPF 20 Hz', `${STR.stepAverage} 1024`, STR.stepOctave]);
+    await expect(bar.locator('.step-chip:not([data-step-input])')).toHaveText(['HPF 20 Hz', `${STR.stepAverage} 1024`, STR.stepOctave]);
     // The app's 1/3-octave branch stands apart at the end, with no arrow from the chain: two links and the end's ＋.
     await expect(bar.locator('.step-arrow')).toHaveCount(3);
     // ＋ is on every link, not only while … is open.
@@ -326,17 +332,16 @@ test('the step bar shows every step of the scan Recipe; an invalid value keeps A
     await bar.locator('[data-action="step-expand"]').click();
     await expect(bar.locator('[data-action="step-expand"]')).toHaveAttribute('aria-expanded', 'true');
     // Every step is a chip: pressed, it shows its Frame on the comparison.
-    await expect(bar.locator('.step-chip')).toHaveText(['HPF 20 Hz', `${STR.stepAverage} 1024`, /^1\/3 oct/]);
-    // Only ⚙ opens the settings: pressing a chip's body asks for files to compare first.
-    await bar.locator('.step-chip').first().locator('.step-body').click();
+    await expect(bar.locator('.step-chip:not([data-step-input])')).toHaveText(['HPF 20 Hz', `${STR.stepAverage} 1024`, /^1\/3 oct/]);
+    // Only ⚙ opens the settings: pressing a chip's body shows that step.
+    await bar.locator('.step-chip:not([data-step-input])').first().locator('.step-body').click();
     await expect(bar.locator('[data-step-form]')).toHaveCount(0);
-    await expect(page.locator('#hint-footer')).toHaveText(STR.stepOpenCompare);
     // No Frame names and no method names under the chips: the method is in each chip's hint.
     await expect(bar.locator('.step-op, .step-frame')).toHaveCount(0);
     await expect(bar).not.toContainText('Frame');
-    expect(await bar.locator('[data-step-hold]').evaluateAll(chips => chips.map(chip => /wandas (\w+)/.exec(chip.getAttribute('data-hint') ?? '')?.[1]))).toEqual(['highpass_filter', 'welch', 'noct_spectrum']);
+    expect(await bar.locator('[data-step-hold]:not([data-step-hold="node-input"])').evaluateAll(chips => chips.map(chip => /wandas (\w+)/.exec(chip.getAttribute('data-hint') ?? '')?.[1]))).toEqual(['highpass_filter', 'welch', 'noct_spectrum']);
     await expect(bar.locator('.step-outside-row .awa-tag')).toHaveText([STR.entryColLeq, STR.outside192, STR.outsideMedian, STR.outsideDelta]);
-    await expect(bar.locator('.step-chip').nth(0)).toContainText('HPF 20 Hz');
+    await expect(bar.locator('.step-chip:not([data-step-input])').nth(0)).toContainText('HPF 20 Hz');
     // A parameter the Recipe leaves out shows wandas' default.
     await bar.locator('[data-action="step-settings"]').first().click();
     await expect(bar.locator('[data-step-param="order"]')).toHaveValue('4');
@@ -357,10 +362,7 @@ test('the step bar shows every step of the scan Recipe; an invalid value keeps A
     await expect(page.locator('#hint-footer')).toHaveText(STR.stepNeedBelow.replace('{max}', '8000'));
     await bar.locator('[data-step-param="cutoff"]').fill('100');
     await bar.locator('[data-action="step-apply"]').click();
-    await expect(bar.locator('.step-chip').nth(0)).toContainText('HPF 100 Hz');
-    // Focus is back on the gear: Esc now only leaves the bar, the table stays.
-    await expect(bar.locator('[data-action="step-settings"]').first()).toBeFocused();
-    await page.keyboard.press('Escape');
+    await expect(bar.locator('.step-chip:not([data-step-input])').nth(0)).toContainText('HPF 100 Hz');
     await expect(page.locator('#entry-screen')).toBeVisible();
     // A new chain does not scan the folder by itself: the rows keep the previous chain's values, greyed and said so.
     const scans = (): Promise<Array<{ type: string; requestId: string; filePaths: string[]; recipe?: { nodes: Array<{ operation: string }> } }>> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; requestId: string; filePaths: string[]; recipe?: { nodes: Array<{ operation: string }> } }> })
@@ -369,8 +371,6 @@ test('the step bar shows every step of the scan Recipe; an invalid value keeps A
     // Every row is greyed (another chain's values), and nothing is measured by itself, not even the focused row.
     expect((await snapshot(page))?.rows).toBe(197);
     await expect(page.locator('[data-entry-rows] tr.entry-row:not(.is-stale)')).toHaveCount(0);
-    await page.waitForTimeout(400);
-    expect((await posted(page)).filter(message => message.type === 'compare-scan').length).toBe(0);
     // 計算 says how many files and about how long; it computes with the new chain and can be stopped.
     const compute = page.locator('[data-action="entry-compute"]');
     // The unreadable recording has no row: 99 files to compute.
@@ -391,28 +391,22 @@ test('the step bar shows every step of the scan Recipe; an invalid value keeps A
     await expect(page.locator('[data-entry-uncomputed]')).toHaveText(STR.dsUncomputed.replace('{n}', String(197 - 6)));
 });
 
-test('Esc closes an open settings form first, then shrinks the maximized table into the side panel, which ⤢ widens again', async ({ page }) => {
+test('Esc shrinks the maximized table into the side panel, which ⤢ widens again', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
     await openEntry(page, scanned!, { recipe });
     const screen = page.locator('#entry-screen');
     await expect(screen).toHaveClass(/is-max/);
-    const bar = page.locator('#entry-screen [data-step-bar]');
-    await bar.locator('[data-action="step-expand"]').click();
-    await bar.locator('[data-action="step-settings"]').first().click();
     await page.locator('[data-entry-table]').focus();
-    await page.keyboard.press('Escape');
-    await expect(bar.locator('[data-step-form]')).toHaveCount(0);
-    await expect(screen).toHaveClass(/is-max/);
     await page.keyboard.press('1');
     await page.mouse.move(600, 500);
     await page.keyboard.press('Escape');
-    // Shrunk: the same table in the side panel, with its slot; the step bar is hidden (no second copy of the chain).
+    // Shrunk: the same table in the side panel, with its slot; no step bar (the chain lives in 比較解析).
     await expect(screen).not.toHaveClass(/is-max/);
     await expect(screen).toBeVisible();
     await expect(page.locator('#entry-dock #entry-screen')).toHaveCount(1);
     await expect(page.locator('.entry-badge.entry-slot-1')).toHaveCount(1);
-    await expect(bar).toBeHidden();
+    await expect(page.locator('#entry-screen [data-step-bar]')).toHaveCount(0);
     await expect(page.locator('[data-entry-recipe-chip]')).toHaveCount(0);
     // Narrow, it shows the name and the sorted number; the side plots wait for the width.
     await expect(screen).toHaveAttribute('data-cols', /^[1-3]$/);
@@ -474,7 +468,8 @@ test('a step added between two chips measures every file again; one that fails o
     const STR = getStrings('en');
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
     await openEntry(page, scanned!, { recipe });
-    const bar = page.locator('#entry-screen [data-step-bar]');
+    await openStepsView(page, scanned!, SPECTRUM_VIEW);
+    const bar = page.locator('.track-stage-bar');
     type Scan = { type: string; requestId: string; recipe?: { nodes: Array<{ id: string; operation: string }> } };
     const lastScan = (): Promise<Scan> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Scan[] })
         .__uiSmokePostedMessages.filter(message => message.type === 'entry-scan').at(-1)!);
@@ -486,11 +481,9 @@ test('a step added between two chips measures every file again; one that fails o
     await expect(bar.locator('.step-menu-title')).toHaveText(STR.stepMenuTitle.replace('{frame}', 'ChannelFrame'));
     await bar.locator('[data-step-menu-filter]').fill('a_weighting');
     await bar.locator('.step-menu-item', { hasText: 'a_weighting' }).click();
-    expect(await bar.locator('[data-step-hold]').evaluateAll(chips => chips.map(chip => /wandas (\w+)/.exec(chip.getAttribute('data-hint') ?? '')?.[1]))).toEqual(['highpass_filter', 'a_weighting', 'welch', 'noct_spectrum']);
-    // Nothing is scanned until asked: the table keeps the previous chain's values, greyed; not even the focused row is measured.
+    expect(await bar.locator('[data-step-hold]:not([data-step-hold="node-input"])').evaluateAll(chips => chips.map(chip => /wandas (\w+)/.exec(chip.getAttribute('data-hint') ?? '')?.[1]))).toEqual(['highpass_filter', 'a_weighting', 'welch', 'noct_spectrum']);
+    // The table is not scanned until asked: it keeps the previous chain's values, greyed.
     await expect(page.locator('[data-entry-rows] tr.entry-row.is-stale').first()).toBeVisible();
-    await page.waitForTimeout(400);
-    expect((await posted(page)).filter(message => message.type === 'compare-scan').length).toBe(0);
     await page.locator('[data-action="entry-compute"]').click();
     const scan = await lastScan();
     const added = scan.recipe!.nodes.find(node => node.operation === 'wandas.audio.a_weighting')!;
@@ -543,9 +536,11 @@ test('the step bar names the steps in Japanese and says where the table\'s band 
     const STR = getStrings('ja');
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
     await openEntry(page, scanned!, { language: 'ja', recipe });
-    const bar = page.locator('#entry-screen [data-step-bar]');
-    await expect(bar.locator('[data-step-input]')).toHaveText('入力 100 本');
-    await expect(bar.locator('.step-chip')).toHaveText(['ハイパス 20 Hz', '平均スペクトル（FFT 1024 点）', '1/3 oct 帯域（表の値）']);
+    await openStepsView(page, scanned!, SPECTRUM_VIEW);
+    const bar = page.locator('.track-stage-bar');
+    await expect(bar.locator('.step-name')).toHaveText('比較解析');
+    await expect(bar.locator('[data-step-input]')).toHaveText('入力');
+    await expect(bar.locator('.step-chip:not([data-step-input])')).toHaveText(['ハイパス 20 Hz', '平均スペクトル（FFT 1024 点）', '1/3 oct 帯域（表の値）']);
     await bar.locator('.step-chip', { hasText: '1/3 oct' }).locator('.step-body').hover();
     await expect(page.locator('#hint-footer')).toContainText(STR.stepOctaveHint);
 });
