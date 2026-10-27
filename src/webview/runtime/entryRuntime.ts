@@ -323,6 +323,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let mode: DatasetScreenView['mode'] = 'all';
     /** 「トラックのみ」: the table narrowed to the files on a track. */
     let tracksOnly = false;
+    /** The file whose row and lane are lit under the mouse. */
+    let linkedPath: string | null = null;
     /** Channels read from the files' headers at open (no audio decoded), and the files whose header could not be read. */
     const headerChannels = new Map<string, number>();
     const headerErrors = new Map<string, string>();
@@ -551,6 +553,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const first = Math.max(0, Math.floor(tableWrap.scrollTop / ROW_HEIGHT) - 10);
         const last = Math.min(tableLines(view).length, first + Math.ceil((tableWrap.clientHeight || 600) / ROW_HEIGHT) + 20);
         body.innerHTML = datasetRowsHtml(view, first, last, ROW_HEIGHT, text);
+        // Redrawn rows keep the light of the lane under the mouse.
+        if (linkedPath && document.querySelector(`.track-row[data-file-path="${CSS.escape(linkedPath)}"]`)) {
+            body.querySelectorAll(`tr.entry-row[data-file-path="${CSS.escape(linkedPath)}"]`).forEach(row => row.classList.add('is-linked'));
+        }
     }
     function rowName(key: string): string {
         const row = rowOf(key);
@@ -1110,7 +1116,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const shownFiles = (): Set<string> => new Set([...deps.shownTracks?.() ?? []].filter(([, hidden]) => !hidden).map(([filePath]) => filePath));
     function toggleTrack(key: string): void {
         const filePath = fileOfKey(key);
-        deps.setShown?.(filePath, !shownFiles().has(filePath));
+        if (!shownFiles().has(filePath)) { deps.setShown?.(filePath, true); return; }
+        // Off the tracks is out of its slots too, as a lane's × does; the last slot it leaves takes the track off.
+        const held = slots.flatMap((item, slot) => (item && fileOfKey(item) === filePath ? [slot] : []));
+        if (!held.length) { deps.setShown?.(filePath, false); return; }
+        for (const slot of held) setSlot(slot, null);
     }
     /** Puts a row in a slot (out of any other); the same row again takes it out. The comparison open follows, and stays open. */
     function setSlot(slot: number, key: string | null, follow = true): void {
@@ -1535,7 +1545,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return true;
     }
     // A row and its file's lane light up together under the mouse (only a file on a track has a lane).
-    let linkedPath: string | null = null;
     document.addEventListener('mouseover', event => {
         const filePath = (event.target as Element).closest?.('tr.entry-row[data-file-path], .track-row[data-file-path]')?.getAttribute('data-file-path') ?? null;
         if (filePath === linkedPath) return;

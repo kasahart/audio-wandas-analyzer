@@ -269,6 +269,18 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(page.locator('.track-row')).toHaveCount(1);
     await expect(entryRow(page, '/sources/rec/first.wav')).toHaveClass(/is-shown/);
     await expect(entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark')).toHaveText('●');
+    // A row in a slot goes off the tracks and out of its slot together, as a lane's × does.
+    await entryRow(page, '/sources/rec/first.wav').locator('.entry-nm').click();
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('1');
+    await expect(entryRow(page, '/sources/rec/first.wav')).toHaveClass(/is-shown/);
+    await expect(entryRow(page, '/sources/rec/first.wav').locator('.entry-badge')).toHaveCount(1);
+    await entryRow(page, '/sources/rec/first.wav').locator('.entry-col-value').click();
+    await expect(entryRow(page, '/sources/rec/first.wav')).not.toHaveClass(/is-shown/);
+    await expect(entryRow(page, '/sources/rec/first.wav').locator('.entry-badge')).toHaveCount(0);
+    await entryRow(page, '/sources/rec/first.wav').locator('.entry-nm').click();
+    await expect(page.locator('.track-row')).toHaveCount(1);
     // A double click counts once: the second row goes on and stays.
     await entryRow(page, '/sources/rec/day2/second.wav').locator('.entry-nm').dblclick();
     await expect(entryRow(page, '/sources/rec/day2/second.wav')).toHaveClass(/is-shown/);
