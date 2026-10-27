@@ -323,6 +323,9 @@ export function renderComparisonStyles(): string {
         .entry-screen .entry-fadd { border-style: dashed; color: var(--muted); }
         .entry-screen .entry-ftracks { border-style: dashed; color: var(--muted); }
         .entry-screen .entry-ftracks.is-on { border-style: solid; border-color: var(--text); color: var(--text); }
+        .entry-table th.entry-mark.is-some, .entry-table th.entry-mark.is-all, .entry-table th.entry-mark[data-action]:hover { color: var(--text); }
+        .entry-screen .entry-tracks-confirm { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+        .entry-screen .entry-tracks-confirm .is-primary { border-color: var(--text); font-weight: 600; }
         .entry-pop { position: absolute; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); padding: 8px; }
         .entry-fpop, .entry-slotmenu, .entry-memo { display: grid; gap: 4px; width: 280px; }
         .entry-slotmenu { width: 190px; }

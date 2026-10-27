@@ -116,6 +116,8 @@ export interface EntryScreenDeps {
     shownTracks?(): ReadonlyMap<string, boolean>;
     /** Shows a file as a track, or takes it off the track view. */
     setShown?(filePath: string, shown: boolean): void;
+    /** Shows many files as tracks at once (one analysis request), or takes them all off. */
+    setShownMany?(filePaths: readonly string[], shown: boolean): void;
     /** Hides a shown track in the track view, or shows it again. */
     setHidden?(filePath: string, hidden: boolean): void;
     /** ▶ on a row: plays the file alone, shown as a track while it plays; again stops it. */
@@ -323,6 +325,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let mode: DatasetScreenView['mode'] = 'all';
     /** 「トラックのみ」: the table narrowed to the files on a track. */
     let tracksOnly = false;
+    /** The files a click on the head would show, waiting for the count to be confirmed (more than LARGE_BASE). */
+    let pendingAll: string[] | null = null;
     /** The file whose row and lane are lit under the mouse. */
     let linkedPath: string | null = null;
     /** Channels read from the files' headers at open (no audio decoded), and the files whose header could not be read. */
@@ -512,7 +516,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const groupHtml = groupOptionsHtml(groupOptions(), group);
         if (groupSelect.innerHTML !== groupHtml) groupSelect.innerHTML = groupHtml;
         groupSelect.value = group;
-        const chips = filterChipsHtml(filters, columnLabel, formatColumn, text, mode === 'all' ? { count: new Set(rows.filter(row => view.shown?.has(row.filePath)).map(row => row.filePath)).size, only: tracksOnly } : undefined);
+        const chips = filterChipsHtml(filters, columnLabel, formatColumn, text, mode === 'all' ? { count: new Set(rows.filter(row => view.shown?.has(row.filePath)).map(row => row.filePath)).size, only: tracksOnly, confirm: pendingAll?.length } : undefined);
         if (chipsBox.innerHTML !== chips) chipsBox.innerHTML = chips;
         renderCompute(view);
         const unmatchedButton = query<HTMLButtonElement>('[data-action="entry-view-unmatched"]');
@@ -1124,6 +1128,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!held.length) { deps.setShown?.(filePath, false); return; }
         for (const slot of held) setSlot(slot, null);
     }
+    /** The head's ○/◐/●: shows every listed file as a track (many only once confirmed), or takes them all off. */
+    function toggleAllTracks(): void {
+        const listed = [...new Set(shownRows.map(row => row.filePath))];
+        const shown = shownFiles();
+        const adding = listed.filter(filePath => !shown.has(filePath));
+        pendingAll = null;
+        if (adding.length > LARGE_BASE) { pendingAll = adding; render(); return; }
+        if (adding.length) { deps.setShownMany?.(adding, true); return; }
+        // Off the tracks is out of the slots too, as a row's ● does.
+        const off = new Set(listed);
+        slots.forEach((item, slot) => { if (item && off.has(fileOfKey(item))) setSlot(slot, null, false); });
+        deps.setShownMany?.(listed, false);
+    }
     /** Puts a row in a slot (out of any other); the same row again takes it out. The comparison open follows, and stays open. */
     function setSlot(slot: number, key: string | null, follow = true): void {
         const before = slotFiles();
@@ -1484,6 +1501,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-fcancel': () => closePopovers(),
         'entry-row-play': target => deps.play?.(fileOfKey(target.getAttribute('data-key')!)),
         'entry-row-track': target => { focused = target.getAttribute('data-key')!; focusPicked = true; toggleTrack(focused); render(); },
+        'entry-tracks-all': () => { if (mode === 'all') toggleAllTracks(); },
+        'entry-tracks-all-go': () => { const files = pendingAll ?? []; pendingAll = null; if (files.length) deps.setShownMany?.(files, true); render(); },
+        'entry-tracks-all-cancel': () => { pendingAll = null; render(); },
         'entry-tracks-only': () => { tracksOnly = !tracksOnly; tableWrap.scrollTop = 0; rebuild(); },
         'entry-row-slotmenu': target => { const key = target.getAttribute('data-key')!; fpop = null; memoKey = null; slotMenu = slotMenu === key ? null : key; focused = key; focusPicked = true; render(); renderPopovers(); },
         'entry-row-slot': target => { const key = target.getAttribute('data-key')!; slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); },
@@ -1772,6 +1792,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return;
         }
         if (ownKeys(event) || event.ctrlKey || event.metaKey || event.altKey) return;
+        // Enter or Space on the head's ○/◐/● clicks it.
+        if ((event.key === 'Enter' || event.key === ' ') && (event.target as Element | null)?.closest?.('[data-action="entry-tracks-all"]')) {
+            event.preventDefault();
+            actions['entry-tracks-all'](event.target as HTMLElement);
+            return;
+        }
         if (/^[0-3]$/.test(event.key)) {
             event.preventDefault();
             if (!event.repeat) press(Number(event.key));
@@ -1811,6 +1837,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             memo.clear();
             filters = [];
             tracksOnly = false;
+            pendingAll = null;
             mode = 'all';
             fpop = null; slotMenu = null; memoKey = null;
             baseGroup = null;

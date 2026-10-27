@@ -83,7 +83,7 @@ Choose the virtual environment folder, for example `/path/to/your/.venv`. You ca
 | Activity Bar | Open the **Audio Analyzer** view and select files or a folder |
 | Drag and drop | Drop audio files or folders onto the Audio Analyzer sidebar view |
 
-When you open a folder, its audio files are listed in a table beside the tracks. Click ○ at the start of a row to show that file as a track and click ● to remove it, and **Tracks only** narrows the table to them.
+When you open a folder, its audio files are listed in a table beside the tracks. Click ○ at the start of a row to show that file as a track and click ● to remove it; the ○/◐/● in the column head shows or removes every listed row at once (more than 30 asks first), and **Tracks only** narrows the table to the rows on a track.
 
 ## Working In The Panel
 

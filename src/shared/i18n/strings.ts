@@ -276,6 +276,10 @@ export interface UiStrings {
     dsTrackMark: string;
     dsTracksOnly: string;
     hintTracksOnly: string;
+    dsTracksAll: string;
+    dsTracksNone: string;
+    dsTracksConfirm: string;
+    dsTracksConfirmGo: string;
     dsFilterColumn: string;
     dsFilterPickOne: string;
     dsFilterApplied: string;
@@ -891,6 +895,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsTrackMark: 'On a track (click to show or remove it)',
         dsTracksOnly: 'Tracks only {n}',
         hintTracksOnly: 'Show only the rows whose file is on a track',
+        dsTracksAll: 'Show the {n} listed rows as tracks',
+        dsTracksNone: 'Take the {n} listed rows off the tracks',
+        dsTracksConfirm: '{n} files will be shown as tracks and analyzed.',
+        dsTracksConfirmGo: 'Show',
         dsFilterColumn: 'Column',
         dsFilterPickOne: 'Pick at least one value',
         dsFilterApplied: 'Narrowed to {n} rows',
@@ -1503,6 +1511,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsTrackMark: 'トラックに表示中（クリックで表示・解除）',
         dsTracksOnly: 'トラックのみ {n}',
         hintTracksOnly: 'トラックに出ているファイルの行だけを表示',
+        dsTracksAll: '表の {n} 行をすべてトラックに出す',
+        dsTracksNone: '表の {n} 行をすべてトラックから消す',
+        dsTracksConfirm: '{n} 本をトラックに出して解析します。',
+        dsTracksConfirmGo: '出す',
         dsFilterColumn: '列',
         dsFilterPickOne: '値を 1 つ以上選んでください',
         dsFilterApplied: '{n} 行に絞りました',

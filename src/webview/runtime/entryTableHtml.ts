@@ -141,7 +141,7 @@ export function filterChipText(filter: DatasetFilter, label: (column: ColumnId) 
 }
 
 /** The filters as chips (× takes one off), then ＋ to filter by a column that is not on screen. */
-export function filterChipsHtml(filters: readonly DatasetFilter[], label: (column: ColumnId) => string, format: (column: ColumnId, value: number) => string, strings: EntryStrings, tracks?: { count: number; only: boolean }): string {
+export function filterChipsHtml(filters: readonly DatasetFilter[], label: (column: ColumnId) => string, format: (column: ColumnId, value: number) => string, strings: EntryStrings, tracks?: { count: number; only: boolean; confirm?: number }): string {
     const chips = filters.map(filter => {
         const text = filterChipText(filter, label, format, strings);
         return `<span class="entry-fchip" data-testid="fchip"><button type="button" class="entry-fchip-body" data-action="entry-fchip" data-column="${escapeHtml(filter.column)}"${hintAttr(strings.dsFilterOn)}>${escapeHtml(text)}</button>`
@@ -151,7 +151,13 @@ export function filterChipsHtml(filters: readonly DatasetFilter[], label: (colum
     const tracksChip = tracks && (tracks.count > 0 || tracks.only)
         ? `<button type="button" class="entry-ftracks${tracks.only ? ' is-on' : ''}" data-action="entry-tracks-only" aria-pressed="${tracks.only}"${hintAttr(strings.hintTracksOnly)}>${escapeHtml(strings.dsTracksOnly.replace('{n}', String(tracks.count)))}</button>`
         : '';
-    return tracksChip + chips + `<button type="button" class="entry-fadd" data-action="entry-fadd">${escapeHtml(strings.dsFilterAdd)}</button>`;
+    // Many files at once are analysed only once the count is confirmed.
+    const confirm = tracks?.confirm
+        ? `<span class="entry-tracks-confirm" role="alert">${escapeHtml(strings.dsTracksConfirm.replace('{n}', tracks.confirm.toLocaleString()))}`
+            + `<button type="button" class="is-primary" data-action="entry-tracks-all-go">${escapeHtml(strings.dsTracksConfirmGo)}</button>`
+            + `<button type="button" data-action="entry-tracks-all-cancel">${escapeHtml(strings.dsCancel)}</button></span>`
+        : '';
+    return confirm + tracksChip + chips + `<button type="button" class="entry-fadd" data-action="entry-fadd">${escapeHtml(strings.dsFilterAdd)}</button>`;
 }
 
 export function datasetColsHtml(view: Pick<DatasetScreenView, 'columns' | 'mode'>): string {
@@ -175,7 +181,17 @@ export function datasetHeadHtml(view: DatasetScreenView, strings: EntryStrings):
             + (disabled ? '' : `<button type="button" class="entry-fbtn${on ? ' is-on' : ''}" data-action="entry-fhead" data-column="${escapeHtml(column.id)}" data-sort="${sortKey}" aria-label="${escapeHtml(`${column.label} ${strings.dsFilterHead}`)}"${hintAttr(hint)}>${on ? '▼' : '▾'}</button>`) + '</span></th>';
     };
     const count = ` <span class="entry-th-count">${escapeHtml(strings.dsRows.replace('{n}', view.rows.length.toLocaleString()))}</span>`;
-    return `<tr><th class="entry-mark" aria-label="${escapeHtml(strings.dsTrackMark)}"${hintAttr(strings.dsTrackMark)}></th>${head('name', view.columns.name, count)}${head('ch', view.columns.ch)}${view.columns.group ? head('group', view.columns.group) : ''}${head('value', view.columns.value, '', !view.valueReady)}<th></th></tr>`;
+    return `<tr>${trackHeadHtml(view, strings)}${head('name', view.columns.name, count)}${head('ch', view.columns.ch)}${view.columns.group ? head('group', view.columns.group) : ''}${head('value', view.columns.value, '', !view.valueReady)}<th></th></tr>`;
+}
+
+/** The ○/◐/● over the marks: none, some or all of the listed files on a track; a click shows them all, or takes them all off. */
+function trackHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
+    const files = new Set(view.rows.map(row => row.filePath));
+    if (view.mode !== 'all' || !files.size) return '<th class="entry-mark"></th>';
+    const on = [...files].filter(filePath => view.shown?.has(filePath)).length;
+    const state = on === 0 ? 'none' : on === files.size ? 'all' : 'some';
+    const label = (state === 'all' ? strings.dsTracksNone : strings.dsTracksAll).replace('{n}', files.size.toLocaleString());
+    return `<th class="entry-mark is-${state}" data-action="entry-tracks-all" role="button" tabindex="0" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${escapeHtml(label)}"${hintAttr(label)}>${state === 'all' ? '●' : state === 'some' ? '◐' : '○'}</th>`;
 }
 
 /** The value as the table shows it: one decimal for levels, whole hertz, two decimals for a ratio or a CSV number as written. */
