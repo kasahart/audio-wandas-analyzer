@@ -1487,8 +1487,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     screen.addEventListener('click', event => {
         const target = event.target as HTMLElement;
         const action = target.closest<HTMLElement>('[data-action]');
-        // A choice in the table's 書き出し menu closes it.
-        if (action?.closest('#entry-export-menu')) action.closest('details')?.removeAttribute('open');
+        // A choice in the table's 書き出し menu closes it, the focus back on its summary.
+        if (action?.closest('#entry-export-menu')) closeExportMenu();
         if (action && action.tagName !== 'SELECT' && action.tagName !== 'INPUT' && actions[action.getAttribute('data-action')!]) {
             actions[action.getAttribute('data-action')!](action);
             return;

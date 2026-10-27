@@ -315,6 +315,11 @@ test('the table shows where a recording goes, keeps its exports reachable by key
     await page.keyboard.press('Escape');
     await expect(menu).not.toHaveAttribute('open', '');
     await expect(menu.locator('summary')).toBeFocused();
+    // So does Enter on one of its items.
+    await menu.locator('summary').press('Enter');
+    await menu.locator('[data-action="entry-export-notes"]').press('Enter');
+    await expect(menu).not.toHaveAttribute('open', '');
+    await expect(menu.locator('summary')).toBeFocused();
     // A press outside it closes it too.
     await menu.locator('summary').click();
     await expect(menu).toHaveAttribute('open', '');
