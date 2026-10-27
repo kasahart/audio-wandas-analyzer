@@ -149,14 +149,19 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await picker.setInputFiles(Array.from({length:6},(_,i)=>({name:`additional-${i}.wav`,mimeType:'audio/wav',buffer:bytes})));
         await status.filter({hasText:S.browserAggregateLimit.slice(0,S.browserAggregateLimit.indexOf('{mib}')).replace('{count}','8')}).waitFor();assert.equal(await page.locator('.track-row').count(),8);
         assert.equal(await page.evaluate(()=>window.__workers.length),1);
+        // Lanes are drawn (and fetch their STFT) near the view only: each is scrolled to before its rasters are checked.
         const waitStftPainted = async () => {
-            await page.waitForFunction(() => {
-                const canvases = Array.from(document.querySelectorAll('canvas[id^="track-spec-canvas-"]'));
-                return canvases.length === 16 && canvases.every(canvas => {
-                    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width - 20, canvas.height).data;
-                    return pixels.some((value, index) => index % 4 === 3 && value > 0);
-                });
-            }, undefined, {timeout:30000});
+            assert.equal(await page.locator('canvas[id^="track-spec-canvas-"]').count(), 16);
+            for (let row = 0; row < 8; row++) {
+                await page.locator('.track-row').nth(row).scrollIntoViewIfNeeded();
+                await page.waitForFunction((index) => {
+                    const canvases = Array.from(document.querySelectorAll('.track-row')[index].querySelectorAll('canvas[id^="track-spec-canvas-"]'));
+                    return canvases.length === 2 && canvases.every(canvas => {
+                        const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width - 20, canvas.height).data;
+                        return pixels.some((value, i) => i % 4 === 3 && value > 0);
+                    });
+                }, row, {timeout:30000});
+            }
         };
         await waitStftPainted();
         await page.locator('[data-action="remove-track"]').last().click();
