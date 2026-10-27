@@ -56,4 +56,17 @@ test('a step measured against the base slot is written with a base input: its st
     assert.equal(paired.output, 'node-2-pair');
     // Once is enough: a Recipe with a base input is left as it is.
     assert.equal(withBaseInput(paired as unknown as RecipeDocument, 'node-2'), paired);
+    // A compared ch2 row against a base ch1 row: each side selects its own channel; a base with no row, its first.
+    const rows = (doc: RecipeDocument): Array<[string, unknown]> => (doc as unknown as { nodes: Array<{ id: string; inputs: string[]; params?: { entries: Array<[string, unknown]> } }> }).nodes
+        .filter(node => node.id.startsWith(CHANNEL_NODE)).map(node => [node.id, node.params?.entries[0]?.[1]]);
+    const ch2 = withChannel(coherence as unknown as RecipeDocument, 2, true);
+    assert.deepEqual(rows(withBaseInput(ch2, 'node-2', 1)), [[CHANNEL_NODE, 1], [`${CHANNEL_NODE}-base`, 0]]);
+    const noRow = withBaseInput(ch2, 'node-2') as unknown as { nodes: Array<{ id: string; inputs: string[] }> };
+    assert.deepEqual(rows(noRow as unknown as RecipeDocument), [[CHANNEL_NODE, 1]]);
+    assert.deepEqual(noRow.nodes.find(node => node.id === 'node-0-base')!.inputs, [BASE_INPUT]);
+    // A CSD keeps its auto-spectra (the cross-spectral steps after it need them): no pair after it.
+    Object.assign(coherence.nodes[2], { operation: 'wandas.audio.csd' });
+    const csd = withBaseInput(coherence as unknown as RecipeDocument, 'node-2') as unknown as { nodes: Array<{ operation: string }>; output: string };
+    assert.equal(csd.nodes.some(node => node.operation.endsWith('select_pair')), false);
+    assert.equal(csd.output, 'node-2');
 });

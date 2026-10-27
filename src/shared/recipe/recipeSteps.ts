@@ -74,6 +74,11 @@ export const SELECT_PAIR = 'wandas.frame.select_pair';
  * transfer function derived from it need its auto-spectra, which select_pair would leave out.
  */
 export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.transfer_function']);
+/**
+ * Cross-channel steps that can take the base slot's recording as their reference: those on a time signal, which is
+ * where the two recordings are joined (wandas joins time signals; a spectrogram's CSD has no such join).
+ */
+export const SLOT_REFERABLE: ReadonlySet<string> = new Set([...CROSS_CHANNEL].filter(id => id !== 'wandas.spectrogram.csd'));
 
 /** Steps that leave one channel: one picked, or all summed or averaged into one. */
 const ONE_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.sum', 'wandas.audio.mean']);
@@ -364,7 +369,7 @@ export interface AddableOperation {
      * Set when it cannot be added here: it does not take this Frame, it fails on it whatever the file
      * (`refuses`, with wandas' reason in `why`), or it needs a value the app cannot set.
      */
-    off?: 'frame' | 'refuses' | 'unavailable' | 'required';
+    off?: 'frame' | 'refuses' | 'unavailable' | 'required' | 'channels';
     why?: string;
     /** Parameters the step bar can set (STEP_PARAMS); without, it runs with wandas' defaults. */
     settable: boolean;
@@ -380,7 +385,7 @@ export interface AddableOperation {
  */
 const MENU_HIDDEN: ReadonlySet<string> = new Set([TIME_SLICE, 'wandas.numpy.ufunc']);
 
-export function addableOperations(frame: string, lacks?: ReadonlySet<string>): AddableOperation[] {
+export function addableOperations(frame: string, lacks?: ReadonlySet<string>, channels?: number): AddableOperation[] {
     return WANDAS_OPERATIONS.filter(operation => !MENU_HIDDEN.has(operation.id)).map(operation => {
         const settable = operation.id in STEP_PARAMS;
         const known = new Set((STEP_PARAMS[operation.id] ?? []).filter(param => param.kind === 'enum' || param.initial !== undefined || param.default !== undefined).map(param => param.name));
@@ -389,7 +394,8 @@ export function addableOperations(frame: string, lacks?: ReadonlySet<string>): A
         // A package the operation needs that the runtime reports it cannot import (the Web version's).
         const lacking = (operation.needs ?? []).filter(name => lacks?.has(name));
         const off: AddableOperation['off'] = outputOf(operation, frame) === undefined ? 'frame' : refused !== undefined ? 'refuses'
-            : lacking.length ? 'unavailable' : needs.length ? 'required' : undefined;
+            // One channel: a cross-channel step goes against the base slot's recording, where it can.
+            : lacking.length ? 'unavailable' : CROSS_CHANNEL.has(operation.id) && !SLOT_REFERABLE.has(operation.id) && channels !== undefined && channels < 2 ? 'channels' : needs.length ? 'required' : undefined;
         const why = refused ?? (lacking.length ? lacking.join(', ') : undefined);
         return { operation, name: operation.id.split('.').pop()!, settable, ...(off ? { off } : {}), ...(why !== undefined ? { why } : {}) };
     }).sort((a, b) => Number(!!a.off) - Number(!!b.off));
@@ -523,7 +529,7 @@ export const REFERENCE_KEY = 'awaSlotReference';
 export function slotReferenced(recipe: RecipeDocument | null | undefined): string[] {
     if (!recipe) return [];
     const list = (recipe as unknown as Record<string, unknown>)[REFERENCE_KEY];
-    const ids = new Set(nodes(recipe).filter(node => CROSS_CHANNEL.has(node.operation)).map(node => node.id));
+    const ids = new Set(nodes(recipe).filter(node => SLOT_REFERABLE.has(node.operation)).map(node => node.id));
     return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && ids.has(id)) : [];
 }
 

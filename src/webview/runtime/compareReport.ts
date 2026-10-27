@@ -391,7 +391,8 @@ export function reportFiles(document: Document, input: ReportInput, strings: Rep
         const fs = reportSampleRate(input);
         for (const { suffix, ch } of variants) {
             const recipe = ch ? withChannel(input.recipe, ch, slotted.length > 0) : input.recipe;
-            const measured = slotted.reduce((paired, id) => withBaseInput(paired, id), reportRecipe(recipe, input.region, reportDuration(input)));
+            const baseChannel = input.slots[0] ? input.rowInfo?.(input.slots[0]).channel ?? null : null;
+            const measured = slotted.reduce((paired, id) => withBaseInput(paired, id, baseChannel), reportRecipe(recipe, input.region, reportDuration(input)));
             files.push({ name: `${input.recipeName}${suffix}.recipe.json`, text: JSON.stringify(measured, null, 2) + '\n' });
             if (fs) files.push({ name: `${input.recipeName}${suffix}.1-3oct.recipe.json`, text: JSON.stringify(reportOctaveRecipe(recipe, input.region, reportDuration(input), fs), null, 2) + '\n' });
         }

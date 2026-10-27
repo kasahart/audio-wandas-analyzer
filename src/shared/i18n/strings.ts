@@ -195,6 +195,7 @@ export interface UiStrings {
     stepOctaveHint: string;
     stepNeedChannels: string;
     stepNarrowedChannels: string;
+    stepOffChannels: string;
     stepReference: string;
     stepReferenceChannel: string;
     stepReferenceSlot: string;
@@ -803,6 +804,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOctaveHint: 'The value in the table\'s band column',
         stepNeedChannels: 'Needs two channels, and a file here has only one. Set its reference to the base recording (⚙), or remove it.',
         stepNarrowedChannels: '{op} leaves one channel: this step needs two. Move it before {op}, or remove one of them.',
+        stepOffChannels: 'Needs two channels: a file here has only one',
         stepReference: 'Reference',
         stepReferenceChannel: 'Channel of this recording',
         stepReferenceSlot: 'Base recording',
@@ -1408,6 +1410,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOctaveHint: '表の帯域列の値',
         stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。⚙ で基準を「基準の録音」にするか、外してください',
         stepNarrowedChannels: '{op} で 1 チャンネルになっています。この手順には 2 チャンネルが必要です。{op} より前に動かすか、どちらかを外してください',
+        stepOffChannels: '2 チャンネルが必要です（1 チャンネルのファイルあり）',
         stepReference: '基準',
         stepReferenceChannel: 'この録音のチャンネル',
         stepReferenceSlot: '基準の録音',

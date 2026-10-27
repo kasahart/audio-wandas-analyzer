@@ -5,7 +5,7 @@
  */
 import type { RecipeDocument } from './recipeSelection';
 import type { ScanResult } from '../protocol/backendProtocol';
-import { CROSS_CHANNEL } from './recipeSteps';
+import { CROSS_CHANNEL, PAIRED_ON_ADD } from './recipeSteps';
 
 export const GET_CHANNEL = 'wandas.frame.get_channel';
 export const CHANNEL_NODE = 'node-channel';
@@ -62,10 +62,12 @@ interface Doc { inputs: Array<{ id: string; name?: string; kind?: string }>; nod
 /**
  * The Recipe with its cross-channel step `stepId` measured against a second recording, as wandas runs it: a
  * `base` input goes through the same steps up to it, one channel of each is taken, `concat_frame` makes the
- * pair (the base first), and `select_pair(1, 0)` keeps the recording over the base. As the scans do
- * (scan_service.py's `reference`), so the report's Recipe replays its pictures.
+ * pair (the base first), and `select_pair(1, 0)` keeps the recording over the base (not after a CSD, whose
+ * auto-spectra the cross-spectral steps after it need). As the scans do (scan_service.py's `reference`), so the
+ * report's Recipe replays its pictures. `baseChannel` (from 1) is the base slot's row: the channel the base side
+ * selects where the Recipe selects one (withChannel's); none, the base recording's first.
  */
-export function withBaseInput(recipe: RecipeDocument, stepId: string): RecipeDocument {
+export function withBaseInput(recipe: RecipeDocument, stepId: string, baseChannel?: number | null): RecipeDocument {
     const copy = JSON.parse(JSON.stringify(recipe)) as RecipeDocument & Doc;
     const step = copy.nodes.find(node => node.id === stepId);
     const input = copy.inputs.find(item => item.kind === 'frame')?.id ?? copy.inputs[0]?.id;
@@ -78,21 +80,26 @@ export function withBaseInput(recipe: RecipeDocument, stepId: string): RecipeDoc
         before.unshift(node);
         id = node.inputs[0];
     }
-    const renamed = (id: string): string => (id === input ? BASE_INPUT : `${id}-base`);
+    // The compared row's channel selection is the base row's on the base side.
+    const own = before.find(node => node.id === CHANNEL_NODE);
+    const renamed = (id: string): string => (id === input ? BASE_INPUT : id === CHANNEL_NODE && own && !baseChannel ? renamed(own.inputs[0]) : `${id}-base`);
+    const cloned = before.filter(node => node !== own || baseChannel).map(node => ({ ...JSON.parse(JSON.stringify(node)) as Node, id: renamed(node.id), inputs: node.inputs.map(renamed) }));
+    const base = cloned.find(node => node.id === `${CHANNEL_NODE}-base`);
+    if (base && baseChannel) base.params = { $type: 'map', entries: [['channel_idx', baseChannel - 1]] };
     const pick = (id: string, from: string): Node => ({ id, operation: GET_CHANNEL, version: 1, inputs: [from], params: { $type: 'map', entries: [['channel_idx', 0]] } });
     const added: Node[] = [
-        ...before.map(node => ({ ...JSON.parse(JSON.stringify(node)) as Node, id: renamed(node.id), inputs: node.inputs.map(renamed) })),
+        ...cloned,
         pick(`${stepId}-base-channel`, renamed(step.inputs[0])),
         pick(`${stepId}-channel`, step.inputs[0]),
         { id: `${stepId}-concat`, operation: 'wandas.channel.concat_frame', version: 1, inputs: [`${stepId}-base-channel`, `${stepId}-channel`],
             params: { $type: 'map', entries: [['align', 'truncate'], ['label_prefix', 'compare'], ['suffix_on_dup', '_compare']] } },
     ];
-    const pair: Node = { id: `${stepId}-pair`, operation: 'wandas.frame.select_pair', version: 1, inputs: [stepId], params: { $type: 'map', entries: [['input', 0], ['output', 1]] } };
-    copy.nodes.forEach(node => { node.inputs = node.inputs.map(item => (item === stepId ? pair.id : item)); });
+    const pair: Node | null = PAIRED_ON_ADD.has(step.operation) ? { id: `${stepId}-pair`, operation: 'wandas.frame.select_pair', version: 1, inputs: [stepId], params: { $type: 'map', entries: [['input', 0], ['output', 1]] } } : null;
+    if (pair) copy.nodes.forEach(node => { node.inputs = node.inputs.map(item => (item === stepId ? pair.id : item)); });
     step.inputs = [`${stepId}-concat`, ...step.inputs.slice(1)];
     const at = copy.nodes.indexOf(step);
-    copy.nodes.splice(at, 1, ...added, step, pair);
-    if (copy.output === stepId) copy.output = pair.id;
+    copy.nodes.splice(at, 1, ...added, step, ...(pair ? [pair] : []));
+    if (pair && copy.output === stepId) copy.output = pair.id;
     copy.inputs.push({ id: BASE_INPUT, name: 'base', kind: 'frame' });
     return copy;
 }

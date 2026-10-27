@@ -245,6 +245,12 @@ test('a step that compares two channels needs two: one channel (or one picked by
     const back = withSlotReference(slotted, coherence, false);
     assert.deepEqual(slotReferenced(back), []);
     assert.equal(recipeChain(back).filter(node => node.operation === SELECT_PAIR).length, 1);
+    // A spectrogram's CSD has no join of two recordings: it keeps to channels, and ＋ greys it on one.
+    assert.equal(addableOperations('SpectrogramFrame', undefined, 1).find(item => item.operation.id === 'wandas.spectrogram.csd')!.off, 'channels');
+    assert.equal(addableOperations('ChannelFrame', undefined, 1).find(item => item.name === 'coherence')!.off, undefined);
+    const spectrogramCsd = JSON.parse(JSON.stringify(slotted)) as { nodes: Array<{ id: string; operation: string }> };
+    spectrogramCsd.nodes.find(node => node.id === coherence)!.operation = 'wandas.spectrogram.csd';
+    assert.deepEqual(slotReferenced(spectrogramCsd as unknown as RecipeDocument), []);
     // A channel over itself compares nothing; a channel past the last is refused.
     const [output, input] = STEP_PARAMS[SELECT_PAIR];
     const self = withParam(paired, pair, output, 0);

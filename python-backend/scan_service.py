@@ -558,6 +558,12 @@ def scan_cached(
         _reference_region(reference, start, end, sampling_rate) if reference is not None else (None, {})
     )
     vs_base = False
+    # A CSD keeps its auto-spectra for the cross-spectral steps after it; its picture draws the recording over the
+    # base (ch2 / ch1) all the same.
+    paired_csd = paired_at is not None and any(
+        str(node["id"]) == paired_at and str(node["operation"]).endswith(".csd")
+        for node in RecipePlan.from_dict(dict(recipe)).to_dict()["nodes"]
+    )
     for step, plan in plans["steps"]:
         if step == paired_at and ref_current is not None:
             current = _paired(ref_current, current)
@@ -570,7 +576,8 @@ def scan_cached(
             current = parts.cache() if parts is not None else plan.apply({"region": current}).cache()
             if step == paired_at:
                 # The scanned recording over the reference: the pair's one row.
-                current, ref_current, vs_base = current.select_pair(1, 0).cache(), None, True
+                current = current if paired_csd else current.select_pair(1, 0).cache()
+                ref_current, vs_base = None, True
             elif ref_current is not None:
                 ref_current = _reference_step(ref_steps, step, ref_current)
             # A step's picture needs nothing after it, and none of the metrics.
