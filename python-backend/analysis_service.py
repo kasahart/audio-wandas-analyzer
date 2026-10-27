@@ -204,6 +204,13 @@ def _analysis_revision(value: object) -> int:
     return int(value)
 
 
+def _snapped_window_center(cursor_sample: float, hop_size: int) -> int:
+    """Centre of the cursor spectrum's window: the nearest STFT frame centre (a multiple of the hop), so the
+    band and the spectrum match one spectrogram frame for the current n_fft and hop. Frames whose window
+    passes a file end are kept so every sample stays reachable; the caller then pushes the window inside."""
+    return round(cursor_sample / hop_size) * hop_size
+
+
 class AnalysisService:
     def __init__(self, engine: AnalysisEngine) -> None:
         self.engine = engine
@@ -282,16 +289,14 @@ class AnalysisService:
     ) -> SpectrumSliceResult:
         compute_started = time.perf_counter()
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
-        window_size, _hop_size, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
+        window_size, hop_size, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
         clipped_norm = max(0.0, min(1.0, cursor_norm))
         revision = _analysis_revision(analysis_revision)
         bands = octave_bands(bands_per_octave, analysis_frame.sampling_rate) if bands_per_octave is not None else None
         if bands is not None:
             window_size = max(window_size, math.ceil(bands.min_duration_s * analysis_frame.sampling_rate))
 
-        # Transform the window centred on the cursor itself rather than the nearest STFT frame, so the
-        # spectrum (and the band drawn for it) follows the cursor without hop-sized jumps or gaps.
-        center_sample = min(int(round(clipped_norm * analysis_frame.n_samples)), analysis_frame.n_samples - 1)
+        center_sample = _snapped_window_center(clipped_norm * analysis_frame.n_samples, hop_size)
         start_sample = max(0, center_sample - window_size // 2)
         end_sample = min(analysis_frame.n_samples, start_sample + window_size)
         start_sample = max(0, end_sample - window_size)

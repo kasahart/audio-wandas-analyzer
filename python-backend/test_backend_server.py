@@ -423,7 +423,7 @@ def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path)
 
 
 @pytest.mark.parametrize("cached_detail", [False, True])
-def test_spectrum_slice_window_is_centred_on_the_cursor(tmp_path: Path, cached_detail: bool) -> None:
+def test_spectrum_slice_window_steps_with_the_stft_frames(tmp_path: Path, cached_detail: bool) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     n_samples = 8000
@@ -432,12 +432,12 @@ def test_spectrum_slice_window_is_centred_on_the_cursor(tmp_path: Path, cached_d
     if cached_detail:
         handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)
 
-    # Consecutive cursors get consecutive windows rather than snapping to hop-spaced STFT frames.
-    for cursor_sample in (4000, 4001, 4050, 4500):
+    # Cursors between two frame centres get the nearer frame's window, so nearby cursors share one window.
+    for cursor_sample, center in ((4000, 4096), (4001, 4096), (4050, 4096), (4500, 4608)):
         command = {"filePath": str(wav), "cursorNorm": cursor_sample / n_samples, "stftOptions": opts}
         resp = handle_spectrum_slice(command, service)
-        assert resp["windowStartNorm"] * n_samples == pytest.approx(cursor_sample - 128)
-        assert resp["windowEndNorm"] * n_samples == pytest.approx(cursor_sample + 128)
+        assert resp["windowStartNorm"] * n_samples == pytest.approx(center - 128)
+        assert resp["windowEndNorm"] * n_samples == pytest.approx(center + 128)
         assert handle_spectrum_slice(command, service)["channels"] == resp["channels"]
 
 
@@ -1291,3 +1291,53 @@ def test_pair_spectrum_result_satisfies_the_shared_schema(tmp_path: Path) -> Non
 
     assert result_violation("pair-spectrum", resp) is None
     assert [response["status"] for response in resp["responses"]] == ["ok", "no-overlap"]
+
+
+@pytest.mark.parametrize(
+    ("opts", "hop"),
+    [
+        ({"nFft": 256, "overlapPercent": 50, "window": "hann"}, 128),
+        ({"nFft": 512, "overlapPercent": 75, "window": "hamming"}, 128),
+        ({"nFft": 1024, "overlapPercent": 0, "window": "hann"}, 1024),
+    ],
+)
+def test_spectrum_slice_window_snaps_to_the_nearest_stft_frame(tmp_path: Path, opts: dict, hop: int) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    n_fft = opts["nFft"]
+    service = AnalysisService(AnalysisEngine())
+    spec = handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)["channels"][0][
+        "spectrogram"
+    ]
+    centers_sec = np.asarray(spec["timeCentersSec"])
+    for cursor_sample in (3000, 3000 + hop // 3, 3000 + 2 * hop // 3, 4100):
+        resp = handle_spectrum_slice(
+            {"filePath": str(wav), "trackIndex": 0, "cursorNorm": cursor_sample / 8000, "stftOptions": opts}, service
+        )
+        center = (resp["windowStartNorm"] + resp["windowEndNorm"]) / 2 * 8000
+        # The window sits on the frame grid of the current settings, at the frame nearest the cursor.
+        assert center % hop == 0
+        assert abs(center - cursor_sample) <= hop / 2
+        assert (resp["windowEndNorm"] - resp["windowStartNorm"]) * 8000 == pytest.approx(n_fft)
+        # The same frame is a spectrogram column: its centre is one of the reported time centres (16 kHz file).
+        assert np.min(np.abs(centers_sec * 16000 - center)) < 1e-6
+
+
+def test_spectrum_slice_reaches_an_event_at_the_file_end(tmp_path: Path) -> None:
+    # A burst in the last 200 samples sits in the spectrogram's padded end frame; the cursor spectrum must see it too.
+    samples = np.zeros(8000, dtype=np.int16)
+    t = np.arange(7800, 7900)
+    samples[t] = (0.5 * np.sin(2 * math.pi * 3000.0 * t / 16000) * 32767).astype(np.int16)
+    wav = tmp_path / "tail.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(samples.tobytes())
+    opts = {"nFft": 1024, "overlapPercent": 0, "window": "hann"}
+    for cursor_sample in (7850, 7999):
+        resp = handle_spectrum_slice({"filePath": str(wav), "cursorNorm": cursor_sample / 8000, "stftOptions": opts})
+        assert resp["windowStartNorm"] * 8000 <= cursor_sample < resp["windowEndNorm"] * 8000
+        assert float(resp["channels"][0]["maxDb"]) > -60.0
+    start = handle_spectrum_slice({"filePath": str(wav), "cursorNorm": 300 / 8000, "stftOptions": opts})
+    assert start["windowStartNorm"] == 0
