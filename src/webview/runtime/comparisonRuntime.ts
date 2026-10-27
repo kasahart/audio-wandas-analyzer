@@ -158,6 +158,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const WAVE_SHARE_DEFAULT = 0.4;
     const WAVE_SHARE_MIN = 0.15;
     const WAVE_SHARE_MAX = 0.85;
+    const LANE_PLOT_MIN = 40;
     const SPECTRUM_HEIGHT_DEFAULT = 140;
     const SPECTRUM_HEIGHT_MIN = 80;
     const SPECTRUM_HEIGHT_MAX = 1200;
@@ -298,7 +299,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** The waveform's and the spectrogram's heights; the steps view gives the whole lane to its plot. */
     function laneHeights(): { wave: number; spec: number } {
         if (contentType === 'stage') return { wave: trackHeight, spec: 0 };
-        const wave = Math.round(trackHeight * waveShare);
+        // Each plot keeps room for its axis ticks and unit, however the share and the lane height are set.
+        const wave = Math.min(trackHeight - LANE_PLOT_MIN, Math.max(LANE_PLOT_MIN, Math.round(trackHeight * waveShare)));
         return { wave, spec: trackHeight - wave };
     }
     function laneOuterHeight(): number {

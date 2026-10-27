@@ -575,6 +575,14 @@ test('a lane shows the waveform over its spectrogram on one time axis, split by 
     await expect.poll(async () => (await wave.boundingBox())!.height).toBeGreaterThan(before.wave.height + 20);
     const after = await box();
     expect(after.wave.height + after.spec.height).toBeCloseTo(before.wave.height + before.spec.height, 0);
+    // Dragged to the top, the waveform keeps room for its axis.
+    const moved = (await split.boundingBox())!;
+    await page.mouse.move(moved.x + moved.width / 2, moved.y + moved.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(moved.x + moved.width / 2, moved.y - 400, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(async () => (await wave.boundingBox())!.height).toBeLessThan(after.wave.height);
+    expect((await wave.boundingBox())!.height).toBeGreaterThanOrEqual(39);
 
     // 比較解析 gives the lane to its plot: the spectrogram and the split hide.
     await page.locator('#toolbar [data-action="content-stage"]').click();

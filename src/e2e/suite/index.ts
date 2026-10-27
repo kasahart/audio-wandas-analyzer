@@ -217,8 +217,8 @@ export async function run(): Promise<void> {
                 assert.equal(errored.length, 0, `Tracks should not have analysis errors: ${errored.map((t) => `${t.trackIndex}=${t.resultError}`).join(', ')}`);
                 assert.deepEqual(snapshot.renderedUi.toolbarActions, [
                     'content-waveform',
-                    'content-stage',
                     'spectrogram-settings',
+                    'content-stage',
                     'zoom-out',
                     'zoom-in',
                     'zoom-reset',

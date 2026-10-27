@@ -90,7 +90,7 @@ When you open a folder, supported audio files appear in a tree. Check a file to 
 - **Compare:** view tracks on one shared timeline, each row showing its waveform over its spectrogram (drag the line between them to share the height)
 - **Zoom:** use the toolbar `－ / ＋ / Reset` buttons, the `+ / − / 0` keys, or Ctrl + mouse wheel; `L` zooms to the loop region
 - **Inspect:** click a waveform, spectrogram, or spectrum panel to move the cursor and update spectra
-- **Loop:** drag on the waveform to create a loop region; clear it with a click
+- **Loop:** drag on the waveform or the spectrogram to create a loop region; clear it with a click
 - **Listen:** use the per-track play and mute buttons, or `Space` to play or pause; `F` keeps the cursor in view during playback
 - **Align:** nudge a track by 10 ms with `▲ / ▼`, Shift+drag it, or click the offset value to type it; double-click resets it
 - **Reference:** set a track as the reference to see the transfer function and coherence to the others in the bottom panel
