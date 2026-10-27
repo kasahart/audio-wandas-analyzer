@@ -79,7 +79,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         const box = await page.locator('#track-canvas-0').boundingBox();assert.ok(box);
         await page.mouse.move(box.x+box.width*.21,box.y+box.height*.5);await page.mouse.down();
         await page.mouse.move(box.x+box.width*.63,box.y+box.height*.5,{steps:5});await page.mouse.up();
-        await page.locator('summary').filter({hasText:S.toolbarExportLabel}).click();
+        await page.locator('#tb-export-menu > summary').click();
         const [download] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-wav"]').click()]);
         assert.equal(download.suggestedFilename(),'selected-regions.zip');
         const selection = await page.evaluate(()=>window.__multiOut.filter(m=>m.type==='export-wav-loop').at(-1));
@@ -186,7 +186,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
             assert.equal(await japanese.evaluate(()=>window.__APP_STRINGS__.btnExportReport),'レポート');
             await japanese.locator('input[data-action="browser-open-wav"]').setInputFiles({name:'測定.wav',mimeType:'audio/wav',buffer:bytes});
             await japanese.locator('span[role="status"]').filter({hasText:'波形の準備完了'}).waitFor({timeout:120000});
-            await japanese.locator('summary').filter({hasText:await japanese.evaluate(()=>window.__APP_STRINGS__.toolbarExportLabel)}).click();
+            await japanese.locator('#tb-export-menu > summary').click();
             await japanese.locator('[data-action="export-report"]').click();
             assert.match(await japanese.locator('[data-web-choice]').getAttribute('aria-label'),/レポート形式を選択/);
             const [report] = await Promise.all([japanese.waitForEvent('download'),japanese.locator('[data-web-choice] button').first().click()]);

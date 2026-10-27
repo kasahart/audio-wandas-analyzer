@@ -12,10 +12,9 @@ function workerFixture(entry: { command: string; response: Record<string, unknow
     return { ...entry, response };
 }
 
-/** An opened folder starts on the entry table, maximized; Esc shrinks it into the side panel beside the tracks. */
+/** An opened folder starts with the entry table in the side panel beside the tracks (⤢ widens it). */
 async function leaveEntryTable(page: Page) {
-    await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
-    await page.keyboard.press('Escape');
+    await expect(page.locator('#entry-screen')).toBeVisible();
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
 }
 
@@ -285,6 +284,58 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(page.locator('.track-row')).toHaveCount(2);
 });
 
+test('the table shows where a recording goes, keeps its exports reachable by keys, and hides them with the folded panel', async ({ page }) => {
+    const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
+    mkdirSync(join(folder, 'rec'));
+    writeFileSync(join(folder, 'rec', 'first.wav'), tinyWav());
+    await openStaticPage(page, 'window.showDirectoryPicker = undefined;');
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('#selection-toolbar [data-action="open-folder"]').click();
+    await (await chooser).setFiles(join(folder, 'rec'));
+    await leaveEntryTable(page);
+    // Nothing compared yet: an empty slot 1 shows where a recording goes, and Enter lights it up.
+    const slot1 = page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="1"]');
+    await expect(slot1).toHaveClass(/is-empty/);
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('Enter');
+    await expect(slot1).toHaveClass(/is-flash/);
+
+    // The maximized table's 書き出し opens from the keyboard; Esc closes the menu before it shrinks the table.
+    await page.locator('#entry-screen [data-action="entry-maximize"]').click();
+    const menu = page.locator('#entry-export-menu');
+    await menu.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    await expect(menu).toHaveAttribute('open', '');
+    await page.keyboard.press('Escape');
+    await expect(menu).not.toHaveAttribute('open', '');
+    await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
+    // Esc on one of its items gives the focus back to the menu, not to the page.
+    await menu.locator('summary').press('Enter');
+    await menu.locator('[data-action="entry-export-csv"]').focus();
+    await page.keyboard.press('Escape');
+    await expect(menu).not.toHaveAttribute('open', '');
+    await expect(menu.locator('summary')).toBeFocused();
+    // So does Enter on one of its items.
+    await menu.locator('summary').press('Enter');
+    await menu.locator('[data-action="entry-export-notes"]').press('Enter');
+    await expect(menu).not.toHaveAttribute('open', '');
+    await expect(menu.locator('summary')).toBeFocused();
+    // A press outside it closes it too.
+    await menu.locator('summary').click();
+    await expect(menu).toHaveAttribute('open', '');
+    await page.locator('[data-entry-table]').click({ position: { x: 5, y: 5 } });
+    await expect(menu).not.toHaveAttribute('open', '');
+    await page.locator('#entry-screen [data-action="entry-maximize"]').click();
+
+    // With the side panel folded, the table's exports leave the toolbar's 書き出し too.
+    await page.locator('#tb-export-menu > summary').click();
+    await expect(page.locator('#toolbar [data-action="entry-batch"]')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.locator('#selection-sidebar [data-action="toggle-selection-sidebar"]').click();
+    await page.locator('#tb-export-menu > summary').click();
+    await expect(page.locator('#toolbar [data-action="entry-batch"]')).toBeHidden();
+});
+
 test('static page recipe menu drops from the Export menu, stays in the window, closes on Escape and runs a local recipe file', async ({ page }) => {
     await openStaticPage(page);
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });
@@ -415,8 +466,9 @@ async function getPostedActionTypes(page: Page): Promise<string[]> {
     });
 }
 
-async function openToolbarMenu(page: Page, index: number): Promise<void> {
-    const menu = page.locator('#toolbar details.tb-menu').nth(index);
+/** Opens one of the toolbar's menus: 'tb-export-menu' (every export) or 'tb-more-menu' (the other zoom tools). */
+async function openToolbarMenu(page: Page, id: 'tb-export-menu' | 'tb-more-menu'): Promise<void> {
+    const menu = page.locator(`#toolbar #${id}`);
     await menu.locator('summary').evaluate((element) => {
         (element as HTMLElement).click();
     });
@@ -434,9 +486,9 @@ test('toolbar message assertions ignore initial panel bootstrap messages', async
         ];
     });
 
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
     await page.locator('[data-action="run-recipe"]').click({ force: true });
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
     await page.locator('[data-action="export-report"]').click({ force: true });
 
     expect(await getPostedActionTypes(page)).toEqual([
@@ -448,9 +500,9 @@ test('toolbar message assertions ignore initial panel bootstrap messages', async
 test('results toolbar posts VS Code messages for recipe run and report export', async ({ page }) => {
     await loadUi(page);
 
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
     await page.locator('[data-action="run-recipe"]').click({ force: true });
-    await openToolbarMenu(page, 0);
+    await openToolbarMenu(page, 'tb-export-menu');
     await page.locator('[data-action="export-report"]').click({ force: true });
 
     expect(await getPostedActionTypes(page)).toEqual([

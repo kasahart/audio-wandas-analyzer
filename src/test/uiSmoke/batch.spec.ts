@@ -29,7 +29,9 @@ test('the bundle is for the filtered rows, said as recordings and channels, or f
         window.dispatchEvent(new MessageEvent('message', { data: { type: 'comparison-panel-test-action', actionId: 'entry-snapshot', actions: [] } }));
         return (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; renderedUi: { entry: { visible: number } } }> }).__uiSmokePostedMessages.filter(message => message.type === 'comparison-panel-test-snapshot').at(-1)!.renderedUi.entry.visible;
     });
-    await page.locator('[data-action="entry-batch"]').click();
+    // The table's exports are in its 書き出し menu.
+    await page.locator('#entry-export-menu > summary').click();
+    await page.locator('#entry-export-menu [data-action="entry-batch"]').click();
     const pop = page.locator('[data-entry-batch]');
     await expect(pop).toBeVisible();
     // Filtered is chosen: n recordings, each of them one channel (ch 2).
@@ -46,7 +48,9 @@ test('the bundle is for the filtered rows, said as recordings and channels, or f
     expect(targets.slice(1).every(line => /^L2_[^,]+\.wav,2,[^,]+\.ch2\.recipe\.json,S\d+$/.test(line))).toBe(true);
     expect(JSON.parse(filtered.files[0].text!).nodes[0].operation).toBe('wandas.frame.get_channel');
     // All: every recording, whole (its channels together), with the Recipe as it is.
-    await page.locator('[data-action="entry-batch"]').click();
+    // The table's exports are in its 書き出し menu.
+    await page.locator('#entry-export-menu > summary').click();
+    await page.locator('#entry-export-menu [data-action="entry-batch"]').click();
     await page.locator('[data-entry-batch-scope][value="all"]').check();
     await page.locator('[data-action="entry-batch-go"]').click();
     const all = (await folders(page)).at(-1)!;

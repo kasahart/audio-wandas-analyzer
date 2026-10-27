@@ -11,8 +11,12 @@ test('hints show in the footer instead of tooltips beside the pointer', async ({
     // The lane view has no native tooltips; the entry table and comparison add them on purpose (titledHintAttr).
     await expect(page.locator('[title]:not(#entry-screen *)')).toHaveCount(0);
 
+    await page.locator('#tb-more-menu > summary').hover();
+    await expect(footer).toHaveText(STR.toolbarMore);
+    await page.locator('#tb-more-menu > summary').click();
     await page.locator('[data-action="toggle-follow-cursor"]').hover();
     await expect(footer).toHaveText(STR.btnFollowCursorTitle);
+    await page.locator('#tb-more-menu > summary').click();
 
     const canvas = page.locator('.track-canvas').first();
     const box = await canvas.boundingBox();

@@ -28,7 +28,7 @@ interface ComparisonPanelTestSnapshot {
 
 interface ComparisonPanelRenderedUi {
     /** The entry table and the comparison, as their own snapshots report them. */
-    entry?: { open: boolean; rows: number; scanned: number; slots: (string | null)[] };
+    entry?: { open: boolean; docked: boolean; rows: number; scanned: number; slots: (string | null)[] };
     comparison?: { open: boolean; stage: string | null; frame: string | null; kind: string | null; stageValues: number; stageMedian: number | null; invalidSteps: number };
     hasToolbar: boolean;
     toolbarActions: string[];
