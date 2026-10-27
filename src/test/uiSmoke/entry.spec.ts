@@ -557,3 +557,33 @@ test('「計算」\'s estimate follows the recordings\' lengths from their heade
     await openEntry(page, ten, { language: 'ja', answered: 0, headers: Object.fromEntries(ten.map(file => [file.filePath, { channels: 2, durationS: 600 }])) });
     await expect(compute).toHaveText(STR.dsCompute.replace('{n}', '10').replace('{time}', STR.entryMinutes.replace('{n}', '4')));
 });
+
+for (const language of ['ja', 'en'] as const) {
+    test(`the value header keeps "A特性" whole and stays inside its column, docked or maximized (${language})`, async ({ page }) => {
+        test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+        await openEntry(page, scanned!, { language, docked: true });
+        await expect(page.locator('th[data-column="leq"] .entry-th-label')).toHaveText(getStrings(language).dsLeq);
+        for (const maximized of [false, true]) {
+            if (maximized) await page.locator('.entry-size').click();
+            await expect(page.locator('#entry-screen')).toHaveClass(maximized ? /is-max/ : /^(?!.*is-max)/);
+            const fit = await page.locator('th[data-column="leq"]').evaluate(th => {
+                const text = th.querySelector('.entry-th-label')!.firstChild!;
+                const rects = (from: number, to: number): DOMRect[] => {
+                    const range = document.createRange();
+                    range.setStart(text, from);
+                    range.setEnd(text, to);
+                    return [...range.getClientRects()];
+                };
+                const at = text.textContent!.indexOf('A特性');
+                const cell = th.getBoundingClientRect();
+                return {
+                    wordLines: at < 0 ? 1 : new Set(rects(at, at + 3).map(rect => Math.round(rect.top))).size,
+                    inside: rects(0, text.textContent!.length).every(rect => rect.left >= cell.left - 0.5 && rect.right <= cell.right + 0.5),
+                };
+            });
+            const where = maximized ? 'maximized' : 'docked';
+            expect(fit.wordLines, where).toBe(1);
+            expect(fit.inside, where).toBe(true);
+        }
+    });
+}
