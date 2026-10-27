@@ -204,17 +204,11 @@ def _analysis_revision(value: object) -> int:
     return int(value)
 
 
-def _snapped_window_center(cursor_sample: float, sample_count: int, window_size: int, hop_size: int) -> int:
-    """Centre of the cursor spectrum's window: the nearest STFT frame centre (a multiple of the hop) whose
-    window lies inside the file, so the band and the spectrum match one spectrogram frame for the current
-    n_fft and hop. Files with no such frame fall back to the cursor itself; the caller keeps the window
-    inside the file."""
-    half = window_size // 2
-    first = math.ceil(half / hop_size)
-    last = (sample_count - (window_size - half)) // hop_size
-    if first <= last:
-        return min(max(round(cursor_sample / hop_size), first), last) * hop_size
-    return min(int(round(cursor_sample)), sample_count - 1)
+def _snapped_window_center(cursor_sample: float, hop_size: int) -> int:
+    """Centre of the cursor spectrum's window: the nearest STFT frame centre (a multiple of the hop), so the
+    band and the spectrum match one spectrogram frame for the current n_fft and hop. Frames whose window
+    passes a file end are kept so every sample stays reachable; the caller then pushes the window inside."""
+    return round(cursor_sample / hop_size) * hop_size
 
 
 class AnalysisService:
@@ -302,9 +296,7 @@ class AnalysisService:
         if bands is not None:
             window_size = max(window_size, math.ceil(bands.min_duration_s * analysis_frame.sampling_rate))
 
-        center_sample = _snapped_window_center(
-            clipped_norm * analysis_frame.n_samples, analysis_frame.n_samples, window_size, hop_size
-        )
+        center_sample = _snapped_window_center(clipped_norm * analysis_frame.n_samples, hop_size)
         start_sample = max(0, center_sample - window_size // 2)
         end_sample = min(analysis_frame.n_samples, start_sample + window_size)
         start_sample = max(0, end_sample - window_size)

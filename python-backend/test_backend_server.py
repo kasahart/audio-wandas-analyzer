@@ -327,8 +327,7 @@ def test_track_detail_spectrogram_bins_stay_aligned_with_time(tmp_path: Path) ->
     assert (loud_bins[-1] + 1) * bin_seconds == pytest.approx(burst_end, abs=2 * bin_seconds)
 
 
-# The last whole window on the 128-sample frame grid of an 8000-sample file is centred on 7808.
-@pytest.mark.parametrize(("cursor_norm", "expected_start"), [(0.0, 0), (1.0, 7808 - 128)])
+@pytest.mark.parametrize(("cursor_norm", "expected_start"), [(0.0, 0), (1.0, 8000 - 256)])
 def test_spectrum_slice_window_stays_inside_the_file_at_the_ends(
     tmp_path: Path, cursor_norm: float, expected_start: int
 ) -> None:
@@ -1322,3 +1321,23 @@ def test_spectrum_slice_window_snaps_to_the_nearest_stft_frame(tmp_path: Path, o
         assert (resp["windowEndNorm"] - resp["windowStartNorm"]) * 8000 == pytest.approx(n_fft)
         # The same frame is a spectrogram column: its centre is one of the reported time centres (16 kHz file).
         assert np.min(np.abs(centers_sec * 16000 - center)) < 1e-6
+
+
+def test_spectrum_slice_reaches_an_event_at_the_file_end(tmp_path: Path) -> None:
+    # A burst in the last 200 samples sits in the spectrogram's padded end frame; the cursor spectrum must see it too.
+    samples = np.zeros(8000, dtype=np.int16)
+    t = np.arange(7800, 7900)
+    samples[t] = (0.5 * np.sin(2 * math.pi * 3000.0 * t / 16000) * 32767).astype(np.int16)
+    wav = tmp_path / "tail.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(samples.tobytes())
+    opts = {"nFft": 1024, "overlapPercent": 0, "window": "hann"}
+    for cursor_sample in (7850, 7999):
+        resp = handle_spectrum_slice({"filePath": str(wav), "cursorNorm": cursor_sample / 8000, "stftOptions": opts})
+        assert resp["windowStartNorm"] * 8000 <= cursor_sample < resp["windowEndNorm"] * 8000
+        assert float(resp["channels"][0]["maxDb"]) > -60.0
+    start = handle_spectrum_slice({"filePath": str(wav), "cursorNorm": 300 / 8000, "stftOptions": opts})
+    assert start["windowStartNorm"] == 0
