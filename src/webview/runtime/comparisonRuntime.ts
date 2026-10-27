@@ -2838,18 +2838,33 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         btn.setAttribute('aria-pressed', active ? 'true' : 'false');
         btn.classList.toggle('is-active', active);
     }
-    function exportPng() {
-        // The image holds every shown lane, also those scrolled out of view.
+    function renderEveryLane() {
         drawEveryLane = true;
         try { renderStackedTracks(); } finally { drawEveryLane = false; }
-        const wrapper = document.getElementById('tracks-wrapper');
-        const canvases = visibleExportCanvases(wrapper as unknown as Element | null);
+    }
+    function detailPending(): boolean {
+        return state.results.some(function (_: ComparisonTrackState, i: number) { return Boolean(trackRecordAtIndex(i)?.requests.pending('detail')); });
+    }
+    function exportPng() {
+        // The image holds every shown lane, also those scrolled out of view: drawing them asks for the spectrograms
+        // they lack, and the image is composed once those have arrived (or after a while, as far as they got).
+        renderEveryLane();
         const failed = STR.announceExportPngFailed || 'PNG export failed: no visible canvases';
-        if (canvases.length === 0) {
+        if (visibleExportCanvases(document.getElementById('tracks-wrapper') as unknown as Element | null).length === 0) {
             messaging.post({ type: 'show-info', message: failed });
             return;
         }
         announce(STR.announceExportPngStarted || 'PNG export started');
+        composePngWhenDetailed(Date.now() + 30000, failed);
+    }
+    function composePngWhenDetailed(deadline: number, failed: string) {
+        if (detailPending() && Date.now() < deadline) {
+            setTimeout(function () { composePngWhenDetailed(deadline, failed); }, 100);
+            return;
+        }
+        renderEveryLane();
+        const wrapper = document.getElementById('tracks-wrapper');
+        const canvases = visibleExportCanvases(wrapper as unknown as Element | null);
         setTimeout(function () {
             const composed = composeTrackCanvases(document as unknown as Document, canvases, function (canvas) {
                 const axisId = canvas.id ? canvas.id.replace(/^track-canvas-/, 'track-axis-canvas-').replace(/^track-spec-canvas-/, 'track-spec-axis-canvas-') : '';
