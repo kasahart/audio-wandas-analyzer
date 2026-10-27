@@ -190,8 +190,10 @@ function trackHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
     if (view.mode !== 'all' || !files.size) return '<th class="entry-mark"></th>';
     const on = [...files].filter(filePath => view.shown?.has(filePath)).length;
     const state = on === 0 ? 'none' : on === files.size ? 'all' : 'some';
-    const label = (state === 'all' ? strings.dsTracksNone : strings.dsTracksAll).replace('{n}', files.size.toLocaleString());
-    return `<th class="entry-mark is-${state}" data-action="entry-tracks-all" role="button" tabindex="0" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${escapeHtml(label)}"${hintAttr(label)}>${state === 'all' ? '●' : state === 'some' ? '◐' : '○'}</th>`;
+    const label = state === 'all' ? strings.dsTracksNone.replace('{n}', files.size.toLocaleString())
+        : state === 'some' ? strings.dsTracksRest.replace('{n}', (files.size - on).toLocaleString())
+            : strings.dsTracksAll.replace('{n}', files.size.toLocaleString());
+    return `<th class="entry-mark is-${state}"><button type="button" class="entry-mark-all" data-action="entry-tracks-all" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${escapeHtml(label)}"${hintAttr(label)}>${state === 'all' ? '●' : state === 'some' ? '◐' : '○'}</button></th>`;
 }
 
 /** The value as the table shows it: one decimal for levels, whole hertz, two decimals for a ratio or a CSV number as written. */

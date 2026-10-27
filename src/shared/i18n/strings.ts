@@ -278,6 +278,7 @@ export interface UiStrings {
     hintTracksOnly: string;
     dsTracksAll: string;
     dsTracksNone: string;
+    dsTracksRest: string;
     dsTracksConfirm: string;
     dsTracksConfirmGo: string;
     dsFilterColumn: string;
@@ -895,8 +896,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsTrackMark: 'On a track (click to show or remove it)',
         dsTracksOnly: 'Tracks only {n}',
         hintTracksOnly: 'Show only the rows whose file is on a track',
-        dsTracksAll: 'Show the {n} listed rows as tracks',
-        dsTracksNone: 'Take the {n} listed rows off the tracks',
+        dsTracksAll: 'Show the {n} listed files as tracks',
+        dsTracksNone: 'Take the {n} listed files off the tracks',
+        dsTracksRest: 'Show the other {n} listed files as tracks too',
         dsTracksConfirm: '{n} files will be shown as tracks and analyzed.',
         dsTracksConfirmGo: 'Show',
         dsFilterColumn: 'Column',
@@ -1511,8 +1513,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsTrackMark: 'トラックに表示中（クリックで表示・解除）',
         dsTracksOnly: 'トラックのみ {n}',
         hintTracksOnly: 'トラックに出ているファイルの行だけを表示',
-        dsTracksAll: '表の {n} 行をすべてトラックに出す',
-        dsTracksNone: '表の {n} 行をすべてトラックから消す',
+        dsTracksAll: '表の {n} ファイルをすべてトラックに出す',
+        dsTracksNone: '表の {n} ファイルをすべてトラックから消す',
+        dsTracksRest: '表の残り {n} ファイルもトラックに出す',
         dsTracksConfirm: '{n} 本をトラックに出して解析します。',
         dsTracksConfirmGo: '出す',
         dsFilterColumn: '列',

@@ -502,6 +502,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         shownRows = mode === 'excluded' ? rows.filter(row => excluded.has(row.key))
             : visibleRows({ rows, group, value, filters, sort, excluded }, results).filter(row => !onTracks || onTracks.has(row.filePath));
         if (!focusPicked || !focused || !rows.some(row => row.key === focused)) focused = shownRows[0]?.key ?? null;
+        // An open question about showing the listed files counts the rows listed now.
+        if (pendingAll) { const adding = notShown(listedFiles()); pendingAll = adding.length ? adding : null; }
         render();
         if (!maximized) deps.compareChanged?.();
     }
@@ -1130,17 +1132,26 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The head's ○/◐/●: shows every listed file as a track (many only once confirmed), or takes them all off. */
     function toggleAllTracks(): void {
-        const listed = [...new Set(shownRows.map(row => row.filePath))];
-        const shown = shownFiles();
-        const adding = listed.filter(filePath => !shown.has(filePath));
+        const listed = listedFiles();
+        const adding = notShown(listed);
         pendingAll = null;
-        if (adding.length > LARGE_BASE) { pendingAll = adding; render(); return; }
+        if (adding.length > LARGE_BASE) {
+            pendingAll = adding;
+            render();
+            screen.querySelector<HTMLElement>('[data-action="entry-tracks-all-go"]')?.focus();
+            return;
+        }
         if (adding.length) { deps.setShownMany?.(adding, true); return; }
-        // Off the tracks is out of the slots too, as a row's ● does.
+        // Off the tracks is out of the slots too, as a row's ● does; Tracks only would be left with no rows.
         const off = new Set(listed);
         slots.forEach((item, slot) => { if (item && off.has(fileOfKey(item))) setSlot(slot, null, false); });
+        const wasOnly = tracksOnly;
+        tracksOnly = false;
         deps.setShownMany?.(listed, false);
+        if (wasOnly) rebuild();
     }
+    const listedFiles = (): string[] => [...new Set(shownRows.map(row => row.filePath))];
+    const notShown = (filePaths: readonly string[]): string[] => { const shown = shownFiles(); return filePaths.filter(filePath => !shown.has(filePath)); };
     /** Puts a row in a slot (out of any other); the same row again takes it out. The comparison open follows, and stays open. */
     function setSlot(slot: number, key: string | null, follow = true): void {
         const before = slotFiles();
@@ -1502,7 +1513,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-row-play': target => deps.play?.(fileOfKey(target.getAttribute('data-key')!)),
         'entry-row-track': target => { focused = target.getAttribute('data-key')!; focusPicked = true; toggleTrack(focused); render(); },
         'entry-tracks-all': () => { if (mode === 'all') toggleAllTracks(); },
-        'entry-tracks-all-go': () => { const files = pendingAll ?? []; pendingAll = null; if (files.length) deps.setShownMany?.(files, true); render(); },
+        // The rows listed now: a filter changed while the question was open counts.
+        'entry-tracks-all-go': () => { pendingAll = null; const files = notShown(listedFiles()); if (files.length) deps.setShownMany?.(files, true); render(); },
         'entry-tracks-all-cancel': () => { pendingAll = null; render(); },
         'entry-tracks-only': () => { tracksOnly = !tracksOnly; tableWrap.scrollTop = 0; rebuild(); },
         'entry-row-slotmenu': target => { const key = target.getAttribute('data-key')!; fpop = null; memoKey = null; slotMenu = slotMenu === key ? null : key; focused = key; focusPicked = true; render(); renderPopovers(); },
@@ -1782,6 +1794,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             // Esc closes the innermost thing: a popover, the step bar's form, the unmatched or excluded list;
             // then the maximized table shrinks into the side panel, and the side panel hands the keys back.
             if (closePopovers()) return;
+            if (pendingAll) { pendingAll = null; render(); return; }
             if (closeExportMenu()) return;
             if (stepBar.close()) return;
             if (mode !== 'all') { mode = 'all'; rebuild(); return; }
@@ -1792,12 +1805,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return;
         }
         if (ownKeys(event) || event.ctrlKey || event.metaKey || event.altKey) return;
-        // Enter or Space on the head's ○/◐/● clicks it.
-        if ((event.key === 'Enter' || event.key === ' ') && (event.target as Element | null)?.closest?.('[data-action="entry-tracks-all"]')) {
-            event.preventDefault();
-            actions['entry-tracks-all'](event.target as HTMLElement);
-            return;
-        }
         if (/^[0-3]$/.test(event.key)) {
             event.preventDefault();
             if (!event.repeat) press(Number(event.key));

@@ -853,7 +853,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
      */
     async function loadBatch(files: Array<{ file: File; sourceId: string }>, isLatest: () => boolean): Promise<void> {
         const myGeneration = sourceGeneration.current;
-        const failures: string[] = [];
+        // Files that fail for the same reason (the session limit, for many at once) are told once, with their count.
+        const failures = new Map<string, string[]>();
         await runAnalysisBatch(files, {
             isCurrent: () => sourceGeneration.isCurrent(myGeneration),
             analyze: async ({ file, sourceId }) => {
@@ -894,7 +895,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             failed: ({ file, sourceId }, error) => {
                 if (error === superseded) return false;
                 pendingTreePaths.delete(`/sources/${sourceId}`);
-                failures.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+                const message = error instanceof Error ? error.message : String(error);
+                failures.set(message, [...failures.get(message) ?? [], file.name]);
                 return true;
             },
         });
@@ -903,7 +905,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         loading = false; pick.disabled = false; pick.value = '';
         if (!sources.size) dispose();
         snapshot();
-        announce(failures.length ? failures.join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
+        announce(failures.size ? [...failures].map(([message, names]) => `${names[0]}${names.length > 1 ? ` (+${names.length - 1})` : ''}: ${message}`).join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
     }
     /** Adds individually opened files to the list beside what is already listed and loads them as checked tracks. */
     function openFiles(files: File[]): void {

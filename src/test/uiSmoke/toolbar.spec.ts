@@ -312,7 +312,7 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(entryRow(page, '/sources/rec/first.wav')).not.toHaveClass(/is-shown/);
     await expect(tracksOnly).toHaveCount(0);
     // The head's ○/◐/● shows every listed row as a track, or takes them all off.
-    const headMark = page.locator('#entry-dock th[data-action="entry-tracks-all"]');
+    const headMark = page.locator('#entry-dock [data-action="entry-tracks-all"]');
     await expect(headMark).toHaveText('○');
     await headMark.click();
     await expect(page.locator('.track-row')).toHaveCount(2);
@@ -322,10 +322,14 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(headMark).toHaveText('○');
     await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
     await expect(headMark).toHaveText('◐');
+    await expect(headMark).toHaveAttribute('aria-label', getStrings('en').dsTracksRest.replace('{n}', '1'));
     await headMark.click();
     await expect(page.locator('.track-row')).toHaveCount(2);
+    // Under Tracks only, taking them all off brings the table's rows back.
+    await page.locator('[data-action="entry-tracks-only"]').click();
     await headMark.click();
     await expect(page.locator('.track-row')).toHaveCount(0);
+    await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
     await page.locator('#entry-screen [data-action="entry-maximize"]').click();
     await entryRow(page, '/sources/rec/first.wav').locator('.entry-nm').click();
     await expect(entryRow(page, '/sources/rec/first.wav')).not.toHaveClass(/is-shown/);
@@ -373,7 +377,7 @@ test('the head\'s ○ asks before it shows more than 30 files as tracks', async 
     await (await chooser).setFiles(join(folder, 'many'));
     await leaveEntryTable(page);
     const strings = getStrings('en');
-    const headMark = page.locator('#entry-dock th[data-action="entry-tracks-all"]');
+    const headMark = page.locator('#entry-dock [data-action="entry-tracks-all"]');
     const confirm = page.locator('#entry-dock .entry-tracks-confirm');
     await headMark.click();
     await expect(confirm).toContainText(strings.dsTracksConfirm.replace('{n}', '31'));
@@ -381,10 +385,14 @@ test('the head\'s ○ asks before it shows more than 30 files as tracks', async 
     await confirm.locator('[data-action="entry-tracks-all-cancel"]').click();
     await expect(confirm).toHaveCount(0);
     await expect(page.locator('.track-row')).toHaveCount(0);
-    // Enter on the head asks the same; 出す shows them all.
+    // Esc drops the question; Enter on the head asks again, with the focus on Show.
+    await headMark.click();
+    await page.keyboard.press('Escape');
+    await expect(confirm).toHaveCount(0);
     await headMark.focus();
     await page.keyboard.press('Enter');
-    await confirm.locator('[data-action="entry-tracks-all-go"]').click();
+    await expect(confirm.locator('[data-action="entry-tracks-all-go"]')).toBeFocused();
+    await page.keyboard.press('Enter');
     await expect(confirm).toHaveCount(0);
     // The browser keeps its own limit on the tracks it holds (8): the rest stay off, the head half on.
     await expect(page.locator('.track-row')).toHaveCount(8, { timeout: 60_000 });
