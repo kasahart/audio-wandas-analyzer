@@ -41,3 +41,23 @@ test('the PNG export draws every lane: it asks for the spectrograms of lanes out
     });
     await expect.poll(downloads).toContain('waveform-export.png');
 });
+
+test('a lane resized while out of view paints its spectrogram again when scrolled back', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 600 });
+    await page.setContent(buildUiSmokeManyTracksHtml(40, true), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.track-row')).toHaveCount(40);
+    const painted = () => page.locator('#track-spec-canvas-0').evaluate((canvas: HTMLCanvasElement) => {
+        // The left half: the plot, not the colour bar drawn beside it on every paint.
+        const data = canvas.getContext('2d')?.getImageData(0, 0, Math.floor(canvas.width / 2), canvas.height).data;
+        return Boolean(data && data.some((value, index) => index % 4 === 3 && value > 0));
+    });
+    await expect.poll(painted).toBe(true);
+    const wrapper = page.locator('#tracks-wrapper');
+    await wrapper.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.waitForTimeout(300);
+    await page.setViewportSize({ width: 1000, height: 600 });
+    await page.waitForTimeout(300);
+    await wrapper.evaluate((element) => { element.scrollTop = 0; });
+    await expect.poll(painted).toBe(true);
+});

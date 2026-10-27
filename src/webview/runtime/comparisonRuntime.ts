@@ -1594,6 +1594,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     });
                     const specAxis = canvasById(document, trackSpecAxisCanvasId(i, channelIndex));
                     if (specAxis) syncCanvasSize(specAxis, AXIS_W, heights.spec);
+                    // A resize clears the bitmap; a lane out of view is not repainted now, so its raster must not
+                    // look current when it is drawn again at the same size.
+                    const record = trackRecordAtIndex(i);
+                    if (record) spectrogramRasterCache.delete(record.id + ':' + channelIndex);
                 }
             });
         });
@@ -2840,14 +2844,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function renderEveryLane() {
         drawEveryLane = true;
-        try { renderStackedTracks(); } finally { drawEveryLane = false; }
+        try { renderStackedTracks(); checkAndRequestRanges(); } finally { drawEveryLane = false; }
     }
     function detailPending(): boolean {
-        return state.results.some(function (_: ComparisonTrackState, i: number) { return Boolean(trackRecordAtIndex(i)?.requests.pending('detail')); });
+        return state.results.some(function (_: ComparisonTrackState, i: number) {
+            const requests = trackRecordAtIndex(i)?.requests;
+            return Boolean(requests?.pending('detail') || requests?.pending('range'));
+        });
     }
     function exportPng() {
-        // The image holds every shown lane, also those scrolled out of view: drawing them asks for the spectrograms
-        // they lack, and the image is composed once those have arrived (or after a while, as far as they got).
+        // The image holds every shown lane, also those scrolled out of view: drawing them asks for the spectrograms and
+        // zoom detail they lack, and the image is composed once those have arrived (or after a while, as far as they got).
         renderEveryLane();
         const failed = STR.announceExportPngFailed || 'PNG export failed: no visible canvases';
         if (visibleExportCanvases(document.getElementById('tracks-wrapper') as unknown as Element | null).length === 0) {
