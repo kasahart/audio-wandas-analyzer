@@ -33,7 +33,7 @@ export interface DatasetScreenView {
     valueReady: boolean;
     /** Files whose results are of an earlier chain: greyed. */
     stale?: ReadonlySet<string>;
-    /** Files shown as tracks in the track view: their names read bold. */
+    /** Files shown as tracks in the track view: ● in the first column and a bold name. */
     shown?: ReadonlySet<string>;
     mode: 'all' | 'unmatched' | 'excluded';
     unmatched: readonly Unmatched[];
@@ -141,13 +141,17 @@ export function filterChipText(filter: DatasetFilter, label: (column: ColumnId) 
 }
 
 /** The filters as chips (× takes one off), then ＋ to filter by a column that is not on screen. */
-export function filterChipsHtml(filters: readonly DatasetFilter[], label: (column: ColumnId) => string, format: (column: ColumnId, value: number) => string, strings: EntryStrings): string {
+export function filterChipsHtml(filters: readonly DatasetFilter[], label: (column: ColumnId) => string, format: (column: ColumnId, value: number) => string, strings: EntryStrings, tracks?: { count: number; only: boolean }): string {
     const chips = filters.map(filter => {
         const text = filterChipText(filter, label, format, strings);
         return `<span class="entry-fchip" data-testid="fchip"><button type="button" class="entry-fchip-body" data-action="entry-fchip" data-column="${escapeHtml(filter.column)}"${hintAttr(strings.dsFilterOn)}>${escapeHtml(text)}</button>`
             + `<button type="button" class="entry-fchip-x" data-action="entry-fchip-clear" data-column="${escapeHtml(filter.column)}" aria-label="${escapeHtml(strings.dsChipRemove)}"${hintAttr(strings.dsChipRemove)}>×</button></span>`;
     }).join('');
-    return chips + `<button type="button" class="entry-fadd" data-action="entry-fadd">${escapeHtml(strings.dsFilterAdd)}</button>`;
+    // The rows on a track, as a filter that is there whenever a file is on one.
+    const tracksChip = tracks && (tracks.count > 0 || tracks.only)
+        ? `<button type="button" class="entry-ftracks${tracks.only ? ' is-on' : ''}" data-action="entry-tracks-only" aria-pressed="${tracks.only}"${hintAttr(strings.hintTracksOnly)}>${escapeHtml(strings.dsTracksOnly.replace('{n}', String(tracks.count)))}</button>`
+        : '';
+    return tracksChip + chips + `<button type="button" class="entry-fadd" data-action="entry-fadd">${escapeHtml(strings.dsFilterAdd)}</button>`;
 }
 
 export function datasetColsHtml(view: Pick<DatasetScreenView, 'columns' | 'mode'>): string {
@@ -155,7 +159,7 @@ export function datasetColsHtml(view: Pick<DatasetScreenView, 'columns' | 'mode'
     const group = view.mode === 'all' && view.columns.group ? '<col class="entry-col-group-w">' : '';
     return view.mode === 'unmatched'
         ? '<col class="entry-col-name-w"><col class="entry-col-reason-w"><col>'
-        : `<col class="entry-col-name-w"><col class="entry-col-ch-w">${group}<col class="entry-col-value-w"><col>`;
+        : `<col class="entry-col-mark-w"><col class="entry-col-name-w"><col class="entry-col-ch-w">${group}<col class="entry-col-value-w"><col>`;
 }
 
 export function datasetHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
@@ -171,7 +175,7 @@ export function datasetHeadHtml(view: DatasetScreenView, strings: EntryStrings):
             + (disabled ? '' : `<button type="button" class="entry-fbtn${on ? ' is-on' : ''}" data-action="entry-fhead" data-column="${escapeHtml(column.id)}" data-sort="${sortKey}" aria-label="${escapeHtml(`${column.label} ${strings.dsFilterHead}`)}"${hintAttr(hint)}>${on ? '▼' : '▾'}</button>`) + '</span></th>';
     };
     const count = ` <span class="entry-th-count">${escapeHtml(strings.dsRows.replace('{n}', view.rows.length.toLocaleString()))}</span>`;
-    return `<tr>${head('name', view.columns.name, count)}${head('ch', view.columns.ch)}${view.columns.group ? head('group', view.columns.group) : ''}${head('value', view.columns.value, '', !view.valueReady)}<th></th></tr>`;
+    return `<tr><th class="entry-mark" aria-label="${escapeHtml(strings.dsTrackMark)}"${hintAttr(strings.dsTrackMark)}></th>${head('name', view.columns.name, count)}${head('ch', view.columns.ch)}${view.columns.group ? head('group', view.columns.group) : ''}${head('value', view.columns.value, '', !view.valueReady)}<th></th></tr>`;
 }
 
 /** The value as the table shows it: one decimal for levels, whole hertz, two decimals for a ratio or a CSV number as written. */
@@ -201,7 +205,7 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
     const lines = tableLines(view);
     const rows = lines.slice(first, last).map(line => {
         if (isDerived(line)) {
-            return `<tr class="entry-row is-derived${line.stale ? ' is-stale' : ''}" data-derived="${escapeHtml(line.key)}">`
+            return `<tr class="entry-row is-derived${line.stale ? ' is-stale' : ''}" data-derived="${escapeHtml(line.key)}"><td class="entry-mark"></td>`
                 + `<td class="entry-name"><span class="entry-ncell"><span class="entry-nm" title="${escapeHtml(line.title)}">${escapeHtml(line.label)}</span><span class="entry-rowtools"><button type="button" class="entry-rbtn" data-action="entry-derived-remove" data-parent="${escapeHtml(line.parentPath)}" data-region="${escapeHtml(line.region)}" data-base="${escapeHtml(line.baseLabel)}" aria-label="${escapeHtml(strings.dsDerivedRemove)}"${hintAttr(strings.dsDerivedRemove)}>×</button></span></span></td>`
                 + `<td class="entry-num entry-col-ch is-single"></td>${view.columns.group ? '<td class="entry-col-group"></td>' : ''}<td class="entry-num entry-col-value">${escapeHtml(line.value)}</td><td></td></tr>`;
         }
@@ -209,11 +213,14 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
         const classes = ['entry-row'];
         if (row.key === view.focused) classes.push('is-focused');
         if (view.stale?.has(row.filePath)) classes.push('is-stale');
-        if (view.shown?.has(row.filePath)) classes.push('is-shown');
+        const shown = !!view.shown?.has(row.filePath);
+        if (shown) classes.push('is-shown');
         if (view.mode === 'excluded') classes.push('is-excluded');
         const value = view.valueReady || valueOf(row, view.value, view.results) !== null ? formatValue(view.value, valueOf(row, view.value, view.results)) : '—';
         const group = view.columns.group ? `<td class="entry-col-group" title="${escapeHtml(groupOf(row, view.group))}">${escapeHtml(middleEllipsis(groupOf(row, view.group), 16) || '—')}</td>` : '';
         return `<tr class="${classes.join(' ')}" data-key="${escapeHtml(row.key)}" data-file-path="${escapeHtml(row.filePath)}" aria-selected="${row.key === view.focused}">`
+            // ● on a track, ○ not: a click on the row (on ● when the table is maximized) shows or takes off its track.
+            + (view.mode === 'excluded' ? '<td class="entry-mark"></td>' : `<td class="entry-mark" data-action="entry-row-track" data-key="${escapeHtml(row.key)}" role="button" aria-pressed="${shown}" aria-label="${escapeHtml(strings.dsTrackMark)}">${shown ? '●' : '○'}</td>`)
             + `<td class="entry-name"><span class="entry-ncell"><span class="entry-nm" title="${escapeHtml(row.name)}${(row.channels ?? 1) > 1 ? ` · ch ${row.ch} / ${row.channels}` : ''}">${escapeHtml(middleEllipsis(row.name))}</span><span class="entry-rowtools">${toolsHtml(row, view, strings)}</span></span></td>`
             + `<td class="entry-num entry-col-ch${(row.channels ?? 1) > 1 ? '' : ' is-single'}">${row.channels === undefined ? '—' : row.ch}</td>${group}`
             + `<td class="entry-num entry-col-value">${value}</td><td></td></tr>`;

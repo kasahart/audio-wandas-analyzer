@@ -83,7 +83,7 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         ? ' &nbsp; ' + channelMetricSummaryHtml(channels[0], strings.peakLabel)
         : '';
     const disabled = spec.playable ? '' : ' disabled';
-    return '<div class="track-row" id="track-row-' + i + '" data-track-id="' + trackId + '">'
+    return '<div class="track-row" id="track-row-' + i + '" data-track-id="' + trackId + '" data-file-path="' + escapeHtml(spec.filePath) + '">'
         + '<div class="track-header">'
         + '  <div class="track-title-row">'
         + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaDragHandle) + '" data-hint="' + escapeHtml(strings.ariaDragHandle) + '">≡</div>'

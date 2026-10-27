@@ -83,7 +83,7 @@ Choose the virtual environment folder, for example `/path/to/your/.venv`. You ca
 | Activity Bar | Open the **Audio Analyzer** view and select files or a folder |
 | Drag and drop | Drop audio files or folders onto the Audio Analyzer sidebar view |
 
-When you open a folder, supported audio files appear in a tree. Check a file to add it to the comparison panel; uncheck it to remove that track.
+When you open a folder, its audio files are listed in a table beside the tracks. Click a row to show that file as a track and click it again to remove it; ● marks the rows that are on a track, and **Tracks only** narrows the table to them.
 
 ## Working In The Panel
 
@@ -145,7 +145,7 @@ Select one or more files, then use the waveform, spectrogram, cursor, playback, 
 | WAV export | Uncalibrated PCM16 audio; up to 32 MiB in total |
 <!-- browser-limits:end -->
 
-The left panel lists your files as in the VS Code extension: **Open File**, **Open Folder** or dropping files or folders onto the page adds them to the list, and checked files become tracks. Calibration settings are available in the VS Code extension only. Use a desktop browser for the full set of mouse controls; dragging to select a loop is not supported on touch screens.
+The left panel lists your files as in the VS Code extension: **Open File**, **Open Folder** or dropping files or folders onto the page adds them to the list, and clicking a file's row shows it as a track. Calibration settings are available in the VS Code extension only. Use a desktop browser for the full set of mouse controls; dragging to select a loop is not supported on touch screens.
 
 Display and spectrogram settings are remembered between visits. Audio files, cursor position and track offsets are not saved; select your files again after reloading. **Clear** in the left panel empties the list and removes all loaded audio. Exported notebooks refer to the audio file names listed in the report, so place copies of your audio beside the notebook using those names.
 

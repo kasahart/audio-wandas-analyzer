@@ -286,8 +286,9 @@ test('the entry table speaks Japanese with few words: value and group, the CSV, 
     await openEntry(page, scanned!, { language: 'ja' });
     await expect(page.locator('.entry-pick')).toHaveText([new RegExp(`^${STR.dsValue}`), new RegExp(`^${STR.dsGroup}`)]);
     await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsLeq);
-    await expect(page.locator('[data-entry-head] th')).toHaveCount(4 + (await page.locator('th.entry-col-group, th[data-column^="folder"], th[data-column^="csv"]').count()) );
-    await expect(page.locator('[data-entry-head] th').first()).toContainText(STR.entryColFile);
+    // ● (on a track), the file, ch, the value and the spare end, plus a group column when grouped.
+    await expect(page.locator('[data-entry-head] th')).toHaveCount(5 + (await page.locator('th.entry-col-group, th[data-column^="folder"], th[data-column^="csv"]').count()) );
+    await expect(page.locator('[data-entry-head] th').nth(1)).toContainText(STR.entryColFile);
 });
 
 test('a folder of 1000 recordings draws only the rows on screen', async ({ page }) => {
@@ -351,8 +352,8 @@ test('the step bar (in 比較解析) shows every step of the scan Recipe; an inv
     const chip = await bar.locator('[data-step-id]').filter({ hasText: STR.stepAverage }).boundingBox();
     const form = await bar.locator('[data-step-form]').boundingBox();
     expect(Math.abs(form!.x - chip!.x)).toBeLessThan(4);
-    // A click outside drops the form.
-    await page.locator('[data-entry-rows] tr').nth(3).click();
+    // A click outside drops the form (on the table's head: a click on a row would also show its track).
+    await page.locator('[data-entry-head] th').nth(1).click();
     await expect(bar.locator('[data-step-form]')).toHaveCount(0);
     await bar.locator('[data-action="step-settings"]').first().click();
     await bar.locator('[data-step-param="cutoff"]').fill('9000');

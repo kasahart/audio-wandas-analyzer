@@ -200,7 +200,13 @@ export function renderComparisonStyles(): string {
         .entry-screen .entry-row-play { font-size: 13px; }
         /* ▶ appears only on the row under the mouse (or in hand), and then plainly, in the text colour. */
         .entry-row:not(.is-focused):not(:hover) .entry-row-play:not(.is-playing) { visibility: hidden; }
+        /* A file shown as a track: ● in the first column and a bold name; a row and its lane light up together under the mouse. */
         .entry-row.is-shown .entry-name { font-weight: 600; }
+        .entry-table col.entry-col-mark-w { width: 1.8em; }
+        .entry-table td.entry-mark, .entry-table th.entry-mark { padding: 0; text-align: center; color: var(--muted); cursor: pointer; }
+        .entry-row.is-shown td.entry-mark { color: var(--text); }
+        .entry-screen:not(.is-max) .entry-row:not(.is-derived) { cursor: pointer; }
+        .entry-row.is-linked td, .track-row.is-linked { background: color-mix(in srgb, var(--text) 8%, transparent); }
         /* The name gives way (ellipsis) so the numbers and the row's buttons always fit the panel. */
         .entry-table td.entry-name { overflow: hidden; text-overflow: ellipsis; }
         .entry-bar, .entry-footer { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
@@ -316,6 +322,8 @@ export function renderComparisonStyles(): string {
         .entry-fchip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--text); border-radius: 12px; padding: 0 2px 0 8px; font-family: var(--font-mono); }
         .entry-screen .entry-fchip button { border: 0; padding: 0 4px; max-width: 26em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .entry-screen .entry-fadd { border-style: dashed; color: var(--muted); }
+        .entry-screen .entry-ftracks { border-style: dashed; color: var(--muted); }
+        .entry-screen .entry-ftracks.is-on { border-style: solid; border-color: var(--text); color: var(--text); }
         .entry-pop { position: absolute; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); padding: 8px; }
         .entry-fpop, .entry-slotmenu, .entry-memo { display: grid; gap: 4px; width: 280px; }
         .entry-slotmenu { width: 190px; }

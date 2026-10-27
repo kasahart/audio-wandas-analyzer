@@ -273,6 +273,9 @@ export interface UiStrings {
     dsFilterLow: string;
     dsFilterHigh: string;
     dsFilterAdd: string;
+    dsTrackMark: string;
+    dsTracksOnly: string;
+    hintTracksOnly: string;
     dsFilterColumn: string;
     dsFilterPickOne: string;
     dsFilterApplied: string;
@@ -628,7 +631,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
     en: {
         panelTitle: 'Audio Wandas Analyzer',
         emptyAllExcluded: 'All tracks are excluded',
-        emptyNoTracks: 'Files you put in slots 0–3 or add with ＋ on the entry table appear here as tracks',
+        emptyNoTracks: 'Click a row of the table to show its file here as a track; click it again to remove it',
         selectionEmptyHint: 'Open a folder to list every file here',
         btnOpenFile: '＋ Add files',
         browserEmptyPrompt: 'Drop audio or CSV files here, or open files or a folder, to start comparing',
@@ -885,6 +888,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsFilterLow: 'From',
         dsFilterHigh: 'To',
         dsFilterAdd: '＋ Filter',
+        dsTrackMark: 'On a track (click the row to show or remove it)',
+        dsTracksOnly: 'Tracks only {n}',
+        hintTracksOnly: 'Show only the rows whose file is on a track',
         dsFilterColumn: 'Column',
         dsFilterPickOne: 'Pick at least one value',
         dsFilterApplied: 'Narrowed to {n} rows',
@@ -1237,7 +1243,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
     ja: {
         panelTitle: 'Audio Wandas Analyzer',
         emptyAllExcluded: 'すべてのトラックが除外されています',
-        emptyNoTracks: '一覧で 1–3 や ▶ を押したファイルが、ここにトラックとして表示されます',
+        emptyNoTracks: '表の行をクリックすると、そのファイルをここにトラックとして表示します。もう一度クリックで消えます',
         selectionEmptyHint: 'フォルダを開くと、全ファイルの表がここに出ます',
         btnOpenFile: '＋ファイルを追加',
         browserEmptyPrompt: '音声ファイルやCSVをここにドロップするか、ファイルまたはフォルダを開いて比較を始めます',
@@ -1494,6 +1500,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsFilterLow: '下限',
         dsFilterHigh: '上限',
         dsFilterAdd: '＋ 絞り込み',
+        dsTrackMark: 'トラックに表示中（行のクリックで表示・解除）',
+        dsTracksOnly: 'トラックのみ {n}',
+        hintTracksOnly: 'トラックに出ているファイルの行だけを表示',
         dsFilterColumn: '列',
         dsFilterPickOne: '値を 1 つ以上選んでください',
         dsFilterApplied: '{n} 行に絞りました',
