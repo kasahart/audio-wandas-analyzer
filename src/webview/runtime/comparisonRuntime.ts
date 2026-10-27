@@ -1765,13 +1765,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const cacheId = trackRecordAtIndex(trackIndex)!.id + ':' + channelIndex;
         spectrogramRasterCache.set(cacheId, paintTrackSpectrogram(ctx, W, H, spec, {
             zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq,
+            durationSec: result.durationSeconds,
         }, spectrogramRasterCache.get(cacheId), drawTheme()));
         if (axisCanvas && axisCtx) {
             drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq, label: STR.axisFrequency }, drawTheme());
         }
         if (overlayCtx) {
             drawLoopRegionOnCanvas(overlayCtx, plotW, H);
-            drawAnalysisWindowOnCanvas(overlayCtx, plotW, H, trackIndex, channelIndex);
             drawCursorOnCanvas(overlayCtx, plotW, H);
             drawHoverLineOnCanvas(overlayCtx, plotW, H);
         }

@@ -61,6 +61,9 @@ class SpectrogramPayload(LevelScaleMetadata):
     maxFrequencyHz: float
     minDb: float
     maxDb: float
+    # Seconds from the file start to each time bin's centre: its STFT window centre,
+    # or the mean centre of the frames merged into it.
+    timeCentersSec: NotRequired[list[float]]
 
 
 class ChannelSummary(TypedDict):
@@ -205,17 +208,40 @@ def resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> n
     return reduced
 
 
+def _time_bin_boundaries(frame_count: int, target_bin_count: int) -> np.ndarray:
+    # Spread the larger groups evenly; np.array_split front-loads them, which drifts display bins off their frame times.
+    return (np.arange(1, target_bin_count) * frame_count) // target_bin_count
+
+
 def _resample_time_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.ndarray:
     if spectrogram.shape[0] <= target_bin_count:
         return spectrogram
 
-    # Spread the larger groups evenly; np.array_split front-loads them, which drifts display bins off their frame times.
-    boundaries = (np.arange(1, target_bin_count) * spectrogram.shape[0]) // target_bin_count
+    boundaries = _time_bin_boundaries(spectrogram.shape[0], target_bin_count)
     reduced = np.empty((target_bin_count, spectrogram.shape[1]), dtype=np.float64)
     for index, frame_group in enumerate(np.split(spectrogram, boundaries, axis=0)):
         reduced[index] = _mean_power_db(frame_group, axis=0)
 
     return reduced
+
+
+def _resample_time_centers(centers: np.ndarray, target_bin_count: int) -> np.ndarray:
+    if centers.shape[0] <= target_bin_count:
+        return centers
+    groups = np.split(centers, _time_bin_boundaries(centers.shape[0], target_bin_count))
+    return np.array([np.mean(group) for group in groups])
+
+
+def spectrogram_frame_centers(spectrogram_frame: wd.SpectrogramFrame) -> np.ndarray | None:
+    """Seconds from the input start to each STFT frame's window centre; None when the frame does not know them.
+
+    A sparse display spectrogram reports its own hop here, so its centres follow the frames actually computed.
+    """
+    origin = spectrogram_frame.frame_time_origin
+    if origin is None:
+        return None
+    hop_seconds = spectrogram_frame.hop_length / spectrogram_frame.sampling_rate
+    return float(origin) + np.arange(spectrogram_frame.n_frames) * hop_seconds
 
 
 def _build_spectrogram(
@@ -226,6 +252,7 @@ def _build_spectrogram(
     scale_metadata: LevelScaleMetadata | None = None,
     time_bin_limit: int = SPECTROGRAM_TIME_BIN_LIMIT,
     frequency_bin_limit: int = SPECTROGRAM_FREQUENCY_BIN_LIMIT,
+    frame_centers_sec: np.ndarray | None = None,
 ) -> SpectrogramPayload:
     scale: LevelScaleMetadata = scale_metadata or {
         "unit": DB_UNIT,
@@ -257,7 +284,7 @@ def _build_spectrogram(
     min_db = float(np.min(spectrogram))
     max_db = float(np.max(spectrogram))
 
-    return {
+    payload: SpectrogramPayload = {
         "values": spectrogram.tolist(),
         "timeBins": int(spectrogram.shape[0]),
         "frequencyBins": int(spectrogram.shape[1]),
@@ -268,6 +295,10 @@ def _build_spectrogram(
         "maxDb": max_db,
         **scale,
     }
+    if frame_centers_sec is not None and len(frame_centers_sec) == spectrogram_db.shape[0]:
+        centers = np.asarray(frame_centers_sec, dtype=np.float64)
+        payload["timeCentersSec"] = _resample_time_centers(centers, time_bin_limit).tolist()
+    return payload
 
 
 _ALLOWED_WINDOWS = {"hann", "hamming", "blackman", "boxcar"}
@@ -342,6 +373,7 @@ def analyze_from_frame(
 
     window_size, hop_size, window_name = resolve_stft_params(sample_count, stft_options)
     stft_db: np.ndarray | None = None
+    frame_centers: np.ndarray | None = None
     if include_spectrogram:
         if spectrogram_frame is None:
             raise ValueError("spectrogram_frame is required when include_spectrogram is true")
@@ -350,6 +382,7 @@ def analyze_from_frame(
             stft_db = stft_db[np.newaxis, :, :]
         elif stft_db.ndim != 3:
             raise ValueError(f"Expected 2D or 3D spectrogram data, got shape {stft_db.shape}")
+        frame_centers = spectrogram_frame_centers(spectrogram_frame)
 
     t_channels = time.perf_counter()
     channels: list[ChannelSummary] = []
@@ -367,6 +400,7 @@ def analyze_from_frame(
                 window_size,
                 hop_size,
                 level_scale_metadata(references[index], "STFT amplitude level"),
+                frame_centers_sec=frame_centers,
             )
         channels.append(
             {

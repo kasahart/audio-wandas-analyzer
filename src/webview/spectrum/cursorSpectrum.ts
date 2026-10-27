@@ -1,4 +1,5 @@
 import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
+import { spectrogramTimeBinAt, spectrogramTimeBinEdges } from './spectrogramTimeBins';
 
 export interface SpectrumSlice {
     values: number[];
@@ -104,7 +105,8 @@ export function extractSpectrumAtCursor(
     if (!spec || !spec.values || spec.timeBins <= 0 || spec.frequencyBins <= 0) {
         return null;
     }
-    let timeIndex = Math.floor((trackLocalSec / dur) * spec.timeBins);
+    const edges = spectrogramTimeBinEdges(spec, dur);
+    let timeIndex = edges ? spectrogramTimeBinAt(edges, trackLocalSec / dur) : Math.floor((trackLocalSec / dur) * spec.timeBins);
     timeIndex = Math.max(0, Math.min(spec.timeBins - 1, timeIndex));
     const values = spec.values[timeIndex];
     if (!values || values.length === 0) {

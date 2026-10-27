@@ -9,7 +9,7 @@ import pytest
 import soundfile as sf
 import wandas as wd
 
-from analysis_engine import AnalysisEngine
+from analysis_engine import AnalysisEngine, compute_spectrogram
 from analysis_service import AnalysisService
 from analyzer import (
     AnalysisResult,
@@ -18,6 +18,7 @@ from analyzer import (
     SpectrogramPayload,
     _build_spectrogram,
     resample_frequency_bins,
+    spectrogram_frame_centers,
 )
 
 
@@ -373,3 +374,34 @@ def test_auto_stft_window_is_even_for_short_files(sample_count: int) -> None:
 
     n_fft, _, _ = resolve_stft_params(sample_count, None)
     assert n_fft % 2 == 0
+
+
+def test_spectrogram_time_centers_follow_stft_window_centers() -> None:
+    frame = wd.from_numpy(np.zeros((1, 4800)), sampling_rate=48_000)
+    spectrogram = frame.stft(n_fft=512, hop_length=128, window="hann")
+    centers = spectrogram_frame_centers(spectrogram)
+    assert centers is not None
+    assert centers.shape == (spectrogram.n_frames,)
+    # Each centre is where the window that produced that frame peaks, starting before the file start.
+    assert centers[0] == pytest.approx(spectrogram.frame_time_origin)
+    np.testing.assert_allclose(np.diff(centers), 128 / 48_000)
+
+    spec = _build_spectrogram(
+        np.zeros((spectrogram.n_frames, 4)),
+        sample_rate_hz=48_000,
+        window_size=512,
+        hop_size=128,
+        time_bin_limit=8,
+        frame_centers_sec=centers,
+    )
+    boundaries = (np.arange(1, 8) * spectrogram.n_frames) // 8
+    expected = [float(np.mean(group)) for group in np.split(centers, boundaries)]
+    assert spec["timeCentersSec"] == pytest.approx(expected)
+
+
+def test_sparse_spectrogram_time_centers_use_the_display_hop() -> None:
+    frame = wd.from_numpy(np.zeros((1, 48_000)), sampling_rate=48_000)
+    sparse = compute_spectrogram(frame, 512, 2048, "hann")
+    centers = spectrogram_frame_centers(sparse)
+    assert centers is not None
+    np.testing.assert_allclose(centers, sparse.frame_center_times[0])

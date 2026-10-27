@@ -170,6 +170,7 @@ DEFINITIONS: dict[str, Schema] = {
             "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
             "referenceUnit": {"type": "string"},
             "levelReferenceLabel": {"type": "string"},
+            "timeCentersSec": _NUMBERS,
         },
     },
     "ChannelSummary": {

@@ -40,6 +40,15 @@ test('extractSpectrumAtCursor: cursor in middle picks middle bin', () => {
     assert.deepEqual(slice!.values, [-60, -40, -20, 0]);
 });
 
+test('extractSpectrumAtCursor: frame centres pick the frame whose window is centred nearest the cursor', () => {
+    const source = makeSource();
+    source.channels[0].spectrogram!.timeCentersSec = [-0.25, 0, 0.25, 0.5];
+    // 0.1 s is nearer the 0 s frame (bin 1) than the 0.25 s one; the even split would have picked bin 0.
+    assert.deepEqual(extractSpectrumAtCursor(source, 0, 0.1, { startSec: 0, spanSec: 1 })!.values, [-70, -50, -30, -10]);
+    // Past the last centre the last frame stays selected.
+    assert.deepEqual(extractSpectrumAtCursor(source, 0, 0.9, { startSec: 0, spanSec: 1 })!.values, [-50, -30, -10, -5]);
+});
+
 test('extractSpectrumAtCursor: cursor at end returns the production silence floor', () => {
     const slice = extractSpectrumAtCursor(makeSource(), 0, 1.0, { startSec: 0, spanSec: 1 });
     assert.deepEqual(slice!.values, [-90, -90, -90, -90]);

@@ -79,7 +79,7 @@ export function paintTrackSpectrogram(
     theme: DrawTheme,
 ): SpectrogramRasterCacheEntry {
     const plotW = spectrogramPlotWidth(W);
-    const key = [plotW, H, view.zoomStart, view.zoomEnd, view.trackStart, view.trackDurRatio, view.dbLo, view.dbHi, view.maxFrequencyHz].join(':');
+    const key = [plotW, H, view.zoomStart, view.zoomEnd, view.trackStart, view.trackDurRatio, view.dbLo, view.dbHi, view.maxFrequencyHz, view.durationSec].join(':');
     if (cached && cached.source === spec && cached.key === key) {
         return cached;
     }
