@@ -558,6 +558,23 @@ test('「計算」\'s estimate follows the recordings\' lengths from their heade
     await expect(compute).toHaveText(STR.dsCompute.replace('{n}', '10').replace('{time}', STR.entryMinutes.replace('{n}', '4')));
 });
 
+/** Whether a header's words stay whole ("A特性" on one line) and its text stays inside the cell. */
+const headerFit = (page: Page, column: string) => page.locator(`th[data-column="${column}"]`).evaluate(th => {
+    const text = th.querySelector('.entry-th-label')!.firstChild!;
+    const rects = (from: number, to: number): DOMRect[] => {
+        const range = document.createRange();
+        range.setStart(text, from);
+        range.setEnd(text, to);
+        return [...range.getClientRects()];
+    };
+    const at = text.textContent!.indexOf('A特性');
+    const cell = th.getBoundingClientRect();
+    return {
+        wordLines: at < 0 ? 1 : new Set(rects(at, at + 3).map(rect => Math.round(rect.top))).size,
+        inside: rects(0, text.textContent!.length).every(rect => rect.left >= cell.left - 0.5 && rect.right <= cell.right + 0.5),
+    };
+});
+
 for (const language of ['ja', 'en'] as const) {
     test(`the value header keeps "A特性" whole and stays inside its column, docked or maximized (${language})`, async ({ page }) => {
         test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
@@ -566,24 +583,25 @@ for (const language of ['ja', 'en'] as const) {
         for (const maximized of [false, true]) {
             if (maximized) await page.locator('.entry-size').click();
             await expect(page.locator('#entry-screen')).toHaveClass(maximized ? /is-max/ : /^(?!.*is-max)/);
-            const fit = await page.locator('th[data-column="leq"]').evaluate(th => {
-                const text = th.querySelector('.entry-th-label')!.firstChild!;
-                const rects = (from: number, to: number): DOMRect[] => {
-                    const range = document.createRange();
-                    range.setStart(text, from);
-                    range.setEnd(text, to);
-                    return [...range.getClientRects()];
-                };
-                const at = text.textContent!.indexOf('A特性');
-                const cell = th.getBoundingClientRect();
-                return {
-                    wordLines: at < 0 ? 1 : new Set(rects(at, at + 3).map(rect => Math.round(rect.top))).size,
-                    inside: rects(0, text.textContent!.length).every(rect => rect.left >= cell.left - 0.5 && rect.right <= cell.right + 0.5),
-                };
-            });
+            const fit = await headerFit(page, 'leq');
             const where = maximized ? 'maximized' : 'docked';
             expect(fit.wordLines, where).toBe(1);
             expect(fit.inside, where).toBe(true);
         }
     });
 }
+
+test('a CSV value with a long name with no spaces still stays inside its column, docked or maximized', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!, { language: 'ja', docked: true });
+    for (const name of ['異常度スコアの移動平均値', 'anomaly_score_moving_average']) {
+        const readable = scanned!.filter(file => (file.result as { ok?: boolean }).ok);
+        await pickCsv(page, `${name}.csv`, [`audio_file,${name}`, ...readable.map((file, index) => `${base(file.filePath)},${(index / 10).toFixed(1)}`)].join('\n') + '\n');
+        await page.locator('[data-action="entry-value"]').selectOption(`csv:${name}`);
+        await expect(page.locator(`th[data-column="csv:${name}"] .entry-th-label`)).toHaveText(name);
+        for (const maximized of [false, true]) {
+            if (maximized !== (await page.locator('#entry-screen.is-max').count() > 0)) await page.locator('.entry-size').click();
+            expect((await headerFit(page, `csv:${name}`)).inside, `${name} ${maximized ? 'maximized' : 'docked'}`).toBe(true);
+        }
+    }
+});
