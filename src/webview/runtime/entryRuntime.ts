@@ -321,6 +321,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const excluded = new Set<string>();
     const memo = new Map<string, string>();
     let mode: DatasetScreenView['mode'] = 'all';
+    /** 「トラックのみ」: the table narrowed to the files on a track. */
+    let tracksOnly = false;
+    /** The file whose row and lane are lit under the mouse. */
+    let linkedPath: string | null = null;
     /** Channels read from the files' headers at open (no audio decoded), and the files whose header could not be read. */
     const headerChannels = new Map<string, number>();
     const headerErrors = new Map<string, string>();
@@ -443,7 +447,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const stale = stalePaths();
         const ready = !isComputed(value) || shownRows.every(row => results.has(row.filePath) && !stale.has(row.filePath));
         return {
-            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group, value, filters, sort, slots, focused, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, mode, shown: new Set(deps.shownTracks?.().keys() ?? []),
+            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group, value, filters, sort, slots, focused, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, mode, shown: shownFiles(),
             unmatched: match?.unmatched ?? [], filtered: new Set(filters.map(filter => filter.column)),
             columns: {
                 name: { id: 'name', label: strings.entryColFile, numeric: false },
@@ -490,8 +494,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!values.some(option => option.id === value)) value = values[0]?.id ?? 'leq';
         const groups = groupOptions();
         if (!groups.some(option => option.id === group)) group = groups.find(option => option.id.startsWith('csv:') && !csv?.numeric[option.id.slice(4)])?.id ?? 'none';
+        const onTracks = tracksOnly ? shownFiles() : null;
         shownRows = mode === 'excluded' ? rows.filter(row => excluded.has(row.key))
-            : visibleRows({ rows, group, value, filters, sort, excluded }, results);
+            : visibleRows({ rows, group, value, filters, sort, excluded }, results).filter(row => !onTracks || onTracks.has(row.filePath));
         if (!focusPicked || !focused || !rows.some(row => row.key === focused)) focused = shownRows[0]?.key ?? null;
         render();
         if (!maximized) deps.compareChanged?.();
@@ -507,7 +512,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const groupHtml = groupOptionsHtml(groupOptions(), group);
         if (groupSelect.innerHTML !== groupHtml) groupSelect.innerHTML = groupHtml;
         groupSelect.value = group;
-        const chips = filterChipsHtml(filters, columnLabel, formatColumn, text);
+        const chips = filterChipsHtml(filters, columnLabel, formatColumn, text, mode === 'all' ? { count: new Set(rows.filter(row => view.shown?.has(row.filePath)).map(row => row.filePath)).size, only: tracksOnly } : undefined);
         if (chipsBox.innerHTML !== chips) chipsBox.innerHTML = chips;
         renderCompute(view);
         const unmatchedButton = query<HTMLButtonElement>('[data-action="entry-view-unmatched"]');
@@ -548,6 +553,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const first = Math.max(0, Math.floor(tableWrap.scrollTop / ROW_HEIGHT) - 10);
         const last = Math.min(tableLines(view).length, first + Math.ceil((tableWrap.clientHeight || 600) / ROW_HEIGHT) + 20);
         body.innerHTML = datasetRowsHtml(view, first, last, ROW_HEIGHT, text);
+        // Redrawn rows keep the light of the lane under the mouse.
+        if (linkedPath && document.querySelector(`.track-row[data-file-path="${CSS.escape(linkedPath)}"]`)) {
+            body.querySelectorAll(`tr.entry-row[data-file-path="${CSS.escape(linkedPath)}"]`).forEach(row => row.classList.add('is-linked'));
+        }
     }
     function rowName(key: string): string {
         const row = rowOf(key);
@@ -771,7 +780,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function computeTargets(): string[] {
         // A computed value: the distribution's rows (a range on the value takes only computed rows, so it is not applied).
         const pool = isComputed(value) ? distributionPool() : mode === 'all' ? shownRows : visibleRows({ rows, group, value, filters, sort, excluded }, results);
-        return [...new Set(pool.map(row => row.filePath))].filter(path => !results.has(path) || isStale(path));
+        // 「トラックのみ」 computes only the files on a track, as the table shows.
+        const onTracks = tracksOnly && mode === 'all' ? shownFiles() : null;
+        return [...new Set(pool.map(row => row.filePath))].filter(path => (!onTracks || onTracks.has(path)) && (!results.has(path) || isStale(path)));
     }
     /** The folder's sample rate, kept when a new Recipe clears the results so its steps are still checked against it. */
     let knownRate: number | undefined;
@@ -1103,6 +1114,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         heldTimer = window.setTimeout(() => { heldTimer = undefined; heldSlot = null; scheduleSide(); }, DELTA_RELEASE_MS);
     }
 
+    /** The files shown as tracks now (a hidden track is not). */
+    const shownFiles = (): Set<string> => new Set([...deps.shownTracks?.() ?? []].filter(([, hidden]) => !hidden).map(([filePath]) => filePath));
+    function toggleTrack(key: string): void {
+        const filePath = fileOfKey(key);
+        if (!shownFiles().has(filePath)) { deps.setShown?.(filePath, true); return; }
+        // Off the tracks is out of its slots too, as a lane's × does; the last slot it leaves takes the track off.
+        const held = slots.flatMap((item, slot) => (item && fileOfKey(item) === filePath ? [slot] : []));
+        if (!held.length) { deps.setShown?.(filePath, false); return; }
+        for (const slot of held) setSlot(slot, null);
+    }
     /** Puts a row in a slot (out of any other); the same row again takes it out. The comparison open follows, and stays open. */
     function setSlot(slot: number, key: string | null, follow = true): void {
         const before = slotFiles();
@@ -1181,7 +1202,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function focusFile(filePath: string): void {
         const key = shownRows.find(row => row.filePath === filePath)?.key ?? rows.find(row => row.filePath === filePath)?.key;
         if (!key) return;
-        if (!shownRows.some(row => row.key === key)) { mode = 'all'; filters = []; rebuild(); }
+        if (!shownRows.some(row => row.key === key)) { mode = 'all'; filters = []; tracksOnly = false; rebuild(); }
         focusRow(key, true);
     }
     function moveFocus(step: number): void {
@@ -1462,6 +1483,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-fok': () => applyFilter(),
         'entry-fcancel': () => closePopovers(),
         'entry-row-play': target => deps.play?.(fileOfKey(target.getAttribute('data-key')!)),
+        'entry-row-track': target => { focused = target.getAttribute('data-key')!; focusPicked = true; toggleTrack(focused); render(); },
+        'entry-tracks-only': () => { tracksOnly = !tracksOnly; tableWrap.scrollTop = 0; rebuild(); },
         'entry-row-slotmenu': target => { const key = target.getAttribute('data-key')!; fpop = null; memoKey = null; slotMenu = slotMenu === key ? null : key; focused = key; focusPicked = true; render(); renderPopovers(); },
         'entry-row-slot': target => { const key = target.getAttribute('data-key')!; slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); },
         'entry-row-memo': target => openMemo(target.getAttribute('data-key')!),
@@ -1498,13 +1521,18 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const action = target.closest<HTMLElement>('[data-action]');
         // A choice in the table's 書き出し menu closes it, the focus back on its summary.
         if (action?.closest('#entry-export-menu')) closeExportMenu();
+        // The second click of a double click on ● does not take the track off again.
+        const repeated = event.detail > 1;
         if (action && action.tagName !== 'SELECT' && action.tagName !== 'INPUT' && actions[action.getAttribute('data-action')!]) {
-            actions[action.getAttribute('data-action')!](action);
+            if (!(repeated && action.getAttribute('data-action') === 'entry-row-track')) actions[action.getAttribute('data-action')!](action);
             return;
         }
         if (target.closest('[data-entry-pop]')) return;
         const row = target.closest<HTMLElement>('tr[data-key]');
-        if (row) { focused = row.getAttribute('data-key'); focusPicked = true; render(); }
+        if (!row) return;
+        focused = row.getAttribute('data-key');
+        focusPicked = true;
+        render();
     });
     /** The maximized table's 書き出し menu: closed by a press outside it and by Esc, like the toolbar's menus. */
     const exportMenu = query<HTMLDetailsElement>('#entry-export-menu');
@@ -1516,6 +1544,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (hadFocus) exportMenu.querySelector<HTMLElement>('summary')?.focus();
         return true;
     }
+    // A row and its file's lane light up together under the mouse (only a file on a track has a lane).
+    document.addEventListener('mouseover', event => {
+        const filePath = (event.target as Element).closest?.('tr.entry-row[data-file-path], .track-row[data-file-path]')?.getAttribute('data-file-path') ?? null;
+        if (filePath === linkedPath) return;
+        document.querySelectorAll('.entry-row.is-linked, .track-row.is-linked').forEach(element => element.classList.remove('is-linked'));
+        const path = filePath && CSS.escape(filePath);
+        const lane = path ? document.querySelector(`.track-row[data-file-path="${path}"]`) : null;
+        // Remembered only once lit: a row whose track is still being read lights up at the next move.
+        linkedPath = lane ? filePath : null;
+        if (!lane) return;
+        lane.classList.add('is-linked');
+        screen.querySelectorAll(`tr.entry-row[data-file-path="${path}"]`).forEach(row => row.classList.add('is-linked'));
+    });
     // A press outside an open popover closes it (a memo is kept).
     document.addEventListener('pointerdown', event => {
         const target = event.target as Element;
@@ -1601,7 +1642,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     body.addEventListener('dblclick', event => {
         const target = event.target as HTMLElement;
         const key = target.closest<HTMLElement>('tr[data-key]')?.getAttribute('data-key');
-        if (!key || mode !== 'all' || target.closest('button')) return;
+        if (!key || mode !== 'all' || target.closest('button, [data-action="entry-row-track"]')) return;
         if (!slots.slice(1).includes(key)) setSlot([1, 2, 3].find(slot => !slots[slot]) ?? 1, key);
         openSlotted();
     });
@@ -1769,6 +1810,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             excluded.clear();
             memo.clear();
             filters = [];
+            tracksOnly = false;
             mode = 'all';
             fpop = null; slotMenu = null; memoKey = null;
             baseGroup = null;
@@ -1812,10 +1854,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             probe(filePaths);
             rebuild();
         },
-        tracksChanged: () => { if (!screen.hidden) render(); },
+        // With "tracks only" on, the rows follow the tracks.
+        tracksChanged: () => { if (tracksOnly) rebuild(); else if (!screen.hidden) render(); },
         trackRemoved(filePath) {
             const slot = slots.findIndex(key => key && fileOfKey(key) === filePath);
             if (slot >= 0) setSlot(slot, null, false); else if (!screen.hidden) render();
+            // With 「トラックのみ」 on, the row leaves with its lane.
+            if (tracksOnly) rebuild();
         },
         setRecipe,
         stepFailed,
@@ -1920,7 +1965,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             // The compared rows and their base: as a filter on the file column, which a chip shows and × takes off.
             const wanted = new Set(compared.map(fileOfKey).flatMap(file => [file, ...this.basePaths(file)]));
             filters = [{ column: 'name', kind: 'values', values: [...new Set(rows.filter(row => wanted.has(row.filePath)).map(row => row.name))] }];
-            mode = 'all'; tableWrap.scrollTop = 0; rebuild();
+            mode = 'all'; tracksOnly = false; tableWrap.scrollTop = 0; rebuild();
         },
         recipes(channels) {
             const recipe = editedRecipe ?? standardRecipe;

@@ -286,8 +286,9 @@ test('the entry table speaks Japanese with few words: value and group, the CSV, 
     await openEntry(page, scanned!, { language: 'ja' });
     await expect(page.locator('.entry-pick')).toHaveText([new RegExp(`^${STR.dsValue}`), new RegExp(`^${STR.dsGroup}`)]);
     await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsLeq);
-    await expect(page.locator('[data-entry-head] th')).toHaveCount(4 + (await page.locator('th.entry-col-group, th[data-column^="folder"], th[data-column^="csv"]').count()) );
-    await expect(page.locator('[data-entry-head] th').first()).toContainText(STR.entryColFile);
+    // ● (on a track), the file, ch, the value and the spare end, plus a group column when grouped.
+    await expect(page.locator('[data-entry-head] th')).toHaveCount(5 + (await page.locator('th.entry-col-group, th[data-column^="folder"], th[data-column^="csv"]').count()) );
+    await expect(page.locator('[data-entry-head] th').nth(1)).toContainText(STR.entryColFile);
 });
 
 test('a folder of 1000 recordings draws only the rows on screen', async ({ page }) => {
@@ -352,7 +353,7 @@ test('the step bar (in 比較解析) shows every step of the scan Recipe; an inv
     const form = await bar.locator('[data-step-form]').boundingBox();
     expect(Math.abs(form!.x - chip!.x)).toBeLessThan(4);
     // A click outside drops the form.
-    await page.locator('[data-entry-rows] tr').nth(3).click();
+    await page.locator('[data-entry-head] th').nth(1).click();
     await expect(bar.locator('[data-step-form]')).toHaveCount(0);
     await bar.locator('[data-action="step-settings"]').first().click();
     await bar.locator('[data-step-param="cutoff"]').fill('9000');
@@ -607,4 +608,18 @@ test('a CSV value with a long name with no spaces still stays inside its column,
             expect((await headerFit(page, `csv:${name}`)).inside, `${name} ${maximized ? 'maximized' : 'docked'}`).toBe(true);
         }
     }
+});
+
+test('「トラックのみ」 computes only the files on a track', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!, { language: 'ja', answered: 0, docked: true });
+    const first = rows(page).first();
+    await first.locator('td.entry-mark').click();
+    await expect(first).toHaveClass(/is-shown/);
+    await page.locator('[data-action="entry-tracks-only"]').click();
+    await expect(rows(page)).toHaveCount(1);
+    await page.locator('[data-action="entry-compute"]').click();
+    const scan = (await entryScans(page)).at(-1)!;
+    expect(scan.cachedOnly).toBeUndefined();
+    expect(scan.filePaths).toEqual([await first.getAttribute('data-file-path')]);
 });
