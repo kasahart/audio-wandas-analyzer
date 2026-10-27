@@ -100,6 +100,9 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'entry-row-play',
     'entry-row-track',
     'entry-tracks-only',
+    'entry-tracks-all',
+    'entry-tracks-all-go',
+    'entry-tracks-all-cancel',
     'entry-compute',
     'entry-compute-cancel',
     'entry-probe-cancel',
@@ -290,9 +293,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'directory-selection',
-        label: 'Choose the tracks on the entry table, in the side panel or maximized (⤢, a double click on its bar, its edge dragged past 60 %; Esc shrinks it): a click on a row\'s ○/● shows or takes off its file\'s track, ● marking the rows on a track; slots 0–3 (a row\'s slot menu, or the keys) and a row\'s ▶ show files as tracks too',
+        label: 'Choose the tracks on the entry table, in the side panel or maximized (⤢, a double click on its bar, its edge dragged past 60 %; Esc shrinks it): a click on a row\'s ○/● shows or takes off its file\'s track, ● marking the rows on a track; the head\'s ○/◐/● shows every listed row (more than 30 once confirmed) or takes them all off; slots 0–3 (a row\'s slot menu, or the keys) and a row\'s ▶ show files as tracks too',
         entryPoints: ['selection-toolbar', 'track-control', 'keyboard'],
-        triggers: ['entry-maximize', 'entry-row-track', 'entry-row-slot', 'entry-row-play', 'analyze-selected-files'],
+        triggers: ['entry-maximize', 'entry-row-track', 'entry-tracks-all', 'entry-tracks-all-go', 'entry-tracks-all-cancel', 'entry-row-slot', 'entry-row-play', 'analyze-selected-files'],
         regressionLayers: ['node:test', 'ui-smoke', 'vscode-e2e'],
     },
     {

@@ -915,7 +915,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 scheduleSpectrumRefresh('immediate');
             },
             // A listed file shown as a track or taken off, as the entry table's slots and ＋ do.
-            'set-file-selected': p => setFileShown(String(p.filePath), !!p.selected),
+            'set-file-selected': p => setFilesShown([String(p.filePath)], !!p.selected),
             // Every listed file at once, shown or taken off (the e2e's folder-wide steps).
             'set-all-files-selected': p => {
                 if (p.selected) { selectTracks(allSelectableFilePaths, true); return; }
@@ -1041,21 +1041,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         syncSelectionSummary();
         postSelectedFiles();
     }
-    /** Shows a file as a track (it is analysed if it is not yet), or takes it off the track view. */
-    function setFileShown(filePath: string, shown: boolean) {
+    /** Shows files as tracks (each analysed if it is not yet), or takes them off the track view: one request for all of them. */
+    function setFilesShown(filePaths: readonly string[], shown: boolean) {
         if (shown) {
             // A hidden track asked for again is shown again.
-            const record = trackRecordForPath(filePath);
-            if (record?.runtime.hidden) {
-                record.runtime.hidden = false;
+            const unhidden = filePaths.map(trackRecordForPath).filter(record => record?.runtime.hidden);
+            unhidden.forEach(record => { record!.runtime.hidden = false; });
+            if (unhidden.length) {
                 updateVisibility();
                 scheduleRender();
             }
-            selectTracks([filePath]);
-        } else if (hasSelectedFilePath(filePath)) {
-            removeSelectedFilePath(filePath);
-            syncSelectionSummary();
-            postSelectedFiles();
+            selectTracks(filePaths);
+        } else {
+            const leaving = filePaths.filter(hasSelectedFilePath);
+            if (leaving.length) {
+                leaving.forEach(removeSelectedFilePath);
+                syncSelectionSummary();
+                postSelectedFiles();
+            }
         }
         entryScreen.tracksChanged();
     }
@@ -1089,13 +1092,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             return shown;
         },
-        setShown: (filePath, shown) => setFileShown(filePath, shown),
+        setShown: (filePath, shown) => setFilesShown([filePath], shown),
+        setShownMany: (filePaths, shown) => setFilesShown(filePaths, shown),
         play(filePath) {
             const record = trackRecordForPath(filePath);
             if (record && !record.runtime.hidden) { togglePlayback(record.id); return; }
             // Not a track yet (or hidden): shown as one, it plays once analysed.
             pendingPlay = filePath;
-            setFileShown(filePath, true);
+            setFilesShown([filePath], true);
             playWhenReady();
         },
         playing() {

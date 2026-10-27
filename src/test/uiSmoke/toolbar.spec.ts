@@ -311,7 +311,25 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
     await expect(entryRow(page, '/sources/rec/first.wav')).not.toHaveClass(/is-shown/);
     await expect(tracksOnly).toHaveCount(0);
-    // Maximized too.
+    // The head's ○/◐/● shows every listed row as a track, or takes them all off.
+    const headMark = page.locator('#entry-dock [data-action="entry-tracks-all"]');
+    await expect(headMark).toHaveText('○');
+    await headMark.click();
+    await expect(page.locator('.track-row')).toHaveCount(2);
+    await expect(headMark).toHaveText('●');
+    await headMark.click();
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    await expect(headMark).toHaveText('○');
+    await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
+    await expect(headMark).toHaveText('◐');
+    await expect(headMark).toHaveAttribute('aria-label', getStrings('en').dsTracksRest.replace('{n}', '1'));
+    await headMark.click();
+    await expect(page.locator('.track-row')).toHaveCount(2);
+    // Under Tracks only, taking them all off brings the table's rows back.
+    await page.locator('[data-action="entry-tracks-only"]').click();
+    await headMark.click();
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
     await page.locator('#entry-screen [data-action="entry-maximize"]').click();
     await entryRow(page, '/sources/rec/first.wav').locator('.entry-nm').click();
     await expect(entryRow(page, '/sources/rec/first.wav')).not.toHaveClass(/is-shown/);
@@ -347,6 +365,49 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(entryRow(page, '/sources/single.wav')).toHaveClass(/is-shown/);
     await expect(entryRow(page, '/sources/rec (2)/third.wav')).toHaveClass(/is-shown/);
     await expect(page.locator('.track-row')).toHaveCount(2);
+});
+
+test('the head\'s ○ asks before it shows more than 30 files as tracks', async ({ page }) => {
+    const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
+    mkdirSync(join(folder, 'many'));
+    for (let i = 0; i < 31; i++) writeFileSync(join(folder, 'many', `take${String(i).padStart(2, '0')}.wav`), tinyWav());
+    await openStaticPage(page, 'window.showDirectoryPicker = undefined;');
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('#selection-toolbar [data-action="open-folder"]').click();
+    await (await chooser).setFiles(join(folder, 'many'));
+    await leaveEntryTable(page);
+    const strings = getStrings('en');
+    const headMark = page.locator('#entry-dock [data-action="entry-tracks-all"]');
+    const confirm = page.locator('#entry-dock .entry-tracks-confirm');
+    await headMark.click();
+    await expect(confirm).toContainText(strings.dsTracksConfirm.replace('{n}', '31'));
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    await confirm.locator('[data-action="entry-tracks-all-cancel"]').click();
+    await expect(confirm).toHaveCount(0);
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    // Esc drops the question; Enter on the head asks again, with the focus on Show.
+    await headMark.click();
+    await page.keyboard.press('Escape');
+    await expect(confirm).toHaveCount(0);
+    await headMark.focus();
+    await page.keyboard.press('Enter');
+    await expect(confirm.locator('[data-action="entry-tracks-all-go"]')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(confirm).toHaveCount(0);
+    // The browser keeps its own limit on the tracks it holds (8): the rest stay off, the head half on.
+    await expect(page.locator('.track-row')).toHaveCount(8, { timeout: 60_000 });
+    await expect(headMark).toHaveText('◐');
+    await expect(headMark).toBeFocused();
+    // Showing the rest was just tried, so ◐ now takes them all off.
+    await expect(headMark).toHaveAttribute('aria-label', strings.dsTracksNone.replace('{n}', '31'));
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    await expect(headMark).toHaveText('○');
+    await expect(headMark).toBeFocused();
+    // With none on, ○ shows them again (asking first).
+    await expect(headMark).toHaveAttribute('aria-label', strings.dsTracksAll.replace('{n}', '31'));
+    await page.keyboard.press('Enter');
+    await expect(confirm).toContainText(strings.dsTracksConfirm.replace('{n}', '31'));
 });
 
 test('the table shows where a recording goes, keeps its exports reachable by keys, and hides them with the folded panel', async ({ page }) => {
