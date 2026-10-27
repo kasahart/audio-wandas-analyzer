@@ -314,6 +314,12 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(entryRow(page, '/sources/rec/first.wav')).not.toHaveClass(/is-shown/);
     await page.keyboard.press('Escape');
     await leaveEntryTable(page);
+    // 「トラックのみ」 left on does not hide the next folder's recordings.
+    await showRow(page, '/sources/rec/first.wav');
+    await tracksOnly.click();
+    await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(1);
+    await page.locator('[data-action="remove-track"]').first().click();
+    await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(0);
 
     const sameName = mkdtempSync(join(tmpdir(), 'awa-folder-'));
     mkdirSync(join(sameName, 'rec'));

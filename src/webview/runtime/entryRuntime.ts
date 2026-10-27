@@ -1202,7 +1202,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function focusFile(filePath: string): void {
         const key = shownRows.find(row => row.filePath === filePath)?.key ?? rows.find(row => row.filePath === filePath)?.key;
         if (!key) return;
-        if (!shownRows.some(row => row.key === key)) { mode = 'all'; filters = []; rebuild(); }
+        if (!shownRows.some(row => row.key === key)) { mode = 'all'; filters = []; tracksOnly = false; rebuild(); }
         focusRow(key, true);
     }
     function moveFocus(step: number): void {
@@ -1812,6 +1812,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             excluded.clear();
             memo.clear();
             filters = [];
+            tracksOnly = false;
             mode = 'all';
             fpop = null; slotMenu = null; memoKey = null;
             baseGroup = null;
@@ -1966,7 +1967,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             // The compared rows and their base: as a filter on the file column, which a chip shows and × takes off.
             const wanted = new Set(compared.map(fileOfKey).flatMap(file => [file, ...this.basePaths(file)]));
             filters = [{ column: 'name', kind: 'values', values: [...new Set(rows.filter(row => wanted.has(row.filePath)).map(row => row.name))] }];
-            mode = 'all'; tableWrap.scrollTop = 0; rebuild();
+            mode = 'all'; tracksOnly = false; tableWrap.scrollTop = 0; rebuild();
         },
         recipes(channels) {
             const recipe = editedRecipe ?? standardRecipe;
