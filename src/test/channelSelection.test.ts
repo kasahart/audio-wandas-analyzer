@@ -64,6 +64,11 @@ test('a step measured against the base slot is written with a base input: its st
     const noRow = withBaseInput(ch2, 'node-2') as unknown as { nodes: Array<{ id: string; inputs: string[] }> };
     assert.deepEqual(rows(noRow as unknown as RecipeDocument), [[CHANNEL_NODE, 1]]);
     assert.deepEqual(noRow.nodes.find(node => node.id === 'node-0-base')!.inputs, [BASE_INPUT]);
+    // A one-channel compared recording (no channel selection) against a base ch2 row: the base still gives its ch2.
+    const monoVsCh2 = withBaseInput(coherence as unknown as RecipeDocument, 'node-2', { channel: 2 }) as unknown as { nodes: Array<{ id: string; inputs: string[] }> };
+    assert.deepEqual(rows(monoVsCh2 as unknown as RecipeDocument), [[`${CHANNEL_NODE}-base`, 1]]);
+    assert.deepEqual(monoVsCh2.nodes.find(node => node.id === `${CHANNEL_NODE}-base`)!.inputs, [BASE_INPUT]);
+    assert.deepEqual(monoVsCh2.nodes.find(node => node.id === 'node-0-base')!.inputs, [`${CHANNEL_NODE}-base`]);
     // A base shorter than the compared file: its slice ends within its own length.
     const slices = (doc: RecipeDocument): unknown[] => (doc as unknown as { nodes: Array<{ id: string; params?: { entries: Array<[string, unknown]> } }> }).nodes
         .filter(node => node.id.startsWith('node-1')).map(node => node.params?.entries.find(([name]) => name === 'end')?.[1]);

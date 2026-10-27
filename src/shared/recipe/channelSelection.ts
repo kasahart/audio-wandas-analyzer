@@ -84,7 +84,9 @@ export function withBaseInput(recipe: RecipeDocument, stepId: string, base: { ch
     }
     // The compared row's channel selection is the base row's on the base side.
     const own = before.find(node => node.id === CHANNEL_NODE);
-    const renamed = (id: string): string => (id === input ? BASE_INPUT : id === CHANNEL_NODE && own && !baseChannel ? renamed(own.inputs[0]) : `${id}-base`);
+    // A compared recording without a channel selection (one channel) still takes the base row's channel of the base.
+    const ownPick = !own && baseChannel ? `${CHANNEL_NODE}-base` : null;
+    const renamed = (id: string): string => (id === input ? ownPick ?? BASE_INPUT : id === CHANNEL_NODE && own && !baseChannel ? renamed(own.inputs[0]) : `${id}-base`);
     const cloned = before.filter(node => node !== own || baseChannel).map(node => ({ ...JSON.parse(JSON.stringify(node)) as Node, id: renamed(node.id), inputs: node.inputs.map(renamed) }));
     const picked = cloned.find(node => node.id === `${CHANNEL_NODE}-base`);
     if (picked && baseChannel) picked.params = { $type: 'map', entries: [['channel_idx', baseChannel - 1]] };
@@ -98,6 +100,7 @@ export function withBaseInput(recipe: RecipeDocument, stepId: string, base: { ch
     }
     const pick = (id: string, from: string): Node => ({ id, operation: GET_CHANNEL, version: 1, inputs: [from], params: { $type: 'map', entries: [['channel_idx', 0]] } });
     const added: Node[] = [
+        ...(ownPick ? [{ id: ownPick, operation: GET_CHANNEL, version: 1, inputs: [BASE_INPUT], params: { $type: 'map', entries: [['channel_idx', baseChannel! - 1]] } } as Node] : []),
         ...cloned,
         pick(`${stepId}-base-channel`, renamed(step.inputs[0])),
         pick(`${stepId}-channel`, step.inputs[0]),
