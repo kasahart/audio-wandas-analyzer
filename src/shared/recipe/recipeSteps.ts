@@ -541,7 +541,9 @@ export function withSlotReference(recipe: RecipeDocument, stepId: string, on: bo
     const pair = nodes(recipe).find(node => node.operation === SELECT_PAIR && node.inputs[0] === stepId)?.id;
     let next = on && pair ? withoutSteps(recipe, [pair]) : recipe;
     const select = catalogOperation(SELECT_PAIR);
-    if (!on && !pair && select) next = withStep(next, stepId, select).recipe;
+    // Back to a channel: the pair chip again, where adding the step gives one (a CSD keeps its auto-spectra).
+    const operation = nodes(recipe).find(node => node.id === stepId)?.operation ?? '';
+    if (!on && !pair && select && PAIRED_ON_ADD.has(operation)) next = withStep(next, stepId, select).recipe;
     const copy = JSON.parse(JSON.stringify(next)) as Record<string, unknown>;
     const list = slotReferenced(recipe).filter(id => id !== stepId).concat(on ? [stepId] : []);
     if (list.length) copy[REFERENCE_KEY] = list; else delete copy[REFERENCE_KEY];

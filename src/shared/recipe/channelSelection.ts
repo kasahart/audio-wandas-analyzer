@@ -5,7 +5,7 @@
  */
 import type { RecipeDocument } from './recipeSelection';
 import type { ScanResult } from '../protocol/backendProtocol';
-import { CROSS_CHANNEL, PAIRED_ON_ADD } from './recipeSteps';
+import { CROSS_CHANNEL, PAIRED_ON_ADD, TIME_SLICE } from './recipeSteps';
 
 export const GET_CHANNEL = 'wandas.frame.get_channel';
 export const CHANNEL_NODE = 'node-channel';
@@ -64,10 +64,12 @@ interface Doc { inputs: Array<{ id: string; name?: string; kind?: string }>; nod
  * `base` input goes through the same steps up to it, one channel of each is taken, `concat_frame` makes the
  * pair (the base first), and `select_pair(1, 0)` keeps the recording over the base (not after a CSD, whose
  * auto-spectra the cross-spectral steps after it need). As the scans do (scan_service.py's `reference`), so the
- * report's Recipe replays its pictures. `baseChannel` (from 1) is the base slot's row: the channel the base side
- * selects where the Recipe selects one (withChannel's); none, the base recording's first.
+ * report's Recipe replays its pictures. `base.channel` (from 1) is the base slot's row: the channel the base side
+ * selects where the Recipe selects one (withChannel's); none, the base recording's first. `base.endS`: where the
+ * base's own time slice ends at the latest (its length less the end guard), as the scan slices it.
  */
-export function withBaseInput(recipe: RecipeDocument, stepId: string, baseChannel?: number | null): RecipeDocument {
+export function withBaseInput(recipe: RecipeDocument, stepId: string, base: { channel?: number | null; endS?: number } = {}): RecipeDocument {
+    const baseChannel = base.channel;
     const copy = JSON.parse(JSON.stringify(recipe)) as RecipeDocument & Doc;
     const step = copy.nodes.find(node => node.id === stepId);
     const input = copy.inputs.find(item => item.kind === 'frame')?.id ?? copy.inputs[0]?.id;
@@ -84,8 +86,14 @@ export function withBaseInput(recipe: RecipeDocument, stepId: string, baseChanne
     const own = before.find(node => node.id === CHANNEL_NODE);
     const renamed = (id: string): string => (id === input ? BASE_INPUT : id === CHANNEL_NODE && own && !baseChannel ? renamed(own.inputs[0]) : `${id}-base`);
     const cloned = before.filter(node => node !== own || baseChannel).map(node => ({ ...JSON.parse(JSON.stringify(node)) as Node, id: renamed(node.id), inputs: node.inputs.map(renamed) }));
-    const base = cloned.find(node => node.id === `${CHANNEL_NODE}-base`);
-    if (base && baseChannel) base.params = { $type: 'map', entries: [['channel_idx', baseChannel - 1]] };
+    const picked = cloned.find(node => node.id === `${CHANNEL_NODE}-base`);
+    if (picked && baseChannel) picked.params = { $type: 'map', entries: [['channel_idx', baseChannel - 1]] };
+    for (const node of cloned.filter(item => item.operation === TIME_SLICE && base.endS !== undefined)) {
+        const entries = (node.params as { entries?: Array<[string, unknown]> } | undefined)?.entries ?? [];
+        const end = entries.find(([name]) => name === 'end')?.[1];
+        const shortened = Math.min(typeof end === 'number' ? end : Infinity, base.endS!);
+        node.params = { $type: 'map', entries: [...entries.filter(([name]) => name !== 'end'), ['end', Math.round(shortened * 1e6) / 1e6]] };
+    }
     const pick = (id: string, from: string): Node => ({ id, operation: GET_CHANNEL, version: 1, inputs: [from], params: { $type: 'map', entries: [['channel_idx', 0]] } });
     const added: Node[] = [
         ...cloned,

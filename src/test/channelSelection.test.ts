@@ -60,10 +60,17 @@ test('a step measured against the base slot is written with a base input: its st
     const rows = (doc: RecipeDocument): Array<[string, unknown]> => (doc as unknown as { nodes: Array<{ id: string; inputs: string[]; params?: { entries: Array<[string, unknown]> } }> }).nodes
         .filter(node => node.id.startsWith(CHANNEL_NODE)).map(node => [node.id, node.params?.entries[0]?.[1]]);
     const ch2 = withChannel(coherence as unknown as RecipeDocument, 2, true);
-    assert.deepEqual(rows(withBaseInput(ch2, 'node-2', 1)), [[CHANNEL_NODE, 1], [`${CHANNEL_NODE}-base`, 0]]);
+    assert.deepEqual(rows(withBaseInput(ch2, 'node-2', { channel: 1 })), [[CHANNEL_NODE, 1], [`${CHANNEL_NODE}-base`, 0]]);
     const noRow = withBaseInput(ch2, 'node-2') as unknown as { nodes: Array<{ id: string; inputs: string[] }> };
     assert.deepEqual(rows(noRow as unknown as RecipeDocument), [[CHANNEL_NODE, 1]]);
     assert.deepEqual(noRow.nodes.find(node => node.id === 'node-0-base')!.inputs, [BASE_INPUT]);
+    // A base shorter than the compared file: its slice ends within its own length.
+    const slices = (doc: RecipeDocument): unknown[] => (doc as unknown as { nodes: Array<{ id: string; params?: { entries: Array<[string, unknown]> } }> }).nodes
+        .filter(node => node.id.startsWith('node-1')).map(node => node.params?.entries.find(([name]) => name === 'end')?.[1]);
+    const sliced = JSON.parse(JSON.stringify(coherence)) as { nodes: Array<{ id: string; params: { entries: Array<[string, unknown]> } }> };
+    sliced.nodes.find(node => node.id === 'node-1')!.params.entries = [['start', 0.15], ['end', 3.85]];
+    assert.deepEqual(slices(withBaseInput(sliced as unknown as RecipeDocument, 'node-2', { endS: 1.85 })), [3.85, 1.85]);
+    assert.deepEqual(slices(withBaseInput(sliced as unknown as RecipeDocument, 'node-2', { endS: 9 })), [3.85, 3.85]);
     // A CSD keeps its auto-spectra (the cross-spectral steps after it need them): no pair after it.
     Object.assign(coherence.nodes[2], { operation: 'wandas.audio.csd' });
     const csd = withBaseInput(coherence as unknown as RecipeDocument, 'node-2') as unknown as { nodes: Array<{ operation: string }>; output: string };

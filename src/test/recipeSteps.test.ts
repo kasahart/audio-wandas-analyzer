@@ -245,6 +245,10 @@ test('a step that compares two channels needs two: one channel (or one picked by
     const back = withSlotReference(slotted, coherence, false);
     assert.deepEqual(slotReferenced(back), []);
     assert.equal(recipeChain(back).filter(node => node.operation === SELECT_PAIR).length, 1);
+    // A CSD back to a channel keeps its auto-spectra: no pair chip comes with it.
+    const csdDoc = JSON.parse(JSON.stringify(slotted)) as { nodes: Array<{ id: string; operation: string }> };
+    csdDoc.nodes.find(node => node.id === coherence)!.operation = 'wandas.audio.csd';
+    assert.equal(recipeChain(withSlotReference(csdDoc as unknown as RecipeDocument, coherence, false)).some(node => node.operation === SELECT_PAIR), false);
     // A spectrogram's CSD has no join of two recordings: it keeps to channels, and ＋ greys it on one.
     assert.equal(addableOperations('SpectrogramFrame', undefined, 1).find(item => item.operation.id === 'wandas.spectrogram.csd')!.off, 'channels');
     assert.equal(addableOperations('ChannelFrame', undefined, 1).find(item => item.name === 'coherence')!.off, undefined);
