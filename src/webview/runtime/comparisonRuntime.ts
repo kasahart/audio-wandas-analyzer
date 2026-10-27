@@ -3109,14 +3109,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const norm = hit.norm;
         // Same precedence as handleCanvasMouseDown so the hint names the drag that will run.
-        const gripType = waveformMode === 'rect-zoom' ? null : loopGripAt(loopRegion, norm, waveformView.span());
+        const rectZoom = rectZoomOn(canvas);
+        const gripType = rectZoom ? null : loopGripAt(loopRegion, norm, waveformView.span());
         const action = gripType ? STR.tooltipLoopResize
             : e.shiftKey ? STR.tooltipLoopOrShift
-            : waveformMode === 'rect-zoom' ? STR.hintRectZoomDrag
+            : rectZoom ? STR.hintRectZoomDrag
             : loopRegion && norm >= loopRegion.start && norm <= loopRegion.end ? STR.tooltipLoopClear
             : STR.tooltipLoopOrShift;
         hintFooter.show(action + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
         renderWithHoverAt(norm);
+    }
+    /** Box zoom picks an amplitude range, which only the waveform has: on the spectrogram a drag stays a loop. */
+    function rectZoomOn(canvas: HTMLCanvasElement): boolean {
+        return waveformMode === 'rect-zoom' && !canvas.classList.contains('track-spec-canvas');
     }
     function handleCanvasMouseDown(e: MouseEvent): void {
         const canvas = canvasTarget(e, 'track-canvas');
@@ -3140,7 +3145,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const y = e.clientY - rect.top;
             const norm = hit.norm;
             const ampNorm = waveformView.canvasYToAmplitude(y, canvas.height);
-            const gripType = waveformMode === 'rect-zoom' ? null : loopGripAt(loopRegion, norm, waveformView.span());
+            const rectZoom = rectZoomOn(canvas);
+            const gripType = rectZoom ? null : loopGripAt(loopRegion, norm, waveformView.span());
             dragState = {
                 trackId: trackId,
                 canvasId: canvas.id,
@@ -3153,8 +3159,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 isShift: e.shiftKey,
                 startNorm: norm,
                 startAmpNorm: ampNorm,
-                // The box zoom picks an amplitude range, which only the waveform has.
-                dragType: gripType || (e.shiftKey ? 'offset' : (waveformMode === 'rect-zoom' && !canvas.classList.contains('track-spec-canvas') ? 'rectZoom' : 'loop')),
+                dragType: gripType || (e.shiftKey ? 'offset' : (rectZoom ? 'rectZoom' : 'loop')),
             };
             if (dragState.dragType === 'rectZoom') setLoopRegion(null);
             canvas.focus();

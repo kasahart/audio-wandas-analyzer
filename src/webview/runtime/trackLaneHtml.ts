@@ -42,7 +42,7 @@ export function channelLaneHtml(spec: ChannelLaneSpec): string {
         + '    <div class="track-split" data-action="track-split-drag"' + dataAttrs + hintAttr(spec.splitHint) + ' role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(spec.splitLabel) + '"></div>'
         + '    <div class="track-spec-wrap" id="' + trackSpecWrapId(trackIndex, channelIndex) + '">'
         + '      <canvas class="track-axis-canvas track-spec-axis" id="' + trackSpecAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + axisWidth + 'px"' + dataAttrs + hintAttr(spec.spectrogramAxisHint) + '></canvas>'
-        + '      <canvas class="track-canvas track-spec-canvas" id="' + trackSpecCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' style="outline:none;flex:1"></canvas>'
+        + '      <canvas class="track-canvas track-spec-canvas" id="' + trackSpecCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="-1" style="outline:none;flex:1"></canvas>'
         + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' aria-hidden="true" style="position:absolute;left:' + axisWidth + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
         + '    </div>'
         + '    </div>'

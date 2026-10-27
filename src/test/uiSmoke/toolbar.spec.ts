@@ -549,6 +549,22 @@ test('a lane shows the waveform over its spectrogram on one time axis, split by 
     const fromSpec = await page.locator('#cursor-display').textContent();
     await page.mouse.move(before.wave.x + before.wave.width / 2, before.wave.y + before.wave.height / 2);
     expect(await page.locator('#cursor-display').textContent()).toBe(fromSpec);
+    // A click on the spectrogram gives the lane the keys: → moves the cursor.
+    await spec.click({ position: { x: before.wave.width / 4, y: before.spec.height / 2 } });
+    await expect(spec).toBeFocused();
+    await page.mouse.move(0, 0);
+    const clicked = await page.locator('#cursor-display').textContent();
+    await page.keyboard.press('Shift+ArrowRight');
+    await expect(page.locator('#cursor-display')).not.toHaveText(clicked ?? '');
+    // Box zoom is the waveform's: over the spectrogram the hint names the loop drag that will run.
+    await page.locator('#tb-more-menu > summary').click();
+    await page.locator('#toolbar [data-action="wave-mode-rect-zoom"]').click();
+    await page.mouse.move(before.wave.x + before.wave.width / 3, before.wave.y + before.wave.height / 2);
+    const waveHint = await page.locator('#hint-footer').textContent();
+    await page.mouse.move(before.spec.x + before.wave.width / 3, before.spec.y + before.spec.height / 2);
+    await expect(page.locator('#hint-footer')).not.toHaveText(waveHint ?? '');
+    await page.locator('#tb-more-menu > summary').click();
+    await page.locator('#toolbar [data-action="wave-mode-rect-zoom"]').click();
 
     const split = page.locator('.track-split').first();
     const handle = (await split.boundingBox())!;
