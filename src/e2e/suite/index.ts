@@ -231,8 +231,13 @@ export async function run(): Promise<void> {
                     'export-csv',
                     'export-wav',
                     'export-report',
+                    'stage-report',
                     'save-recipe',
                     'run-recipe',
+                    // The entry table's exports share the toolbar's 書き出し menu.
+                    'entry-batch',
+                    'entry-export-csv',
+                    'entry-export-notes',
                 ]);
                 assert.deepEqual(
                     snapshot.renderedUi.displayOrder,
