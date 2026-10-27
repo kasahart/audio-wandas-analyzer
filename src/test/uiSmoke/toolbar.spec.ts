@@ -404,6 +404,10 @@ test('the head\'s ○ asks before it shows more than 30 files as tracks', async 
     await expect(page.locator('.track-row')).toHaveCount(0);
     await expect(headMark).toHaveText('○');
     await expect(headMark).toBeFocused();
+    // With none on, ○ shows them again (asking first).
+    await expect(headMark).toHaveAttribute('aria-label', strings.dsTracksAll.replace('{n}', '31'));
+    await page.keyboard.press('Enter');
+    await expect(confirm).toContainText(strings.dsTracksConfirm.replace('{n}', '31'));
 });
 
 test('the table shows where a recording goes, keeps its exports reachable by keys, and hides them with the folded panel', async ({ page }) => {

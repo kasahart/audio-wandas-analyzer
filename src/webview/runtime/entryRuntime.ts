@@ -1140,8 +1140,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The head's ○/◐/●: shows every listed file as a track (many only once confirmed), or takes them all off. */
     function toggleAllTracks(): void {
         const listed = listedFiles();
-        const tried = triedAll === listed.join('\n');
-        const adding = tried ? [] : notShown(listed);
+        const missing = notShown(listed);
+        // Only a partial result of that try (◐) turns into taking them off; with none on, ○ shows them again.
+        const tried = triedAll === listed.join('\n') && missing.length < listed.length;
+        const adding = tried ? [] : missing;
         pendingAll = null;
         triedAll = null;
         if (adding.length > LARGE_BASE) {
