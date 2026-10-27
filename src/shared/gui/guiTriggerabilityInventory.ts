@@ -290,7 +290,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'directory-selection',
-        label: 'Choose the tracks on the entry table, in the side panel or maximized (⤢, a double click on its bar, its edge dragged past 60 %; Esc shrinks it): a click on a row (on its ● when maximized) shows or takes off its file\'s track, ● marking the rows on a track; slots 0–3 (a row\'s slot menu, or the keys) and a row\'s ▶ show files as tracks too',
+        label: 'Choose the tracks on the entry table, in the side panel or maximized (⤢, a double click on its bar, its edge dragged past 60 %; Esc shrinks it): a click on a row\'s ○/● shows or takes off its file\'s track, ● marking the rows on a track; slots 0–3 (a row\'s slot menu, or the keys) and a row\'s ▶ show files as tracks too',
         entryPoints: ['selection-toolbar', 'track-control', 'keyboard'],
         triggers: ['entry-maximize', 'entry-row-track', 'entry-row-slot', 'entry-row-play', 'analyze-selected-files'],
         regressionLayers: ['node:test', 'ui-smoke', 'vscode-e2e'],

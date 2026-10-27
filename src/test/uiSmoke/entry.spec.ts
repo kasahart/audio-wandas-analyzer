@@ -352,7 +352,7 @@ test('the step bar (in 比較解析) shows every step of the scan Recipe; an inv
     const chip = await bar.locator('[data-step-id]').filter({ hasText: STR.stepAverage }).boundingBox();
     const form = await bar.locator('[data-step-form]').boundingBox();
     expect(Math.abs(form!.x - chip!.x)).toBeLessThan(4);
-    // A click outside drops the form (on the table's head: a click on a row would also show its track).
+    // A click outside drops the form.
     await page.locator('[data-entry-head] th').nth(1).click();
     await expect(bar.locator('[data-step-form]')).toHaveCount(0);
     await bar.locator('[data-action="step-settings"]').first().click();
@@ -614,7 +614,7 @@ test('「トラックのみ」 computes only the files on a track', async ({ pag
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await openEntry(page, scanned!, { language: 'ja', answered: 0, docked: true });
     const first = rows(page).first();
-    await first.locator('.entry-col-value').click();
+    await first.locator('td.entry-mark').click();
     await expect(first).toHaveClass(/is-shown/);
     await page.locator('[data-action="entry-tracks-only"]').click();
     await expect(rows(page)).toHaveCount(1);

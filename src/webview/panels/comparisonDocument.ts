@@ -204,8 +204,7 @@ export function renderComparisonStyles(): string {
         .entry-row.is-shown .entry-name { font-weight: 600; }
         .entry-table col.entry-col-mark-w { width: 1.8em; }
         .entry-table td.entry-mark, .entry-table th.entry-mark { padding: 0; text-align: center; color: var(--muted); cursor: pointer; }
-        .entry-row.is-shown td.entry-mark { color: var(--text); }
-        .entry-screen:not(.is-max) .entry-row:not(.is-derived) { cursor: pointer; }
+        .entry-row.is-shown td.entry-mark, .entry-table td.entry-mark:hover { color: var(--text); }
         .entry-row.is-linked td, .track-row.is-linked { background: color-mix(in srgb, var(--text) 8%, transparent); }
         /* The name gives way (ellipsis) so the numbers and the row's buttons always fit the panel. */
         .entry-table td.entry-name { overflow: hidden; text-overflow: ellipsis; }

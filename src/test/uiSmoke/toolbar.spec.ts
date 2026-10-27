@@ -263,28 +263,30 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await page.locator('[data-action="remove-track"]').first().click();
     await expect(page.locator('.track-row')).toHaveCount(0);
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
-    // A click on a row shows its file as a track; a second click takes it off. The empty view says so.
+    // A click on a row only picks it; its ○ shows the file as a track and ● takes it off. The empty view says so.
     await expect(page.locator('#empty-state')).toHaveText(getStrings('en').emptyNoTracks);
     await entryRow(page, '/sources/rec/first.wav').locator('.entry-nm').click();
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
     await expect(page.locator('.track-row')).toHaveCount(1);
     await expect(entryRow(page, '/sources/rec/first.wav')).toHaveClass(/is-shown/);
     await expect(entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark')).toHaveText('●');
-    // A row in a slot goes off the tracks and out of its slot together, as a lane's × does.
-    await entryRow(page, '/sources/rec/first.wav').locator('.entry-nm').click();
+    // A file in a slot goes off the tracks and out of its slot together, as a lane's × does.
+    await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
     await expect(page.locator('.track-row')).toHaveCount(0);
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('1');
     await expect(entryRow(page, '/sources/rec/first.wav')).toHaveClass(/is-shown/);
     await expect(entryRow(page, '/sources/rec/first.wav').locator('.entry-badge')).toHaveCount(1);
-    await entryRow(page, '/sources/rec/first.wav').locator('.entry-col-value').click();
+    await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
     await expect(entryRow(page, '/sources/rec/first.wav')).not.toHaveClass(/is-shown/);
     await expect(entryRow(page, '/sources/rec/first.wav').locator('.entry-badge')).toHaveCount(0);
-    await entryRow(page, '/sources/rec/first.wav').locator('.entry-nm').click();
+    await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
     await expect(page.locator('.track-row')).toHaveCount(1);
     // A double click counts once: the second row goes on and stays.
-    await entryRow(page, '/sources/rec/day2/second.wav').locator('.entry-nm').dblclick();
+    await entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark').dblclick();
     await expect(entryRow(page, '/sources/rec/day2/second.wav')).toHaveClass(/is-shown/);
-    await entryRow(page, '/sources/rec/day2/second.wav').locator('.entry-nm').click();
+    await entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark').click();
     await expect(entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark')).toHaveText('○');
     // The row and its lane light up together under the mouse, from either side.
     await entryRow(page, '/sources/rec/first.wav').locator('.entry-col-ch').hover();
@@ -304,7 +306,7 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
     await expect(entryRow(page, '/sources/rec/first.wav')).not.toHaveClass(/is-shown/);
     await expect(tracksOnly).toHaveCount(0);
-    // Maximized, a click on a row only picks it; its ● shows or takes off the track.
+    // Maximized too.
     await page.locator('#entry-screen [data-action="entry-maximize"]').click();
     await entryRow(page, '/sources/rec/first.wav').locator('.entry-nm').click();
     await expect(entryRow(page, '/sources/rec/first.wav')).not.toHaveClass(/is-shown/);
