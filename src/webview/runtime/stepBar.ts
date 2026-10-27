@@ -86,9 +86,11 @@ export function endsInSpectrum(recipe: RecipeDocument, limits?: number | StepLim
 /**
  * What holding step `id` runs: the Recipe without it and the later steps that then cannot run, as the scans
  * do; null when the stage `shown` is not in it any more (the 1/3-octave branch is, while it ends in a spectrum).
+ * `referenced` are the editor's steps measured against the base slot, which a run Recipe no longer names.
  */
-export function recipeWithout(recipe: RecipeDocument, id: string, shown: string, limits?: number | StepLimits): RecipeDocument | null {
-    const without = runnableRecipe(withoutSteps(recipe, [id]), limits);
+export function recipeWithout(recipe: RecipeDocument, id: string, shown: string, limits?: number | StepLimits, referenced: readonly string[] = slotReferenced(recipe)): RecipeDocument | null {
+    const rest = withoutSteps(recipe, [id]);
+    const without = runnableRecipe(referenced.length ? { ...rest, [REFERENCE_KEY]: [...referenced] } as RecipeDocument : rest, limits);
     const present = shown === OCTAVE_BRANCH ? endsInSpectrum(without, limits) : (without as unknown as { nodes: Array<{ id: string }> }).nodes.some(node => node.id === shown);
     return present ? without : null;
 }

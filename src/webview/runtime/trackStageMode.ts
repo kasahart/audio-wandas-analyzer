@@ -326,7 +326,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const at = steps.findIndex(item => item.id === id);
         const shownOf = step.id === id ? steps[at - 1]?.id : id;
         if (!shownOf) return undefined;
-        const unselected = recipeWithout(recipe.runRecipe ?? recipe.recipe, step.id, shownOf, limits);
+        const unselected = recipeWithout(recipe.runRecipe ?? recipe.recipe, step.id, shownOf, limits, slotReferenced(recipe.recipe));
         if (!unselected) return undefined;
         const without = channelRecipe(unselected, ch)!;
         const region = liveRegion();

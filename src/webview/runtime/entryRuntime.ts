@@ -874,7 +874,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!recipe) return null;
         if (step.name === 'welch') return { with: holdSpec(recipe, step.id) };
         const end = recipeSteps(recipe, limits()).filter(item => item.invalid === undefined).at(-1)?.id;
-        const without = end ? recipeWithout(recipe, step.id, end, limits()) : null;
+        const without = end ? recipeWithout(recipe, step.id, end, limits(), slotReferenced(editedRecipe ?? standardRecipe)) : null;
         return end && without ? { with: holdSpec(recipe, end), without: holdSpec(without, end) } : null;
     }
     /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */

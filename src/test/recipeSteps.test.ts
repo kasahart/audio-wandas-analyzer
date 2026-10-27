@@ -6,7 +6,7 @@ import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, de
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
-import { runnableRecipe } from '../webview/runtime/stepBar';
+import { recipeWithout, runnableRecipe } from '../webview/runtime/stepBar';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 
@@ -242,6 +242,11 @@ test('a step that compares two channels needs two: one channel (or one picked by
     const run = runnableRecipe(slotted, { sampleRate: 16000, channels: 1 });
     assert.equal(recipeChain(run).some(node => node.id === coherence), true);
     assert.equal(REFERENCE_KEY in (run as unknown as Record<string, unknown>), false);
+    // Holding the filter on that run Recipe shows the coherence without it: the editor's reference goes with it.
+    const filter = recipeChain(slotted)[0].id;
+    const held = recipeWithout(run, filter, coherence, { sampleRate: 16000, channels: 1 }, slotReferenced(slotted));
+    assert.equal(!!held && recipeChain(held).some(node => node.id === coherence), true);
+    assert.equal(recipeWithout(run, filter, coherence, { sampleRate: 16000, channels: 1 }), null);
     const back = withSlotReference(slotted, coherence, false);
     assert.deepEqual(slotReferenced(back), []);
     assert.equal(recipeChain(back).filter(node => node.operation === SELECT_PAIR).length, 1);
