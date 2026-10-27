@@ -18,6 +18,7 @@ import subprocess
 import sys
 import warnings
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -238,10 +239,16 @@ def needs(runs: list[ProbeRun]) -> dict[str, list[str]]:
     carried = browser_packages()
     found: dict[str, list[str]] = {}
     ran = {run["operation"] for run in runs if run["ok"] and run["input"] == "ChannelFrame"}
-    for module, distribution in OPTIONAL_MODULES:
-        if distribution in carried or importlib.util.find_spec(module) is None:
-            continue
-        for operation, by_frame in verdicts(_probe_without(module)).items():
+    blocked = [
+        (module, distribution)
+        for module, distribution in OPTIONAL_MODULES
+        if distribution not in carried and importlib.util.find_spec(module) is not None
+    ]
+    # Each probe is a process of its own, so they run side by side.
+    with ThreadPoolExecutor(max_workers=max(1, len(blocked))) as pool:
+        probes = list(pool.map(_probe_without, [module for module, _ in blocked]))
+    for (_, distribution), blocked_runs in zip(blocked, probes, strict=True):
+        for operation, by_frame in verdicts(blocked_runs).items():
             if operation in ran and by_frame.get("ChannelFrame") == "fails":
                 found.setdefault(operation, []).append(distribution)
     return found
