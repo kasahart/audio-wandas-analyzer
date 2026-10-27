@@ -564,8 +564,17 @@ def scan_cached(
         str(node["id"]) == paired_at and str(node["operation"]).endswith(".csd")
         for node in RecipePlan.from_dict(dict(recipe)).to_dict()["nodes"]
     )
+    # Where the base is shorter than this recording's region, the pair is as long as the base: a step that then
+    # fails says so, rather than failing as this recording's.
+    short_base: float | None = None
     for step, plan in plans["steps"]:
         if step == paired_at and ref_current is not None:
+            if (
+                isinstance(ref_current, wd.ChannelFrame)
+                and isinstance(current, wd.ChannelFrame)
+                and ref_current.n_samples < current.n_samples
+            ):
+                short_base = _length_s(ref_current)
             current = _paired(ref_current, current)
         try:
             parts = (
@@ -584,6 +593,8 @@ def scan_cached(
             if step == stage:
                 return _stage_result(described, _against_base(stage_view(current, _length_s(timed), detail), vs_base))
         except Exception as error:  # noqa: BLE001 - as above.
+            if step == paired_at and short_base is not None:
+                raise InputError(f"The base recording gives only {short_base:.2f} s of this region: {error}") from error
             raise StepFailure(step, error) from error
         if isinstance(current, wd.ChannelFrame):
             timed = current
@@ -637,7 +648,12 @@ def _reference_region(
         described.get("calibration"), source, source_peaks=cached.source_peaks
     ).apply(source)
     duration = source.n_samples / sampling_rate
-    plans = scan_plans(described["recipe"], start, min(end, duration - spec.EDGE_GUARD_S), sampling_rate)
+    end = min(end, duration - spec.EDGE_GUARD_S)
+    if end <= start:
+        raise InputError(
+            f"The base recording ({duration:.2f} s) does not reach this region, which starts at {start:.2f} s"
+        )
+    plans = scan_plans(described["recipe"], start, end, sampling_rate)
     region = plans["region"].apply({plans["region"].inputs[0].name: calibrated}).cache()
     return region, dict(plans["steps"])
 

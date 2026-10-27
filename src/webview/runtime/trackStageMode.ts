@@ -442,7 +442,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             for (const [ch, paths] of byChannel) waiting = source.ensure(specOf(ch), paths) || waiting;
             // Over a region, the files' metrics over it too, for D and the report.
             const region = liveRegion();
-            if (region && !waiting && !broken) source.ensure(regionSpec(), files);
+            // The base recording measured against is not a track here, but D and the report read its region values too.
+            if (region && !waiting && !broken) source.ensure(regionSpec(), referencePath ? [...files, referencePath] : files);
             root.dataset.region = regionLabel(region);
             // The region on the plots: its part of a whole-file picture (a step before the region's), else a corner tag.
             const sliceAt = steps.findIndex(step => step.operation === TIME_SLICE);

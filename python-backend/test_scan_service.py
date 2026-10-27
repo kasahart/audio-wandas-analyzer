@@ -526,6 +526,16 @@ def test_a_cross_channel_step_pairs_the_scanned_recording_with_the_reference_rec
     slow = _write(tmp_path / "slow.wav", [noise[0][:RATE]], rate=RATE // 2)
     refused = _scan(service, alike, recipe=coherence, stage="node-2", reference={**reference, "filePath": slow})
     assert refused["ok"] is False and "failedStep" not in refused
+    # A base too short for this region, or for the step, is said to be the base's, not this recording's step.
+    brief = _write(tmp_path / "brief.wav", [noise[0][: RATE // 3]])
+    region = {"start": 1.0, "end": 1.9}
+    for refused in (
+        _scan(
+            service, alike, recipe=coherence, stage="node-2", region=region, reference={**reference, "filePath": brief}
+        ),
+        _scan(service, alike, recipe=coherence, stage="node-2", reference={**reference, "filePath": brief}),
+    ):
+        assert refused["ok"] is False and "failedStep" not in refused and "base recording" in refused["reason"]
     # A CSD keeps its auto-spectra: the coherence derived from it after the pairing still runs.
     derived = json.loads(json.dumps(coherence))
     derived["nodes"][2] = {**derived["nodes"][2], "operation": "wandas.audio.csd", "version": 2}
