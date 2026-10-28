@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "pyodideVersion": "314.0.3",
   "pythonVersion": "3.14.0",
-  "wandasVersion": "0.10.0",
-  "upstreamHarness": "https://github.com/kasahart/wandas/blob/v0.10.0/scripts/run_pyodide_tests.mjs",
-  "upstreamCommit": "20965b2e59f275eb6d71f94591eccaee48113c27",
+  "wandasVersion": "0.11.0",
+  "upstreamHarness": "https://github.com/kasahart/wandas/blob/v0.11.0/scripts/run_pyodide_tests.mjs",
+  "upstreamCommit": "52e6a5b16fcc11a61a1dcd5407fdc5efd8d084ce",
   "nativePackages": [
     "attrs",
     "certifi",
@@ -38,7 +38,7 @@
     "xarray"
   ],
   "pureWheels": [
-    "wandas-0.10.0-py3-none-any.whl",
+    "wandas-0.11.0-py3-none-any.whl",
     "cattrs-26.1.0-py3-none-any.whl",
     "dask-2026.7.1-py3-none-any.whl",
     "locket-1.0.0-py2.py3-none-any.whl",
@@ -298,12 +298,12 @@
       "version": "2026.2.0"
     },
     {
-      "path": "wandas-0.10.0-py3-none-any.whl",
-      "url": "https://files.pythonhosted.org/packages/e8/4a/03f15e40423be770cb7f4ddb5607e635b0e355a88ddcdbfbf2b55b5951ba/wandas-0.10.0-py3-none-any.whl",
-      "sha256": "6aa79525b7dc074adabe0b7c253508c65932d3762f770ddbb04f181c9d83b1f3",
-      "bytes": 306615,
+      "path": "wandas-0.11.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/77/3f/2414c7608f9c9b19cc4d43f15002a461cbef687b38d537f0b944193de9db/wandas-0.11.0-py3-none-any.whl",
+      "sha256": "f158bd041e0c4fa272b5c64a52bf3ce852c30298e1e1309ec9ba5dedf7bd3a50",
+      "bytes": 317880,
       "component": "wandas",
-      "version": "0.10.0"
+      "version": "0.11.0"
     },
     {
       "path": "cattrs-26.1.0-py3-none-any.whl",
