@@ -43,3 +43,11 @@ test('linkedSpectrogramBounds: 全レーンの最も広い dB 範囲と最も高
     );
     assert.equal(linkedSpectrogramBounds([]), null);
 });
+
+test('spectrogramDisplayBounds: 下限がレーンのナイキスト以上なら範囲を保ち、そのレーンは空白になる', () => {
+    const narrow = { minDb: -90, maxDb: 0, maxFrequencyHz: 8000 };
+    assert.deepEqual(
+        spectrogramDisplayBounds(narrow, { dbMin: null, dbMax: null, maxFrequencyHz: 20000, minFrequencyHz: 10000 }),
+        { dbLo: -90, dbHi: 0, maxFrequencyHz: 20000, minFrequencyHz: 10000 },
+    );
+});

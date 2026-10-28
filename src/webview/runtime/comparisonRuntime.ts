@@ -3180,6 +3180,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const display = __spectrogramSettings.display;
         const bounds = spectrogramDisplayBounds(spec, display, spectrogramAutoBounds(spec));
         const field = (value: number) => String(Number(value.toPrecision(4)));
+        // An edge left as shown stays as it was: auto stays auto, so the clicked lane's own range is not set on every lane.
+        const typed = (value: number | null, shown: number, setting: number | null | undefined) =>
+            setting == null && value !== null && field(value) === field(shown) ? null : value;
         if (axis === 'level') {
             waveformRangePopover.open({
                 axisLabel: STR.specRangeAxisDb,
@@ -3188,7 +3191,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 max: field(bounds.dbHi),
                 clientX, clientY,
                 apply(min, max) {
-                    __setSpectrogramDisplay({ ...display, dbMin: min, dbMax: max });
+                    __setSpectrogramDisplay({ ...display, dbMin: typed(min, bounds.dbLo, display.dbMin), dbMax: typed(max, bounds.dbHi, display.dbMax) });
                 },
                 auto() {
                     __setSpectrogramDisplay({ ...display, dbMin: null, dbMax: null });
@@ -3207,7 +3210,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (max !== null && max <= (bottom ?? 0)) {
                     return STR.specRangeErrorMinMax;
                 }
-                __setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: max });
+                __setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: typed(max, bounds.maxFrequencyHz, display.maxFrequencyHz) });
             },
             auto() {
                 __setSpectrogramDisplay({ ...display, minFrequencyHz: null, maxFrequencyHz: null });
