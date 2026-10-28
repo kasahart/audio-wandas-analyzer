@@ -1,6 +1,6 @@
 export interface TrackPointerHandlers {
     resetZoom(): void;
-    /** Returns false when the axis has no settings to open, so the double-click resets the zoom instead. */
+    /** Returns false when no axis with settings was hit (on an axis or a plot), so the double-click resets the zoom instead. */
     openAxisRange(axis: Element, clientX: number, clientY: number): boolean;
     hover(e: MouseEvent): void;
     clearHover(): void;
@@ -33,9 +33,9 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
         if (!hit) {
             return;
         }
-        // Without axis elements of their own (the comparison's panes draw their axes in the plot's canvas), the
-        // plot itself says whether the double-click was on an axis.
-        if ((selectors.axis ? hit.matches(selectors.axis) : true) && handlers.openAxisRange(hit, e.clientX, e.clientY)) {
+        // A plot is asked too: it can draw an axis inside its canvas (the comparison's panes, the spectrogram's
+        // colour bar), and only it knows whether the double-click was on one.
+        if (handlers.openAxisRange(hit, e.clientX, e.clientY)) {
             return;
         }
         handlers.resetZoom();

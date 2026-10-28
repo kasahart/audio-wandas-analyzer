@@ -28,15 +28,15 @@ test('attachTrackPointerListeners resets zoom only for double-clicks on waveform
     for (const selector of ['.track-canvas', '.track-axis-canvas', '.label']) {
         at(selector).dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }));
     }
-    assert.deepEqual(calls, ['reset', 'axis', 'reset']);
+    assert.deepEqual(calls, ['axis', 'reset', 'axis', 'reset']);
 });
 
-test('attachTrackPointerListeners opens the axis range instead of resetting zoom when the axis has one', () => {
+test('attachTrackPointerListeners opens the axis range instead of resetting zoom when the axis or plot has one', () => {
     const { window, calls, at } = setup(true);
     for (const selector of ['.track-axis-canvas', '.track-canvas']) {
         at(selector).dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }));
     }
-    assert.deepEqual(calls, ['axis', 'reset']);
+    assert.deepEqual(calls, ['axis', 'axis']);
 });
 
 test('attachTrackPointerListeners wires hover and press on the tracks and drag on the document', () => {

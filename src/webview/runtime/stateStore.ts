@@ -47,6 +47,7 @@ export function sanitizePersistedState(saved: unknown): PersistedWebviewState {
         ...(raw['spectrumBandsPerOctave'] === 0 || raw['spectrumBandsPerOctave'] === 1 || raw['spectrumBandsPerOctave'] === 3 ? { spectrumBandsPerOctave: raw['spectrumBandsPerOctave'] } : {}),
         ...(typeof raw['sidebarCollapsed'] === 'boolean' ? { sidebarCollapsed: raw['sidebarCollapsed'] } : {}),
         ...(typeof raw['spectrumCollapsed'] === 'boolean' ? { spectrumCollapsed: raw['spectrumCollapsed'] } : {}),
+        ...(typeof raw['linkScales'] === 'boolean' ? { linkScales: raw['linkScales'] } : {}),
         ...(Array.isArray(slots) && slots.every(slot => slot === null || typeof slot === 'string') ? { entrySlots: slots as (string | null)[] } : {}),
         ...(Array.isArray(raw['entryDerived']) ? { entryDerived: raw['entryDerived'] as PersistedWebviewState['entryDerived'] } : {}),
         ...(raw['entryRecipe'] !== undefined && raw['entryRecipe'] !== null ? { entryRecipe: raw['entryRecipe'] } : {}),

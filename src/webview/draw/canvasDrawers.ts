@@ -209,11 +209,12 @@ export function drawWaveformAmplitudeAxis(ctx: CanvasDrawCtx, W: number, H: numb
     ctx.restore();
 }
 
-export function drawSpectrogramFrequencyAxis(ctx: CanvasDrawCtx, W: number, H: number, spec: SpectrogramSpecLike, opts: { maxFreq?: number; label?: string } = {}, theme: DrawTheme = DEFAULT_THEME): void {
+export function drawSpectrogramFrequencyAxis(ctx: CanvasDrawCtx, W: number, H: number, spec: SpectrogramSpecLike, opts: { maxFreq?: number; minFreq?: number; label?: string } = {}, theme: DrawTheme = DEFAULT_THEME): void {
     const mutedColor = theme.mutedColor;
     const bgColor = theme.bgColor;
     const o = opts || {};
     const maxHz = (o.maxFreq != null) ? o.maxFreq : spec.maxFrequencyHz;
+    const minHz = o.minFreq != null && o.minFreq > 0 ? o.minFreq : 0;
     ctx.save();
     ctx.fillStyle = bgColor;
     ctx.globalAlpha = 0.7;
@@ -225,9 +226,9 @@ export function drawSpectrogramFrequencyAxis(ctx: CanvasDrawCtx, W: number, H: n
     ctx.textBaseline = 'top';
     ctx.fillText(formatHz(maxHz), W - 2, 1);
     ctx.textBaseline = 'middle';
-    ctx.fillText(formatHz(maxHz / 2), W - 2, H / 2);
+    ctx.fillText(formatHz((minHz + maxHz) / 2), W - 2, H / 2);
     ctx.textBaseline = 'bottom';
-    ctx.fillText('0 Hz', W - 2, H - 1);
+    ctx.fillText(minHz > 0 ? formatHz(minHz) : '0 Hz', W - 2, H - 1);
     ctx.save();
     ctx.translate(9, H / 2);
     ctx.rotate(-Math.PI / 2);

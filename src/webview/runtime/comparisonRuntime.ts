@@ -1,6 +1,6 @@
 import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
-import { spectrogramDisplayBounds } from './spectrogramRaster';
+import { linkedSpectrogramBounds, spectrogramDisplayBounds } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { trackTimelinePlacement } from './waveformCoverage';
 import { attachOffsetEditing } from './offsetInlineEditor';
@@ -101,7 +101,7 @@ import {
     wheelZoomFactor,
     ZOOM_IN_FACTOR,
 } from './waveformInteraction';
-import type { ChannelSummary, SpectrogramDisplaySettings, } from '../../shared/analysis/analysisTypes';
+import type { ChannelSummary, SpectrogramData, SpectrogramDisplaySettings, } from '../../shared/analysis/analysisTypes';
 import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SpectrumSlice, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformDragState, WaveformDrawOptions, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, appVersion, window, document } = bootstrap;
@@ -294,6 +294,84 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let stageMode: TrackStageMode | null = null;
     // 'waveform': the lanes show each channel's waveform with its spectrogram under it.
     let contentType: 'waveform' | 'stage' = 'waveform';
+    // Linked, every displayed lane shares one absolute amplitude scale, colour scale and frequency range; lanes in
+    // another unit (Pa beside full scale, dB SPL beside dBFS) share theirs only with lanes in the same unit.
+    let scalesLinked = persistedWebviewState.linkScales === true;
+    type LinkedScale = { peaks: Map<string, number>; levels: Map<string, { minDb: number; maxDb: number }>; maxFrequencyHz: number };
+    let linkedScaleMemo: LinkedScale | null = null;
+    const amplitudeUnitKey = (ch: ChannelSummary | undefined) => (ch && typeof ch.unit === 'string' ? ch.unit.trim() : '');
+    const levelUnitKey = (level: { unit?: string; axisLabel?: string; referenceValue?: number; referenceUnit?: string }) =>
+        [level.unit ?? '', level.axisLabel ?? '', level.referenceValue ?? '', level.referenceUnit ?? ''].join('|');
+    function displayedLanes(): { record: ReturnType<typeof trackStore.require>; channelIndex: number; ch: ChannelSummary }[] {
+        const lanes: { record: ReturnType<typeof trackStore.require>; channelIndex: number; ch: ChannelSummary }[] = [];
+        trackStore.displayOrder.forEach(function (trackId) {
+            const record = trackStore.require(trackId);
+            if (!record.runtime.hidden && !record.result.error) {
+                channelsForResult(record.result).forEach(function (ch, channelIndex: number) { lanes.push({ record, channelIndex, ch }); });
+            }
+        });
+        return lanes;
+    }
+    /** The shared scales of the displayed lanes while linked; worked out once per render. */
+    function linkedScale(): LinkedScale | null {
+        if (!scalesLinked) {
+            return null;
+        }
+        if (!linkedScaleMemo) {
+            const peaks = new Map<string, number>();
+            const specsByLevel = new Map<string, SpectrogramData[]>();
+            displayedLanes().forEach(function ({ ch }) {
+                const lanePeak = ch.waveform ? ch.waveform.absolutePeak : NaN;
+                const unit = amplitudeUnitKey(ch);
+                if (Number.isFinite(lanePeak) && lanePeak > (peaks.get(unit) ?? 0)) peaks.set(unit, lanePeak);
+                if (ch.spectrogram) {
+                    const key = levelUnitKey(ch.spectrogram);
+                    specsByLevel.set(key, [...(specsByLevel.get(key) ?? []), ch.spectrogram]);
+                }
+            });
+            const levels = new Map<string, { minDb: number; maxDb: number }>();
+            let maxFrequencyHz = 0;
+            specsByLevel.forEach(function (specs, key) {
+                const bounds = linkedSpectrogramBounds(specs);
+                if (bounds) {
+                    levels.set(key, bounds);
+                    maxFrequencyHz = Math.max(maxFrequencyHz, bounds.maxFrequencyHz);
+                }
+            });
+            linkedScaleMemo = { peaks, levels, maxFrequencyHz };
+        }
+        return linkedScaleMemo;
+    }
+    /** The value drawn at ±1 of the amplitude view: the lane's own peak, or the largest one in its unit while linked. */
+    function amplitudeScaleFor(ch: ChannelSummary | undefined): number {
+        const linked = linkedScale()?.peaks.get(amplitudeUnitKey(ch));
+        if (linked) {
+            return linked;
+        }
+        const rawPeak = ch && ch.waveform ? ch.waveform.absolutePeak : NaN;
+        return typeof rawPeak === 'number' && Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
+    }
+    /** The auto colour and frequency range of a lane's spectrogram: its own, or the one shared while linked. */
+    function spectrogramAutoBounds(spec: SpectrogramData): Pick<SpectrogramData, 'minDb' | 'maxDb' | 'maxFrequencyHz'> {
+        const linked = linkedScale();
+        const level = linked?.levels.get(levelUnitKey(spec));
+        return linked && level ? { ...level, maxFrequencyHz: linked.maxFrequencyHz } : spec;
+    }
+    function toggleLinkedScales(): void {
+        scalesLinked = !scalesLinked;
+        linkedScaleMemo = null;
+        persistWebviewState({ linkScales: scalesLinked });
+        syncLinkScalesButton();
+        scheduleRender();
+        scheduleSpectrumRefresh('immediate');
+    }
+    function syncLinkScalesButton(): void {
+        const button = buttonMatching(document, '[data-action="link-scales"]');
+        if (button) {
+            button.classList.toggle('is-active', scalesLinked);
+            button.setAttribute('aria-pressed', String(scalesLinked));
+        }
+    }
     let waveShare = typeof persistedWebviewState.waveShare === 'number'
         ? Math.min(WAVE_SHARE_MAX, Math.max(WAVE_SHARE_MIN, persistedWebviewState.waveShare)) : WAVE_SHARE_DEFAULT;
     /** The waveform's and the spectrogram's heights; the steps view gives the whole lane to its plot. */
@@ -1268,9 +1346,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
 
     function waveformAxisLabelsForChannel(result: ComparisonTrackState, channelIndex: number) {
         const ch = channelsForResult(result)[channelIndex];
-        const waveform = ch && ch.waveform;
-        const rawPeak = waveform && typeof waveform.absolutePeak === 'number' ? waveform.absolutePeak : NaN;
-        const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
+        const peak = amplitudeScaleFor(ch);
         const unitText = ch && typeof ch.unit === 'string' && ch.unit.trim() ? ch.unit.trim() : null;
         if (waveformView.isAmplitudeZoomed()) {
             const top = formatSignedAmplitudeValue(waveformView.amplitudeMax * peak);
@@ -1278,7 +1354,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const bottom = formatSignedAmplitudeValue(waveformView.amplitudeMin * peak);
             return [top, middle, bottom, unitText ? STR.waveformAmplitudeLabel + ' (' + unitText + ')' : STR.waveformAmplitudeLabel];
         }
-        return formatWaveformAxisLabels(waveform && waveform.absolutePeak, ch && ch.unit, STR.waveformAmplitudeLabel);
+        return formatWaveformAxisLabels(peak, ch && ch.unit, STR.waveformAmplitudeLabel);
     }
     function waveformAxisLabelsForResult(result: ComparisonTrackState, trackIndex: number) {
         return waveformAxisLabelsForChannel(result, 0);
@@ -1492,6 +1568,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return toolbarHtml({
             contentType,
             appVersion,
+            linkScales: scalesLinked,
         }, STR);
     }
     function buildChannelLane(result: ComparisonTrackState, trackIndex: number, channelIndex: number) {
@@ -1511,7 +1588,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             axisWidth: AXIS_W,
             spectrumTitle: STR.trackSpectrumTitle,
             axisHint: trackAxisHint(),
-            spectrogramAxisHint: STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures,
+            spectrogramAxisHint: STR.hintSpectrogramFrequencyAxis + ' / ' + STR.hintWheelGestures,
             splitHint: STR.hintTrackSplit,
             splitLabel: STR.trackSplitLabel,
             spectrumHint: STR.trackSpectrumTitle + ' / ' + STR.hintSpectrumKeys,
@@ -1632,6 +1709,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     function renderStackedTracks() {
+        linkedScaleMemo = null;
         const tracksWrapperEl = document.getElementById('tracks-wrapper');
         if (tracksWrapperEl && stageMode && !tracksWrapperEl.contains(stageMode.root)) tracksWrapperEl.prepend(stageMode.root);
         const ruler = document.getElementById('ruler-row');
@@ -1704,7 +1782,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const fileView = computeTrackFileView(result, trackIndex, offsetSeconds);
         const ch = channelsForResult(result)[channelIndex];
         const fullWaveform = ch && ch.waveform ? ch.waveform : null;
-        const amplitudeScale = fullWaveform ? fullWaveform.absolutePeak : undefined;
+        const amplitudeScale = fullWaveform ? amplitudeScaleFor(ch) : undefined;
         const c = trackRecordAtIndex(trackIndex)?.rangeCache ?? null;
         const cachedChannel = c && c.channels ? c.channels[channelIndex] : null;
         const canvas = canvasById(document, trackCanvasId(trackIndex, channelIndex));
@@ -1783,15 +1861,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const spec = ch.spectrogram;
         const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
-        const { dbLo, dbHi, maxFrequencyHz: maxFreq } = spectrogramDisplayBounds(spec, __spectrogramSettings.display);
+        const { dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = spectrogramDisplayBounds(spec, __spectrogramSettings.display, spectrogramAutoBounds(spec));
         const plotW = spectrogramPlotWidth(W);
         const cacheId = trackRecordAtIndex(trackIndex)!.id + ':' + channelIndex;
         spectrogramRasterCache.set(cacheId, paintTrackSpectrogram(ctx, W, H, spec, {
-            zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq,
+            zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
             durationSec: result.durationSeconds,
         }, spectrogramRasterCache.get(cacheId), drawTheme()));
         if (axisCanvas && axisCtx) {
-            drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq, label: STR.axisFrequency }, drawTheme());
+            drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq, minFreq: minFreq, label: STR.axisFrequency }, drawTheme());
         }
         if (overlayCtx) {
             drawLoopRegionOnCanvas(overlayCtx, plotW, H);
@@ -2337,7 +2415,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const timeAxis = <A extends unknown[]>(handler: (...args: A) => void) => (...args: A): void => { if (contentType !== 'stage') handler(...args); };
         attachTrackPointerListeners(tracksWrapper, document, {
             resetZoom: timeAxis(resetZoom),
-            openAxisRange: (axis, clientX, clientY) => contentType !== 'stage' && openWaveformRangePopup(axis, clientX, clientY),
+            openAxisRange: (axis, clientX, clientY) => contentType !== 'stage' && openTrackAxisRange(axis, clientX, clientY),
             hover: timeAxis(handleCanvasMouseMove),
             clearHover: timeAxis(clearHover),
             press: timeAxis(handleCanvasMouseDown),
@@ -2729,6 +2807,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 syncWaveformModeButton();
             },
             'toggle-follow-cursor': toggleFollowCursor,
+            'link-scales': toggleLinkedScales,
             'zoom-to-selection': zoomToSelection,
             'run-recipe': () => messaging.post({ type: 'run-recipe' }),
             'save-recipe': saveRecipe,
@@ -3073,7 +3152,74 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         strings: rangePopoverStrings(STR),
         position: positionPopover,
     });
-    // The popover takes values of the clicked channel; other lanes follow by the same ratio to their own peak.
+    // The popover takes values of the clicked channel; other lanes follow by the same ratio to their own peak
+    // (or, linked, to the largest peak, so every lane shows the same values).
+    /** A double-click on a lane's axis: the waveform's amplitude, the spectrogram's frequency or its colour bar. */
+    function openTrackAxisRange(element: Element, clientX: number, clientY: number): boolean {
+        if (contentType !== 'waveform') {
+            return false;
+        }
+        if (element.classList.contains('track-spec-axis')) {
+            return openSpectrogramRangePopup(element, 'frequency', clientX, clientY);
+        }
+        if (element.classList.contains('track-spec-canvas')) {
+            const canvas = element as HTMLCanvasElement;
+            const rect = canvas.getBoundingClientRect();
+            const x = (clientX - rect.left) * (canvas.width / Math.max(rect.width, 1));
+            return x >= spectrogramPlotWidth(canvas.width) && openSpectrogramRangePopup(element, 'level', clientX, clientY);
+        }
+        return element.classList.contains('track-axis-canvas') && openWaveformRangePopup(element, clientX, clientY);
+    }
+    // The spectrogram's ranges are display settings shared by every lane, like the ⚙ popover's.
+    function openSpectrogramRangePopup(element: Element, axis: 'frequency' | 'level', clientX: number, clientY: number): boolean {
+        const trackIndex = trackIndexFromElement(element);
+        const result = trackIndex === null ? undefined : state.results[trackIndex];
+        const spec = result ? channelsForResult(result)[channelIndexAttribute(element) ?? 0]?.spectrogram : undefined;
+        if (!spec) {
+            return false;
+        }
+        const display = __spectrogramSettings.display;
+        const bounds = spectrogramDisplayBounds(spec, display, spectrogramAutoBounds(spec));
+        const field = (value: number) => String(Number(value.toPrecision(4)));
+        // An edge left as shown keeps its setting (auto, or a top clamped to this lane's Nyquist), so the clicked lane's
+        // own range is not set on every lane.
+        const typed = (value: number | null, shown: number, setting: number | null | undefined) =>
+            value !== null && field(value) === field(shown) ? setting ?? null : value;
+        if (axis === 'level') {
+            waveformRangePopover.open({
+                axisLabel: STR.specRangeAxisDb,
+                horizontal: false,
+                min: field(bounds.dbLo),
+                max: field(bounds.dbHi),
+                clientX, clientY,
+                apply(min, max) {
+                    __setSpectrogramDisplay({ ...display, dbMin: typed(min, bounds.dbLo, display.dbMin), dbMax: typed(max, bounds.dbHi, display.dbMax) });
+                },
+                auto() {
+                    __setSpectrogramDisplay({ ...display, dbMin: null, dbMax: null });
+                },
+            });
+            return true;
+        }
+        waveformRangePopover.open({
+            axisLabel: STR.specRangeAxisFreq,
+            horizontal: false,
+            min: field(bounds.minFrequencyHz),
+            max: field(bounds.maxFrequencyHz),
+            clientX, clientY,
+            apply(min, max) {
+                const bottom = min !== null && min > 0 ? min : null;
+                if (max !== null && max <= (bottom ?? 0)) {
+                    return STR.specRangeErrorMinMax;
+                }
+                __setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: typed(max, bounds.maxFrequencyHz, display.maxFrequencyHz) });
+            },
+            auto() {
+                __setSpectrogramDisplay({ ...display, minFrequencyHz: null, maxFrequencyHz: null });
+            },
+        });
+        return true;
+    }
     function openWaveformRangePopup(axis: Element, clientX: number, clientY: number): boolean {
         if (contentType !== 'waveform' || axis.classList.contains('track-spec-axis')) {
             return false;
@@ -3084,8 +3230,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!channel) {
             return false;
         }
-        const rawPeak = channel.waveform ? channel.waveform.absolutePeak : NaN;
-        const peak = typeof rawPeak === 'number' && Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
+        const peak = amplitudeScaleFor(channel);
         const unit = typeof channel.unit === 'string' ? channel.unit.trim() : '';
         const painted = waveformView.paintedAmplitudeRange();
         const field = (norm: number) => String(Number((norm * peak).toPrecision(4)));
@@ -3151,9 +3296,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const hit = trackCanvasTimeHit(canvas, e.clientX);
+        const onColorbar = !hit && contentType === 'waveform' && canvas.classList.contains('track-spec-canvas');
+        canvas.style.cursor = onColorbar ? 'pointer' : '';
         if (!hit) {
             clearHover();
-            hintFooter.clear();
+            if (onColorbar) hintFooter.show(STR.hintSpectrogramColorbar);
+            else hintFooter.clear();
             return;
         }
         const norm = hit.norm;
@@ -3381,7 +3529,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumHover.channelIndex = null;
     }
 
+    /** Linked, the lanes' cursor spectra in one unit (the channel's, whichever source a slice came from) share the dB axis of all their slices. */
+    function linkedTrackSpectrumDb(): Map<string, { minDb: number; maxDb: number }> | null {
+        if (!scalesLinked) {
+            return null;
+        }
+        const ranges = new Map<string, { minDb: number; maxDb: number }>();
+        displayedLanes().forEach(function ({ record, channelIndex, ch }) {
+            const slice = extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, spectrumCursorNorm, channelIndex);
+            if (slice && Number.isFinite(slice.minDb) && Number.isFinite(slice.maxDb)) {
+                const key = amplitudeUnitKey(ch);
+                const range = ranges.get(key);
+                ranges.set(key, range ? { minDb: Math.min(range.minDb, slice.minDb), maxDb: Math.max(range.maxDb, slice.maxDb) } : { minDb: slice.minDb, maxDb: slice.maxDb });
+            }
+        });
+        return ranges;
+    }
     function renderTrackSpectra() {
+        const linkedDb = linkedTrackSpectrumDb();
         trackStore.activeIds().forEach(function (trackId) {
             const record = trackStore.require(trackId);
             const result = record.result;
@@ -3419,7 +3584,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     paintedByChannel.set(channelIndex, false);
                     return;
                 }
-                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, spectrumCursorNorm, channelIndex);
+                const ownSlice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, spectrumCursorNorm, channelIndex);
+                const shared = ownSlice && linkedDb ? linkedDb.get(amplitudeUnitKey(channelsForResult(result)[channelIndex])) : undefined;
+                const slice = ownSlice && shared ? { ...ownSlice, ...shared } : ownSlice;
                 if (!slice) {
                     if (paintedByChannel.get(channelIndex) && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) {
                         return;
@@ -3576,6 +3743,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             dbMin: n(display.dbMin),
             dbMax: n(display.dbMax),
             maxFrequencyHz: n(display.maxFrequencyHz),
+            // The ⚙ popover has no field for it, so it keeps the one set on the axis.
+            minFrequencyHz: display.minFrequencyHz !== undefined ? n(display.minFrequencyHz) : n(__spectrogramSettings.display.minFrequencyHz ?? null),
         };
         messaging.post({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
         scheduleRender();
@@ -3592,7 +3761,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleRender();
         },
         onApply(settings) {
-            __spectrogramSettings = settings;
+            // The ⚙ popover has no lower frequency: the one set on the axis survives a new STFT.
+            __spectrogramSettings = { ...settings, display: { ...settings.display, minFrequencyHz: __spectrogramSettings.display.minFrequencyHz ?? null } };
             invalidateDesiredSpectrumSliceRequests();
             __setReanalyzeBusy(true, STR.reanalyzingStft);
             messaging.post({ type: 'request-reanalyze', settings: __spectrogramSettings });

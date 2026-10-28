@@ -34,7 +34,8 @@ function isDisplaySettings(value: unknown): value is SpectrogramSettings['displa
     return isRecord(value)
         && isNullableFinite(value['dbMin'])
         && isNullableFinite(value['dbMax'])
-        && isNullableFinite(value['maxFrequencyHz']);
+        && isNullableFinite(value['maxFrequencyHz'])
+        && (value['minFrequencyHz'] === undefined || isNullableFinite(value['minFrequencyHz']));
 }
 
 export function isSpectrogramSettings(value: unknown): value is SpectrogramSettings {
@@ -49,7 +50,8 @@ function isUsableStft(value: unknown): value is StftOptions {
 }
 
 function isUsableDisplay(value: unknown): value is SpectrogramSettings['display'] {
-    return isDisplaySettings(value) && (value.maxFrequencyHz === null || value.maxFrequencyHz > 0);
+    return isDisplaySettings(value) && (value.maxFrequencyHz === null || value.maxFrequencyHz > 0)
+        && (value.minFrequencyHz == null || value.minFrequencyHz >= 0);
 }
 
 export function savedSpectrogramSettings(value: unknown): SpectrogramSettings {

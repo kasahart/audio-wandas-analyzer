@@ -108,12 +108,12 @@ export function spectrogramAxisLabelTexts(
     display: SpectrogramDisplaySettings,
     fallbackMaxFrequencyHz: number,
 ): string[] {
-    const { dbLo, dbHi, maxFrequencyHz: maxF } = spectrogramDisplayBounds(
+    const { dbLo, dbHi, maxFrequencyHz: maxF, minFrequencyHz: minF } = spectrogramDisplayBounds(
         spec ?? { minDb: -120, maxDb: 0, maxFrequencyHz: fallbackMaxFrequencyHz },
         display,
     );
     return maxF > 0
-        ? ['0 Hz', formatHz(maxF / 2), formatHz(maxF), formatDbLevel(dbLo, spec ?? null), formatDbLevel(dbHi, spec ?? null), 'Freq']
+        ? [minF > 0 ? formatHz(minF) : '0 Hz', formatHz((minF + maxF) / 2), formatHz(maxF), formatDbLevel(dbLo, spec ?? null), formatDbLevel(dbHi, spec ?? null), 'Freq']
         : [];
 }
 

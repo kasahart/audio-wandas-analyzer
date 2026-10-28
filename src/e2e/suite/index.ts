@@ -222,6 +222,7 @@ export async function run(): Promise<void> {
                     'zoom-out',
                     'zoom-in',
                     'zoom-reset',
+                    'link-scales',
                     'wave-mode-rect-zoom',
                     'zoom-to-selection',
                     'toggle-follow-cursor',

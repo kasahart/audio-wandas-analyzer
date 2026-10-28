@@ -305,6 +305,34 @@ export function buildUiSmokeManyTracksHtml(count: number, keepSpectrograms = fal
     }));
 }
 
+/** Two takes of the preview file: the second at a quarter of the amplitude, 20 dB down (in `quietUnit` if given) and with the colour scale on auto. */
+export function buildUiSmokeTwoLevelsHtml(quietUnit?: string): string {
+    return finalizeUiSmokeHtml(replaceAppState(buildResultsPreviewHtml(), (state) => {
+        const first = state.results[0];
+        const quiet = JSON.parse(JSON.stringify(first)) as PreviewResult;
+        quiet.filePath = '/preview/quiet.wav';
+        quiet.fileName = 'quiet.wav';
+        quiet.channels.forEach((channel) => {
+            const waveform = channel['waveform'] as { min: number[]; max: number[]; absolutePeak: number };
+            waveform.min = waveform.min.map((v) => v / 4);
+            waveform.max = waveform.max.map((v) => v / 4);
+            waveform.absolutePeak /= 4;
+            channel['peakAbsolute'] = waveform.absolutePeak;
+            const spectrogram = channel['spectrogram'] as { values: number[][]; minDb: number; maxDb: number };
+            spectrogram.values = spectrogram.values.map((row) => row.map((v) => v - 20));
+            spectrogram.minDb -= 20;
+            spectrogram.maxDb -= 20;
+            if (quietUnit) {
+                channel['unit'] = quietUnit;
+                (spectrogram as Record<string, unknown>)['referenceUnit'] = quietUnit;
+            }
+        });
+        state.results.push(quiet);
+        const settings = state['spectrogramSettings'] as { display: Record<string, number | null> };
+        settings.display = { dbMin: null, dbMax: null, maxFrequencyHz: null };
+    }));
+}
+
 export function buildUiSmokeCalibrationHtml(): string {
     return finalizeUiSmokeHtml(buildCalibrationStateHtml());
 }

@@ -64,6 +64,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'zoom-out',
     'zoom-in',
     'zoom-reset',
+    'link-scales',
     'spec-zoom-out',
     'spec-zoom-in',
     'spec-zoom-reset',
@@ -352,6 +353,20 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Set the waveform amplitude range from its axis',
         entryPoints: ['canvas-gesture'],
         triggers: ['waveform-axis-dblclick'],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'spectrogram-display-range',
+        label: 'Set the spectrogram frequency range from its axis and the colour-scale range from its colour bar, for every track',
+        entryPoints: ['canvas-gesture'],
+        triggers: ['spectrogram-axis-dblclick'],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'link-scales',
+        label: 'Link the amplitude, colour and frequency scales of all displayed tracks',
+        entryPoints: ['results-toolbar'],
+        triggers: ['link-scales'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
