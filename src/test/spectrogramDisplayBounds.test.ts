@@ -51,3 +51,10 @@ test('spectrogramDisplayBounds: 下限がレーンのナイキスト以上なら
         { dbLo: -90, dbHi: 0, maxFrequencyHz: 20000, minFrequencyHz: 10000 },
     );
 });
+
+test('spectrogramDisplayBounds: 上限が auto でもレーンのナイキスト以上の下限は空の帯になる', () => {
+    const narrow = { minDb: -90, maxDb: 0, maxFrequencyHz: 8000 };
+    const bounds = spectrogramDisplayBounds(narrow, { dbMin: null, dbMax: null, maxFrequencyHz: null, minFrequencyHz: 10000 });
+    assert.equal(bounds.minFrequencyHz, 10000);
+    assert.equal(bounds.maxFrequencyHz, 10000);
+});

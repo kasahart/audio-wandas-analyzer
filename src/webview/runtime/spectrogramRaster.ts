@@ -27,8 +27,10 @@ export function spectrogramDisplayBounds(
     display: SpectrogramDisplaySettings,
     auto: SpectrogramAutoBounds = spec,
 ): SpectrogramDisplayBounds {
-    const top = display.maxFrequencyHz != null ? display.maxFrequencyHz : auto.maxFrequencyHz;
-    const min = display.minFrequencyHz != null && display.minFrequencyHz > 0 && display.minFrequencyHz < top ? display.minFrequencyHz : 0;
+    const lower = display.minFrequencyHz;
+    const min = lower != null && lower > 0 && (display.maxFrequencyHz == null || lower < display.maxFrequencyHz) ? lower : 0;
+    // An auto top at or below the lower bound leaves an empty band there, never the frequencies under it.
+    const top = Math.max(display.maxFrequencyHz != null ? display.maxFrequencyHz : auto.maxFrequencyHz, min);
     // A band starting above the lane's own data keeps its range, so the lane shows it blank rather than other frequencies.
     const clamp = auto === spec && min < spec.maxFrequencyHz;
     return {

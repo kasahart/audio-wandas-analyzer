@@ -363,6 +363,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         persistWebviewState({ linkScales: scalesLinked });
         syncLinkScalesButton();
         scheduleRender();
+        scheduleSpectrumRefresh('immediate');
     }
     function syncLinkScalesButton(): void {
         const button = buttonMatching(document, '[data-action="link-scales"]');
