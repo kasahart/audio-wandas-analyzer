@@ -3181,9 +3181,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const display = __spectrogramSettings.display;
         const bounds = spectrogramDisplayBounds(spec, display, spectrogramAutoBounds(spec));
         const field = (value: number) => String(Number(value.toPrecision(4)));
-        // An edge left as shown stays as it was: auto stays auto, so the clicked lane's own range is not set on every lane.
+        // An edge left as shown keeps its setting (auto, or a top clamped to this lane's Nyquist), so the clicked lane's
+        // own range is not set on every lane.
         const typed = (value: number | null, shown: number, setting: number | null | undefined) =>
-            setting == null && value !== null && field(value) === field(shown) ? null : value;
+            value !== null && field(value) === field(shown) ? setting ?? null : value;
         if (axis === 'level') {
             waveformRangePopover.open({
                 axisLabel: STR.specRangeAxisDb,
