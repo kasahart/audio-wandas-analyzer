@@ -3211,7 +3211,7 @@ test('renderScript: 波形キャンバスの dblclick でズームがリセッ�
     env.dom.window.close();
 });
 
-test('renderScript: スペクトログラム表示では軸キャンバスの dblclick でズームがリセットされる', async () => {
+test('renderScript: スペクトログラムの周波数軸 dblclick は周波数範囲の popover を開き、時間ズームは保つ', async () => {
     const env = setupEnv();
     (env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLElement).click();
 
@@ -3246,8 +3246,9 @@ test('renderScript: スペクトログラム表示では軸キャンバスの db
     const snapshots2 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
     const post = (snapshots2[snapshots2.length - 1] as any)?.renderedUi;
     assert.ok(post, 'dblclick 後のスナップショットが存在すること');
-    assert.strictEqual(post.zoomStart, 0, '軸 dblclick 後 zoomStart が 0 になること');
-    assert.strictEqual(post.zoomEnd,   1, '軸 dblclick 後 zoomEnd が 1 になること');
+    assert.deepEqual([post.zoomStart, post.zoomEnd], [pre.zoomStart, pre.zoomEnd], '軸 dblclick では時間ズームが変わらないこと');
+    const popover = env.dom.window.document.getElementById('waveform-range-popover') as HTMLElement | null;
+    assert.ok(popover && popover.style.display !== 'none', '周波数範囲の popover が開くこと');
 
     env.dom.window.close();
 });

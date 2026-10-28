@@ -9,20 +9,44 @@ export interface SpectrogramRasterView {
     dbLo: number;
     dbHi: number;
     maxFrequencyHz: number;
+    /** Bottom edge of the plot; 0 when not given. */
+    minFrequencyHz?: number;
     /** Track duration; with the spectrogram's frame centres it places each cell on its STFT window. */
     durationSec?: number;
 }
-export type SpectrogramDisplayBounds = Pick<SpectrogramRasterView, 'dbLo' | 'dbHi' | 'maxFrequencyHz'>;
+export type SpectrogramDisplayBounds = Required<Pick<SpectrogramRasterView, 'dbLo' | 'dbHi' | 'maxFrequencyHz' | 'minFrequencyHz'>>;
+type SpectrogramAutoBounds = Pick<SpectrogramData, 'minDb' | 'maxDb' | 'maxFrequencyHz'>;
 
+/**
+ * The colour and frequency range a lane is drawn with: the typed display settings, else `auto` (the lane's own
+ * spectrogram, or the bounds shared by every lane while the scales are linked). Unlinked, the top stays at or below
+ * the lane's Nyquist frequency; linked lanes keep the shared top and leave the band above their data blank.
+ */
 export function spectrogramDisplayBounds(
-    spec: Pick<SpectrogramData, 'minDb' | 'maxDb' | 'maxFrequencyHz'>,
+    spec: SpectrogramAutoBounds,
     display: SpectrogramDisplaySettings,
+    auto: SpectrogramAutoBounds = spec,
 ): SpectrogramDisplayBounds {
+    const top = display.maxFrequencyHz != null ? display.maxFrequencyHz : auto.maxFrequencyHz;
+    const maxFrequencyHz = auto === spec ? Math.min(top, spec.maxFrequencyHz) : top;
+    const min = display.minFrequencyHz;
     return {
-        dbLo: display.dbMin != null ? display.dbMin : spec.minDb,
-        dbHi: display.dbMax != null ? display.dbMax : spec.maxDb,
-        maxFrequencyHz: display.maxFrequencyHz != null ? Math.min(display.maxFrequencyHz, spec.maxFrequencyHz) : spec.maxFrequencyHz,
+        dbLo: display.dbMin != null ? display.dbMin : auto.minDb,
+        dbHi: display.dbMax != null ? display.dbMax : auto.maxDb,
+        maxFrequencyHz,
+        minFrequencyHz: min != null && min > 0 && min < maxFrequencyHz ? min : 0,
     };
+}
+
+/** The common auto bounds of the linked lanes: the widest dB range and the highest Nyquist frequency. */
+export function linkedSpectrogramBounds(specs: readonly SpectrogramAutoBounds[]): SpectrogramAutoBounds | null {
+    let minDb = Infinity, maxDb = -Infinity, maxFrequencyHz = 0;
+    for (const spec of specs) {
+        if (Number.isFinite(spec.minDb)) minDb = Math.min(minDb, spec.minDb);
+        if (Number.isFinite(spec.maxDb)) maxDb = Math.max(maxDb, spec.maxDb);
+        if (Number.isFinite(spec.maxFrequencyHz)) maxFrequencyHz = Math.max(maxFrequencyHz, spec.maxFrequencyHz);
+    }
+    return minDb <= maxDb && maxFrequencyHz > 0 ? { minDb, maxDb, maxFrequencyHz } : null;
 }
 
 export function paintSpectrogramRaster(spec: SpectrogramData, width: number, height: number, view: SpectrogramRasterView, destination?: Uint8ClampedArray) {
@@ -39,14 +63,24 @@ export function paintSpectrogramRaster(spec: SpectrogramData, width: number, hei
         const after = Math.min(spec.timeBins, Math.max(first + 1, Math.ceil(localEnd * spec.timeBins)));
         return localEnd <= 0 || localStart >= 1 || first >= spec.timeBins || after <= 0 ? null : [first, after];
     });
-    const ratio = Math.max(0, Math.min(1, view.maxFrequencyHz / Math.max(spec.maxFrequencyHz, 1)));
+    // Plot rows as fractions of the spectrogram's own frequency span; rows above its data stay blank.
+    const specMax = Math.max(spec.maxFrequencyHz, 1);
+    const bottom = Math.max(0, view.minFrequencyHz ?? 0) / specMax;
+    const top = Math.max(0, view.maxFrequencyHz) / specMax;
     const rows: RasterPlan['rows'] = Array.from({ length: height }, (_, row) => {
         const py = height - row - 1;
-        const high = (1 - py / height) * ratio;
-        const low = (1 - (py + 1) / height) * ratio;
+        const high = bottom + (1 - py / height) * (top - bottom);
+        const low = bottom + (1 - (py + 1) / height) * (top - bottom);
         const intervals = Math.max(spec.frequencyBins - 1, 0);
+        const halfBin = intervals > 0 ? 0.5 / intervals : 0;
+        if (low >= 1 + halfBin || high <= low) {
+            return null;
+        }
         const first = Math.max(0, Math.floor(low * intervals + 0.5));
-        return [first, Math.min(spec.frequencyBins, Math.max(first + 1, Math.ceil(high * intervals + 0.5)))];
+        if (first >= spec.frequencyBins) {
+            return null;
+        }
+        return [first, Math.min(spec.frequencyBins, Math.max(first + 1, Math.ceil(Math.min(high, 1) * intervals + 0.5)))];
     });
     return rasterize({ layout: 'rows', values: spec.values, bins: spec.frequencyBins, level: { quantity: 'STFT amplitude', unit: spec.unit ?? 'dB', axisLabel: spec.axisLabel ?? 'STFT amplitude level', referenceValue: spec.referenceValue, referenceUnit: spec.referenceUnit, levelReferenceLabel: spec.levelReferenceLabel } }, { columns, rows, peakMode: 'comparison' }, { min: view.dbLo, max: view.dbHi }, viridis, destination);
 }

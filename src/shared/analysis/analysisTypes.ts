@@ -70,6 +70,8 @@ export interface SpectrogramDisplaySettings {
     dbMin: number | null;
     dbMax: number | null;
     maxFrequencyHz: number | null;
+    /** Bottom of the spectrogram's frequency axis; absent or null is 0 Hz. */
+    minFrequencyHz?: number | null;
 }
 
 export interface SpectrogramSettings {

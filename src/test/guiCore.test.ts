@@ -101,3 +101,18 @@ test('frame centres place each spectrogram cell on its STFT window instead of sp
     const legacyBright = Array.from({ length: width }, (_, x) => x).filter(x => legacy.pixels[x * 4] === 253);
     assert.deepEqual([legacyBright[0], legacyBright.at(-1)], [20, 39]);
 });
+
+test('a spectrogram drawn up to a higher frequency than its own leaves the band above blank, and a lower bound crops the bottom', () => {
+    // Four bins over 0–8 kHz, each a different level; the plot shows 0–16 kHz, then 4–8 kHz.
+    const spec: SpectrogramData = { values: [[-100, -60, -30, 0]], timeBins: 1, frequencyBins: 4, windowSize: 8, hopSize: 4, maxFrequencyHz: 8000, minDb: -100, maxDb: 0 };
+    const view = { zoomStart: 0, zoomEnd: 1, trackStart: 0, trackDurRatio: 1, dbLo: -100, dbHi: 0 };
+    const tall = paintSpectrogramRaster(spec, 1, 16, { ...view, maxFrequencyHz: 16000 }).pixels;
+    const alpha = (pixels: Uint8ClampedArray, row: number) => pixels[row * 4 + 3];
+    assert.equal(alpha(tall, 0), 0, 'top row (16 kHz) is blank');
+    assert.equal(alpha(tall, 5), 0, 'above the last bin (10–11 kHz) is blank');
+    assert.ok(alpha(tall, 15) > 0, 'bottom row is drawn');
+    const cropped = paintSpectrogramRaster(spec, 1, 4, { ...view, maxFrequencyHz: 8000, minFrequencyHz: 4000 }).pixels;
+    const full = paintSpectrogramRaster(spec, 1, 8, { ...view, maxFrequencyHz: 8000 }).pixels;
+    // The cropped plot's rows are the upper half of the full one.
+    assert.deepEqual(Array.from(cropped), Array.from(full.slice(0, 4 * 4)));
+});

@@ -46,6 +46,8 @@ export interface PersistedWebviewState {
     /** The waveform's share of a lane's height; the spectrogram under it takes the rest. */
     waveShare?: number;
     spectrumBandsPerOctave?: 0 | 1 | 3;
+    /** The track lanes share one amplitude scale, colour scale and frequency range. */
+    linkScales?: boolean;
     sidebarCollapsed?: boolean;
     spectrumCollapsed?: boolean;
     /** Entry table slots 0–3 by file path. */

@@ -5,6 +5,7 @@ import { hintAttr } from './hintFooter';
 export interface ToolbarSpec {
     contentType: 'waveform' | 'stage';
     appVersion: string;
+    linkScales?: boolean;
 }
 
 /** Controls marked tb-track-only act on the track lanes (time zoom, the lanes' exports) and hide in the steps view. */
@@ -38,6 +39,7 @@ export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
         + '<button class="tb-btn tb-track-only" data-action="zoom-out"' + hintAttr(strings.hintZoomOut) + ' aria-label="' + escapeHtml(strings.ariaZoomOut) + '">－</button>'
         + '<button class="tb-btn tb-track-only" data-action="zoom-in"' + hintAttr(strings.hintZoomIn) + ' aria-label="' + escapeHtml(strings.ariaZoomIn) + '">＋</button>'
         + '<button class="tb-btn tb-track-only" data-action="zoom-reset"' + hintAttr(strings.hintZoomReset) + ' aria-label="' + escapeHtml(strings.ariaZoomReset) + '">' + escapeHtml(strings.btnZoomReset) + '</button>'
+        + '<button class="tb-btn tb-track-only' + (spec.linkScales ? ' is-active' : '') + '" data-action="link-scales"' + hintAttr(strings.hintLinkScales) + ' aria-pressed="' + String(!!spec.linkScales) + '">' + escapeHtml(strings.btnLinkScales) + '</button>'
         + toolbarMenu('⋯', strings.toolbarMore, moreMenu, ' tb-track-only', 'tb-more-menu')
         + '<div class="tb-sep"></div>'
         + toolbarMenu(strings.toolbarExportLabel, strings.hintMenuExport, exportMenu, '', 'tb-export-menu')
