@@ -3759,7 +3759,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleRender();
         },
         onApply(settings) {
-            __spectrogramSettings = settings;
+            // The ⚙ popover has no lower frequency: the one set on the axis survives a new STFT.
+            __spectrogramSettings = { ...settings, display: { ...settings.display, minFrequencyHz: __spectrogramSettings.display.minFrequencyHz ?? null } };
             invalidateDesiredSpectrumSliceRequests();
             __setReanalyzeBusy(true, STR.reanalyzingStft);
             messaging.post({ type: 'request-reanalyze', settings: __spectrogramSettings });

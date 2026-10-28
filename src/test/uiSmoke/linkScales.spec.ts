@@ -95,3 +95,18 @@ test('tracks in another unit keep their own scales when linked', async ({ page }
     expect(await rangeAt(page, AMPLITUDE_AXIS, 1)).toEqual(quiet);
     expect(await rangeAt(page, '.track-spec-canvas', 1, true)).toEqual(quietColour);
 });
+
+test('a new STFT from ⚙ keeps the lower frequency set on the axis', async ({ page }) => {
+    await page.setContent(buildUiSmokeTwoLevelsHtml(), { waitUntil: 'domcontentloaded' });
+    await page.locator('#track-row-0 .track-spec-axis').first().dblclick();
+    await page.locator('#wave-range-min').fill('500');
+    await page.locator('#wave-range-max').fill('2000');
+    await page.locator('#wave-range-apply').click();
+    await page.locator('#toolbar [data-action="spectrogram-settings"]').click();
+    await page.locator('#spec-apply').click();
+    const display = await page.evaluate(() => {
+        const posted = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; settings?: { display: Record<string, unknown> } }> }).__uiSmokePostedMessages;
+        return posted.filter((m) => m.type === 'request-reanalyze').at(-1)?.settings?.display;
+    });
+    expect(display).toMatchObject({ minFrequencyHz: 500, maxFrequencyHz: 2000 });
+});
