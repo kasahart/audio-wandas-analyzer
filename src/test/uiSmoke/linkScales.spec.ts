@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { getStrings } from '../../shared/i18n/strings';
 import { buildUiSmokeTwoLevelsHtml } from './buildHtml';
 
 /** The range popover's Min and Max after double-clicking `selector` of track `trackIndex` (at its right edge if asked). */
@@ -73,4 +74,24 @@ test('the spectrogram frequency axis and colour bar set the range of every track
     await page.locator('#track-row-1 .track-spec-axis').first().dblclick();
     await page.locator('#wave-range-auto').click();
     expect(await rangeAt(page, '.track-spec-axis', 0)).toEqual(frequency);
+});
+
+test('the colour bar says it sets the colour scale when the pointer is on it', async ({ page }) => {
+    await page.setContent(buildUiSmokeTwoLevelsHtml(), { waitUntil: 'domcontentloaded' });
+    const canvas = page.locator('#track-row-0 .track-spec-canvas').first();
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('no spectrogram box');
+    await page.mouse.move(box.x + box.width - 30, box.y + box.height / 2);
+    await expect(page.locator('#hint-footer')).toHaveText(getStrings('en').hintSpectrogramColorbar);
+    await expect(canvas).toHaveCSS('cursor', 'pointer');
+});
+
+test('tracks in another unit keep their own scales when linked', async ({ page }) => {
+    await page.setContent(buildUiSmokeTwoLevelsHtml('Pa'), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.track-row')).toHaveCount(2);
+    const quiet = await rangeAt(page, AMPLITUDE_AXIS, 1);
+    const quietColour = await rangeAt(page, '.track-spec-canvas', 1, true);
+    await page.locator('#toolbar [data-action="link-scales"]').click();
+    expect(await rangeAt(page, AMPLITUDE_AXIS, 1)).toEqual(quiet);
+    expect(await rangeAt(page, '.track-spec-canvas', 1, true)).toEqual(quietColour);
 });

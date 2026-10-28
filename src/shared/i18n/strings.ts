@@ -605,6 +605,7 @@ export interface UiStrings {
     hintSpectrumFreqAxis: string;
     hintWaveformAmplitudeAxis: string;
     hintSpectrogramFrequencyAxis: string;
+    hintSpectrogramColorbar: string;
     hintSpectrumKeys: string;
     hintSpecAuto: string;
     hintSpecNFft: string;
@@ -1077,7 +1078,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnFollowCursor: 'Follow',
         btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback (key: F)',
         btnLinkScales: 'Link scales',
-        hintLinkScales: 'Give every track the same amplitude, colour (dB) and frequency scale. Double-click an axis or colour bar to set a range.',
+        hintLinkScales: 'Same amplitude, colour (dB) and frequency scale on all tracks (per unit)',
         specSettingsAuto: 'Auto (defaults)',
         specSettingsStftLegend: 'STFT',
         specSettingsNFft: 'n_fft',
@@ -1226,7 +1227,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrumDbAxis: 'Double-click: set the dB range',
         hintSpectrumFreqAxis: 'Double-click: set the frequency range',
         hintWaveformAmplitudeAxis: 'Double-click: set the amplitude range',
-        hintSpectrogramFrequencyAxis: 'Double-click: set the frequency range (the colour bar: the dB range)',
+        hintSpectrogramFrequencyAxis: 'Double-click: set the frequency range',
+        hintSpectrogramColorbar: 'Double-click: set the colour scale (dB)',
         hintSpectrumKeys: '← →: step through frequency bins',
         hintSpecAuto: 'Use the default STFT settings',
         hintSpecNFft: 'FFT length in samples: larger gives finer frequency resolution',
@@ -1697,7 +1699,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnFollowCursor: '追従',
         btnFollowCursorTitle: '再生中にカーソルを中央に保つ（キー: F）',
         btnLinkScales: 'スケール連動',
-        hintLinkScales: '全トラックの振幅・カラー (dB)・周波数のスケールを揃える。軸やカラーバーのダブルクリックで範囲を設定',
+        hintLinkScales: '全トラックで振幅・カラー (dB)・周波数のスケールを揃える（単位ごと）',
         specSettingsAuto: '自動 (デフォルト)',
         specSettingsStftLegend: 'STFT',
         specSettingsNFft: 'n_fft',
@@ -1846,7 +1848,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrumDbAxis: 'ダブルクリック: dB 範囲を設定',
         hintSpectrumFreqAxis: 'ダブルクリック: 周波数範囲を設定',
         hintWaveformAmplitudeAxis: 'ダブルクリック: 振幅範囲を設定',
-        hintSpectrogramFrequencyAxis: 'ダブルクリック: 周波数範囲を設定（カラーバーは dB 範囲）',
+        hintSpectrogramFrequencyAxis: 'ダブルクリック: 周波数範囲を設定',
+        hintSpectrogramColorbar: 'ダブルクリック: カラースケール (dB) を設定',
         hintSpectrumKeys: '← →: 周波数ビンを移動',
         hintSpecAuto: 'STFT 設定を既定値にする',
         hintSpecNFft: 'FFT 長（サンプル）: 大きいほど周波数分解能が細かくなります',
