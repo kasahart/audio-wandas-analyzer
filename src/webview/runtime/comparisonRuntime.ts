@@ -3528,16 +3528,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumHover.channelIndex = null;
     }
 
-    /** Linked, the lanes' cursor spectra in one unit share the dB axis of all their slices. */
+    /** Linked, the lanes' cursor spectra in one unit (the channel's, whichever source a slice came from) share the dB axis of all their slices. */
     function linkedTrackSpectrumDb(): Map<string, { minDb: number; maxDb: number }> | null {
         if (!scalesLinked) {
             return null;
         }
         const ranges = new Map<string, { minDb: number; maxDb: number }>();
-        displayedLanes().forEach(function ({ record, channelIndex }) {
+        displayedLanes().forEach(function ({ record, channelIndex, ch }) {
             const slice = extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, spectrumCursorNorm, channelIndex);
             if (slice && Number.isFinite(slice.minDb) && Number.isFinite(slice.maxDb)) {
-                const key = levelUnitKey(slice);
+                const key = amplitudeUnitKey(ch);
                 const range = ranges.get(key);
                 ranges.set(key, range ? { minDb: Math.min(range.minDb, slice.minDb), maxDb: Math.max(range.maxDb, slice.maxDb) } : { minDb: slice.minDb, maxDb: slice.maxDb });
             }
@@ -3584,7 +3584,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return;
                 }
                 const ownSlice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, spectrumCursorNorm, channelIndex);
-                const shared = ownSlice && linkedDb ? linkedDb.get(levelUnitKey(ownSlice)) : undefined;
+                const shared = ownSlice && linkedDb ? linkedDb.get(amplitudeUnitKey(channelsForResult(result)[channelIndex])) : undefined;
                 const slice = ownSlice && shared ? { ...ownSlice, ...shared } : ownSlice;
                 if (!slice) {
                     if (paintedByChannel.get(channelIndex) && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) {

@@ -70,12 +70,12 @@ test('persisted state store merges patches through the host boundary', () => {
 
 test('the saved view state comes back whole, with values of another type left out', () => {
     const saved: PersistedWebviewState = {
-        waveShare: 0.3, spectrumBandsPerOctave: 3, sidebarCollapsed: true, spectrumCollapsed: false,
+        waveShare: 0.3, spectrumBandsPerOctave: 3, sidebarCollapsed: true, spectrumCollapsed: false, linkScales: true,
         entrySlots: ['/a.wav', null], entryDerived: [], entryRecipe: { nodes: [] }, entryCsv: { name: 'meta.csv', text: 'file\na.wav\n' },
     };
     // Every field the runtime keeps survives a reload: an opened spectrum stays open, the bands and the CSV stay.
     assert.deepEqual(sanitizePersistedState(JSON.parse(JSON.stringify(saved))), saved);
-    assert.deepEqual(sanitizePersistedState({ contentType: 'spectrogram', waveShare: 'half', spectrumBandsPerOctave: 2, entrySlots: [1], entryCsv: { name: 'x' } }), {});
+    assert.deepEqual(sanitizePersistedState({ contentType: 'spectrogram', waveShare: 'half', spectrumBandsPerOctave: 2, entrySlots: [1], entryCsv: { name: 'x' }, linkScales: 'yes' }), {});
     assert.deepEqual(sanitizePersistedState(null), {});
 });
 
