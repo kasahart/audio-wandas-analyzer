@@ -59,6 +59,11 @@ async function answer(page: Page): Promise<void> {
 test('opened from the tracks, Compare goes back to the tracks on Esc, playback going on; the legend\'s ▶ and Space play the recordings themselves', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const compared = await comparedTrack(page);
+    // A selection on the tracks: it stands aside while the comparison (over the whole files) plays, and is there again after.
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action', actions: [{ action: 'set-loop-region', payload: { start: .25, end: .75 } }],
+    } })));
+    await expect(page.locator('#loop-time-display')).toHaveText('0:00.50 – 0:01.50');
     await page.locator('[data-action="content-stage"]').click();
     await expect(page.locator('.track-stage')).toBeVisible();
     await answer(page);
@@ -72,6 +77,7 @@ test('opened from the tracks, Compare goes back to the tracks on Esc, playback g
     await expect(legend.locator('.compare-legend-item').first().locator('[data-action="compare-play"]')).toHaveCount(0);
     await play.click();
     await expect(play).toHaveText('■');
+    await expect(page.locator('#loop-time-display')).toBeHidden();
     await expect(page.locator('[data-action="toggle-playback"]').first()).toHaveClass(/is-playing/);
     // Space plays (or stops) the recording compared.
     await page.locator('.track-stage canvas').first().click();
@@ -85,5 +91,6 @@ test('opened from the tracks, Compare goes back to the tracks on Esc, playback g
     await expect(page.locator('[data-action="content-waveform"]')).toHaveClass(/is-active/);
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
     await expect(page.locator('[data-action="toggle-playback"]').first()).toHaveClass(/is-playing/);
+    await expect(page.locator('#loop-time-display')).toHaveText('0:00.50 – 0:01.50');
 });
 

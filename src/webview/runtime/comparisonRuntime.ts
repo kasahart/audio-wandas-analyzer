@@ -293,6 +293,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // 'stage': every lane draws one step of the scan Recipe (trackStageMode.ts); it is not kept across sessions.
     /** The steps mode (created once the entry table it reads its Recipe from exists). */
     let stageMode: TrackStageMode | null = null;
+    /** The tracks' selection while the comparison's ▶ plays over its own region: put back on leaving the comparison. */
+    let selectionBeforeStage: { region: LoopRegion | null } | null = null;
     /** Where the steps view was opened from, where Esc goes back to: the tracks' 比較解析, or the entry table. */
     let stageEntrance: 'tracks' | 'table' = 'tracks';
     /** A track's role from the entry table's slots (set once the table exists; tracks drawn before it have none). */
@@ -1325,12 +1327,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         play(path, region) {
             const record = trackRecordForPath(path);
             if (!record || record.runtime.hidden) return;
-            // Over the comparison's region: it becomes the tracks' selection, so playback keeps to it.
-            if (region && playingPath() !== path) {
+            // Playback keeps to the comparison's region (the whole file without one): the tracks' selection
+            // stands aside while comparing and comes back on leaving the comparison.
+            if (playingPath() !== path) {
                 const i = trackIndexForId(record.id);
-                const start = globalNormFromTrackTime(i, region.start);
-                const end = globalNormFromTrackTime(i, region.end);
-                if (start !== null && end !== null && end > start) setLoopRegion({ start, end });
+                const start = region ? globalNormFromTrackTime(i, region.start) : null;
+                const end = region ? globalNormFromTrackTime(i, region.end) : null;
+                const next = start !== null && end !== null && end > start ? { start, end } : null;
+                if (next?.start !== loopRegion?.start || next?.end !== loopRegion?.end) {
+                    if (!selectionBeforeStage) selectionBeforeStage = { region: loopRegion };
+                    setLoopRegion(next);
+                }
             }
             togglePlayback(record.id);
             scheduleRender();
@@ -2730,6 +2737,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         } else if (next !== 'stage' && contentType === 'stage' && spectrumBeforeStage !== null) {
             if (spectrumCollapsed !== spectrumBeforeStage) setSpectrumCollapsed(spectrumBeforeStage);
             spectrumBeforeStage = null;
+        }
+        if (next !== 'stage' && selectionBeforeStage) {
+            setLoopRegion(selectionBeforeStage.region);
+            selectionBeforeStage = null;
         }
         contentType = next;
         stageMode?.setActive(next === 'stage');
