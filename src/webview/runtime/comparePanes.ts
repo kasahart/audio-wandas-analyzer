@@ -282,6 +282,8 @@ export interface LegendItem {
     chipHtml?: string;
     /** Its ▶ shows ■ while it plays. */
     playing?: boolean;
+    /** Said in the hint footer over its label. */
+    hint?: string;
 }
 
 export function legendHtml(items: readonly LegendItem[], strings: Pick<UiStrings, 'comparePlay'>): string {
@@ -290,7 +292,7 @@ export function legendHtml(items: readonly LegendItem[], strings: Pick<UiStrings
         const play = item.path ? `<button type="button" class="compare-play" data-action="compare-play" data-path="${escapeHtml(item.path)}" aria-label="${escapeHtml(strings.comparePlay + ': ' + item.label)}" aria-pressed="${item.playing ? 'true' : 'false'}">${item.playing ? '■' : '▶'}</button>` : '';
         const value = item.value ? ` <span class="compare-value">${escapeHtml(item.value)}</span>` : '';
         const memo = item.memo ? ` <span class="compare-memo" data-memo title="${escapeHtml(item.memo)}" data-hint="${escapeHtml(item.memo)}">✎</span>` : '';
-        return `<span class="compare-legend-item${item.active ? ' is-active' : ''}${item.held ? ' is-held' : ''}">${item.chipHtml ?? ''}${mark}<span class="compare-legend-label">${escapeHtml(item.label)}</span>${value}${memo}${play}</span>`;
+        return `<span class="compare-legend-item${item.active ? ' is-active' : ''}${item.held ? ' is-held' : ''}">${item.chipHtml ?? ''}${mark}<span class="compare-legend-label"${item.hint ? ` data-hint="${escapeHtml(item.hint)}"` : ''}>${escapeHtml(item.label)}</span>${value}${memo}${play}</span>`;
     }).join('');
 }
 
