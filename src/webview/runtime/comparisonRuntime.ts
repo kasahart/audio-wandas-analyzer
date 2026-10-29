@@ -293,6 +293,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // 'stage': every lane draws one step of the scan Recipe (trackStageMode.ts); it is not kept across sessions.
     /** The steps mode (created once the entry table it reads its Recipe from exists). */
     let stageMode: TrackStageMode | null = null;
+    /** The tracks' selection while the comparison's ▶ plays over its own region: put back on leaving the comparison. */
+    let selectionBeforeStage: { region: LoopRegion | null } | null = null;
+    /** Where the steps view was opened from, where Esc goes back to: the tracks' 比較解析, or the entry table. */
+    let stageEntrance: 'tracks' | 'table' = 'tracks';
     /** A track's role from the entry table's slots (set once the table exists; tracks drawn before it have none). */
     let trackRole: (filePath: string) => RoleChipRole | undefined = () => undefined;
     // 'waveform': the lanes show each channel's waveform with its spectrogram under it.
@@ -1239,6 +1243,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         openFiles(filePaths, comparison) {
             // The slotted files are compared in the track view, beside the tracks already shown, as a step of the Recipe.
             selectTracks(filePaths);
+            stageEntrance = 'table';
             stageMode?.open(comparison.stage);
             setContentType('stage');
         },
@@ -1310,10 +1315,34 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),
         inFront: () => !entryScreen.isOpen(),
+        // Esc goes back to where the comparison was opened: the entry table, or the tracks (playback, zoom and
+        // selection as they were, the compared recording's lane in sight).
         back() {
-            const slots = entryScreen.slots();
-            entryScreen.show(slots);
+            if (stageEntrance === 'table') { entryScreen.show(entryScreen.slots()); return; }
+            const path = stageMode?.snapshot().comparing;
+            setContentType('waveform');
+            const record = path ? trackRecordForPath(path) : null;
+            if (record) requestAnimationFrame(function () { document.querySelector('.track-row[data-track-id="' + record.id + '"]')?.scrollIntoView({ block: 'nearest' }); });
         },
+        play(path, region) {
+            const record = trackRecordForPath(path);
+            if (!record || record.runtime.hidden) return;
+            // Playback keeps to the comparison's region (the whole file without one): the tracks' selection
+            // stands aside while comparing and comes back on leaving the comparison.
+            if (playingPath() !== path) {
+                const i = trackIndexForId(record.id);
+                const start = region ? globalNormFromTrackTime(i, region.start) : null;
+                const end = region ? globalNormFromTrackTime(i, region.end) : null;
+                const next = start !== null && end !== null && end > start ? { start, end } : null;
+                if (next?.start !== loopRegion?.start || next?.end !== loopRegion?.end) {
+                    if (!selectionBeforeStage) selectionBeforeStage = { region: loopRegion };
+                    setLoopRegion(next);
+                }
+            }
+            togglePlayback(record.id);
+            scheduleRender();
+        },
+        playing: () => playingPath(),
         fix(comparePath, groupBase, region, measured) {
             const data = entryScreen.compareData();
             // Over a region, the files' results over it take the entry table's place.
@@ -2709,6 +2738,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (spectrumCollapsed !== spectrumBeforeStage) setSpectrumCollapsed(spectrumBeforeStage);
             spectrumBeforeStage = null;
         }
+        if (next !== 'stage' && selectionBeforeStage) {
+            setLoopRegion(selectionBeforeStage.region);
+            selectionBeforeStage = null;
+        }
         contentType = next;
         stageMode?.setActive(next === 'stage');
         document.body.classList.toggle('is-stage-view', next === 'stage');
@@ -2824,7 +2857,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'open-folder': () => messaging.post({ type: 'select-target', targetKind: 'directory' }),
             'select-python-environment': () => messaging.post({ type: 'select-python-environment' }),
             'content-waveform': () => setContentType('waveform'),
-            'content-stage': () => setContentType('stage'),
+            'content-stage': () => { stageEntrance = 'tracks'; setContentType('stage'); },
             'zoom-in': zoomIn,
             'zoom-out': zoomOut,
             'zoom-reset': resetZoom,
