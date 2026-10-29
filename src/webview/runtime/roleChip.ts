@@ -23,7 +23,7 @@ const roleLabel = (slot: number, strings: RoleChipStrings): string => (slot === 
 export function roleChipHtml(filePath: string, role: RoleChipRole | undefined, fallback: string, strings: RoleChipStrings): string {
     return '<details class="role-chip" data-file-path="' + escapeHtml(filePath) + '">'
         + '<summary class="role-chip-face' + (role ? '' : ' is-none') + '" style="' + (role ? 'background:' + ROLE_COLORS[role.slot] : '--role-fallback:' + fallback) + '" data-role="' + (role ? role.slot : '') + '"'
-        + hintAttr(strings.roleChipHint) + ' aria-label="' + escapeHtml(strings.roleChipHint) + '">' + escapeHtml(roleChipText(role)) + '</summary>'
+        + hintAttr(strings.roleChipHint) + ' aria-label="' + escapeHtml((role ? roleLabel(role.slot, strings) : strings.roleNone) + ' — ' + strings.roleChipHint) + '">' + escapeHtml(roleChipText(role)) + '</summary>'
         + '<div class="role-chip-menu"></div>'
         + '</details>';
 }
@@ -43,6 +43,22 @@ export interface RoleChipHost {
 /** Handles every role chip under `root`: its menu, 0–3 on a focused chip, and a press elsewhere closing an open menu. */
 export function attachRoleChips(root: Document, host: RoleChipHost, strings: RoleChipStrings): void {
     const chipOf = (target: EventTarget | null): HTMLDetailsElement | null => ((target as Element | null)?.closest?.('details.role-chip') as HTMLDetailsElement | null) ?? null;
+    /** Sets the role and keeps the focus on that recording's chip, which a redraw may replace (the next 0–3 still lands there). */
+    const setRole = (chip: HTMLDetailsElement, slot: number | null, focused: boolean): void => {
+        const filePath = chip.dataset.filePath ?? '';
+        const scope = chip.closest('[data-stage-legend]') ? '[data-stage-legend]' : '.track-header';
+        host.setRole(filePath, slot);
+        if (!focused) return;
+        const face = (): HTMLElement | null => root.querySelector<HTMLElement>(scope + ' details.role-chip[data-file-path="' + CSS.escape(filePath) + '"] > summary');
+        face()?.focus();
+        let frames = 10;
+        const keep = (): void => {
+            const active = root.activeElement;
+            if (!active || active === root.body) face()?.focus();
+            if (--frames > 0) requestAnimationFrame(keep);
+        };
+        requestAnimationFrame(keep);
+    };
     root.addEventListener('click', event => {
         const item = (event.target as Element | null)?.closest?.('[data-action="track-role-set"]') as HTMLElement | null;
         const chip = chipOf(item);
@@ -50,7 +66,7 @@ export function attachRoleChips(root: Document, host: RoleChipHost, strings: Rol
         event.preventDefault();
         chip.open = false;
         const slot = item.dataset.slot;
-        host.setRole(chip.dataset.filePath ?? '', slot === '' || slot === undefined ? null : Number(slot));
+        setRole(chip, slot === '' || slot === undefined ? null : Number(slot), true);
     });
     // Captured first, so the comparison's and the lanes' own keys (0 resets the zoom, 1–3 compare a slot) leave a focused chip alone.
     root.addEventListener('keydown', event => {
@@ -60,11 +76,12 @@ export function attachRoleChips(root: Document, host: RoleChipHost, strings: Rol
             event.preventDefault();
             event.stopImmediatePropagation();
             chip.open = false;
-            host.setRole(chip.dataset.filePath ?? '', Number(event.key));
+            setRole(chip, Number(event.key), true);
         } else if (event.key === 'Escape' && chip.open) {
             event.preventDefault();
             event.stopImmediatePropagation();
             chip.open = false;
+            chip.querySelector<HTMLElement>('summary')?.focus();
         }
     }, true);
     // The menu is made as the chip opens (closed, the chip is its face alone: the legend's text stays the file's).

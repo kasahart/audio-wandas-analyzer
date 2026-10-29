@@ -52,6 +52,16 @@ test('a track\'s role chip sets the entry table\'s slots from the track view, by
     await chipOf(page, second).locator('summary').focus();
     await page.keyboard.press('2');
     await expect(slotText(page, 2)).toContainText(second.split('/').pop()!);
+    // The chip keeps the focus through its redraw: the next key moves the same recording.
+    await expect.poll(() => page.evaluate(() => (document.activeElement?.closest('details.role-chip') as HTMLElement | null)?.dataset.filePath)).toBe(second);
+    await page.keyboard.press('3');
+    await expect(slotText(page, 3)).toContainText(second.split('/').pop()!);
+    await expect(chipOf(page, second).locator('.role-chip-face')).toHaveText(/^3( ch\d)?$/);
+    // Esc closes an open menu and leaves the focus on its chip.
+    await chipOf(page, second).locator('summary').click();
+    await page.keyboard.press('Escape');
+    await expect(chipOf(page, second)).not.toHaveAttribute('open', '');
+    await expect(page.locator('.track-row')).toHaveCount(2);
     // None: the file leaves its slot, its track stays.
     await firstChip.locator('summary').click();
     await firstChip.locator('[data-action="track-role-set"][data-slot=""]').click();

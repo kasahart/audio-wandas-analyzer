@@ -1994,7 +1994,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return slot === undefined ? undefined : { slot, ch: channelOfRow(rowOf(slots[slot])) };
         },
         setTrackRole(filePath, slot) {
-            const own = slots.find(key => key && fileOfKey(key) === filePath);
+            // The row trackRole shows (compare slots first), so a chip moves the channel it names.
+            const own = [1, 2, 3, 0].map(at => slots[at]).find(key => key && fileOfKey(key) === filePath);
             if (slot === null) {
                 if (!own) return;
                 slots = slots.map(key => (key && fileOfKey(key) === filePath ? null : key));
