@@ -61,10 +61,11 @@ export interface TrackRowSpec {
     channelCount: number;
     sampleRateHz: number;
     channels: ChannelSummary[];
-    color: string;
     playable: boolean;
     muted: boolean;
     lanesHtml: string;
+    /** The role chip (roleChip.ts) in place of a plain colour swatch. */
+    roleChipHtml: string;
     /** Set on mono tracks, whose one lane has no header of its own. */
     referenceButtonHtml?: string;
 }
@@ -87,7 +88,8 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '<div class="track-header">'
         + '  <div class="track-title-row">'
         + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaDragHandle) + '" data-hint="' + escapeHtml(strings.ariaDragHandle) + '">≡</div>'
-        + '    <div class="track-color-swatch" data-track-id="' + trackId + '" style="background:' + spec.color + '" aria-hidden="true"></div>'
+        // The track's role chip (its colour without a role): the same slots as the entry table's 0–3.
+        + '    ' + spec.roleChipHtml
         + '    <div class="track-name"' + hintAttr(spec.filePath) + '>' + escapeHtml(spec.fileName) + '</div>'
         + (isClipped(channels) ? '    <span class="clip-badge"' + hintAttr(strings.clipBadgeTitle) + '>CLIP</span>' : '')
         + '    ' + calibrationBadgeHtml(channels, strings)

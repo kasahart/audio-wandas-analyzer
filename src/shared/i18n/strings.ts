@@ -57,6 +57,10 @@ export interface UiStrings {
     btnWaveform: string;
     btnStage: string;
     stageLayoutSide: string;
+    /** A role chip's hint, its menu's "none", and the comparison's headline while nothing is compared. */
+    roleChipHint: string;
+    roleNone: string;
+    stageChooseRoles: string;
     stageLayoutOverlay: string;
     compareFixedHint: string;
     hintContentStage: string;
@@ -681,6 +685,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnWaveform: 'Tracks',
         btnStage: 'Compare',
         stageLayoutSide: 'Side by side',
+        roleChipHint: 'Role: base 0 or compare 1–3 (0–3 while focused)',
+        roleNone: 'None',
+        stageChooseRoles: 'Choose recordings to compare: their chips in the legend',
         stageLayoutOverlay: 'Overlay',
         compareFixedHint: 'Fixed: the difference is now the └ Δ row of the entry table (Esc to see it)',
         hintContentStage: 'Compare the tracks through an analysis: build it from wandas steps and see every track at any step, overlaid',
@@ -880,7 +887,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsSlotOut: 'Take out of its slot',
         dsRowMemo: 'Memo (M)',
         dsRowExclude: 'Take out of the table (restore it from 「Excluded」)',
-        dsRowExcludeShort: 'Out',
+        dsRowExcludeShort: 'Exclude',
         dsRowRestore: 'Restore',
         dsMemoPlaceholder: 'What you noticed',
         dsMemoClose: 'Save and close',
@@ -1302,6 +1309,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnWaveform: 'トラック',
         btnStage: '比較解析',
         stageLayoutSide: '並べる',
+        roleChipHint: '役割：基準 0・比較 1〜3（フォーカス中は 0〜3 キー）',
+        roleNone: 'なし',
+        stageChooseRoles: '比べる録音を選ぶ：凡例のチップで',
         stageLayoutOverlay: '重ねる',
         compareFixedHint: '差を表の └ Δ 行として残しました（Esc で一覧）',
         hintContentStage: '比較解析：wandas の手順を組んで、どの段でもトラックどうしを重ねて比べる',
@@ -1501,7 +1511,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsSlotOut: 'スロットから外す',
         dsRowMemo: 'メモ（M）',
         dsRowExclude: '集計から外す（「除外」から戻せます）',
-        dsRowExcludeShort: '外す',
+        dsRowExcludeShort: '集計から外す',
         dsRowRestore: '戻す',
         dsMemoPlaceholder: '気付いたこと',
         dsMemoClose: '保存して閉じる',

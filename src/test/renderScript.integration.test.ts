@@ -541,12 +541,14 @@ test('directory selection mode keeps the side panel while rendering selected tra
 
 test('directory selection mode keeps existing track color stable when a new earlier tree item appears', () => {
     const { dom } = setupEnvWithState(DUMMY_SELECTION_WITH_B_RESULT_STATE);
+    // A track without a role: its chip shows the track's own colour.
     const initialSwatch = dom.window.document.querySelector(
-        '.track-color-swatch[data-track-id="track-1"]',
+        '.track-row[data-track-id="track-1"] .role-chip-face',
     ) as HTMLElement | null;
 
     assert.ok(initialSwatch);
-    const initialBColor = initialSwatch.style.background;
+    const initialBColor = initialSwatch.style.getPropertyValue('--role-fallback');
+    assert.ok(initialBColor);
 
     dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
         data: {
@@ -598,14 +600,13 @@ test('directory selection mode keeps existing track color stable when a new earl
 
     const rows = Array.from(dom.window.document.querySelectorAll('.track-row'));
     const bRow = rows.find((row) => row.textContent?.includes('b.flac'));
-    const bSwatch = bRow?.querySelector('.track-color-swatch') as HTMLElement | null;
+    const bSwatch = bRow?.querySelector('.role-chip-face') as HTMLElement | null;
 
     assert.ok(bSwatch);
-    assert.equal(bSwatch.style.background, initialBColor);
-    assert.equal(bSwatch.getAttribute('data-track-id'), 'track-1');
-    const aSwatch = rows.find((row) => row.textContent?.includes('a.wav'))
-        ?.querySelector('.track-color-swatch');
-    assert.equal(aSwatch?.getAttribute('data-track-id'), 'track-2');
+    assert.equal(bSwatch.style.getPropertyValue('--role-fallback'), initialBColor);
+    assert.equal(bRow?.getAttribute('data-track-id'), 'track-1');
+    const aRow = rows.find((row) => row.textContent?.includes('a.wav'));
+    assert.equal(aRow?.getAttribute('data-track-id'), 'track-2');
 });
 
 test('directory selection mode posts an empty selection when the shown file is taken off', () => {

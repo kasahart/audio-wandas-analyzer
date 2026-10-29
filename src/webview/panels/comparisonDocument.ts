@@ -751,10 +751,23 @@ export function renderComparisonStyles(): string {
         #selection-rail-count { writing-mode: vertical-rl; font-family: var(--font-mono); }
         #selection-sidebar-rail:hover { background: color-mix(in srgb, var(--accent) 18%, var(--panel)); }
         #directory-selection-layout.sidebar-collapsed #selection-sidebar-rail { display: flex; }
-        .track-title-row { display: flex; align-items: center; gap: 4px; overflow: hidden; }
+        .track-title-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+        .track-title-row .track-name { flex: 1 1 auto; min-width: 0; }
         .track-drag-handle { cursor: grab; color: var(--muted); font-size: 12px; user-select: none; flex-shrink: 0; padding: 0 2px; line-height: 1; }
         .track-drag-handle:active { cursor: grabbing; }
-        .track-color-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; border: 1px solid var(--line); }
+        /* A role chip (roleChip.ts): the role's colour and number, or the track's own colour and · without one; its menu sets the slot. */
+        .role-chip { position: relative; display: inline-block; flex-shrink: 0; }
+        .role-chip > summary { list-style: none; cursor: pointer; }
+        .role-chip > summary::-webkit-details-marker { display: none; }
+        .role-chip-face { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 3px; font: 600 9px/1 var(--font-mono); color: #111; white-space: nowrap; }
+        .role-chip-face.is-none { background: var(--role-fallback, transparent); color: rgba(0, 0, 0, 0.55); }
+        .role-chip-face:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+        .role-chip-menu { position: absolute; z-index: 30; left: 0; top: calc(100% + 2px); display: flex; flex-direction: column; gap: 1px; min-width: 120px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+        .role-chip-item { display: flex; align-items: center; gap: 6px; padding: 2px 6px; border: 0; border-radius: 3px; background: transparent; color: var(--text); font: inherit; font-size: 11px; text-align: left; cursor: pointer; white-space: nowrap; }
+        .role-chip-item:hover, .role-chip-item:focus-visible, .role-chip-item.is-current { background: var(--line); }
+        .role-chip-item kbd { margin-left: auto; font: 9px var(--font-mono); color: var(--muted); }
+        .role-chip-mark { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; border-radius: 3px; font: 600 9px/1 var(--font-mono); color: #111; }
+        .role-chip-mark.is-none { border: 1px dashed var(--muted); color: var(--muted); }
         .track-row.drag-over { outline: 2px solid var(--accent); outline-offset: -2px; }
 
         /* ── Empty state ── */

@@ -90,6 +90,7 @@ import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps
 import { ROLE_COLORS } from '../../shared/gui/roleColors';
 import { createTrackStageMode, type StageTrack, type TrackStageDeps, type TrackStageMode } from './trackStageMode';
 import { installScreenHelp } from './screenHelp';
+import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
 import {
     exceedsDragThreshold,
@@ -292,6 +293,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // 'stage': every lane draws one step of the scan Recipe (trackStageMode.ts); it is not kept across sessions.
     /** The steps mode (created once the entry table it reads its Recipe from exists). */
     let stageMode: TrackStageMode | null = null;
+    /** A track's role from the entry table's slots (set once the table exists; tracks drawn before it have none). */
+    let trackRole: (filePath: string) => RoleChipRole | undefined = () => undefined;
     // 'waveform': the lanes show each channel's waveform with its spectrogram under it.
     let contentType: 'waveform' | 'stage' = 'waveform';
     // Linked, every displayed lane shares one absolute amplitude scale, colour scale and frequency range; lanes in
@@ -811,7 +814,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // Its role from the entry table's slots (base blue, slots 1–3); otherwise its own colour, never a role's.
         const filePath = state.results[i]?.filePath;
         const role = filePath && stageMode ? stageMode.role(filePath) : undefined;
-        return (role !== undefined ? ROLE_COLORS[role] : undefined) || (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
+        return (role !== undefined ? ROLE_COLORS[role] : undefined) || ownTrackColor(i);
+    }
+    /** The track's own colour, which it has without a role. */
+    function ownTrackColor(i: number) {
+        const runtime = trackRuntimeAt(i);
+        return (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
+    }
+    /** The role chips on the track headers follow the slots (set here, on the entry table or on the comparison's legend). */
+    function syncRoleChips() {
+        document.querySelectorAll<HTMLDetailsElement>('.track-header details.role-chip').forEach(function (chip) {
+            const filePath = chip.dataset.filePath ?? '';
+            const role = trackRole(filePath);
+            const face = chip.querySelector<HTMLElement>('.role-chip-face');
+            if (chip.open || !face || (face.dataset.role === String(role?.slot ?? '') && face.textContent === roleChipText(role))) return;
+            const i = state.results.findIndex(function (result) { return result.filePath === filePath; });
+            chip.outerHTML = roleChipHtml(filePath, role, i >= 0 ? ownTrackColor(i) : '', STR);
+        });
     }
     const hintFooter = createHintFooter(document);
     attachHoverHints(document, hintFooter);
@@ -1251,6 +1270,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         baseTitle: (comparePath, group) => entryScreen.baseTitle(comparePath, group),
         stageChannel: (path, comparePath, group) => entryScreen.stageChannel(path, comparePath, group),
         rowInfo: path => entryScreen.rowInfo(path),
+        roleChip(path) {
+            const i = state.results.findIndex(function (result) { return result.filePath === path; });
+            // The legend's label names the channel already: the chip says the role alone.
+            const role = trackRole(path);
+            return roleChipHtml(path, role && { slot: role.slot, ch: null }, i >= 0 ? ownTrackColor(i) : '', STR);
+        },
         tableBaseBands: (comparePath, group) => entryScreen.tableBaseBands(comparePath, group),
         cost: paths => entryScreen.cost(paths),
         showCompared: () => entryScreen.showCompared(),
@@ -1325,6 +1350,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // The lanes' surface takes the shared plot gestures too; they act only in the steps mode.
     const stageSurface = document.getElementById('tracks-wrapper');
     if (stageSurface) stageMode.attach(stageSurface);
+    trackRole = filePath => entryScreen.trackRole(filePath);
+    // A role chip (a track's header, the comparison's legend) sets the entry table's slots; the track stays.
+    attachRoleChips(document, {
+        setRole(filePath, slot) {
+            entryScreen.setTrackRole(filePath, slot);
+            scheduleRender();
+        },
+    }, STR);
     // Defer first render so the browser has time to calculate flex layout
     requestAnimationFrame(function () {
         renderAll();
@@ -1616,7 +1649,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             channelCount: result.channelCount,
             sampleRateHz: result.sampleRateHz,
             channels: channelsForResult(result),
-            color: trackColor(i),
+            roleChipHtml: roleChipHtml(result.filePath, trackRole(result.filePath), ownTrackColor(i), STR),
             playable: !!result.audioSource,
             muted: !!trackStore.require(trackId).runtime.muted,
             lanesHtml: buildChannelLanes(result, i),
@@ -1631,6 +1664,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         resizeAllCanvases();
         renderRuler();
         renderStackedTracks();
+        syncRoleChips();
         updateVisibility();
         updateOffsetDisplays();
         updateUiSmokeWaveformState();

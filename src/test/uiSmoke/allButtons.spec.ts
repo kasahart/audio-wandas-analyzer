@@ -300,8 +300,8 @@ test('clicking every track control changes the per-track UI or its side effects'
 
     const offsetBefore = await page.locator('#offset-val-0').textContent();
 
-    // The swatch shows the track's colour (its role's, when it has one); it is not a control.
-    await expect(page.locator('.track-color-swatch').first()).not.toHaveAttribute('data-action');
+    // The role chip shows the track's colour without a role, and · on it.
+    await expect(page.locator('.track-header .role-chip-face').first()).toHaveText('·');
 
     await domClick(page, '[data-action="toggle-playback"]');
     await expect(page.locator('[data-action="toggle-playback"]')).toHaveClass(/is-playing/);
