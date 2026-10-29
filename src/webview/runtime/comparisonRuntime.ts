@@ -294,6 +294,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** The steps mode (created once the entry table it reads its Recipe from exists). */
     let stageMode: TrackStageMode | null = null;
     /** A track's role from the entry table's slots (set once the table exists; tracks drawn before it have none). */
+    /** Where the steps view was opened from, where Esc goes back to: the tracks' 比較解析, or the entry table. */
+    let stageEntrance: 'tracks' | 'table' = 'tracks';
     let trackRole: (filePath: string) => RoleChipRole | undefined = () => undefined;
     // 'waveform': the lanes show each channel's waveform with its spectrogram under it.
     let contentType: 'waveform' | 'stage' = 'waveform';
@@ -1240,6 +1242,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             // The slotted files are compared in the track view, beside the tracks already shown, as a step of the Recipe.
             selectTracks(filePaths);
             stageMode?.open(comparison.stage);
+            stageEntrance = 'table';
             setContentType('stage');
         },
         announce(text) {
@@ -1310,10 +1313,29 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),
         inFront: () => !entryScreen.isOpen(),
+        // Esc goes back to where the comparison was opened: the entry table, or the tracks (playback, zoom and
+        // selection as they were, the compared recording's lane in sight).
         back() {
-            const slots = entryScreen.slots();
-            entryScreen.show(slots);
+            if (stageEntrance === 'table') { entryScreen.show(entryScreen.slots()); return; }
+            const path = stageMode?.snapshot().comparing;
+            setContentType('waveform');
+            const record = path ? trackRecordForPath(path) : null;
+            if (record) requestAnimationFrame(function () { document.querySelector('.track-row[data-track-id="' + record.id + '"]')?.scrollIntoView({ block: 'nearest' }); });
         },
+        play(path, region) {
+            const record = trackRecordForPath(path);
+            if (!record || record.runtime.hidden) return;
+            // Over the comparison's region: it becomes the tracks' selection, so playback keeps to it.
+            if (region && playingPath() !== path) {
+                const i = trackIndexForId(record.id);
+                const start = globalNormFromTrackTime(i, region.start);
+                const end = globalNormFromTrackTime(i, region.end);
+                if (start !== null && end !== null && end > start) setLoopRegion({ start, end });
+            }
+            togglePlayback(record.id);
+            scheduleRender();
+        },
+        playing: () => playingPath(),
         fix(comparePath, groupBase, region, measured) {
             const data = entryScreen.compareData();
             // Over a region, the files' results over it take the entry table's place.
@@ -2824,7 +2846,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'open-folder': () => messaging.post({ type: 'select-target', targetKind: 'directory' }),
             'select-python-environment': () => messaging.post({ type: 'select-python-environment' }),
             'content-waveform': () => setContentType('waveform'),
-            'content-stage': () => setContentType('stage'),
+            'content-stage': () => { stageEntrance = 'tracks'; setContentType('stage'); },
             'zoom-in': zoomIn,
             'zoom-out': zoomOut,
             'zoom-reset': resetZoom,

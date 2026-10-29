@@ -174,7 +174,7 @@ export const GUI_TRIGGERABILITY_SCOPED_SHORTCUTS = [
     '?',
     'Esc',
     '0 / 1–3 / Enter / Esc (entry table)',
-    '0 / 1–3 / D / Esc (comparing)',
+    '0 / 1–3 / D / Space / Esc (comparing)',
     '? / F1 (entry table, comparison)',
     'Delete (step chip)',
     'Drag (step chip)',
@@ -262,7 +262,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         id: 'comparison-steps',
         label: 'Compare the slotted files with their base in the track view\'s steps mode: drawn over one another or side by side, their difference on request, the compared slot swapped while a key is held, D to fix it and 報告に to write the report',
         entryPoints: ['keyboard', 'track-control'],
-        triggers: ['compare-play', '0 / 1–3 / D / Esc (comparing)'],
+        triggers: ['compare-play', '0 / 1–3 / D / Space / Esc (comparing)'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

@@ -75,8 +75,12 @@ export interface TrackStageDeps {
     showCompared(): void;
     /** Whether the track view is the screen in front (the entry table not over it). */
     inFront(): boolean;
-    /** Esc: back to the entry table. */
+    /** Esc: back to where the comparison was opened from (the tracks, or the entry table). */
     back(): void;
+    /** ▶ in the legend, or Space: plays the recording itself, over the region when one is set (■ stops it). */
+    play?(path: string, region: EntryRegion | null): void;
+    /** The recording playing, for the legend's ■. */
+    playing?(): string | null;
     /**
      * D: the compared file's difference from its base fixed as a row of the entry table; a reason when it cannot
      * be. Over a region, `measured` holds the files' results over it (metrics, not the entry table's).
@@ -212,6 +216,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const action = (event.target as HTMLElement).closest('[data-action]')?.getAttribute('data-action');
         if (action === 'stage-layout') { overlaid = !overlaid; deps.rerender(); }
         else if (action === 'stage-diff') { showDiff = !showDiff; deps.rerender(); }
+        else if (action === 'compare-play') { const path = (event.target as HTMLElement).closest<HTMLElement>('[data-path]')?.dataset.path; if (path) deps.play?.(path, liveRegion()); }
         // A large base group is scanned only when asked (a folder of 10,000 files is not analysed by opening a comparison).
         else if (action === 'stage-base-scan') { if (gateKey) baseAllowed.add(gateKey); deps.rerender(); }
         // The base group's ▾ says how its curve is made; "list" shows its files on the table.
@@ -271,6 +276,12 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 : region && !measured().has(path) ? strings.compareRefuseFix.replace('{why}', strings.comparePending)
                     : deps.fix(path, groupBase, region, measured());
             deps.hint(refused ?? strings.compareFixedHint);
+        } else if (event.key === ' ' && !(event.target as Element | null)?.closest?.('button, summary, a')) {
+            // Space plays the recording compared (the legend's ▶ plays any of them).
+            const path = comparedPath(deps.tracks());
+            if (!path || !deps.play) return;
+            event.preventDefault(); event.stopImmediatePropagation();
+            deps.play(path, liveRegion());
         } else if (event.key === 'Escape') {
             // An open toolbar menu takes Esc first: it closes, and the comparison stays.
             if (root.ownerDocument?.querySelector?.('details.tb-menu[open]')) return;
@@ -346,6 +357,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     const drawnOn = new Map<Element, Drawn>();
     let shownCompare: { path: string | null; view: StageView | null | undefined } = { path: null, view: undefined };
     /** A file in the legend: its role, name and channel, its value on show, ✎ with its memo. */
+    /** A recording's ▶ in the legend (■ while it plays); the base group has none. */
+    function playable(path: string): Pick<LegendItem, 'path' | 'playing'> {
+        return deps.play ? { path, playing: deps.playing?.() === path } : {};
+    }
     function named(path: string, slot: number | undefined): Pick<LegendItem, 'label' | 'value' | 'memo' | 'chipHtml'> {
         const info = deps.rowInfo?.(path) ?? { label: baseName(path), value: '', memo: '' };
         const chipHtml = deps.roleChip?.(path);
@@ -557,8 +572,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             stepBar.element.dataset.drawn = String(layers.length);
             const items: LegendItem[] = [
                 ...(comparePath && !referencePath ? [{ color: ROLE_COLORS[0], label: deps.baseTitle(comparePath, groupBase) }] : []),
-                ...(comparePath ? [{ color: colorOf(comparePath, ROLE_COLORS[1]), ...named(comparePath, role(comparePath)), active: true, held: held !== null }] : []),
-                ...plots.others.map(item => ({ color: colorOf(item.track.filePath, item.track.color), ...named(item.track.filePath, role(item.track.filePath)) })),
+                ...(comparePath ? [{ color: colorOf(comparePath, ROLE_COLORS[1]), ...named(comparePath, role(comparePath)), active: true, held: held !== null, ...playable(comparePath) }] : []),
+                ...plots.others.map(item => ({ color: colorOf(item.track.filePath, item.track.color), ...named(item.track.filePath, role(item.track.filePath)), ...playable(item.track.filePath) })),
             ];
             const legend = query<HTMLElement>('[data-stage-legend]');
             legend.dataset.memos = items.filter(item => item.memo).length.toString();
