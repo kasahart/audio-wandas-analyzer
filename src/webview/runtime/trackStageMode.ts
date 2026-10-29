@@ -401,6 +401,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             heldStep = null;
             window_ = FULL_PLOT_WINDOW;
             overlaid = true;
+            pendingRegion = null;
             this.setActive(true);
         },
         setActive(next) {
@@ -418,10 +419,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const shownStage = stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === stage)?.bypassed ? stage : id;
             stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), stage: shownStage ?? undefined, regionRange: regionSet, failed: recipe?.failed });
             // The tracks' selection becomes the region chip once the bar has the chain; a region already there stays.
-            if (pendingRegion && recipe) {
+            if (pendingRegion) {
                 const range = pendingRegion;
                 pendingRegion = null;
-                if (!regionSet && stepBar.importRegion(range)) return;
+                if (recipe && !regionSet && stepBar.importRegion(range)) return;
             }
             const allTracks = deps.tracks();
             painted = false;
