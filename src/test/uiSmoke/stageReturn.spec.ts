@@ -85,6 +85,14 @@ test('opened from the tracks, Compare goes back to the tracks on Esc, playback g
     await expect(play).toHaveText('▶');
     await page.keyboard.press(' ');
     await expect(play).toHaveText('■');
+    // Space on a focused ▶ presses that ▶: the second recording plays, not the compared one.
+    const other = legend.locator(`[data-action="compare-play"]:not([data-path="${compared}"])`);
+    await other.focus();
+    await page.keyboard.press(' ');
+    await expect(other).toHaveText('■');
+    await expect(play).toHaveText('▶');
+    await play.click();
+    await expect(play).toHaveText('■');
     // Esc: back to the tracks, not the entry table, and the recording plays on.
     await page.keyboard.press('Escape');
     await expect(page.locator('.track-stage')).toBeHidden();

@@ -276,7 +276,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 : region && !measured().has(path) ? strings.compareRefuseFix.replace('{why}', strings.comparePending)
                     : deps.fix(path, groupBase, region, measured());
             deps.hint(refused ?? strings.compareFixedHint);
-        } else if (event.key === ' ' && !(event.target as Element | null)?.closest?.('button, summary, a')) {
+        } else if (event.key === ' ' && (event.target as Element | null)?.closest?.('button, summary, a')) {
+            // A focused button (a legend ▶ among them) takes Space as its own press: the tracks' playback key leaves it alone.
+            event.stopImmediatePropagation();
+        } else if (event.key === ' ') {
             // Space plays the recording compared (the legend's ▶ plays any of them).
             const path = comparedPath(deps.tracks());
             if (!path || !deps.play) return;
@@ -357,6 +360,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     const drawnOn = new Map<Element, Drawn>();
     let shownCompare: { path: string | null; view: StageView | null | undefined } = { path: null, view: undefined };
     /** A recording's ▶ in the legend (■ while it plays); the base group has none. */
+    /** The legend's markup as last written. */
+    let legendWritten = '';
     function playable(path: string): Pick<LegendItem, 'path' | 'playing'> {
         return deps.play ? { path, playing: deps.playing?.() === path } : {};
     }
@@ -581,7 +586,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const groupInfo = comparePath && (groupBase || !deps.slots()[0]);
             const html = legendHtml(items, strings).replace('</span></span>', groupInfo ? `</span><button type="button" class="tb-link stage-base-more" data-action="stage-base-info" aria-label="${escapeHtml(strings.stageBaseAggregate)}">▾</button></span>` : '</span></span>');
             // An open role chip's menu stays open: the legend is drawn again once it closes.
-            if (legend.innerHTML !== html && !legend.querySelector('details.role-chip[open]')) legend.innerHTML = html;
+            // Compared with what was written, not with innerHTML (which the browser serializes its own way): a redraw while
+            // playing leaves the legend's buttons, and the focus on them, in place.
+            if (legendWritten !== html && !legend.querySelector('details.role-chip[open]')) { legend.innerHTML = html; legendWritten = html; }
             const range = stageRange([coarsePlots.base, coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
             const axes = stageAxes(strings, picture, tracks[0]?.input);
             const empty = waiting ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
