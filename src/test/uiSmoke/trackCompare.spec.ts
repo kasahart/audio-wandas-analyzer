@@ -65,7 +65,7 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     const [first, second] = await openComparison(page);
     const root = page.locator('.track-stage');
     await expect(root).toHaveAttribute('data-compared', '1');
-    await expect(page.locator('[data-stage-headline]')).toHaveText(/^[\d.]+ k?Hz base −?\d+\.\d \/ compare −?\d+\.\d dB$/);
+    await expect(page.locator('[data-stage-headline]')).toHaveText(/^Compare 1 − base · [\d.]+ k?Hz base −?\d+\.\d \/ compare −?\d+\.\d dB$/);
     await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, new RegExp(`^1${first.split('/').pop()} ch1 ${STR_EN.dsLeq.replace(/[[\]]/g, '\\$&')} −?\\d`), new RegExp(`^2${second.split('/').pop()} ch1 `)]);
     expect(await page.locator('[data-stage-legend] line').evaluateAll(lines => lines.map(line => line.getAttribute('stroke')))).toEqual(['#3b82f6', '#d4b20f', '#a371f7']);
     // The base group's ▾ says how its curve is made; "Show on the list" lists the compared files and their base on the table.

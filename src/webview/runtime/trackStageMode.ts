@@ -23,7 +23,7 @@ import { createStageSource, type StageSpec } from './stageSource';
 import { createDetailPlanner } from './stageDetail';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, medianView, paintOverlay, paintStage, rowFractionOf, rowValueAt, STAGE_MARGINS, stageAxes, stageDiffRange, stageDifference, stageHeadline, stageLevelsHeadline, stagePlotPoint, stageRange, stageReadout, type StageAxes, type StageLayer } from './stagePanes';
-import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
+import { DIFF_COLOR, NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
@@ -550,7 +550,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const headline = query<HTMLElement>('[data-stage-headline]');
             headline.textContent = waiting ? strings.comparePending
                 : referencePath ? strings.stageVsBase.replace('{file}', named(referencePath, 0).label)
-                : comparePath ? stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, strings)
+                // Which difference is shown: the compared slot against the base.
+                : comparePath ? (role(comparePath) ? strings.stageCompareMinusBase.replace('{n}', String(role(comparePath))) : '')
+                    + stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, strings)
                 // No compare role yet: the lines are there, but nothing to measure against a base; the legend's chips set one.
                 : strings.stageChooseRoles;
             // The steps bypassed are named: what is drawn is the chain without them.
@@ -558,7 +560,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             if (bypassed.length && !waiting) headline.textContent += strings.stepBypassing.replace('{ops}', bypassed.join(', '));
             // The part of the files compared, while a region is set.
             if (region && !waiting && comparePath) headline.textContent += ` · ${strings.stepRegion} ${region.start.toFixed(2)}–${region.end.toFixed(2)} s`;
-            const colorOf = (path: string, fallback: string): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
+            // Colour is the role's: a recording without one is grey, its name in the legend telling it apart.
+            const colorOf = (path: string, fallback = NO_ROLE_COLOR): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
+            const widthOf = (path: string, width: number): number => (role(path) === undefined ? 1.2 : width);
             if (!overlay) {
                 // Side by side: every track's lane, on one range so the tracks compare at a glance.
                 const range = stageRange(tracks.map(track => coarse(track.filePath) ?? null));
@@ -572,7 +576,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                     const axes = stageAxes(strings, coarse(track.filePath) ?? picture, track.input);
                     drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, views: { base: coarsePlots.base, compare: coarse(track.filePath) ?? null, diff: null } });
                     // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
-                    paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(track.filePath, track.color), width: 2 }] : [] }, heat ? range : narrowed(range, window_.y), axes,
+                    paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(track.filePath), width: widthOf(track.filePath, 2) }] : [] }, heat ? range : narrowed(range, window_.y), axes,
                         { empty, window: { x: window_.x, ...(heat ? { y: window_.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}) });
                     if (view) drawn++;
                 });
@@ -587,8 +591,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
             root.dataset.base = groupBase || !deps.slots()[0] ? 'group' : 'file';
             const layers: StageLayer[] = [
+                // The grey lines (no role) under the roles' ones.
+                ...plots.others.filter(item => role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2 }] : [])),
                 ...(plots.base ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2 }] : []),
-                ...plots.others.flatMap(item => (item.view ? [{ view: item.view, color: colorOf(item.track.filePath, item.track.color), width: 1.8 }] : [])),
+                ...plots.others.filter(item => role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: colorOf(item.track.filePath), width: 1.8 }] : [])),
                 ...(plots.compare && comparePath ? [{ view: plots.compare, color: colorOf(comparePath, ROLE_COLORS[1]), width: 2.2 }] : []),
             ];
             stepBar.element.dataset.drawn = String(layers.length);
@@ -597,7 +603,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 ...(comparePath && !referencePath ? [{ color: ROLE_COLORS[0], label: deps.baseTitle(comparePath, groupBase) + (!gated ? '' : tableBase ? strings.stageBaseTableNote : strings.stageBaseNoLine),
                     ...(gated && tableBase ? { hint: strings.stageBaseTableHint.replace('{m}', String(tableBands!.count)).replace('{n}', String(allBase.length)) } : {}) }] : []),
                 ...(comparePath ? [{ color: colorOf(comparePath, ROLE_COLORS[1]), ...named(comparePath, role(comparePath)), active: true, held: held !== null, ...playable(comparePath) }] : []),
-                ...plots.others.map(item => ({ color: colorOf(item.track.filePath, item.track.color), ...named(item.track.filePath, role(item.track.filePath)), ...playable(item.track.filePath) })),
+                ...plots.others.map(item => ({ color: colorOf(item.track.filePath), ...named(item.track.filePath, role(item.track.filePath)), ...playable(item.track.filePath) })),
             ];
             const legend = query<HTMLElement>('[data-stage-legend]');
             legend.dataset.memos = items.filter(item => item.memo).length.toString();
