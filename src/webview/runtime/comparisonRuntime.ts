@@ -2861,12 +2861,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'content-stage': () => {
                 stageEntrance = 'tracks';
                 // A selection on the tracks (found by listening) is what to compare: it becomes the region, in the files' time.
-                const first = trackStore.activeIds().map(id => trackStore.require(id)).find(record => !record.runtime.hidden);
-                const mapping = loopRegion && first ? getTrackTimeMapping(trackIndexForId(first.id)) : null;
+                // In the time of the recording compared (slot 1–3 first), each track having its own offset on the timeline.
+                const slotted = entryScreen.slots();
+                const shown = (path: string | null | undefined) => { const record = path ? trackRecordForPath(path) : null; return record && !record.runtime.hidden ? record : null; };
+                const compared = [1, 2, 3].map(slot => shown(slotted[slot])).find(Boolean)
+                    ?? trackStore.activeIds().map(id => trackStore.require(id)).find(record => !record.runtime.hidden);
+                const mapping = loopRegion && compared ? getTrackTimeMapping(trackIndexForId(compared.id)) : null;
                 if (loopRegion && mapping && contentType !== 'stage') {
-                    const start = trackTimeFromGlobalNorm(mapping, loopRegion.start);
-                    const end = trackTimeFromGlobalNorm(mapping, loopRegion.end);
-                    if (end > start) stageMode?.importRegion({ start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100 });
+                    const start = Math.round(trackTimeFromGlobalNorm(mapping, loopRegion.start) * 100) / 100;
+                    const end = Math.round(trackTimeFromGlobalNorm(mapping, loopRegion.end) * 100) / 100;
+                    if (end > start) stageMode?.importRegion({ start, end });
                 }
                 setContentType('stage');
             },

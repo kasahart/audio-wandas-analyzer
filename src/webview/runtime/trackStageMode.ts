@@ -407,6 +407,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             on = next;
             root.hidden = !on;
             if (!on) deps.showLanes(true);
+            // A selection not yet taken as the region is not taken later, when the comparison is opened some other way.
+            if (!on) pendingRegion = null;
             deps.rerender();
         },
         paint() {

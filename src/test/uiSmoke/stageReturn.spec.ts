@@ -149,3 +149,21 @@ test('a selection on the tracks becomes the comparison\'s region as it opens, on
     await page.locator('[data-action="content-stage"]').click();
     await expect(root).toHaveAttribute('data-region', '1.00–2.00');
 });
+
+test('the selection is read in the compared recording\'s own time, whatever its offset on the timeline', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await comparedTrack(page);
+    // The second track compared instead, moved 1 s along the timeline (0–3 s in all).
+    const second = page.locator('.track-header details.role-chip').nth(1);
+    await second.locator('summary').click();
+    await second.locator('[data-action="track-role-set"][data-slot="1"]').click();
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action', actions: [
+            { action: 'set-track-offset', trackIndex: 1, payload: { offsetSeconds: 1 } },
+            { action: 'set-loop-region', payload: { start: .25, end: .75 } },
+        ],
+    } })));
+    await page.locator('[data-action="content-stage"]').click();
+    // 0.75–2.25 s on the timeline is 0.00–1.25 s of the recording that starts at 1 s.
+    await expect(page.locator('.track-stage')).toHaveAttribute('data-region', '0.00–1.25');
+});
