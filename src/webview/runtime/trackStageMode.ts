@@ -113,6 +113,8 @@ export interface TrackStageMode {
     role(filePath: string): number | undefined;
     /** Opens the mode for a comparison from the entry table, on `stage` (the chain's end without one). */
     open(stage?: string): void;
+    /** The tracks' selection (s) taken as the region, once, when the chain has none yet. */
+    importRegion(range: EntryRegion): void;
     /** Writes the comparison as a report folder. */
     report(): void;
     /** What the comparison shows, for tests. */
@@ -163,6 +165,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     let groupBase = false;
     /** The region set with the step bar's region chip (s; null: the whole file), and the step held to see the chain without it. */
     let regionSet: EntryRegion | null = null;
+    /** The tracks' selection waiting to be the region chip (set as the comparison opens from the tracks). */
+    let pendingRegion: EntryRegion | null = null;
     /** The part of the files compared: the region chip's, unless it is bypassed. */
     function liveRegion(): EntryRegion | null {
         const recipe = deps.recipe()?.recipe;
@@ -195,7 +199,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         + `<button type="button" class="tb-btn" data-action="stage-layout" aria-pressed="true">${escapeHtml(strings.stageLayoutSide)}</button>`
         + `<button type="button" class="tb-btn" data-action="stage-diff" aria-pressed="false">${escapeHtml(strings.compareDiffShow)}</button>`
         + `<span class="compare-value track-stage-headline" data-stage-headline></span>`
-        + `<span class="track-stage-gate" data-stage-base-gate hidden><span data-stage-base-gate-why></span> <button type="button" class="tb-btn" data-action="stage-base-scan"></button></span></div>`
+        + `<span class="track-stage-gate" data-stage-base-gate hidden><button type="button" class="tb-btn" data-action="stage-base-scan"></button></span></div>`
         + `<div class="track-stage-panel" data-stage-panel>`
         + `<div class="compare-pane-head compare-legend" data-stage-legend></div>`
         + `<div class="track-stage-base-info" data-stage-base-info hidden><div>${escapeHtml(strings.stageBaseAggregate)}</div>`
@@ -385,6 +389,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         report,
         active: () => on,
         role,
+        importRegion(range) {
+            pendingRegion = range;
+            deps.rerender();
+        },
         open(next) {
             stage = next ?? null;
             compared = 1;
@@ -393,12 +401,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             heldStep = null;
             window_ = FULL_PLOT_WINDOW;
             overlaid = true;
+            pendingRegion = null;
             this.setActive(true);
         },
         setActive(next) {
             on = next;
             root.hidden = !on;
             if (!on) deps.showLanes(true);
+            // A selection not yet taken as the region is not taken later, when the comparison is opened some other way.
+            if (!on) pendingRegion = null;
             deps.rerender();
         },
         paint() {
@@ -407,6 +418,12 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const id = chosen();
             const shownStage = stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === stage)?.bypassed ? stage : id;
             stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), stage: shownStage ?? undefined, regionRange: regionSet, failed: recipe?.failed });
+            // The tracks' selection becomes the region chip once the bar has the chain; a region already there stays.
+            if (pendingRegion) {
+                const range = pendingRegion;
+                pendingRegion = null;
+                if (recipe && !regionSet && stepBar.importRegion(range)) return;
+            }
             const allTracks = deps.tracks();
             painted = false;
             stepBar.element.dataset.drawn = '0';
@@ -514,7 +531,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             root.dataset.xWindow = `${window_.x.start.toFixed(3)}-${window_.x.end.toFixed(3)}`;
             painted = true;
             // Gated, the 1/3-octave picture still has a base: the group's levels the table has computed, on the compared file's bands.
-            const tableBands = gated && comparePath && id === OCTAVE_BRANCH ? deps.tableBaseBands?.(comparePath, groupBase) ?? null : null;
+            // The table's values are of the whole files: over a region they are not the base, nor on another step.
+            const tableBands = gated && comparePath && id === OCTAVE_BRANCH && !region ? deps.tableBaseBands?.(comparePath, groupBase) ?? null : null;
             const compareCoarse = comparePath ? coarse(comparePath) ?? null : null;
             const tableBase = tableBands && compareCoarse?.values && compareCoarse.xs
                 ? { ...compareCoarse, waveform: undefined, values: compareCoarse.xs.map(x => { const at = tableBands.centers.findIndex(center => Math.abs(center - x) / x < 0.06); return at >= 0 ? tableBands.values[at] : null; }) } as StageView
@@ -525,9 +543,6 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             if (gated) {
                 const seconds = Math.ceil(cost.ms / 1000);
                 const time = seconds >= 60 ? strings.entryMinutes.replace('{n}', String(Math.ceil(seconds / 60))) : strings.entrySeconds.replace('{n}', String(seconds));
-                query<HTMLElement>('[data-stage-base-gate-why]').textContent = tableBase
-                    ? strings.stageBaseFromTable.replace('{m}', String(tableBands!.count)).replaceAll('{n}', String(allBase.length))
-                    : strings.stageBaseGated.replace('{n}', String(allBase.length));
                 query<HTMLElement>('[data-action="stage-base-scan"]').textContent = strings.stageBaseScan.replace('{n}', String(allBase.length)).replace('{time}', time);
             }
             const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths, tableBase);
@@ -541,6 +556,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // The steps bypassed are named: what is drawn is the chain without them.
             const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, regionSet));
             if (bypassed.length && !waiting) headline.textContent += strings.stepBypassing.replace('{ops}', bypassed.join(', '));
+            // The part of the files compared, while a region is set.
+            if (region && !waiting && comparePath) headline.textContent += ` · ${strings.stepRegion} ${region.start.toFixed(2)}–${region.end.toFixed(2)} s`;
             const colorOf = (path: string, fallback: string): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
             if (!overlay) {
                 // Side by side: every track's lane, on one range so the tracks compare at a glance.
@@ -576,7 +593,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             ];
             stepBar.element.dataset.drawn = String(layers.length);
             const items: LegendItem[] = [
-                ...(comparePath && !referencePath ? [{ color: ROLE_COLORS[0], label: deps.baseTitle(comparePath, groupBase) }] : []),
+                // A base group not analysed: drawn from the table's whole-file values, or not drawn at all, as its entry says.
+                ...(comparePath && !referencePath ? [{ color: ROLE_COLORS[0], label: deps.baseTitle(comparePath, groupBase) + (!gated ? '' : tableBase ? strings.stageBaseTableNote : strings.stageBaseNoLine),
+                    ...(gated && tableBase ? { hint: strings.stageBaseTableHint.replace('{m}', String(tableBands!.count)).replace('{n}', String(allBase.length)) } : {}) }] : []),
                 ...(comparePath ? [{ color: colorOf(comparePath, ROLE_COLORS[1]), ...named(comparePath, role(comparePath)), active: true, held: held !== null, ...playable(comparePath) }] : []),
                 ...plots.others.map(item => ({ color: colorOf(item.track.filePath, item.track.color), ...named(item.track.filePath, role(item.track.filePath)), ...playable(item.track.filePath) })),
             ];

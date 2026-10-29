@@ -20,6 +20,7 @@ import {
     passFadeSeconds,
     playbackEndFade,
     playbackStartTime,
+    trackTimeFromGlobalNorm,
 } from './playback';
 import { createAudioFader, FADE_SECONDS } from './audioFade';
 import { positionPopover } from './settingsPopover';
@@ -2857,7 +2858,27 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'open-folder': () => messaging.post({ type: 'select-target', targetKind: 'directory' }),
             'select-python-environment': () => messaging.post({ type: 'select-python-environment' }),
             'content-waveform': () => setContentType('waveform'),
-            'content-stage': () => { stageEntrance = 'tracks'; setContentType('stage'); },
+            'content-stage': () => {
+                stageEntrance = 'tracks';
+                // A selection on the tracks (found by listening) is what to compare: it becomes the region, in the files' time.
+                // In the time of the recording compared (slot 1–3 first), each track having its own offset on the timeline;
+                // a recording the selection does not reach gives way to the next one it does.
+                const slotted = entryScreen.slots();
+                const shown = (path: string | null | undefined) => { const record = path ? trackRecordForPath(path) : null; return record && !record.runtime.hidden ? record : null; };
+                const candidates = [
+                    ...[1, 2, 3].map(slot => shown(slotted[slot])),
+                    ...trackStore.activeIds().map(id => trackStore.require(id)).filter(record => !record.runtime.hidden),
+                ].filter(<T,>(record: T | null): record is T => record !== null);
+                if (loopRegion && contentType !== 'stage') {
+                    const selection = loopRegion;
+                    const range = candidates.map(record => {
+                        const mapping = getTrackTimeMapping(trackIndexForId(record.id));
+                        return mapping ? { start: trackTimeFromGlobalNorm(mapping, selection.start), end: trackTimeFromGlobalNorm(mapping, selection.end) } : null;
+                    }).find(item => item && item.end > item.start);
+                    if (range) stageMode?.importRegion(range);
+                }
+                setContentType('stage');
+            },
             'zoom-in': zoomIn,
             'zoom-out': zoomOut,
             'zoom-reset': resetZoom,

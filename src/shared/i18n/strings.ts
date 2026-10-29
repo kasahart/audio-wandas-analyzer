@@ -320,9 +320,11 @@ export interface UiStrings {
     hintEntryExport: string;
     dsSlotTrackChannel: string;
     dsBatch: string;
-    stageBaseGated: string;
-    stageBaseFromTable: string;
     stageBaseScan: string;
+    stageBaseTableNote: string;
+    stageBaseTableHint: string;
+    stageBaseNoLine: string;
+    stepRegionImported: string;
     hintBatch: string;
     dsBatchFiltered: string;
     dsBatchAll: string;
@@ -947,9 +949,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintEntryExport: 'The table\'s exports: the Recipe for many files, the table and its memos as CSV',
         dsSlotTrackChannel: 'The track shows ch{ch}',
         dsBatch: 'Export the Recipe for many files',
-        stageBaseGated: "The base group has {n} recordings: they are not analysed until you ask.",
-        stageBaseFromTable: "Base: the table's computed levels ({m} of {n}); the steps' pictures need the {n} analysed.",
-        stageBaseScan: "Analyse the base group's {n} recordings · about {time}",
+        stageBaseScan: "Analyse the base group's {n} recordings with the same steps · about {time}",
+        stageBaseTableNote: ' (table values · whole files)',
+        stageBaseTableHint: "Drawn from the levels the table computed over each whole file ({m} of {n}); analysing the base group may move the line",
+        stageBaseNoLine: ' (not analysed: no line yet)',
+        stepRegionImported: "Region set from the tracks' selection (× or ↶ takes it off)",
         hintBatch: 'The Recipe, the list of recordings and a script that runs it with wandas, as one folder: nothing runs in the app',
         dsBatchFiltered: 'Filtered: {n} recordings ({m} ch)',
         dsBatchAll: 'All: {n} recordings ({m} ch)',
@@ -1571,9 +1575,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintEntryExport: '表の書き出し：レシピのまとめ、表とメモの CSV',
         dsSlotTrackChannel: 'トラックは ch{ch} で表示',
         dsBatch: 'レシピをまとめて書き出す',
-        stageBaseGated: '基準の群は {n} 本です。押すまで解析しません。',
-        stageBaseFromTable: '基準は表で計算済みの値（{n} 本中 {m} 本）から。手順の絵には {n} 本の解析が要ります。',
-        stageBaseScan: '基準の群 {n} 本を解析する · 約 {time}',
+        stageBaseScan: '基準群 {n} 本も同じ手順で解析・約 {time}',
+        stageBaseTableNote: '（表の値・全区間）',
+        stageBaseTableHint: '表が各ファイルの全区間で計算した値（{n} 本中 {m} 本）から描いています。基準群を解析すると線が変わることがあります',
+        stageBaseNoLine: '（未解析・線なし）',
+        stepRegionImported: 'トラックの選択を区間にしました（× か ↶ で外す）',
         hintBatch: 'Recipe と録音の一覧、それを wandas で実行するスクリプトを 1 つのフォルダに書き出します。アプリの中では実行しません',
         dsBatchFiltered: '絞り込んだ {n} 本 ({m} ch)',
         dsBatchAll: 'すべて {n} 本 ({m} ch)',

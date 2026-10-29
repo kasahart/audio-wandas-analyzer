@@ -502,8 +502,10 @@ test('a base group of more than 30 recordings is not analysed by opening a compa
     expect(n).toBeGreaterThan(30);
     expect((await stageScans(page)).every(request => request.filePaths.length <= 3)).toBe(true);
     await expect(page.locator('[data-action="stage-base-scan"]')).toHaveText(new RegExp(`^${STR.stageBaseScan.replace('{n}', String(n)).replace(' · about {time}', '')}`));
-    // On the 1/3-octave bands (where the comparison opens), the base is the table's computed levels, said so.
-    await expect(page.locator('[data-stage-base-gate-why]')).toHaveText(STR.stageBaseFromTable.replace('{m}', String(n)).replace(/\{n\}/g, String(n)));
+    // On the 1/3-octave bands (where the comparison opens), the base is the table's computed levels, said so in its legend entry.
+    const baseEntry = page.locator('[data-stage-legend] .compare-legend-item').first().locator('.compare-legend-label');
+    await expect(baseEntry).toContainText(STR.stageBaseTableNote);
+    await expect(baseEntry).toHaveAttribute('data-hint', STR.stageBaseTableHint.replace('{m}', String(n)).replace('{n}', String(n)));
     await expect(page.locator('[data-stage-headline]')).toContainText('base');
     // Pressed: the base group is asked for, and the button goes.
     await page.locator('[data-action="stage-base-scan"]').click();
