@@ -591,8 +591,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
             root.dataset.base = groupBase || !deps.slots()[0] ? 'group' : 'file';
             const layers: StageLayer[] = [
+                // The grey lines (no role) under the roles' ones.
+                ...plots.others.filter(item => role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2 }] : [])),
                 ...(plots.base ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2 }] : []),
-                ...plots.others.flatMap(item => (item.view ? [{ view: item.view, color: colorOf(item.track.filePath), width: widthOf(item.track.filePath, 1.8) }] : [])),
+                ...plots.others.filter(item => role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: colorOf(item.track.filePath), width: 1.8 }] : [])),
                 ...(plots.compare && comparePath ? [{ view: plots.compare, color: colorOf(comparePath, ROLE_COLORS[1]), width: 2.2 }] : []),
             ];
             stepBar.element.dataset.drawn = String(layers.length);

@@ -167,9 +167,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // A tall spectrum still leaves the tracks this much room so the cursor stays reachable.
     const TRACKS_MIN_VISIBLE = 120;
     // A track's own colour never looks like a role's: no blue (base), yellow / purple / magenta (slots 1–3),
-    // green (Δ) or orange (outliers); those belong to the roles (ROLE_COLORS) and the entry table.
-    // No blue: blue is the base's role colour.
-    const TRACK_COLORS = ['#2bb3a3', '#b08968', '#9aa4b2', '#8a9a5b', '#d8c3a5', '#c8b79c'];
+    // green (Δ), orange (outliers) or grey (no role in Compare); those belong to the roles (ROLE_COLORS) and the entry table.
+    const TRACK_COLORS = ['#2bb3a3', '#b08968', '#8a9a5b', '#c8b79c'];
     function announce(msg: string): void {
         const el = document.getElementById('a11y-announce');
         if (!el) {
