@@ -588,7 +588,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // An open role chip's menu stays open: the legend is drawn again once it closes.
             // Compared with what was written, not with innerHTML (which the browser serializes its own way): a redraw while
             // playing leaves the legend's buttons, and the focus on them, in place.
-            if (legendWritten !== html && !legend.querySelector('details.role-chip[open]')) { legend.innerHTML = html; legendWritten = html; }
+            if (legendWritten !== html && !legend.querySelector('details.role-chip[open]')) {
+                // A focused ▶ or role chip is focused again once drawn anew (its ■ / role changed under the keyboard).
+                const focused = legend.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
+                const path = focused?.closest<HTMLElement>('[data-path], [data-file-path]');
+                const again = path ? (path.dataset.path !== undefined ? `[data-action="compare-play"][data-path="${CSS.escape(path.dataset.path)}"]` : `details.role-chip[data-file-path="${CSS.escape(path.dataset.filePath ?? '')}"] > summary`) : null;
+                legend.innerHTML = html;
+                legendWritten = html;
+                if (again) legend.querySelector<HTMLElement>(again)?.focus();
+            }
             const range = stageRange([coarsePlots.base, coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
             const axes = stageAxes(strings, picture, tracks[0]?.input);
             const empty = waiting ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');

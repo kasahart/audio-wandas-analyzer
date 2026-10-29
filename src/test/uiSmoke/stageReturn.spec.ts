@@ -91,6 +91,10 @@ test('opened from the tracks, Compare goes back to the tracks on Esc, playback g
     await page.keyboard.press(' ');
     await expect(other).toHaveText('■');
     await expect(play).toHaveText('▶');
+    // It keeps the focus through its ■: Space again stops it.
+    await page.keyboard.press(' ');
+    await expect(other).toHaveText('▶');
+    await expect(play).toHaveText('▶');
     await play.click();
     await expect(play).toHaveText('■');
     // Esc: back to the tracks, not the entry table, and the recording plays on.
