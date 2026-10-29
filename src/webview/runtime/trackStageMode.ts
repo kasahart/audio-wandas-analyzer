@@ -356,11 +356,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     type Drawn = { picture: StageView | null; range: PaneRange; axes: StageAxes; views: { base: StageView | null; compare: StageView | null; diff: StageView | null } };
     const drawnOn = new Map<Element, Drawn>();
     let shownCompare: { path: string | null; view: StageView | null | undefined } = { path: null, view: undefined };
-    /** A file in the legend: its role, name and channel, its value on show, ✎ with its memo. */
     /** A recording's ▶ in the legend (■ while it plays); the base group has none. */
     function playable(path: string): Pick<LegendItem, 'path' | 'playing'> {
         return deps.play ? { path, playing: deps.playing?.() === path } : {};
     }
+    /** A file in the legend: its role, name and channel, its value on show, ✎ with its memo. */
     function named(path: string, slot: number | undefined): Pick<LegendItem, 'label' | 'value' | 'memo' | 'chipHtml'> {
         const info = deps.rowInfo?.(path) ?? { label: baseName(path), value: '', memo: '' };
         const chipHtml = deps.roleChip?.(path);

@@ -293,9 +293,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // 'stage': every lane draws one step of the scan Recipe (trackStageMode.ts); it is not kept across sessions.
     /** The steps mode (created once the entry table it reads its Recipe from exists). */
     let stageMode: TrackStageMode | null = null;
-    /** A track's role from the entry table's slots (set once the table exists; tracks drawn before it have none). */
     /** Where the steps view was opened from, where Esc goes back to: the tracks' 比較解析, or the entry table. */
     let stageEntrance: 'tracks' | 'table' = 'tracks';
+    /** A track's role from the entry table's slots (set once the table exists; tracks drawn before it have none). */
     let trackRole: (filePath: string) => RoleChipRole | undefined = () => undefined;
     // 'waveform': the lanes show each channel's waveform with its spectrogram under it.
     let contentType: 'waveform' | 'stage' = 'waveform';
@@ -1241,8 +1241,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         openFiles(filePaths, comparison) {
             // The slotted files are compared in the track view, beside the tracks already shown, as a step of the Recipe.
             selectTracks(filePaths);
-            stageMode?.open(comparison.stage);
             stageEntrance = 'table';
+            stageMode?.open(comparison.stage);
             setContentType('stage');
         },
         announce(text) {
