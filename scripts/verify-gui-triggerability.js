@@ -66,6 +66,7 @@ function collectWebviewActionIds(repoRoot) {
         path.join(repoRoot, 'src', 'webview', 'runtime', 'entryRuntime.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'screenHelp.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'trackStageMode.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'roleChip.ts'),
     ];
     const source = sourcePaths.map((sourcePath) => fs.readFileSync(sourcePath, 'utf8')).join('\n');
     return collectWebviewActionIdsFromSource(source);

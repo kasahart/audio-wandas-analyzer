@@ -157,6 +157,13 @@ export interface EntryScreen {
     compareData(): CompareData;
     /** The slots 0–3: the base file (or null for the group median) and the files to compare. */
     slots(): (string | null)[];
+    /** A track's role: the slot its file is in (1–3 first, then 0) and that row's channel (null: the channels together). */
+    trackRole(filePath: string): { slot: number; ch: number | null } | undefined;
+    /**
+     * Puts a track's file in a slot (its slotted row if it has one, else its first row), or takes it out of every
+     * slot; the track stays on the track view either way.
+     */
+    setTrackRole(filePath: string, slot: number | null): void;
     /** What a compared file is measured against: the slot-0 file, or the other files of its condition. */
     basePaths(comparePath: string, group?: boolean): string[];
     /** The base's name: the slot-0 file, or "Base group · rpm 1500 · median of n · ch2 (within ch = 2)". */
@@ -1982,6 +1989,26 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         compareData: () => compareData(),
         slots: () => slotFiles(),
+        trackRole(filePath) {
+            const slot = [1, 2, 3, 0].find(at => slots[at] && fileOfKey(slots[at]!) === filePath);
+            return slot === undefined ? undefined : { slot, ch: channelOfRow(rowOf(slots[slot])) };
+        },
+        setTrackRole(filePath, slot) {
+            // The row trackRole shows (compare slots first), so a chip moves the channel it names.
+            const own = [1, 2, 3, 0].map(at => slots[at]).find(key => key && fileOfKey(key) === filePath);
+            if (slot === null) {
+                if (!own) return;
+                slots = slots.map(key => (key && fileOfKey(key) === filePath ? null : key));
+                deps.saveSlots(slots);
+                render();
+                if (!maximized) deps.compareChanged?.();
+                return;
+            }
+            const key = own ?? rows.find(row => row.filePath === filePath)?.key ?? filePath;
+            if (slots[slot] === key) return;
+            // The file the slot held before keeps its track: only the roles change.
+            setSlot(slot, key, false);
+        },
         basePaths: (comparePath, byGroup = false) => resolveBase(comparePath, byGroup).paths,
         baseTitle: (comparePath, byGroup = false) => resolveBase(comparePath, byGroup).title,
         baseDefinition: (comparePath, byGroup = false) => resolveBase(comparePath, byGroup).definition,

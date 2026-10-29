@@ -61,7 +61,8 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await expect(page.locator('#stacked-wrap')).toBeHidden();
     await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveCount(2);
     // The track takes its role's colour: slot 1, yellow.
-    await expect(page.locator('.track-color-swatch').first()).toHaveAttribute('style', /background:\s*#d4b20f/);
+    await expect(page.locator('.track-header .role-chip-face').first()).toHaveAttribute('style', /background:\s*#d4b20f/);
+    await expect(page.locator('.track-header .role-chip-face').first()).toHaveText(/^1( ch\d)?$/);
     // Δ on request, under the overlay.
     await page.locator('[data-action="stage-diff"]').click();
     await expect(page.locator('[data-stage-diff]')).toBeVisible();

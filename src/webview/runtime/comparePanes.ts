@@ -278,6 +278,8 @@ export interface LegendItem {
     held?: boolean;
     /** The file's memo: ✎, with the memo as its hint. */
     memo?: string;
+    /** The file's role chip (roleChip.ts), before its line. */
+    chipHtml?: string;
 }
 
 export function legendHtml(items: readonly LegendItem[], strings: Pick<UiStrings, 'comparePlay'>): string {
@@ -286,7 +288,7 @@ export function legendHtml(items: readonly LegendItem[], strings: Pick<UiStrings
         const play = item.path ? `<button type="button" class="compare-play" data-action="compare-play" data-path="${escapeHtml(item.path)}" aria-label="${escapeHtml(strings.comparePlay)}">▶</button>` : '';
         const value = item.value ? ` <span class="compare-value">${escapeHtml(item.value)}</span>` : '';
         const memo = item.memo ? ` <span class="compare-memo" data-memo title="${escapeHtml(item.memo)}" data-hint="${escapeHtml(item.memo)}">✎</span>` : '';
-        return `<span class="compare-legend-item${item.active ? ' is-active' : ''}${item.held ? ' is-held' : ''}">${mark}<span class="compare-legend-label">${escapeHtml(item.label)}</span>${value}${memo}${play}</span>`;
+        return `<span class="compare-legend-item${item.active ? ' is-active' : ''}${item.held ? ' is-held' : ''}">${item.chipHtml ?? ''}${mark}<span class="compare-legend-label">${escapeHtml(item.label)}</span>${value}${memo}${play}</span>`;
     }).join('');
 }
 

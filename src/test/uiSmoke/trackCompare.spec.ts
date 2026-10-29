@@ -66,7 +66,7 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     const root = page.locator('.track-stage');
     await expect(root).toHaveAttribute('data-compared', '1');
     await expect(page.locator('[data-stage-headline]')).toHaveText(/^[\d.]+ k?Hz base −?\d+\.\d \/ compare −?\d+\.\d dB$/);
-    await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, new RegExp(`^1 · ${first.split('/').pop()} ch1 ${STR_EN.dsLeq.replace(/[[\]]/g, '\\$&')} −?\\d`), new RegExp(`^2 · ${second.split('/').pop()} ch1 `)]);
+    await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, new RegExp(`^1${first.split('/').pop()} ch1 ${STR_EN.dsLeq.replace(/[[\]]/g, '\\$&')} −?\\d`), new RegExp(`^2${second.split('/').pop()} ch1 `)]);
     expect(await page.locator('[data-stage-legend] line').evaluateAll(lines => lines.map(line => line.getAttribute('stroke')))).toEqual(['#3b82f6', '#d4b20f', '#a371f7']);
     // The base group's ▾ says how its curve is made; "Show on the list" lists the compared files and their base on the table.
     const STR = getStrings('en');
@@ -218,7 +218,7 @@ test('narrowed to ch 2, the base is the group\'s ch-2 recordings within the filt
     await expect(legend.first()).toContainText(` · ${STR.dsCh}2`);
     await expect(legend.first()).toContainText(STR.dsBaseNarrowed.replace('{filters}', `${STR.dsCh} = 2`));
     // The compared row: its name with the channel, its value on show, ✎ with its memo.
-    await expect(legend.nth(1)).toContainText(`1 · ${filePath.split('/').pop()} ch2`);
+    await expect(legend.nth(1)).toContainText(`1${filePath.split('/').pop()} ch2`);
     await expect(legend.nth(1).locator('.compare-value')).toHaveText(new RegExp(`^${STR.dsLeq.replace(/[[\]]/g, '\\$&')} −\\d+\\.\\d$`));
     await expect(legend.nth(1).locator('[data-memo]')).toHaveAttribute('data-hint', 'rattle at 3 kHz');
 });
@@ -257,7 +257,7 @@ test('a ch-2 slot is drawn as channel 2: its scans select it first, its base\'s 
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
     }, { request, files: scanned! });
     await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'overlay');
-    await expect(page.locator('[data-stage-legend] .compare-legend-item').nth(1)).toContainText(`1 · ${filePath.split('/').pop()} ch2`);
+    await expect(page.locator('[data-stage-legend] .compare-legend-item').nth(1)).toContainText(`1${filePath.split('/').pop()} ch2`);
     // The base (the folder's other recordings, ungrouped) is too large to scan unasked: asked, it is scanned as ch 2 too.
     await page.locator('[data-action="stage-base-scan"]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(30);

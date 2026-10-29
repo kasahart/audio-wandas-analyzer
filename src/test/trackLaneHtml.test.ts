@@ -63,7 +63,7 @@ const baseRow: TrackRowSpec = {
     channelCount: 2,
     sampleRateHz: 48000,
     channels: [],
-    color: '#123456',
+    roleChipHtml: '<i>chip</i>',
     playable: true,
     muted: false,
     lanesHtml: '<i>lanes</i>',
@@ -72,7 +72,7 @@ const baseRow: TrackRowSpec = {
 test('track row renders header, controls and the given lanes', () => {
     const html = trackRowHtml(baseRow, rowStrings);
     assert.ok(html.startsWith('<div class="track-row" id="track-row-2" data-track-id="track-3" data-file-path="/x/a&amp;b.wav">'));
-    assert.ok(html.includes('style="background:#123456"'));
+    assert.ok(html.includes('<i>chip</i>'));
     assert.ok(html.includes('<div class="track-name" data-hint="/x/a&amp;b.wav" aria-description="/x/a&amp;b.wav">a&amp;b.wav</div>'));
     assert.ok(html.includes('<div class="track-meta">2 ch &nbsp;48.0kHz</div>'));
     assert.ok(html.includes('id="offset-val-2"'));

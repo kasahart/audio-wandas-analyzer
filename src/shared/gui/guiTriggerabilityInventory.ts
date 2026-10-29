@@ -54,6 +54,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'select-python-environment',
     'content-waveform',
     'content-stage',
+    'track-role-set',
     'stage-layout',
     'stage-diff',
     'stage-report',
@@ -305,6 +306,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         entryPoints: ['selection-toolbar'],
         triggers: ['open-file', 'open-folder'],
         regressionLayers: ['node:test', 'vscode-e2e'],
+    },
+    {
+        id: 'track-roles',
+        label: 'Set a recording\'s compare role (base 0, compare 1–3, none) from its track header\'s chip or the compare legend\'s chip, as the entry table\'s slots; 0–3 on a focused chip; the track stays when its role is taken off',
+        entryPoints: ['track-control', 'keyboard'],
+        triggers: ['track-role-set'],
+        regressionLayers: ['ui-smoke'],
     },
     {
         id: 'switch-content-view',
