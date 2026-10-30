@@ -3073,6 +3073,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         // Like the PNG: lanes out of view ask for their cursor spectra first, and the file is written once those arrived.
+        spectrumCursorNorm = cursorNorm;
         renderEveryLane();
         announce(STR.announceExportCsvStarted || 'CSV export started');
         writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000);
@@ -3655,6 +3656,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const ranges = new Map<string, { minDb: number; maxDb: number }>();
         displayedLanes().forEach(function ({ record, channelIndex, ch }) {
+            // A folded panel leaves lanes out of view on the spectrum of an earlier cursor: they do not set the shared axis.
+            if (spectrumCollapsed && !laneInView(record.protocolIndex)) {
+                return;
+            }
             const slice = extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, spectrumCursorNorm, channelIndex);
             if (slice && Number.isFinite(slice.minDb) && Number.isFinite(slice.maxDb)) {
                 const key = amplitudeUnitKey(ch);
