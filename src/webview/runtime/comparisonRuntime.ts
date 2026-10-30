@@ -704,7 +704,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result);
     }
     function requestSpectrumSlice(i: number, cursorNormValue: number) {
-        if (!spectrumAllowsSliceRequests) {
+        // The folded cursor-spectrum panel leaves each lane's own small spectrum: only lanes near the view need theirs.
+        if (!spectrumAllowsSliceRequests || (spectrumCollapsed && !laneInView(i))) {
             return;
         }
         const result = state.results[i];
@@ -2363,7 +2364,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const tracksWrapper = requiredElementById(document, 'tracks-wrapper');
         // Lanes scrolled into view are drawn then.
-        tracksWrapper.addEventListener('scroll', function () { scheduleRender(); }, { passive: true });
+        tracksWrapper.addEventListener('scroll', function () { scheduleRender(); scheduleSpectrumRefresh('scroll'); }, { passive: true });
         const toolbarHandlers = { onAction: handleToolbarAction };
         attachToolbarActions(document.getElementById('toolbar'), toolbarHandlers);
         attachToolbarActions(document.getElementById('spectrum-zoom-toolbar'), toolbarHandlers);
@@ -3011,17 +3012,32 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function renderEveryLane() {
         drawEveryLane = true;
-        try { renderStackedTracks(); checkAndRequestRanges(); } finally { drawEveryLane = false; }
+        try { renderStackedTracks(); checkAndRequestRanges(); renderTrackSpectra(); } finally { drawEveryLane = false; }
     }
-    function detailPending(): boolean {
-        return state.results.some(function (_: ComparisonTrackState, i: number) {
+    /** The open spectrogram, zoom-detail and cursor-spectrum requests. */
+    function openDetailRequestIds(): Set<string> {
+        const ids = new Set<string>();
+        state.results.forEach(function (_: ComparisonTrackState, i: number) {
             const requests = trackRecordAtIndex(i)?.requests;
-            return Boolean(requests?.pending('detail') || requests?.pending('range'));
+            ['detail', 'range', 'slice'].forEach(function (slot) {
+                const pending = requests?.pending(slot);
+                if (pending) ids.add(pending.requestId);
+            });
         });
+        desiredSpectrumSliceRequests.forEach(function (request) { ids.add(request.requestId); });
+        if (activeSpectrumSliceRequest) ids.add(activeSpectrumSliceRequest.requestId);
+        return ids;
+    }
+    /** Whether any of the requests an export waits for is still open (one asked again after an error is not waited for). */
+    function anyStillOpen(waitFor: Set<string>): boolean {
+        for (const id of openDetailRequestIds()) {
+            if (waitFor.has(id)) return true;
+        }
+        return false;
     }
     function exportPng() {
-        // The image holds every shown lane, also those scrolled out of view: drawing them asks for the spectrograms and
-        // zoom detail they lack, and the image is composed once those have arrived (or after a while, as far as they got).
+        // The image holds every shown lane, also those scrolled out of view: drawing them asks for the spectrograms, zoom
+        // detail and cursor spectra they lack, and the image is composed once those have arrived (or after a while, as far as they got).
         renderEveryLane();
         const failed = STR.announceExportPngFailed || 'PNG export failed: no visible canvases';
         if (visibleExportCanvases(document.getElementById('tracks-wrapper') as unknown as Element | null).length === 0) {
@@ -3029,11 +3045,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         announce(STR.announceExportPngStarted || 'PNG export started');
-        composePngWhenDetailed(Date.now() + 30000, failed);
+        composePngWhenDetailed(openDetailRequestIds(), Date.now() + 30000, failed);
     }
-    function composePngWhenDetailed(deadline: number, failed: string) {
-        if (detailPending() && Date.now() < deadline) {
-            setTimeout(function () { composePngWhenDetailed(deadline, failed); }, 100);
+    function composePngWhenDetailed(waitFor: Set<string>, deadline: number, failed: string) {
+        if (anyStillOpen(waitFor) && Date.now() < deadline) {
+            setTimeout(function () { composePngWhenDetailed(waitFor, deadline, failed); }, 100);
             return;
         }
         renderEveryLane();
@@ -3056,6 +3072,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
             return;
         }
+        // Like the PNG: lanes out of view ask for their cursor spectra first, and the file is written once those arrived.
+        renderEveryLane();
+        announce(STR.announceExportCsvStarted || 'CSV export started');
+        writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000);
+    }
+    function writeCsvWhenDetailed(waitFor: Set<string>, deadline: number) {
+        let missing = false;
         const tracks: Array<{ name: string; slice: SpectrumSlice }> = [];
         trackStore.activeIds().forEach(function (trackId) {
             const record = trackStore.require(trackId);
@@ -3067,16 +3090,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             channelsForResult(result).forEach(function (_, channelIndex: number) {
                 const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, cursorNorm, channelIndex);
                 if (!slice || !slice.values || slice.values.length === 0) {
+                    missing = missing || trackLocalCursorNorm(i, cursorNorm) !== null;
                     return;
                 }
                 tracks.push({ name: (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex), slice: slice });
             });
         });
+        // A spectrum still on its way: write once the requests the export asked for are answered (or after a while).
+        if (missing && anyStillOpen(waitFor) && Date.now() < deadline) {
+            setTimeout(function () { writeCsvWhenDetailed(waitFor, deadline); }, 100);
+            return;
+        }
         if (tracks.length === 0) {
             messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
             return;
         }
-        announce(STR.announceExportCsvStarted || 'CSV export started');
         const csv = buildSpectrumCsv(tracks);
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
         triggerAnchorDownload(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
@@ -3639,6 +3667,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const record = trackStore.require(trackId);
             const result = record.result;
             const i = record.protocolIndex;
+            if (!laneInView(i)) {
+                return;
+            }
             channelsForResult(result).forEach(function (_, channelIndex: number) {
                 const canvas = canvasById(document, trackSpectrumCanvasId(i, channelIndex));
                 if (!canvas) {
