@@ -131,7 +131,7 @@ def source_channel_peaks(frame: wd.ChannelFrame) -> tuple[float, ...]:
 
 
 def finite_source_channel_peaks(frame: wd.ChannelFrame) -> tuple[float, ...]:
-    """Each channel's largest absolute sample, read in one pass that also rejects non-finite samples.
+    """Each channel's largest absolute sample from one max and one min reduction, which also reject non-finite samples.
 
     Equal to ``source_channel_peaks``; NaN and infinity carry through the max and min, so a non-finite
     peak means a non-finite sample.
