@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { buildUiSmokeManyTracksHtml } from './buildHtml';
+import { buildUiSmokeHtml, buildUiSmokeManyTracksHtml } from './buildHtml';
 
 /** The track indexes whose spectrogram the webview has asked the host for. */
 function detailRequests(page: Page): Promise<number[]> {
@@ -171,4 +171,53 @@ test('with the cursor-spectrum panel folded, the CSV waits for the spectra of la
         return false;
     }, { intervals: [50], timeout: 20000 }).toBe(true);
     expect(lastLaneAtCursor).toBe(true);
+});
+
+test('on a narrow panel with the cursor-spectrum panel folded, the CSV still asks for the cursor spectra of lanes out of view', async ({ page }) => {
+    // At this width the lanes' small spectra are hidden, so drawing them asks for nothing.
+    await page.setViewportSize({ width: 480, height: 600 });
+    await page.setContent(buildUiSmokeManyTracksHtml(40).replace('<script', '<script>window.__uiSmokeViewState = {};</script><script'), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#spectrum-section')).toHaveClass(/is-collapsed/);
+    await expect(page.locator('.track-row')).toHaveCount(40);
+    await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-csv"]')?.click());
+    await expect.poll(async () => {
+        await answerSlices(page);
+        return (await sliceRequests(page)).includes(39);
+    }, { intervals: [50], timeout: 20000 }).toBe(true);
+});
+
+test('the PNG export keeps waiting for zoom detail asked again by a redraw', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.mouse.click(20, 20);
+    for (let i = 0; i < 5; i += 1) {
+        await page.locator('#toolbar [data-action="zoom-in"]').click({ force: true });
+    }
+    const rangeRequests = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
+        .filter((message) => message.type === 'request-waveform-range' && Number(message.endNorm) - Number(message.startNorm) < 1));
+    await expect.poll(async () => (await rangeRequests()).length).toBeGreaterThan(0);
+    const downloads = () => page.evaluate(() => (window as unknown as { __uiSmokeDownloads: Array<{ download: string }> }).__uiSmokeDownloads.map((d) => d.download));
+    await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-png"]')?.click());
+    // A redraw (here the cursor moving) asks for the same zoom detail again under a new request.
+    const asked = (await rangeRequests()).length;
+    const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
+    await page.mouse.click(canvas.x + canvas.width * 0.5, canvas.y + canvas.height / 2);
+    await expect.poll(async () => (await rangeRequests()).length).toBeGreaterThan(asked);
+    // Everything else the export waits for is answered.
+    for (let round = 0; round < 12; round++) {
+        await answerWithErrors(page);
+        await page.waitForTimeout(50);
+    }
+    expect(await downloads()).not.toContain('waveform-export.png');
+    // Answering the latest one lets the image be saved.
+    await page.evaluate((request) => {
+        const span = Number(request.endNorm) - Number(request.startNorm);
+        const points = 64;
+        const at = Array.from({ length: points }, (_, index) => Number(request.startNorm) + ((index + 0.5) / points) * span);
+        const waveform = { min: at.map(() => -0.5), max: at.map(() => 0.5), minT: at, maxT: at, samples: at.map(() => 0), absolutePeak: 0.5 };
+        window.postMessage({ type: 'waveform-range-result', requestId: request.requestId, trackIndex: request.trackIndex, startNorm: request.startNorm, endNorm: request.endNorm, channels: [waveform, waveform] }, '*');
+    }, (await rangeRequests()).at(-1)!);
+    await expect.poll(async () => {
+        await answerWithErrors(page);
+        return downloads();
+    }, { intervals: [50], timeout: 20000 }).toContain('waveform-export.png');
 });

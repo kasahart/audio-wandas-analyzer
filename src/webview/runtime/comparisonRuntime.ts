@@ -3019,10 +3019,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ids = new Set<string>();
         state.results.forEach(function (_: ComparisonTrackState, i: number) {
             const requests = trackRecordAtIndex(i)?.requests;
-            ['detail', 'range', 'slice'].forEach(function (slot) {
+            ['detail', 'slice'].forEach(function (slot) {
                 const pending = requests?.pending(slot);
                 if (pending) ids.add(pending.requestId);
             });
+            // Zoom detail is asked again on each redraw until it arrives: the same span is the same wait.
+            const range = requests?.pending('range');
+            if (range) ids.add('range:' + i + ':' + range.key);
         });
         desiredSpectrumSliceRequests.forEach(function (request) { ids.add(request.requestId); });
         if (activeSpectrumSliceRequest) ids.add(activeSpectrumSliceRequest.requestId);
@@ -3074,9 +3077,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         // Like the PNG: lanes out of view ask for their cursor spectra first, and the file is written once those arrived.
         spectrumCursorNorm = cursorNorm;
-        renderEveryLane();
+        requestEveryCursorSpectrum();
         announce(STR.announceExportCsvStarted || 'CSV export started');
         writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000);
+    }
+    /** Asks for the cursor spectrum of every shown track, whether or not its lane or its small spectrum is on screen. */
+    function requestEveryCursorSpectrum() {
+        drawEveryLane = true;
+        try {
+            trackStore.activeIds().forEach(function (trackId) {
+                const record = trackStore.require(trackId);
+                if (record.runtime.hidden) return;
+                channelsForResult(record.result).forEach(function (_, channelIndex: number) {
+                    extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
+                });
+            });
+        } finally { drawEveryLane = false; }
     }
     function writeCsvWhenDetailed(waitFor: Set<string>, deadline: number) {
         let missing = false;
