@@ -8,11 +8,14 @@ import os
 import sys
 import threading
 import time
+from collections import deque
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from backend_errors import InputError, error_payload
-from command_dispatch import dispatch, validate_request
+from command_dispatch import Command, dispatch, validate_request
 from perf import perf_log
 
 if TYPE_CHECKING:
@@ -51,32 +54,89 @@ def _heartbeat_loop() -> None:
         _emit({"type": "heartbeat", "ts": time.time()})
 
 
-def main(service: AnalysisService | None = None) -> None:
+def _start_heartbeat() -> None:
+    threading.Thread(target=_heartbeat_loop, daemon=True).start()
+
+
+def _worker_count() -> int:
+    configured = os.environ.get("AWA_BACKEND_WORKERS", "")
+    if configured.isdigit() and int(configured) > 0:
+        return int(configured)
+    # One core is left for the extension host and the webview.
+    return max(1, min(4, (os.cpu_count() or 2) - 1))
+
+
+class _Lanes:
+    """Runs requests for different files at once and the requests for one file in the order they came."""
+
+    def __init__(self, workers: int) -> None:
+        self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="awa-request")
+        self._lock = threading.Lock()
+        self._queued: dict[str, deque[Callable[[], None]]] = {}
+
+    def submit(self, lane: str, job: Callable[[], None]) -> None:
+        with self._lock:
+            queued = self._queued.get(lane)
+            if queued is not None:
+                queued.append(job)
+                return
+            self._queued[lane] = deque()
+        self._executor.submit(self._drain, lane, job)
+
+    def _drain(self, lane: str, job: Callable[[], None]) -> None:
+        while True:
+            job()
+            with self._lock:
+                queued = self._queued[lane]
+                if not queued:
+                    del self._queued[lane]
+                    return
+                job = queued.popleft()
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=True)
+
+
+def _run(command: Command, request_id: str, service: AnalysisService) -> None:
+    try:
+        started = time.perf_counter()
+        result = dispatch(command, service)
+        name = command.get("cmd")
+        perf_log(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
+        _emit({**result, "requestId": request_id})
+    except Exception as error:
+        _emit({"requestId": request_id, "error": error_payload(error)}, ensure_ascii=True)
+
+
+def main(service: AnalysisService | None = None, workers: int | None = None) -> None:
     perf_log("startup_begin", _PROCESS_STARTED, pid=os.getpid(), python=sys.executable)
     active_service = service or _load_default_service()
-    threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    _start_heartbeat()
+    lanes = _Lanes(workers or _worker_count())
     perf_log("startup_ready", _PROCESS_STARTED)
     _emit({"type": "ready"})
-    for raw_line in sys.stdin:
-        line = raw_line.strip()
-        if not line:
-            continue
-        request_id = ""
-        try:
+    try:
+        for raw_line in sys.stdin:
+            line = raw_line.strip()
+            if not line:
+                continue
+            request_id = ""
             try:
-                parsed: object = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise InputError(f"request is not valid JSON: {error}") from error
-            if isinstance(parsed, dict) and isinstance(parsed.get("requestId"), str):
-                request_id = parsed["requestId"]
-            command = validate_request(parsed)
-            started = time.perf_counter()
-            result = dispatch(command, active_service)
-            name = command.get("cmd")
-            perf_log(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
-            _emit({**result, "requestId": request_id})
-        except Exception as error:
-            _emit({"requestId": request_id, "error": error_payload(error)}, ensure_ascii=True)
+                try:
+                    parsed: object = json.loads(line)
+                except json.JSONDecodeError as error:
+                    raise InputError(f"request is not valid JSON: {error}") from error
+                if isinstance(parsed, dict) and isinstance(parsed.get("requestId"), str):
+                    request_id = parsed["requestId"]
+                command = validate_request(parsed)
+            except Exception as error:
+                _emit({"requestId": request_id, "error": error_payload(error)}, ensure_ascii=True)
+                continue
+            # A request without a file (a Recipe build, a pair of files) keeps to one lane of its own.
+            lane = str(command.get("filePath", ""))
+            lanes.submit(lane, lambda command=command, request_id=request_id: _run(command, request_id, active_service))
+    finally:
+        lanes.close()
 
 
 if __name__ == "__main__":
