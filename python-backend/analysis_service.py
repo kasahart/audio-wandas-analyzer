@@ -231,6 +231,7 @@ class AnalysisService:
             calibration_profile=resolved,
             stft_options=stft_options,
             include_spectrogram=False,
+            raw_peaks=cached.source_peaks,
         )
         result["analysisRevision"] = _analysis_revision(analysis_revision)
         return result
@@ -263,6 +264,7 @@ class AnalysisService:
             stft_options=stft_options,
             spectrogram_frame=spectrogram,
             include_spectrogram=True,
+            raw_peaks=cached.source_peaks,
         )
         return {
             "trackIndex": track_index,

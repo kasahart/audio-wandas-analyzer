@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
@@ -351,6 +351,7 @@ def analyze_from_frame(
     stft_options: Mapping[str, object] | None = None,
     spectrogram_frame: wd.SpectrogramFrame | None = None,
     include_spectrogram: bool = False,
+    raw_peaks: Sequence[float] | None = None,
 ) -> AnalysisResult:
     """Build the AnalysisResult JSON payload from a ChannelFrame."""
     target = Path(file_path)
@@ -364,11 +365,13 @@ def analyze_from_frame(
     references = [frame.channels[index].level_reference for index in range(channel_count)]
     measurements = [measurement_metadata(channel, references[index]) for index, channel in enumerate(resolved.channels)]
     data = channels_first(np.asarray(frame.data), channel_count, sample_count)
-    raw_source = raw_frame or frame
-    raw_data = channels_first(np.asarray(raw_source.data), channel_count, sample_count)
-    if raw_frame is None and not resolved.is_identity:
-        for index, channel in enumerate(resolved.channels):
-            raw_data[index] = raw_data[index] / channel.factor
+    if raw_peaks is None or len(raw_peaks) != channel_count:
+        raw_source = raw_frame or frame
+        raw_data = channels_first(np.asarray(raw_source.data), channel_count, sample_count)
+        if raw_frame is None and not resolved.is_identity:
+            for index, channel in enumerate(resolved.channels):
+                raw_data[index] = raw_data[index] / channel.factor
+        raw_peaks = [float(np.max(np.abs(raw_data[index]))) for index in range(channel_count)]
     perf_log("read_frame", t_frame, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
 
     window_size, hop_size, window_name = resolve_stft_params(sample_count, stft_options)
@@ -389,8 +392,10 @@ def analyze_from_frame(
     for index in range(channel_count):
         samples = data[index]
         measurement = measurements[index]
-        peak = float(np.max(np.abs(samples)))
-        raw_peak = float(np.max(np.abs(raw_data[index])))
+        # The envelope reads every sample once and keeps its largest magnitude: no separate pass for the peak.
+        waveform = build_waveform_envelope(samples, WAVEFORM_POINT_LIMIT, start_sample=0, total_samples=sample_count)
+        peak = float(waveform["absolutePeak"])
+        raw_peak = float(raw_peaks[index])
         spectrogram = None
         if stft_db is not None:
             spectrogram_db = np.transpose(stft_db[index], (1, 0))
@@ -411,12 +416,7 @@ def analyze_from_frame(
                 "peakLevelDb": references[index].to_level(peak),
                 "rawPeakFullScale": raw_peak,
                 "clipped": raw_peak >= CLIPPING_FULL_SCALE_THRESHOLD,
-                "waveform": build_waveform_envelope(
-                    samples,
-                    WAVEFORM_POINT_LIMIT,
-                    start_sample=0,
-                    total_samples=sample_count,
-                ),
+                "waveform": waveform,
                 "spectrogram": spectrogram,
             }
         )
