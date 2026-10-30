@@ -3079,7 +3079,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumCursorNorm = cursorNorm;
         requestEveryCursorSpectrum();
         announce(STR.announceExportCsvStarted || 'CSV export started');
-        writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000);
+        writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000, cursorNorm);
     }
     /** Asks for the cursor spectrum of every shown track, whether or not its lane or its small spectrum is on screen. */
     function requestEveryCursorSpectrum() {
@@ -3094,7 +3094,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
         } finally { drawEveryLane = false; }
     }
-    function writeCsvWhenDetailed(waitFor: Set<string>, deadline: number) {
+    function writeCsvWhenDetailed(waitFor: Set<string>, deadline: number, exportCursorNorm: number) {
+        // The cursor moved while waiting: every track is asked again at the new position, so the file holds one cursor.
+        if (cursorNorm !== exportCursorNorm) {
+            spectrumCursorNorm = cursorNorm;
+            requestEveryCursorSpectrum();
+            writeCsvWhenDetailed(openDetailRequestIds(), deadline, cursorNorm);
+            return;
+        }
         let missing = false;
         const tracks: Array<{ name: string; slice: SpectrumSlice }> = [];
         trackStore.activeIds().forEach(function (trackId) {
@@ -3118,7 +3125,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         // A spectrum still on its way: write once the requests the export asked for are answered (or after a while).
         if (missing && anyStillOpen(waitFor) && Date.now() < deadline) {
-            setTimeout(function () { writeCsvWhenDetailed(waitFor, deadline); }, 100);
+            setTimeout(function () { writeCsvWhenDetailed(waitFor, deadline, exportCursorNorm); }, 100);
             return;
         }
         if (tracks.length === 0) {

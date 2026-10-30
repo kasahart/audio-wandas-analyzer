@@ -221,3 +221,24 @@ test('the PNG export keeps waiting for zoom detail asked again by a redraw', asy
         return downloads();
     }, { intervals: [50], timeout: 20000 }).toContain('waveform-export.png');
 });
+
+test('a cursor moved while the CSV waits: the file holds every shown track at the new cursor', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 600 });
+    await page.setContent(buildUiSmokeManyTracksHtml(40).replace('<script', '<script>window.__uiSmokeViewState = {};</script><script'), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.track-row')).toHaveCount(40);
+    const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
+    await page.mouse.click(canvas.x + canvas.width * 0.25, canvas.y + canvas.height / 2);
+    await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-csv"]')?.click());
+    await page.mouse.click(canvas.x + canvas.width * 0.75, canvas.y + canvas.height / 2);
+    const csv = () => page.evaluate(() => {
+        const saved = (window as unknown as { __uiSmokeDownloads: Array<{ download: string; href: string }> }).__uiSmokeDownloads.find((d) => d.download === 'spectrum-export.csv');
+        return saved ? decodeURIComponent(saved.href.slice(saved.href.indexOf(',') + 1)) : null;
+    });
+    await expect.poll(async () => {
+        await answerSlices(page);
+        return (await csv()) !== null;
+    }, { intervals: [50], timeout: 20000 }).toBe(true);
+    const header = (await csv())!.split('\n')[0];
+    expect(header).toContain('take00.wav');
+    expect(header).toContain('take39.wav');
+});
