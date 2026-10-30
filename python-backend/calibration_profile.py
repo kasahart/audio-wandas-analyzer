@@ -130,6 +130,23 @@ def source_channel_peaks(frame: wd.ChannelFrame) -> tuple[float, ...]:
     )
 
 
+def finite_source_channel_peaks(frame: wd.ChannelFrame) -> tuple[float, ...]:
+    """Each channel's largest absolute sample from one max and one min reduction, which also reject non-finite samples.
+
+    Equal to ``source_channel_peaks``; NaN and infinity carry through the max and min, so a non-finite
+    peak means a non-finite sample.
+    """
+    samples = np.asarray(frame.data).reshape(int(frame.n_channels), -1)
+    if samples.shape[1] == 0:
+        return tuple(0.0 for _ in range(samples.shape[0]))
+    peaks = np.maximum(np.max(samples, axis=1), -np.min(samples, axis=1))
+    if not np.isfinite(peaks).all():
+        # A CSV can hold blanks or NaN, which would only fail later as non-JSON analysis output.
+        raise InputError("Source contains non-finite samples")
+    # Adding 0.0 turns the -0.0 of an all-zero channel into 0.0.
+    return tuple(float(peak) + 0.0 for peak in peaks)
+
+
 def _signature(profile_payload: dict[str, object]) -> str:
     canonical = json.dumps(profile_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -226,5 +243,6 @@ __all__ = [
     "ResolvedCalibrationProfile",
     "ResolvedChannelCalibration",
     "resolve_calibration_profile",
+    "finite_source_channel_peaks",
     "source_channel_peaks",
 ]

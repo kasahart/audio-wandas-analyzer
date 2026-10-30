@@ -18,7 +18,7 @@ from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
 from analysis_service import AnalysisService, PairSpectrumResult, pair_overlap, pair_stft_params
 from analyzer import resolve_stft_params, sample_range
 from backend_errors import INTERNAL_ERROR, InputError, error_payload
-from calibration_profile import source_channel_peaks
+from calibration_profile import finite_source_channel_peaks
 from command_dispatch import dispatch, validate_request
 
 MIB = 1024 * 1024
@@ -115,14 +115,13 @@ class BrowserEngine(AnalysisEngine):
             raise InputError("Loading exceeds browser estimated memory budget; remove another track")
         if frame is None:
             frame = wd.read(payload, file_type=suffix, source_name=source_id).astype(AUDIO_CACHE_DTYPE).cache()
-        if not np.isfinite(frame.data).all():
-            raise InputError("Source contains non-finite samples")
+        source_peaks = finite_source_channel_peaks(frame)
         self._files[path] = CachedAnalysis(
             path=path,
             frame=frame,
             identity=(next(self._loads), len(payload)),
             frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
-            source_peaks=source_channel_peaks(frame),
+            source_peaks=source_peaks,
             input_id=f"sha256:{hashlib.sha256(payload).hexdigest()}",
         )
         return {"filePath": str(path)}

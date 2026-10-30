@@ -11,8 +11,7 @@ import numpy as np
 import wandas as wd
 from scipy.signal import ShortTimeFFT, get_window
 
-from backend_errors import InputError
-from calibration_profile import ResolvedCalibrationProfile, resolve_calibration_profile, source_channel_peaks
+from calibration_profile import ResolvedCalibrationProfile, finite_source_channel_peaks, resolve_calibration_profile
 
 StftKey = tuple[str, int, int, str]
 SpectrumSliceKey = tuple[str, int, str, int, int, int | None]
@@ -123,15 +122,13 @@ class AnalysisEngine:
             self._files.move_to_end(path)
             return cached
         frame = wd.read(path).astype(AUDIO_CACHE_DTYPE).cache()
-        # A CSV can hold blanks or NaN, which would only fail later as non-JSON analysis output.
-        if not np.isfinite(frame.data).all():
-            raise InputError("Source contains non-finite samples")
+        source_peaks = finite_source_channel_peaks(frame)
         cached = CachedAnalysis(
             path=path,
             frame=frame,
             identity=identity,
             frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
-            source_peaks=source_channel_peaks(frame),
+            source_peaks=source_peaks,
             input_id=json.dumps([str(path), stat.st_size, stat.st_mtime_ns // 1_000_000]),
         )
         self._files[path] = cached

@@ -14,7 +14,7 @@ from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from analyzer import analyze_from_frame
 from backend_errors import InputError, StaleCalibrationError, error_payload
-from calibration_profile import resolve_calibration_profile
+from calibration_profile import finite_source_channel_peaks, resolve_calibration_profile, source_channel_peaks
 
 
 def _profile(labels: list[str], factors: list[float], units: list[str], refs: list[float]) -> dict[str, object]:
@@ -166,6 +166,31 @@ def test_calibration_rejects_non_finite_source_samples() -> None:
 
     with pytest.raises(ValueError, match="contains non-finite samples"):
         resolve_calibration_profile(_profile(["input"], [1.0], ["Pa"], [1.0]), source)
+
+
+def test_one_pass_source_peaks_match_the_per_channel_peaks() -> None:
+    rng = np.random.default_rng(3)
+    samples = rng.standard_normal((3, 4_097)).astype(np.float32)
+    samples[1] *= -1.0
+    samples[1, 17] = -7.5
+    samples[2] = -0.0
+    source = wd.from_numpy(samples, sampling_rate=8_000, ch_labels=["a", "b", "c"])
+
+    peaks = finite_source_channel_peaks(source)
+
+    assert peaks == source_channel_peaks(source)
+    assert peaks[1] == 7.5
+    assert math.copysign(1.0, peaks[2]) == 1.0
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+def test_one_pass_source_peaks_reject_non_finite_samples(bad: float) -> None:
+    samples = np.zeros((2, 8), dtype=np.float32)
+    samples[1, 3] = bad
+    source = wd.from_numpy(samples, sampling_rate=8_000, ch_labels=["a", "b"])
+
+    with pytest.raises(InputError, match="non-finite samples"):
+        finite_source_channel_peaks(source)
 
 
 def test_mixed_level_references_omit_aggregate_units() -> None:
