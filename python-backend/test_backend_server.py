@@ -1418,3 +1418,71 @@ def test_two_requests_for_one_uncached_file_read_it_once(tmp_path: Path, monkeyp
 
     assert reads == 1
     assert first is second
+
+
+def test_a_scan_against_a_reference_holds_the_reference_files_requests_until_it_ends(monkeypatch, capsys):
+    import backend_server
+
+    spans: dict[str, tuple[float, float]] = {}
+
+    class FakeService:
+        def scan(self, file_path, **_options):
+            started = time.perf_counter()
+            time.sleep(0.2)
+            spans["scan"] = (started, time.perf_counter())
+            return {"filePath": file_path}
+
+        def analyze(self, file_path, **_options):
+            spans[file_path] = (time.perf_counter(), time.perf_counter())
+            return {"filePath": file_path}
+
+    recipe = {"schema": 3}
+    requests = [
+        {
+            "cmd": "scan",
+            "requestId": "scan",
+            "filePath": "x.wav",
+            "recipe": recipe,
+            "reference": {"filePath": "r.wav", "step": "out", "recipe": recipe},
+        },
+        {"cmd": "analyze", "requestId": "panel", "filePath": "r.wav"},
+    ]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(r) + "\n" for r in requests)))
+    monkeypatch.setattr(backend_server, "_start_heartbeat", lambda: None)
+
+    main(FakeService(), workers=2)  # type: ignore[arg-type]
+
+    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()[1:]]
+    assert [response["requestId"] for response in responses] == ["scan", "panel"], responses
+    assert spans["r.wav"][0] >= spans["scan"][1]
+
+
+def test_a_request_holds_the_lane_of_every_file_it_reads() -> None:
+    from backend_server import _lanes_of
+
+    assert _lanes_of({"cmd": "analyze", "filePath": "a.wav"}) == ("a.wav",)
+    assert _lanes_of({"cmd": "scan", "filePath": "a.wav", "reference": {"filePath": "r.wav"}}) == ("a.wav", "r.wav")
+    assert _lanes_of(
+        {
+            "cmd": "pair-spectrum",
+            "reference": {"filePath": "r.wav"},
+            "responses": [{"filePath": "a.wav"}, {"filePath": "r.wav"}],
+        }
+    ) == ("r.wav", "a.wav")
+    assert _lanes_of({"cmd": "build-recipe"}) == ("",)
+
+
+def test_a_lane_moves_on_when_a_request_raises() -> None:
+    from backend_server import _Lanes
+
+    ran: list[str] = []
+
+    def fails() -> None:
+        raise RuntimeError("lost")
+
+    lanes = _Lanes(2)
+    lanes.submit(("a.wav",), fails)
+    lanes.submit(("a.wav",), lambda: ran.append("next"))
+    lanes.close()
+
+    assert ran == ["next"]

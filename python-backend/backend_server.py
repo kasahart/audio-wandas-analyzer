@@ -66,35 +66,77 @@ def _worker_count() -> int:
     return max(1, min(4, (os.cpu_count() or 2) - 1))
 
 
+class _Job:
+    __slots__ = ("lanes", "run", "started")
+
+    def __init__(self, lanes: tuple[str, ...], run: Callable[[], None]) -> None:
+        self.lanes = lanes
+        self.run = run
+        self.started = False
+
+
 class _Lanes:
-    """Runs requests for different files at once and the requests for one file in the order they came."""
+    """Runs requests for different files at once and the requests for one file in the order they came.
+
+    A request that reads several files (a scan against a reference, a pair of recordings) holds the lane of
+    each, so it neither overlaps nor overtakes another request for any of them.
+    """
 
     def __init__(self, workers: int) -> None:
         self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="awa-request")
         self._lock = threading.Lock()
-        self._queued: dict[str, deque[Callable[[], None]]] = {}
+        self._idle = threading.Condition(self._lock)
+        self._queued: dict[str, deque[_Job]] = {}
 
-    def submit(self, lane: str, job: Callable[[], None]) -> None:
+    def submit(self, lanes: tuple[str, ...], run: Callable[[], None]) -> None:
+        job = _Job(lanes, run)
         with self._lock:
-            queued = self._queued.get(lane)
-            if queued is not None:
-                queued.append(job)
-                return
-            self._queued[lane] = deque()
-        self._executor.submit(self._drain, lane, job)
+            for lane in lanes:
+                self._queued.setdefault(lane, deque()).append(job)
+            ready = self._take_if_ready(job)
+        if ready:
+            self._executor.submit(self._execute, job)
 
-    def _drain(self, lane: str, job: Callable[[], None]) -> None:
-        while True:
-            job()
+    def _take_if_ready(self, job: _Job) -> bool:
+        if job.started or any(self._queued[lane][0] is not job for lane in job.lanes):
+            return False
+        job.started = True
+        return True
+
+    def _execute(self, job: _Job) -> None:
+        try:
+            job.run()
+        finally:
+            ready: list[_Job] = []
             with self._lock:
-                queued = self._queued[lane]
-                if not queued:
-                    del self._queued[lane]
-                    return
-                job = queued.popleft()
+                for lane in job.lanes:
+                    queued = self._queued[lane]
+                    queued.popleft()
+                    if not queued:
+                        del self._queued[lane]
+                    elif self._take_if_ready(queued[0]):
+                        ready.append(queued[0])
+                if not self._queued:
+                    self._idle.notify_all()
+            for next_job in ready:
+                self._executor.submit(self._execute, next_job)
 
     def close(self) -> None:
+        """Answers every request taken so far, then stops the threads."""
+        with self._idle:
+            while self._queued:
+                self._idle.wait()
         self._executor.shutdown(wait=True)
+
+
+def _lanes_of(command: Command) -> tuple[str, ...]:
+    """The files a request reads; one shared lane for a request without any."""
+    paths: list[str] = []
+    sources = [command, command.get("reference"), *(command.get("responses") or [])]
+    for source in sources:
+        if isinstance(source, dict) and isinstance(source.get("filePath"), str) and source["filePath"] not in paths:
+            paths.append(source["filePath"])
+    return tuple(paths) or ("",)
 
 
 def _run(command: Command, request_id: str, service: AnalysisService) -> None:
@@ -132,9 +174,10 @@ def main(service: AnalysisService | None = None, workers: int | None = None) -> 
             except Exception as error:
                 _emit({"requestId": request_id, "error": error_payload(error)}, ensure_ascii=True)
                 continue
-            # A request without a file (a Recipe build, a pair of files) keeps to one lane of its own.
-            lane = str(command.get("filePath", ""))
-            lanes.submit(lane, lambda command=command, request_id=request_id: _run(command, request_id, active_service))
+            lanes.submit(
+                _lanes_of(command),
+                lambda command=command, request_id=request_id: _run(command, request_id, active_service),
+            )
     finally:
         lanes.close()
 
