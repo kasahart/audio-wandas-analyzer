@@ -3089,8 +3089,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             channelsForResult(result).forEach(function (_, channelIndex: number) {
                 const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, cursorNorm, channelIndex);
-                if (!slice || !slice.values || slice.values.length === 0) {
-                    missing = missing || trackLocalCursorNorm(i, cursorNorm) !== null;
+                // A lane out of view may still hold the spectrum of an earlier cursor position while this one is on its way.
+                const cached = record.spectrumSliceCache.get(channelIndex);
+                const stale = cached?.settingsSignature === currentSpectrumDataSignature() && isSpectrumSliceRequestPendingForCursor(i, cursorNorm);
+                if (stale || !slice || !slice.values || slice.values.length === 0) {
+                    missing = missing || stale || trackLocalCursorNorm(i, cursorNorm) !== null;
                     return;
                 }
                 tracks.push({ name: (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex), slice: slice });

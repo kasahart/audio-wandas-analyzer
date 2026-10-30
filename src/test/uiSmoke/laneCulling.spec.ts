@@ -109,3 +109,66 @@ test('with the cursor-spectrum panel open, every track asks for its cursor spect
         return (await sliceRequests(page)).includes(39);
     }, { intervals: [50], timeout: 20000 }).toBe(true);
 });
+
+type AnsweredSlice = { trackIndex: number; cursorNorm: number };
+
+/** Answers each cursor-spectrum request with a spectrum (spectrograms with an error) and lists the cursor spectra answered. */
+function answerSlices(page: Page): Promise<AnsweredSlice[]> {
+    return page.evaluate(() => {
+        const win = window as unknown as { __answered?: Set<unknown>; __answeredSlices?: Array<{ trackIndex: number; cursorNorm: number }>; __uiSmokePostedMessages: Array<Record<string, unknown>> };
+        const answered = (win.__answered ??= new Set());
+        const slices = (win.__answeredSlices ??= []);
+        win.__uiSmokePostedMessages.forEach((message) => {
+            if ((message.type !== 'request-track-detail' && message.type !== 'request-spectrum-slice') || answered.has(message.requestId)) return;
+            answered.add(message.requestId);
+            const identity = { requestId: message.requestId, analysisId: message.analysisId, settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath };
+            if (message.type === 'request-track-detail') {
+                window.postMessage({ ...identity, type: 'track-detail-error', error: 'no host' }, '*');
+                return;
+            }
+            const cursorNorm = Number(message.cursorNorm);
+            slices.push({ trackIndex: Number(message.trackIndex), cursorNorm });
+            const values = Array.from({ length: 64 }, () => -50);
+            const channels = Number.isInteger(message.channelIndex) ? [Number(message.channelIndex)] : [0, 1];
+            window.postMessage({
+                ...identity,
+                type: 'spectrum-slice-result',
+                frequencyBins: 64,
+                maxFrequencyHz: 4000,
+                windowStartNorm: cursorNorm - 0.02,
+                windowEndNorm: cursorNorm + 0.02,
+                window: 'hann',
+                channels: channels.map((channelIndex) => ({ channelIndex, values, minDb: -100, maxDb: 0 })),
+            }, '*');
+        });
+        return slices.slice();
+    });
+}
+
+test('with the cursor-spectrum panel folded, the CSV waits for the spectra of lanes out of view at the current cursor', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 600 });
+    await page.setContent(buildUiSmokeManyTracksHtml(40).replace('<script', '<script>window.__uiSmokeViewState = {};</script><script'), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#spectrum-section')).toHaveClass(/is-collapsed/);
+    const answeredFor = async (trackIndex: number) => (await answerSlices(page)).filter((slice) => slice.trackIndex === trackIndex);
+    const wrapper = page.locator('#tracks-wrapper');
+    // The last lane gets its spectrum at the first cursor position while it is in view...
+    await wrapper.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await expect.poll(async () => (await answeredFor(39)).length, { intervals: [50], timeout: 20000 }).toBeGreaterThan(0);
+    const firstCursor = (await answeredFor(39))[0].cursorNorm;
+    // ...and keeps it once out of view, while the cursor moves.
+    await wrapper.evaluate((element) => { element.scrollTop = 0; });
+    const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
+    await page.mouse.click(canvas.x + canvas.width * 0.75, canvas.y + canvas.height / 2);
+    await expect.poll(async () => (await answeredFor(0)).some((slice) => Math.abs(slice.cursorNorm - firstCursor) > 0.1), { intervals: [50], timeout: 20000 }).toBe(true);
+    const cursor = (await answeredFor(0)).at(-1)!.cursorNorm;
+
+    const csvSaved = () => page.evaluate(() => (window as unknown as { __uiSmokeDownloads: Array<{ download: string }> }).__uiSmokeDownloads.some((d) => d.download === 'spectrum-export.csv'));
+    await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-csv"]')?.click());
+    let lastLaneAtCursor = false;
+    await expect.poll(async () => {
+        if (await csvSaved()) return true;
+        lastLaneAtCursor = (await answeredFor(39)).some((slice) => Math.abs(slice.cursorNorm - cursor) < 0.01);
+        return false;
+    }, { intervals: [50], timeout: 20000 }).toBe(true);
+    expect(lastLaneAtCursor).toBe(true);
+});
