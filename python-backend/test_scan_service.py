@@ -552,3 +552,37 @@ def test_a_cross_channel_step_pairs_the_scanned_recording_with_the_reference_rec
     through = _scan(service, alike, recipe=derived, stage="node-3", reference={**reference, "recipe": derived})["stage"]
     assert through["pair"] == {"output": 2, "input": 1, "base": True}
     assert 0.35 < np.median(through["values"]) < 0.65
+
+
+def test_overlapping_scans_leave_the_dask_scheduler_as_it_was() -> None:
+    import threading
+
+    import dask
+
+    import scan_service
+
+    before = dask.config.get("scheduler", None)
+    a_in, b_in, a_out = threading.Event(), threading.Event(), threading.Event()
+    seen: list[object] = []
+
+    def scan_a() -> None:
+        with scan_service._synchronous_dask():
+            a_in.set()
+            b_in.wait(5)
+        a_out.set()
+
+    def scan_b() -> None:
+        a_in.wait(5)
+        with scan_service._synchronous_dask():
+            b_in.set()
+            a_out.wait(5)
+            seen.append(dask.config.get("scheduler", None))
+
+    threads = [threading.Thread(target=scan_a), threading.Thread(target=scan_b)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    assert seen == ["synchronous"]
+    assert dask.config.get("scheduler", None) == before
