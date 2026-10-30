@@ -75,7 +75,7 @@ class BrowserEngine(AnalysisEngine):
             if self.estimated_bytes(len(payload) * 2 + worst_frame_bytes * 8) > MAX_ESTIMATED_BYTES:
                 raise InputError("Loading exceeds browser estimated memory budget; remove another track")
             try:
-                frame = wd.read(payload, file_type=suffix, source_name=source_id).astype(AUDIO_CACHE_DTYPE).cache()
+                frame = wd.read(payload, file_type=suffix, source_name=source_id, dtype=AUDIO_CACHE_DTYPE).cache()
             except ValueError as error:
                 raise InputError(f"Unable to read CSV: {str(error).splitlines()[0]}") from error
             length, channels, rate = frame.n_samples, frame.n_channels, float(frame.sampling_rate)
@@ -114,7 +114,7 @@ class BrowserEngine(AnalysisEngine):
         if self.estimated_bytes(len(payload) * 2 + frame_bytes * 8) > MAX_ESTIMATED_BYTES:
             raise InputError("Loading exceeds browser estimated memory budget; remove another track")
         if frame is None:
-            frame = wd.read(payload, file_type=suffix, source_name=source_id).astype(AUDIO_CACHE_DTYPE).cache()
+            frame = wd.read(payload, file_type=suffix, source_name=source_id, dtype=AUDIO_CACHE_DTYPE).cache()
         source_peaks = finite_source_channel_peaks(frame)
         self._files[path] = CachedAnalysis(
             path=path,

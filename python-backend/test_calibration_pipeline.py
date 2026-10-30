@@ -363,3 +363,16 @@ def test_backend_range_is_calibrated_but_wav_export_stays_raw(tmp_path) -> None:
     exported, sample_rate = sf.read(io.BytesIO(base64.b64decode(wav_result["wavBase64"])), dtype="float64")
     assert sample_rate == 8_000
     np.testing.assert_allclose(exported, samples, atol=1.0 / 32768.0)
+
+
+@pytest.mark.parametrize("subtype", ["PCM_16", "PCM_24", "PCM_32", "FLOAT", "DOUBLE"])
+def test_files_are_decoded_straight_to_float32_with_the_samples_a_float64_read_rounds_to(tmp_path, subtype) -> None:
+    file_path = tmp_path / f"take-{subtype}.wav"
+    rng = np.random.default_rng(7)
+    samples = np.clip(rng.normal(scale=0.3, size=(2_048, 2)), -1.0, 1.0)
+    sf.write(file_path, samples, 8_000, subtype=subtype)
+    cached = AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024).get_file(file_path)
+
+    expected = wd.read(file_path).astype(np.float32).data
+    assert cached.frame.data.dtype == np.float32
+    np.testing.assert_array_equal(cached.frame.data, expected)

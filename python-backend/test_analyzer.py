@@ -92,7 +92,7 @@ def test_service_includes_channel_unit(
 
     path = tmp_path / "pressure.wav"
     path.touch()
-    monkeypatch.setattr(wd, "read", lambda _path: frame)
+    monkeypatch.setattr(wd, "read", lambda _path, **_kwargs: frame)
     result = service.analyze(path)
 
     assert result["channels"][0]["unit"] == "Pa"
@@ -105,7 +105,7 @@ def test_service_defaults_to_summary_without_spectrogram(
     frame = wd.from_numpy(np.array([0.0, 0.5, -0.5]), sampling_rate=1000)
     path = tmp_path / "summary.wav"
     path.touch()
-    monkeypatch.setattr(wd, "read", lambda _path: frame)
+    monkeypatch.setattr(wd, "read", lambda _path, **_kwargs: frame)
     result = service.analyze(path)
     assert result["channels"][0]["spectrogram"] is None
 
@@ -125,7 +125,7 @@ def test_service_summary_skips_rms_and_full_file_fft(
 
     path = tmp_path / "summary.wav"
     path.touch()
-    monkeypatch.setattr(wd, "read", lambda _path: frame)
+    monkeypatch.setattr(wd, "read", lambda _path, **_kwargs: frame)
     result = service.analyze(path)
 
     assert result["channels"][0]["peakAbsolute"] == pytest.approx(0.5)
@@ -143,7 +143,7 @@ def test_service_reports_wandas_db_for_representative_sine(
     frame = wd.ChannelFrame.from_numpy(samples, sampling_rate=sample_rate)
     path = tmp_path / "sine.wav"
     path.touch()
-    monkeypatch.setattr(wd, "read", lambda _path: frame)
+    monkeypatch.setattr(wd, "read", lambda _path, **_kwargs: frame)
 
     result = service.track_detail(
         path,

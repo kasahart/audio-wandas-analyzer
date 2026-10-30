@@ -11,6 +11,7 @@ import sys
 import time
 import wave
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -169,9 +170,9 @@ def test_analyze_uses_engine_frame_under_resolved_path(monkeypatch, tmp_path: Pa
     reads = []
     original_read = wd.read
 
-    def counted_read(path: Path) -> wd.ChannelFrame:
+    def counted_read(path: Path, **kwargs: Any) -> wd.ChannelFrame:
         reads.append(path)
-        return original_read(path)
+        return original_read(path, **kwargs)
 
     monkeypatch.setattr(wd, "read", counted_read)
 
@@ -232,10 +233,10 @@ def test_handle_range_does_not_reread_cached_audio(monkeypatch: pytest.MonkeyPat
     reads = 0
     original_read = wd.read
 
-    def counted_read(path: Path) -> wd.ChannelFrame:
+    def counted_read(path: Path, **kwargs: Any) -> wd.ChannelFrame:
         nonlocal reads
         reads += 1
-        return original_read(path)
+        return original_read(path, **kwargs)
 
     monkeypatch.setattr(wd, "read", counted_read)
     service = AnalysisService(engine)

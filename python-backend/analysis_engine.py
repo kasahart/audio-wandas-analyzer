@@ -121,7 +121,7 @@ class AnalysisEngine:
         if cached is not None and cached.identity == identity:
             self._files.move_to_end(path)
             return cached
-        frame = wd.read(path).astype(AUDIO_CACHE_DTYPE).cache()
+        frame = wd.read(path, dtype=AUDIO_CACHE_DTYPE).cache()
         source_peaks = finite_source_channel_peaks(frame)
         cached = CachedAnalysis(
             path=path,
