@@ -19,9 +19,11 @@ import json
 import math
 import re
 import sys
+import threading
 import time
 import traceback
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 import dask
@@ -708,6 +710,33 @@ def _first_line(error: BaseException) -> str:
     return line if isinstance(error, (InputError, OSError)) else f"{type(error).__name__}: {line}"
 
 
+_synchronous_lock = threading.Lock()
+_synchronous_users = 0
+_synchronous_setting: Any = None
+
+
+@contextmanager
+def _synchronous_dask() -> Iterator[None]:
+    """Run dask synchronously while any scan is running.
+
+    dask's config is process-wide, so scans that overlap on backend workers share one setting:
+    the first to start sets it and the last to end restores what was there before.
+    """
+    global _synchronous_users, _synchronous_setting
+    with _synchronous_lock:
+        if _synchronous_users == 0:
+            _synchronous_setting = dask.config.set(scheduler="synchronous")
+        _synchronous_users += 1
+    try:
+        yield
+    finally:
+        with _synchronous_lock:
+            _synchronous_users -= 1
+            if _synchronous_users == 0:
+                _synchronous_setting.__exit__(None, None, None)
+                _synchronous_setting = None
+
+
 def scan(
     engine: AnalysisEngine,
     file_path: str,
@@ -730,7 +759,7 @@ def scan(
         if reference is not None:
             paired = engine.get_file(reference[0])
         # One short file's graph gains nothing from threads, which only add scheduling overhead.
-        with dask.config.set(scheduler="synchronous"):
+        with _synchronous_dask():
             result = scan_cached(
                 cached,
                 recipe=recipe,

@@ -8,8 +8,10 @@ import os
 import struct
 import subprocess
 import sys
+import threading
 import time
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -1254,7 +1256,7 @@ def test_surrogate_error_response_keeps_utf8_backend_alive(monkeypatch, field):
     stream = io.TextIOWrapper(output, encoding="utf-8", errors="strict")
     monkeypatch.setattr(backend_server.sys, "stdin", io.StringIO("".join(json.dumps(r) + "\n" for r in requests)))
     monkeypatch.setattr(backend_server.sys, "stdout", stream)
-    monkeypatch.setattr(backend_server.threading.Thread, "start", lambda self: None)
+    monkeypatch.setattr(backend_server, "_start_heartbeat", lambda: None)
 
     class FakeService:
         def analyze(self, file_path, **options):
@@ -1342,3 +1344,145 @@ def test_spectrum_slice_reaches_an_event_at_the_file_end(tmp_path: Path) -> None
         assert float(resp["channels"][0]["maxDb"]) > -60.0
     start = handle_spectrum_slice({"filePath": str(wav), "cursorNorm": 300 / 8000, "stftOptions": opts})
     assert start["windowStartNorm"] == 0
+
+
+def test_requests_for_different_files_run_at_once(monkeypatch, capsys):
+    import backend_server
+
+    both_started = threading.Barrier(2, timeout=10)
+    calls: list[str] = []
+
+    class FakeService:
+        def analyze(self, file_path, **_options):
+            calls.append(file_path)
+            if file_path in {"a.wav", "b.wav"}:
+                # Each of the first two waits for the other: this returns only when they run side by side.
+                both_started.wait()
+            return {"filePath": file_path}
+
+    requests = [
+        {"cmd": "analyze", "requestId": "a1", "filePath": "a.wav"},
+        {"cmd": "analyze", "requestId": "a2", "filePath": "a2.wav"},
+        {"cmd": "analyze", "requestId": "b1", "filePath": "b.wav"},
+    ]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(r) + "\n" for r in requests)))
+    monkeypatch.setattr(backend_server, "_start_heartbeat", lambda: None)
+
+    main(FakeService(), workers=2)  # type: ignore[arg-type]
+
+    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()[1:]]
+    assert sorted(response["requestId"] for response in responses) == ["a1", "a2", "b1"]
+    assert all("error" not in response for response in responses)
+
+
+def test_requests_for_one_file_are_answered_in_the_order_they_came(monkeypatch, capsys):
+    import backend_server
+
+    class FakeService:
+        def analyze(self, file_path, **_options):
+            time.sleep(0.05 if file_path == "a.wav" else 0)
+            return {"filePath": file_path}
+
+        def release_track_detail(self, file_path):
+            return {"released": file_path}
+
+    requests = [
+        {"cmd": "analyze", "requestId": "first", "filePath": "a.wav"},
+        {"cmd": "release-track-detail", "requestId": "second", "filePath": "a.wav"},
+    ]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(r) + "\n" for r in requests)))
+    monkeypatch.setattr(backend_server, "_start_heartbeat", lambda: None)
+
+    main(FakeService(), workers=4)  # type: ignore[arg-type]
+
+    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()[1:]]
+    assert [response["requestId"] for response in responses] == ["first", "second"]
+
+
+def test_two_requests_for_one_uncached_file_read_it_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav, seconds=0.5)
+    engine = AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024)
+    reads = 0
+    original_read = wd.read
+
+    def slow_read(path: Path, **kwargs: Any) -> wd.ChannelFrame:
+        nonlocal reads
+        reads += 1
+        time.sleep(0.1)
+        return original_read(path, **kwargs)
+
+    monkeypatch.setattr(wd, "read", slow_read)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first, second = executor.map(lambda _: engine.get_file(wav), range(2))
+
+    assert reads == 1
+    assert first is second
+
+
+def test_a_scan_against_a_reference_holds_the_reference_files_requests_until_it_ends(monkeypatch, capsys):
+    import backend_server
+
+    spans: dict[str, tuple[float, float]] = {}
+
+    class FakeService:
+        def scan(self, file_path, **_options):
+            started = time.perf_counter()
+            time.sleep(0.2)
+            spans["scan"] = (started, time.perf_counter())
+            return {"filePath": file_path}
+
+        def analyze(self, file_path, **_options):
+            spans[file_path] = (time.perf_counter(), time.perf_counter())
+            return {"filePath": file_path}
+
+    recipe = {"schema": 3}
+    requests = [
+        {
+            "cmd": "scan",
+            "requestId": "scan",
+            "filePath": "x.wav",
+            "recipe": recipe,
+            "reference": {"filePath": "r.wav", "step": "out", "recipe": recipe},
+        },
+        {"cmd": "analyze", "requestId": "panel", "filePath": "r.wav"},
+    ]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(r) + "\n" for r in requests)))
+    monkeypatch.setattr(backend_server, "_start_heartbeat", lambda: None)
+
+    main(FakeService(), workers=2)  # type: ignore[arg-type]
+
+    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()[1:]]
+    assert [response["requestId"] for response in responses] == ["scan", "panel"], responses
+    assert spans["r.wav"][0] >= spans["scan"][1]
+
+
+def test_a_request_holds_the_lane_of_every_file_it_reads() -> None:
+    from backend_server import _lanes_of
+
+    assert _lanes_of({"cmd": "analyze", "filePath": "a.wav"}) == ("a.wav",)
+    assert _lanes_of({"cmd": "scan", "filePath": "a.wav", "reference": {"filePath": "r.wav"}}) == ("a.wav", "r.wav")
+    assert _lanes_of(
+        {
+            "cmd": "pair-spectrum",
+            "reference": {"filePath": "r.wav"},
+            "responses": [{"filePath": "a.wav"}, {"filePath": "r.wav"}],
+        }
+    ) == ("r.wav", "a.wav")
+    assert _lanes_of({"cmd": "build-recipe"}) == ("",)
+
+
+def test_a_lane_moves_on_when_a_request_raises() -> None:
+    from backend_server import _Lanes
+
+    ran: list[str] = []
+
+    def fails() -> None:
+        raise RuntimeError("lost")
+
+    lanes = _Lanes(2)
+    lanes.submit(("a.wav",), fails)
+    lanes.submit(("a.wav",), lambda: ran.append("next"))
+    lanes.close()
+
+    assert ran == ["next"]
