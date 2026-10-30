@@ -1,11 +1,25 @@
 import { expect, test, type Page } from '@playwright/test';
-import { buildUiSmokeManyTracksHtml } from './buildHtml';
+import { buildUiSmokeHtml, buildUiSmokeManyTracksHtml } from './buildHtml';
 
 /** The track indexes whose spectrogram the webview has asked the host for. */
 function detailRequests(page: Page): Promise<number[]> {
     return page.evaluate(() => {
         const posted = (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages;
         return [...new Set(posted.filter((message) => message.type === 'request-track-detail').map((message) => Number(message.trackIndex)))].sort((a, b) => a - b);
+    });
+}
+
+/** Answers each spectrogram and cursor-spectrum request not answered yet with an error, which settles it. */
+function answerWithErrors(page: Page): Promise<void> {
+    return page.evaluate(() => {
+        const answered = ((window as unknown as { __answered?: Set<unknown> }).__answered ??= new Set());
+        const posted = (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages;
+        posted.forEach((message) => {
+            const type = message.type === 'request-track-detail' ? 'track-detail-error' : message.type === 'request-spectrum-slice' ? 'spectrum-slice-error' : null;
+            if (!type || answered.has(message.requestId)) return;
+            answered.add(message.requestId);
+            window.postMessage({ type, requestId: message.requestId, analysisId: message.analysisId, settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath, error: 'no host' }, '*');
+        });
     });
 }
 
@@ -32,14 +46,11 @@ test('the PNG export draws every lane: it asks for the spectrograms of lanes out
     const downloads = () => page.evaluate(() => (window as unknown as { __uiSmokeDownloads: Array<{ download: string }> }).__uiSmokeDownloads.map((d) => d.download));
     await page.waitForTimeout(300);
     expect(await downloads()).not.toContain('waveform-export.png');
-    // The host answers every request (here with an error, which also settles it).
-    await page.evaluate(() => {
-        const posted = (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages;
-        posted.filter((message) => message.type === 'request-track-detail').forEach((message) => {
-            window.postMessage({ type: 'track-detail-error', requestId: message.requestId, analysisId: message.analysisId, settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath, error: 'no host' }, '*');
-        });
-    });
-    await expect.poll(downloads).toContain('waveform-export.png');
+    // The host answers every request (here with an error, which also settles it); cursor spectra are asked one at a time.
+    await expect.poll(async () => {
+        await answerWithErrors(page);
+        return downloads();
+    }, { intervals: [50], timeout: 20000 }).toContain('waveform-export.png');
 });
 
 test('a lane resized while out of view paints its spectrogram again when scrolled back', async ({ page }) => {
@@ -60,4 +71,174 @@ test('a lane resized while out of view paints its spectrogram again when scrolle
     await page.waitForTimeout(300);
     await wrapper.evaluate((element) => { element.scrollTop = 0; });
     await expect.poll(painted).toBe(true);
+});
+
+/** The track indexes whose cursor spectrum the webview has asked the host for. */
+function sliceRequests(page: Page): Promise<number[]> {
+    return page.evaluate(() => {
+        const posted = (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages;
+        return [...new Set(posted.filter((message) => message.type === 'request-spectrum-slice').map((message) => Number(message.trackIndex)))].sort((a, b) => a - b);
+    });
+}
+
+test('with the cursor-spectrum panel folded, only lanes near the view ask for their cursor spectrum', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 600 });
+    // A fresh panel: the cursor-spectrum panel opens folded.
+    await page.setContent(buildUiSmokeManyTracksHtml(40).replace('<script', '<script>window.__uiSmokeViewState = {};</script><script'), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#spectrum-section')).toHaveClass(/is-collapsed/);
+    // Answer the queue for a while: it goes through every lane it wants (and asks again after an error).
+    for (let round = 0; round < 80; round++) {
+        await answerWithErrors(page);
+        await page.waitForTimeout(50);
+    }
+    expect(await sliceRequests(page)).toContain(0);
+    expect(await sliceRequests(page)).not.toContain(39);
+    await page.locator('#tracks-wrapper').evaluate((wrapper) => { wrapper.scrollTop = wrapper.scrollHeight; });
+    await expect.poll(async () => {
+        await answerWithErrors(page);
+        return (await sliceRequests(page)).includes(39);
+    }, { intervals: [50] }).toBe(true);
+});
+
+test('with the cursor-spectrum panel open, every track asks for its cursor spectrum for the overlay', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 600 });
+    await page.setContent(buildUiSmokeManyTracksHtml(40), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#spectrum-section')).not.toHaveClass(/is-collapsed/);
+    await expect.poll(async () => {
+        await answerWithErrors(page);
+        return (await sliceRequests(page)).includes(39);
+    }, { intervals: [50], timeout: 20000 }).toBe(true);
+});
+
+type AnsweredSlice = { trackIndex: number; cursorNorm: number };
+
+/** Answers each cursor-spectrum request with a spectrum (spectrograms with an error) and lists the cursor spectra answered. */
+function answerSlices(page: Page): Promise<AnsweredSlice[]> {
+    return page.evaluate(() => {
+        const win = window as unknown as { __answered?: Set<unknown>; __answeredSlices?: Array<{ trackIndex: number; cursorNorm: number }>; __uiSmokePostedMessages: Array<Record<string, unknown>> };
+        const answered = (win.__answered ??= new Set());
+        const slices = (win.__answeredSlices ??= []);
+        win.__uiSmokePostedMessages.forEach((message) => {
+            if ((message.type !== 'request-track-detail' && message.type !== 'request-spectrum-slice') || answered.has(message.requestId)) return;
+            answered.add(message.requestId);
+            const identity = { requestId: message.requestId, analysisId: message.analysisId, settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath };
+            if (message.type === 'request-track-detail') {
+                window.postMessage({ ...identity, type: 'track-detail-error', error: 'no host' }, '*');
+                return;
+            }
+            const cursorNorm = Number(message.cursorNorm);
+            slices.push({ trackIndex: Number(message.trackIndex), cursorNorm });
+            const values = Array.from({ length: 64 }, () => -50);
+            const channels = Number.isInteger(message.channelIndex) ? [Number(message.channelIndex)] : [0, 1];
+            window.postMessage({
+                ...identity,
+                type: 'spectrum-slice-result',
+                frequencyBins: 64,
+                maxFrequencyHz: 4000,
+                windowStartNorm: cursorNorm - 0.02,
+                windowEndNorm: cursorNorm + 0.02,
+                window: 'hann',
+                channels: channels.map((channelIndex) => ({ channelIndex, values, minDb: -100, maxDb: 0 })),
+            }, '*');
+        });
+        return slices.slice();
+    });
+}
+
+test('with the cursor-spectrum panel folded, the CSV waits for the spectra of lanes out of view at the current cursor', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 600 });
+    await page.setContent(buildUiSmokeManyTracksHtml(40).replace('<script', '<script>window.__uiSmokeViewState = {};</script><script'), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#spectrum-section')).toHaveClass(/is-collapsed/);
+    const answeredFor = async (trackIndex: number) => (await answerSlices(page)).filter((slice) => slice.trackIndex === trackIndex);
+    const wrapper = page.locator('#tracks-wrapper');
+    // The last lane gets its spectrum at the first cursor position while it is in view...
+    await wrapper.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await expect.poll(async () => (await answeredFor(39)).length, { intervals: [50], timeout: 20000 }).toBeGreaterThan(0);
+    const firstCursor = (await answeredFor(39))[0].cursorNorm;
+    // ...and keeps it once out of view, while the cursor moves.
+    await wrapper.evaluate((element) => { element.scrollTop = 0; });
+    const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
+    await page.mouse.click(canvas.x + canvas.width * 0.75, canvas.y + canvas.height / 2);
+    await expect.poll(async () => (await answeredFor(0)).some((slice) => Math.abs(slice.cursorNorm - firstCursor) > 0.1), { intervals: [50], timeout: 20000 }).toBe(true);
+    const cursor = (await answeredFor(0)).at(-1)!.cursorNorm;
+
+    const csvSaved = () => page.evaluate(() => (window as unknown as { __uiSmokeDownloads: Array<{ download: string }> }).__uiSmokeDownloads.some((d) => d.download === 'spectrum-export.csv'));
+    await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-csv"]')?.click());
+    let lastLaneAtCursor = false;
+    await expect.poll(async () => {
+        if (await csvSaved()) return true;
+        lastLaneAtCursor = (await answeredFor(39)).some((slice) => Math.abs(slice.cursorNorm - cursor) < 0.01);
+        return false;
+    }, { intervals: [50], timeout: 20000 }).toBe(true);
+    expect(lastLaneAtCursor).toBe(true);
+});
+
+test('on a narrow panel with the cursor-spectrum panel folded, the CSV still asks for the cursor spectra of lanes out of view', async ({ page }) => {
+    // At this width the lanes' small spectra are hidden, so drawing them asks for nothing.
+    await page.setViewportSize({ width: 480, height: 600 });
+    await page.setContent(buildUiSmokeManyTracksHtml(40).replace('<script', '<script>window.__uiSmokeViewState = {};</script><script'), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#spectrum-section')).toHaveClass(/is-collapsed/);
+    await expect(page.locator('.track-row')).toHaveCount(40);
+    await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-csv"]')?.click());
+    await expect.poll(async () => {
+        await answerSlices(page);
+        return (await sliceRequests(page)).includes(39);
+    }, { intervals: [50], timeout: 20000 }).toBe(true);
+});
+
+test('the PNG export keeps waiting for zoom detail asked again by a redraw', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.mouse.click(20, 20);
+    for (let i = 0; i < 5; i += 1) {
+        await page.locator('#toolbar [data-action="zoom-in"]').click({ force: true });
+    }
+    const rangeRequests = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
+        .filter((message) => message.type === 'request-waveform-range' && Number(message.endNorm) - Number(message.startNorm) < 1));
+    await expect.poll(async () => (await rangeRequests()).length).toBeGreaterThan(0);
+    const downloads = () => page.evaluate(() => (window as unknown as { __uiSmokeDownloads: Array<{ download: string }> }).__uiSmokeDownloads.map((d) => d.download));
+    await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-png"]')?.click());
+    // A redraw (here the cursor moving) asks for the same zoom detail again under a new request.
+    const asked = (await rangeRequests()).length;
+    const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
+    await page.mouse.click(canvas.x + canvas.width * 0.5, canvas.y + canvas.height / 2);
+    await expect.poll(async () => (await rangeRequests()).length).toBeGreaterThan(asked);
+    // Everything else the export waits for is answered.
+    for (let round = 0; round < 12; round++) {
+        await answerWithErrors(page);
+        await page.waitForTimeout(50);
+    }
+    expect(await downloads()).not.toContain('waveform-export.png');
+    // Answering the latest one lets the image be saved.
+    await page.evaluate((request) => {
+        const span = Number(request.endNorm) - Number(request.startNorm);
+        const points = 64;
+        const at = Array.from({ length: points }, (_, index) => Number(request.startNorm) + ((index + 0.5) / points) * span);
+        const waveform = { min: at.map(() => -0.5), max: at.map(() => 0.5), minT: at, maxT: at, samples: at.map(() => 0), absolutePeak: 0.5 };
+        window.postMessage({ type: 'waveform-range-result', requestId: request.requestId, trackIndex: request.trackIndex, startNorm: request.startNorm, endNorm: request.endNorm, channels: [waveform, waveform] }, '*');
+    }, (await rangeRequests()).at(-1)!);
+    await expect.poll(async () => {
+        await answerWithErrors(page);
+        return downloads();
+    }, { intervals: [50], timeout: 20000 }).toContain('waveform-export.png');
+});
+
+test('a cursor moved while the CSV waits: the file holds every shown track at the new cursor', async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 600 });
+    await page.setContent(buildUiSmokeManyTracksHtml(40).replace('<script', '<script>window.__uiSmokeViewState = {};</script><script'), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.track-row')).toHaveCount(40);
+    const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
+    await page.mouse.click(canvas.x + canvas.width * 0.25, canvas.y + canvas.height / 2);
+    await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-csv"]')?.click());
+    await page.mouse.click(canvas.x + canvas.width * 0.75, canvas.y + canvas.height / 2);
+    const csv = () => page.evaluate(() => {
+        const saved = (window as unknown as { __uiSmokeDownloads: Array<{ download: string; href: string }> }).__uiSmokeDownloads.find((d) => d.download === 'spectrum-export.csv');
+        return saved ? decodeURIComponent(saved.href.slice(saved.href.indexOf(',') + 1)) : null;
+    });
+    await expect.poll(async () => {
+        await answerSlices(page);
+        return (await csv()) !== null;
+    }, { intervals: [50], timeout: 20000 }).toBe(true);
+    const header = (await csv())!.split('\n')[0];
+    expect(header).toContain('take00.wav');
+    expect(header).toContain('take39.wav');
 });

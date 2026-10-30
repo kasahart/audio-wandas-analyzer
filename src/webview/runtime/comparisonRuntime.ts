@@ -704,7 +704,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result);
     }
     function requestSpectrumSlice(i: number, cursorNormValue: number) {
-        if (!spectrumAllowsSliceRequests) {
+        // The folded cursor-spectrum panel leaves each lane's own small spectrum: only lanes near the view need theirs.
+        if (!spectrumAllowsSliceRequests || (spectrumCollapsed && !laneInView(i))) {
             return;
         }
         const result = state.results[i];
@@ -2363,7 +2364,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const tracksWrapper = requiredElementById(document, 'tracks-wrapper');
         // Lanes scrolled into view are drawn then.
-        tracksWrapper.addEventListener('scroll', function () { scheduleRender(); }, { passive: true });
+        tracksWrapper.addEventListener('scroll', function () { scheduleRender(); scheduleSpectrumRefresh('scroll'); }, { passive: true });
         const toolbarHandlers = { onAction: handleToolbarAction };
         attachToolbarActions(document.getElementById('toolbar'), toolbarHandlers);
         attachToolbarActions(document.getElementById('spectrum-zoom-toolbar'), toolbarHandlers);
@@ -3011,17 +3012,35 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function renderEveryLane() {
         drawEveryLane = true;
-        try { renderStackedTracks(); checkAndRequestRanges(); } finally { drawEveryLane = false; }
+        try { renderStackedTracks(); checkAndRequestRanges(); renderTrackSpectra(); } finally { drawEveryLane = false; }
     }
-    function detailPending(): boolean {
-        return state.results.some(function (_: ComparisonTrackState, i: number) {
+    /** The open spectrogram, zoom-detail and cursor-spectrum requests. */
+    function openDetailRequestIds(): Set<string> {
+        const ids = new Set<string>();
+        state.results.forEach(function (_: ComparisonTrackState, i: number) {
             const requests = trackRecordAtIndex(i)?.requests;
-            return Boolean(requests?.pending('detail') || requests?.pending('range'));
+            ['detail', 'slice'].forEach(function (slot) {
+                const pending = requests?.pending(slot);
+                if (pending) ids.add(pending.requestId);
+            });
+            // Zoom detail is asked again on each redraw until it arrives: the same span is the same wait.
+            const range = requests?.pending('range');
+            if (range) ids.add('range:' + i + ':' + range.key);
         });
+        desiredSpectrumSliceRequests.forEach(function (request) { ids.add(request.requestId); });
+        if (activeSpectrumSliceRequest) ids.add(activeSpectrumSliceRequest.requestId);
+        return ids;
+    }
+    /** Whether any of the requests an export waits for is still open (one asked again after an error is not waited for). */
+    function anyStillOpen(waitFor: Set<string>): boolean {
+        for (const id of openDetailRequestIds()) {
+            if (waitFor.has(id)) return true;
+        }
+        return false;
     }
     function exportPng() {
-        // The image holds every shown lane, also those scrolled out of view: drawing them asks for the spectrograms and
-        // zoom detail they lack, and the image is composed once those have arrived (or after a while, as far as they got).
+        // The image holds every shown lane, also those scrolled out of view: drawing them asks for the spectrograms, zoom
+        // detail and cursor spectra they lack, and the image is composed once those have arrived (or after a while, as far as they got).
         renderEveryLane();
         const failed = STR.announceExportPngFailed || 'PNG export failed: no visible canvases';
         if (visibleExportCanvases(document.getElementById('tracks-wrapper') as unknown as Element | null).length === 0) {
@@ -3029,11 +3048,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         announce(STR.announceExportPngStarted || 'PNG export started');
-        composePngWhenDetailed(Date.now() + 30000, failed);
+        composePngWhenDetailed(openDetailRequestIds(), Date.now() + 30000, failed);
     }
-    function composePngWhenDetailed(deadline: number, failed: string) {
-        if (detailPending() && Date.now() < deadline) {
-            setTimeout(function () { composePngWhenDetailed(deadline, failed); }, 100);
+    function composePngWhenDetailed(waitFor: Set<string>, deadline: number, failed: string) {
+        if (anyStillOpen(waitFor) && Date.now() < deadline) {
+            setTimeout(function () { composePngWhenDetailed(waitFor, deadline, failed); }, 100);
             return;
         }
         renderEveryLane();
@@ -3056,6 +3075,34 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
             return;
         }
+        // Like the PNG: lanes out of view ask for their cursor spectra first, and the file is written once those arrived.
+        spectrumCursorNorm = cursorNorm;
+        requestEveryCursorSpectrum();
+        announce(STR.announceExportCsvStarted || 'CSV export started');
+        writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000, cursorNorm);
+    }
+    /** Asks for the cursor spectrum of every shown track, whether or not its lane or its small spectrum is on screen. */
+    function requestEveryCursorSpectrum() {
+        drawEveryLane = true;
+        try {
+            trackStore.activeIds().forEach(function (trackId) {
+                const record = trackStore.require(trackId);
+                if (record.runtime.hidden) return;
+                channelsForResult(record.result).forEach(function (_, channelIndex: number) {
+                    extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
+                });
+            });
+        } finally { drawEveryLane = false; }
+    }
+    function writeCsvWhenDetailed(waitFor: Set<string>, deadline: number, exportCursorNorm: number) {
+        // The cursor moved while waiting: every track is asked again at the new position, so the file holds one cursor.
+        if (cursorNorm !== exportCursorNorm) {
+            spectrumCursorNorm = cursorNorm;
+            requestEveryCursorSpectrum();
+            writeCsvWhenDetailed(openDetailRequestIds(), deadline, cursorNorm);
+            return;
+        }
+        let missing = false;
         const tracks: Array<{ name: string; slice: SpectrumSlice }> = [];
         trackStore.activeIds().forEach(function (trackId) {
             const record = trackStore.require(trackId);
@@ -3066,17 +3113,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             channelsForResult(result).forEach(function (_, channelIndex: number) {
                 const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, cursorNorm, channelIndex);
-                if (!slice || !slice.values || slice.values.length === 0) {
+                // A lane out of view may still hold the spectrum of an earlier cursor position while this one is on its way.
+                const cached = record.spectrumSliceCache.get(channelIndex);
+                const stale = cached?.settingsSignature === currentSpectrumDataSignature() && isSpectrumSliceRequestPendingForCursor(i, cursorNorm);
+                if (stale || !slice || !slice.values || slice.values.length === 0) {
+                    missing = missing || stale || trackLocalCursorNorm(i, cursorNorm) !== null;
                     return;
                 }
                 tracks.push({ name: (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex), slice: slice });
             });
         });
+        // A spectrum still on its way: write once the requests the export asked for are answered (or after a while).
+        if (missing && anyStillOpen(waitFor) && Date.now() < deadline) {
+            setTimeout(function () { writeCsvWhenDetailed(waitFor, deadline, exportCursorNorm); }, 100);
+            return;
+        }
         if (tracks.length === 0) {
             messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
             return;
         }
-        announce(STR.announceExportCsvStarted || 'CSV export started');
         const csv = buildSpectrumCsv(tracks);
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
         triggerAnchorDownload(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
@@ -3624,6 +3679,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const ranges = new Map<string, { minDb: number; maxDb: number }>();
         displayedLanes().forEach(function ({ record, channelIndex, ch }) {
+            // A folded panel leaves lanes out of view on the spectrum of an earlier cursor: they do not set the shared axis.
+            if (spectrumCollapsed && !laneInView(record.protocolIndex)) {
+                return;
+            }
             const slice = extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, spectrumCursorNorm, channelIndex);
             if (slice && Number.isFinite(slice.minDb) && Number.isFinite(slice.maxDb)) {
                 const key = amplitudeUnitKey(ch);
@@ -3639,6 +3698,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const record = trackStore.require(trackId);
             const result = record.result;
             const i = record.protocolIndex;
+            if (!laneInView(i)) {
+                return;
+            }
             channelsForResult(result).forEach(function (_, channelIndex: number) {
                 const canvas = canvasById(document, trackSpectrumCanvasId(i, channelIndex));
                 if (!canvas) {
