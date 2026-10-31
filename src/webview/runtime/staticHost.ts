@@ -23,6 +23,7 @@ import type { ComparisonTrackState, WebviewHostApi } from './types';
 import { sanitizePersistedState } from './stateStore';
 import type { AnalysisResult, AnalysisResultWithError } from '../../shared/analysis/analysisTypes';
 import type { ScanReference } from '../../shared/analysis/entryScan';
+import { keyRouterFor } from './keyRouter';
 
 interface Source {
     path: string;
@@ -202,11 +203,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             const close = (value: T | undefined): void => {
                 box.remove();
                 document.removeEventListener('pointerdown', outside, true);
-                document.removeEventListener('keydown', escape, true);
+                removeKeys();
                 resolve(value);
             };
             const outside = (event: Event): void => { if (!box.contains(event.target as Node)) close(undefined); };
-            const escape = (event: KeyboardEvent): void => { if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); close(undefined); } };
+            let removeKeys = (): void => undefined;
             for (const [value, label] of options) {
                 const button = document.createElement('button');
                 button.type = 'button';
@@ -217,7 +218,15 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             }
             document.body.append(box);
             document.addEventListener('pointerdown', outside, true);
-            document.addEventListener('keydown', escape, true);
+            removeKeys = keyRouterFor(window).add({
+                layer: 'popover',
+                keydown(event) {
+                    if (event.key !== 'Escape') return false;
+                    event.preventDefault();
+                    close(undefined);
+                    return true;
+                },
+            });
             box.querySelector('button')?.focus();
         });
     }
@@ -584,7 +593,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
         return response.json();
     }
-    const recipeMenus = createRecipeMenus(document, strings);
+    const recipeMenus = createRecipeMenus(document, window, strings);
     /** Track names, or their paths under `/sources` where two of the given tracks share a name, as the file list shows them. */
     function trackLabels(paths: string[]): (path: string) => string {
         const nameOf = (path: string): string => sources.get(path)?.name ?? recipeBaseName(path);
@@ -1027,7 +1036,15 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     worker = startWorker();
     window.addEventListener('pointerdown', event => { if (about.open && !about.contains(event.target as Node)) about.open = false; });
     window.addEventListener('resize', clampAbout);
-    window.addEventListener('keydown', event => { if (about.open && event.key === 'Escape') { about.open = false; aboutToggle.focus(); } });
+    keyRouterFor(window).add({
+        layer: 'popover',
+        keydown(event) {
+            if (!about.open || event.key !== 'Escape') return false;
+            about.open = false;
+            aboutToggle.focus();
+            return true;
+        },
+    });
     // Leaving the page always stops Python, so a back-forward cached page does not keep the runtime resident.
     window.addEventListener('pagehide', () => { resetWorker(new Error('Analysis cancelled')); dispose(); });
     return host;

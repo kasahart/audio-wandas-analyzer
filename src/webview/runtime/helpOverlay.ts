@@ -1,98 +1,96 @@
+/**
+ * "?" / F1: the keys of every view, the one on show first, and what the screens' symbols and colours mean.
+ * It is modal: while it is open it takes every key but Tab, and ?, F1, Esc or a click outside closes it.
+ */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { eventTarget } from './domAdapter';
-import { SHORTCUT_ROWS } from './shortcuts';
+import { isTextEntryTarget, keyRouterFor } from './keyRouter';
+import { HELP_SECTIONS, type HelpView, type KeyRow } from './shortcuts';
 
-/** Keyboard-shortcut dialog toggled by `?`; the comparison runtime suspends its shortcuts while it is open. */
-export function installHelpOverlay(document: Document, STR: UiStrings): void {
-    const tableRows = SHORTCUT_ROWS.map(function (row) {
-        return '<tr><td style="padding:3px 12px 3px 0;font-family:var(--font-mono);white-space:nowrap;color:var(--accent)">' + escapeHtml(row.shortcut)
-            + '</td><td style="padding:3px 0;color:var(--text)">' + escapeHtml(STR[row.labelKey as keyof typeof STR]) + '</td></tr>';
+export interface Help {
+    open(view: HelpView): void;
+    close(): boolean;
+    isOpen(): boolean;
+}
+
+function keyRows(rows: readonly KeyRow[], strings: UiStrings): string {
+    return rows.map(row => `<tr><th scope="row">${escapeHtml(row.shortcutKey ? strings[row.shortcutKey] : row.shortcut)}</th><td>${escapeHtml(strings[row.labelKey])}</td></tr>`).join('');
+}
+
+function symbolRows(list: string): string {
+    return list.split('\n').map(line => {
+        const [symbol, meaning] = line.split('\t');
+        return `<tr><th scope="row">${escapeHtml(symbol)}</th><td>${escapeHtml(meaning ?? '')}</td></tr>`;
     }).join('');
-    document.body.insertAdjacentHTML('beforeend', '<div id="help-overlay" hidden role="dialog" aria-modal="true" aria-label="' + escapeHtml(STR.helpTitle) + '" '
-        + 'style="position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.45)">'
-        + '<div style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:20px 24px;min-width:320px;box-shadow:0 4px 24px rgba(0,0,0,0.4)">'
-        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
-        + '<span style="font-weight:700;font-size:13px;color:var(--text)">' + escapeHtml(STR.helpTitle) + '</span>'
-        + '<button id="help-close-btn" class="tb-btn" style="font-size:11px;padding:2px 8px">' + escapeHtml(STR.helpClose) + '</button>'
-        + '</div>'
-        + '<table style="border-collapse:collapse;font-size:12px;width:100%">' + tableRows + '</table>'
-        + '</div></div>');
-    function openHelp() {
-        var el = document.getElementById('help-overlay');
-        if (el) {
-            el.hidden = false;
-            el.style.display = 'flex';
-            var btn = document.getElementById('help-close-btn');
-            if (btn) {
-                btn.focus();
-            }
-        }
+}
+
+/** `view` says which view is on show when ? or F1 is pressed. */
+export function installHelpOverlay(document: Document, window: Pick<Window, 'addEventListener'>, strings: UiStrings, view: () => HelpView): Help {
+    const overlay = document.createElement('div');
+    overlay.id = 'help-overlay';
+    overlay.className = 'screen-help';
+    overlay.setAttribute('data-screen-help', '');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', strings.screenHelpTitle);
+    overlay.hidden = true;
+    document.body.append(overlay);
+    let returnFocus: HTMLElement | null = null;
+
+    function open(current: HelpView): void {
+        returnFocus = document.activeElement as HTMLElement | null;
+        const sections = [...HELP_SECTIONS].sort((a, b) => Number(b.view === current) - Number(a.view === current));
+        overlay.innerHTML = `<div class="screen-help-box">
+            <div class="screen-help-head"><strong>${escapeHtml(strings.screenHelpTitle)}</strong><button type="button" id="help-close-btn" class="tb-btn" data-action="help-close">${escapeHtml(strings.helpClose)}</button></div>
+            <div class="screen-help-tables">
+                ${sections.map(section => `<section data-help-section="${section.view}"${section.view === current ? ' data-screen-help-keys aria-current="true"' : ''}>`
+                    + `<h3>${escapeHtml(strings[section.titleKey])}</h3><table>${keyRows(section.rows, strings)}</table></section>`).join('')}
+                <section data-help-section="symbols"><h3>${escapeHtml(strings.helpSectionSymbols)}</h3><table data-screen-help-symbols>${symbolRows(strings.screenHelpSymbols)}</table></section>
+            </div>
+        </div>`;
+        overlay.hidden = false;
+        overlay.querySelector<HTMLElement>('#help-close-btn')?.focus();
     }
-    function closeHelp() {
-        var el = document.getElementById('help-overlay');
-        if (el) {
-            el.style.display = 'none';
-            el.hidden = true;
-        }
+    function close(): boolean {
+        if (overlay.hidden) return false;
+        overlay.hidden = true;
+        returnFocus?.focus?.();
+        return true;
     }
-    function isHelpOpen() { var el = document.getElementById('help-overlay'); return el && !el.hidden; }
-    var closeBtn = document.getElementById('help-close-btn');
-    if (closeBtn) {
-        closeBtn.addEventListener('click', closeHelp);
-    }
-    const overlayEl = document.getElementById('help-overlay');
-    if (!overlayEl) {
-        return;
-    }
-    overlayEl.addEventListener('click', function (e) {
-        if (eventTarget(e) === overlayEl) {
-            closeHelp();
+    overlay.addEventListener('click', event => {
+        const target = eventTarget(event);
+        if (target === overlay || target?.closest?.('[data-action="help-close"]')) close();
+    });
+    // aria-modal: Tab stays in the dialog.
+    overlay.addEventListener('keydown', event => {
+        if (event.key !== 'Tab') return;
+        const focusable = Array.from(overlay.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'));
+        const first = focusable[0], last = focusable[focusable.length - 1];
+        if (!first) { event.preventDefault(); return; }
+        if (event.shiftKey ? document.activeElement === first : document.activeElement === last) {
+            (event.shiftKey ? last : first).focus();
+            event.preventDefault();
         }
     });
-    // フォーカストラップ: aria-modal="true" の期待に応えるため、Tab キーをダイアログ内に閉じ込める
-    overlayEl.addEventListener('keydown', function (ev) {
-        if (ev.key !== 'Tab') {
-            return;
-        }
-        var focusable = Array.from(overlayEl.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
-        if (focusable.length === 0) {
-            ev.preventDefault();
-            return;
-        }
-        var first = focusable[0];
-        var last = focusable[focusable.length - 1];
-        if (ev.shiftKey) {
-            if (document.activeElement === first) {
-                last.focus();
-                ev.preventDefault();
+    keyRouterFor(window).add({
+        layer: 'help',
+        keydown(event) {
+            const toggle = event.key === '?' || event.key === 'F1';
+            if (!overlay.hidden) {
+                if (event.key === 'Tab') return false;
+                // Enter and Space still press the close button.
+                const pressing = (event.key === 'Enter' || event.key === ' ') && overlay.contains(event.target as Node);
+                if (!pressing) event.preventDefault();
+                if (toggle || event.key === 'Escape') close();
+                return true;
             }
-        }
-        else {
-            if (document.activeElement === last) {
-                first.focus();
-                ev.preventDefault();
-            }
-        }
+            // "?" typed into a field is a character; F1 always opens.
+            if (!toggle || (event.key === '?' && isTextEntryTarget(event.target))) return false;
+            event.preventDefault();
+            open(view());
+            return true;
+        },
     });
-    document.addEventListener('keydown', function (ev) {
-        var tag = document.activeElement && document.activeElement.tagName ? document.activeElement.tagName.toUpperCase() : '';
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
-            return;
-        }
-        if (ev.key === '?' || ev.key === 'F1') {
-            if (isHelpOpen()) {
-                closeHelp();
-            }
-            else {
-                openHelp();
-            }
-            ev.preventDefault();
-            return;
-        }
-        if (ev.key === 'Escape' && isHelpOpen()) {
-            closeHelp();
-            ev.stopPropagation();
-        }
-    });
+    return { open, close, isOpen: () => !overlay.hidden };
 }

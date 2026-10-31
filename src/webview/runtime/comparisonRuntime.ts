@@ -42,6 +42,8 @@ import { attachTrackLaneActions } from './trackLaneActions';
 import { attachTrackAudioListeners } from './trackAudioEvents';
 import { attachOverlaySpectrumDoubleClick, attachOverlaySpectrumHints } from './overlaySpectrumEvents';
 import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
+import { keyRouterFor } from './keyRouter';
+import { attachSeparatorKeys } from './separatorKeys';
 import { attachTrackPointerListeners } from './trackPointerEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
 import { rulerTicks } from './timeRuler';
@@ -53,7 +55,7 @@ import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { referenceButtonHtml } from './pairSpectrum';
-import { PairSpectrumPanel } from './pairSpectrumPanel';
+import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { paintTrackSpectrum } from './trackSpectrumPainter';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
 import { toolbarHtml } from './toolbarHtml';
@@ -90,7 +92,6 @@ import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
 import { ROLE_COLORS } from '../../shared/gui/roleColors';
 import { createTrackStageMode, type StageTrack, type TrackStageDeps, type TrackStageMode } from './trackStageMode';
-import { installScreenHelp } from './screenHelp';
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
 import {
@@ -160,6 +161,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const TRACK_HEIGHT_MAX = 440;
     const TRACK_SPLIT_H = 5;
     const WAVE_SHARE_DEFAULT = 0.4;
+    const SIDEBAR_WIDTH_MIN = 160;
+    /** The window keeps this much beside a widened side panel. */
+    const SIDEBAR_WIDTH_SPARE = 80;
     const WAVE_SHARE_MIN = 0.15;
     const WAVE_SHARE_MAX = 0.85;
     const LANE_PLOT_MIN = 40;
@@ -1146,11 +1150,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     syncWaveformModeButton();
     __updateSpecGearVisibility();
     attachEvents();
-    // Installed before the screens, so its key listener runs before theirs and owns ? and F1. The comparison's
-    // keys are listed while the track view compares (its steps mode, the entry table not over it).
-    const screenHelp = installScreenHelp(document, window, STR, () => {
+    // The help lists the keys of the view on show first: the entry table, the comparison (the track view's steps mode), or the lanes.
+    const help = installHelpOverlay(document, window, STR, () => {
         if (entryScreen.isOpen() || entryScreen.hasFocus()) return 'entry';
-        return stageMode?.active() ? 'compare' : null;
+        return stageMode?.active() ? 'compare' : 'lanes';
     });
     /** Tracks are analysed (waveform, spectrogram) for the files compared from the entry table, or the old screen's. */
     function selectTracks(filePaths: readonly string[], replace = false) {
@@ -1205,7 +1208,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         window: window as unknown as EntryScreenDeps['window'],
         strings: STR,
         dock: document.getElementById('entry-dock'),
-        maximizedChanged: () => scheduleRender(),
+        maximizedChanged(maximized) {
+            // Under the maximized table the rest of the layout takes neither Tab nor clicks.
+            ['selection-toolbar', 'selection-sidebar-rail', 'tree-resizer', 'selection-results-pane'].forEach(function (id) { document.getElementById(id)?.toggleAttribute('inert', maximized); });
+            document.querySelector('#selection-sidebar > .panel-toggle')?.toggleAttribute('inert', maximized);
+            scheduleRender();
+        },
         stepsChanged: () => scheduleRender(),
         shownTracks() {
             const shown = new Map<string, boolean>();
@@ -1249,7 +1257,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         saveDerived: rows => persistWebviewState({ entryDerived: rows }),
         // New results or conditions: the compared tracks' pictures follow.
         compareChanged() { scheduleRender(); },
-        help: () => screenHelp.open('entry'),
+        help: () => help.open('entry'),
         openFiles(filePaths, comparison) {
             // The slotted files are compared in the track view, beside the tracks already shown, as a step of the Recipe.
             selectTracks(filePaths);
@@ -1658,6 +1666,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             fileName: result.fileName,
             axisWidth: AXIS_W,
             spectrumTitle: STR.trackSpectrumTitle,
+            waveformLabel: STR.ariaWaveformCanvas.replace('{file}', result.fileName).replace('{channel}', channelLabel(result, channelIndex)),
+            spectrogramLabel: STR.ariaSpectrogramCanvas.replace('{file}', result.fileName).replace('{channel}', channelLabel(result, channelIndex)),
             axisHint: trackAxisHint(),
             spectrogramAxisHint: STR.hintSpectrogramFrequencyAxis + ' / ' + STR.hintWheelGestures,
             splitHint: STR.hintTrackSplit,
@@ -2385,12 +2395,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         });
         syncSpectrumHeaderHint();
-        document.addEventListener('keydown', function (e) {
-            // A text field (the offset editor) uses Esc to cancel its own edit.
-            if (e.key === 'Escape' && spectrumMaximized && !hasOpenOverlay() && !isTextEntryTag(eventTarget(e)?.tagName)) {
+        keyRouterFor(window).add({
+            layer: 'lanes',
+            keydown(e) {
+                // A text field (the offset editor) uses Esc to cancel its own edit.
+                if (e.key !== 'Escape' || !spectrumMaximized || hasOpenOverlay() || isTextEntryTag(eventTarget(e)?.tagName)) return false;
                 setSpectrumMaximized(false);
-            }
-        }, true);
+                return true;
+            },
+        });
         // Double-clicking a panel's resize edge folds it, the shortcut for its toggle button.
         document.addEventListener('dblclick', function (e) {
             const target = eventTarget(e);
@@ -2500,26 +2513,49 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         // The split between a lane's waveform and spectrogram: one share for every lane, kept across sessions.
         let splitDrag: { startY: number; startShare: number } | null = null;
-        tracksWrapper.addEventListener('mousedown', function (e) {
+        tracksWrapper.addEventListener('pointerdown', function (e) {
             const target = eventTarget(e);
             if (e.button !== 0 || !target || typeof target.closest !== 'function' || !target.closest('.track-split')) return;
             splitDrag = { startY: e.clientY, startShare: waveShare };
             document.body.classList.add('is-split-resizing');
             e.preventDefault();
         });
-        document.addEventListener('mousemove', function (e) {
+        document.addEventListener('pointermove', function (e) {
             if (!splitDrag) return;
-            const next = Math.min(WAVE_SHARE_MAX, Math.max(WAVE_SHARE_MIN, splitDrag.startShare + (e.clientY - splitDrag.startY) / trackHeight));
-            if (next === waveShare) return;
-            waveShare = next;
-            Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
-            scheduleRender();
+            setWaveShare(splitDrag.startShare + (e.clientY - splitDrag.startY) / trackHeight, false);
         });
-        document.addEventListener('mouseup', function () {
+        const endSplitDrag = function () {
             if (!splitDrag) return;
             splitDrag = null;
             document.body.classList.remove('is-split-resizing');
             persistWebviewState({ waveShare });
+            separatorKeys.sync();
+        };
+        document.addEventListener('pointerup', endSplitDrag);
+        document.addEventListener('pointercancel', endSplitDrag);
+        // The resize edges from the keyboard: a focused edge moves with the arrows, and says its value.
+        const separatorKeys = attachSeparatorKeys(document, {
+            range(handle) {
+                const action = handle.getAttribute('data-action');
+                if (action === 'track-height-drag') return { now: trackHeight, min: TRACK_HEIGHT_MIN, max: TRACK_HEIGHT_MAX, step: 8 };
+                if (action === 'spectrum-height-drag') return spectrumCollapsed || spectrumMaximized ? null : { now: spectrumOverlayHeight, min: SPECTRUM_HEIGHT_MIN, max: spectrumHeightLimit(), step: 8 };
+                if (action === 'track-split-drag') return { now: waveShare * 100, min: WAVE_SHARE_MIN * 100, max: WAVE_SHARE_MAX * 100, step: 5 };
+                if (action === 'pair-divider-drag') return { now: pairPanel.split * 100, min: PAIR_SPLIT_MIN * 100, max: PAIR_SPLIT_MAX * 100, step: 5 };
+                const sidebar = handle.id === 'tree-resizer' ? document.getElementById('selection-sidebar') : null;
+                return sidebar ? { now: sidebar.getBoundingClientRect().width, min: SIDEBAR_WIDTH_MIN, max: window.innerWidth - SIDEBAR_WIDTH_SPARE, step: 16 } : null;
+            },
+            set(handle, value) {
+                const action = handle.getAttribute('data-action');
+                if (action === 'track-height-drag') setTrackHeight(value);
+                else if (action === 'spectrum-height-drag') setSpectrumHeight(value);
+                else if (action === 'track-split-drag') setWaveShare(value / 100, true);
+                else if (action === 'pair-divider-drag') pairPanel.setSplit(value / 100);
+                else { const sidebar = document.getElementById('selection-sidebar'); if (sidebar) sidebar.style.width = value + 'px'; }
+            },
+            growKey(handle) {
+                const action = handle.getAttribute('data-action');
+                return action === 'spectrum-height-drag' ? 'ArrowUp' : action === 'track-height-drag' || action === 'track-split-drag' ? 'ArrowDown' : 'ArrowRight';
+            },
         });
         var stackedWrap = document.getElementById('stacked-wrap');
         if (stackedWrap) {
@@ -2553,7 +2589,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 attachCanvasFocusHint(canvas, hintFooter, STR.cursorHelpKeys);
             });
         }
-        attachGlobalKeyboardListeners(document, {
+        attachGlobalKeyboardListeners(keyRouterFor(window), document, {
             helpOverlay: () => document.getElementById('help-overlay'),
             spectrumHasMouse: () => spectrumHover.hasMouse,
             stepSpectrum(delta) {
@@ -2657,26 +2693,29 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         let startX = 0, startWidth = 0, dragging = false;
-        const move = function (event: MouseEvent) {
-            if (dragging) sidebar.style.width = Math.max(160, Math.min(window.innerWidth - 80, startWidth + event.clientX - startX)) + 'px';
+        const move = function (event: PointerEvent) {
+            if (dragging) sidebar.style.width = Math.max(SIDEBAR_WIDTH_MIN, Math.min(window.innerWidth - SIDEBAR_WIDTH_SPARE, startWidth + event.clientX - startX)) + 'px';
         };
         const up = function () {
             dragging = false;
             resizer.classList.remove('is-dragging');
-            document.removeEventListener('mousemove', move);
-            document.removeEventListener('mouseup', up);
+            document.removeEventListener('pointermove', move);
+            document.removeEventListener('pointerup', up);
+            document.removeEventListener('pointercancel', up);
             if (sidebar.getBoundingClientRect().width > window.innerWidth * 0.6) {
                 sidebar.style.width = startWidth + 'px';
                 entryScreen.setMaximized(true);
             }
         };
-        resizer.addEventListener('mousedown', function (event) {
+        resizer.addEventListener('pointerdown', function (event) {
+            if (event.button !== 0) return;
             dragging = true;
             startX = event.clientX;
             startWidth = sidebar.getBoundingClientRect().width;
             resizer.classList.add('is-dragging');
-            document.addEventListener('mousemove', move);
-            document.addEventListener('mouseup', up);
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', up);
+            document.addEventListener('pointercancel', up);
             event.preventDefault();
         });
     }
@@ -2929,6 +2968,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         else {
             setSpectrumHeight(value);
         }
+    }
+    /** The waveform's share of a lane's plots, for every lane; `persist` keeps it across sessions (a drag keeps it as it ends). */
+    function setWaveShare(value: number, persist: boolean): void {
+        const next = Math.min(WAVE_SHARE_MAX, Math.max(WAVE_SHARE_MIN, value));
+        if (next === waveShare) return;
+        waveShare = next;
+        Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
+        scheduleRender();
+        if (persist) persistWebviewState({ waveShare });
     }
     function setTrackHeight(value: number): void {
         const next = clampHeight(value, TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX);
@@ -3960,7 +4008,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             applyBtn.disabled = !!busy;
         }
     }
-    installHelpOverlay(document, STR);
     messaging.onMessage(function (msg) {
         if (!msg) {
             return;

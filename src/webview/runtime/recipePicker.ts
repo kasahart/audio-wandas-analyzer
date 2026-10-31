@@ -1,6 +1,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { recipeTitle, type RecipeCatalogEntry } from '../../shared/recipe/recipeFlow';
 import { createHintFooter, setHint } from './hintFooter';
+import { keyRouterFor } from './keyRouter';
 
 export type RecipePick = { location: string } | { file: File };
 
@@ -15,7 +16,7 @@ export interface RecipeMenus {
  * In-page recipe popovers for the static Web host. Each drops down under the toolbar's Export menu and
  * resolves undefined on Escape or a click elsewhere; opening another cancels the open one so no run waits forever.
  */
-export function createRecipeMenus(document: Document, strings: UiStrings): RecipeMenus {
+export function createRecipeMenus(document: Document, window: Pick<Window, 'addEventListener'>, strings: UiStrings): RecipeMenus {
     let cancelOpen: (() => void) | undefined;
     function open<T>(build: (menu: HTMLElement, finish: (value: T | undefined) => void) => void): Promise<T | undefined> {
         cancelOpen?.();
@@ -34,23 +35,24 @@ export function createRecipeMenus(document: Document, strings: UiStrings): Recip
             menu.style.cssText = `position:fixed;top:${top}px;left:${anchor ? anchor.left : 8}px;max-height:calc(100vh - ${top + 8}px);overflow-y:auto`;
             // Capture keys before the page's shortcuts: Space must press the focused item, not toggle playback,
             // and Escape must only close this menu, not also restore a maximized spectrum.
-            const onKey = (event: KeyboardEvent): void => {
-                if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish(undefined); }
-                else if (menu.contains(event.target as Node)) event.stopPropagation();
+            const onKey = (event: KeyboardEvent): boolean => {
+                if (event.key === 'Escape') { event.preventDefault(); finish(undefined); return true; }
+                return menu.contains(event.target as Node);
             };
+            let removeKeys = (): void => undefined;
             const onPointer = (event: Event): void => { if (!menu.contains(event.target as Node)) finish(undefined); };
             function finish(value: T | undefined): void {
                 cancelOpen = undefined;
                 menu.remove();
                 // The removed menu fires no mouseout, so its hint would otherwise stay until the pointer moves.
                 createHintFooter(document).clearIfShowing(strings.hintRecipeOpenFile);
-                document.removeEventListener('keydown', onKey, true);
+                removeKeys();
                 document.removeEventListener('pointerdown', onPointer, true);
                 resolve(value);
             }
             build(menu, finish);
             cancelOpen = () => finish(undefined);
-            document.addEventListener('keydown', onKey, true);
+            removeKeys = keyRouterFor(window).add({ layer: 'popover', keydown: onKey });
             document.addEventListener('pointerdown', onPointer, true);
             document.body.append(menu);
             // Under a menu near the window's right edge it would run off screen: it moves left to stay in.

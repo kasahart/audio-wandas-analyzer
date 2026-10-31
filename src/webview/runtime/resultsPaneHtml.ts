@@ -17,7 +17,7 @@ export interface ResultsPaneParts {
 export type SpectrumBandsSetting = 0 | 1 | 3;
 
 export type ResultsPaneStrings = Pick<UiStrings,
-    | 'ariaToolbar' | 'spectrumSectionTitle' | 'heightSpectrumLabel'
+    | 'ariaToolbar' | 'spectrumSectionTitle' | 'heightSpectrumLabel' | 'ariaResizeSpectrumHeight'
     | 'ariaSpecZoomOut' | 'ariaSpecZoomIn' | 'ariaSpecZoomReset' | 'btnSpecZoomReset' | 'heightSpectrumLabel'
     | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'btnSpectrumSettingsTitle' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'
     | 'hintSpectrumFft' | 'hintSpectrumOctave1' | 'hintSpectrumOctave3'
@@ -38,7 +38,7 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '  <div id="empty-state"><p>' + escapeHtml(parts.emptyMessage) + '</p></div>'
         + '</div>'
         + '<div id="spectrum-section"' + (parts.spectrumCollapsed ? ' class="is-collapsed"' : '') + '>'
-        + '  <div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag"' + hintAttr(strings.hintSpectrumHeightResizer) + ' role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.heightSpectrumLabel + ' resize') + '"></div>'
+        + '  <div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag"' + hintAttr(strings.hintSpectrumHeightResizer) + ' role="separator" tabindex="0" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.ariaResizeSpectrumHeight) + '"></div>'
         + '  <div id="spectrum-section-header"><span>' + escapeHtml(strings.spectrumSectionTitle) + '</span>' + spectrumMaximizeHtml(false, strings) + panelToggleHtml('spectrum', Boolean(parts.spectrumCollapsed), strings) + '</div>'
         + '  <div id="spectrum-zoom-toolbar" style="display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;">'
         + '    <span class="tb-label">' + escapeHtml(strings.heightSpectrumLabel) + '</span>'
@@ -50,7 +50,7 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '  </div>'
         + '  <div id="spectrum-split">'
         + '    <div id="spectrum-overlay-wrap"><div id="spectrum-overlay-header" class="spectrum-pane-header"><span id="spectrum-cursor-time"></span><span id="spectrum-freq-readout" class="spectrum-readout"></span></div><canvas id="spectrum-overlay-canvas" tabindex="0" aria-label="' + escapeHtml(strings.spectrumSectionTitle) + '"' + hintAttr(strings.hintSpectrumPlot) + '></canvas></div>'
-        + '    <div id="pair-divider" class="pair-divider" data-action="pair-divider-drag"' + hintAttr(strings.hintPairDivider) + ' role="separator" aria-orientation="vertical" aria-label="' + escapeHtml(strings.hintPairDivider) + '"></div>'
+        + '    <div id="pair-divider" class="pair-divider" data-action="pair-divider-drag"' + hintAttr(strings.hintPairDivider) + ' role="separator" tabindex="0" aria-orientation="vertical" aria-label="' + escapeHtml(strings.hintPairDivider) + '"></div>'
         + '    <div id="pair-spectrum-wrap" aria-label="' + escapeHtml(strings.pairSectionTitle) + '">'
         + '      <div id="pair-spectrum-header" class="spectrum-pane-header"><span id="pair-spectrum-summary"></span><span id="pair-spectrum-legend"></span><span id="pair-spectrum-readout" class="spectrum-readout"></span></div>'
         + '      <div id="pair-spectrum-plot"><canvas id="pair-spectrum-canvas" aria-label="' + escapeHtml(strings.pairSectionTitle) + '"' + hintAttr(strings.hintPairPlot) + '></canvas><div id="pair-spectrum-message" style="display:none"></div></div>'

@@ -3,6 +3,7 @@ import { STFT_OVERLAP_PERCENT_OPTIONS, type SpectrogramDisplaySettings, type Spe
 import type { UiStrings } from '../../shared/i18n/strings';
 import { eventTarget } from './domAdapter';
 import { hintAttr, hoverHintAttr } from './hintFooter';
+import { keyRouterFor } from './keyRouter';
 
 export type SpectrogramSettingsPopoverStrings = Pick<UiStrings,
     'specSettingsAuto' | 'specSettingsStftLegend' | 'specSettingsNFft' | 'specSettingsOverlap' | 'specSettingsWindow'
@@ -157,10 +158,15 @@ export function installSpectrogramSettingsPopover(
             close();
         }
     });
-    document.addEventListener('keydown', function (ev) {
-        if (ev.key === 'Escape') {
+    keyRouterFor(document.defaultView!).add({
+        layer: 'popover',
+        keydown(ev) {
+            if (ev.key !== 'Escape' || !popover || popover.hidden) {
+                return false;
+            }
             close();
-        }
+            return true;
+        },
     });
 
     return { open, close, isOpen: () => !!popover && !popover.hidden, applyAutoState };

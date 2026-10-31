@@ -15,6 +15,9 @@ export interface ChannelLaneSpec {
     fileName: string;
     axisWidth: number;
     spectrumTitle: string;
+    /** The canvases' accessible names: the file, the channel and what the canvas shows. */
+    waveformLabel: string;
+    spectrogramLabel: string;
     axisHint: string;
     spectrogramAxisHint: string;
     splitHint: string;
@@ -37,12 +40,12 @@ export function channelLaneHtml(spec: ChannelLaneSpec): string {
         + '    <div class="track-canvas-stack">'
         + '    <div class="track-canvas-wrap" id="' + trackCanvasWrapId(trackIndex, channelIndex) + '">'
         + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + axisWidth + 'px"' + dataAttrs + hintAttr(spec.axisHint) + '></canvas>'
-        + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="0" style="outline:none;flex:1"></canvas>'
+        + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="0" role="img" aria-label="' + escapeHtml(spec.waveformLabel) + '" style="flex:1"></canvas>'
         + '    </div>'
-        + '    <div class="track-split" data-action="track-split-drag"' + dataAttrs + hintAttr(spec.splitHint) + ' role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(spec.splitLabel) + '"></div>'
+        + '    <div class="track-split" data-action="track-split-drag"' + dataAttrs + hintAttr(spec.splitHint) + ' role="separator" tabindex="0" aria-orientation="horizontal" aria-label="' + escapeHtml(spec.splitLabel) + '"></div>'
         + '    <div class="track-spec-wrap" id="' + trackSpecWrapId(trackIndex, channelIndex) + '">'
         + '      <canvas class="track-axis-canvas track-spec-axis" id="' + trackSpecAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + axisWidth + 'px"' + dataAttrs + hintAttr(spec.spectrogramAxisHint) + '></canvas>'
-        + '      <canvas class="track-canvas track-spec-canvas" id="' + trackSpecCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="-1" style="outline:none;flex:1"></canvas>'
+        + '      <canvas class="track-canvas track-spec-canvas" id="' + trackSpecCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="-1" role="img" aria-label="' + escapeHtml(spec.spectrogramLabel) + '" style="flex:1"></canvas>'
         + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' aria-hidden="true" style="position:absolute;left:' + axisWidth + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
         + '    </div>'
         + '    </div>'
@@ -74,7 +77,7 @@ export type TrackRowStrings = Pick<UiStrings,
     | 'ariaDragHandle' | 'clipBadgeTitle' | 'trackMoreHint' | 'offsetStepUp' | 'offsetStepDown' | 'offsetEdit' | 'offsetReset'
     | 'trackPlayTitle' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaTrackMute' | 'ariaRemoveTrack'
     | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'
-    | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'heightTrackLabel'
+    | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'ariaResizeTrackHeight'
     | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'
     | 'peakLabel' | 'calibrationBadgeUncalibratedHint' | 'calibrationBadgePartialHint' | 'calibrationFactorLabel'>;
 
@@ -115,6 +118,6 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '  </div>'
         + '</div>'
         + '<div class="track-channel-lanes">' + spec.lanesHtml + '</div>'
-        + '<div class="height-resizer track-height-resizer" data-action="track-height-drag"' + hintAttr(strings.hintTrackHeightResizer) + ' role="separator" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.heightTrackLabel + ' resize') + '"></div>'
+        + '<div class="height-resizer track-height-resizer" data-action="track-height-drag"' + hintAttr(strings.hintTrackHeightResizer) + ' role="separator" tabindex="0" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.ariaResizeTrackHeight) + '"></div>'
         + '</div>';
 }

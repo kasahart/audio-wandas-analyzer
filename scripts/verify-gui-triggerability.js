@@ -64,7 +64,7 @@ function collectWebviewActionIds(repoRoot) {
         path.join(repoRoot, 'src', 'webview', 'runtime', 'comparePanes.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'stepBar.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'entryRuntime.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'screenHelp.ts'),
+        path.join(repoRoot, 'src', 'webview', 'runtime', 'helpOverlay.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'trackStageMode.ts'),
         path.join(repoRoot, 'src', 'webview', 'runtime', 'roleChip.ts'),
     ];

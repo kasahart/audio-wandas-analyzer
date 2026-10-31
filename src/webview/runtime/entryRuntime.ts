@@ -35,6 +35,8 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { finiteNumber } from '../../shared/dataset/asdData';
+import { keyRouterFor } from './keyRouter';
+import { ENTRY_KEYS, keyAction } from './shortcuts';
 import {
     annotatedCsv, baseGroupMembers, columnValues, datasetRows, filteredRows, fileOfKey, rowKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
@@ -543,7 +545,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         excludedButton.setAttribute('aria-pressed', String(mode === 'excluded'));
         query('[data-entry-source]').textContent = csv && match ? strings.dsCsvSource.replace('{name}', csv.name).replace('{matched}', String(match.attributes.size)).replace('{total}', String(filePaths.length)) : strings.dsPickCsv;
         cols.innerHTML = datasetColsHtml(view);
-        // The head is drawn again: a focus on its ○/◐/● stays there.
+        // The head is drawn again: a focus on its ☐/⊟/☑ stays there.
         const headFocused = !!document.activeElement?.closest?.('[data-action="entry-tracks-all"]') && head.contains(document.activeElement);
         head.innerHTML = datasetHeadHtml(view, text);
         if (headFocused) focusHeadMark();
@@ -1144,11 +1146,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!held.length) { deps.setShown?.(filePath, false); return; }
         for (const slot of held) setSlot(slot, null);
     }
-    /** The head's ○/◐/●: shows every listed file as a track (many only once confirmed), or takes them all off. */
+    /** The head's ☐/⊟/☑: shows every listed file as a track (many only once confirmed), or takes them all off. */
     function toggleAllTracks(): void {
         const listed = listedFiles();
         const missing = notShown(listed);
-        // Only a partial result of that try (◐) turns into taking them off; with none on, ○ shows them again.
+        // Only a partial result of that try (⊟) turns into taking them off; with none on, ☐ shows them again.
         const tried = triedAll === listed.join('\n') && missing.length < listed.length;
         const adding = tried ? [] : missing;
         pendingAll = null;
@@ -1160,7 +1162,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return;
         }
         if (adding.length) { showAll(listed, adding); return; }
-        // Off the tracks is out of the slots too, as a row's ● does; Tracks only would be left with no rows.
+        // Off the tracks is out of the slots too, as a row's ☑ does; Tracks only would be left with no rows.
         const off = new Set(listed);
         slots.forEach((item, slot) => { if (item && off.has(fileOfKey(item))) setSlot(slot, null, false); });
         const wasOnly = tracksOnly;
@@ -1575,7 +1577,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const action = target.closest<HTMLElement>('[data-action]');
         // A choice in the table's 書き出し menu closes it, the focus back on its summary.
         if (action?.closest('#entry-export-menu')) closeExportMenu();
-        // The second click of a double click on ● does not take the track off again.
+        // The second click of a double click on ☑ does not take the track off again.
         const repeated = event.detail > 1;
         if (action && action.tagName !== 'SELECT' && action.tagName !== 'INPUT' && actions[action.getAttribute('data-action')!]) {
             if (!(repeated && action.getAttribute('data-action') === 'entry-row-track')) actions[action.getAttribute('data-action')!](action);
@@ -1801,54 +1803,56 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
     });
 
-    // Capture phase on the window runs before the lane view's document listeners, which never see these keys.
     /** Maximized, the table takes the keys; in the side panel, only keys pressed while it has the focus. */
     const keysHere = (event: Event): boolean => !screen.hidden && (maximized || screen.contains(event.target as Node));
     /** A button, a field or a popover takes its own keys (Enter, Space, digits): the table's keys act on rows only. */
     const ownKeys = (event: Event): boolean => !!(event.target as Element | null)?.closest?.('button, summary, select, input, textarea, [data-entry-pop], [data-step-bar], #entry-range-popover');
-    window.addEventListener('keydown', (event: KeyboardEvent) => {
-        if (!keysHere(event)) return;
-        if ((event.target as Element | null)?.closest?.('[data-step-bar], #entry-range-popover')) return;
-        // Immediate, so the other screen's listener does not act on a key that just switched screens.
-        event.stopImmediatePropagation();
-        if (closesEntryDialog(event)) {
-            event.preventDefault();
-            // Esc closes the innermost thing: a popover, the step bar's form, the unmatched or excluded list;
-            // then the maximized table shrinks into the side panel, and the side panel hands the keys back.
-            if (closePopovers()) return;
-            if (pendingAll) { pendingAll = null; render(); focusHeadMark(); return; }
-            if (closeExportMenu()) return;
-            if (stepBar.close()) return;
-            if (mode !== 'all') { mode = 'all'; rebuild(); return; }
-            // The range picked on the distribution goes before the table shrinks.
-            if (maximized && valueRange()) { filters = filters.filter(filter => filter.column !== value); rebuild(); return; }
-            if (maximized) { setMaximized(false); return; }
-            (document.activeElement as HTMLElement | null)?.blur?.();
-            return;
-        }
-        if (ownKeys(event) || event.ctrlKey || event.metaKey || event.altKey) return;
-        if (/^[0-3]$/.test(event.key)) {
-            event.preventDefault();
-            if (!event.repeat) press(Number(event.key));
-        } else if (event.key === 'Enter') {
-            event.preventDefault();
-            openSlotted();
-        } else if (event.key === ' ') {
-            event.preventDefault();
-            if (focused) deps.play?.(fileOfKey(focused));
-        } else if (event.key === 'm' || event.key === 'M') {
-            event.preventDefault();
-            if (focused) openMemo(focused);
-        } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            event.preventDefault();
-            moveFocus(event.key === 'ArrowDown' ? 1 : -1);
-        }
-    }, true);
-    window.addEventListener('keyup', (event: KeyboardEvent) => {
-        if (!keysHere(event) || ownKeys(event)) return;
-        event.stopImmediatePropagation();
-        if (/^[0-3]$/.test(event.key)) release(Number(event.key));
-    }, true);
+    // In front of the comparison and the lanes: a key the table is given goes no further, so one that just
+    // switched screens does not act on the other one too.
+    keyRouterFor(window).add({
+        layer: 'entry',
+        keydown(event) {
+            if (!keysHere(event)) return false;
+            if ((event.target as Element | null)?.closest?.('[data-step-bar], #entry-range-popover')) return false;
+            if (closesEntryDialog(event)) {
+                event.preventDefault();
+                // Esc closes the innermost thing: a popover, the step bar's form, the unmatched or excluded list;
+                // then the maximized table shrinks into the side panel, and the side panel hands the keys back.
+                if (closePopovers()) return true;
+                if (pendingAll) { pendingAll = null; render(); focusHeadMark(); return true; }
+                if (closeExportMenu()) return true;
+                if (stepBar.close()) return true;
+                if (mode !== 'all') { mode = 'all'; rebuild(); return true; }
+                // The range picked on the distribution goes before the table shrinks.
+                if (maximized && valueRange()) { filters = filters.filter(filter => filter.column !== value); rebuild(); return true; }
+                if (maximized) { setMaximized(false); return true; }
+                (document.activeElement as HTMLElement | null)?.blur?.();
+                return true;
+            }
+            // A row's ☐/☑ takes Enter and Space as its press.
+            const mark = (event.target as Element | null)?.closest?.<HTMLElement>('[data-action="entry-row-track"]');
+            if (mark && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                actions['entry-row-track'](mark);
+                return true;
+            }
+            if (ownKeys(event) || event.ctrlKey || event.metaKey || event.altKey) return true;
+            const action = keyAction(ENTRY_KEYS, event.key);
+            if (action) event.preventDefault();
+            if (action === 'slot') { if (!event.repeat) press(Number(event.key)); }
+            else if (action === 'open') openSlotted();
+            else if (action === 'play') { if (focused) deps.play?.(fileOfKey(focused)); }
+            else if (action === 'memo') { if (focused) openMemo(focused); }
+            else if (action === 'track') { if (focused && mode === 'all') { toggleTrack(focused); render(); } }
+            else if (action === 'row-up' || action === 'row-down') moveFocus(action === 'row-down' ? 1 : -1);
+            return true;
+        },
+        keyup(event) {
+            if (!keysHere(event) || ownKeys(event)) return false;
+            if (keyAction(ENTRY_KEYS, event.key) === 'slot') release(Number(event.key));
+            return true;
+        },
+    });
 
     return {
         open(paths: string[], root = '', maximize = false): void {

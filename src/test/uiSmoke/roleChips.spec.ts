@@ -12,7 +12,7 @@ type Posted = { type: string; requestId: string; filePaths: string[] };
 const posted = (page: Page): Promise<Posted[]> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Posted[] }).__uiSmokePostedMessages);
 const slotText = (page: Page, slot: number) => page.locator(`[data-entry-slots] [data-action="entry-slot"][data-slot="${slot}"]`);
 
-/** Shows two of the table's rows as tracks with ○, as a host answers: the lanes are there, no role yet. */
+/** Shows two of the table's rows as tracks with ☐, as a host answers: the lanes are there, no role yet. */
 async function twoTracks(page: Page): Promise<string[]> {
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
     await openEntry(page, scanned!, { recipe, docked: true });

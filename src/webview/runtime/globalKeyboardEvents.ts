@@ -1,3 +1,4 @@
+import type { KeyRouter } from './keyRouter';
 import { keydownContextFor, keydownIntent, type FocusedElementLike, type GlobalShortcutAction } from './shortcuts';
 
 export interface GlobalKeyboardHandlers<A extends FocusedElementLike> {
@@ -12,15 +13,20 @@ export interface GlobalKeyboardHandlers<A extends FocusedElementLike> {
 
 interface KeyboardDocument<A> {
     readonly activeElement: A | null;
-    addEventListener(type: 'keydown' | 'keyup', listener: (event: KeyboardEvent) => void): void;
 }
 
-export function attachGlobalKeyboardListeners<A extends FocusedElementLike>(doc: KeyboardDocument<A>, handlers: GlobalKeyboardHandlers<A>): void {
-    doc.addEventListener('keydown', function (e) {
+/** The lanes' keys: the context at the back of the router, reached by what the views in front leave. */
+export function attachGlobalKeyboardListeners<A extends FocusedElementLike>(router: Pick<KeyRouter, 'add'>, doc: KeyboardDocument<A>, handlers: GlobalKeyboardHandlers<A>): void {
+    router.add({ layer: 'lanes', keydown, keyup });
+    function keydown(e: KeyboardEvent): boolean {
+        // A focused role chip takes the digits as its slot (roleChip.ts).
+        if (/^[0-3]$/.test(e.key) && (e.target as Element | null)?.closest?.('details.role-chip')) {
+            return false;
+        }
         const active = doc.activeElement;
         const intent = keydownIntent(e, keydownContextFor(active, handlers.helpOverlay(), handlers.spectrumHasMouse()));
         if (!intent) {
-            return;
+            return false;
         }
         e.preventDefault();
         if (intent.kind === 'spectrum-step') {
@@ -35,10 +41,12 @@ export function attachGlobalKeyboardListeners<A extends FocusedElementLike>(doc:
         else {
             handlers.stepCursor(intent.direction, e.shiftKey, active);
         }
-    });
-    doc.addEventListener('keyup', function (e) {
+        return true;
+    }
+    function keyup(e: KeyboardEvent): boolean {
         if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
             handlers.arrowReleased();
         }
-    });
+        return false;
+    }
 }

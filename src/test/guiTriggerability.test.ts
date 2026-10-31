@@ -68,7 +68,7 @@ test('GUI triggerability inventory lists in-scope commands and excludes debug-on
     assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('track-split-drag'));
     assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('toggle-playback'));
     assert.ok(inventory.GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS.includes('configure-calibration'));
-    assert.ok(inventory.GUI_TRIGGERABILITY_SCOPED_SHORTCUTS.includes('?'));
+    assert.ok(inventory.GUI_TRIGGERABILITY_SCOPED_SHORTCUTS.includes('? / F1'));
     assert.ok(inventory.GUI_TRIGGERABILITY_SCOPED_SHORTCUTS.includes('Esc'));
     assert.ok(inventory.GUI_TRIGGERABILITY_FEATURES.some((feature) => feature.id === 'welcome-open-target'));
     assert.ok(inventory.GUI_TRIGGERABILITY_FEATURES.some((feature) => feature.id === 'export-report'));
