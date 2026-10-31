@@ -4,6 +4,8 @@ import {
     centerRangeOn,
     normAtPlotX,
     panNormalizedRange,
+    panNormalizedRangeBy,
+    wheelPanPixels,
     rangeAroundRegion,
     zoomRangeAroundPivot,
 } from '../webview/runtime/waveformInteraction';
@@ -36,6 +38,23 @@ test('panNormalizedRange moves by a tenth of the span and stops at the edges', (
     assertRange(panNormalizedRange({ start: 0.4, end: 0.6 }, -1), 0.38, 0.58);
     assertRange(panNormalizedRange({ start: 0.01, end: 0.51 }, -1), 0, 0.5);
     assertRange(panNormalizedRange({ start: 0.49, end: 0.99 }, 1), 0.5, 1);
+});
+
+test('panNormalizedRangeBy moves by any fraction of the span and stops at the edges', () => {
+    assertRange(panNormalizedRangeBy({ start: 0.4, end: 0.6 }, 0.25), 0.45, 0.65);
+    assertRange(panNormalizedRangeBy({ start: 0.4, end: 0.6 }, -3), 0, 0.2);
+    assertRange(panNormalizedRangeBy({ start: 0, end: 1 }, 0.5), 0, 1);
+});
+
+test('wheelPanPixels takes the sideways part of a swipe when it leads, else the turn, in pixels', () => {
+    // A two-finger sideways swipe (with a little vertical drift).
+    assert.equal(wheelPanPixels({ deltaX: -12, deltaY: 3, deltaMode: 0 }, 800), -12);
+    // Shift+wheel turned sideways by the system (macOS), and a plain Shift+wheel notch.
+    assert.equal(wheelPanPixels({ deltaX: 100, deltaY: 0, deltaMode: 0 }, 800), 100);
+    assert.equal(wheelPanPixels({ deltaX: 0, deltaY: -100, deltaMode: 0 }, 800), -100);
+    // Lines and pages (Firefox) in pixels.
+    assert.equal(wheelPanPixels({ deltaX: 0, deltaY: 3, deltaMode: 1 }, 800), 120);
+    assert.equal(wheelPanPixels({ deltaX: 1, deltaY: 0, deltaMode: 2 }, 800), 800);
 });
 
 test('centerRangeOn follows a cursor without changing the span', () => {

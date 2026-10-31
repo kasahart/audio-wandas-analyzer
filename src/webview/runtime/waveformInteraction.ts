@@ -51,7 +51,24 @@ export function normAtPlotX(range: NormalizedRange, plotX: number, plotWidth: nu
 export const PAN_STEP_RATIO = 0.1;
 
 export function panNormalizedRange(range: NormalizedRange, direction: -1 | 1): NormalizedRange {
-    const shift = (range.end - range.start) * PAN_STEP_RATIO * direction;
+    return panNormalizedRangeBy(range, PAN_STEP_RATIO * direction);
+}
+
+/** One wheel line, in CSS pixels (a mouse notch is about three). */
+export const WHEEL_LINE_PX = 40;
+
+/**
+ * A wheel event as a sideways move in CSS pixels (positive: later): its sideways part when that leads (a
+ * trackpad's two-finger swipe, or Shift+wheel where the system turns it sideways), else its turn (Shift+wheel).
+ */
+export function wheelPanPixels(event: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'deltaMode'>, pagePx: number): number {
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    return delta * (event.deltaMode === 1 ? WHEEL_LINE_PX : event.deltaMode === 2 ? pagePx : 1);
+}
+
+/** The range moved by `fraction` of its span (positive: later), stopping at the edges. */
+export function panNormalizedRangeBy(range: NormalizedRange, fraction: number): NormalizedRange {
+    const shift = (range.end - range.start) * fraction;
     if (range.start + shift < 0) {
         return { start: 0, end: range.end - range.start };
     }

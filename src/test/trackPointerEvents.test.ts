@@ -61,3 +61,17 @@ test('attachTrackPointerListeners zooms with Ctrl+wheel, pans with Shift+wheel a
     assert.equal(wheel({}), false);
     assert.deepEqual(calls, ['zoom', 'pan']);
 });
+
+test('attachTrackPointerListeners pans with a sideways swipe on a plot and leaves it alone elsewhere', () => {
+    const { window, calls, at } = setup();
+    const wheel = (selector: string, init: WheelEventInit) => {
+        const event = new window.WheelEvent('wheel', { bubbles: true, cancelable: true, ...init });
+        at(selector).dispatchEvent(event);
+        return event.defaultPrevented;
+    };
+    assert.equal(wheel('.track-canvas', { deltaX: 12, deltaY: 2 }), true);
+    // Mostly vertical: the lanes scroll; off the plots: the page's own sideways scroll stays.
+    assert.equal(wheel('.track-canvas', { deltaX: 2, deltaY: 12 }), false);
+    assert.equal(wheel('.label', { deltaX: 12 }), false);
+    assert.deepEqual(calls, ['pan']);
+});

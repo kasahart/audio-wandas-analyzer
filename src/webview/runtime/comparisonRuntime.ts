@@ -100,6 +100,7 @@ import {
     loopRegionForDrag,
     normAtPlotX,
     rectZoomTarget,
+    wheelPanPixels,
     wheelZoomFactor,
     ZOOM_IN_FACTOR,
 } from './waveformInteraction';
@@ -3422,7 +3423,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function handlePanWheel(e: WheelEvent): void {
         disableFollowCursor();
-        waveformView.pan(e.deltaY > 0 ? 1 : -1);
+        // Over a lane the plot's own width, so the waveform follows the fingers; elsewhere the lanes' width.
+        const target = eventTarget(e);
+        const canvas = target && typeof target.closest === 'function' ? target.closest<HTMLCanvasElement>('.track-canvas') : null;
+        const wrapper = document.getElementById('tracks-wrapper');
+        const width = canvas
+            ? (canvas.classList.contains('track-spec-canvas') ? spectrogramPlotWidth(canvas.width) : canvas.width)
+            : (wrapper ? wrapper.getBoundingClientRect().width - TRACK_HEADER_W : 0);
+        if (width <= 0) {
+            return;
+        }
+        waveformView.panBy(wheelPanPixels(e, width) / width);
         scheduleRender();
     }
     function handleCanvasMouseMove(e: MouseEvent): void {

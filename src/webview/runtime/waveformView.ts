@@ -2,6 +2,7 @@ import {
     canvasYToAmplitudeNorm,
     centerRangeOn,
     panNormalizedRange,
+    panNormalizedRangeBy,
     MIN_SELECTION_SPAN,
     rangeAroundRegion,
     zoomNormalizedRange,
@@ -47,6 +48,11 @@ export class WaveformView {
 
     pan(direction: -1 | 1): void {
         this.setTimeRange(panNormalizedRange(this.timeRange(), direction));
+    }
+
+    /** Moved by `fraction` of the visible span (positive: later). */
+    panBy(fraction: number): void {
+        this.setTimeRange(panNormalizedRangeBy(this.timeRange(), fraction));
     }
 
     centerOn(norm: number): void {
