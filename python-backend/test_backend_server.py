@@ -1205,7 +1205,7 @@ def test_backend_has_no_scipy_stft_implementation() -> None:
     assert "get_window" not in source
 
 
-@pytest.mark.parametrize("points", [8192, 8193])
+@pytest.mark.parametrize("points", [32768, 32769])
 def test_waveform_point_limit_is_validated_before_dispatch(points: int) -> None:
     payload = {
         "cmd": "range",
@@ -1215,7 +1215,7 @@ def test_waveform_point_limit_is_validated_before_dispatch(points: int) -> None:
         "endNorm": 1,
         "points": points,
     }
-    if points == 8192:
+    if points == 32768:
         assert validate_request(payload) is payload
     else:
         with pytest.raises(ValueError, match="points"):

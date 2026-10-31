@@ -41,7 +41,7 @@ function buildRangeWaveform(pointCount: number, startNorm: number, endNorm: numb
     return { min, max, minT, maxT, samples, absolutePeak: 0.65 * scale };
 }
 
-test('zoomed waveform uses range cache only while it fully covers the view', async ({ page }) => {
+test('zoomed waveform keeps the prefetched range while panning and drops to the overview only past it', async ({ page }) => {
     await loadUi(page);
     await forceOverviewWaveformScale(page, PCM_SCALE);
 
@@ -85,7 +85,7 @@ test('zoomed waveform uses range cache only while it fully covers the view', asy
     });
 
     const toolbar = page.locator('#toolbar');
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 9; i += 1) { // deep enough that the prefetched range is narrower than the file
         await toolbar.locator('[data-action="zoom-in"]').click({ force: true });
     }
 
@@ -150,19 +150,46 @@ test('zoomed waveform uses range cache only while it fully covers the view', asy
         };
         win.__uiSmokeWaveformCalls = [];
     });
-    await page.locator('#tracks-wrapper').dispatchEvent('wheel', {
-        deltaY: 100,
-        shiftKey: true,
-        bubbles: true,
-        cancelable: true,
-    });
-
-    await expect.poll(async () => page.evaluate(() => {
+    const lastDrawn = () => page.evaluate(() => {
         const win = window as unknown as {
             __uiSmokeWaveformCalls: Array<{ dataStart?: number; dataEnd?: number; ySpan: number }>;
         };
         const last = win.__uiSmokeWaveformCalls.at(-1);
         if (!last) { return 'none'; }
         return last.dataStart === 0 && last.dataEnd === 1 ? 'overview' : 'range';
-    })).toBe('overview');
+    });
+    const panScreens = async (steps: number) => {
+        for (let i = 0; i < steps; i += 1) {
+            await page.locator('#tracks-wrapper').dispatchEvent('wheel', {
+                deltaY: 100,
+                shiftKey: true,
+                bubbles: true,
+                cancelable: true,
+            });
+        }
+    };
+    // Shift+wheel pans 10 % of the view: the range already holds two screens either side, so the lines stay fine (#502).
+    await panScreens(1);
+    await expect.poll(lastDrawn).toBe('range');
+    // Past the fetched range the overview fills the rest of the view while the part still fetched keeps its detail,
+    // and only once the view has left that range entirely is the overview all there is (until the next range lands).
+    const lastFrame = () => page.evaluate(() => {
+        const calls = (window as unknown as { __uiSmokeWaveformCalls: Array<{ dataStart?: number; dataEnd?: number }> }).__uiSmokeWaveformCalls;
+        const whole = (call: { dataStart?: number; dataEnd?: number } | undefined) => !!call && call.dataStart === 0 && call.dataEnd === 1;
+        const [under, over] = calls.slice(-2);
+        if (whole(under) && over && !whole(over)) return 'layered';
+        return whole(over) ? 'overview' : 'range';
+    });
+    const seen: string[] = [];
+    for (let step = 0; step < 200 && !seen.includes('overview'); step += 1) {
+        await panScreens(1);
+        await nextFrame(page);
+        const frame = await lastFrame();
+        if (seen.at(-1) !== frame) seen.push(frame);
+    }
+    expect(seen).toEqual(['range', 'layered', 'overview']);
 });
+
+function nextFrame(page: Page): Promise<void> {
+    return page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}

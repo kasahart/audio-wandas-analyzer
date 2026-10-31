@@ -473,7 +473,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "points": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 8192
+                    "maximum": 32768
                 },
                 "calibrationProfile": {
                     "$ref": "#/$defs/CalibrationProfile"
