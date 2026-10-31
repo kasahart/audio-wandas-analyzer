@@ -81,7 +81,7 @@ import { TrackStore } from './trackStore';
 import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
-import { createEntryScreen, type EntryScreenDeps } from './entryRuntime';
+import { createEntryScreen } from './entryRuntime';
 import { diffHeadline } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { channelResult } from '../../shared/recipe/channelSelection';
@@ -89,7 +89,7 @@ import { reportFiles } from './compareReport';
 import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
 import { ROLE_COLORS, useLightRoleColors } from '../../shared/gui/roleColors';
-import { createTrackStageMode, type StageTrack, type TrackStageDeps, type TrackStageMode } from './trackStageMode';
+import { createTrackStageMode, type StageTrack, type TrackStageMode } from './trackStageMode';
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
 import {
@@ -1133,8 +1133,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function setFilesShown(filePaths: readonly string[], shown: boolean) {
         if (shown) {
             // A hidden track asked for again is shown again.
-            const unhidden = filePaths.map(trackRecordForPath).filter(record => record?.runtime.hidden);
-            unhidden.forEach(record => { record!.runtime.hidden = false; });
+            const unhidden = filePaths.map(trackRecordForPath).filter((record): record is NonNullable<typeof record> => !!record?.runtime.hidden);
+            unhidden.forEach(record => { record.runtime.hidden = false; });
             if (unhidden.length) {
                 updateVisibility();
                 scheduleRender();
@@ -1167,7 +1167,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     const entryScreen = createEntryScreen({
         document,
-        window: window as unknown as EntryScreenDeps['window'],
+        window,
         strings: STR,
         dock: document.getElementById('entry-dock'),
         maximizedChanged(maximized) {
@@ -1234,7 +1234,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         saveFolder: (folder, files) => messaging.post({ type: 'save-report-folder', folder, files }),
         download(csv, fileName) {
             if (messaging.downloadFile(csv, fileName, 'text/csv;charset=utf-8')) return;
-            downloadEntryCsv(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), fileName);
+            downloadEntryCsv(document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), fileName);
         },
     });
     if (state.entry && allSelectableFilePaths.length) {
@@ -1245,7 +1245,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         .reduce<number | undefined>((fewest, record) => Math.min(fewest ?? Infinity, record.result.channelCount), undefined);
     stageMode = createTrackStageMode({
         document,
-        window: window as unknown as TrackStageDeps['window'],
+        window,
         strings: STR,
         post: message => messaging.post(message),
         // The steps the comparison runs are bounded by the tracks it compares, not every file of the table.
@@ -1558,10 +1558,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 el.textContent = text;
             }
         };
-        const folderButton = requiredElementById(document, 'selection-toolbar').querySelector<HTMLElement>('[data-action="open-folder"]')!;
-        const folder = selectionFolderButton(Boolean(rootLabel) || listedCount > 0, STR);
-        folderButton.textContent = folder.text;
-        setHint(folderButton, folder.hint);
+        const folderButton = requiredElementById(document, 'selection-toolbar').querySelector<HTMLElement>('[data-action="open-folder"]');
+        if (folderButton) {
+            const folder = selectionFolderButton(Boolean(rootLabel) || listedCount > 0, STR);
+            folderButton.textContent = folder.text;
+            setHint(folderButton, folder.hint);
+        }
         requiredElementById(document, 'directory-selection-layout').classList.toggle('is-empty', !listedCount);
         emptyMessage(selectionEmptyText());
         syncSelectionSummary();
@@ -1909,7 +1911,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
         const { dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = spectrogramDisplayBounds(spec, __spectrogramSettings.display, spectrogramAutoBounds(spec));
         const plotW = spectrogramPlotWidth(W);
-        const cacheId = trackRecordAtIndex(trackIndex)!.id + ':' + channelIndex;
+        const record = trackRecordAtIndex(trackIndex);
+        if (!record) {
+            return;
+        }
+        const cacheId = record.id + ':' + channelIndex;
         spectrogramRasterCache.set(cacheId, paintTrackSpectrogram(ctx, W, H, spec, {
             zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
             durationSec: result.durationSeconds,
@@ -2823,7 +2829,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // detail and cursor spectra they lack, and the image is composed once those have arrived (or after a while, as far as they got).
         renderEveryLane();
         const failed = STR.announceExportPngFailed || 'PNG export failed: no visible canvases';
-        if (visibleExportCanvases(document.getElementById('tracks-wrapper') as unknown as Element | null).length === 0) {
+        if (visibleExportCanvases(document.getElementById('tracks-wrapper')).length === 0) {
             messaging.post({ type: 'show-info', message: failed });
             taskStatus(failed, 'failed');
             return;
@@ -2839,18 +2845,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         renderEveryLane();
         const wrapper = document.getElementById('tracks-wrapper');
-        const canvases = visibleExportCanvases(wrapper as unknown as Element | null);
+        const canvases = visibleExportCanvases(wrapper);
         setTimeout(function () {
-            const composed = composeTrackCanvases(document as unknown as Document, canvases, function (canvas) {
+            const composed = composeTrackCanvases(document, canvases, function (canvas) {
                 const axisId = canvas.id ? canvas.id.replace(/^track-canvas-/, 'track-axis-canvas-').replace(/^track-spec-canvas-/, 'track-spec-axis-canvas-') : '';
-                return axisId && axisId !== canvas.id && wrapper ? wrapper.querySelector('#' + axisId) as unknown as Element | null : null;
+                return axisId && axisId !== canvas.id && wrapper ? wrapper.querySelector('#' + axisId) : null;
             }, AXIS_W);
             if (!composed) {
                 messaging.post({ type: 'show-info', message: failed });
                 taskStatus(failed, 'failed');
                 return;
             }
-            triggerAnchorDownload(document as unknown as Document, composed.toDataURL('image/png'), 'waveform-export.png');
+            triggerAnchorDownload(document, composed.toDataURL('image/png'), 'waveform-export.png');
             taskStatus(STR.exportPngDone.replace('{name}', 'waveform-export.png'), 'done');
         }, 0);
     }
@@ -2921,7 +2927,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const csv = buildSpectrumCsv(tracks);
         taskStatus(STR.exportCsvDone.replace('{name}', 'spectrum-export.csv'), 'done');
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
-        triggerAnchorDownload(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
+        triggerAnchorDownload(document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
     }
     function saveRecipe() {
         // The bottom panel's analysis: the transfer functions while a reference is set, else the spectrum.
@@ -3525,7 +3531,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const prevW = canvas.width;
                 const prevH = canvas.height;
                 syncCanvasSize(canvas, w, laneOuterHeight());
-                const paintedByChannel = trackStore.require(trackIdAtIndex(i)!).spectrumPainted;
+                const paintedByChannel = record.spectrumPainted;
                 if (canvas.width !== prevW || canvas.height !== prevH) {
                     paintedByChannel.set(channelIndex, false);
                 }
@@ -3567,7 +3573,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const visibleResults = trackStore.displayOrder.map(function (trackId) { return trackStore.require(trackId); })
             .filter(function (record) { return !record.runtime.hidden; })
             .map(function (record) { return record.result; });
-        applyOverlayCompatibility(document as unknown as Document, hasIncompatibleLevelReferences(visibleResults), STR.calibrationOverlayIncompatible);
+        applyOverlayCompatibility(document, hasIncompatibleLevelReferences(visibleResults), STR.calibrationOverlayIncompatible);
         const wrap = document.getElementById('spectrum-overlay-wrap');
         const wrapStyle = wrap && typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
             ? window.getComputedStyle(wrap)
@@ -3838,5 +3844,5 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
     }
     __updateSpecGearVisibility();
-    ensureCalibrationStyles(document as unknown as Document);
+    ensureCalibrationStyles(document);
 }
