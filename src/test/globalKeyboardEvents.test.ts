@@ -10,7 +10,7 @@ function setup(options: { helpHidden?: boolean; spectrumHasMouse?: boolean } = {
     const help = doc.getElementById('help-overlay') as HTMLElement;
     help.hidden = options.helpHidden ?? true;
     const calls: string[] = [];
-    attachGlobalKeyboardListeners(keyRouterFor(window as unknown as Window), doc as unknown as Document, {
+    attachGlobalKeyboardListeners(keyRouterFor(window as unknown as Window), doc, {
         helpOverlay: () => help,
         spectrumHasMouse: () => options.spectrumHasMouse ?? false,
         stepSpectrum: (delta) => { calls.push(`spectrum:${delta}`); },
@@ -65,9 +65,9 @@ test('attachGlobalKeyboardListeners reports arrow key release only', () => {
 
 test('a context in front of the lanes takes a key first; one that passes leaves it to the lanes', () => {
     const { window } = new JSDOM('<!doctype html><body></body>');
-    const router = keyRouterFor(window as unknown as Window);
+    const router = keyRouterFor(window);
     const calls: string[] = [];
-    attachGlobalKeyboardListeners(router, window.document as unknown as Document, {
+    attachGlobalKeyboardListeners(router, window.document, {
         helpOverlay: () => null, spectrumHasMouse: () => false, stepSpectrum() {}, togglePlayback() {}, stepCursor() {}, arrowReleased() {},
         runShortcut: (action) => { calls.push(`lanes:${action}`); },
     });
@@ -86,7 +86,7 @@ test('a context in front of the lanes takes a key first; one that passes leaves 
 test('a focused role chip keeps its digits from the lanes', () => {
     const { window } = new JSDOM('<!doctype html><body><details class="role-chip"><summary tabindex="0">c</summary></details></body>');
     const calls: string[] = [];
-    attachGlobalKeyboardListeners(keyRouterFor(window as unknown as Window), window.document as unknown as Document, {
+    attachGlobalKeyboardListeners(keyRouterFor(window as unknown as Window), window.document, {
         helpOverlay: () => null, spectrumHasMouse: () => false, stepSpectrum() {}, togglePlayback() {}, stepCursor() {}, arrowReleased() {},
         runShortcut: (action) => { calls.push(action); },
     });

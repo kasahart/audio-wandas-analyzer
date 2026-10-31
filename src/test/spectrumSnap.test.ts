@@ -62,5 +62,5 @@ test('spectrumBinAtHover on a log band axis snaps to the band nearest in log dis
     assert.equal(snap?.binIdx, 1);
     assert.equal(snap?.freqHz, 250);
     assert.ok(Math.abs((snap?.x ?? 0) - 100 * Math.log10(25) / 3) < 1e-9);
-    assert.equal(spectrumReadoutText('a.wav', bands, snap!.freqHz, snap!.dbVal!), 'a.wav / 250 Hz / -20.0 dB');
+    assert.equal(spectrumReadoutText('a.wav', bands, snap.freqHz, snap.dbVal!), 'a.wav / 250 Hz / -20.0 dB');
 });

@@ -257,7 +257,7 @@ export class PythonBackendServer extends AnalysisClient {
             this.proc = child;
             this.abandoned.clear();
             // EPIPE when the process dies with a write in flight; 'close' reports the exit itself.
-            child.stdin!.on('error', (err) => { this.events.log?.(`[ts] backend stdin error: ${err.message}`); });
+            child.stdin.on('error', (err) => { this.events.log?.(`[ts] backend stdin error: ${err.message}`); });
 
             let startupFinished = false;
             let startupStderr = '';
@@ -283,7 +283,7 @@ export class PythonBackendServer extends AnalysisClient {
                 PythonBackendServer.STARTUP_TIMEOUT_MS,
             );
 
-            const stdout = createInterface({ input: child.stdout!, crlfDelay: Infinity });
+            const stdout = createInterface({ input: child.stdout, crlfDelay: Infinity });
             stdout.on('line', (line: string) => {
                 if (startupFinished) {
                     if (this.proc === child) {
@@ -342,8 +342,8 @@ export class PythonBackendServer extends AnalysisClient {
                 }
             };
             const stderrLines = new StderrLineSplitter();
-            child.stderr!.setEncoding('utf8');
-            child.stderr!.on('data', (chunk: string) => { stderrLines.push(chunk).forEach(handleStderrLine); });
+            child.stderr.setEncoding('utf8');
+            child.stderr.on('data', (chunk: string) => { stderrLines.push(chunk).forEach(handleStderrLine); });
             const flushStderr = (): void => {
                 const tail = stderrLines.flush();
                 if (tail !== null) { handleStderrLine(tail); }

@@ -5,7 +5,7 @@ import { niceStep, niceTicks } from '../shared/utils/ticks';
 import { datasetRows } from '../shared/dataset/datasetTable';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 
-const ok = (leq: number[]): ScanResult => ({ ok: true, input: { id: 'x', fs: 48000, channels: leq.map((_, index) => index), durationS: 1, unit: 'FS', ref: 1 }, leqDbA: leq } as unknown as ScanResult);
+const ok = (leq: number[]): ScanResult => (({ ok: true, input: { id: 'x', fs: 48000, channels: leq.map((_, index) => index), durationS: 1, unit: 'FS', ref: 1 }, leqDbA: leq }));
 
 test('groups sort by number when numeric, as text otherwise, the blank last; the median of an even count is the mean of the middle two', () => {
     assert.deepEqual(['1500', '', '900', 'L2', '1200'].sort(compareGroupNames), ['900', '1200', '1500', 'L2', '']);

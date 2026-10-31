@@ -472,8 +472,8 @@ export async function run(): Promise<void> {
                     assert.equal(comparison?.frame, 'ChannelFrame');
                     assert.equal(comparison?.kind, 'line');
                     // A part of the signal: it has a level, and no more than the whole signal's.
-                    assert.ok(comparison!.stageMedian! > -200, `${name} is silent: ${JSON.stringify(comparison)}`);
-                    assert.ok(comparison!.stageMedian! <= region!.stageMedian! + 1, `${name} ${comparison!.stageMedian} dB is louder than the signal ${region!.stageMedian} dB`);
+                    assert.ok(comparison.stageMedian! > -200, `${name} is silent: ${JSON.stringify(comparison)}`);
+                    assert.ok(comparison.stageMedian! <= region!.stageMedian! + 1, `${name} ${comparison.stageMedian} dB is louder than the signal ${region!.stageMedian} dB`);
                 }
                 invalidateFixtureCache();
             },
@@ -513,7 +513,7 @@ export async function run(): Promise<void> {
                 assert.equal(cepstrum?.invalidSteps, 0, `a step failed: ${JSON.stringify(cepstrum)}`);
                 assert.equal(cepstrum?.kind, 'line', JSON.stringify(cepstrum));
                 // An STFT's cepstrum is a cepstrogram, an image over time and quefrency.
-                await remove(cepstrum!.stage!);
+                await remove(cepstrum.stage!);
                 await add('wandas.audio.stft');
                 await drawn('SpectrogramFrame');
                 await add('wandas.spectrogram.cepstrum');
@@ -553,10 +553,10 @@ export async function run(): Promise<void> {
                 // after the current one take a time signal and cannot follow it; only this step is checked.)
                 assert.equal(correlation?.frame, 'CrossCorrelationFrame', JSON.stringify(correlation));
                 assert.equal(correlation?.kind, 'line', JSON.stringify(correlation));
-                assert.ok(Math.abs(correlation!.stageMedian!) <= 1, JSON.stringify(correlation));
+                assert.ok(Math.abs(correlation.stageMedian!) <= 1, JSON.stringify(correlation));
                 await postActionsAndWait(`correlation-remove-${Date.now()}`, [
-                    click(`.track-stage-bar [data-action="step-settings"][data-step="${correlation!.stage}"]`),
-                    click(`.track-stage-bar [data-action="step-remove"][data-step="${correlation!.stage}"]`),
+                    click(`.track-stage-bar [data-action="step-settings"][data-step="${correlation.stage}"]`),
+                    click(`.track-stage-bar [data-action="step-remove"][data-step="${correlation.stage}"]`),
                 ]);
                 invalidateFixtureCache();
             },
@@ -671,6 +671,7 @@ export async function run(): Promise<void> {
             requires: 'single-track',
             run: async () => {
                 const outputFolder = mkdtempSync(path.join(os.tmpdir(), 'awa-vscode-export-'));
+                // eslint-disable-next-line @typescript-eslint/unbound-method -- restored onto the prototype afterwards
                 const originalExport = ExportFlows.prototype.wavExport;
                 let finished = false;
                 const errors: string[] = [];

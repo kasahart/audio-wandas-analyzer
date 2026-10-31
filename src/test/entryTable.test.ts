@@ -8,7 +8,6 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import {
     BAND_CENTERS_HZ, buildEntryModel, entryCsv, filenameConditions, type DerivedRow, type EntryFile,
 } from '../webview/runtime/entryTable';
-import { getStrings } from '../shared/i18n/strings';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);

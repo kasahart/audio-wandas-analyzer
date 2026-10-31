@@ -36,7 +36,7 @@ export interface DistributionPicture {
     name(key: string): string;
 }
 
-export interface DistributionScale { low: number; high: number; width: number; height: number; x(value: number): number; at(x: number): number }
+export interface DistributionScale { low: number; high: number; width: number; height: number; x: (value: number) => number; at: (x: number) => number }
 
 const num = (value: number): string => value.toFixed(1);
 

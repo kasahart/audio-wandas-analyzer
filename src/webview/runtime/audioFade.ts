@@ -68,7 +68,7 @@ export interface AudioFader {
 
 function defaultContext(): FadeContext | null {
     const Ctor = typeof AudioContext === 'function' ? AudioContext : null;
-    return Ctor ? new Ctor() as unknown as FadeContext : null;
+    return Ctor ? new Ctor() : null;
 }
 
 export function createAudioFader(createContext: () => FadeContext | null = defaultContext, schedule: (fn: () => void, ms: number) => unknown = setTimeout, cancel: (handle: unknown) => void = handle => clearTimeout(handle as ReturnType<typeof setTimeout>)): AudioFader {

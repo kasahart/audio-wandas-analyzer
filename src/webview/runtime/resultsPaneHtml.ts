@@ -18,7 +18,7 @@ export type SpectrumBandsSetting = 0 | 1 | 3;
 
 export type ResultsPaneStrings = Pick<UiStrings,
     | 'ariaToolbar' | 'spectrumSectionTitle' | 'heightSpectrumLabel' | 'ariaResizeSpectrumHeight'
-    | 'ariaSpecZoomOut' | 'ariaSpecZoomIn' | 'ariaSpecZoomReset' | 'btnSpecZoomReset' | 'heightSpectrumLabel'
+    | 'ariaSpecZoomOut' | 'ariaSpecZoomIn' | 'ariaSpecZoomReset' | 'btnSpecZoomReset'
     | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'btnSpectrumSettingsTitle' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'
     | 'hintSpectrumFft' | 'hintSpectrumOctave1' | 'hintSpectrumOctave3'
     | 'pairSectionTitle' | 'hintPairDivider' | 'hintPairPlot'> & PanelCollapseStrings;

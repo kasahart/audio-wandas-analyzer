@@ -7,7 +7,7 @@ test('spectrogramTimeBinEdges centres each cell on its frame centre with edges h
     const edges = spectrogramTimeBinEdges({ timeBins: 4, timeCentersSec: [-0.25, 0, 0.25, 0.5] }, 1);
     assert.deepEqual(edges, [-0.375, -0.125, 0.125, 0.375, 0.625]);
     for (const [k, center] of [-0.25, 0, 0.25, 0.5].entries()) {
-        assert.equal((edges![k] + edges![k + 1]) / 2, center);
+        assert.equal((edges[k] + edges[k + 1]) / 2, center);
     }
 });
 

@@ -2,11 +2,11 @@
 // Single source of truth for "is the working tree green?" (`npm run verify`).
 // An agent's task is not done until this script exits 0. Plain Node, so it runs the same on Windows.
 //
-// Runs: tsc compile, Webview pattern lint, generated protocol types, single-source consistency,
+// Runs: tsc compile, ESLint, Webview pattern lint, generated protocol types, single-source consistency,
 // agent skills copy, GUI triggerability audit, node:test, ruff check + format --check, pyright, pytest.
 //   AWA_VERIFY_BROWSER=1  also checks the browser runtime assets and Worker/native parity
 //   AWA_SLOW=1            also runs the slow pytest checks (the operation catalog's probe); CI sets it
-//   AWA_PERF=1            also holds pytest's wall-clock budgets (they are reported either way)
+//   AWA_PERF=1            also holds the pytest and node:test wall-clock budgets (they are reported either way)
 // E2E (npm run verify:e2e) and the Playwright smoke (npm run test:ui) are separate CI jobs.
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -50,6 +50,7 @@ for (const tool of ['ruff', 'pyright']) {
 }
 
 run('tsc compile', ...npm(['run', 'compile']));
+run('eslint', ...npm(['run', 'lint']));
 run('webview pattern lint', ...node('scripts/lint-webview-patterns.js'));
 run('generated protocol types (python-backend/protocol_schema.py)', ...node('scripts/generate-protocol-types.mjs'));
 run('single-source consistency (dependency pins, browser limits)', ...node('scripts/check-single-sources.mjs'));

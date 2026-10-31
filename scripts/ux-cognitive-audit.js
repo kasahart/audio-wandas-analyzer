@@ -21,7 +21,7 @@ try {
     execSync('command -v xvfb-run', { stdio: 'ignore' });
     command = 'xvfb-run -a node dist/e2e/runVscodeUXAudit.js';
     console.log('Running via xvfb-run (virtual framebuffer)...');
-} catch (e) {
+} catch {
     console.log('xvfb-run not found. Running directly...');
 }
 

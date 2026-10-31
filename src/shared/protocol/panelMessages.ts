@@ -1,6 +1,6 @@
 import { isSpectrogramSettings } from '../analysis/savedSpectrogramSettings';
 import { isRecipeChain } from '../recipe/recipeSteps';
-import { isEntryConditionTable, isEntryRegion, type CompareScanMessage, type EntrySaveSessionMessage, type EntryScanCancelMessage, type EntryScanMessage, type EntryProbeMessage, type EntryProbeCancelMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
+import { isEntryRegion, type CompareScanMessage, type EntrySaveSessionMessage, type EntryScanCancelMessage, type EntryScanMessage, type EntryProbeMessage, type EntryProbeCancelMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
 import type { BuildRecipePayload } from './backendProtocol';
 import { schemaViolation } from './schemaValidation';
 import type {

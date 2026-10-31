@@ -48,7 +48,7 @@ test('batch ignores removed sources and late results after a newer request', asy
     let complete!: (value: string) => void;
     const running = runAnalysisBatch(['a', 'b'], {
         isCurrent: () => generation.isCurrent(ticket), isSelected: source => selected.has(source),
-        analyze: source => new Promise<string>(resolve => { complete = resolve; }),
+        analyze: () => new Promise<string>(resolve => { complete = resolve; }),
         commit: (_source, result) => { committed.push(result); },
     });
     selected.delete('a'); generation.advance(); complete('late'); await running;
@@ -110,7 +110,7 @@ test('stale context retries once after matching discard and reads the new revisi
             const context = payload as { calibrationProfile?: unknown; analysisRevision?: number };
             calls.push({ profile: context.calibrationProfile, revision: context.analysisRevision });
             if (calls.length === 1) throw new Error('stale');
-            return {} as BackendResult<K>;
+            return {};
         }
     }();
     await client.analyze('source', { analysisRevision: 0 });
@@ -254,7 +254,7 @@ test('Recipe preflight discards only the stale input profile and sends refreshed
                 const input = payload as BackendPayload<'analyze'>;
                 if (input.filePath === '/old.wav' && input.calibrationProfile) throw new Error('stale channel layout');
             }
-            return {} as BackendResult<K>;
+            return {};
         }
     }();
     await client.runRecipe(RECIPE, { old: '/old.wav', valid: '/valid.wav' });
@@ -288,7 +288,7 @@ test('Recipe deadline covers calibration preflight and prevents a late recipe di
         protected async request<K extends BackendCommand>(command: K, _payload: BackendPayload<K>): Promise<BackendResult<K>> {
             commands.push(command);
             await new Promise<void>(resolve => { finish = resolve; });
-            return {} as BackendResult<K>;
+            return {};
         }
     }();
     await assert.rejects(client.runRecipe(RECIPE, { signal: '/signal.wav' }), /timed out/);

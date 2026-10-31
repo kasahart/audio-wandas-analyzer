@@ -131,7 +131,7 @@ export function filenameConditions(filePath: string): string[] {
 
 
 /** One number per file: levels are power-averaged over channels, the dominant frequency is the loudest channel's. */
-function fileValues(result: Extract<ScanResult, { ok: true }> | ScanResult, band: number): Record<EntryColumn, number | null> {
+function fileValues(result: ScanResult, band: number): Record<EntryColumn, number | null> {
     const leq = result.leqDbA ?? [];
     return {
         leq: powerMeanOrNull(leq),

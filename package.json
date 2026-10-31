@@ -157,6 +157,7 @@
         "package": "npm run compile",
         "vscode:prepublish": "npm run compile",
         "package:vsix": "vsce package --no-yarn",
+        "lint": "eslint src scripts",
         "lint:webview-patterns": "node scripts/lint-webview-patterns.js",
         "lint:gui-triggerability": "node scripts/verify-gui-triggerability.js",
         "test": "npm run compile && node --test \"dist/test/**/*.test.js\"",
@@ -172,6 +173,7 @@
         "precompile": "npm run gui-core:check"
     },
     "devDependencies": {
+        "@eslint/js": "9.39.5",
         "@playwright/test": "^1.60.0",
         "@types/jsdom": "^28.0.1",
         "@types/node": "^22.10.2",
@@ -180,7 +182,10 @@
         "@vscode/vsce": "^3.6.2",
         "ajv": "^8.20.0",
         "esbuild": "0.28.2",
+        "eslint": "9.39.5",
+        "globals": "17.13.0",
         "jsdom": "^29.1.1",
-        "typescript": "^5.7.2"
+        "typescript": "^5.7.2",
+        "typescript-eslint": "8.71.2"
     }
 }

@@ -5,7 +5,7 @@ import type { ExportReportOptionsMessage, ExportWavLoopMessage } from './audioTa
 export type ReportFormat = 'markdown' | 'notebook';
 
 export function wavLoopName(fileName: string, used: Set<string>): string {
-    const leaf = fileName.split(/[\\/]/).pop()!.replace(/[\u0000-\u001f]/g, '_');
+    const leaf = (fileName.split(/[\\/]/).pop() ?? '').replace(/[\u0000-\u001f]/g, '_');
     const stem = leaf.replace(/\.[^.]+$/, '') || 'audio';
     let name = `${stem}_loop.wav`;
     for (let suffix = 2; used.has(name); suffix++) name = `${stem}_loop_${suffix}.wav`;
@@ -14,7 +14,7 @@ export function wavLoopName(fileName: string, used: Set<string>): string {
 }
 
 export function reportArtifact(message: ExportReportOptionsMessage, format: ReportFormat): { name: string; content: string; type: string } {
-    const stem = message.defaultName.split(/[\\/]/).pop()!.replace(/[\u0000-\u001f]/g, '_') || 'analysis';
+    const stem = (message.defaultName.split(/[\\/]/).pop() ?? '').replace(/[\u0000-\u001f]/g, '_') || 'analysis';
     return format === 'markdown'
         ? { name: stem + '.md', content: message.markdownContent, type: 'text/markdown;charset=utf-8' }
         : { name: stem + '.ipynb', content: message.notebookContent, type: 'application/x-ipynb+json' };
@@ -29,7 +29,7 @@ export function wavExportCommands(message: ExportWavLoopMessage, filePaths = mes
 
 export interface WavExportSource { filePath: string; fileName: string }
 export interface WavExportSink {
-    isCurrent(): boolean;
+    isCurrent: () => boolean;
     isSelected?(source: WavExportSource): boolean;
     prepare?(commands: ReturnType<typeof wavExportCommands>): Promise<void>;
     exportWavLoop(filePath: string, startNorm: number, endNorm: number): Promise<ExportWavLoopResult>;
@@ -41,12 +41,13 @@ export async function exportWavRegions(message: ExportWavLoopMessage, sources: W
     const commands = wavExportCommands(message, sources.map(source => source.filePath));
     await sink.prepare?.(commands);
     const usedNames = new Set<string>();
+    const failed = sink.failed?.bind(sink);
     const planned = sources.map((source, index) => ({ source, command: commands[index] }));
     await runAnalysisBatch(planned, {
         isCurrent: sink.isCurrent,
         isSelected: item => !sink.isSelected || sink.isSelected(item.source),
         analyze: item => sink.exportWavLoop(item.command.filePath, item.command.startNorm, item.command.endNorm),
         commit: async (item, result) => { await sink.write(item.source, wavLoopName(item.source.fileName, usedNames), result); },
-        failed: sink.failed ? (item, error) => sink.failed!(item.source, error) : undefined,
+        failed: failed ? (item, error) => failed(item.source, error) : undefined,
     });
 }

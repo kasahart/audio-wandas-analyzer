@@ -149,7 +149,7 @@ export function processStdoutLine(
     if (parsed['type'] !== undefined && !correlated) {
         handlers.onDiagnostic?.({
             kind: 'unknown-notification',
-            message: `Backend emitted unknown notification: ${String(parsed['type'])}`,
+            message: `Backend emitted unknown notification: ${typeof parsed['type'] === 'string' ? parsed['type'] : JSON.stringify(parsed['type'])}`,
             rawLine: line,
         });
         return;

@@ -56,7 +56,7 @@ export function openAxisPart(popover: RangePopover, axis: {
     mapping: AxisMapping; horizontal: boolean; current: { start: number; end: number }; clientX: number; clientY: number;
     /** Shown when the typed minimum is not below the maximum. */
     invalid: string;
-    set(part: { start: number; end: number }): void;
+    set: (part: { start: number; end: number }) => void;
 }): void {
     const { mapping, current, set } = axis;
     popover.open({

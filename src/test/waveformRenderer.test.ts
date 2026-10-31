@@ -63,7 +63,7 @@ test('[回帰] overview 左端ズーム: anchorX=0 のときもアンカーを�
     // anchorT = 0 → anchorX = 0 → <= 0 なので注入（samples[i0] の振幅で）
     const x = computeAnchorX(0, 1200, 0, 1, 0, 0, 0.1, 800);
     assert.ok(x !== null, 'anchorX=0 のときもアンカーを注入すべき');
-    assert.ok((x as number) <= 0, `anchorX=${x} は 0 以下であること`);
+    assert.ok((x) <= 0, `anchorX=${x} は 0 以下であること`);
 });
 
 test('[回帰] overview 中央ズーム: i0>0 のアンカーは負の x を返す', () => {
@@ -73,7 +73,7 @@ test('[回帰] overview 中央ズーム: i0>0 のアンカーは負の x を返�
     const i0 = Math.max(0, Math.floor(0.3 * 1200) - 1);
     const x = computeAnchorX(i0, 1200, 0, 1, 0, 0.3, 0.4, 800);
     assert.ok(x !== null, 'アンカーを注入すべき');
-    assert.ok((x as number) < 0, `anchorX=${x} は負であること（off-canvas）`);
+    assert.ok((x) < 0, `anchorX=${x} は負であること（off-canvas）`);
 });
 
 test('アンカーが正の場合は null を返す（データ開始が視野内）', () => {
@@ -157,7 +157,7 @@ test('computeViewRange: div >= 1', () => {
 
 test('computeViewRange: n=0 で i1 < i0（データなし）', () => {
     const env = { min: [], max: [], absolutePeak: 0 };
-    const r = computeViewRange(env as any, 0, 1, 0, 0, 1, 800);
+    const r = computeViewRange(env, 0, 1, 0, 0, 1, 800);
     assert.ok(r.i1 < r.i0, '空データは i1 < i0 を返すべき');
 });
 
@@ -373,7 +373,6 @@ test('trackDurRatio: two-track global span — negative offset track positioning
 
 test('decimateBuckets: div=1 で各バケットが1ペア', () => {
     const env = makeEnv(4);
-    const range = computeViewRange(env, 0, 1, 0, 0, 1, 800);
     const pts = decimateBuckets(env, { i0: 0, i1: 3, div: 1 }, 0, 1);
     assert.equal(pts.length, 4);
 });

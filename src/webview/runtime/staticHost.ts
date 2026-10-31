@@ -570,7 +570,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     } });
     function resultWithSource(result: AnalysisResult, sourceId: string, name: string, url: string): ComparisonTrackState {
         // A source is reported by its unique path under /sources, so the notebook can read it from there.
-        return { ...result, fileName: name, audioSource: hasPlayableAudio(name) ? url : '', reportSourcePath: sourceId } as unknown as ComparisonTrackState;
+        return { ...result, fileName: name, audioSource: hasPlayableAudio(name) ? url : '', reportSourcePath: sourceId };
     }
     function download(bytes: Uint8Array, name: string, type: string): void {
         const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type }));
@@ -806,7 +806,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         entry: {
             identity: async path => fileIdentity(path),
-            scan: (path, region, recipe, stage, detail, reference) => scanEntryFile(path, region, recipe as Record<string, unknown> | undefined, stage, detail, reference),
+            scan: (path, region, recipe, stage, detail, reference) => scanEntryFile(path, region, recipe, stage, detail, reference),
             recipe: async () => {
                 entryRecipe ??= fetchJson('./recipes/entry-scan.recipe.json') as Promise<Record<string, unknown>>;
                 return await entryRecipe as unknown as RecipeDocument;

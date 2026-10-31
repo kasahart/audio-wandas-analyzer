@@ -16,6 +16,7 @@ const FileType = { File: 1, Directory: 2, SymbolicLink: 64 };
 const uri = (fsPath: string) => ({ fsPath, toString: () => `file:${fsPath}` });
 
 function loadWithVscodeMock<T>(load: () => T): T {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
     const originalLoad = NodeModule._load;
     NodeModule._load = function(request, parent, isMain) {
@@ -31,16 +32,19 @@ function loadWithVscodeMock<T>(load: () => T): T {
     try { return load(); } finally { NodeModule._load = originalLoad; }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { PanelController } = loadWithVscodeMock(() => require('../extension/panelController') as typeof import('../extension/panelController'));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { buildDirectoryTree } = loadWithVscodeMock(() => require('../extension/targetDiscovery') as typeof import('../extension/targetDiscovery'));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { openDroppedTargets, openTarget } = loadWithVscodeMock(() => require('../extension/extensionContributions') as typeof import('../extension/extensionContributions'));
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 
 function directoryFileSystem(listing: Record<string, Array<[string, number]>>): TargetFileSystem {
     return {
-        stat: async () => ({ type: FileType.Directory, ctime: 0, mtime: 0, size: 0 }) as vscode.FileStat,
-        readDirectory: async (source) => (listing[source.fsPath] ?? []) as [string, vscode.FileType][],
+        stat: async () => ({ type: FileType.Directory, ctime: 0, mtime: 0, size: 0 }),
+        readDirectory: async (source) => (listing[source.fsPath] ?? []),
     };
 }
 
@@ -197,7 +201,7 @@ test('directory listing bounds reads in flight across nesting levels', async () 
             peak = Math.max(peak, ++inFlight);
             await tick();
             inFlight--;
-            return (listing[source.fsPath] ?? []) as [string, vscode.FileType][];
+            return (listing[source.fsPath] ?? []);
         },
     };
     const { tree } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { concurrency: 3 });

@@ -34,22 +34,6 @@ async function clearPostedMessages(page: Page): Promise<void> {
     });
 }
 
-async function getDownloads(page: Page): Promise<Array<{ download: string; href: string }>> {
-    return page.evaluate(() => {
-        return ((window as typeof window & {
-            __uiSmokeDownloads?: Array<{ download: string; href: string }>;
-        }).__uiSmokeDownloads ?? []);
-    });
-}
-
-async function getClipboardWrites(page: Page): Promise<string[]> {
-    return page.evaluate(() => {
-        return ((window as typeof window & {
-            __uiSmokeClipboardWrites?: string[];
-        }).__uiSmokeClipboardWrites ?? []);
-    });
-}
-
 async function getUiSmokeState(page: Page): Promise<{
     zoomStart?: number;
     zoomEnd?: number;
@@ -107,15 +91,6 @@ async function installPlaybackElement(page: Page) {
         document.querySelectorAll('[data-action="toggle-playback"], [data-action="stop-playback"], [data-action="toggle-mute"]').forEach((button) => {
             button.removeAttribute('disabled');
         });
-    });
-}
-
-async function getCanvasDataUrl(page: Page, selector: string): Promise<string> {
-    return page.locator(selector).evaluate((element) => {
-        if (!(element instanceof HTMLCanvasElement)) {
-            throw new Error(`Expected canvas for ${selector}`);
-        }
-        return element.toDataURL();
     });
 }
 

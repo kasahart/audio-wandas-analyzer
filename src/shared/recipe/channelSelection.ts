@@ -45,7 +45,7 @@ export function channelResult(result: ScanResult | undefined, ch: number): ScanR
     if (!result?.ok) return result;
     const index = ch - 1;
     const count = (result.leqDbA ?? []).length;
-    if (index >= count) return { ok: false, reason: `no channel ${ch} (${count} ch)` } as ScanResult;
+    if (index >= count) return { ok: false, reason: `no channel ${ch} (${count} ch)` };
     const picked: Record<string, unknown> = { ...result };
     for (const key of PER_CHANNEL) {
         const values = (result as unknown as Record<string, unknown[] | undefined>)[key];

@@ -15,7 +15,7 @@ import {
 
 function recordingContext() {
     const calls: Array<[string, unknown[]]> = [];
-    const ctx = new Proxy({} as Record<string, unknown>, {
+    const ctx = new Proxy<Record<string, unknown>>({}, {
         get(target, key: string) {
             if (key in target) { return target[key]; }
             return (...args: unknown[]) => { calls.push([key, args]); };
