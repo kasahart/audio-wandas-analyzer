@@ -14,17 +14,12 @@ import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
 import { baseOf, buildCompareModel, type CompareModel } from './comparePanes';
-import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
 import { compareGroupNames, groupLabels, median } from '../../shared/dataset/distribution';
 import { createDistributionPane } from './entryDistributionPane';
 import { createFilterPopover } from './entryFilterPopover';
 import { createHeldPlot } from './entryHeldPlot';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
-import { STAGE_MARGINS } from './stagePanes';
+import { createSidePlots } from './entrySidePlots';
 import { HostRequests } from './hostRequests';
-import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
-import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { positionPopover } from './settingsPopover';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, unpairedRecipe } from './stepBar';
 import { leqLabel } from './compareReport';
@@ -245,17 +240,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const heldCanvas = query<HTMLCanvasElement>('[data-entry-held-canvas]');
     const overview = query<HTMLCanvasElement>('[data-entry-overview]');
     const side = query<HTMLElement>('.entry-side');
-    /**
-     * The side panel's zoom, as the lanes keep theirs: per plot (held, overview strip), the part of each
-     * axis on screen. A plot on other axes (another column, another held picture) starts whole again.
-     */
-    const plotWindows = new Map<string, PlotWindow>();
-    const windowKeys = new Map<string, string>();
-    const plotWindow = (name: string): PlotWindow => plotWindows.get(name) ?? FULL_PLOT_WINDOW;
-    function keepWindow(name: string, key: string): PlotWindow {
-        if (windowKeys.get(name) !== key) { windowKeys.set(name, key); plotWindows.delete(name); }
-        return plotWindow(name);
-    }
+    /** The overview strip and the held plot beside the distribution, each zoomed as the lanes are. */
+    const sidePlots = createSidePlots({
+        document, window, strings, screen, side, body, tableWrap, overview, heldCanvas,
+        rows: () => shownRows, focusedFile: () => focusedFile(), paintDistribution: () => paintDistribution(),
+        paintHeld: () => heldPlot.paint(), heldPicture: () => heldPlot.picture(), pickRow: key => redraw.batch(() => focusRow(key, true)),
+    });
     const distPane = createDistributionPane({
         screen, strings,
         // A range of the value: a chip, which narrows the table.
@@ -265,7 +255,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             deps.announce(strings.dsDistPicked.replace('{n}', shownRows.length.toLocaleString()));
         },
         dot(key) { if (shownRows.some(row => row.key === key)) focusRow(key, true); else focusFile(fileOfKey(key)); },
-        cancelled: () => scheduleSide(),
+        cancelled: () => sidePlots.schedule(),
     });
     const stepBar = createStepBar({
         document, strings, mode: 'entry', onChange: recipe => setRecipe(recipe),
@@ -290,18 +280,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     let filePaths: string[] = [];
     const results = new Map<string, ScanResult>();
-    /** Each scanned recording's bands (its channels' power mean) and the calibrated ones, kept as results arrive so scrolling does not redo them. */
-    const overviewLevels = new Map<string, (number | null)[]>();
-    const calibratedFiles = new Set<string>();
-    let overviewVersion = 0;
     function noteResult(filePath: string, result: ScanResult): void {
         results.set(filePath, result);
-        overviewVersion++;
-        const bands = result.thirdOctDb;
-        if (result.ok && bands?.length) overviewLevels.set(filePath, bands[0].map((_, bandIndex) => powerMeanOrNull(bands.map(channel => channel[bandIndex]))));
-        else overviewLevels.delete(filePath);
-        if (result.ok && result.input?.unit !== undefined && result.input.unit !== 'FS') calibratedFiles.add(filePath);
-        else calibratedFiles.delete(filePath);
+        sidePlots.noteResult(filePath, result);
     }
     /** The Recipe each result was measured with (recipeKey of the run): a result of another chain is greyed. */
     const resultKeys = new Map<string, string>();
@@ -357,8 +338,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The folder's session, kept by the host: saved a moment after each change once the stored one is back. */
     const session = createSessionSaver(window, SESSION_SAVE_MS, () => sessionOf(),
         (stored, csvToSave) => deps.post({ type: 'entry-save-session', rootPath, session: stored, ...(csvToSave !== undefined ? { csv: csvToSave } : {}) }));
-    /** The side plots are painted on the next frame (`pending`); `dist`: the distribution too, not only the strip's window. */
-    const sidePaint = { pending: false, dist: true };
     /**
      * The comparison's model of the files (their conditions, Δ, groups): built when the comparison, the overview
      * strip or the CSV export reads it, not on every redraw of the table (it costs a pass over every file).
@@ -563,7 +542,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (keyHints.innerHTML !== wanted) keyHints.innerHTML = wanted;
         stepBar.set({ recipe: recipeState.edited ?? recipeState.standard, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed: recipeState.failed, files: filePaths.length });
         screen.dataset.mode = chosen.mode;
-        scheduleSide();
+        sidePlots.schedule();
         session.schedule();
     }
     /** Markup last written to an element by writeHtml, which writes it again only when it changes. */
@@ -892,8 +871,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The held plot: a slot key or chip held shows its row's Δ, a step chip held what the step does to one row. */
     const heldPlot = createHeldPlot({
-        document, window, strings, held, title: heldTitle, canvas: heldCanvas, post: message => deps.post(message), scheduleSide: () => scheduleSide(),
-        keepWindow, entryModel, results, focusedFile, slotFiles, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
+        document, window, strings, held, title: heldTitle, canvas: heldCanvas, post: message => deps.post(message), scheduleSide: () => sidePlots.schedule(),
+        keepWindow: (name, key) => sidePlots.keepWindow(name, key), entryModel, results, focusedFile, slotFiles, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
         slotHeld: () => paintSlots(),
         tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
     });
@@ -923,37 +902,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         deps.saveDerived?.(derived);
         rebuild();
     }
-    function scheduleSide(distribution = true): void {
-        sidePaint.dist ||= distribution;
-        if (sidePaint.pending) return;
-        sidePaint.pending = true;
-        window.requestAnimationFrame(() => { sidePaint.pending = false; paintSide(); });
-    }
     function paintDistribution(): void {
         distPane.paint({
             pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf, baseGroup: baseGroupName(),
             valueLabel: valueLabel(chosen.value), format: number => formatColumn(chosen.value, number), rowName: key => rowName(key),
         });
     }
-    /** The distribution, the held row's Δ spectrum and the overview strip. */
-    function paintSide(): void {
-        if (sidePaint.dist) { sidePaint.dist = false; paintDistribution(); }
-        // The side plots are drawn only while the table is wide enough to show them.
-        if (screen.hidden || !side.offsetWidth) return;
-        // The strip is the table's rows in the table's order (one per channel), each its recording's bands.
-        const rowsOnScreen = shownRows;
-        const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
-        const first = Math.floor(tableWrap.scrollTop / rowHeight);
-        paintOverview(overview, rowsOnScreen, overviewLevels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, focusedFile(), keepWindow('overview', String(rowsOnScreen.length)),
-            calibratedFiles.size > 0, overviewVersion);
-        // The zoom on each plot, for tests: "x0-x1|y0-y1".
-        for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
-            const window = plotWindow(name);
-            canvas.dataset.window = `${window.x.start.toFixed(3)}-${window.x.end.toFixed(3)}|${window.y.start.toFixed(3)}-${window.y.end.toFixed(3)}`;
-        }
-        heldPlot.paint();
-    }
-
     /** The files shown as tracks now (a hidden track is not). */
     const shownFiles = (): Set<string> => new Set([...deps.shownTracks?.() ?? []].filter(([, hidden]) => !hidden).map(([filePath]) => filePath));
     const focusHeadMark = (): void => { head.querySelector<HTMLElement>('[data-action="entry-tracks-all"]')?.focus(); };
@@ -1075,7 +1029,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const columns = maximized ? 6 : COLUMN_WIDTHS.filter(edge => width >= edge).length;
         if (screen.dataset.cols !== String(columns)) {
             screen.dataset.cols = String(columns);
-            if (columns >= 6) scheduleSide();
+            if (columns >= 6) sidePlots.schedule();
         }
     }
     const Observer = (globalThis as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
@@ -1094,7 +1048,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         syncColumns();
         deps.maximizedChanged?.(next);
         render();
-        scheduleSide();
+        sidePlots.schedule();
         // Maximized, the table takes the keys; shrunk, they go back to the track view (its lanes, its comparison).
         redraw.after(() => {
             if (next) table.focus?.();
@@ -1326,7 +1280,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-slot-clear': target => setSlot(Number(target.getAttribute('data-slot')), null),
         'entry-key-hint': target => { if (target.getAttribute('data-key') === 'help') deps.help?.(); },
     };
-    tableWrap.addEventListener('scroll', () => { renderRows(); scheduleSide(false); });
+    tableWrap.addEventListener('scroll', () => { renderRows(); sidePlots.schedule(false); });
     screen.addEventListener('click', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
         const action = target.closest<HTMLElement>('[data-action]');
@@ -1405,17 +1359,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         event.stopPropagation();
         readCsvFile(file);
     });
-    // A click on the strip goes to that file's row.
-    overview.addEventListener('click', event => redraw.batch(() => {
-        const rows = shownRows;
-        const box = overview.getBoundingClientRect();
-        // The strip's rows (top first) over the part of it on screen.
-        const window = plotWindow('overview');
-        const plotTop = box.top + OVERVIEW_MARGINS.top, plotHeight = box.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom;
-        const row = rows[Math.floor(((1 - window.y.end) + (event.clientY - plotTop) / Math.max(1, plotHeight) * (window.y.end - window.y.start)) * rows.length)];
-        if (!row) return;
-        focusRow(row.key, true);
-    }));
     // A double click on a row slots it in the first free slot and opens the comparison, like 1 then Enter.
     body.addEventListener('dblclick', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
@@ -1426,60 +1369,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }));
     // The lanes' gestures on the side panel's plots: box zoom, Ctrl+wheel, Shift+wheel, double-click reset or
     // axis range. A press that stays put (within the lanes' 3 px) is still a click: a point picked, a row gone to.
-    const zoomBox = document.createElement('div');
-    zoomBox.className = 'entry-zoom-box';
-    zoomBox.hidden = true;
-    side.append(zoomBox);
-    const rangePopover = installRangePopover(document, { rootId: 'entry-range-popover', badgeId: 'entry-range-axis-badge', idPrefix: 'entry-range', strings: rangePopoverStrings(strings), position: positionPopover });
-    const plotName = (plot: HTMLElement): string => (plot === overview ? 'overview' : 'held');
-    const marginsOf = (plot: HTMLElement): PlotMargins => (plot === overview ? OVERVIEW_MARGINS : heldPlot.picture()?.margins ?? STAGE_MARGINS);
-    attachPlotInteraction(side, document, '[data-entry-held-canvas], [data-entry-overview]', {
-        locate(target, clientX, clientY) {
-            const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-entry-held-canvas], [data-entry-overview]');
-            if (!plot || plot.closest('[hidden]')) return null;
-            const { fx, fy, axis } = plotPointIn(plot, marginsOf(plot), clientX, clientY);
-            return { plot, point: { fx, fy }, axis };
-        },
-        pointOn(plot, clientX, clientY) {
-            const { fx, fy } = plotPointIn(plot, marginsOf(plot), clientX, clientY);
-            return { fx, fy };
-        },
-        window: plot => plotWindow(plotName(plot)),
-        setWindow(plot, next) {
-            if (next) plotWindows.set(plotName(plot), next); else plotWindows.delete(plotName(plot));
-            scheduleSide();
-        },
-        hover(event, hit) {
-            // A point's name stays where hints go while the pointer is on it.
-            if (!hit) return;
-            // A plot that says what it is (the strip) keeps saying it, before the gestures.
-            const own = hit.plot.getAttribute('data-hint');
-            const gestures = hit.axis ? strings.compareHintAxis : strings.compareHintPlot;
-            document.getElementById('hint-footer')?.replaceChildren(own ? `${own} · ${gestures}` : gestures);
-        },
-        clearHover() { /* the panel's own hints stay */ },
-        showBox(plot, from, to) {
-            const box = plot.getBoundingClientRect(), outer = side.getBoundingClientRect(), margins = marginsOf(plot);
-            const width = box.width - margins.left - margins.right, height = box.height - margins.top - margins.bottom;
-            const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)], [y0, y1] = [Math.min(from.fy, to.fy), Math.max(from.fy, to.fy)];
-            Object.assign(zoomBox.style, { left: `${box.left - outer.left + margins.left + x0 * width}px`, top: `${box.top - outer.top + margins.top + (1 - y1) * height}px`, width: `${(x1 - x0) * width}px`, height: `${(y1 - y0) * height}px` });
-            zoomBox.hidden = false;
-        },
-        hideBox() { zoomBox.hidden = true; },
-        openAxisRange(hit, clientX, clientY) {
-            const name = plotName(hit.plot);
-            const picture = heldPlot.picture();
-            const mapping: AxisMapping | null = name === 'held' && picture ? (hit.axis === 'x' ? { at: picture.x, of: picture.ofX, label: picture.xLabel } : linearAxis(picture.range.min, picture.range.max, picture.yLabel))
-                    : null;
-            if (!mapping) return false;
-            const window = plotWindow(name);
-            openAxisPart(rangePopover, {
-                mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? window.x : window.y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
-                set(range) { plotWindows.set(name, hit.axis === 'x' ? { ...window, x: range } : { ...window, y: range }); scheduleSide(); },
-            });
-            return true;
-        },
-    });
+    sidePlots.attach();
 
     /** Maximized, the table takes the keys; in the side panel, only keys pressed while it has the focus. */
     const keysHere = (event: Event): boolean => !screen.hidden && (maximized || screen.contains(event.target as Node));
@@ -1538,9 +1428,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             rootPath = root;
             recipeState.knownShortest = undefined;
             results.clear();
-            overviewLevels.clear();
-            calibratedFiles.clear();
-            overviewVersion++;
+            sidePlots.clear();
             resultKeys.clear();
             rowsDirty = true;
             recipeState.knownRate = undefined;
