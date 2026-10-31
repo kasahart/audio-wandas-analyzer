@@ -154,7 +154,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
                 const message = getStrings(vscode.env.language).analysisPythonNotReady;
                 return args[0].map(filePath => ({
                     filePath, fileName: path.basename(filePath), sampleRateHz: 0, durationSeconds: 0, channelCount: 0,
-                    sampleCount: 0, channels: [], analysisRevision: getAnalysisRevision(filePath), error: message,
+                    sampleCount: 0, channels: [], analysisRevision: calibration.analysisRevision(filePath), error: message,
                 }));
             }
             return analysis.analyzeFiles(...args);
