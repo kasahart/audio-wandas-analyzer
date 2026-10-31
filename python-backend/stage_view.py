@@ -3,9 +3,9 @@
 Each Frame type keeps its own picture (wandas_to_chart draws the same types): a time signal as its level
 over time (or, for a metric already sampled slowly, such as loudness, its values), a spectrum on the
 comparison's log frequency axis, 1/3-octave levels as bars, a spectrogram as an image on that axis, a
-cepstrum as its real coefficients over quefrency and a cepstrogram as an image over time and quefrency
-(as their ``plot()`` draws them). Two files' views on the same axes subtract to a difference in what the
-view measures: dB for levels, the plain difference otherwise.
+cepstrum as its real coefficients over quefrency, a cepstrogram as an image over time and quefrency and a
+cross-correlation as its coefficients over lag (as their ``plot()`` draws them). Two files' views on the
+same axes subtract to a difference in what the view measures: dB for levels, the plain difference otherwise.
 Channels are combined as the entry table combines them: levels power-averaged, values averaged.
 """
 
@@ -20,6 +20,7 @@ from wandas.frames import (
     CepstrogramFrame,
     ChannelFrame,
     CoherenceFrame,
+    CrossCorrelationFrame,
     CrossSpectralFrame,
     NOctFrame,
     RoughnessFrame,
@@ -41,18 +42,21 @@ HEATMAP_FREQUENCIES = 128
 QUEFRENCY_POINTS = 800
 # Cepstral coefficients are small (around 0.01) and signed: kept to five decimals, not one.
 CEPSTRUM_DECIMALS = 5
+LAG_POINTS = 800
+# Normalized cross-correlation coefficients lie in [-1, 1].
+CORRELATION_DECIMALS = 4
 
-#: The Frames the comparison draws: those wandas_to_chart draws, and the cepstral ones.
-STAGE_FRAME_TYPES = (*CHART_FRAME_TYPES, CepstralFrame, CepstrogramFrame)
+#: The Frames the comparison draws: those wandas_to_chart draws, the cepstral ones and the cross-correlation.
+STAGE_FRAME_TYPES = (*CHART_FRAME_TYPES, CepstralFrame, CepstrogramFrame, CrossCorrelationFrame)
 
 
 class StageView(TypedDict):
     frame: str
     kind: Literal["line", "bar", "heatmap", "none"]
-    x: NotRequired[Literal["frequency", "time", "band", "quefrency"]]
+    x: NotRequired[Literal["frequency", "time", "band", "quefrency", "lag"]]
     xScale: NotRequired[Literal["log", "linear"]]
     #: What the values are: dB levels (and gains) subtract to a difference in dB; the rest do not.
-    quantity: NotRequired[Literal["level", "gain", "coherence", "value", "roughness", "cepstrum"]]
+    quantity: NotRequired[Literal["level", "gain", "coherence", "value", "roughness", "cepstrum", "correlation"]]
     unit: NotRequired[str]
     xs: NotRequired[list[float]]
     #: Heatmap rows: frequencies (Hz, log-spaced), critical-band rates (Bark) or quefrencies (s).
@@ -386,6 +390,33 @@ def _cepstral_view(frame: CepstralFrame) -> StageView:
     }
 
 
+def _correlation_rows(frame: CrossCorrelationFrame) -> tuple[int, np.ndarray] | None:
+    """The drawn pair's row and its coefficients over lag, or None for a Frame with no pair of two channels."""
+    row = _cross_pair(frame)
+    if row is None:
+        return None
+    return row, np.asarray(frame.coefficients, dtype=np.float64).reshape(-1, frame.n_lags)[row]
+
+
+def _correlation_view(frame: CrossCorrelationFrame) -> StageView:
+    drawn = _correlation_rows(frame)
+    if drawn is None or frame.n_lags < 2:
+        return {"frame": type(frame).__name__, "kind": "none"}
+    row, coefficients = drawn
+    # The largest magnitude of each block, so the peak that gives the delay is never averaged away.
+    values, starts = _signed_peaks(coefficients, LAG_POINTS)
+    return {
+        "frame": type(frame).__name__,
+        "kind": "line",
+        "x": "lag",
+        "xScale": "linear",
+        "quantity": "correlation",
+        "xs": _json(np.asarray(frame.lags, dtype=np.float64)[starts]),
+        "values": _json(np.round(values, CORRELATION_DECIMALS)),
+        "pair": _pair_of(frame, row),
+    }
+
+
 def _cepstrogram_view(frame: CepstrogramFrame, signal_s: float | None = None) -> StageView:
     data = np.asarray(frame.data, dtype=np.float64)
     plane = np.mean(data.reshape(-1, data.shape[-2], data.shape[-1]), axis=0)  # (quefrency, time)
@@ -491,6 +522,15 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
             levels = 10.0 * np.log10(power / refs**2)
         view.update({"xs": _json(times[keep][centres]), "values": _json(rounded_db(_power_mean(levels)))})
         return view
+    if isinstance(frame, CrossCorrelationFrame):
+        lags = np.asarray(frame.lags, dtype=np.float64)
+        keep = _inside(lags, bounds)
+        drawn = _correlation_rows(frame)
+        if drawn is not None and keep.any():
+            values, starts = _signed_peaks(drawn[1][keep], points)
+            view.update({"xs": _json(lags[keep][starts]), "values": _json(np.round(values, CORRELATION_DECIMALS))})
+            return view
+        return coarse
     if isinstance(frame, CepstralFrame):
         quefrencies = np.asarray(frame.quefrencies, dtype=np.float64)
         keep = _inside(quefrencies, bounds)
@@ -581,6 +621,8 @@ def _stage_view(frame: object, signal_s: float | None) -> StageView:
         return _cepstral_view(frame)
     if isinstance(frame, CepstrogramFrame):
         return _cepstrogram_view(frame, signal_s)
+    if isinstance(frame, CrossCorrelationFrame):
+        return _correlation_view(frame)
     if not isinstance(frame, CHART_FRAME_TYPES):
         return {"frame": name, "kind": "none"}
     if isinstance(frame, ChannelFrame):

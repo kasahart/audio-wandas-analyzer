@@ -524,6 +524,44 @@ export async function run(): Promise<void> {
             },
         },
         {
+            name: 'a cross-correlation of two one-channel recordings, the compared one over the base slot, is drawn over lag',
+            run: async () => {
+                invalidateFixtureCache();
+                await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
+                const scanned = await pollSnapshot('correlation-scanned', snapshot => {
+                    const entry = snapshot.renderedUi?.entry;
+                    return !!(entry?.open || entry?.docked) && entry.rows > 1 && entry.scanned === entry.rows;
+                }, COMMAND_TIMEOUT_MS);
+                const click = (selector: string) => ({ action: 'mouse-event', payload: { type: 'click', selector } });
+                const key = (name: string) => ({ action: 'press-key', payload: { key: name } });
+                // The first row in the base slot, the next one compared.
+                await postActionsAndWait(`correlation-open-${Date.now()}`, [
+                    ...(scanned.renderedUi?.entry?.open ? [] : [click('#entry-screen [data-action="entry-maximize"]')]),
+                    key('0'), key('ArrowDown'), key('1'), key('Enter'),
+                ]);
+                await postActionsAndWait(`correlation-expand-${Date.now()}`, [click('.track-stage-bar [data-action="step-expand"]')]);
+                await postActionsAndWait(`correlation-add-${Date.now()}`, [
+                    click('.track-stage-bar [data-action="step-add"]'),
+                    click('.track-stage-bar .step-menu-item[data-op="wandas.audio.cross_correlation"]'),
+                ]);
+                const shown = await pollSnapshot('correlation-shown', snapshot => {
+                    const comparison = snapshot.renderedUi?.comparison;
+                    return comparison?.frame === 'CrossCorrelationFrame' && comparison.stageValues > 0;
+                }, COMMAND_TIMEOUT_MS);
+                const correlation = shown.renderedUi?.comparison;
+                // The compared recording over the base one, its coefficients over every lag. (Steps earlier tests left
+                // after the current one take a time signal and cannot follow it; only this step is checked.)
+                assert.equal(correlation?.frame, 'CrossCorrelationFrame', JSON.stringify(correlation));
+                assert.equal(correlation?.kind, 'line', JSON.stringify(correlation));
+                assert.ok(Math.abs(correlation!.stageMedian!) <= 1, JSON.stringify(correlation));
+                await postActionsAndWait(`correlation-remove-${Date.now()}`, [
+                    click(`.track-stage-bar [data-action="step-settings"][data-step="${correlation!.stage}"]`),
+                    click(`.track-stage-bar [data-action="step-remove"][data-step="${correlation!.stage}"]`),
+                ]);
+                invalidateFixtureCache();
+            },
+        },
+        {
             name: 'multi-track folder analysis loads all tracks',
             requires: 'multi-track-all',
             run: async ({ snapshot }) => {

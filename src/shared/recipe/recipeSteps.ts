@@ -67,13 +67,13 @@ const SETTABLE: Record<string, readonly StepParam[]> = {
 };
 
 /** Steps that compare the channels of one recording, pair by pair: they need two channels. */
-export const CROSS_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.csd', 'wandas.audio.transfer_function', 'wandas.spectrogram.csd']);
+export const CROSS_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.cross_correlation', 'wandas.audio.csd', 'wandas.audio.transfer_function', 'wandas.spectrogram.csd']);
 export const SELECT_PAIR = 'wandas.frame.select_pair';
 /**
  * Cross-channel steps that come with their pair (select_pair after them). A CSD does not: coherence and the
  * transfer function derived from it need its auto-spectra, which select_pair would leave out.
  */
-export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.transfer_function']);
+export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.cross_correlation', 'wandas.audio.transfer_function']);
 /**
  * Cross-channel steps that can take the base slot's recording as their reference: those on a time signal, which is
  * where the two recordings are joined (wandas joins time signals; a spectrogram's CSD has no such join).
@@ -83,8 +83,8 @@ export const SLOT_REFERABLE: ReadonlySet<string> = new Set([...CROSS_CHANNEL].fi
 /** Steps that leave one channel: one picked, or all summed or averaged into one. */
 const ONE_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.sum', 'wandas.audio.mean']);
 
-/** wandas' Frames of channel pairs (PairwiseSpectralFrame and its kinds). */
-const PAIRWISE_FRAMES: ReadonlySet<string> = new Set(['PairwiseSpectralFrame', 'CrossSpectralFrame', 'CoherenceFrame', 'TransferFunctionFrame']);
+/** wandas' Frames of channel pairs (PairwiseFrame, PairwiseSpectralFrame and its kinds). */
+const PAIRWISE_FRAMES: ReadonlySet<string> = new Set(['PairwiseFrame', 'PairwiseSpectralFrame', 'CrossSpectralFrame', 'CoherenceFrame', 'TransferFunctionFrame', 'CrossCorrelationFrame']);
 
 /**
  * The channels a step leaves of `channels`: one after sum or mean, one fewer after remove_channel, and after

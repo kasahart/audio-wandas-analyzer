@@ -2,7 +2,7 @@
 // Do not edit; run `python python-backend/operation_catalog.py --write`.
 import type { CatalogFrame, CatalogOperation } from '../recipeCatalog';
 
-export const WANDAS_VERSION = "0.11.0";
+export const WANDAS_VERSION = "0.12.0";
 
 export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
     {
@@ -304,8 +304,15 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": []
     },
     {
-        "id": "wandas.audio.a_weighting",
+        "id": "wandas.audio.envelope",
         "version": 1,
+        "input": "ChannelFrame",
+        "output": "ChannelFrame",
+        "params": []
+    },
+    {
+        "id": "wandas.audio.a_weighting",
+        "version": 2,
         "input": "ChannelFrame",
         "output": "ChannelFrame",
         "params": []
@@ -363,18 +370,26 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
     },
     {
         "id": "wandas.frame.time_slice",
-        "version": 1,
+        "version": 2,
         "input": "ChannelFrame",
         "output": "ChannelFrame",
         "params": [
             {
                 "name": "start",
-                "required": false,
-                "default": 0
+                "required": false
             },
             {
                 "name": "end",
                 "required": false
+            },
+            {
+                "name": "reference",
+                "required": false,
+                "default": "local",
+                "choices": [
+                    "local",
+                    "source"
+                ]
             }
         ]
     },
@@ -396,7 +411,7 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
     },
     {
         "id": "wandas.audio.rms_trend",
-        "version": 2,
+        "version": 3,
         "input": "ChannelFrame",
         "output": "ChannelFrame",
         "params": [
@@ -424,7 +439,7 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
     },
     {
         "id": "wandas.audio.sound_level",
-        "version": 2,
+        "version": 3,
         "input": "ChannelFrame",
         "output": "ChannelFrame",
         "params": [
@@ -851,6 +866,18 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         ]
     },
     {
+        "id": "wandas.audio.cross_correlation",
+        "version": 1,
+        "input": "ChannelFrame",
+        "output": "CrossCorrelationFrame",
+        "params": [
+            {
+                "name": "max_lag",
+                "required": false
+            }
+        ]
+    },
+    {
         "id": "wandas.audio.csd",
         "version": 2,
         "input": "ChannelFrame",
@@ -945,6 +972,15 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                     "mean",
                     "median"
                 ]
+            },
+            {
+                "name": "estimator",
+                "required": false,
+                "default": "H1",
+                "choices": [
+                    "H1",
+                    "H2"
+                ]
             }
         ]
     },
@@ -973,36 +1009,6 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         ]
     },
     {
-        "id": "wandas.frame.select_pair",
-        "version": 1,
-        "input": "PairwiseSpectralFrame",
-        "output": "PairwiseSpectralFrame",
-        "params": [
-            {
-                "name": "output",
-                "required": true
-            },
-            {
-                "name": "input",
-                "required": true
-            }
-        ]
-    },
-    {
-        "id": "wandas.cross_spectral.transfer_function",
-        "version": 1,
-        "input": "CrossSpectralFrame",
-        "output": "TransferFunctionFrame",
-        "params": []
-    },
-    {
-        "id": "wandas.cross_spectral.coherence",
-        "version": 1,
-        "input": "CrossSpectralFrame",
-        "output": "CoherenceFrame",
-        "params": []
-    },
-    {
         "id": "wandas.cepstral.lifter",
         "version": 1,
         "input": "CepstralFrame",
@@ -1029,6 +1035,31 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "input": "CepstralFrame",
         "output": "SpectralFrame",
         "params": []
+    },
+    {
+        "id": "wandas.cepstrogram.trim",
+        "version": 1,
+        "input": "CepstrogramFrame",
+        "output": "CepstrogramFrame",
+        "params": [
+            {
+                "name": "start",
+                "required": false
+            },
+            {
+                "name": "end",
+                "required": false
+            },
+            {
+                "name": "reference",
+                "required": false,
+                "default": "local",
+                "choices": [
+                    "local",
+                    "source"
+                ]
+            }
+        ]
     },
     {
         "id": "wandas.cepstrogram.lifter",
@@ -1129,6 +1160,56 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         ]
     },
     {
+        "id": "wandas.spectrogram.trim",
+        "version": 1,
+        "input": "SpectrogramFrame",
+        "output": "SpectrogramFrame",
+        "params": [
+            {
+                "name": "start",
+                "required": false
+            },
+            {
+                "name": "end",
+                "required": false
+            },
+            {
+                "name": "reference",
+                "required": false,
+                "default": "local",
+                "choices": [
+                    "local",
+                    "source"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "wandas.spectrogram.at_time",
+        "version": 1,
+        "input": "SpectrogramFrame",
+        "output": "SpectralFrame",
+        "params": [
+            {
+                "name": "time",
+                "required": true
+            },
+            {
+                "name": "reference",
+                "required": false,
+                "default": "local",
+                "choices": [
+                    "local",
+                    "source"
+                ]
+            },
+            {
+                "name": "tolerance",
+                "required": false
+            }
+        ]
+    },
+    {
         "id": "wandas.spectrogram.to_channel_frame",
         "version": 1,
         "input": "SpectrogramFrame",
@@ -1151,6 +1232,46 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 ]
             }
         ]
+    },
+    {
+        "id": "wandas.frame.select_pair",
+        "version": 1,
+        "input": "PairwiseFrame",
+        "output": "PairwiseFrame",
+        "params": [
+            {
+                "name": "output",
+                "required": true
+            },
+            {
+                "name": "input",
+                "required": true
+            }
+        ]
+    },
+    {
+        "id": "wandas.cross_spectral.transfer_function",
+        "version": 1,
+        "input": "CrossSpectralFrame",
+        "output": "TransferFunctionFrame",
+        "params": [
+            {
+                "name": "estimator",
+                "required": false,
+                "default": "H1",
+                "choices": [
+                    "H1",
+                    "H2"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "wandas.cross_spectral.coherence",
+        "version": 1,
+        "input": "CrossSpectralFrame",
+        "output": "CoherenceFrame",
+        "params": []
     }
 ];
 
@@ -1173,14 +1294,23 @@ export const WANDAS_FRAMES: readonly CatalogFrame[] = [
     {
         "name": "CoherenceFrame",
         "bases": [
-            "PairwiseSpectralFrame"
+            "PairwiseSpectralFrame",
+            "PairwiseFrame"
+        ],
+        "charted": true
+    },
+    {
+        "name": "CrossCorrelationFrame",
+        "bases": [
+            "PairwiseFrame"
         ],
         "charted": true
     },
     {
         "name": "CrossSpectralFrame",
         "bases": [
-            "PairwiseSpectralFrame"
+            "PairwiseSpectralFrame",
+            "PairwiseFrame"
         ],
         "charted": true
     },
@@ -1207,7 +1337,8 @@ export const WANDAS_FRAMES: readonly CatalogFrame[] = [
     {
         "name": "TransferFunctionFrame",
         "bases": [
-            "PairwiseSpectralFrame"
+            "PairwiseSpectralFrame",
+            "PairwiseFrame"
         ],
         "charted": true
     }

@@ -1,7 +1,7 @@
 /**
  * The comparison's three panes for one step of the chain: the base's, the compared file's and their
  * difference, each drawn as its Frame type is (stage_view.py): a line over time, log frequency or
- * quefrency, bars per band, an image over time and frequency, Bark or quefrency. The base of a group is
+ * quefrency, a cross-correlation over lag, bars per band, an image over time and frequency, Bark or quefrency. The base of a group is
  * the median of its files' pictures, point by point. A difference is taken between two pictures of the
  * same quantity on the same axes, in what they measure (dB for levels); otherwise the Δ pane says why it
  * is empty. Pure apart from `paintStage`, which only draws.
@@ -20,7 +20,7 @@ import { niceTicks } from '../../shared/utils/ticks';
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -142,8 +142,10 @@ export function stageRange(views: ReadonlyArray<StageView | null>): PaneRange {
     const { low, high } = extent(views);
     const first = views.find(Boolean);
     const quantity = first?.quantity;
-    if (!Number.isFinite(high)) return quantity === 'coherence' ? { min: 0, max: 1 } : quantity === 'cepstrum' ? { min: -1, max: 1 } : { min: -100, max: 0 };
+    if (!Number.isFinite(high)) return quantity === 'coherence' ? { min: 0, max: 1 } : quantity === 'cepstrum' || quantity === 'correlation' ? { min: -1, max: 1 } : { min: -100, max: 0 };
     if (quantity === 'coherence') return { min: 0, max: 1 };
+    // A normalized correlation coefficient lies in [-1, 1].
+    if (quantity === 'correlation') return { min: -1, max: 1 };
     if (quantity === 'cepstrum') {
         // Signed coefficients around zero: symmetric, robust for an image, every peak for a line.
         const edge = (first?.kind === 'heatmap' ? robustEdge(views) : Math.max(Math.abs(low), Math.abs(high)) * 1.05) || 1;
@@ -177,7 +179,7 @@ export interface StageAxes { x: string; y: string }
 
 /** What each axis of a picture measures; a heatmap's y is its rows' axis, its colour the level. */
 export function stageAxes(strings: StageStrings, view: StageView | null, input: { unit?: string; ref?: number } | undefined, diff = false): StageAxes {
-    const x = view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency;
+    const x = view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : view?.x === 'lag' ? strings.axisLag : strings.axisFrequency;
     if (view?.kind === 'heatmap') return { x, y: view.yAxis === 'bark' ? strings.axisBark : view.yAxis === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency };
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
     // A time signal is drawn as itself: its amplitude, in its unit (full scale while uncalibrated).
@@ -187,6 +189,7 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
         : view?.quantity === 'gain' ? strings.axisGain
             : view?.quantity === 'coherence' ? strings.axisCoherence
                 : view?.quantity === 'cepstrum' ? strings.axisCepstrum
+                    : view?.quantity === 'correlation' ? strings.axisCorrelation
                     : `${strings.dsValue}${unit}`;
     // A cross-channel Frame names its pair: which channel over which reference, or the recording over the base slot's.
     const pair = view?.pair?.base ? ` · ${strings.stagePairBase}` : view?.pair ? ` · ch${view.pair.output} / ch${view.pair.input}` : '';
@@ -197,11 +200,13 @@ const hz = (value: number): string => (value >= 1000 ? `${(value / 1000).toFixed
 /** A signed difference: dB to a tenth with its unit, other values to three significant digits. */
 const signed = (value: number, db = true): string => `${value >= 0 ? '+' : '−'}${db ? `${Math.abs(value).toFixed(1)} dB` : Math.abs(value).toPrecision(3)}`;
 const quefrency = (seconds: number): string => `${(seconds * 1000).toFixed(seconds < 0.01 ? 2 : 1)} ms`;
+/** A signed lag: the output channel later than the input when positive. */
+const lag = (seconds: number): string => `${seconds >= 0 ? '+' : '−'}${(Math.abs(seconds) * 1000).toFixed(Math.abs(seconds) < 0.01 ? 2 : 1)} ms`;
 
 /** Where along its axis a point of the picture is, for the readout and the headline. */
 function atText(view: StageView, index: number, row?: number): string {
     const x = view.xs?.[index] ?? 0;
-    const along = view.x === 'time' ? `${x.toFixed(2)} s` : view.x === 'quefrency' ? quefrency(x) : hz(x);
+    const along = view.x === 'time' ? `${x.toFixed(2)} s` : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x);
     if (row === undefined) return along;
     const y = view.ys?.[row] ?? 0;
     return `${along} · ${view.yAxis === 'bark' ? `${y.toFixed(1)} Bark` : view.yAxis === 'quefrency' ? quefrency(y) : hz(y)}`;

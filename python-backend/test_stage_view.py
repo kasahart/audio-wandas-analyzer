@@ -6,7 +6,7 @@ import wandas as wd
 
 import analysis_spec as spec
 from protocol_schema import DEFINITIONS, first_violation
-from stage_view import QUEFRENCY_POINTS, TIME_POINTS, stage_view
+from stage_view import LAG_POINTS, QUEFRENCY_POINTS, TIME_POINTS, stage_view
 
 RATE = 16000
 
@@ -75,6 +75,27 @@ def test_a_cepstrum_is_its_real_coefficients_over_quefrency_as_plot_draws_it(sig
     coefficients = np.asarray(cepstrum.data).mean(axis=0)
     assert view["values"][0] == pytest.approx(coefficients[0], abs=1e-5)
     assert max(abs(v) for v in view["values"][1:]) == pytest.approx(np.abs(coefficients[40:]).max(), abs=1e-5)
+
+
+def test_a_cross_correlation_is_its_coefficients_over_lag_with_the_delay_peak_kept() -> None:
+    rng = np.random.default_rng(0)
+    signal = rng.standard_normal(16000)
+    # ch2 is ch1 80 samples (5 ms) later: the peak sits at +5 ms.
+    frame = wd.from_numpy(np.vstack([signal, np.roll(signal, 80)]), sampling_rate=16000)
+    correlation = frame.cross_correlation(max_lag=0.1)
+    view = _checked(correlation)
+    assert (view["kind"], view["x"], view["xScale"], view["quantity"]) == ("line", "lag", "linear", "correlation")
+    assert view["pair"] == {"output": 2, "input": 1}
+    assert len(view["xs"]) == LAG_POINTS and view["xs"][0] == pytest.approx(-0.1)
+    peak = int(np.argmax(view["values"]))
+    assert view["xs"][peak] == pytest.approx(0.005, abs=1 / 16000 * 2) and view["values"][peak] > 0.99
+    # Zoomed in, the lags on screen at full resolution.
+    detail = stage_view(correlation, detail={"x": [0.0, 0.01], "points": 400})
+    assert (
+        detail["detail"] is True and detail["xs"][0] == 0.0 and np.diff(detail["xs"]).min() == pytest.approx(1 / 16000)
+    )
+    # One channel has no pair of two: nothing to draw.
+    assert stage_view(frame.get_channel(0).cross_correlation())["kind"] == "none"
 
 
 def test_a_cepstrogram_is_an_image_over_time_and_quefrency(signal: wd.ChannelFrame) -> None:

@@ -68,7 +68,7 @@ def test_runtime_dependencies_pin_wandas_v08_with_psychoacoustics() -> None:
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
     dependencies = pyproject["project"]["dependencies"]
     assert "scipy>=1.13" in dependencies
-    assert "wandas[psychoacoustic,effects]>=0.11.0,<0.12.0" in dependencies
+    assert "wandas[psychoacoustic,effects]>=0.12.0,<0.13.0" in dependencies
 
 
 def test_coherence_yields_multi_series(two_channel: wd.ChannelFrame) -> None:

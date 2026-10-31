@@ -53,6 +53,18 @@ test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its 
     assert.deepEqual(stageDiffRange(diff), { min: -0.021, max: 0.021 });
 });
 
+const correlation = (values: number[]): StageView => ({ frame: 'CrossCorrelationFrame', kind: 'line', x: 'lag', xScale: 'linear', quantity: 'correlation', xs: [-0.002, -0.001, 0, 0.001], values, pair: { output: 2, input: 1 } });
+
+test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] coefficient range', () => {
+    const view = correlation([0.1, -0.2, 0.3, 0.95]);
+    assert.deepEqual(stageRange([view]), { min: -1, max: 1 });
+    const names = { axisLag: 'Lag s', axisCorrelation: 'Correlation coefficient', axisDelta: 'Δ dB' } as unknown as StageStrings;
+    assert.deepEqual(stageAxes(names, view, undefined), { x: 'Lag s', y: 'Correlation coefficient · ch2 / ch1' });
+    const diff = stageDifference(view, correlation([0.1, -0.2, 0.3, 0.55]))!;
+    assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Lag s', y: 'Δ Correlation coefficient · ch2 / ch1' });
+    assert.equal(stageHeadline(diff, strings), '+1.00 ms −0.400');
+});
+
 test('a step\'s headline names the largest difference among loud points only, with both values', () => {
     const at = { stageNoDelta: 'none', compareLevelsAt: '{at} base {base} / compare {compare}' };
     // 60 → 65 dB at 1 kHz and 20 → 30 dB at 100 Hz: the 10 dB difference is 30 dB under the loudest, so the 5 dB one heads.
