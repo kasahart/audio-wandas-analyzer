@@ -614,12 +614,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         rowsView = view;
         if (chosen.mode === 'unmatched') { body.innerHTML = unmatchedRowsHtml(unmatchedItems(), unreadable(), text); return; }
         const { first, last } = rowWindow(tableWrap.scrollTop, tableWrap.clientHeight, tableLines(view).length, ROW_HEIGHT);
-        // The rows are drawn again: a focus on a row's ☐/☑ stays on that row's mark, so a second Space toggles it
-        // back instead of falling to the body (and, docked, to the lanes' playback).
+        // The rows are drawn again: a focus on a row's ☐/☑ stays on a mark, so a second Space toggles it back
+        // instead of falling to the body (and, docked, to the lanes' playback). It follows the focused row, so after
+        // ↑/↓ the next Space or Enter takes the row that is lit, not the one the keys left.
         const focusedMark = document.activeElement?.closest?.('[data-action="entry-row-track"]');
         const markKey = focusedMark && body.contains(focusedMark) ? focusedMark.getAttribute('data-key') : null;
         body.innerHTML = datasetRowsHtml(view, first, last, ROW_HEIGHT, text);
-        if (markKey !== null) body.querySelector<HTMLElement>(`[data-action="entry-row-track"][data-key="${CSS.escape(markKey)}"]`)?.focus({ preventScroll: true });
+        if (markKey !== null) body.querySelector<HTMLElement>(`[data-action="entry-row-track"][data-key="${CSS.escape(focus.key ?? markKey)}"]`)?.focus({ preventScroll: true });
         // Redrawn rows keep the light of the lane under the mouse.
         if (tracks.linked && document.querySelector(`.track-row[data-file-path="${CSS.escape(tracks.linked)}"]`)) {
             body.querySelectorAll(`tr.entry-row[data-file-path="${CSS.escape(tracks.linked)}"]`).forEach(row => row.classList.add('is-linked'));
