@@ -237,6 +237,24 @@ test('directory listing bounds reads in flight across nesting levels', async () 
     assert.ok(peak <= 3, `at most 3 reads at once, saw ${peak}`);
 });
 
+test('a wide two-level folder keeps the read bound busy at the second level', async () => {
+    let secondLevelInFlight = 0, secondLevelPeak = 0;
+    const fileSystem: TargetFileSystem = {
+        stat: async () => ({ type: FileType.Directory }) as vscode.FileStat,
+        readDirectory: async (source) => {
+            const depth = posixPath(source.fsPath).split('/').filter(Boolean).length - 1;
+            if (depth === 2) secondLevelPeak = Math.max(secondLevelPeak, ++secondLevelInFlight);
+            for (let i = 0; i < 3; i++) await tick();
+            if (depth === 2) secondLevelInFlight--;
+            if (depth === 0) return Array.from({ length: 16 }, (_, i) => [`s${String(i).padStart(2, '0')}`, FileType.Directory]);
+            return depth === 1 ? [['take', FileType.Directory]] : [['a.wav', FileType.File]];
+        },
+    };
+    const { tree } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { concurrency: 4 });
+    assert.equal(tree.length, 16);
+    assert.equal(secondLevelPeak, 4, 'subfolders of subfolders are read side by side, not one at a time');
+});
+
 test('directory listing stops when cancelled', async () => {
     let reads = 0;
     const fileSystem = directoryFileSystem({ '/r': [['a', FileType.Directory]], '/r/a': [['b', FileType.Directory]], '/r/a/b': [['x.wav', FileType.File]] });

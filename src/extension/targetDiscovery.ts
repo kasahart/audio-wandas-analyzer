@@ -35,6 +35,19 @@ function isSkippedDirectory(name: string): boolean {
     return name.startsWith('.') || name === 'node_modules';
 }
 
+function listsFolder(name: string, type: vscode.FileType): boolean {
+    return (type & vscode.FileType.Directory) !== 0 && (type & vscode.FileType.SymbolicLink) === 0 && !isSkippedDirectory(name);
+}
+
+function sortEntries(entries: [string, vscode.FileType][]): [string, vscode.FileType][] {
+    return [...entries].sort(([leftName, leftType], [rightName, rightType]) => {
+        const leftIsDirectory = (leftType & vscode.FileType.Directory) !== 0;
+        const rightIsDirectory = (rightType & vscode.FileType.Directory) !== 0;
+        if (leftIsDirectory !== rightIsDirectory) { return leftIsDirectory ? -1 : 1; }
+        return leftName.localeCompare(rightName);
+    });
+}
+
 function limiter(concurrency: number): <T>(task: () => Thenable<T>) => Promise<T> {
     let running = 0;
     const waiting: Array<() => void> = [];
@@ -64,44 +77,49 @@ export async function buildDirectoryTree(
     let seen = 0;
     let truncated = false;
 
-    // Reads run concurrently as soon as their folder is listed, but folders take their share of `maxEntries` in
-    // name-sorted depth-first order, so a truncated listing does not depend on which read finished first.
+    const reads = new Map<string, Promise<[string, vscode.FileType][]>>();
+    let prefetchedEntries = 0;
+
+    // A folder's subfolders are read as soon as its own read returns, but folders take their share of `maxEntries`
+    // in name-sorted depth-first order, so a truncated listing does not depend on which read finished first.
     function startRead(folderUri: vscode.Uri): Promise<[string, vscode.FileType][]> {
         // Checked again once a slot opens, so reads queued before a cancel or the cap are skipped rather than run.
         const entries = read(() => {
             if (options.isCancelled?.() || truncated) { return Promise.resolve<[string, vscode.FileType][]>([]); }
             return Promise.resolve(fileSystem.readDirectory(folderUri));
+        }).then((found) => {
+            prefetchedEntries += found.length;
+            // Past the cap the listing ends before most of what is left, so the rest is read only when its turn comes.
+            if (prefetchedEntries <= maxEntries && !options.isCancelled?.()) {
+                for (const [name, type] of sortEntries(found)) {
+                    if (listsFolder(name, type)) { void startRead(vscode.Uri.joinPath(folderUri, name)); }
+                }
+            }
+            return found;
         });
         // A read is awaited only when its folder's turn comes, so a failure before then is not yet unhandled.
         void entries.catch(() => undefined);
+        reads.set(folderUri.fsPath, entries);
         return entries;
     }
 
-    async function list(currentUri: vscode.Uri, pendingEntries: Promise<[string, vscode.FileType][]>): Promise<DirectoryTreeNode[]> {
+    async function list(currentUri: vscode.Uri): Promise<DirectoryTreeNode[]> {
         if (options.isCancelled?.()) { throw new vscode.CancellationError(); }
-        const entries = await pendingEntries;
+        const pending = reads.get(currentUri.fsPath) ?? startRead(currentUri);
+        const entries = await pending;
+        reads.delete(currentUri.fsPath);
         if (options.isCancelled?.()) { throw new vscode.CancellationError(); }
         const room = Math.max(0, maxEntries - seen);
         if (entries.length > room) { truncated = true; }
         seen += Math.min(entries.length, room);
         options.onProgress?.(seen);
-        const listed = [...entries].sort(([leftName, leftType], [rightName, rightType]) => {
-            const leftIsDirectory = (leftType & vscode.FileType.Directory) !== 0;
-            const rightIsDirectory = (rightType & vscode.FileType.Directory) !== 0;
-            if (leftIsDirectory !== rightIsDirectory) { return leftIsDirectory ? -1 : 1; }
-            return leftName.localeCompare(rightName);
-        }).slice(0, room).map(([name, type]) => {
-            const entryUri = vscode.Uri.joinPath(currentUri, name);
-            const listsFolder = (type & vscode.FileType.Directory) !== 0
-                && (type & vscode.FileType.SymbolicLink) === 0 && !isSkippedDirectory(name);
-            return { name, type, entryUri, folderEntries: listsFolder ? startRead(entryUri) : undefined };
-        });
 
         const nodes: DirectoryTreeNode[] = [];
-        for (const { name, type, entryUri, folderEntries } of listed) {
+        for (const [name, type] of sortEntries(entries).slice(0, room)) {
+            const entryUri = vscode.Uri.joinPath(currentUri, name);
             const relativePath = path.relative(rootUri.fsPath, entryUri.fsPath).split(path.sep).join('/');
-            if (folderEntries) {
-                const children = await list(entryUri, folderEntries);
+            if (listsFolder(name, type)) {
+                const children = await list(entryUri);
                 if (children.length > 0) { nodes.push({ type: 'directory', name, relativePath, children }); }
             } else if ((type & vscode.FileType.Directory) === 0 && (type & vscode.FileType.File) !== 0 && isSupportedAudioFile(name)) {
                 nodes.push({ type: 'file', name, relativePath, filePath: entryUri.fsPath });
@@ -110,7 +128,7 @@ export async function buildDirectoryTree(
         return nodes;
     }
 
-    const tree = await list(rootUri, startRead(rootUri));
+    const tree = await list(rootUri);
     return { tree, truncated };
 }
 
