@@ -45,6 +45,17 @@
         "onStartupFinished"
     ],
     "main": "./dist/extension/bootstrap.js",
+    "capabilities": {
+        "untrustedWorkspaces": {
+            "supported": "limited",
+            "restrictedConfigurations": [
+                "audioWandasAnalyzer.pythonCommand",
+                "audioWandasAnalyzer.debugFilePath"
+            ],
+            "description": "%capabilities.untrustedWorkspaces.description%"
+        },
+        "virtualWorkspaces": false
+    },
     "icon": "media/Marketplace-icon.png",
     "contributes": {
         "commands": [

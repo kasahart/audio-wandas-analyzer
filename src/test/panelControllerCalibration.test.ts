@@ -206,6 +206,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
         onPythonEnvironmentChange: () => ({ dispose: () => undefined }),
         language: () => 'en',
+        withProgress: (_options, task) => task({ report() {} }, { isCancellationRequested: false } as vscode.CancellationToken),
     };
     let lazyCalibration: import('../shared/protocol/backendProtocol').CalibrationRequestContext | undefined;
     const backend = {
