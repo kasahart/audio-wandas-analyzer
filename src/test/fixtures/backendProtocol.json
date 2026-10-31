@@ -298,7 +298,7 @@
         "filePath": "tone.wav",
         "startNorm": 0,
         "endNorm": 1,
-        "points": 8193
+        "points": 32769
       },
       "errorField": "points"
     },
@@ -1343,7 +1343,7 @@
         "filePath": "a.wav",
         "startNorm": 0,
         "endNorm": 1,
-        "points": 8192
+        "points": 32768
       },
       "violation": null
     },

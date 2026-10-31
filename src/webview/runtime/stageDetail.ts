@@ -1,6 +1,6 @@
 /**
- * When a zoomed per-step picture needs its detail, as the track lanes fetch theirs: only the part on screen
- * (with the lanes' 5 % margin, computeReqBounds), twice the plot's width in points (rangeRequestPointCount),
+ * When a zoomed per-step picture needs its detail: only the part on screen (with a 5 % margin, computeReqBounds;
+ * the track lanes fetch a couple of screens either side instead, planLaneRange), twice the plot's width in points (rangeRequestPointCount),
  * reusing a range already fetched while it covers the view finely enough (rangeHasDetail), and asked for only
  * once the zoom has settled (a wheel turned notch by notch asks once).
  */

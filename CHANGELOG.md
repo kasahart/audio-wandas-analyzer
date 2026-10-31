@@ -9,6 +9,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Track lanes: waveform over spectrogram on one time axis, linked amplitude/colour/frequency scales, only lanes near the view drawn and fetched (#427, #442, #444).
 - Cursor spectrum snaps to the nearest STFT frame; spectrogram cells centred on their windows (#436, #438).
 - Trackpad sideways swipe pans the timeline (#471).
+- Track lanes fetch the waveform detail two screens either side of the view, so a pan no longer flashes the coarse overview, and a zoom out keeps the detail already fetched until the new one lands (#502).
 - Entry table: the slot chips under the table are gone (roles show on the rows and the compare legend); the base group is chosen from a Base select beside Group (#504).
 - Compare view: showing Δ no longer leaves the overlaid plot stretched from its old height, so hovered lines are no longer drawn twice (#503).
 - Python backend answers requests for different recordings concurrently and reads audio straight into float32 (#462, #464).
@@ -20,6 +21,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Entry table keeps file names' ends in view with the full path as a tooltip; disabled controls say why; PNG/CSV export shows progress; settings popovers use plain labels; light-theme contrast and High Contrast Light role colours fixed; the transfer-function reference is called 参照 in Japanese.
 - The webview may read, scan and export only files its panel lists; large folders are listed with a cap, skip symlinked folders and can be cancelled.
 - The VSIX no longer ships scripts, tests, agent files or the debug WAV (about 10 MB → 4 MB).
+- Requires VS Code 1.122 or later; only the latest VS Code release is supported.
 - Tooling: CI runs verify on Linux, Windows and macOS; releases publish only after every CI job passes; pinned CI Python packages; Dependabot; type-aware ESLint and pyright in verify; wall-clock budgets only with `AWA_PERF=1`.
 
 ## 0.0.14

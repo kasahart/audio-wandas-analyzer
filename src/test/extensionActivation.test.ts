@@ -372,6 +372,33 @@ test('an analysis waiting on a prompt that switches interpreters runs on the new
     }
 });
 
+test('an analysis waiting on a prompt that reselects the same interpreter takes the new check\'s answer', async () => {
+    const harness: ReturnType<typeof loadActivation> = loadActivation({
+        capturePanelAnalysis: true,
+        // The first check's prompt runs Select Environment, the user picks python3 again and the new check's
+        // install succeeds; the first check still answers false for its own run.
+        checkDependencies: async () => {
+            if (harness.state.dependencyChecks.length > 1) { return true; }
+            await settle();
+            harness.listeners.reselected?.('python3');
+            return false;
+        },
+    });
+    try {
+        harness.activate();
+        const results = await harness.state.panelAnalysis!.analyzeFiles(['/audio/a.wav']);
+        assert.deepEqual(harness.state.dependencyChecks, ['python3', 'python3']);
+        assert.deepEqual(harness.state.analyzedFiles, [['/audio/a.wav']]);
+        assert.deepEqual(results, []);
+
+        const later = await harness.state.panelAnalysis!.analyzeFiles(['/audio/b.wav']);
+        assert.deepEqual(later, [], 'the stale check must not leave the preparation marked failed');
+        assert.deepEqual(harness.state.dependencyChecks, ['python3', 'python3']);
+    } finally {
+        harness.restore();
+    }
+});
+
 test('a not-ready error track carries the file\'s current revision, so the panel takes it as live', async () => {
     const harness = loadActivation({ checkDependencies: async () => false, capturePanelAnalysis: true, analysisRevision: 3 });
     try {

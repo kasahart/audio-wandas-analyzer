@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import test from 'node:test';
 import type * as vscode from 'vscode';
 import type { AnalysisResultWithError } from '../shared/analysis/analysisTypes';
@@ -27,7 +30,11 @@ function result(filePath: string, revision: number, peakAbsolute: number): Analy
     };
 }
 
-test('calibration refresh reanalyzes one file without persisting panel settings', async () => {
+function loadModules(): {
+    PanelController: typeof import('../extension/panelController').PanelController;
+    CalibrationStore: typeof import('../extension/calibrationStore').CalibrationStore;
+    calibrationFileKey: typeof import('../extension/calibrationStore').calibrationFileKey;
+} {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as {
         _load: (request: string, parent: unknown, isMain: boolean) => unknown;
@@ -67,7 +74,11 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     } finally {
         NodeModule._load = originalLoad;
     }
+    return { PanelController, CalibrationStore, calibrationFileKey };
+}
 
+test('calibration refresh reanalyzes one file without persisting panel settings', async () => {
+    const { PanelController, CalibrationStore, calibrationFileKey } = loadModules();
     const calibratedPath = '/tmp/controller-calibrated.wav';
     const retainedPath = '/tmp/controller-retained.wav';
     const racingPath = '/tmp/controller-racing.wav';
@@ -314,4 +325,105 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     assert.equal(displayed[0]?.analysisRevision, 1);
     assert.equal(raceAttempt, 2);
     controller.dispose();
+});
+
+test('a calibration change refreshes every lane that shows the file, under each of its paths', async (testContext) => {
+    if (process.platform === 'win32') {
+        testContext.skip('Symlink creation requires elevated privileges on Windows.');
+        return;
+    }
+    const { PanelController, calibrationFileKey } = loadModules();
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'controller-symlink-'));
+    try {
+        const targetPath = path.join(directory, 'target.wav');
+        const linkPath = path.join(directory, 'link.wav');
+        fs.writeFileSync(targetPath, '');
+        fs.symlinkSync(targetPath, linkPath);
+
+        let revision = 0;
+        let calibrationListener: ((event: { filePath: string; analysisRevision: number }) => void) | undefined;
+        const refreshCalls: string[][] = [];
+        let displayed: AnalysisResultWithError[] = [];
+        let updates = 0;
+        const panel: PanelHandle = {
+            webview: {
+                onDidReceiveMessage: () => ({ dispose: () => undefined }),
+                postMessage: async (message) => {
+                    if ((message as { type?: unknown }).type === 'analysis-update') { updates += 1; }
+                    return true;
+                },
+            },
+            onDidDispose: () => ({ dispose: () => undefined }),
+        };
+        const panelFactory: PanelFactory = {
+            getResults: () => [...displayed],
+            updateResults: (_target, results) => { displayed = [...results]; },
+            replaceResult: (_target, replacement) => {
+                displayed = displayed.map((entry) => (entry.filePath === replacement.filePath ? replacement : entry));
+                return [...displayed];
+            },
+            updateDirectoryResults: async () => true,
+            showResults: (_extensionUri, results) => {
+                displayed = [...results];
+                return panel;
+            },
+            showDirectory: () => panel,
+        };
+        const host: PanelControllerHost = {
+            fileSystem: {} as PanelControllerHost['fileSystem'],
+            showOpenDialog: async () => undefined,
+            executeCommand: async () => undefined,
+            showInformation: () => undefined,
+            showError: (message) => { throw new Error(message); },
+            language: () => 'en',
+            withProgress: (_options, task) => task({ report() {} }, { isCancellationRequested: false } as vscode.CancellationToken),
+        };
+        const context = {
+            extensionUri: { fsPath: '/extension' } as vscode.Uri,
+            workspaceState: {
+                get: <T>(_key: string, fallback: T): T => fallback,
+                update: async (): Promise<void> => undefined,
+                keys: (): readonly string[] => [],
+            },
+        } as unknown as SpectrogramSettingsContext & { extensionUri: vscode.Uri };
+        const controller = new PanelController(
+            context,
+            {} as PanelBackend,
+            {
+                analyzeFiles: async (filePaths) => {
+                    if (revision > 0) { refreshCalls.push([...filePaths]); }
+                    return filePaths.map((filePath) => result(filePath, revision, revision));
+                },
+                warmup: () => undefined,
+            },
+            {} as ExportFlows,
+            {
+                analysisRevision: () => revision,
+                onDidChange: (listener) => {
+                    calibrationListener = listener;
+                    return { dispose: () => undefined };
+                },
+                configureTrack: async () => undefined,
+            },
+            {
+                getCurrentPythonEnvironmentState: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
+                onDidChangePythonEnvironmentState: () => ({ dispose: () => undefined }),
+            },
+            panelFactory,
+            host,
+        );
+
+        await controller.analyzeFiles([linkPath, targetPath]);
+        revision = 1;
+        calibrationListener?.({ filePath: calibrationFileKey(targetPath), analysisRevision: 1 });
+        for (let attempt = 0; attempt < 50 && updates < 2; attempt++) {
+            await new Promise((resolve) => setImmediate(resolve));
+        }
+
+        assert.deepEqual(refreshCalls, [[linkPath], [targetPath]]);
+        assert.deepEqual(displayed.map((entry) => [entry.filePath, entry.analysisRevision]), [[linkPath, 1], [targetPath, 1]]);
+        controller.dispose();
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
 });
