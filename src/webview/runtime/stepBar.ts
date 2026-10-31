@@ -13,50 +13,21 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import { addableOperations, brokenStep, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, chainEnd, chainOutput, movedStep, recipeNodes, recipeSteps, timeSignalStep, withParam, withStep, withoutSteps, withoutBypassed, withBypass, withSlotReference, slotReferenced, activeSlotReferenced, recipeChain, REFERENCE_KEY, TIME_SLICE, type RecipeStep, type StepLimits, type StepParam } from '../../shared/recipe/recipeSteps';
+import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withParam, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, type RecipeStep, type StepLimits, type StepParam } from '../../shared/recipe/recipeSteps';
 import { OPERATION_GROUPS, operationGroup, operationHint, type OperationGroup } from '../../shared/recipe/operationGuide';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
-import { outsideRecipe, reportOctaveRecipe } from './compareReport';
+import { outsideRecipe } from './compareReport';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
 import { keyRouterFor } from './keyRouter';
+import { currentStepId, earlierPlaces as placesBefore, frameAfter, INPUT_STAGE, lastRunningStep, OCTAVE_BRANCH, orderedSteps, removable, shownStep as chipShown, stepFlow, stepLimits, type RegionRange, type StepBarState, type StepFlow } from './stepBarModel';
+import { channelText, formatNumber, fromShown, invalidReason, stepLabel } from './stepLabels';
 
-export type StepBarStrings = Pick<UiStrings, 'stepAfterBroken' | 'stepOctaveBroken' | 'stepUndo' | 'stepRedo' | 'stepUndone' | 'stepRedone' | 'stepBypass' | 'stepBypassOff' | 'stepBypassed' | 'stepUnbypassed' | 'stepMenuEarlier' | 'stepGoesBefore' | 'stepMenuOff' | 'stepRegionStart' | 'stepRegionEnd' | 'stepRegionPurpose' | 'stepRegionAdded' | 'stepRegionImported' | 'stepRegionCleared' | 'stepRegionClear' | 'stepRegionOrder' | 'stepRegionThere' | 'stepInputHint' | 'stepNeedAbove' | 'stepNeedInteger' | 'stepRegion' | 'stepAll' | 'stepMetrics' | 'stepAverage' | 'stepSettings' | 'stepApply' | 'compareNotEntry' | 'stepNeedBelow' | 'stepNeedPow2' | 'hintStepChip' | 'stepRecipeName' | 'hintSpectrogramGroup' | 'stepNeedValue' | 'hintSpectrogram' | 'stepFrameHint' | 'hintRegionMark' | 'stepOpen' | 'stepClose' | 'stepOutsideHeading' | 'stepOctave' | 'stepHoldHint' | 'stepHintNoHold' | 'stepAdd' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepNeedFrame' | 'stepFailedOn' | 'stepTapHint' | 'stepNoSettings' | 'stepRemove' | 'stepMenuTitle' | 'stepMenuFilter' | 'stepOffFrame' | 'stepOffRequired' | 'stepOffRefuses' | 'stepOffUnavailable' | 'stepDefaultsOnly' | 'stepAdded' | 'stepRemoved' | 'btnStage' | 'stepInputFiles' | 'stepInput' | 'stepHintLocale' | 'stepGroupFilter' | 'stepGroupPrepare' | 'stepGroupTime' | 'stepGroupFrequency' | 'stepGroupOther' | 'stepDragHint' | 'stepMoved' | 'stepRemoveChip' | 'stepHighpass' | 'stepLowpass' | 'stepBandpass' | 'stepAverageFft' | 'stepOctaveHint' | 'stepNeedChannels' | 'stepNarrowedChannels' | 'stepPairSelf' | 'stepNeedChannel' | 'stepOffChannels' | 'stepPair' | 'stepPairOutput' | 'stepPairInput' | 'stepReference' | 'stepReferenceChannel' | 'stepReferenceSlot' | 'stepReferenceSet' | 'stagePairBase'>;
+export { endsInSpectrum, INPUT_STAGE, OCTAVE_BRANCH, recipeWithout, runnableRecipe, stepLimits, unpairedRecipe, type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
+export { invalidReason, stepChipLabel } from './stepLabels';
 
 /** A press shorter than this is a tap (see the step's Frame); longer is a hold (what the step does) until release. */
 export const STEP_TAP_MS = 250;
-/** The app's 1/3-octave branch: not a Recipe node, computed beside the chain's end (reportOctaveRecipe). */
-export const OCTAVE_BRANCH = 'node-noct';
-/** The input as a stage: the files' waveforms as they come in (scan_service.py's INPUT_STAGE). */
-export const INPUT_STAGE = 'node-input';
-/** A region of the files, in seconds. */
-export interface RegionRange { start: number; end: number }
-const SPECTRAL_ENDS = ['SpectralFrame', 'NOctFrame'];
-
-export interface StepBarState {
-    recipe: RecipeDocument | null;
-    sampleRate?: number;
-    /** Samples in the folder's shortest file, which bounds the FFT length. */
-    shortestSamples?: number;
-    /** Channels of the files, which bound a channel index. */
-    channels?: number;
-    /** Seconds measured (the region's, else the shortest file's): where fix_length starts. */
-    lengthS?: number;
-    /** Steps that failed on a file, with wandas' reason: marked and left out. */
-    failed?: Readonly<Record<string, string>>;
-    /** "0.50–1.50 s"; undefined is the whole file. */
-    region?: string;
-    /** Comparison only: the region set with the region chip (null: the whole file, and no chip). */
-    regionRange?: RegionRange | null;
-    regionDiffers?: boolean;
-    specVersion?: number;
-    /** Comparison only: the base is a group median, so there is no single file's spectrogram to hold. */
-    groupBase?: boolean;
-    /** Comparison only: the step whose Frame the panes show (white frame); undefined is the chain's end. */
-    stage?: string;
-    /** How many files the chain runs on, for the input chip. */
-    files?: number;
-}
 
 export interface StepBar {
     element: HTMLElement;
@@ -65,121 +36,6 @@ export interface StepBar {
     close(): boolean;
     /** The region chip set from outside (the tracks' selection), as an edit × and ↶ take back; false when one is there already. */
     importRegion(range: RegionRange): boolean;
-}
-
-/** The limits a Recipe's steps are checked against: the folder's, and the steps that failed on a file. */
-export function stepLimits(state: Pick<StepBarState, 'sampleRate' | 'shortestSamples' | 'failed' | 'channels'>): StepLimits {
-    return { sampleRate: state.sampleRate, shortestSamples: state.shortestSamples, ...(state.channels ? { channels: state.channels } : {}), ...(state.failed ? { failed: state.failed } : {}) };
-}
-
-/** The Recipe the scans run: the bar's Recipe without the steps that cannot run. */
-export function runnableRecipe(recipe: RecipeDocument, limits?: number | StepLimits): RecipeDocument {
-    const run = withoutBypassed(recipe);
-    // A step measured against the base slot needs no second channel: judged with its reference still on.
-    const slotted = slotReferenced(recipe);
-    const judged = slotted.length ? { ...run, [REFERENCE_KEY]: slotted } as RecipeDocument : run;
-    return withoutSteps(run, recipeSteps(judged, limits).filter(step => step.invalid !== undefined).map(step => step.id));
-}
-
-/**
- * What a scan without the base recording runs (the table's metrics and a region's): the run Recipe before its first
- * step measured against the base slot, which pairs nothing there. `editor` is the bar's Recipe, which names them.
- */
-export function unpairedRecipe(run: RecipeDocument | undefined, editor: RecipeDocument | null | undefined): RecipeDocument | undefined {
-    const referenced = new Set(activeSlotReferenced(editor));
-    if (!run || !referenced.size) return run;
-    const chain = recipeChain(run).map(node => node.id);
-    const at = chain.findIndex(id => referenced.has(id));
-    return at < 0 ? run : withoutSteps(run, chain.slice(at).reverse());
-}
-
-/** Whether the chain ends in a spectrum or band levels, so the app's 1/3-octave columns and branch apply. */
-export function endsInSpectrum(recipe: RecipeDocument, limits?: number | StepLimits): boolean {
-    return SPECTRAL_ENDS.includes(chainOutput(recipe, limits));
-}
-
-/**
- * What holding step `id` runs: the Recipe without it and the later steps that then cannot run, as the scans
- * do; null when the stage `shown` is not in it any more (the 1/3-octave branch is, while it ends in a spectrum).
- * `referenced` are the editor's steps measured against the base slot, which a run Recipe no longer names.
- */
-export function recipeWithout(recipe: RecipeDocument, id: string, shown: string, limits?: number | StepLimits, referenced: readonly string[] = slotReferenced(recipe)): RecipeDocument | null {
-    const rest = withoutSteps(recipe, [id]);
-    const without = runnableRecipe(referenced.length ? { ...rest, [REFERENCE_KEY]: [...referenced] } : rest, limits);
-    const present = shown === OCTAVE_BRANCH ? endsInSpectrum(without, limits) : recipeNodes(without).some(node => node.id === shown);
-    return present ? without : null;
-}
-
-/**
- * The one-line reason a step cannot run, shown in the footer while the field or chip has focus or the pointer.
- * Steps are named by their chips' labels; `steps` names the step a later one cannot run after.
- */
-export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: readonly RecipeStep[] = []): string {
-    if (step.id === OCTAVE_BRANCH && step.invalid !== undefined) return strings.stepOctaveBroken;
-    if (!step.reason) return '';
-    const limit = Number.isFinite(step.reason.limit) ? String(Math.round(step.reason.limit * 1000) / 1000) : '∞';
-    // A channel is shown from 1: one below `limit` (wandas' index from 0) is the last channel there is.
-    if (step.reason.kind === 'below' && step.editable.some(param => param.kind === 'int' && param.channel && param.name === step.invalid)) {
-        return strings.stepNeedChannel.replace('{n}', limit);
-    }
-    switch (step.reason.kind) {
-        case 'channels': {
-            // A step before it left one channel (get_channel, sum, mean), or the files have one.
-            const before = step.reason.text ? steps.find(item => item.id === step.reason!.text) : undefined;
-            return before ? strings.stepNarrowedChannels.replace('{op}', stepChipLabel(before, strings)) : strings.stepNeedChannels;
-        }
-        case 'pair': return strings.stepPairSelf;
-        case 'pow2': return strings.stepNeedPow2.replace('{max}', limit);
-        case 'above': return strings.stepNeedAbove.replace('{min}', limit);
-        case 'integer': return strings.stepNeedInteger;
-        case 'frame': return strings.stepNeedFrame.replace('{op}', stepChipLabel(step, strings)).replace('{frame}', step.reason.text ?? '');
-        case 'after': { const before = steps.find(item => item.id === step.reason!.text); return strings.stepAfterBroken.replace('{op}', before ? stepChipLabel(before, strings) : step.reason.text ?? ''); }
-        case 'failed': return strings.stepFailedOn.replace('{reason}', step.reason.text ?? '');
-        default: return strings.stepNeedBelow.replace('{max}', limit);
-    }
-}
-
-// eslint-disable-next-line @typescript-eslint/no-base-to-string -- Recipe params are JSON scalars
-const formatNumber = (value: unknown): string => (typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : String(value ?? ''));
-
-/** A wandas channel index (from 0) as the bar shows it, from 1. */
-/** A channel index as shown, from 1; a negative one (from the last) as its channel when the channels are known. */
-const channelText = (value: unknown, channels?: number): string => (typeof value !== 'number' ? '?' : value >= 0 ? String(value + 1) : channels ? String(value + channels + 1) : String(value));
-/**
- * A channel parameter's value as typed (from 1), back to wandas' index (from 0). A negative one (from the last, as an
- * imported Recipe may have it) stays as it is; there is no channel 0.
- */
-const fromShown = (param: StepParam, value: number): number => (!(param.kind === 'int' && param.channel) || value < 0 ? value : value > 0 ? value - 1 : NaN);
-
-const hzText = (value: unknown): string => (typeof value === 'number' ? (value >= 1000 ? `${Math.round(value / 100) / 10} kHz` : `${Math.round(value)} Hz`) : '');
-const bandRange = (p: Record<string, unknown>): string => (p['fmin'] !== undefined ? `${hzText(p['fmin'])}–${hzText(p['fmax'])}` : '');
-
-function stepLabel(step: RecipeStep, strings: StepBarStrings, state: StepBarState, expanded: boolean): string {
-    const p = step.params;
-    // Measured against the base slot's recording: the chip says so (a channel reference has its pair chip after it).
-    if (step.reference === 'slot') return `${step.name} · ${strings.stagePairBase}`;
-    switch (step.name) {
-        case 'highpass_filter': return `${strings.stepHighpass} ${formatNumber(p['cutoff'])} Hz`;
-        case 'lowpass_filter': return `${strings.stepLowpass} ${formatNumber(p['cutoff'])} Hz`;
-        case 'bandpass_filter': return `${strings.stepBandpass} ${formatNumber(p['low_cutoff'])}–${formatNumber(p['high_cutoff'])} Hz`;
-        case 'time_slice': return `${strings.stepRegion} ${state.regionRange ? `${state.regionRange.start.toFixed(2)}–${state.regionRange.end.toFixed(2)} s` : state.region ?? strings.stepAll}`;
-        case 'welch': return strings.stepAverageFft.replace('{name}', strings.stepAverage).replace('{n}', formatNumber(p['n_fft']));
-        case 'stft': return `STFT ${formatNumber(p['n_fft'])}`;
-        case 'resampling': return `→ ${hzText(p['target_sr'])}`;
-        // Source ids ("c1") are named as wandas has them; indices as channels from 1.
-        case 'select_pair': return typeof p['output'] === 'string' || typeof p['input'] === 'string' ? `${String(p['output'])} / ${String(p['input'])}`
-            : strings.stepPair.replace('{output}', channelText(p['output'], step.channels ?? state.channels)).replace('{input}', channelText(p['input'], step.channels ?? state.channels));
-        case 'noct_spectrum': {
-            const octave = p['n'] !== undefined && p['n'] !== 3 ? `1/${formatNumber(p['n'])} oct` : strings.stepOctave;
-            return expanded && bandRange(p) ? `${octave} ${bandRange(p)}` : octave;
-        }
-        default: return step.name;
-    }
-}
-
-/** A step's chip label, as the bar names it (the comparison's headline names bypassed steps by it too). */
-export function stepChipLabel(step: RecipeStep, strings: StepBarStrings, regionRange?: RegionRange | null): string {
-    return stepLabel(step, strings, { recipe: null, regionRange }, false);
 }
 
 export function createStepBar(deps: {
@@ -228,10 +84,8 @@ export function createStepBar(deps: {
         // An effect pedal's bypass: the signal's path arcs over the block.
         bypass: '<svg class="step-icon step-bypass-icon" viewBox="0 0 16 14" aria-hidden="true"><rect x="5.5" y="8" width="5" height="4.5" rx=".8"/><path d="M2 12V6Q2 3 5 3H11Q14 3 14 6V12"/><path d="M12 10l2 2 2-2"/></svg>',
     };
-    /** The Frame a step passes on: its own, unless it is left out or bypassed. */
-    const frameAfter = (step: RecipeStep): string => (step.invalid === undefined && !step.bypassed ? step.output : step.input);
     /** The region chip is there only while a region is set. */
-    const shownStep = (step: RecipeStep): boolean => step.operation !== TIME_SLICE || !!state.regionRange;
+    const shownStep = (step: RecipeStep): boolean => chipShown(step, state);
 
     // ---- undo / redo: every edit from the bar keeps what was there before (the Recipe and the region).
     type Snapshot = { recipe: RecipeDocument; region: RegionRange | null };
@@ -263,46 +117,11 @@ export function createStepBar(deps: {
     }
     const undo = (): void => travel(past, future, strings.stepUndone);
     const redo = (): void => travel(future, past, strings.stepRedone);
-    /**
-     * The chain as the scan runs it: the steps to its time signal, then the steps after it (a row of their
-     * own) and, when the chain ends in a spectrum or band levels, the app's 1/3-octave branch beside them.
-     */
-    function flow(): { chain: RecipeStep[]; tail: RecipeStep[]; octave?: RecipeStep } {
-        const steps = recipeSteps(state.recipe!, limits());
-        const signal = timeSignalStep(state.recipe!, limits());
-        const split = signal ? steps.findIndex(step => step.id === signal.id) + 1 : 0;
-        // A broken chain that would end in a spectrum keeps its branch, which cannot run either.
-        const broken = brokenStep(state.recipe!, limits());
-        if (broken && SPECTRAL_ENDS.includes(chainEnd(state.recipe!, limits()))) {
-            const octave: RecipeStep = { id: OCTAVE_BRANCH, operation: 'wandas.audio.noct_spectrum', name: 'noct_spectrum', params: {}, editable: [], input: INPUT_FRAME, output: 'NOctFrame', invalid: '', reason: { kind: 'after', limit: 0, text: broken.id } };
-            return { chain: steps.slice(0, split), tail: steps.slice(split), octave };
-        }
-        if (!endsInSpectrum(state.recipe!, limits())) return { chain: steps.slice(0, split), tail: steps.slice(split) };
-        const found = state.sampleRate ? recipeSteps(reportOctaveRecipe(state.recipe!, null, undefined, state.sampleRate)).find(step => step.name === 'noct_spectrum') : undefined;
-        // Bands the file cannot give (or no file yet to tell): no branch, rather than a chip that draws nothing.
-        if (!found) return { chain: steps.slice(0, split), tail: steps.slice(split) };
-        // The branch is the app's, not a Recipe node: nothing on it to set or remove.
-        const octave: RecipeStep = { id: OCTAVE_BRANCH, operation: 'wandas.audio.noct_spectrum', name: 'noct_spectrum', params: found?.params ?? {}, editable: [], input: INPUT_FRAME, output: 'NOctFrame' };
-        return { chain: steps.slice(0, split), tail: steps.slice(split), octave };
-    }
-    const all = (): RecipeStep[] => { const { chain, tail, octave } = flow(); return [...chain, ...tail, ...(octave ? [octave] : [])]; };
-    /** The last step that runs (a region chip not shown included, so a step added at the end goes after it): ＋ at the end adds after it. */
-    function end(): RecipeStep | undefined {
-        const steps = recipeSteps(state.recipe!, limits());
-        return steps.filter(step => step.invalid === undefined && !step.bypassed).at(-1) ?? steps.at(-1);
-    }
-    /** The stage on screen: on the entry table the 1/3-octave levels (or the chain's end), on the comparison the step shown. */
-    function currentId(): string | undefined {
-        const { octave } = flow();
-        if (deps.mode === 'entry') return octave?.id ?? end()?.id;
-        return state.stage ?? end()?.id;
-    }
-    const removable = (step: RecipeStep): boolean => step.id !== OCTAVE_BRANCH && step.operation !== TIME_SLICE;
-    /** The steps of the chain in the order they run, then the app's 1/3-octave branch. */
-    function ordered(): RecipeStep[] {
-        const { chain, tail, octave } = flow();
-        return [...chain, ...tail, ...(octave ? [octave] : [])];
-    }
+    function flow(): StepFlow { return stepFlow(state.recipe!, state); }
+    const all = (): RecipeStep[] => orderedSteps(flow());
+    function end(): RecipeStep | undefined { return lastRunningStep(state.recipe!, state); }
+    function currentId(): string | undefined { return currentStepId(state.recipe!, state, deps.mode); }
+    const ordered = all;
     /**
      * One step: a round chip with a dot in its Frame's colour. Its body is pressed to see the step's Frame and
      * held to see what the step does; ⚙ (shown on the chip on screen) opens its settings and Remove; × (on
@@ -413,16 +232,7 @@ export function createStepBar(deps: {
         const remove = removable(step) ? `<button type="button" data-action="step-remove" data-step="${escapeHtml(step.id)}">${escapeHtml(strings.stepRemove)}</button>` : '';
         return `<div class="step-form" role="dialog" aria-label="${escapeHtml(step.name)}" data-step-form="${escapeHtml(step.id)}">${title}${why}${fields}<div class="step-form-bar">${remove}${apply}</div></div>`;
     }
-    /** The places before ＋'s, nearest first: after which step (null: the input), the Frame there, and the chip that follows. */
-    function earlierPlaces(after: string | null): Array<{ after: string | null; frame: string; next?: RecipeStep }> {
-        const steps = recipeSteps(state.recipe!, limits());
-        const at = after ? steps.findIndex(step => step.id === after) : -1;
-        const places: Array<{ after: string | null; frame: string; next?: RecipeStep }> = [];
-        for (let index = at - 1; index >= -1; index--) {
-            places.push({ after: index >= 0 ? steps[index].id : null, frame: index >= 0 ? frameAfter(steps[index]) : INPUT_FRAME, next: steps.slice(index + 1).find(shownStep) });
-        }
-        return places;
-    }
+    const earlierPlaces = (after: string | null) => placesBefore(state.recipe!, state, after);
     /**
      * ＋'s menu: the operations that take the Frame here, by what they do; then those that cannot but fit an
      * earlier place, which go there ("goes in before …"); then the rest, greyed, with why.
