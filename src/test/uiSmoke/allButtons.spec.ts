@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
+import { getStrings } from '../../shared/i18n/strings';
 
 type PostedMessage = {
     type?: string;
@@ -248,6 +249,17 @@ test('export-png / export-csv ボタンが #a11y-announce を更新する', asyn
     await openToolbarMenu(page, 'tb-export-menu');
     await toolbar.locator('[data-action="export-csv"]').click({ force: true });
     await expect(page.locator('#a11y-announce')).not.toBeEmpty();
+});
+
+test('export-csv with no tracks says it failed in the footer and the announcer', async ({ page }) => {
+    await loadSelectionUi(page);
+    const failed = getStrings('en').announceExportCsvFailed;
+    await domClick(page, '#toolbar [data-action="export-csv"]');
+    await expect(page.locator('#task-status')).toBeVisible();
+    await expect(page.locator('#task-status')).toHaveAttribute('data-state', 'failed');
+    await expect(page.locator('#task-status')).toHaveText(failed);
+    await expect(page.locator('#a11y-announce')).toHaveText(failed);
+    expect(await getPostedMessages(page)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'show-info', message: failed })]));
 });
 
 test('clicking every selection-toolbar button produces the expected GUI-side reaction', async ({ page }) => {

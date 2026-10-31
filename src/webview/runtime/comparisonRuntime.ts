@@ -2799,8 +2799,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }, 0);
     }
     function exportCsv() {
-        if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
-            messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
+        if (state.results.length === 0) {
+            messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed });
+            taskStatus(STR.announceExportCsvFailed, 'failed');
             return;
         }
         // Like the PNG: lanes out of view ask for their cursor spectra first, and the file is written once those arrived.
