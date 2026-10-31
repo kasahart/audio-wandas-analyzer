@@ -100,6 +100,9 @@ test('the line nearest the pointer is picked as the spectrum overlay picks it, a
     assert.equal(near.layer, b);
     assert.deepEqual([near.x, near.y, near.text], [50, 60, 'compare / 50 Hz / −60.0 dB']);
     assert.equal(stageHover(plotOf([a, b]), 48, 25)!.layer, a);
+    // Past the lines' ends the pointer is over none of them; a level reads to 0.1 dB.
+    assert.equal(stageHover(plotOf([a, b]), 5, 25), null);
+    assert.equal(stageHover(plotOf([{ ...a, view: { ...a.view, values: [-1, -0.5, 0] } }]), 50, 0)!.text, 'base / 50 Hz / −0.5 dB');
     // Zoomed to 105–110 Hz of bands at 100 and 125 Hz: the 100 Hz step spans the plot, its centre left of it.
     const bands = { view: { frame: 'NOctFrame', kind: 'bar' as const, x: 'band' as const, xScale: 'log' as const, quantity: 'level' as const, xs: [100, 125], values: [-30, -35] }, color: 'gold' };
     const zoomed = { ...plotOf([bands], 105), ratioStep: Math.sqrt(1.25) };

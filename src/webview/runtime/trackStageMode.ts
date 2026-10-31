@@ -371,6 +371,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     /** Where the pointer is over a plot, so its marks follow a plot drawn anew under a still pointer. */
     let hovered: { plot: HTMLElement; clientX: number; clientY: number; fx: number } | null = null;
     let redrawHover = (): void => {};
+    let redrawing = false;
     let shownCompare: { path: string | null; view: StageView | null | undefined } = { path: null, view: undefined };
     /** A recording's ▶ in the legend (■ while it plays); the base group has none. */
     /** The legend's markup as last written. */
@@ -424,7 +425,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         paint() {
             if (!on) return;
             // A plot drawn anew under a still pointer: its hover marks are drawn again on what it now shows.
-            if (hovered) deps.window.requestAnimationFrame(() => redrawHover());
+            if (hovered && !redrawing) {
+                redrawing = true;
+                deps.window.requestAnimationFrame(() => { redrawing = false; redrawHover(); });
+            }
             const recipe = deps.recipe();
             const id = chosen();
             const shownStage = stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === stage)?.bypassed ? stage : id;
@@ -437,6 +441,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             }
             const allTracks = deps.tracks();
             painted = false;
+            // Each plot drawn below says again what it holds: one drawn empty keeps no lines to hover.
+            drawnOn.clear();
             stepBar.element.dataset.drawn = '0';
             if (!recipe || !id) {
                 deps.showLanes(true);
@@ -759,10 +765,13 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 readout.style.color = hit?.layer.color ?? '';
                 readout.hidden = !text;
                 // Beside the pointer, on its left where the right of the plot has no room for it.
+                // Kept in the window: a plot scrolled partly out of view still shows it.
                 const right = hovered.clientX + 12 + readout.offsetWidth > rect.right;
-                Object.assign(readout.style, { left: `${right ? hovered.clientX - 12 - readout.offsetWidth : hovered.clientX + 12}px`, top: `${rect.top + frame.top + 4}px` });
+                Object.assign(readout.style, { left: `${Math.max(0, right ? hovered.clientX - 12 - readout.offsetWidth : hovered.clientX + 12)}px`, top: `${Math.max(4, rect.top + frame.top + 4)}px` });
             };
             redrawHover = showHover;
+            // The marks sit where the plot was on screen: a scroll under a still pointer takes them away.
+            document.addEventListener('scroll', () => { if (hovered) { hovered = null; hideHover(); } }, true);
             const gestures = (selector: string, container: HTMLElement): void => attachPlotInteraction(container, document, selector, {
                 locate(target, clientX, clientY): PlotHit | null {
                     const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>(selector);

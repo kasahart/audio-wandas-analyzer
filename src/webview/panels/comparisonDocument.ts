@@ -396,7 +396,7 @@ export function renderComparisonStyles(): string {
         .track-stage-bar[hidden], .track-stage[hidden], .track-stage-panel[hidden], .track-stage-diff[hidden] { display: none; }
         .track-stage-cursor { position: fixed; pointer-events: none; z-index: 20; }
         .track-stage-cursor[hidden], .track-stage-readout[hidden], .track-stage-box[hidden] { display: none; }
-        .track-stage-readout { position: fixed; z-index: 21; bottom: auto; right: auto; white-space: nowrap; }
+        .track-stage-readout { position: fixed; z-index: 21; bottom: auto; right: auto; white-space: nowrap; pointer-events: none; }
         .track-stage-box { position: fixed; z-index: 21; }
         .track-stage { position: relative; z-index: 20; display: flex; flex-direction: column; flex-shrink: 0; font-family: var(--font-ui); font-size: 12px; color: var(--text); }
         .track-stage-controls { display: flex; align-items: center; gap: 6px; padding: 2px 12px 4px; }

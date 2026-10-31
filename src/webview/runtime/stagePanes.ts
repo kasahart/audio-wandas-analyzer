@@ -604,7 +604,9 @@ function linePointAt(plot: StagePlot, layer: StageLayer, x: number): { index: nu
     }
     // A band is the one whose step the pointer is over (its centre may be off the plot, zoomed into part of it).
     const inBand = (index: number): boolean => x >= plot.xAt(xs[index] / plot.ratioStep) && x <= plot.xAt(xs[index] * plot.ratioStep);
-    const index = layer.view.kind === 'bar' && (inBand(low) || inBand(high)) ? (inBand(high) ? high : low)
+    // Past a line's ends, or beside the bands, the pointer is over no point of it.
+    if (layer.view.kind === 'bar' ? !inBand(low) && !inBand(high) : x < plot.xAt(xs[0]) || x > plot.xAt(xs[xs.length - 1])) return null;
+    const index = layer.view.kind === 'bar' ? (inBand(high) ? high : low)
         : Math.abs(plot.xAt(xs[high]) - x) < Math.abs(plot.xAt(xs[low]) - x) ? high : low;
     const value = values[index];
     if (value === null || value === undefined || value <= -250) return null;
@@ -622,7 +624,8 @@ export function stageHover(plot: StagePlot, x: number, y: number): { layer: Stag
     if (!hit) return null;
     const view = hit.s.view;
     const amount = plot.diff ? signed(hit.point.value, isDb(view))
-        : (Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−') + (isDb(view) ? ' dB' : '');
+        // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
+        : (isDb(view) ? `${hit.point.value.toFixed(1)} dB` : Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−');
     return { layer: hit.s, x: hit.point.x, y: hit.point.y, text: readoutText([...(hit.s.label ? [hit.s.label] : plot.diff ? ['Δ'] : []), atText(view, hit.point.index), amount]) };
 }
 
