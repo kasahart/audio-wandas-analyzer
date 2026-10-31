@@ -20,6 +20,7 @@ import {
 } from './playback';
 import { createAudioFader } from './audioFade';
 import { PlaybackController } from './playbackController';
+import { SpectrumRequestScheduler } from './spectrumRequestScheduler';
 import { positionPopover } from './settingsPopover';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
 import { clampHeight, createHeightResize, type HeightKind } from './heightResize';
@@ -224,12 +225,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     });
     /** The file the entry table last drew as playing (its row's ■). */
     let entryPlaying: string | null = null;
-    const SPECTRUM_PLAYBACK_TARGET_FRAME_MS = 1000 / 32;
-    let spectrumRafPending = false;
-    let spectrumTimerId: number | null = null;
-    let spectrumRequestTimerId: number | null = null;
-    let lastSpectrumRequestAt = -Infinity;
-    let spectrumAllowsSliceRequests = true;
     let spectrumCursorNorm = 0;
     const spectrogramRasterCache = new Map<string, SpectrogramRasterCacheEntry>();
     let attachRebuiltTrackEvents: () => void = () => undefined;
@@ -271,34 +266,51 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             ? performance.now()
             : Date.now();
     }
-    function runSpectrumRefresh(allowSliceRequests: boolean, advanceCursor: boolean) {
-        updateUiSmokeSpectrumState();
-        if (advanceCursor !== false) {
-            spectrumCursorNorm = cursorNorm;
-        }
-        spectrumRafPending = false;
-        if (spectrumTimerId !== null) {
-            clearTimeout(spectrumTimerId);
-            spectrumTimerId = null;
-        }
-        const prevAllows = spectrumAllowsSliceRequests;
-        spectrumAllowsSliceRequests = allowSliceRequests !== false;
-        try {
+    interface DesiredSpectrumSliceRequest extends LazyRequestState {
+        trackIndex: number;
+        bandsPerOctave: SpectrumBandsSetting;
+        filePath: string;
+        generation: number;
+        cursorNorm: number;
+        globalCursorNorm: number;
+        requestedAt: number;
+    }
+    const spectrumRequests = new SpectrumRequestScheduler<DesiredSpectrumSliceRequest>({
+        now: spectrumNow,
+        setTimeout: (handler, ms) => window.setTimeout(handler, ms),
+        clearTimeout,
+        requestAnimationFrame,
+        refresh(advanceCursor) {
+            updateUiSmokeSpectrumState();
+            if (advanceCursor) {
+                spectrumCursorNorm = cursorNorm;
+            }
             refreshSpectrumViews();
-        }
-        finally {
-            spectrumAllowsSliceRequests = prevAllows;
-        }
-    }
-    function scheduleSpectrumFrame(allowSliceRequests: boolean, advanceCursor: boolean) {
-        if (spectrumRafPending) {
-            return;
-        }
-        spectrumRafPending = true;
-        requestAnimationFrame(function () { runSpectrumRefresh(allowSliceRequests, advanceCursor); });
-    }
+        },
+        isCurrent(request) {
+            const record = trackStore.get(request.trackId);
+            const currentTrackIndex = record ? trackStore.protocolIndexForId(record.id) : null;
+            return !!record && currentTrackIndex !== null && currentTrackIndex === request.trackIndex
+                && request.analysisId === analysisId
+                && request.settingsSignature === currentSpectrumDataSignature()
+                && !record.runtime.hidden && !record.result.error;
+        },
+        send(request) {
+            trackStore.require(request.trackId).requests.ask('slice', request.requestId, String(request.cursorNorm), request);
+            messaging.post({
+                type: 'request-spectrum-slice',
+                requestId: request.requestId,
+                analysisId: request.analysisId,
+                settingsSignature: request.settingsSignature,
+                trackIndex: request.trackIndex,
+                filePath: request.filePath,
+                cursorNorm: request.cursorNorm,
+                ...(request.bandsPerOctave ? { bandsPerOctave: request.bandsPerOctave } : {}),
+            });
+        },
+    });
     function flushSpectrumRefresh() {
-        runSpectrumRefresh(true, true);
+        spectrumRequests.runFrame(true, true);
     }
     function scheduleSpectrumRefresh(mode: string) {
         updateUiSmokeSpectrumState();
@@ -311,11 +323,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             queuePlaybackSpectrumRequests(cursorNorm);
             return;
         }
-        if (spectrumTimerId !== null) {
-            clearTimeout(spectrumTimerId);
-            spectrumTimerId = null;
-        }
-        scheduleSpectrumFrame(kind !== 'hover', true);
+        spectrumRequests.scheduleFrame(kind !== 'hover', true);
     }
     // 'stage': every lane draws one step of the scan Recipe (trackStageMode.ts); it is not kept across sessions.
     /** The steps mode (created once the entry table it reads its Recipe from exists). */
@@ -584,18 +592,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         },
     }, STR);
     let overlaySpectrumPainted = false;
-    interface DesiredSpectrumSliceRequest extends LazyRequestState {
-        trackIndex: number;
-        bandsPerOctave: SpectrumBandsSetting;
-        filePath: string;
-        generation: number;
-        cursorNorm: number;
-        globalCursorNorm: number;
-        requestedAt: number;
-    }
-    let spectrumRequestGeneration = 0;
-    let activeSpectrumSliceRequest: DesiredSpectrumSliceRequest | null = null;
-    const desiredSpectrumSliceRequests = new Map<string, DesiredSpectrumSliceRequest>();
     function currentSettingsSignature() {
         try {
             const settings = __spectrogramSettings;
@@ -613,12 +609,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return trackId;
     }
     function invalidateDesiredSpectrumSliceRequests() {
-        spectrumRequestGeneration += 1;
-        desiredSpectrumSliceRequests.clear();
-        if (spectrumRequestTimerId !== null) {
-            clearTimeout(spectrumRequestTimerId);
-            spectrumRequestTimerId = null;
-        }
+        spectrumRequests.invalidate();
     }
     function spectrumReadoutTrackLabel(result: ComparisonTrackState, channelIndex: number) {
         const channels = channelsForResult(result);
@@ -692,7 +683,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
         }
         record.requests.drop('detail');
-        desiredSpectrumSliceRequests.delete(spectrumSliceRequestKey(record.id));
+        spectrumRequests.drop(spectrumSliceRequestKey(record.id));
         record.requests.drop('slice');
         record.spectrumSliceCache.clear();
         record.spectrumPainted.clear();
@@ -717,7 +708,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function isSpectrumSliceRequestPendingForCursor(i: number, cursorNormValue: number) {
         const record = trackRecordAtIndex(i);
         const pending = record
-            ? desiredSpectrumSliceRequests.get(spectrumSliceRequestKey(record.id))
+            ? spectrumRequests.desiredFor(spectrumSliceRequestKey(record.id))
                 || record.requests.pending('slice')?.meta
             : undefined;
         if (!pending) {
@@ -733,7 +724,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function requestSpectrumSlice(i: number, cursorNormValue: number) {
         // The folded cursor-spectrum panel leaves each lane's own small spectrum: only lanes near the view need theirs.
-        if (!spectrumAllowsSliceRequests || (spectrumCollapsed && !laneInView(i))) {
+        if (!spectrumRequests.allowsSliceRequests || (spectrumCollapsed && !laneInView(i))) {
             return;
         }
         const result = state.results[i];
@@ -751,12 +742,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const key = spectrumSliceRequestKey(record.id);
-        const pending = desiredSpectrumSliceRequests.get(key) || record.requests.pending('slice')?.meta;
+        const pending = spectrumRequests.desiredFor(key) || record.requests.pending('slice')?.meta;
         if (pending && pending.settingsSignature === settingsSignature && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
             return;
         }
         const requestId = nextRequestId('slice', i);
-        desiredSpectrumSliceRequests.set(key, {
+        spectrumRequests.want(key, {
             trackId: record.id,
             requestId: requestId,
             analysisId: analysisId,
@@ -766,10 +757,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             trackIndex: i,
             bandsPerOctave: spectrumBandsPerOctave,
             filePath: result.filePath,
-            generation: spectrumRequestGeneration,
+            generation: spectrumRequests.generation,
             requestedAt: spectrumNow(),
         });
-        pumpSpectrumSliceRequests();
     }
     function queuePlaybackSpectrumRequests(cursorNormValue: number) {
         trackStore.activeIds().forEach(function (trackId) {
@@ -778,54 +768,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 requestSpectrumSlice(index, cursorNormValue);
             }
         });
-    }
-    function pumpSpectrumSliceRequests() {
-        if (activeSpectrumSliceRequest) {
-            return;
-        }
-        if (desiredSpectrumSliceRequests.size > 0) {
-            const remainingMs = SPECTRUM_PLAYBACK_TARGET_FRAME_MS - (spectrumNow() - lastSpectrumRequestAt);
-            if (remainingMs > 1) {
-                if (spectrumRequestTimerId === null) {
-                    spectrumRequestTimerId = window.setTimeout(function () {
-                        spectrumRequestTimerId = null;
-                        pumpSpectrumSliceRequests();
-                    }, remainingMs);
-                }
-                return;
-            }
-        }
-        while (desiredSpectrumSliceRequests.size > 0) {
-            const entry = desiredSpectrumSliceRequests.entries().next().value as [string, DesiredSpectrumSliceRequest] | undefined;
-            if (!entry) {
-                return;
-            }
-            const [key, request] = entry;
-            desiredSpectrumSliceRequests.delete(key);
-            const record = trackStore.get(request.trackId);
-            const currentTrackIndex = record ? trackStore.protocolIndexForId(record.id) : null;
-            if (!record || currentTrackIndex === null || currentTrackIndex !== request.trackIndex
-                || request.generation !== spectrumRequestGeneration
-                || request.analysisId !== analysisId
-                || request.settingsSignature !== currentSpectrumDataSignature()
-                || record.runtime.hidden || record.result.error) {
-                continue;
-            }
-            activeSpectrumSliceRequest = request;
-            lastSpectrumRequestAt = spectrumNow();
-            record.requests.ask('slice', request.requestId, String(request.cursorNorm), request);
-            messaging.post({
-                type: 'request-spectrum-slice',
-                requestId: request.requestId,
-                analysisId: request.analysisId,
-                settingsSignature: request.settingsSignature,
-                trackIndex: request.trackIndex,
-                filePath: request.filePath,
-                cursorNorm: request.cursorNorm,
-                ...(request.bandsPerOctave ? { bandsPerOctave: request.bandsPerOctave } : {}),
-            });
-            return;
-        }
     }
     function applySpectrumDisplaySettings(slice: SpectrumSlice) {
         const displaySettings = __spectrogramSettings.display;
@@ -925,25 +867,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!msg || (msg.type !== 'spectrum-slice-result' && msg.type !== 'spectrum-slice-error')) {
             return;
         }
-        const active = activeSpectrumSliceRequest;
-        if (!active || active.requestId !== msg.requestId) {
+        const active = spectrumRequests.settle(msg.requestId);
+        if (!active) {
             return;
         }
-        activeSpectrumSliceRequest = null;
         const i = msg.trackIndex;
         const trackId = trackIdAtProtocolBoundary(i, msg.type);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
-            pumpSpectrumSliceRequests();
+            spectrumRequests.pump();
             return;
         }
         const pending = record.requests.answering('slice', msg.requestId)?.meta;
         if (!isResponseToLazyRequest(pending, trackId, msg)) {
-            pumpSpectrumSliceRequests();
+            spectrumRequests.pump();
             return;
         }
         record.requests.settle(msg.requestId);
-        const isCurrent = active.generation === spectrumRequestGeneration
+        const isCurrent = active.generation === spectrumRequests.generation
             && pending.analysisId === analysisId
             && pending.settingsSignature === currentSpectrumDataSignature();
         if (msg.type === 'spectrum-slice-result' && isCurrent) {
@@ -959,14 +900,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     cursorToResponseMs: Math.max(0, spectrumNow() - active.requestedAt),
                     responseAt: spectrumNow(),
                     inFlight: 0,
-                    desiredCount: desiredSpectrumSliceRequests.size,
+                    desiredCount: spectrumRequests.desiredCount,
                 };
             }
         }
-        scheduleSpectrumFrame(false, false);
+        spectrumRequests.scheduleFrame(false, false);
         scheduleRender();
         requestAnimationFrame(function () { publishTestSnapshot(); });
-        pumpSpectrumSliceRequests();
+        spectrumRequests.pump();
     });
     messaging.onMessage(function (msg) {
         if (msg && pairPanel.handleMessage(msg)) {
@@ -2868,8 +2809,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const range = requests?.pending('range');
             if (range) ids.add('range:' + i + ':' + range.key);
         });
-        desiredSpectrumSliceRequests.forEach(function (request) { ids.add(request.requestId); });
-        if (activeSpectrumSliceRequest) ids.add(activeSpectrumSliceRequest.requestId);
+        spectrumRequests.openRequestIds().forEach(function (id) { ids.add(id); });
         return ids;
     }
     /** Whether any of the requests an export waits for is still open (one asked again after an error is not waited for). */
@@ -3848,7 +3788,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             __setReanalyzeBusy(false);
             invalidateDesiredSpectrumSliceRequests();
             // A host drops a request whose source was cleared, so waiting for its answer would block every later cursor spectrum.
-            activeSpectrumSliceRequest = null;
+            spectrumRequests.abandonActive();
             const reconciliation = trackStore.reconcile(msg.results, function (nextResult, previousResult) {
                 return Object.assign({}, nextResult, { audioSource: previousResult?.audioSource || nextResult.audioSource || '' });
             });
