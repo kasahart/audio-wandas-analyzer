@@ -13,7 +13,7 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import { addableOperations, brokenStep, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, chainEnd, chainOutput, movedStep, recipeSteps, timeSignalStep, withParam, withStep, withoutSteps, withoutBypassed, withBypass, withSlotReference, slotReferenced, activeSlotReferenced, recipeChain, REFERENCE_KEY, TIME_SLICE, type RecipeStep, type StepLimits, type StepParam } from '../../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, chainEnd, chainOutput, movedStep, recipeNodes, recipeSteps, timeSignalStep, withParam, withStep, withoutSteps, withoutBypassed, withBypass, withSlotReference, slotReferenced, activeSlotReferenced, recipeChain, REFERENCE_KEY, TIME_SLICE, type RecipeStep, type StepLimits, type StepParam } from '../../shared/recipe/recipeSteps';
 import { OPERATION_GROUPS, operationGroup, operationHint, type OperationGroup } from '../../shared/recipe/operationGuide';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { outsideRecipe, reportOctaveRecipe } from './compareReport';
@@ -106,7 +106,7 @@ export function endsInSpectrum(recipe: RecipeDocument, limits?: number | StepLim
 export function recipeWithout(recipe: RecipeDocument, id: string, shown: string, limits?: number | StepLimits, referenced: readonly string[] = slotReferenced(recipe)): RecipeDocument | null {
     const rest = withoutSteps(recipe, [id]);
     const without = runnableRecipe(referenced.length ? { ...rest, [REFERENCE_KEY]: [...referenced] } as RecipeDocument : rest, limits);
-    const present = shown === OCTAVE_BRANCH ? endsInSpectrum(without, limits) : (without as unknown as { nodes: Array<{ id: string }> }).nodes.some(node => node.id === shown);
+    const present = shown === OCTAVE_BRANCH ? endsInSpectrum(without, limits) : recipeNodes(without).some(node => node.id === shown);
     return present ? without : null;
 }
 
@@ -595,8 +595,7 @@ export function createStepBar(deps: {
     }
     /** The select_pair step that reads `stepId`, if one does. */
     function pairAfter(stepId: string): string | undefined {
-        const nodes = (state.recipe as unknown as { nodes?: Array<{ id: string; operation: string; inputs: string[] }> } | null)?.nodes ?? [];
-        return nodes.find(node => node.operation === SELECT_PAIR && node.inputs[0] === stepId)?.id;
+        return recipeNodes(state.recipe).find(node => node.operation === SELECT_PAIR && node.inputs[0] === stepId)?.id;
     }
     /** Bypass on or off: the step stays in place; the chain runs without it meanwhile. */
     function bypass(stepId: string): void {

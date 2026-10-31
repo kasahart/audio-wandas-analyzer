@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeNodes, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
@@ -23,6 +23,13 @@ test('the entry Recipe reads as its chain of steps, with the parameters the step
     assert.deepEqual(steps.map(step => [step.name, step.invalid]), [['highpass_filter', undefined], ['time_slice', undefined], ['welch', undefined]]);
     assert.equal(steps[0].params['cutoff'], 20);
     assert.deepEqual(steps[2].editable.map(param => param.name), ['n_fft', 'window']);
+});
+
+test('recipeNodes reads the nodes RecipeDocument leaves untyped, and none of a missing or malformed Recipe', () => {
+    assert.deepEqual(recipeNodes(entry).map(node => node.id), recipeChain(entry).map(node => node.id));
+    assert.deepEqual(recipeNodes(null), []);
+    assert.deepEqual(recipeNodes(undefined), []);
+    assert.deepEqual(recipeNodes({ ...entry, nodes: 'none' }), []);
 });
 
 test('an invalid setting marks its step and the scans leave that step out', () => {

@@ -1063,6 +1063,41 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
     env.dom.window.close();
 });
 
+test('renderScript: a lane scrolled into view in the frame a spectrum hover repaints in still asks for its spectrum', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const doc = env.dom.window.document;
+    const box = (top: number, height: number) => () => ({ top, bottom: top + height, height, left: 0, right: 100, width: 100, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    // The folded spectrum panel leaves lanes out of view without a cursor spectrum: the second lane starts far below.
+    doc.getElementById('tracks-wrapper')!.getBoundingClientRect = box(0, 100);
+    const secondRow = doc.getElementById('track-row-1')!;
+    secondRow.getBoundingClientRect = box(1000, 100);
+    await nextAnimationFrame(env.dom);
+    const sliceRequests = () => env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
+    const first = sliceRequests()[0];
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: first.requestId,
+        analysisId: first.analysisId,
+        settingsSignature: first.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        frequencyBins: 1, maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
+    assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
+    // A hover repaints the spectra without asking for slices; a scroll in the same frame must still ask for them.
+    doc.getElementById('track-spectrum-0')!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { clientX: 10, clientY: 10, bubbles: true }));
+    secondRow.getBoundingClientRect = box(20, 100);
+    doc.getElementById('tracks-wrapper')!.dispatchEvent(new env.dom.window.Event('scroll'));
+    await nextAnimationFrame(env.dom);
+    await new Promise(resolve => setTimeout(resolve, 60));
+    assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0, 1]);
+    env.dom.window.close();
+});
+
 test('renderScript: waveform seek invalidates an in-flight spectrum response', async () => {
     const state = JSON.parse(makeLazySpectrogramState());
     state.results = state.results.slice(0, 1);

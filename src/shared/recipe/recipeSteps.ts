@@ -115,7 +115,7 @@ export const STEP_PARAMS: Record<string, readonly StepParam[]> = Object.fromEntr
 
 export const TIME_SLICE = 'wandas.frame.time_slice';
 
-interface RecipeNode {
+export interface RecipeNode {
     id: string;
     operation: string;
     version: number;
@@ -156,14 +156,15 @@ export function decodeParam(value: unknown): ParamValue {
     return null;
 }
 
-function nodes(recipe: RecipeDocument): RecipeNode[] {
-    const list = (recipe as unknown as { nodes?: unknown }).nodes;
+/** The Recipe's nodes as wandas writes them (RecipeDocument leaves `nodes` untyped); none for a missing Recipe. */
+export function recipeNodes(recipe: RecipeDocument | null | undefined): RecipeNode[] {
+    const list = recipe?.['nodes'];
     return Array.isArray(list) ? list as RecipeNode[] : [];
 }
 
 /** The nodes from the input to the output, in order: the entry Recipe is one chain. */
 export function recipeChain(recipe: RecipeDocument): RecipeNode[] {
-    const byId = new Map(nodes(recipe).map(node => [node.id, node]));
+    const byId = new Map(recipeNodes(recipe).map(node => [node.id, node]));
     const chain: RecipeNode[] = [];
     let id = (recipe as unknown as { output?: string }).output;
     while (id && byId.has(id)) {
@@ -406,7 +407,7 @@ export function addableOperations(frame: string, lacks?: ReadonlySet<string>, ch
 }
 
 function freshId(recipe: RecipeDocument): string {
-    const used = new Set(nodes(recipe).map(node => node.id));
+    const used = new Set(recipeNodes(recipe).map(node => node.id));
     let index = used.size;
     while (used.has(`node-${index}`)) index++;
     return `node-${index}`;
@@ -436,7 +437,7 @@ export function withStep(recipe: RecipeDocument, after: string | null, operation
  * parameters kept. The steps that read it read its input instead, and the steps that read `after` read it.
  */
 export function movedStep(recipe: RecipeDocument, stepId: string, after: string | null): RecipeDocument {
-    const node = nodes(recipe).find(item => item.id === stepId);
+    const node = recipeNodes(recipe).find(item => item.id === stepId);
     if (!node || after === stepId) return recipe;
     const copy = JSON.parse(JSON.stringify(withoutSteps(recipe, [stepId]))) as RecipeDocument & { nodes: RecipeNode[]; output: string; inputs: Array<{ id: string }> };
     const source = after ?? recipeChain(copy)[0]?.inputs[0] ?? copy.inputs[0]?.id;
@@ -451,7 +452,7 @@ export function movedStep(recipe: RecipeDocument, stepId: string, after: string 
 /** A copy of the Recipe with one parameter of one node set. */
 export function withParam(recipe: RecipeDocument, nodeId: string, param: StepParam, value: number | string): RecipeDocument {
     const copy = JSON.parse(JSON.stringify(recipe)) as RecipeDocument;
-    const node = nodes(copy).find(item => item.id === nodeId);
+    const node = recipeNodes(copy).find(item => item.id === nodeId);
     if (!node) return copy;
     const encoded = param.kind === 'enum' ? String(value) : encodeNumber(Number(value), param.kind, plainFloats(recipe));
     const entries = node.params.entries.filter(([name]) => name !== param.name);
@@ -465,7 +466,7 @@ export function withParam(recipe: RecipeDocument, nodeId: string, param: StepPar
 export function withDefaults(recipe: RecipeDocument): RecipeDocument {
     let next = recipe;
     for (const step of recipeSteps(recipe)) {
-        const node = nodes(recipe).find(item => item.id === step.id)!;
+        const node = recipeNodes(recipe).find(item => item.id === step.id)!;
         for (const param of step.editable) {
             if (param.default === undefined || node.params.entries.some(([name]) => name === param.name)) continue;
             next = withParam(next, step.id, param, param.default);
@@ -497,7 +498,7 @@ export const BYPASS_KEY = 'awaBypassed';
 
 export function bypassedSteps(recipe: RecipeDocument): string[] {
     const list = (recipe as unknown as Record<string, unknown>)[BYPASS_KEY];
-    const ids = new Set(nodes(recipe).map(node => node.id));
+    const ids = new Set(recipeNodes(recipe).map(node => node.id));
     return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && ids.has(id)) : [];
 }
 
@@ -516,7 +517,7 @@ export function withBypass(recipe: RecipeDocument, stepId: string, on: boolean):
 export function withoutBypassed(recipe: RecipeDocument): RecipeDocument {
     const keys = recipe as unknown as Record<string, unknown>;
     if (!(BYPASS_KEY in keys) && !(REFERENCE_KEY in keys)) return recipe;
-    const skipped = bypassedSteps(recipe).filter(id => nodes(recipe).find(node => node.id === id)?.operation !== TIME_SLICE);
+    const skipped = bypassedSteps(recipe).filter(id => recipeNodes(recipe).find(node => node.id === id)?.operation !== TIME_SLICE);
     const copy = JSON.parse(JSON.stringify(withoutSteps(recipe, skipped))) as Record<string, unknown>;
     delete copy[BYPASS_KEY];
     delete copy[REFERENCE_KEY];
@@ -533,7 +534,7 @@ export const REFERENCE_KEY = 'awaSlotReference';
 export function slotReferenced(recipe: RecipeDocument | null | undefined): string[] {
     if (!recipe) return [];
     const list = (recipe as unknown as Record<string, unknown>)[REFERENCE_KEY];
-    const ids = new Set(nodes(recipe).filter(node => SLOT_REFERABLE.has(node.operation)).map(node => node.id));
+    const ids = new Set(recipeNodes(recipe).filter(node => SLOT_REFERABLE.has(node.operation)).map(node => node.id));
     return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && ids.has(id)) : [];
 }
 
@@ -548,11 +549,11 @@ export function activeSlotReferenced(recipe: RecipeDocument | null | undefined):
  * channels after it goes with the base slot (each recording gives its channel) and comes back with a channel.
  */
 export function withSlotReference(recipe: RecipeDocument, stepId: string, on: boolean): RecipeDocument {
-    const pair = nodes(recipe).find(node => node.operation === SELECT_PAIR && node.inputs[0] === stepId)?.id;
+    const pair = recipeNodes(recipe).find(node => node.operation === SELECT_PAIR && node.inputs[0] === stepId)?.id;
     let next = on && pair ? withoutSteps(recipe, [pair]) : recipe;
     const select = catalogOperation(SELECT_PAIR);
     // Back to a channel: the pair chip again, where adding the step gives one (a CSD keeps its auto-spectra).
-    const operation = nodes(recipe).find(node => node.id === stepId)?.operation ?? '';
+    const operation = recipeNodes(recipe).find(node => node.id === stepId)?.operation ?? '';
     if (!on && !pair && select && PAIRED_ON_ADD.has(operation)) next = withStep(next, stepId, select).recipe;
     const copy = JSON.parse(JSON.stringify(next)) as Record<string, unknown>;
     const list = slotReferenced(recipe).filter(id => id !== stepId).concat(on ? [stepId] : []);

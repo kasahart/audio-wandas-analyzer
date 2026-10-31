@@ -15,8 +15,8 @@ import { channelResult } from '../../shared/recipe/channelSelection';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
 import { baseOf, buildCompareModel, sideView, type CompareModel } from './comparePanes';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
-import { compareGroupNames, distribution, DISTRIBUTION_BINS, groupLabels, median, type Distribution } from '../../shared/dataset/distribution';
-import { DIST_ROW_MAX, DIST_ROW_MIN, DIST_STRIP_ROW, distributionSvg, type DistributionScale } from './entryDistribution';
+import { compareGroupNames, groupLabels, median } from '../../shared/dataset/distribution';
+import { createDistributionPane } from './entryDistributionPane';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageDifference, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
@@ -30,21 +30,25 @@ import { positionPopover } from './settingsPopover';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, recipeWithout, runnableRecipe, stepChipLabel, stepLimits, unpairedRecipe, OCTAVE_BRANCH } from './stepBar';
 import { leqLabel } from './compareReport';
-import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { finiteNumber } from '../../shared/dataset/asdData';
 import { CSVColumnCountError, csvColumnCountMessage } from '../../shared/dataset/csvDiagnostics';
 import { keyRouterFor } from './keyRouter';
+import { createHeaderProbe, createScanProgress } from './entryScanQueue';
+import { createRedraw, createThrottle } from './entryRedraw';
+import { createSessionSaver, readStoredSession, SESSION_VERSION } from './entrySession';
+import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, restoredSlots, roleKey, roleSlot, slotFiles as filesOfSlots, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot, type Slots } from './entrySlots';
 import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
 import {
-    annotatedCsv, baseGroupMembers, columnValues, datasetRows, filteredRows, fileOfKey, rowKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
+    annotatedCsv, baseGroupMembers, columnValues, datasetRows, filteredRows, fileOfKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
-    closesEntryDialog, filterChipText, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, entrySlotsHtml, filterChipsHtml, filterPopHtml, checkListHtml, formatValue,
+    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, entrySlotsHtml, filterChipsHtml, filterPopHtml, checkListHtml, formatValue,
     baseMenuHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml,
     type DatasetColumn, type DatasetScreenView, type EntryStrings,
 } from './entryTableHtml';
@@ -53,10 +57,7 @@ import {
 const TAP_MS = 250;
 /** Releasing a held slot keeps its picture on screen this long, so a quick look does not flicker. */
 const DELTA_RELEASE_MS = 150;
-/**
- * Scan results are redrawn at most this often: each redraw sorts every row, so redrawing per result would
- * cost the square of the folder size.
- */
+/** Scan results are redrawn at most this often (entryRedraw.ts' createThrottle). */
 const REDRAW_MS = 250;
 /** The table's rows are this tall (CSS: .entry-table tr), so only the rows on screen are drawn. */
 const ROW_HEIGHT = 24;
@@ -64,6 +65,21 @@ const ROW_HEIGHT = 24;
 const KEEP_CSV_BYTES = 2 * 1024 ** 2;
 /** The session is saved this long after the last change, so typing or dragging saves once. */
 const SESSION_SAVE_MS = 600;
+
+/** What the user chose to see: the value, the grouping, the filters and order, which list, and the base group. */
+interface EntryChoices {
+    value: ValueId;
+    group: GroupId;
+    filters: DatasetFilter[];
+    sort: DatasetScreenView['sort'];
+    mode: DatasetScreenView['mode'];
+    /** 「トラックのみ」: the table narrowed to the files on a track. */
+    tracksOnly: boolean;
+    /** The group whose median is the base while slot 0 is empty; null: slot 1's group. */
+    baseGroup: string | null;
+}
+
+const defaultChoices = (): EntryChoices => ({ value: 'leq', group: 'none', filters: [], sort: { column: 'name', descending: false }, mode: 'all', tracksOnly: false, baseGroup: null });
 
 /** What a comparison of the slotted files needs of the entry table (the track view's steps mode, D and the report). */
 export interface CompareData {
@@ -214,7 +230,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     host.innerHTML = entryScreenHtml(text);
     const screen = host.firstElementChild as HTMLElement;
     (deps.dock ?? document.body).append(screen);
-    const query = <T extends Element>(selector: string): T => screen.querySelector<T>(selector)!;
+    const query = <T extends Element>(selector: string): T => {
+        const element = screen.querySelector<T>(selector);
+        if (!element) throw new Error(`entry screen: no ${selector}`);
+        return element;
+    };
     const head = query<HTMLElement>('[data-entry-head]');
     const body = query<HTMLElement>('[data-entry-rows]');
     const cols = query<HTMLElement>('[data-entry-cols]');
@@ -227,15 +247,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const groupSelect = query<HTMLSelectElement>('[data-action="entry-group"]');
     const csvInput = query<HTMLInputElement>('[data-entry-csv-input]');
     const tableWrap = query<HTMLElement>('.entry-table-wrap');
-    const distBox = query<HTMLElement>('[data-entry-dist]');
-    const distArea = query<HTMLElement>('[data-entry-dist-area]');
-    const distGroups = query<HTMLElement>('[data-entry-dist-groups]');
-    const distAxis = query<HTMLElement>('[data-entry-dist-axis]');
-    const distEmpty = query<HTMLElement>('[data-entry-dist-empty]');
-    const distNote = query<HTMLElement>('[data-entry-dist-note]');
-    const distCount = query<HTMLElement>('[data-entry-dist-count]');
-    const distLegend = query<HTMLElement>('[data-entry-dist-legend]');
-    const entryBody = query<HTMLElement>('.entry-body');
     const held = query<HTMLElement>('[data-entry-held]');
     const heldTitle = query<HTMLElement>('[data-entry-held-title]');
     const heldCanvas = query<HTMLCanvasElement>('[data-entry-held-canvas]');
@@ -254,13 +265,17 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** A level range narrowed to a window's vertical part. */
     const narrowed = (range: PaneRange, window: PlotWindow): PaneRange => ({ min: range.min + window.y.start * (range.max - range.min), max: range.min + window.y.end * (range.max - range.min) });
-    /** What the held plot last drew, to place the pointer on it and to map an axis's values to its window. */
-    let heldPlot: { margins: PlotMargins; x: (fraction: number) => number; ofX: (value: number) => number; range: PaneRange; xLabel: string; yLabel: string } | null = null;
-    /** The axis strip below the groups, and the room it needs. */
-    const DIST_AXIS_SPACE = 44;
-    /** What the distribution last drew, to map a drag on it to the value's range. */
-    let distScale: DistributionScale | null = null;
-    let lastDistribution: Distribution | null = null;
+    const distPane = createDistributionPane({
+        screen, strings,
+        // A range of the value: a chip, which narrows the table.
+        pick({ low, high }) {
+            focus.picked = false;
+            choose({ filters: [...chosen.filters.filter(filter => filter.column !== chosen.value), { column: chosen.value, kind: 'range', low, high }], mode: 'all' }, true);
+            deps.announce(strings.dsDistPicked.replace('{n}', shownRows.length.toLocaleString()));
+        },
+        dot(key) { if (shownRows.some(row => row.key === key)) focusRow(key, true); else focusFile(fileOfKey(key)); },
+        cancelled: () => scheduleSide(),
+    });
     const stepBar = createStepBar({
         document, strings, mode: 'entry', onChange: recipe => setRecipe(recipe),
         // A step pressed opens the comparison on that step's Frame.
@@ -271,11 +286,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     });
     // The chain is edited where the analysis is decided: the track view's steps (trackStageMode.ts). The table
     // only keeps its state, so its values are measured with the same chain.
-    /** The host's entry Recipe, and the one edited in the step bar (which the scans then use). */
-    let standardRecipe: RecipeDocument | null = null;
-    let editedRecipe: RecipeDocument | null = null;
-    /** Steps that failed on a file, with wandas' reason: the chain is broken until the Recipe changes. */
-    let failed: Record<string, string> = {};
+    const recipeState: {
+        /** The host's entry Recipe, and the one edited in the step bar (which the scans then use). */
+        standard: RecipeDocument | null;
+        edited: RecipeDocument | null;
+        /** Steps that failed on a file, with wandas' reason: the chain is broken until the Recipe changes. */
+        failed: Record<string, string>;
+        /** The folder's sample rate and its shortest file's samples, kept when a new Recipe clears the results so its steps are still checked against them. */
+        knownRate?: number;
+        knownShortest?: number;
+    } = { standard: null, edited: null, failed: {} };
 
     let filePaths: string[] = [];
     const results = new Map<string, ScanResult>();
@@ -286,7 +306,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function noteResult(filePath: string, result: ScanResult): void {
         results.set(filePath, result);
         overviewVersion++;
-        if (result.ok && result.thirdOctDb?.length) overviewLevels.set(filePath, result.thirdOctDb[0].map((_, bandIndex) => powerMeanOrNull(result.thirdOctDb!.map(channel => channel[bandIndex]))));
+        const bands = result.thirdOctDb;
+        if (result.ok && bands?.length) overviewLevels.set(filePath, bands[0].map((_, bandIndex) => powerMeanOrNull(bands.map(channel => channel[bandIndex]))));
         else overviewLevels.delete(filePath);
         if (result.ok && result.input?.unit !== undefined && result.input.unit !== 'FS') calibratedFiles.add(filePath);
         else calibratedFiles.delete(filePath);
@@ -297,92 +318,69 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const requests = new HostRequests<undefined>();
     const remeasuring = new HostRequests<{ row: DerivedRow; results: Map<string, ScanResult> }>();
     /** Whether the chain cannot run (a step that cannot, and so nothing after it): the table then has no values for it. */
-    const broken = (): boolean => { const recipe = editedRecipe ?? standardRecipe; return !!recipe && !!brokenStep(recipe, limits()); };
+    const broken = (): boolean => { const recipe = recipeState.edited ?? recipeState.standard; return !!recipe && !!brokenStep(recipe, limits()); };
     const currentKey = (): string => (broken() ? 'broken' : recipeKey(scanRecipe()));
     const isStale = (path: string): boolean => results.has(path) && resultKeys.get(path) !== currentKey();
     function stalePaths(): Set<string> {
         const key = currentKey();
         return new Set(filePaths.filter(path => results.has(path) && resultKeys.get(path) !== key));
     }
-    /**
-     * What a computation takes, for the estimate on 「計算」: a fixed part per file and a part per second of audio
-     * (a 10-minute recording takes far longer than a 2-second one). The per-second part is measured once a
-     * computation has done a few files. A file whose length is not known yet counts as UNKNOWN_DURATION_S.
-     */
-    const PER_FILE_MS = 100, UNKNOWN_DURATION_S = 10;
-    let perAudioSecondMs = 35;
-    let scanStarted = 0;
-    let scanCount = 0;
-    let scannedSeconds = 0;
+    /** The files' headers (channels, lengths), read at open; then the computation the user started, and what one costs. */
+    const headers = createHeaderProbe();
     /** Each file's length: from its result, else from its header (WAV, FLAC). */
-    const headerDurations = new Map<string, number>();
-    const durationOf = (path: string): number | undefined => results.get(path)?.input?.durationS ?? headerDurations.get(path);
-    function estimateMs(paths: readonly string[]): number {
-        return paths.reduce((sum, path) => sum + PER_FILE_MS + perAudioSecondMs * (durationOf(path) ?? UNKNOWN_DURATION_S), 0);
-    }
-    /** The files of the running computation, for its progress. */
-    let computingFiles = 0;
+    const durationOf = (path: string): number | undefined => results.get(path)?.input?.durationS ?? headers.durations.get(path);
+    const progress = createScanProgress(() => window.performance.now(), durationOf);
     let rootPath = '';
 
     // ---- the dataset: the CSV the user picked, and what the user chose to see
-    let csv: DatasetCsv | null = null;
-    let match: CsvMatch | null = null;
-    let value: ValueId = 'leq';
-    let group: GroupId = 'none';
-    let filters: DatasetFilter[] = [];
-    let sort: DatasetScreenView['sort'] = { column: 'name', descending: false };
+    const attached: { csv: DatasetCsv | null; match: CsvMatch | null } = { csv: null, match: null };
+    const chosen: EntryChoices = defaultChoices();
     const excluded = new Set<string>();
     const memo = new Map<string, string>();
-    let mode: DatasetScreenView['mode'] = 'all';
-    /** 「トラックのみ」: the table narrowed to the files on a track. */
-    let tracksOnly = false;
-    /** The files a click on the head would show, waiting for the count to be confirmed (more than LARGE_BASE). */
-    let pendingAll: string[] | null = null;
-    /** The listed files the head last tried to show all of: a second click while they are not all on takes them off. */
-    let triedAll: string | null = null;
-    /** The file whose row and lane are lit under the mouse. */
-    let linkedPath: string | null = null;
-    /** Channels read from the files' headers at open (no audio decoded), and the files whose header could not be read. */
-    const headerChannels = new Map<string, number>();
-    const headerErrors = new Map<string, string>();
-    let probing: { requestId: string; done: number; total: number } | null = null;
+    const tracks: {
+        /** The files a click on the head would show, waiting for the count to be confirmed (more than LARGE_BASE). */
+        pending: string[] | null;
+        /** The listed files the head last tried to show all of: a second click while they are not all on takes them off. */
+        tried: string | null;
+        /** The file whose row and lane are lit under the mouse. */
+        linked: string | null;
+    } = { pending: null, tried: null, linked: null };
     let rows: DatasetRow[] = [];
     let shownRows: DatasetRow[] = [];
-    /** The column filter open (its column, whether it hangs from that column's header, its draft), the slot menu and the memo. */
-    let fpop: { column: ColumnId; anchored: boolean; search: string; checked: Set<string> | null } | null = null;
-    let slotMenu: string | null = null;
-    let memoKey: string | null = null;
+    const popovers: {
+        /** The column filter open (its column, whether it hangs from that column's header, its draft), the slot menu and the memo. */
+        filter: { column: ColumnId; anchored: boolean; search: string; checked: Set<string> | null } | null;
+        slotMenu: string | null;
+        memoKey: string | null;
+        /** The empty base's choice of group. */
+        baseMenu: boolean;
+        /** 「レシピをまとめて書き出す」 open: for the filtered rows or all. */
+        batch: 'filtered' | 'all' | null;
+    } = { filter: null, slotMenu: null, memoKey: null, baseMenu: false, batch: null };
 
     let requestCount = 0;
     /** Row keys in slots 0–3: the base (or null for the group median) and the rows to compare. */
-    let slots: (string | null)[] = [null, null, null, null];
-    let focused: string | null = null;
-    /** Until the user picks a row, the focus follows the top of the table. */
-    let focusPicked = false;
+    let slots: Slots = emptySlots();
+    /** The focused row; until the user picks one (`picked`), the focus follows the top of the table. */
+    const focus: { key: string | null; picked: boolean } = { key: null, picked: false };
     let derived: DerivedRow[] = [];
-    /** The group whose median is the base while slot 0 is empty; null: slot 1's group. */
-    let baseGroup: string | null = null;
-    /**
-     * The folder's session, kept by the host (its workspace storage, IndexedDB on the Web): saved a moment after
-     * each change once the stored one has come back at open (so the defaults of a fresh open never overwrite it).
-     */
-    let sessionLoaded = false;
-    let sessionTimer: number | undefined;
-    let savedSession = '';
-    /** The CSV to save with the next session: undefined when unchanged since the last. */
-    let csvToSave: { name: string; text: string } | null | undefined;
-    /** Just folded above the table: its two rows in view go to the compared row's group. */
-    let stripToSlot = false;
-    let baseMenu = false;
-    /** 「レシピをまとめて書き出す」 open: for the filtered rows or all. */
-    let batchChoice: 'filtered' | 'all' | null = null;
-    let sidePending = false;
-    /** The slot key or chip being pressed: a tap acts on release, a hold shows the slot's Δ until then. */
-    let pressing: { slot: number; at: number; timer: number } | undefined;
-    let heldSlot: number | null = null;
-    let heldTimer: number | undefined;
-    /** A computation the user started is running. */
-    let scanning = false;
+    /** The folder's session, kept by the host: saved a moment after each change once the stored one is back. */
+    const session = createSessionSaver(window, SESSION_SAVE_MS, () => sessionOf(),
+        (stored, csvToSave) => deps.post({ type: 'entry-save-session', rootPath, session: stored, ...(csvToSave !== undefined ? { csv: csvToSave } : {}) }));
+    /** The side plots are painted on the next frame (`pending`); `dist`: the distribution too, not only the strip's window. */
+    const sidePaint = { pending: false, dist: true };
+    const hold: {
+        /** The slot key or chip being pressed: a tap acts on release, a hold shows the slot's Δ until then. */
+        pressing?: { slot: number; at: number; timer: number };
+        /** The slot whose Δ is shown, and the timer that takes it away after a release. */
+        slot: number | null;
+        releaseTimer?: number;
+        /** A step chip held (its picture of one row), and the timer that takes it away after a release. */
+        step: { step: RecipeStep; path: string } | null;
+        stepRelease?: number;
+        /** What the held plot last drew, to place the pointer on it and to map an axis's values to its window. */
+        plot: { margins: PlotMargins; x: (fraction: number) => number; ofX: (value: number) => number; range: PaneRange; xLabel: string; yLabel: string } | null;
+    } = { slot: null, step: null, plot: null };
     /**
      * The comparison's model of the files (their conditions, Δ, groups): built when the comparison, the overview
      * strip or the CSV export reads it, not on every redraw of the table (it costs a pass over every file).
@@ -391,14 +389,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function entryModel(): EntryModel {
         if (builtModel) return builtModel;
         // The CSV's attributes and the subfolders as its condition table, grouped by the column the table groups by.
+        const { csv, match } = attached;
         const attributes = csv?.attributes ?? [];
         const own: EntryConditionTable | null = csv && match ? {
             columns: attributes, checked: [],
             rows: Object.fromEntries([...match.attributes].map(([filePath, row]) => [filePath, attributes.map(column => row[column] ?? '')])),
-            numeric: attributes.map(column => csv!.numeric[column] ?? false), source: csv.name,
+            numeric: attributes.map(column => csv.numeric[column] ?? false), source: csv.name,
         } : null;
         const folders = withFolderColumns(own, filePaths, rootPath, level => strings.entryFolderLevel.replace('{n}', String(level)));
-        const checked = group.startsWith('csv:') ? [attributes.indexOf(group.slice(4))] : group.startsWith('folder:') ? [attributes.length + Number(group.slice(7)) - 1] : [];
+        const checked = chosen.group.startsWith('csv:') ? [attributes.indexOf(chosen.group.slice(4))] : chosen.group.startsWith('folder:') ? [attributes.length + Number(chosen.group.slice(7)) - 1] : [];
         const table = folders && { ...folders, checked: checked.filter(index => index >= 0 && index < folders.columns.length) };
         builtModel = buildEntryModel(filePaths.map(filePath => ({ filePath, result: results.get(filePath) })), table, { derived });
         return builtModel;
@@ -407,35 +406,64 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let pool: DatasetRow[] | null = null;
     /** The rows are made again only when the files, their results, their headers or the CSV change, not on every redraw. */
     let rowsDirty = true;
-    let redrawTimer: number | undefined;
-    let lastRedraw = 0;
-    let redrawCost = 0;
-    const focusedFile = (): string | null => (focused ? fileOfKey(focused) : null);
-    const slotFiles = (): (string | null)[] => slots.map(key => (key ? fileOfKey(key) : null));
+    const focusedFile = (): string | null => (focus.key ? fileOfKey(focus.key) : null);
+    const slotFiles = (): (string | null)[] => filesOfSlots(slots);
     let byKey = new Map<string, DatasetRow>();
     const rowOf = (key: string | null): DatasetRow | undefined => (key ? byKey.get(key) : undefined);
-    function scheduleRebuild(): void {
-        if (redrawTimer !== undefined) return;
-        // A big table takes longer to draw, so it waits longer: drawing stays under a fifth of the time.
-        const interval = Math.max(REDRAW_MS, 4 * redrawCost);
-        const wait = Math.max(0, interval - (window.performance.now() - lastRedraw));
-        redrawTimer = window.setTimeout(() => {
-            redrawTimer = undefined;
-            const started = window.performance.now();
-            rebuild();
-            lastRedraw = window.performance.now();
-            redrawCost = lastRedraw - started;
-        }, wait);
+    /** Results and headers as they arrive: a big table takes longer to draw, so it waits longer. */
+    const resultsRedraw = createThrottle(window, () => window.performance.now(), REDRAW_MS, () => rebuild());
+    /**
+     * The table drawn again (the bar, the head, the rows, the slots) and the comparison told its data changed:
+     * once per click, key or change however many things it changes.
+     */
+    const redraw = createRedraw([['paint', () => paint()], ['compare', () => deps.compareChanged?.()]] as const);
+    const render = (): void => redraw.request('paint');
+    /** The comparison follows the table's data only while the table is in the side panel beside it. */
+    const tellCompare = (): void => { if (!maximized) redraw.request('compare'); };
+    /** What the user chose to see changed: the rows are listed again (from the top for a new order or filter). */
+    function choose(patch: Partial<EntryChoices>, toTop = false): void {
+        Object.assign(chosen, patch);
+        if (toTop) tableWrap.scrollTop = 0;
+        rebuild();
+    }
+    /** A row the user picked takes the focus. */
+    function focusOn(key: string | null): void {
+        focus.key = key;
+        focus.picked = true;
+        render();
+    }
+    /**
+     * New slots, kept for the next session; with `follow`, the tracks follow them: a slotted file is shown, a file
+     * that leaves every slot leaves the tracks. The comparison open follows, and stays open.
+     */
+    function setSlots(next: Slots, follow = false): void {
+        const before = slotFiles();
+        slots = next;
+        deps.saveSlots(slots);
+        if (follow) {
+            const { show, hide } = trackChanges(before, slotFiles());
+            for (const path of show) deps.setShown?.(path, true);
+            for (const path of hide) deps.setShown?.(path, false);
+        }
+        render();
+        tellCompare();
+    }
+    /** The differences fixed with D changed: kept, and their rows drawn. */
+    function setDerived(next: DerivedRow[]): void {
+        derived = next;
+        deps.saveDerived?.(derived);
+        rebuild();
     }
 
     /** Whether the chain ends in a spectrum or band levels, so there are band values and a peak. */
     function spectral(): boolean {
-        const recipe = editedRecipe ?? standardRecipe;
+        const recipe = recipeState.edited ?? recipeState.standard;
         return !recipe || endsInSpectrum(recipe, limits()) || (!!brokenStep(recipe, limits()) && ['SpectralFrame', 'NOctFrame'].includes(chainEnd(recipe, limits())));
     }
     /** The values the table can show: the CSV's numeric columns, then those computed from the sound. */
     function valueOptions(): Array<{ id: ValueId; label: string; computed: boolean; ready: boolean }> {
-        const own = (csv?.attributes ?? []).filter(column => csv!.numeric[column]).map(column => ({ id: `csv:${column}` as ValueId, label: column, computed: false, ready: true }));
+        const csv = attached.csv;
+        const own = (csv?.attributes ?? []).filter(column => csv?.numeric[column]).map(column => ({ id: `csv:${column}` as ValueId, label: column, computed: false, ready: true }));
         const computed: Array<{ id: ValueId; label: string }> = [
             { id: 'leq', label: strings.dsLeq },
             ...(spectral() ? [{ id: 'peak' as ValueId, label: strings.dsPeak }] : []),
@@ -447,7 +475,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function groupOptions(): Array<{ id: GroupId; label: string }> {
         const folders = rows.reduce((most, row) => Math.max(most, row.folders.length), 0);
         return [
-            ...(csv?.attributes ?? []).map(column => ({ id: `csv:${column}` as GroupId, label: column })),
+            ...(attached.csv?.attributes ?? []).map(column => ({ id: `csv:${column}` as GroupId, label: column })),
             ...Array.from({ length: folders }, (_, index) => ({ id: `folder:${index + 1}` as GroupId, label: strings.entryFolderLevel.replace('{n}', String(index + 1)) })),
             { id: 'ch' as GroupId, label: strings.dsCh },
             { id: 'none' as GroupId, label: strings.dsGroupNone },
@@ -458,133 +486,144 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const columnLabel = (column: ColumnId): string => (column === 'name' ? strings.entryColFile : column === 'ch' ? strings.dsCh
         : column === 'none' ? strings.dsGroupNone : column.startsWith('csv:') || column.startsWith('folder:') ? (valueOptions().find(option => option.id === column)?.label ?? groupLabel(column as GroupId)) : valueLabel(column as ValueId));
     /** A column's numbers: the CSV's numeric columns and the computed values (a range filter, numeric sort). */
-    const numericColumn = (column: ColumnId): boolean => (column.startsWith('csv:') ? !!csv?.numeric[column.slice(4)] : column === 'ch' ? false : column !== 'name' && column !== 'none' && !column.startsWith('folder:'));
+    const numericColumn = (column: ColumnId): boolean => (column.startsWith('csv:') ? !!attached.csv?.numeric[column.slice(4)] : column === 'ch' ? false : column !== 'name' && column !== 'none' && !column.startsWith('folder:'));
     const formatColumn = (column: ColumnId, number: number): string => (column.startsWith('csv:') ? String(+number.toPrecision(6)) : formatValue(column as ValueId, number));
     function datasetView(): DatasetScreenView {
         const stale = stalePaths();
-        const ready = !isComputed(value) || shownRows.every(row => results.has(row.filePath) && !stale.has(row.filePath));
+        const ready = !isComputed(chosen.value) || shownRows.every(row => results.has(row.filePath) && !stale.has(row.filePath));
         return {
-            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group, value, filters, sort, slots, focused, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, mode, shown: shownFiles(), tracksAllOff: triedAll !== null && triedAll === listedFiles().join('\n'),
-            unmatched: match?.unmatched ?? [], filtered: new Set(filters.map(filter => filter.column)),
+            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, slots, focused: focus.key, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, mode: chosen.mode, shown: shownFiles(), tracksAllOff: tracks.tried !== null && tracks.tried === listedFiles().join('\n'),
+            unmatched: attached.match?.unmatched ?? [], filtered: new Set(chosen.filters.map(filter => filter.column)),
             columns: {
                 name: { id: 'name', label: strings.entryColFile, numeric: false },
                 ch: { id: 'ch', label: strings.dsCh, numeric: true },
-                ...(group === 'none' ? {} : { group: { id: group, label: groupLabel(group), numeric: false } }),
-                value: { id: value, label: valueLabel(value), numeric: true },
+                ...(chosen.group === 'none' ? {} : { group: { id: chosen.group, label: groupLabel(chosen.group), numeric: false } }),
+                value: { id: chosen.value, label: valueLabel(chosen.value), numeric: true },
             },
         };
     }
     function unreadable(): Array<{ filePath: string; reason: string }> {
         return filePaths.flatMap(filePath => {
             const result = results.get(filePath);
-            if (headerErrors.has(filePath) && !result?.ok) return [{ filePath, reason: headerErrors.get(filePath)! }];
+            const headerError = headers.errors.get(filePath);
+            if (headerError !== undefined && !result?.ok) return [{ filePath, reason: headerError }];
             return result && !result.ok && !result.failedStep ? [{ filePath, reason: result.reason ?? '' }] : [];
         });
     }
     /** The CSV rows and recordings that did not match; an unreadable recording is listed once, as unreadable. */
     function unmatchedItems(): CsvMatch['unmatched'] {
-        if (!csv || !match) return [];
+        if (!attached.csv || !attached.match) return [];
         const broken = new Set(unreadable().map(item => item.filePath));
-        return match.unmatched.filter(item => !item.filePath || !broken.has(item.filePath));
+        return attached.match.unmatched.filter(item => !item.filePath || !broken.has(item.filePath));
     }
     /** A row taken (slotted, left out, noted, focused) before its file's channels were known follows it to its ch 1 once they are. */
     function followChannels(): void {
         const keys = new Set(rows.map(row => row.key));
-        const moved = (key: string): string | null => (!keys.has(key) && fileOfKey(key) === key && keys.has(rowKey(key, 1, 2)) ? rowKey(key, 1, 2) : null);
+        const moved = (key: string): string | null => channelRowKey(key, keys);
         slots = slots.map(key => (key && moved(key)) || key);
         for (const key of [...excluded]) { const to = moved(key); if (to) { excluded.delete(key); excluded.add(to); } }
         for (const [key, note] of [...memo]) { const to = moved(key); if (to) { memo.delete(key); if (!memo.has(to)) memo.set(to, note); } }
-        if (focused) focused = moved(focused) ?? focused;
+        if (focus.key) focus.key = moved(focus.key) ?? focus.key;
     }
     function rebuild(): void {
         builtModel = null;
         pool = null;
         if (rowsDirty) {
             rowsDirty = false;
-            rows = datasetRows(filePaths, rootPath, match?.attributes ?? new Map(), results, headerChannels)
-                .filter(row => !(headerErrors.has(row.filePath) && !results.get(row.filePath)?.ok) && (results.get(row.filePath)?.ok !== false || !!results.get(row.filePath)?.failedStep));
+            rows = datasetRows(filePaths, rootPath, attached.match?.attributes ?? new Map(), results, headers.channels)
+                .filter(row => !(headers.errors.has(row.filePath) && !results.get(row.filePath)?.ok) && (results.get(row.filePath)?.ok !== false || !!results.get(row.filePath)?.failedStep));
             byKey = new Map(rows.map(row => [row.key, row]));
             followChannels();
         }
         // A value or grouping the data no longer has (another CSV, no subfolders) gives way to the first it has.
         const values = valueOptions();
-        if (!values.some(option => option.id === value)) value = values[0]?.id ?? 'leq';
+        if (!values.some(option => option.id === chosen.value)) chosen.value = values[0]?.id ?? 'leq';
         const groups = groupOptions();
-        if (!groups.some(option => option.id === group)) group = groups.find(option => option.id.startsWith('csv:') && !csv?.numeric[option.id.slice(4)])?.id ?? 'none';
-        const onTracks = tracksOnly ? shownFiles() : null;
-        shownRows = mode === 'excluded' ? rows.filter(row => excluded.has(row.key))
-            : visibleRows({ rows, group, value, filters, sort, excluded }, results).filter(row => !onTracks || onTracks.has(row.filePath));
-        if (!focusPicked || !focused || !rows.some(row => row.key === focused)) focused = shownRows[0]?.key ?? null;
+        if (!groups.some(option => option.id === chosen.group)) chosen.group = groups.find(option => option.id.startsWith('csv:') && !attached.csv?.numeric[option.id.slice(4)])?.id ?? 'none';
+        const onTracks = chosen.tracksOnly ? shownFiles() : null;
+        shownRows = chosen.mode === 'excluded' ? rows.filter(row => excluded.has(row.key))
+            : visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }, results).filter(row => !onTracks || onTracks.has(row.filePath));
+        if (!focus.picked || !focus.key || !rows.some(row => row.key === focus.key)) focus.key = shownRows[0]?.key ?? null;
         // An open question about showing the listed files counts the rows listed now.
-        if (pendingAll) { const adding = mode === 'all' ? notShown(listedFiles()) : []; pendingAll = adding.length ? adding : null; }
+        if (tracks.pending) { const adding = chosen.mode === 'all' ? notShown(listedFiles()) : []; tracks.pending = adding.length ? adding : null; }
         render();
-        if (!maximized) deps.compareChanged?.();
+        tellCompare();
     }
     /** Redraws the bar, the head and the rows; popovers that are open stay as they are (what is typed in them is kept). */
-    function render(): void {
+    function paint(): void {
         const view = datasetView();
         const values = valueOptions();
-        if (!values.some(option => option.id === value)) value = values[0]?.id ?? 'leq';
-        const valueHtml = valueOptionsHtml(values.map(option => ({ ...option, label: option.computed && !view.valueReady && option.id === value ? option.label : option.label })), value, text);
+        if (!values.some(option => option.id === chosen.value)) chosen.value = values[0]?.id ?? 'leq';
+        const valueHtml = valueOptionsHtml(values.map(option => ({ ...option, label: option.computed && !view.valueReady && option.id === chosen.value ? option.label : option.label })), chosen.value, text);
         if (valueSelect.innerHTML !== valueHtml) valueSelect.innerHTML = valueHtml;
-        valueSelect.value = value;
-        const groupHtml = groupOptionsHtml(groupOptions(), group);
+        valueSelect.value = chosen.value;
+        const groupHtml = groupOptionsHtml(groupOptions(), chosen.group);
         if (groupSelect.innerHTML !== groupHtml) groupSelect.innerHTML = groupHtml;
-        groupSelect.value = group;
-        const chips = filterChipsHtml(filters, columnLabel, formatColumn, text, mode === 'all' ? { count: new Set(rows.filter(row => view.shown?.has(row.filePath)).map(row => row.filePath)).size, only: tracksOnly, confirm: pendingAll?.length } : undefined);
+        groupSelect.value = chosen.group;
+        const chips = filterChipsHtml(chosen.filters, columnLabel, formatColumn, text, chosen.mode === 'all' ? { count: new Set(rows.filter(row => view.shown?.has(row.filePath)).map(row => row.filePath)).size, only: chosen.tracksOnly, confirm: tracks.pending?.length } : undefined);
         if (chipsBox.innerHTML !== chips) chipsBox.innerHTML = chips;
         renderCompute(view);
         const unmatchedButton = query<HTMLButtonElement>('[data-action="entry-view-unmatched"]');
         const unmatchedCount = unmatchedItems().length + unreadable().length;
         unmatchedButton.hidden = unmatchedCount === 0;
-        unmatchedButton.textContent = (csv ? strings.dsUnmatched : strings.dsUnreadable).replace('{n}', String(unmatchedCount));
-        unmatchedButton.setAttribute('data-hint', csv ? strings.hintUnmatched : strings.hintUnreadable);
-        unmatchedButton.setAttribute('aria-pressed', String(mode === 'unmatched'));
+        unmatchedButton.textContent = (attached.csv ? strings.dsUnmatched : strings.dsUnreadable).replace('{n}', String(unmatchedCount));
+        unmatchedButton.setAttribute('data-hint', attached.csv ? strings.hintUnmatched : strings.hintUnreadable);
+        unmatchedButton.setAttribute('aria-pressed', String(chosen.mode === 'unmatched'));
         const excludedButton = query<HTMLButtonElement>('[data-action="entry-view-excluded"]');
         // Shown only when something is taken out (or its list is open, to come back from it).
-        excludedButton.hidden = excluded.size === 0 && mode !== 'excluded';
+        excludedButton.hidden = excluded.size === 0 && chosen.mode !== 'excluded';
         excludedButton.textContent = strings.dsExcluded.replace('{n}', String(excluded.size));
-        excludedButton.setAttribute('aria-pressed', String(mode === 'excluded'));
-        query('[data-entry-source]').textContent = csv && match ? strings.dsCsvSource.replace('{name}', csv.name).replace('{matched}', String(match.attributes.size)).replace('{total}', String(filePaths.length)) : strings.dsPickCsv;
-        cols.innerHTML = datasetColsHtml(view);
-        // The head is drawn again: a focus on its ☐/⊟/☑ stays there.
+        excludedButton.setAttribute('aria-pressed', String(chosen.mode === 'excluded'));
+        query('[data-entry-source]').textContent = attached.csv && attached.match ? strings.dsCsvSource.replace('{name}', attached.csv.name).replace('{matched}', String(attached.match.attributes.size)).replace('{total}', String(filePaths.length)) : strings.dsPickCsv;
+        writeHtml(cols, datasetColsHtml(view));
+        // The head is drawn again only when it changed; then a focus on its ☐/⊟/☑ stays there.
         const headFocused = !!document.activeElement?.closest?.('[data-action="entry-tracks-all"]') && head.contains(document.activeElement);
-        head.innerHTML = datasetHeadHtml(view, text);
-        if (headFocused) focusHeadMark();
+        if (writeHtml(head, datasetHeadHtml(view, text)) && headFocused) focusHeadMark();
         renderRows(view);
+        paintSlots();
+        const wanted = `<button type="button" class="entry-key" data-action="entry-key-hint" data-key="help">${escapeHtml(strings.keyHelp)}</button>`;
+        if (keyHints.innerHTML !== wanted) keyHints.innerHTML = wanted;
+        stepBar.set({ recipe: recipeState.edited ?? recipeState.standard, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed: recipeState.failed, files: filePaths.length });
+        screen.dataset.mode = chosen.mode;
+        scheduleSide();
+        session.schedule();
+    }
+    /** Markup last written to an element by writeHtml, which writes it again only when it changes. */
+    const written = new WeakMap<Element, string>();
+    function writeHtml(element: Element, html: string): boolean {
+        if (written.get(element) === html) return false;
+        element.innerHTML = html;
+        written.set(element, html);
+        return true;
+    }
+    /** The slots' chips: their rows, the base, the slot held, and a note where one file is two slots' channels. */
+    function paintSlots(): void {
         // One file in two slots as different channels: it is one track, drawn as the first slot's channel (1–3, then 0).
         const notes = slots.map(key => {
             const shown = key ? slotRowOf(fileOfKey(key)) : undefined;
             return key && shown && shown.key !== key && (shown.channels ?? 1) > 1 ? strings.dsSlotTrackChannel.replace('{ch}', String(shown.ch)) : null;
         });
-        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, heldSlot, notes);
+        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, hold.slot, notes);
         markOpenable();
         notes.forEach((note, slot) => slotBar.querySelector(`[data-action="entry-slot"][data-slot="${slot}"]`)?.setAttribute('data-track-note', note ?? ''));
-        const wanted = `<button type="button" class="entry-key" data-action="entry-key-hint" data-key="help">${escapeHtml(strings.keyHelp)}</button>`;
-        if (keyHints.innerHTML !== wanted) keyHints.innerHTML = wanted;
-        stepBar.set({ recipe: editedRecipe ?? standardRecipe, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed, files: filePaths.length });
-        screen.dataset.mode = mode;
-        scheduleSide();
-        scheduleSessionSave();
     }
-    /** Only the rows on screen are drawn: the rest are spacers, so 100,000 rows scroll as 40 do. */
     /** The view the rows on screen were drawn from: scrolling and resizing draw more of it instead of building it again. */
     let rowsView: DatasetScreenView | null = null;
+    /** Only the rows on screen are drawn (rowWindow): the rest are spacers. */
     function renderRows(view = rowsView ?? datasetView()): void {
         rowsView = view;
-        if (mode === 'unmatched') { body.innerHTML = unmatchedRowsHtml(unmatchedItems(), unreadable(), text); return; }
-        const first = Math.max(0, Math.floor(tableWrap.scrollTop / ROW_HEIGHT) - 10);
-        const last = Math.min(tableLines(view).length, first + Math.ceil((tableWrap.clientHeight || 600) / ROW_HEIGHT) + 20);
+        if (chosen.mode === 'unmatched') { body.innerHTML = unmatchedRowsHtml(unmatchedItems(), unreadable(), text); return; }
+        const { first, last } = rowWindow(tableWrap.scrollTop, tableWrap.clientHeight, tableLines(view).length, ROW_HEIGHT);
         // The rows are drawn again: a focus on a row's ☐/☑ stays on a mark, so a second Space toggles it back
         // instead of falling to the body (and, docked, to the lanes' playback). It follows the focused row, so after
         // ↑/↓ the next Space or Enter takes the row that is lit, not the one the keys left.
         const focusedMark = document.activeElement?.closest?.('[data-action="entry-row-track"]');
         const markKey = focusedMark && body.contains(focusedMark) ? focusedMark.getAttribute('data-key') : null;
         body.innerHTML = datasetRowsHtml(view, first, last, ROW_HEIGHT, text);
-        if (markKey !== null) body.querySelector<HTMLElement>(`[data-action="entry-row-track"][data-key="${CSS.escape(focused ?? markKey)}"]`)?.focus({ preventScroll: true });
+        if (markKey !== null) body.querySelector<HTMLElement>(`[data-action="entry-row-track"][data-key="${CSS.escape(focus.key ?? markKey)}"]`)?.focus({ preventScroll: true });
         // Redrawn rows keep the light of the lane under the mouse.
-        if (linkedPath && document.querySelector(`.track-row[data-file-path="${CSS.escape(linkedPath)}"]`)) {
-            body.querySelectorAll(`tr.entry-row[data-file-path="${CSS.escape(linkedPath)}"]`).forEach(row => row.classList.add('is-linked'));
+        if (tracks.linked && document.querySelector(`.track-row[data-file-path="${CSS.escape(tracks.linked)}"]`)) {
+            body.querySelectorAll(`tr.entry-row[data-file-path="${CSS.escape(tracks.linked)}"]`).forEach(row => row.classList.add('is-linked'));
         }
     }
     function rowName(key: string): string {
@@ -593,22 +632,22 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The rows a recipe bundle is for: those the table shows through its filters, or every row not excluded. */
     function batchRows(choice: 'filtered' | 'all'): DatasetRow[] {
-        return choice === 'filtered' ? visibleRows({ rows, group, value, filters, sort, excluded }, results) : rows.filter(row => !excluded.has(row.key));
+        return choice === 'filtered' ? visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }, results) : rows.filter(row => !excluded.has(row.key));
     }
     function openBatch(): void {
-        fpop = null; slotMenu = null; memoKey = null; baseMenu = false;
-        batchChoice = filters.length ? 'filtered' : 'all';
+        popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false;
+        popovers.batch = chosen.filters.length ? 'filtered' : 'all';
         renderPopovers();
     }
     /** The bundle: the Recipe as it runs (per channel when the rows are channels), targets.csv, run_recipe.py, README. */
     function exportBatch(): void {
-        const choice = (screen.querySelector<HTMLInputElement>('[data-entry-batch-scope]:checked')?.value as 'filtered' | 'all' | undefined) ?? batchChoice ?? 'all';
-        const recipe = runRecipe() ?? standardRecipe;
+        const choice = (screen.querySelector<HTMLInputElement>('[data-entry-batch-scope]:checked')?.value as 'filtered' | 'all' | undefined) ?? popovers.batch ?? 'all';
+        const recipe = runRecipe() ?? recipeState.standard;
         if (!recipe || broken()) { deps.announce(strings.entryChainBroken); return; }
         // A step measured against the base slot needs that one recording beside each: not a bundle of single files.
-        if (activeSlotReferenced(editedRecipe).length) { deps.announce(strings.entryBatchNoBase); return; }
+        if (activeSlotReferenced(recipeState.edited).length) { deps.announce(strings.entryBatchNoBase); return; }
         const targets = batchRows(choice);
-        const idColumn = csv && csv.idColumn && csv.idColumn !== csv.audioColumn ? csv.idColumn : undefined;
+        const idColumn = attached.csv && attached.csv.idColumn && attached.csv.idColumn !== attached.csv.audioColumn ? attached.csv.idColumn : undefined;
         // The Web host lists a picked folder as /sources/<name>: the README then asks for the folder instead.
         const runRoot = rootPath.startsWith('/sources/') ? '' : rootPath;
         const { folder, files } = batchBundle({ recipe, recipeName: strings.stepRecipeName, rows: targets, allRows: rows, rootPath, runRoot, idColumn, now: new Date() });
@@ -618,50 +657,35 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     function sessionOf(): Record<string, unknown> {
         return {
-            version: 1, value, group, filters, sort, baseGroup, slots, memo: [...memo], excluded: [...excluded], derived,
-            ...(editedRecipe ? { recipe: editedRecipe } : {}),
+            version: SESSION_VERSION, value: chosen.value, group: chosen.group, filters: chosen.filters, sort: chosen.sort, baseGroup: chosen.baseGroup, slots, memo: [...memo], excluded: [...excluded], derived,
+            ...(recipeState.edited ? { recipe: recipeState.edited } : {}),
         };
     }
-    function scheduleSessionSave(): void {
-        if (!sessionLoaded || sessionTimer !== undefined) return;
-        sessionTimer = window.setTimeout(() => {
-            sessionTimer = undefined;
-            const session = sessionOf();
-            const text = JSON.stringify(session);
-            if (text === savedSession && csvToSave === undefined) return;
-            savedSession = text;
-            deps.post({ type: 'entry-save-session', rootPath, session, ...(csvToSave !== undefined ? { csv: csvToSave } : {}) });
-            csvToSave = undefined;
-        }, SESSION_SAVE_MS);
-    }
     /** The stored session, as it came back at open: anything that no longer fits these files is left out. */
-    function applySession(session: Record<string, unknown> | undefined, stored: { name: string; text: string } | undefined): void {
-        if (stored) {
-            try { applyCsv(readDatasetCsv(new TextEncoder().encode(stored.text), stored.name)); } catch { /* A CSV that no longer reads is dropped. */ }
+    function applySession(stored: Record<string, unknown> | undefined, storedCsv: { name: string; text: string } | undefined): void {
+        if (storedCsv) {
+            try { applyCsv(readDatasetCsv(new TextEncoder().encode(storedCsv.text), storedCsv.name)); } catch { /* A CSV that no longer reads is dropped. */ }
         }
-        if (!session || session['version'] !== 1) return;
-        const files = new Set(filePaths);
-        const keyOk = (key: unknown): key is string => typeof key === 'string' && files.has(fileOfKey(key));
-        if (typeof session['value'] === 'string') value = session['value'] as ValueId;
-        if (typeof session['group'] === 'string') group = session['group'] as GroupId;
-        if (Array.isArray(session['filters'])) filters = (session['filters'] as DatasetFilter[]).filter(filter => !!filter && typeof filter.column === 'string' && (filter.kind === 'values' ? Array.isArray(filter.values) : filter.kind === 'range' && typeof filter.low === 'number' && typeof filter.high === 'number'));
-        const savedSort = session['sort'] as DatasetScreenView['sort'] | undefined;
-        if (savedSort && ['name', 'ch', 'group', 'value'].includes(savedSort.column)) sort = { column: savedSort.column, descending: !!savedSort.descending };
-        baseGroup = typeof session['baseGroup'] === 'string' ? session['baseGroup'] : null;
-        if (Array.isArray(session['slots'])) { slots = [0, 1, 2, 3].map(slot => { const key = (session['slots'] as unknown[])[slot]; return keyOk(key) ? key : null; }); deps.saveSlots(slots); }
+        const kept = readStoredSession(stored, new Set(filePaths));
+        if (!kept) return;
+        if (kept.value !== undefined) chosen.value = kept.value;
+        if (kept.group !== undefined) chosen.group = kept.group;
+        if (kept.filters) chosen.filters = kept.filters;
+        if (kept.sort) chosen.sort = kept.sort;
+        chosen.baseGroup = kept.baseGroup;
+        if (kept.slots) { slots = kept.slots; deps.saveSlots(slots); }
         memo.clear();
-        if (Array.isArray(session['memo'])) for (const item of session['memo'] as unknown[]) if (Array.isArray(item) && keyOk(item[0]) && typeof item[1] === 'string') memo.set(item[0], item[1]);
+        for (const [key, note] of kept.memo) memo.set(key, note);
         excluded.clear();
-        if (Array.isArray(session['excluded'])) for (const key of session['excluded'] as unknown[]) if (keyOk(key)) excluded.add(key);
-        if (Array.isArray(session['derived'])) { derived = (session['derived'] as DerivedRow[]).filter(row => !!row && files.has(row.parentPath) && !!row.result && !!row.base); deps.saveDerived?.(derived); }
+        for (const key of kept.excluded) excluded.add(key);
+        if (kept.derived) { derived = kept.derived; deps.saveDerived?.(derived); }
         // A chain saved with the session is the one its stored values are of: they are asked for again under it.
-        const recipe = session['recipe'];
-        if (isRecipeChain(recipe) && recipeKey(recipe) !== recipeKey(editedRecipe ?? undefined)) { editedRecipe = recipe; deps.saveRecipe?.(recipe); loadStored(); }
+        const recipe = kept.recipe;
+        if (recipe && recipeKey(recipe) !== recipeKey(recipeState.edited ?? undefined)) { recipeState.edited = recipe; deps.saveRecipe?.(recipe); loadStored(); }
     }
     /** The slotted row of a file the comparison shows (slots 1–3 first, then 0). */
     function slotRowOf(filePath: string): DatasetRow | undefined {
-        const key = [1, 2, 3, 0].map(slot => slots[slot]).find(item => item && fileOfKey(item) === filePath);
-        return rowOf(key ?? null);
+        return rowOf(roleKey(slots, filePath) ?? null);
     }
     /** A channel row of a recording of several channels is compared as that channel; otherwise the channels together. */
     const channelOfRow = (row: DatasetRow | undefined): number | null => (row && (row.channels ?? 1) > 1 ? row.ch : null);
@@ -674,7 +698,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function resolveBase(comparePath: string, byGroup = false): { paths: string[]; title: string; definition: BaseDefinition; channel: number | null } {
         const compareRow = slotRowOf(comparePath) ?? rows.find(row => row.filePath === comparePath);
         const channel = channelOfRow(compareRow);
-        const narrowedBy = filters.filter(filter => filter.column !== value).map(chipText);
+        const narrowedBy = chosen.filters.filter(filter => filter.column !== chosen.value).map(chipText);
         const within = narrowedBy.length ? strings.dsBaseNarrowed.replace('{filters}', narrowedBy.join('・')) : '';
         if (slots[0] && !byGroup) {
             const row = rowOf(slots[0]);
@@ -684,16 +708,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 definition: { kind: 'file', file: rowName(slots[0]), count: 1, channel: ch, filters: narrowedBy, fewerChannels: 0 },
             };
         }
-        const name = group === 'none' ? '' : baseGroup ?? (compareRow ? datasetGroupOf(compareRow, group) : '');
+        const name = chosen.group === 'none' ? '' : chosen.baseGroup ?? (compareRow ? datasetGroupOf(compareRow, chosen.group) : '');
         // The other compared recordings (slots 1–3) are compared themselves: not part of anyone's base.
-        const compared = new Set(slots.slice(1).filter((key): key is string => !!key).map(fileOfKey));
-        const { paths, fewerChannels } = baseGroupMembers(distributionPool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath, group, name, channel);
-        const where = group === 'none' ? strings.dsDistAll : `${groupLabel(group)} ${name || '—'}`;
+        const compared = new Set(comparedKeys(slots).map(fileOfKey));
+        const { paths, fewerChannels } = baseGroupMembers(distributionPool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath, chosen.group, name, channel);
+        const where = chosen.group === 'none' ? strings.dsDistAll : `${groupLabel(chosen.group)} ${name || '—'}`;
         const title = `${strings.entryBaseGroup} ${where} · ${strings.entryBaseMedian.replace('{count}', String(paths.length))}${channel ? ` · ${strings.dsCh}${channel}` : ''}`
             + (fewerChannels ? strings.dsBaseFewer.replace('{n}', String(fewerChannels)).replace('{ch}', String(channel)) : '') + within;
         return {
             paths, title, channel,
-            definition: { kind: 'group', group: { column: group === 'none' ? '' : groupLabel(group), name }, count: paths.length, channel, filters: narrowedBy, fewerChannels },
+            definition: { kind: 'group', group: { column: chosen.group === 'none' ? '' : groupLabel(chosen.group), name }, count: paths.length, channel, filters: narrowedBy, fewerChannels },
         };
     }
     /** The channel a file is drawn and measured with in the comparison of `comparePath`. */
@@ -719,22 +743,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function rowInfo(path: string): { label: string; value: string; memo: string } {
         const row = slotRowOf(path) ?? rows.find(item => item.filePath === path);
         if (!row) return { label: baseName(path), value: '', memo: '' };
-        const number = usable(row) ? valueOf(row, value, results) : null;
-        return { label: rowName(row.key), value: number === null ? '' : `${valueLabel(value)} ${formatColumn(value, number)}`, memo: memo.get(row.key) ?? '' };
+        const number = usable(row) ? valueOf(row, chosen.value, results) : null;
+        return { label: rowName(row.key), value: number === null ? '' : `${valueLabel(chosen.value)} ${formatColumn(chosen.value, number)}`, memo: memo.get(row.key) ?? '' };
     }
     function removeDerived(parentPath: string, region: string, baseLabel?: string): void {
-        derived = derived.filter(item => item.parentPath !== parentPath || item.region !== region || (baseLabel !== undefined && (item.base.label ?? '') !== baseLabel));
-        deps.saveDerived?.(derived);
-        rebuild();
+        setDerived(derived.filter(item => item.parentPath !== parentPath || item.region !== region || (baseLabel !== undefined && (item.base.label ?? '') !== baseLabel)));
     }
     /** The differences fixed on a row (D), under it: their Δ of the value on show when it is Leq or a band. */
     function derivedItems(row: DatasetRow): DerivedItem[] {
         return derived.filter(item => item.parentPath === row.filePath && (item.ch ? item.ch === row.ch : row.ch === 1)).map(item => {
             const result = item.result;
             let delta: number | null = null;
-            if (result.ok && value === 'leq' && result.leqDbA?.length) delta = powerMeanDb(result.leqDbA) - item.base.leq;
-            else if (result.ok && value.startsWith('band:')) {
-                const band = Number(value.slice(5));
+            if (result.ok && chosen.value === 'leq' && result.leqDbA?.length) delta = powerMeanDb(result.leqDbA) - item.base.leq;
+            else if (result.ok && chosen.value.startsWith('band:')) {
+                const band = Number(chosen.value.slice(5));
                 const level = powerMeanOrNull((result.thirdOctDb ?? []).map(channel => channel[band]));
                 const reference = item.base.bands[band];
                 if (level !== null && reference !== null && reference !== undefined) delta = level - reference;
@@ -753,51 +775,52 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const name = baseGroupName();
         if (name === null) return strings.entryBaseGroup;
         const members = baseMembers(name).filter(item => item.key !== slots[1]);
-        return `${groupLabel(group)} ${name || '—'} · ${strings.entryBaseMedian.replace('{count}', String(members.length))}`;
+        return `${groupLabel(chosen.group)} ${name || '—'} · ${strings.entryBaseMedian.replace('{count}', String(members.length))}`;
     }
     /** The group whose median is the base: the one chosen, else slot 1's (slot 0 empty, a grouping chosen). */
     function baseGroupName(): string | null {
-        if (slots[0] || group === 'none') return null;
-        if (baseGroup !== null) return baseGroup;
+        if (slots[0] || chosen.group === 'none') return null;
+        if (chosen.baseGroup !== null) return chosen.baseGroup;
         const anchor = rowOf(slots[1]);
-        return anchor ? datasetGroupOf(anchor, group) : null;
+        return anchor ? datasetGroupOf(anchor, chosen.group) : null;
     }
     /** A group's rows (the table's grouping, its filters and exclusions applied, not the range on the value). */
     function baseMembers(name: string): DatasetRow[] {
-        return distributionPool().filter(item => datasetGroupOf(item, group) === name);
+        return distributionPool().filter(item => datasetGroupOf(item, chosen.group) === name);
     }
     /** The rows the distribution draws from: not excluded, through every filter but the one on the value itself. */
     function distributionPool(): DatasetRow[] {
-        pool ??= filteredRows({ rows, filters: filters.filter(filter => filter.column !== value), excluded }, results);
+        pool ??= filteredRows({ rows, filters: chosen.filters.filter(filter => filter.column !== chosen.value), excluded }, results);
         return pool;
     }
     /** The range picked on the value drawn: it marks the distribution and narrows the table. */
     function valueRange(): { low: number; high: number } | null {
-        const filter = filters.find(item => item.column === value);
+        const filter = chosen.filters.find(item => item.column === chosen.value);
         return filter?.kind === 'range' ? { low: filter.low, high: filter.high } : null;
     }
     /** A computed value counts only when it is of the current chain. */
-    const usable = (row: DatasetRow): boolean => !isComputed(value) || (results.has(row.filePath) && !isStale(row.filePath));
+    const usable = (row: DatasetRow): boolean => !isComputed(chosen.value) || (results.has(row.filePath) && !isStale(row.filePath));
     /** 「計算」 for the rows on screen without a value of this chain; while it runs, its progress and 中止. */
     function renderCompute(view: DatasetScreenView): void {
         let html = '';
         // Reading the headers (channels) comes first; it is quick but a large folder takes a moment, and it can be stopped.
+        const probing = headers.progress();
         if (probing) html += `<span class="awa-tag" data-entry-probing>${escapeHtml(strings.dsProbing.replace('{done}', String(probing.done)).replace('{n}', String(probing.total)))}</span>`
             + `<button type="button" data-action="entry-probe-cancel">${escapeHtml(strings.entryScanCancel)}</button>`;
-        if (scanning) {
-            html += `<span class="awa-tag" data-entry-progress>${escapeHtml(strings.dsComputing.replace('{done}', String(scanCount)).replace('{n}', String(computingFiles)))}</span>`
+        if (progress.running) {
+            html += `<span class="awa-tag" data-entry-progress>${escapeHtml(strings.dsComputing.replace('{done}', String(progress.done)).replace('{n}', String(progress.total)))}</span>`
                 + `<button type="button" data-action="entry-compute-cancel">${escapeHtml(strings.entryScanCancel)}</button>`;
         } else if (broken()) {
             html += `<span class="awa-tag entry-stale-tag is-broken">${escapeHtml(strings.entryChainBroken)}</span>`;
         } else {
             const pending = computeTargets();
             if (pending.length) {
-                const minutes = estimateMs(pending) / 60000;
+                const minutes = progress.estimateMs(pending) / 60000;
                 const estimate = minutes >= 1 ? strings.entryMinutes.replace('{n}', String(Math.ceil(minutes))) : strings.entrySeconds.replace('{n}', String(Math.max(1, Math.ceil(minutes * 60))));
                 // Some rows have the value: the rest is said in channels and offered (never started by itself).
-                const pool = isComputed(value) ? distributionPool() : view.rows;
+                const pool = isComputed(chosen.value) ? distributionPool() : view.rows;
                 const missing = pool.filter(row => !usable(row)).length;
-                const partial = isComputed(value) && missing < pool.length;
+                const partial = isComputed(chosen.value) && missing < pool.length;
                 const label = partial ? strings.dsComputeRest.replace('{time}', estimate) : strings.dsCompute.replace('{n}', String(pending.length)).replace('{time}', estimate);
                 html += (partial ? `<span class="awa-tag" data-entry-uncomputed>${escapeHtml(strings.dsUncomputed.replace('{n}', String(missing)))}</span>` : '')
                     + `<button type="button" data-action="entry-compute"${` data-hint="${escapeHtml(strings.hintCompute)}"`}>${escapeHtml(label)}</button>`;
@@ -808,49 +831,45 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The files of the rows on screen (filters applied) that have no value of this chain yet. */
     function computeTargets(): string[] {
         // A computed value: the distribution's rows (a range on the value takes only computed rows, so it is not applied).
-        const pool = isComputed(value) ? distributionPool() : mode === 'all' ? shownRows : visibleRows({ rows, group, value, filters, sort, excluded }, results);
+        const pool = isComputed(chosen.value) ? distributionPool() : chosen.mode === 'all' ? shownRows : visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }, results);
         // 「トラックのみ」 computes only the files on a track, as the table shows.
-        const onTracks = tracksOnly && mode === 'all' ? shownFiles() : null;
+        const onTracks = chosen.tracksOnly && chosen.mode === 'all' ? shownFiles() : null;
         return [...new Set(pool.map(row => row.filePath))].filter(path => (!onTracks || onTracks.has(path)) && (!results.has(path) || isStale(path)));
     }
-    /** The folder's sample rate, kept when a new Recipe clears the results so its steps are still checked against it. */
-    let knownRate: number | undefined;
     function sampleRate(): number | undefined {
-        for (const result of results.values()) if (result.ok) return knownRate = result.input!.fs;
-        return knownRate;
+        for (const result of results.values()) if (result.ok && result.input) return recipeState.knownRate = result.input.fs;
+        return recipeState.knownRate;
     }
-    /** Samples in the shortest scanned file, kept across a new Recipe like the sample rate. */
-    let knownShortest: number | undefined;
     function shortestSamples(): number | undefined {
         let shortest: number | undefined;
         for (const result of results.values()) {
-            if (!result.ok) continue;
-            const samples = Math.floor(result.input!.durationS * result.input!.fs);
+            if (!result.ok || !result.input) continue;
+            const samples = Math.floor(result.input.durationS * result.input.fs);
             shortest = shortest === undefined ? samples : Math.min(shortest, samples);
         }
-        if (shortest !== undefined) knownShortest = shortest;
-        return knownShortest;
+        if (shortest !== undefined) recipeState.knownShortest = shortest;
+        return recipeState.knownShortest;
     }
     function limits() {
-        return stepLimits({ sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed });
+        return stepLimits({ sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed: recipeState.failed });
     }
     /** The fewest channels of the scanned files, which a channel index must stay below. */
     function channelCount(): number | undefined {
         let fewest: number | undefined;
-        for (const result of results.values()) if (result.ok) fewest = Math.min(fewest ?? Infinity, result.input!.channels.length);
+        for (const result of results.values()) if (result.ok && result.input) fewest = Math.min(fewest ?? Infinity, result.input.channels.length);
         return fewest;
     }
     /** The Recipe the scans run; undefined is the host's own, unchanged (nothing edited, no step left out). */
     function runRecipe(channels?: number): RecipeDocument | undefined {
-        const recipe = editedRecipe ?? (Object.keys(failed).length ? standardRecipe : null);
+        const recipe = recipeState.edited ?? (Object.keys(recipeState.failed).length ? recipeState.standard : null);
         return recipe ? runnableRecipe(recipe, channels ? { ...limits(), channels } : limits()) : undefined;
     }
     /** What the table's scans run: without the steps measured against the base slot, which they do not pair. */
     function scanRecipe(): RecipeDocument | undefined {
-        return unpairedRecipe(runRecipe(), editedRecipe);
+        return unpairedRecipe(runRecipe(), recipeState.edited);
     }
     function compareData(stage?: string): CompareData {
-        return { model: entryModel(), results, slots: slotFiles(), recipe: editedRecipe ?? standardRecipe, runRecipe: scanRecipe(), failed, stale: stalePaths(), ...(stage ? { stage } : {}) };
+        return { model: entryModel(), results, slots: slotFiles(), recipe: recipeState.edited ?? recipeState.standard, runRecipe: scanRecipe(), failed: recipeState.failed, stale: stalePaths(), ...(stage ? { stage } : {}) };
     }
     /**
      * A step that failed on a file breaks the chain (⚠ on its chip and on every step after it): the computation
@@ -858,11 +877,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
      * not have, changes nothing.
      */
     function stepFailed(step: string, reason: string): void {
-        const recipe = editedRecipe ?? standardRecipe;
-        const known = recipe && (recipe as unknown as { nodes?: Array<{ id: string }> }).nodes?.some(node => node.id === step);
-        if (!known || failed[step] !== undefined) return;
-        failed = { ...failed, [step]: reason };
-        if (scanning) { deps.post({ type: 'entry-scan-cancel' }); scanning = false; }
+        const recipe = recipeState.edited ?? recipeState.standard;
+        const known = recipeNodes(recipe).some(node => node.id === step);
+        if (!known || recipeState.failed[step] !== undefined) return;
+        recipeState.failed = { ...recipeState.failed, [step]: reason };
+        if (progress.running) { deps.post({ type: 'entry-scan-cancel' }); progress.stop(); }
         rebuild();
         deps.stepsChanged?.();
     }
@@ -884,8 +903,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function remeasureStale(): void {
         if (broken()) return;
         derived.forEach(row => {
-            if (!row.stale || !row.base.paths?.length) return;
-            if (row.region !== 'all' && (row.base.paths.length > LARGE_BASE || row.base.paths.reduce((sum, path) => sum + (durationOf(path) ?? UNKNOWN_DURATION_S), 0) > LARGE_BASE_S)) return;
+            const basePaths = row.base.paths;
+            if (!row.stale || !basePaths?.length) return;
+            if (row.region !== 'all' && (basePaths.length > LARGE_BASE || progress.seconds(basePaths) > LARGE_BASE_S)) return;
             if (row.region === 'all') {
                 const next = remeasured(row, results);
                 if (next) derived = derived.map(item => (item === row ? next : item));
@@ -894,7 +914,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const [start, end] = row.region.split('–').map(Number);
             const recipe = scanRecipe();
             const id = `derived-${++requestCount}`;
-            remeasuring.ask(id, id, derivedKey(row), { row, results: new Map() }, () => deps.post({ type: 'compare-scan', requestId: id, filePaths: [row.parentPath, ...row.base.paths!], region: { start, end }, ...(recipe ? { recipe } : {}) }));
+            remeasuring.ask(id, id, derivedKey(row), { row, results: new Map() }, () => deps.post({ type: 'compare-scan', requestId: id, filePaths: [row.parentPath, ...basePaths], region: { start, end }, ...(recipe ? { recipe } : {}) }));
         });
         deps.saveDerived?.(derived);
     }
@@ -904,19 +924,17 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
      * signal, the spectrum without it − with it. The pictures come as the steps view's do (stageSource, the
      * Frame's full resolution once zoomed) and are drawn by its painter. Released, it goes 150 ms later.
      */
-    let stepHeld: { step: RecipeStep; path: string } | null = null;
-    let stepRelease: number | undefined;
     const holdSource = createStageSource('entry-hold', message => deps.post(message), () => scheduleSide());
     const holdDetail = createDetailPlanner(window.performance, window, () => scheduleSide());
     function holdStep(step: RecipeStep | null): void {
         if (!step) {
-            stepRelease = window.setTimeout(() => { stepRelease = undefined; stepHeld = null; scheduleSide(); }, DELTA_RELEASE_MS);
+            hold.stepRelease = window.setTimeout(() => { hold.stepRelease = undefined; hold.step = null; scheduleSide(); }, DELTA_RELEASE_MS);
             return;
         }
-        if (stepRelease !== undefined) { window.clearTimeout(stepRelease); stepRelease = undefined; }
+        if (hold.stepRelease !== undefined) { window.clearTimeout(hold.stepRelease); hold.stepRelease = undefined; }
         const path = focusedFile() ?? slotFiles()[1];
         if (!path || !results.get(path)?.ok) { document.getElementById('hint-footer')?.replaceChildren(strings.stepHeldNoRow); return; }
-        stepHeld = { step, path };
+        hold.step = { step, path };
         scheduleSide();
     }
     /** The step `id`'s picture under `recipe` (the whole file, as the table scans it). */
@@ -925,21 +943,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The specs a held step draws from: its own picture (the average spectrum), or the chain's end with and without it. */
     function heldSpecs(step: RecipeStep): { with: StageSpec; without?: StageSpec } | null {
-        const recipe = runRecipe() ?? editedRecipe ?? standardRecipe;
+        const recipe = runRecipe() ?? recipeState.edited ?? recipeState.standard;
         if (!recipe) return null;
         if (step.name === 'welch') return { with: holdSpec(recipe, step.id) };
         const end = recipeSteps(recipe, limits()).filter(item => item.invalid === undefined).at(-1)?.id;
-        const without = end ? recipeWithout(recipe, step.id, end, limits(), slotReferenced(editedRecipe ?? standardRecipe)) : null;
+        const without = end ? recipeWithout(recipe, step.id, end, limits(), slotReferenced(recipeState.edited ?? recipeState.standard)) : null;
         return end && without ? { with: holdSpec(recipe, end), without: holdSpec(without, end) } : null;
     }
     /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */
     function paintHeldView(view: StageView | null, picture: StageView | null, range: PaneRange, axes: StageAxes, window: PlotWindow, options: { diff?: boolean; color: string; empty?: string }): void {
-        heldPlot = picture ? { margins: STAGE_MARGINS, x: f => axisValueAt(picture, f), ofX: value => axisFractionOf(picture, value), range, xLabel: axes.x, yLabel: axes.y } : null;
+        hold.plot = picture ? { margins: STAGE_MARGINS, x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y } : null;
         paintOverlay(heldCanvas, { layers: view ? [{ view, color: options.color, width: 2 }] : [] }, narrowed(range, window), axes,
             { diff: options.diff, empty: options.empty ?? '', window: { x: window.x }, axisView: picture });
     }
-    function paintStepHeld(): void {
-        const { step, path } = stepHeld!;
+    function paintStepHeld({ step, path }: { step: RecipeStep; path: string }): void {
         held.hidden = false;
         const row = buildCompareModel(entryModel(), results, path, null, strings);
         const input = results.get(path)?.input;
@@ -984,31 +1001,31 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (publication.type === 'compare-scan-result') { pending.results.set(publication.filePath, publication.result); return true; }
         remeasuring.settle(publication.requestId);
         const next = remeasured(pending.row, pending.results);
-        if (next) { derived = derived.map(item => (item === pending.row ? next : item)); deps.saveDerived?.(derived); rebuild(); }
+        if (next) setDerived(derived.map(item => (item === pending.row ? next : item)));
         return true;
     }
     /** A hold shows something on this screen for a step of the chain's time signal (not the region), its spectrum, and the app's bands. */
     function canHoldStep(step: RecipeStep): boolean {
         if (step.operation === TIME_SLICE) return false;
         if (step.id === OCTAVE_BRANCH) return true;
-        const recipe = editedRecipe ?? standardRecipe;
+        const recipe = recipeState.edited ?? recipeState.standard;
         if (!recipe) return false;
-        const steps = (recipe as unknown as { nodes: Array<{ id: string }> }).nodes.map(node => node.id);
+        const steps = recipeNodes(recipe).map(node => node.id);
         const signal = timeSignalStep(recipe, limits());
         // The average spectrum the table reads (the chain's end), or a step up to the time signal.
         if (step.name === 'welch') return spectral();
         return !!signal && steps.indexOf(step.id) <= steps.indexOf(signal.id);
     }
     function setRecipe(recipe: RecipeDocument): void {
-        editedRecipe = recipe;
+        recipeState.edited = recipe;
         // A new Recipe is tried whole again: a step that failed under the old one may not now.
-        failed = {};
+        recipeState.failed = {};
         deps.saveRecipe?.(recipe);
         // The folder is not scanned again by itself: the table keeps the previous chain's values, greyed,
         // until "Scan all"; the focused row and the comparison's files are measured at once.
-        if (scanning) { deps.post({ type: 'entry-scan-cancel' }); scanning = false; }
+        if (progress.running) { deps.post({ type: 'entry-scan-cancel' }); progress.stop(); }
         // The row on screen keeps the focus: re-sorted by its new value, the top row would take it and be measured next, and so on down the folder.
-        if (focused) focusPicked = true;
+        if (focus.key) focus.picked = true;
         // Differences fixed under another Recipe stay, marked ≠ until measured again under this one
         // (after the scan); one fixed under this very Recipe needs nothing.
         const key = recipeKey(scanRecipe());
@@ -1016,13 +1033,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         deps.saveDerived?.(derived);
         rebuild();
     }
-    /** Whether the next side paint draws the distribution again; scrolling the table moves only the strip's window. */
-    let distPending = true;
     function scheduleSide(distribution = true): void {
-        distPending ||= distribution;
-        if (sidePending) return;
-        sidePending = true;
-        window.requestAnimationFrame(() => { sidePending = false; paintSide(); });
+        sidePaint.dist ||= distribution;
+        if (sidePaint.pending) return;
+        sidePaint.pending = true;
+        window.requestAnimationFrame(() => { sidePaint.pending = false; paintSide(); });
     }
     /** The held row's Δ spectrum (from the table's own scan), zoomed as its window says. */
     function paintHeldDelta(comparison: CompareModel, key: string, input: { unit?: string; ref?: number } | undefined): void {
@@ -1030,75 +1045,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const delta = comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
         paintHeldView(delta, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), window, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
     }
-    /**
-     * The distribution of the value over the groups: on the right while choosing, folded above the table (low
-     * rows, two in view) while a comparison is open. Rows without the value are counted, not drawn.
-     */
     function paintDistribution(): void {
-        if (screen.hidden) return;
-        const pool = distributionPool();
-        const range = valueRange();
-        const dist = distribution(pool, value, group, results, range, usable);
-        lastDistribution = dist;
-        const drawn = dist.groups.reduce((sum, item) => sum + item.members.length, 0);
-        const strip = !maximized;
-        const unit = dist.unit === 'ch' ? strings.dsCh : strings.dsUnitRecording;
-        const labels = groupLabels(dist.groups.map(item => item.name));
-        if (group === 'none') labels.set('', strings.dsDistAll);
-        const prefix = group === 'ch' ? `${strings.dsCh} ` : '';
-        distCount.textContent = drawn
-            ? `${drawn.toLocaleString()} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
-            : strings.dsRows.replace('{n}', pool.length.toLocaleString());
-        // The legend: what the coloured ticks are (only the slots carry colour).
-        const base = baseGroupName();
-        const swatch = (slot: number, dashed = false): string => `<span class="entry-dist-swatch slot-${slot}${dashed ? ' is-dashed' : ''}"></span>`;
-        const legend = drawn ? [
-            slots[0] ? `${swatch(0)}${escapeHtml(strings.entryBase)}` : base !== null ? `${swatch(0, true)}${escapeHtml(strings.dsLegendBaseMedian.replace('{group}', `${prefix}${labels.get(base) ?? base}`))}` : '',
-            ...[1, 2, 3].filter(slot => slots[slot]).map(slot => `${swatch(slot)}${escapeHtml(strings.dsSlotCompare.replace('{n}', String(slot)))}`),
-        ].filter(Boolean).map(item => `<span class="entry-dist-key">${item}</span>`).join('') : '';
-        if (distLegend.innerHTML !== legend) distLegend.innerHTML = legend;
-        distNote.textContent = drawn && !range && !strip ? strings.dsDistDrag : '';
-        distBox.dataset.groups = String(dist.groups.length);
-        distBox.dataset.drawn = String(drawn);
-        distBox.dataset.missing = String(dist.missing);
-        distBox.dataset.unit = dist.unit;
-        if (!drawn) {
-            distGroups.innerHTML = ''; distAxis.innerHTML = ''; distScale = null;
-            // Folded beside the tracks, nothing drawn says nothing: 「計算」 in the head is the way on.
-            distEmpty.hidden = strip;
-            distEmpty.textContent = isComputed(value) && dist.missing ? strings.dsDistNotComputed.replace('{value}', valueLabel(value)) : strings.dsDistEmpty;
-            return;
-        }
-        distEmpty.hidden = true;
-        // On the right the groups share the height (taller bars read better); above the table they stay low.
-        const available = Math.max(0, distArea.clientHeight - distGroups.offsetTop - DIST_AXIS_SPACE);
-        const rowHeight = strip ? DIST_STRIP_ROW : Math.max(DIST_ROW_MIN, Math.min(DIST_ROW_MAX, Math.floor(available / dist.groups.length)));
-        distGroups.style.maxHeight = `${strip ? 2 * DIST_STRIP_ROW + 8 : Math.max(available, 2 * DIST_ROW_MIN)}px`;
-        const width = Math.max(240, distGroups.clientWidth || distBox.clientWidth || 400);
-        const keys = new Set(pool.map(row => row.key));
-        const slotted = slots.flatMap((key, slot) => {
-            const row = rowOf(key);
-            const number = row && keys.has(row.key) && usable(row) ? valueOf(row, value, results) : null;
-            return row && number !== null ? [{ slot, key: row.key, group: datasetGroupOf(row, group), value: number }] : [];
+        distPane.paint({
+            pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf, baseGroup: baseGroupName(),
+            valueLabel: valueLabel(chosen.value), format: number => formatColumn(chosen.value, number), rowName: key => rowName(key),
         });
-        const picture = distributionSvg(dist, {
-            width, rowHeight, strip, range, slots: slotted, baseGroup: base, labels, groupPrefix: prefix, unitLabel: unit,
-            axisLabel: value.startsWith('csv:') ? strings.dsDistCsvAxis.replace('{col}', value.slice(4)) : valueLabel(value),
-            format: number => formatColumn(value, number), name: key => rowName(key),
-        }, strings);
-        distScale = picture.scale;
-        distGroups.innerHTML = picture.plot;
-        distAxis.innerHTML = picture.axis;
-        if (strip && stripToSlot) {
-            stripToSlot = false;
-            const compared = slotted.find(item => item.slot > 0) ?? slotted[0];
-            const index = compared ? dist.groups.findIndex(item => item.name === compared.group) : -1;
-            if (index >= 0) distGroups.scrollTop = Math.max(0, index * rowHeight - 4);
-        }
     }
     /** The distribution, the held row's Δ spectrum and the overview strip. */
     function paintSide(): void {
-        if (distPending) { distPending = false; paintDistribution(); }
+        if (sidePaint.dist) { sidePaint.dist = false; paintDistribution(); }
         // The side plots are drawn only while the table is wide enough to show them.
         if (screen.hidden || !side.offsetWidth) return;
         // The strip is the table's rows in the table's order (one per channel), each its recording's bands.
@@ -1112,46 +1067,46 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const window = plotWindow(name);
             canvas.dataset.window = `${window.x.start.toFixed(3)}-${window.x.end.toFixed(3)}|${window.y.start.toFixed(3)}-${window.y.end.toFixed(3)}`;
         }
-        if (stepHeld) { paintStepHeld(); return; }
-        held.hidden = heldSlot === null;
+        if (hold.step) { paintStepHeld(hold.step); return; }
+        held.hidden = hold.slot === null;
         held.classList.remove('is-pending');
-        if (heldSlot !== null) {
-            const path = slotFiles()[heldSlot] ?? focusedFile();
+        if (hold.slot !== null) {
+            const path = slotFiles()[hold.slot] ?? focusedFile();
             const comparison = buildCompareModel(entryModel(), results, path, null, strings);
-            heldTitle.textContent = path ? `${heldSlot} · ${baseName(path)}` : '';
-            paintHeldDelta(comparison, `slot|${heldSlot}`, path ? results.get(path)?.input : undefined);
+            heldTitle.textContent = path ? `${hold.slot} · ${baseName(path)}` : '';
+            paintHeldDelta(comparison, `slot|${hold.slot}`, path ? results.get(path)?.input : undefined);
         }
     }
 
     function press(slot: number): void {
-        if (pressing) return;
+        if (hold.pressing) return;
         const timer = window.setTimeout(() => {
-            if (heldTimer !== undefined) { window.clearTimeout(heldTimer); heldTimer = undefined; }
-            heldSlot = slot;
-            slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, heldSlot);
+            if (hold.releaseTimer !== undefined) { window.clearTimeout(hold.releaseTimer); hold.releaseTimer = undefined; }
+            hold.slot = slot;
+            paintSlots();
             scheduleSide();
         }, TAP_MS);
-        pressing = { slot, at: window.performance.now(), timer };
+        hold.pressing = { slot, at: window.performance.now(), timer };
     }
     /** A tap puts the focused row in the slot (in it already: takes it out); a hold only showed the slot's Δ, which goes 150 ms later. */
     function release(slot: number): void {
-        if (!pressing || pressing.slot !== slot) return;
-        window.clearTimeout(pressing.timer);
-        const tapped = window.performance.now() - pressing.at < TAP_MS;
-        pressing = undefined;
-        if (tapped) { if (focused && rows.some(row => row.key === focused)) setSlot(slot, focused); return; }
-        heldTimer = window.setTimeout(() => { heldTimer = undefined; heldSlot = null; scheduleSide(); }, DELTA_RELEASE_MS);
+        if (!hold.pressing || hold.pressing.slot !== slot) return;
+        window.clearTimeout(hold.pressing.timer);
+        const tapped = window.performance.now() - hold.pressing.at < TAP_MS;
+        hold.pressing = undefined;
+        if (tapped) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); return; }
+        hold.releaseTimer = window.setTimeout(() => { hold.releaseTimer = undefined; hold.slot = null; scheduleSide(); }, DELTA_RELEASE_MS);
     }
 
     /** The files shown as tracks now (a hidden track is not). */
     const shownFiles = (): Set<string> => new Set([...deps.shownTracks?.() ?? []].filter(([, hidden]) => !hidden).map(([filePath]) => filePath));
     const focusHeadMark = (): void => { head.querySelector<HTMLElement>('[data-action="entry-tracks-all"]')?.focus(); };
     function toggleTrack(key: string): void {
-        triedAll = null;
+        tracks.tried = null;
         const filePath = fileOfKey(key);
         if (!shownFiles().has(filePath)) { deps.setShown?.(filePath, true); return; }
         // Off the tracks is out of its slots too, as a lane's × does; the last slot it leaves takes the track off.
-        const held = slots.flatMap((item, slot) => (item && fileOfKey(item) === filePath ? [slot] : []));
+        const held = slotsOfFile(slots, filePath);
         if (!held.length) { deps.setShown?.(filePath, false); return; }
         for (const slot of held) setSlot(slot, null);
     }
@@ -1160,46 +1115,34 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const listed = listedFiles();
         const missing = notShown(listed);
         // Only a partial result of that try (⊟) turns into taking them off; with none on, ☐ shows them again.
-        const tried = triedAll === listed.join('\n') && missing.length < listed.length;
+        const tried = tracks.tried === listed.join('\n') && missing.length < listed.length;
         const adding = tried ? [] : missing;
-        pendingAll = null;
-        triedAll = null;
+        tracks.pending = null;
+        tracks.tried = null;
         if (adding.length > LARGE_BASE) {
-            pendingAll = adding;
+            tracks.pending = adding;
             render();
-            screen.querySelector<HTMLElement>('[data-action="entry-tracks-all-go"]')?.focus();
+            redraw.after(() => screen.querySelector<HTMLElement>('[data-action="entry-tracks-all-go"]')?.focus());
             return;
         }
         if (adding.length) { showAll(listed, adding); return; }
         // Off the tracks is out of the slots too, as a row's ☑ does; Tracks only would be left with no rows.
         const off = new Set(listed);
         slots.forEach((item, slot) => { if (item && off.has(fileOfKey(item))) setSlot(slot, null, false); });
-        const wasOnly = tracksOnly;
-        tracksOnly = false;
+        const wasOnly = chosen.tracksOnly;
+        chosen.tracksOnly = false;
         deps.setShownMany?.(listed, false);
         if (wasOnly) rebuild();
     }
     function showAll(listed: readonly string[], adding: readonly string[]): void {
-        triedAll = listed.join('\n');
+        tracks.tried = listed.join('\n');
         deps.setShownMany?.(adding, true);
     }
     const listedFiles = (): string[] => [...new Set(shownRows.map(row => row.filePath))];
     const notShown = (filePaths: readonly string[]): string[] => { const shown = shownFiles(); return filePaths.filter(filePath => !shown.has(filePath)); };
     /** Puts a row in a slot (out of any other); the same row again takes it out. The comparison open follows, and stays open. */
     function setSlot(slot: number, key: string | null, follow = true): void {
-        const before = slotFiles();
-        const next = slots.map(item => (item === key ? null : item));
-        if (slot >= 0) next[slot] = slots[slot] === key ? null : key;
-        slots = next;
-        deps.saveSlots(slots);
-        // The tracks follow the slots: a slotted file is shown, a file that leaves every slot leaves the tracks.
-        if (follow) {
-            const after = slotFiles();
-            for (const path of after) if (path && !before.includes(path)) deps.setShown?.(path, true);
-            for (const path of before) if (path && !after.includes(path)) deps.setShown?.(path, false);
-        }
-        render();
-        if (!maximized) deps.compareChanged?.();
+        setSlots(withSlot(slots, slot, key), follow);
     }
     /** 「計算」: the value for the rows on screen that have none of this chain, slotted rows first. */
     function compute(): void {
@@ -1208,11 +1151,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!pending.length) return;
         const slotted = pending.filter(path => slotFiles().includes(path));
         const { requestId } = requests.ask('scan', `entry-${++requestCount}`, currentKey(), undefined);
-        scanning = true;
-        scanStarted = window.performance.now();
-        scanCount = 0;
-        scannedSeconds = 0;
-        computingFiles = pending.length;
+        progress.start(pending.length);
         const recipe = scanRecipe();
         deps.post({ type: 'entry-scan', requestId, rootPath, filePaths: [...slotted, ...pending.filter(path => !slotted.includes(path))], ...(recipe ? { recipe } : {}) });
         render();
@@ -1224,31 +1163,28 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** Reads the files' headers for their channels, so rows split by channel before anything is computed. */
     function probe(paths: readonly string[]): void {
-        const pending = paths.filter(path => !headerChannels.has(path) && !headerErrors.has(path));
-        if (!pending.length) return;
-        const requestId = `probe-${++requestCount}`;
-        probing = { requestId, done: 0, total: pending.length };
-        deps.post({ type: 'entry-probe', requestId, filePaths: [...pending] });
+        const message = headers.start(paths, () => `probe-${++requestCount}`);
+        if (message) deps.post(message);
     }
     function cancelProbe(): void {
-        if (!probing) return;
+        if (!headers.progress()) return;
         deps.post({ type: 'entry-probe-cancel' });
-        probing = null;
+        headers.cancel();
         render();
     }
     /** 中止: what was computed stays; the rest keeps no value until computed. */
     function cancelCompute(): void {
-        if (!scanning) return;
+        if (!progress.running) return;
         deps.post({ type: 'entry-scan-cancel' });
-        scanning = false;
+        progress.stop();
         requests.settle(requests.pending('scan')?.requestId ?? '');
         rebuild();
     }
     /** Moves the focus to a row and brings it on screen (the rows are drawn only where they are seen). */
     function focusRow(key: string | null, center = false): void {
         if (!key) return;
-        focused = key;
-        focusPicked = true;
+        focus.key = key;
+        focus.picked = true;
         // Its line in the table: fixed differences under rows above it take lines too.
         const index = tableLines(datasetView()).findIndex(line => 'key' in line && line.key === key && !('baseLabel' in line));
         if (index >= 0) {
@@ -1263,12 +1199,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function focusFile(filePath: string): void {
         const key = shownRows.find(row => row.filePath === filePath)?.key ?? rows.find(row => row.filePath === filePath)?.key;
         if (!key) return;
-        if (!shownRows.some(row => row.key === key)) { mode = 'all'; filters = []; tracksOnly = false; rebuild(); }
+        if (!shownRows.some(row => row.key === key)) choose({ mode: 'all', filters: [], tracksOnly: false });
         focusRow(key, true);
     }
     function moveFocus(step: number): void {
         if (!shownRows.length) return;
-        const index = focused ? shownRows.findIndex(row => row.key === focused) : -1;
+        const index = focus.key ? shownRows.findIndex(row => row.key === focus.key) : -1;
         focusRow(shownRows[Math.min(shownRows.length - 1, Math.max(0, index + step))].key);
     }
     /**
@@ -1289,19 +1225,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const Observer = (globalThis as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
     if (Observer) new Observer(() => { syncColumns(); renderRows(); }).observe(screen);
     /** Choosing, the distribution fills the right side; while a comparison is open it folds above the table. */
-    function placeDistribution(): void {
-        if (maximized) { if (distBox.parentElement !== distArea) distArea.prepend(distBox); }
-        else if (distBox.nextElementSibling !== entryBody) entryBody.before(distBox);
-        if (!maximized && !screen.classList.contains('is-dist-strip')) stripToSlot = true;
-        screen.classList.toggle('is-dist-strip', !maximized);
-    }
-    placeDistribution();
+    distPane.place(maximized);
     function setMaximized(next: boolean): void {
         if (!next) stepBar.close();
         // The table's 書き出し menu shows only maximized: it does not come back open.
         if (!next) query<HTMLDetailsElement>('#entry-export-menu').open = false;
         maximized = next;
-        placeDistribution();
+        distPane.place(maximized);
         screen.classList.toggle('is-max', next);
         sizeButton.textContent = next ? '⤡' : '⤢';
         sizeButton.setAttribute('aria-pressed', String(next));
@@ -1310,15 +1240,17 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         render();
         scheduleSide();
         // Maximized, the table takes the keys; shrunk, they go back to the track view (its lanes, its comparison).
-        if (next) table.focus?.();
-        else if (screen.contains(document.activeElement)) (document.activeElement as HTMLElement).blur?.();
+        redraw.after(() => {
+            if (next) table.focus?.();
+            else if (screen.contains(document.activeElement)) (document.activeElement as HTMLElement | null)?.blur?.();
+        });
     }
     // A double click on the bar's empty part widens or shrinks the table, like ⤢ / ⤡.
     query('.entry-bar').addEventListener('dblclick', event => {
         if ((event.target as Element).closest('button, select, input, label')) return;
         setMaximized(!maximized);
     });
-    const hasCompared = (): boolean => slots.slice(1).some(key => key && rows.some(row => row.key === key));
+    const hasCompared = (): boolean => comparedKeys(slots).some(key => rows.some(row => row.key === key));
     /** Open Compare looks unavailable while slots 1–3 are empty, and its hint says how to fill one; a press still flashes slot 1. */
     function markOpenable(): void {
         const open = query<HTMLButtonElement>('[data-action="entry-open"]');
@@ -1331,14 +1263,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!hasCompared()) {
             deps.announce(stage ? strings.stepOpenCompare : strings.compareRefuseSlot.replace('{n}', '1'));
             if (!stage) document.getElementById('hint-footer')?.replaceChildren(strings.compareRefuseSlot.replace('{n}', '1'));
-            const first = slotBar.querySelector('[data-slot="1"]');
-            first?.classList.remove('is-flash'); void (first as HTMLElement | null)?.offsetWidth; first?.classList.add('is-flash');
+            redraw.after(() => {
+                const first = slotBar.querySelector<HTMLElement>('[data-slot="1"]');
+                first?.classList.remove('is-flash'); void first?.offsetWidth; first?.classList.add('is-flash');
+            });
             return;
         }
-        const chosen = slotFiles().filter((path): path is string => !!path && filePaths.includes(path));
+        const files = slotFiles().filter((path): path is string => !!path && filePaths.includes(path));
         // The tracks are compared in the track view; the table goes back into the side panel beside them.
         setMaximized(false);
-        deps.openFiles(Array.from(new Set(chosen)), compareData(stage));
+        redraw.after(() => deps.openFiles(Array.from(new Set(files)), compareData(stage)));
     }
     function exportCsv(): void {
         const model = entryModel();
@@ -1360,23 +1294,23 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     // ---- the CSV: picked (or dropped) by the user, read by asd-insight's rules; nothing is looked for by itself.
     function applyCsv(next: DatasetCsv | null, keep?: { name: string; text: string }): void {
-        const had = csv !== null;
-        csv = next;
-        match = next ? matchCsv(next, filePaths, rootPath) : null;
+        const had = attached.csv !== null;
+        attached.csv = next;
+        attached.match = next ? matchCsv(next, filePaths, rootPath) : null;
         rowsDirty = true;
-        filters = filters.filter(filter => !filter.column.startsWith('csv:') || !!next?.columns.includes(filter.column.slice(4)));
+        chosen.filters = chosen.filters.filter(filter => !filter.column.startsWith('csv:') || !!next?.columns.includes(filter.column.slice(4)));
         // A new CSV opens on its first numeric column, grouped by its first column that is not a number.
         if (next) {
             const numeric = next.attributes.find(column => next.numeric[column]);
-            if (numeric && (value.startsWith('csv:') || !results.size)) value = `csv:${numeric}`;
+            if (numeric && (chosen.value.startsWith('csv:') || !results.size)) chosen.value = `csv:${numeric}`;
             const category = next.attributes.find(column => !next.numeric[column]);
-            if (category && (group === 'none' || group.startsWith('csv:') || !groupOptions().some(option => option.id === group))) group = `csv:${category}`;
+            if (category && (chosen.group === 'none' || chosen.group.startsWith('csv:') || !groupOptions().some(option => option.id === chosen.group))) chosen.group = `csv:${category}`;
         } else {
-            if (value.startsWith('csv:')) value = 'leq';
-            if (group.startsWith('csv:')) group = 'none';
+            if (chosen.value.startsWith('csv:')) chosen.value = 'leq';
+            if (chosen.group.startsWith('csv:')) chosen.group = 'none';
         }
-        if (keep !== undefined) { deps.saveCsv?.(keep.text.length <= KEEP_CSV_BYTES ? keep : undefined); csvToSave = keep; }
-        if (next === null) { deps.saveCsv?.(undefined); if (had) csvToSave = null; }
+        if (keep !== undefined) { deps.saveCsv?.(keep.text.length <= KEEP_CSV_BYTES ? keep : undefined); session.keepCsv(keep); }
+        if (next === null) { deps.saveCsv?.(undefined); if (had) session.keepCsv(null); }
         rebuild();
     }
     function readCsvFile(file: File): void {
@@ -1385,7 +1319,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             try {
                 const read = readDatasetCsv(bytes, file.name);
                 applyCsv(read, { name: file.name, text: new TextDecoder('utf-8').decode(bytes) });
-                deps.announce(strings.dsCsvRead.replace('{name}', file.name).replace('{matched}', String(match?.attributes.size ?? 0)).replace('{total}', String(filePaths.length)));
+                deps.announce(strings.dsCsvRead.replace('{name}', file.name).replace('{matched}', String(attached.match?.attributes.size ?? 0)).replace('{total}', String(filePaths.length)));
             } catch (error) {
                 const reason = error instanceof CSVColumnCountError ? csvColumnCountMessage(error.diagnostic, strings) : error instanceof Error ? error.message : String(error);
                 deps.announce(strings.dsCsvError.replace('{reason}', reason));
@@ -1399,56 +1333,57 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     });
 
     // ---- the column filter: like a spreadsheet's ▾ (sort, clear, search + a check list or a range, OK / Cancel)
-    const sortKeyOf = (column: ColumnId): DatasetScreenView['sort']['column'] | undefined => (column === 'name' ? 'name' : column === 'ch' ? 'ch' : column === group ? 'group' : column === value ? 'value' : undefined);
+    const sortKeyOf = (column: ColumnId): DatasetScreenView['sort']['column'] | undefined => (column === 'name' ? 'name' : column === 'ch' ? 'ch' : column === chosen.group ? 'group' : column === chosen.value ? 'value' : undefined);
     function filterColumns(): DatasetColumn[] {
-        const own = (csv?.attributes ?? []).map(column => ({ id: `csv:${column}` as ColumnId, label: column, numeric: !!csv?.numeric[column] }));
+        const own = (attached.csv?.attributes ?? []).map(column => ({ id: `csv:${column}` as ColumnId, label: column, numeric: !!attached.csv?.numeric[column] }));
         const folders = groupOptions().filter(option => option.id.startsWith('folder:')).map(option => ({ id: option.id as ColumnId, label: option.label, numeric: false }));
         const computed = valueOptions().filter(option => option.computed && rows.some(row => valueOf(row, option.id, results) !== null)).map(option => ({ id: option.id as ColumnId, label: option.label, numeric: true }));
         return [{ id: 'name', label: strings.entryColFile, numeric: false }, { id: 'ch', label: strings.dsCh, numeric: false }, ...own, ...folders, ...computed];
     }
     function openFilter(column: ColumnId, anchored: boolean): void {
-        slotMenu = null; memoKey = null;
-        const existing = filters.find(filter => filter.column === column);
-        fpop = { column, anchored, search: '', checked: existing?.kind === 'values' ? new Set(existing.values) : null };
+        popovers.slotMenu = null; popovers.memoKey = null;
+        const existing = chosen.filters.find(filter => filter.column === column);
+        popovers.filter = { column, anchored, search: '', checked: existing?.kind === 'values' ? new Set(existing.values) : null };
         renderPopovers();
     }
     function popAnchor(): HTMLElement | null {
-        if (fpop) return (fpop.anchored ? head.querySelector<HTMLElement>(`th[data-column="${CSS.escape(fpop.column)}"]`) : chipsBox.querySelector<HTMLElement>('[data-action="entry-fadd"]'));
-        if (slotMenu) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(slotMenu)}"] [data-action="entry-row-slotmenu"]`);
-        if (memoKey) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(memoKey)}"] .entry-nm`);
-        if (baseMenu) return slotBar.querySelector<HTMLElement>('[data-action="entry-slot"][data-slot="0"]');
+        if (popovers.filter) return (popovers.filter.anchored ? head.querySelector<HTMLElement>(`th[data-column="${CSS.escape(popovers.filter.column)}"]`) : chipsBox.querySelector<HTMLElement>('[data-action="entry-fadd"]'));
+        if (popovers.slotMenu) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(popovers.slotMenu)}"] [data-action="entry-row-slotmenu"]`);
+        if (popovers.memoKey) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(popovers.memoKey)}"] .entry-nm`);
+        if (popovers.baseMenu) return slotBar.querySelector<HTMLElement>('[data-action="entry-slot"][data-slot="0"]');
         // The bundle is offered from the toolbar's 書き出し menu; beside the table's bar when that is not on screen.
-        if (batchChoice) return maximized ? query<HTMLElement>('#entry-export-menu > summary') : document.querySelector<HTMLElement>('#tb-export-menu > summary') ?? query<HTMLElement>('.entry-bar');
+        if (popovers.batch) return maximized ? query<HTMLElement>('#entry-export-menu > summary') : document.querySelector<HTMLElement>('#tb-export-menu > summary') ?? query<HTMLElement>('.entry-bar');
         return null;
     }
     /** The open popover, drawn only when it opens or changes, so what is typed in it is kept while the table redraws. */
     function renderPopovers(): void {
         screen.querySelector('[data-entry-pop]')?.remove();
-        if (!fpop && !slotMenu && !memoKey && !baseMenu && !batchChoice) return;
+        if (!popovers.filter && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return;
         const pop = document.createElement('div');
         pop.className = 'entry-pop';
         pop.setAttribute('data-entry-pop', '');
-        if (fpop) {
-            const column = filterColumns().find(item => item.id === fpop!.column) ?? { id: fpop.column, label: columnLabel(fpop.column), numeric: numericColumn(fpop.column) };
-            const existing = filters.find(filter => filter.column === fpop!.column);
+        const filter = popovers.filter;
+        if (filter) {
+            const column = filterColumns().find(item => item.id === filter.column) ?? { id: filter.column, label: columnLabel(filter.column), numeric: numericColumn(filter.column) };
+            const existing = chosen.filters.find(item => item.column === filter.column);
             const pool = rows.filter(row => !excluded.has(row.key));
             if (column.numeric) {
-                const numbers = pool.map(row => (fpop!.column.startsWith('csv:') ? finiteNumber(row.attributes?.[fpop!.column.slice(4)] ?? '') : valueOf(row, fpop!.column as ValueId, results))).filter((item): item is number => item !== null);
-                const min = numbers.length ? formatColumn(fpop.column, numbers.reduce((least, item) => Math.min(least, item))) : '', max = numbers.length ? formatColumn(fpop.column, numbers.reduce((most, item) => Math.max(most, item))) : '';
-                pop.innerHTML = filterPopHtml({ column, anchored: fpop.anchored, columns: filterColumns(), sortKey: sortKeyOf(fpop.column), sort, filter: existing, search: '',
-                    range: { low: existing?.kind === 'range' ? formatColumn(fpop.column, existing.low) : '', high: existing?.kind === 'range' ? formatColumn(fpop.column, existing.high) : '', min, max } }, text);
+                const numbers = pool.map(row => (filter.column.startsWith('csv:') ? finiteNumber(row.attributes?.[filter.column.slice(4)] ?? '') : valueOf(row, filter.column as ValueId, results))).filter((item): item is number => item !== null);
+                const min = numbers.length ? formatColumn(filter.column, numbers.reduce((least, item) => Math.min(least, item))) : '', max = numbers.length ? formatColumn(filter.column, numbers.reduce((most, item) => Math.max(most, item))) : '';
+                pop.innerHTML = filterPopHtml({ column, anchored: filter.anchored, columns: filterColumns(), sortKey: sortKeyOf(filter.column), sort: chosen.sort, filter: existing, search: '',
+                    range: { low: existing?.kind === 'range' ? formatColumn(filter.column, existing.low) : '', high: existing?.kind === 'range' ? formatColumn(filter.column, existing.high) : '', min, max } }, text);
             } else {
-                const values = columnValues(pool, fpop.column, results);
-                fpop.checked ??= new Set(values.map(([item]) => item));
-                pop.innerHTML = filterPopHtml({ column, anchored: fpop.anchored, columns: filterColumns(), sortKey: sortKeyOf(fpop.column), sort, filter: existing, search: fpop.search, values, checked: fpop.checked }, text);
+                const values = columnValues(pool, filter.column, results);
+                filter.checked ??= new Set(values.map(([item]) => item));
+                pop.innerHTML = filterPopHtml({ column, anchored: filter.anchored, columns: filterColumns(), sortKey: sortKeyOf(filter.column), sort: chosen.sort, filter: existing, search: filter.search, values, checked: filter.checked }, text);
             }
-        } else if (slotMenu) pop.innerHTML = slotMenuHtml(slotMenu, slots, text);
-        else if (memoKey) pop.innerHTML = memoPopHtml(rowName(memoKey), memo.get(memoKey) ?? '', text);
-        else if (batchChoice) pop.innerHTML = batchPopHtml(batchCount(batchRows('filtered')), batchCount(batchRows('all')), batchChoice, text);
-        else if (baseMenu) {
-            const names = [...new Set(distributionPool().map(row => datasetGroupOf(row, group)))].sort(compareGroupNames);
+        } else if (popovers.slotMenu) pop.innerHTML = slotMenuHtml(popovers.slotMenu, slots, text);
+        else if (popovers.memoKey) pop.innerHTML = memoPopHtml(rowName(popovers.memoKey), memo.get(popovers.memoKey) ?? '', text);
+        else if (popovers.batch) pop.innerHTML = batchPopHtml(batchCount(batchRows('filtered')), batchCount(batchRows('all')), popovers.batch, text);
+        else if (popovers.baseMenu) {
+            const names = [...new Set(distributionPool().map(row => datasetGroupOf(row, chosen.group)))].sort(compareGroupNames);
             const labels = groupLabels(names);
-            pop.innerHTML = baseMenuHtml(names.map(name => ({ name, label: `${groupLabel(group)} ${labels.get(name) || strings.dsFilterBlank}` })), baseGroup, !!focused, text);
+            pop.innerHTML = baseMenuHtml(names.map(name => ({ name, label: `${groupLabel(chosen.group)} ${labels.get(name) || strings.dsFilterBlank}` })), chosen.baseGroup, !!focus.key, text);
         }
         screen.append(pop);
         const anchor = popAnchor();
@@ -1461,26 +1396,26 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         (pop.querySelector<HTMLElement>('[data-entry-memo-text], [data-entry-fsearch], [data-entry-flow], .entry-mi') ?? pop).focus?.();
     }
     function redrawCheckList(): void {
-        if (!fpop?.checked) return;
+        if (!popovers.filter?.checked) return;
         const list = screen.querySelector('[data-entry-flist]');
-        if (list) list.innerHTML = checkListHtml(columnValues(rows.filter(row => !excluded.has(row.key)), fpop.column, results), fpop.checked, fpop.search, text);
+        if (list) list.innerHTML = checkListHtml(columnValues(rows.filter(row => !excluded.has(row.key)), popovers.filter.column, results), popovers.filter.checked, popovers.filter.search, text);
         const all = screen.querySelector<HTMLInputElement>('[data-entry-fall]');
         if (all) all.indeterminate = all.getAttribute('aria-checked') === 'mixed';
     }
     function closePopovers(): boolean {
-        if (!fpop && !slotMenu && !memoKey && !baseMenu && !batchChoice) return false;
-        const hadMemo = !!memoKey;
-        if (memoKey) saveMemo();
-        fpop = null; slotMenu = null; memoKey = null; baseMenu = false; batchChoice = null;
+        if (!popovers.filter && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return false;
+        const hadMemo = !!popovers.memoKey;
+        if (popovers.memoKey) saveMemo();
+        popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false; popovers.batch = null;
         renderPopovers();
         // A memo kept shows on its row (✎ lit, its text as the hint).
         if (hadMemo) render();
-        (body.querySelector<HTMLElement>('.is-focused') ?? table).focus?.();
+        redraw.after(() => (body.querySelector<HTMLElement>('.is-focused') ?? table).focus?.());
         return true;
     }
     function applyFilter(): void {
-        if (!fpop) return;
-        const column = fpop.column;
+        if (!popovers.filter) return;
+        const column = popovers.filter.column;
         let next: DatasetFilter | null = null;
         if (numericColumn(column)) {
             const low = parseFloat(screen.querySelector<HTMLInputElement>('[data-entry-flow]')?.value ?? ''), high = parseFloat(screen.querySelector<HTMLInputElement>('[data-entry-fhigh]')?.value ?? '');
@@ -1490,125 +1425,131 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             }
         } else {
             const all = columnValues(rows.filter(row => !excluded.has(row.key)), column, results).map(([item]) => item);
-            const needle = fpop.search.trim().toLowerCase();
-            const keep = all.filter(item => (!needle || item.toLowerCase().includes(needle)) && fpop!.checked?.has(item));
+            const needle = popovers.filter.search.trim().toLowerCase();
+            const checked = popovers.filter.checked;
+            const keep = all.filter(item => (!needle || item.toLowerCase().includes(needle)) && checked?.has(item));
             if (!keep.length) { deps.announce(strings.dsFilterPickOne); return; }
             if (keep.length < all.length) next = { column, kind: 'values', values: keep };
         }
-        filters = [...filters.filter(filter => filter.column !== column), ...(next ? [next] : [])];
-        fpop = null;
-        mode = 'all';
-        tableWrap.scrollTop = 0;
-        rebuild();
-        renderPopovers();
-        deps.announce(next ? strings.dsFilterApplied.replace('{n}', String(shownRows.length)) : strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
+        popovers.filter = null;
+        choose({ filters: [...chosen.filters.filter(filter => filter.column !== column), ...(next ? [next] : [])], mode: 'all' }, true);
+        redraw.after(() => {
+            renderPopovers();
+            deps.announce(next ? strings.dsFilterApplied.replace('{n}', String(shownRows.length)) : strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
+        });
     }
     function clearFilter(column: ColumnId): void {
-        filters = filters.filter(filter => filter.column !== column);
-        fpop = null;
-        rebuild();
-        renderPopovers();
-        deps.announce(strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
+        popovers.filter = null;
+        choose({ filters: chosen.filters.filter(filter => filter.column !== column) });
+        redraw.after(() => {
+            renderPopovers();
+            deps.announce(strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
+        });
     }
     function setSort(column: DatasetScreenView['sort']['column'], descending: boolean): void {
-        sort = { column, descending };
-        fpop = null;
-        tableWrap.scrollTop = 0;
-        rebuild();
-        renderPopovers();
+        popovers.filter = null;
+        choose({ sort: { column, descending } }, true);
+        redraw.after(renderPopovers);
     }
     function saveMemo(): void {
-        if (!memoKey) return;
+        if (!popovers.memoKey) return;
         const textarea = screen.querySelector<HTMLTextAreaElement>('[data-entry-memo-text]');
         if (!textarea) return;
         const note = textarea.value.trim();
-        if (note) memo.set(memoKey, note); else memo.delete(memoKey);
+        if (note) memo.set(popovers.memoKey, note); else memo.delete(popovers.memoKey);
     }
     function openMemo(key: string): void {
-        fpop = null; slotMenu = null;
-        memoKey = key;
-        focused = key; focusPicked = true;
+        popovers.filter = null; popovers.slotMenu = null;
+        popovers.memoKey = key;
+        focus.key = key; focus.picked = true;
         renderPopovers();
     }
 
+    /** A row's button: its action on the row's key. */
+    const withKey = (act: (key: string, target: HTMLElement) => void) => (target: HTMLElement): void => {
+        const key = target.getAttribute('data-key');
+        if (key) act(key, target);
+    };
     const actions: Record<string, (target: HTMLElement) => void> = {
         'entry-pick-csv': () => csvInput.click(),
-        'entry-view-unmatched': () => { mode = mode === 'unmatched' ? 'all' : 'unmatched'; tableWrap.scrollTop = 0; rebuild(); },
-        'entry-view-excluded': () => { mode = mode === 'excluded' ? 'all' : 'excluded'; tableWrap.scrollTop = 0; rebuild(); },
+        'entry-view-unmatched': () => choose({ mode: chosen.mode === 'unmatched' ? 'all' : 'unmatched' }, true),
+        'entry-view-excluded': () => choose({ mode: chosen.mode === 'excluded' ? 'all' : 'excluded' }, true),
         'entry-compute': () => compute(),
         'entry-compute-cancel': () => cancelCompute(),
         'entry-probe-cancel': () => cancelProbe(),
         'entry-export-csv': exportCsv,
         'entry-export-notes': () => {
-            const name = csv ? csv.name.replace(/\.(csv|tsv)$/i, '') : 'recordings';
-            deps.download(annotatedCsv(csv, match, filePaths, rootPath, rows, memo, excluded), `${name}-notes.csv`);
+            const name = attached.csv ? attached.csv.name.replace(/\.(csv|tsv)$/i, '') : 'recordings';
+            deps.download(annotatedCsv(attached.csv, attached.match, filePaths, rootPath, rows, memo, excluded), `${name}-notes.csv`);
         },
         'entry-open': () => openSlotted(),
         'entry-maximize': () => setMaximized(!maximized),
-        'entry-fhead': target => { const column = target.getAttribute('data-column') as ColumnId; if (fpop?.column === column) closePopovers(); else openFilter(column, true); },
-        'entry-fadd': () => openFilter(filterColumns().find(column => !filters.some(filter => filter.column === column.id) && column.id !== 'name')?.id ?? 'name', false),
+        'entry-fhead': target => { const column = target.getAttribute('data-column') as ColumnId; if (popovers.filter?.column === column) closePopovers(); else openFilter(column, true); },
+        'entry-fadd': () => openFilter(filterColumns().find(column => !chosen.filters.some(filter => filter.column === column.id) && column.id !== 'name')?.id ?? 'name', false),
         'entry-fchip': target => openFilter(target.getAttribute('data-column') as ColumnId, false),
         'entry-fchip-clear': target => clearFilter(target.getAttribute('data-column') as ColumnId),
         'entry-fsort': target => setSort(target.getAttribute('data-sort') as DatasetScreenView['sort']['column'], target.getAttribute('data-descending') === 'true'),
-        'entry-fclear': () => { if (fpop) clearFilter(fpop.column); },
+        'entry-fclear': () => { if (popovers.filter) clearFilter(popovers.filter.column); },
         'entry-fok': () => applyFilter(),
         'entry-fcancel': () => closePopovers(),
-        'entry-row-play': target => deps.play?.(fileOfKey(target.getAttribute('data-key')!)),
-        'entry-row-track': target => { focused = target.getAttribute('data-key')!; focusPicked = true; toggleTrack(focused); render(); },
-        'entry-tracks-all': () => { if (mode === 'all') toggleAllTracks(); },
+        'entry-row-play': withKey(key => deps.play?.(fileOfKey(key))),
+        'entry-row-track': withKey(key => { focusOn(key); toggleTrack(key); }),
+        'entry-tracks-all': () => { if (chosen.mode === 'all') toggleAllTracks(); },
         // The rows listed now: a filter changed while the question was open counts.
-        'entry-tracks-all-go': () => { pendingAll = null; const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); render(); focusHeadMark(); },
-        'entry-tracks-all-cancel': () => { pendingAll = null; render(); focusHeadMark(); },
-        'entry-tracks-only': () => { tracksOnly = !tracksOnly; tableWrap.scrollTop = 0; rebuild(); },
-        'entry-row-slotmenu': target => { const key = target.getAttribute('data-key')!; fpop = null; memoKey = null; slotMenu = slotMenu === key ? null : key; focused = key; focusPicked = true; render(); renderPopovers(); },
-        'entry-row-slot': target => { const key = target.getAttribute('data-key')!; slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); },
-        'entry-row-memo': target => openMemo(target.getAttribute('data-key')!),
-        'entry-memo-close': () => { saveMemo(); memoKey = null; renderPopovers(); render(); },
-        'entry-row-exclude': target => { excluded.add(target.getAttribute('data-key')!); rebuild(); },
-        'entry-row-restore': target => { excluded.delete(target.getAttribute('data-key')!); if (!excluded.size) mode = 'all'; rebuild(); },
+        'entry-tracks-all-go': () => { tracks.pending = null; const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); render(); redraw.after(focusHeadMark); },
+        'entry-tracks-all-cancel': () => { tracks.pending = null; render(); redraw.after(focusHeadMark); },
+        'entry-tracks-only': () => choose({ tracksOnly: !chosen.tracksOnly }, true),
+        'entry-row-slotmenu': withKey(key => { popovers.filter = null; popovers.memoKey = null; popovers.slotMenu = popovers.slotMenu === key ? null : key; focusOn(key); redraw.after(renderPopovers); }),
+        'entry-row-slot': withKey((key, target) => { popovers.slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); }),
+        'entry-row-memo': withKey(openMemo),
+        'entry-memo-close': () => { saveMemo(); popovers.memoKey = null; renderPopovers(); render(); },
+        'entry-row-exclude': withKey(key => { excluded.add(key); rebuild(); }),
+        'entry-row-restore': withKey(key => { excluded.delete(key); if (!excluded.size) chosen.mode = 'all'; rebuild(); }),
         // An empty slot takes the selected row; a filled one goes to its row (it is never overwritten by a press); × empties it.
         'entry-slot': target => {
             const slot = Number(target.getAttribute('data-slot'));
             const key = slots[slot];
             if (key) { focusFile(fileOfKey(key)); focusRow(key, true); }
             // The empty base is a group's median: its chip says which and offers the others (or the selected row).
-            else if (slot === 0 && group !== 'none') { fpop = null; slotMenu = null; memoKey = null; baseMenu = !baseMenu; renderPopovers(); }
-            else if (focused) setSlot(slot, focused);
+            else if (slot === 0 && chosen.group !== 'none') { popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = !popovers.baseMenu; renderPopovers(); }
+            else if (focus.key) setSlot(slot, focus.key);
         },
         'entry-base-group': target => {
-            baseGroup = target.getAttribute('data-auto') === 'true' ? null : target.getAttribute('data-group') ?? '';
-            baseMenu = false;
+            popovers.baseMenu = false;
             renderPopovers();
-            rebuild();
-            deps.announce(baseGroup === null ? strings.dsBaseSetAuto : strings.dsBaseSet.replace('{group}', `${groupLabel(group)} ${baseGroup || strings.dsFilterBlank}`));
+            choose({ baseGroup: target.getAttribute('data-auto') === 'true' ? null : target.getAttribute('data-group') ?? '' });
+            deps.announce(chosen.baseGroup === null ? strings.dsBaseSetAuto : strings.dsBaseSet.replace('{group}', `${groupLabel(chosen.group)} ${chosen.baseGroup || strings.dsFilterBlank}`));
         },
-        'entry-base-row': () => { baseMenu = false; renderPopovers(); if (focused) setSlot(0, focused); },
+        'entry-base-row': () => { popovers.baseMenu = false; renderPopovers(); if (focus.key) setSlot(0, focus.key); },
         'entry-batch': () => openBatch(),
         'entry-batch-go': () => exportBatch(),
         'entry-batch-cancel': () => closePopovers(),
-        'entry-derived-remove': target => removeDerived(target.getAttribute('data-parent')!, target.getAttribute('data-region')!, target.getAttribute('data-base') ?? undefined),
+        'entry-derived-remove': target => {
+            const parent = target.getAttribute('data-parent'), region = target.getAttribute('data-region');
+            if (parent !== null && region !== null) removeDerived(parent, region, target.getAttribute('data-base') ?? undefined);
+        },
         'entry-slot-clear': target => setSlot(Number(target.getAttribute('data-slot')), null),
         'entry-key-hint': target => { if (target.getAttribute('data-key') === 'help') deps.help?.(); },
     };
     tableWrap.addEventListener('scroll', () => { renderRows(); scheduleSide(false); });
-    screen.addEventListener('click', event => {
+    screen.addEventListener('click', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
         const action = target.closest<HTMLElement>('[data-action]');
         // A choice in the table's 書き出し menu closes it, the focus back on its summary.
         if (action?.closest('#entry-export-menu')) closeExportMenu();
         // The second click of a double click on ☑ does not take the track off again.
         const repeated = event.detail > 1;
-        if (action && action.tagName !== 'SELECT' && action.tagName !== 'INPUT' && actions[action.getAttribute('data-action')!]) {
-            if (!(repeated && action.getAttribute('data-action') === 'entry-row-track')) actions[action.getAttribute('data-action')!](action);
+        const name = action?.getAttribute('data-action') ?? '';
+        const act = actions[name];
+        if (action && action.tagName !== 'SELECT' && action.tagName !== 'INPUT' && act) {
+            if (!(repeated && name === 'entry-row-track')) act(action);
             return;
         }
         if (target.closest('[data-entry-pop]')) return;
         const row = target.closest<HTMLElement>('tr[data-key]');
         if (!row) return;
-        focused = row.getAttribute('data-key');
-        focusPicked = true;
-        render();
-    });
+        focusOn(row.getAttribute('data-key'));
+    }));
     /** The maximized table's 書き出し menu: closed by a press outside it and by Esc, like the toolbar's menus. */
     const exportMenu = query<HTMLDetailsElement>('#entry-export-menu');
     function closeExportMenu(): boolean {
@@ -1622,12 +1563,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     // A row and its file's lane light up together under the mouse (only a file on a track has a lane).
     document.addEventListener('mouseover', event => {
         const filePath = (event.target as Element).closest?.('tr.entry-row[data-file-path], .track-row[data-file-path]')?.getAttribute('data-file-path') ?? null;
-        if (filePath === linkedPath) return;
+        if (filePath === tracks.linked) return;
         document.querySelectorAll('.entry-row.is-linked, .track-row.is-linked').forEach(element => element.classList.remove('is-linked'));
         const path = filePath && CSS.escape(filePath);
         const lane = path ? document.querySelector(`.track-row[data-file-path="${path}"]`) : null;
         // Remembered only once lit: a row whose track is still being read lights up at the next move.
-        linkedPath = lane ? filePath : null;
+        tracks.linked = lane ? filePath : null;
         if (!lane) return;
         lane.classList.add('is-linked');
         screen.querySelectorAll(`tr.entry-row[data-file-path="${path}"]`).forEach(row => row.classList.add('is-linked'));
@@ -1639,54 +1580,50 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (screen.hidden || target.closest?.('[data-entry-pop], [data-action="entry-fhead"], [data-action="entry-fadd"], [data-action="entry-fchip"], [data-action="entry-row-slotmenu"], [data-action="entry-row-memo"], [data-action="entry-slot"][data-slot="0"], [data-action="entry-batch"], #tb-export-menu, #entry-export-menu')) return;
         closePopovers();
     }, true);
-    screen.addEventListener('change', event => {
+    screen.addEventListener('change', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
         if (target === valueSelect) {
-            value = valueSelect.value as ValueId;
-            if (sort.column === 'value') tableWrap.scrollTop = 0;
-            rebuild();
+            choose({ value: valueSelect.value as ValueId }, chosen.sort.column === 'value');
             return;
         }
         if (target === groupSelect) {
             const baseBefore = baseText();
-            group = groupSelect.value as GroupId;
-            baseGroup = null;
-            rebuild();
+            choose({ group: groupSelect.value as GroupId, baseGroup: null });
             // With slot 0 empty the base is slot 1's group median: a new grouping changes it, which is said.
             if (!slots[0] && slots[1] && baseText() !== baseBefore) deps.announce(strings.dsBaseReset);
             return;
         }
-        if (target.matches('[data-entry-batch-scope]')) { batchChoice = (target as HTMLInputElement).value as 'filtered' | 'all'; return; }
-        if (target.matches('[data-action="entry-fcol"]') && fpop) {
+        if (target.matches('[data-entry-batch-scope]')) { popovers.batch = (target as HTMLInputElement).value as 'filtered' | 'all'; return; }
+        if (target.matches('[data-action="entry-fcol"]') && popovers.filter) {
             const column = (target as HTMLSelectElement).value as ColumnId;
-            const existing = filters.find(filter => filter.column === column);
-            fpop = { column, anchored: false, search: '', checked: existing?.kind === 'values' ? new Set(existing.values) : null };
+            const existing = chosen.filters.find(filter => filter.column === column);
+            popovers.filter = { column, anchored: false, search: '', checked: existing?.kind === 'values' ? new Set(existing.values) : null };
             renderPopovers();
             return;
         }
-        if (target.matches('[data-entry-fall]') && fpop?.checked) {
-            const needle = fpop.search.trim().toLowerCase();
-            for (const [item] of columnValues(rows.filter(row => !excluded.has(row.key)), fpop.column, results)) {
+        if (target.matches('[data-entry-fall]') && popovers.filter?.checked) {
+            const needle = popovers.filter.search.trim().toLowerCase();
+            for (const [item] of columnValues(rows.filter(row => !excluded.has(row.key)), popovers.filter.column, results)) {
                 if (needle && !item.toLowerCase().includes(needle)) continue;
-                if ((target as HTMLInputElement).checked) fpop.checked.add(item); else fpop.checked.delete(item);
+                if ((target as HTMLInputElement).checked) popovers.filter.checked.add(item); else popovers.filter.checked.delete(item);
             }
             redrawCheckList();
             return;
         }
         const item = target.getAttribute('data-entry-fvalue');
-        if (item !== null && fpop?.checked) {
-            if ((target as HTMLInputElement).checked) fpop.checked.add(item); else fpop.checked.delete(item);
+        if (item !== null && popovers.filter?.checked) {
+            if ((target as HTMLInputElement).checked) popovers.filter.checked.add(item); else popovers.filter.checked.delete(item);
             redrawCheckList();
         }
-    });
+    }));
     // The filter's search narrows the check list to what it finds, all of it checked, as a spreadsheet's does.
     screen.addEventListener('input', event => {
         const target = event.target as HTMLInputElement;
-        if (!target.matches('[data-entry-fsearch]') || !fpop) return;
-        fpop.search = target.value;
-        const needle = fpop.search.trim().toLowerCase();
-        const values = columnValues(rows.filter(row => !excluded.has(row.key)), fpop.column, results).map(([item]) => item);
-        fpop.checked = new Set(needle ? values.filter(item => item.toLowerCase().includes(needle)) : values);
+        if (!target.matches('[data-entry-fsearch]') || !popovers.filter) return;
+        popovers.filter.search = target.value;
+        const needle = popovers.filter.search.trim().toLowerCase();
+        const values = columnValues(rows.filter(row => !excluded.has(row.key)), popovers.filter.column, results).map(([item]) => item);
+        popovers.filter.checked = new Set(needle ? values.filter(item => item.toLowerCase().includes(needle)) : values);
         redrawCheckList();
     });
     // A CSV dropped onto the screen is read like one picked with 「CSV を選ぶ」.
@@ -1703,7 +1640,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         readCsvFile(file);
     });
     // A click on the strip goes to that file's row.
-    overview.addEventListener('click', event => {
+    overview.addEventListener('click', event => redraw.batch(() => {
         const rows = shownRows;
         const box = overview.getBoundingClientRect();
         // The strip's rows (top first) over the part of it on screen.
@@ -1712,60 +1649,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const row = rows[Math.floor(((1 - window.y.end) + (event.clientY - plotTop) / Math.max(1, plotHeight) * (window.y.end - window.y.start)) * rows.length)];
         if (!row) return;
         focusRow(row.key, true);
-    });
+    }));
     // A double click on a row slots it in the first free slot and opens the comparison, like 1 then Enter.
-    body.addEventListener('dblclick', event => {
+    body.addEventListener('dblclick', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
         const key = target.closest<HTMLElement>('tr[data-key]')?.getAttribute('data-key');
-        if (!key || mode !== 'all' || target.closest('button, [data-action="entry-row-track"]')) return;
-        if (!slots.slice(1).includes(key)) setSlot([1, 2, 3].find(slot => !slots[slot]) ?? 1, key);
+        if (!key || chosen.mode !== 'all' || target.closest('button, [data-action="entry-row-track"]')) return;
+        if (!slots.slice(1).includes(key)) setSlot(firstFreeCompareSlot(slots), key);
         openSlotted();
-    });
-    // A drag on the distribution picks a range of the value (a chip, which narrows the table); a press that
-    // stays put picks that bin; on a dot, it goes to that recording's row.
-    let distDrag: { x0: number; left: number; moved: boolean; dot: string | null } | null = null;
-    distGroups.addEventListener('pointerdown', event => {
-        const plot = (event.target as Element).closest?.('[data-entry-dist-plot]');
-        if (!plot || !distScale || event.button !== 0) return;
-        const box = plot.getBoundingClientRect();
-        distDrag = { x0: event.clientX - box.left, left: box.left, moved: false, dot: (event.target as Element).closest?.('[data-dist-dot]')?.getAttribute('data-key') ?? null };
-        (plot as Element & { setPointerCapture?(id: number): void }).setPointerCapture?.(event.pointerId);
-        event.preventDefault();
-    });
-    distGroups.addEventListener('pointermove', event => {
-        if (!distDrag) return;
-        const x = event.clientX - distDrag.left;
-        if (Math.abs(x - distDrag.x0) >= 4) distDrag.moved = true;
-        const brush = distGroups.querySelector('[data-dist-brush]');
-        brush?.setAttribute('x', String(Math.min(x, distDrag.x0)));
-        brush?.setAttribute('width', String(Math.abs(x - distDrag.x0)));
-        brush?.setAttribute('visibility', distDrag.moved ? 'visible' : 'hidden');
-    });
-    distGroups.addEventListener('pointerup', event => {
-        const drag = distDrag, scale = distScale;
-        distDrag = null;
-        if (!drag || !scale) return;
-        if (!drag.moved && drag.dot) {
-            if (shownRows.some(row => row.key === drag.dot)) focusRow(drag.dot, true); else focusFile(fileOfKey(drag.dot));
-            return;
-        }
-        const x = event.clientX - drag.left;
-        let low = scale.at(Math.min(x, drag.x0)), high = scale.at(Math.max(x, drag.x0));
-        if (!drag.moved) {
-            const width = (scale.high - scale.low) / DISTRIBUTION_BINS;
-            low = scale.low + Math.floor((low - scale.low) / width) * width;
-            high = low + width;
-        }
-        low = Math.max(low, scale.low); high = Math.min(high, scale.high);
-        if (!(high > low)) return;
-        filters = [...filters.filter(filter => filter.column !== value), { column: value, kind: 'range', low, high }];
-        mode = 'all';
-        tableWrap.scrollTop = 0;
-        focusPicked = false;
-        rebuild();
-        deps.announce(strings.dsDistPicked.replace('{n}', shownRows.length.toLocaleString()));
-    });
-    distGroups.addEventListener('pointercancel', () => { distDrag = null; scheduleSide(); });
+    }));
     // The lanes' gestures on the side panel's plots: box zoom, Ctrl+wheel, Shift+wheel, double-click reset or
     // axis range. A press that stays put (within the lanes' 3 px) is still a click: a point picked, a row gone to.
     const zoomBox = document.createElement('div');
@@ -1774,7 +1666,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     side.append(zoomBox);
     const rangePopover = installRangePopover(document, { rootId: 'entry-range-popover', badgeId: 'entry-range-axis-badge', idPrefix: 'entry-range', strings: rangePopoverStrings(strings), position: positionPopover });
     const plotName = (plot: HTMLElement): string => (plot === overview ? 'overview' : 'held');
-    const marginsOf = (plot: HTMLElement): PlotMargins => (plot === overview ? OVERVIEW_MARGINS : heldPlot?.margins ?? STAGE_MARGINS);
+    const marginsOf = (plot: HTMLElement): PlotMargins => (plot === overview ? OVERVIEW_MARGINS : hold.plot?.margins ?? STAGE_MARGINS);
     attachPlotInteraction(side, document, '[data-entry-held-canvas], [data-entry-overview]', {
         locate(target, clientX, clientY) {
             const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-entry-held-canvas], [data-entry-overview]');
@@ -1810,7 +1702,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         hideBox() { zoomBox.hidden = true; },
         openAxisRange(hit, clientX, clientY) {
             const name = plotName(hit.plot);
-            const mapping: AxisMapping | null = name === 'held' && heldPlot ? (hit.axis === 'x' ? { at: heldPlot.x, of: heldPlot.ofX, label: heldPlot.xLabel } : linearAxis(heldPlot.range.min, heldPlot.range.max, heldPlot.yLabel))
+            const mapping: AxisMapping | null = name === 'held' && hold.plot ? (hit.axis === 'x' ? { at: hold.plot.x, of: hold.plot.ofX, label: hold.plot.xLabel } : linearAxis(hold.plot.range.min, hold.plot.range.max, hold.plot.yLabel))
                     : null;
             if (!mapping) return false;
             const window = plotWindow(name);
@@ -1830,7 +1722,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     // switched screens does not act on the other one too.
     keyRouterFor(window).add({
         layer: 'entry',
-        keydown(event) {
+        keydown: event => redraw.batch(() => {
             if (!keysHere(event)) return false;
             if ((event.target as Element | null)?.closest?.('[data-step-bar], #entry-range-popover')) return false;
             if (closesEntryDialog(event)) {
@@ -1838,12 +1730,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 // Esc closes the innermost thing: a popover, the step bar's form, the unmatched or excluded list;
                 // then the maximized table shrinks into the side panel, and the side panel hands the keys back.
                 if (closePopovers()) return true;
-                if (pendingAll) { pendingAll = null; render(); focusHeadMark(); return true; }
+                if (tracks.pending) { tracks.pending = null; render(); redraw.after(focusHeadMark); return true; }
                 if (closeExportMenu()) return true;
                 if (stepBar.close()) return true;
-                if (mode !== 'all') { mode = 'all'; rebuild(); return true; }
+                if (chosen.mode !== 'all') { choose({ mode: 'all' }); return true; }
                 // The range picked on the distribution goes before the table shrinks.
-                if (maximized && valueRange()) { filters = filters.filter(filter => filter.column !== value); rebuild(); return true; }
+                if (maximized && valueRange()) { choose({ filters: chosen.filters.filter(filter => filter.column !== chosen.value) }); return true; }
                 if (maximized) { setMaximized(false); return true; }
                 (document.activeElement as HTMLElement | null)?.blur?.();
                 return true;
@@ -1860,61 +1752,59 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (action) event.preventDefault();
             if (action === 'slot') { if (!event.repeat) press(Number(event.key)); }
             else if (action === 'open') openSlotted();
-            else if (action === 'play') { if (focused) deps.play?.(fileOfKey(focused)); }
-            else if (action === 'memo') { if (focused) openMemo(focused); }
-            else if (action === 'track') { if (focused && mode === 'all') { toggleTrack(focused); render(); } }
+            else if (action === 'play') { if (focus.key) deps.play?.(fileOfKey(focus.key)); }
+            else if (action === 'memo') { if (focus.key) openMemo(focus.key); }
+            else if (action === 'track') { if (focus.key && chosen.mode === 'all') { toggleTrack(focus.key); render(); } }
             else if (action === 'row-up' || action === 'row-down') moveFocus(action === 'row-down' ? 1 : -1);
             return true;
-        },
-        keyup(event) {
+        }),
+        keyup: event => redraw.batch(() => {
             if (!keysHere(event) || ownKeys(event)) return false;
             if (keyAction(ENTRY_KEYS, event.key) === 'slot') release(Number(event.key));
             return true;
-        },
+        }),
     });
 
     return {
         open(paths: string[], root = '', maximize = false): void {
             filePaths = paths.filter(path => !isMetadataCandidate(path));
             rootPath = root;
-            knownShortest = undefined;
+            recipeState.knownShortest = undefined;
             results.clear();
             overviewLevels.clear();
             calibratedFiles.clear();
             overviewVersion++;
             resultKeys.clear();
             rowsDirty = true;
-            knownRate = undefined;
+            recipeState.knownRate = undefined;
             excluded.clear();
             memo.clear();
-            filters = [];
-            tracksOnly = false;
-            pendingAll = null;
-            mode = 'all';
-            fpop = null; slotMenu = null; memoKey = null;
-            baseGroup = null;
-            sessionLoaded = false; savedSession = ''; csvToSave = undefined;
-            if (sessionTimer !== undefined) { window.clearTimeout(sessionTimer); sessionTimer = undefined; }
-            const saved = deps.loadSlots() ?? [];
-            slots = [0, 1, 2, 3].map(slot => (saved[slot] && filePaths.includes(fileOfKey(saved[slot]!)) ? saved[slot]! : null));
-            focused = null; focusPicked = false;
+            chosen.filters = [];
+            chosen.tracksOnly = false;
+            tracks.pending = null;
+            chosen.mode = 'all';
+            popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null;
+            chosen.baseGroup = null;
+            session.reset();
+            slots = restoredSlots(deps.loadSlots() ?? [], path => filePaths.includes(path));
+            focus.key = null; focus.picked = false;
             derived = (deps.loadDerived?.() ?? []).filter(row => filePaths.includes(row.parentPath));
             const savedRecipe = deps.loadRecipe?.();
-            editedRecipe = isRecipeChain(savedRecipe) ? savedRecipe : null;
-            if (savedRecipe !== undefined && savedRecipe !== null && !editedRecipe) { deps.saveRecipe?.(undefined); deps.announce(strings.stepRecipeWarning); }
+            recipeState.edited = isRecipeChain(savedRecipe) ? savedRecipe : null;
+            if (savedRecipe !== undefined && savedRecipe !== null && !recipeState.edited) { deps.saveRecipe?.(undefined); deps.announce(strings.stepRecipeWarning); }
             // The CSV picked last time comes back if it still reads (and matches these recordings by its own rules).
-            csv = null; match = null; value = 'leq'; group = rootPath && filePaths.some(path => path.replaceAll('\\', '/').slice(rootPath.length + 1).includes('/')) ? 'folder:1' : 'none';
+            attached.csv = null; attached.match = null; chosen.value = 'leq'; chosen.group = rootPath && filePaths.some(path => path.replaceAll('\\', '/').slice(rootPath.length + 1).includes('/')) ? 'folder:1' : 'none';
             const kept = deps.loadCsv?.();
             if (kept) {
-                try { csv = readDatasetCsv(new TextEncoder().encode(kept.text), kept.name); } catch { csv = null; deps.saveCsv?.(undefined); }
+                try { attached.csv = readDatasetCsv(new TextEncoder().encode(kept.text), kept.name); } catch { attached.csv = null; deps.saveCsv?.(undefined); }
             }
             screen.hidden = false;
             // A folder just opened keeps the table beside the tracks; ⤢ widens it when asked.
             setMaximized(maximize);
-            applyCsv(csv);
+            applyCsv(attached.csv);
             // What is stored for this chain comes back; nothing is computed until 「計算」. The headers say each file's channels.
             loadStored();
-            headerChannels.clear(); headerErrors.clear(); headerDurations.clear(); probing = null;
+            headers.clear();
             probe(filePaths);
             table.setAttribute('tabindex', '0');
             table.focus?.();
@@ -1928,30 +1818,28 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (screen.hidden) { this.open(fresh, '', false); return; }
             filePaths = [...filePaths, ...fresh];
             rowsDirty = true;
-            if (csv) match = matchCsv(csv, filePaths, rootPath);
+            if (attached.csv) attached.match = matchCsv(attached.csv, filePaths, rootPath);
             // A new probe replaces one still running, so it asks again for every header not read yet.
             probe(filePaths);
             rebuild();
         },
         // With "tracks only" on, the rows follow the tracks.
-        tracksChanged: () => { if (tracksOnly) rebuild(); else if (!screen.hidden) render(); },
-        trackRemoved(filePath) {
-            triedAll = null;
-            const slot = slots.findIndex(key => key && fileOfKey(key) === filePath);
-            if (slot >= 0) setSlot(slot, null, false); else if (!screen.hidden) render();
+        tracksChanged: () => { if (chosen.tracksOnly) rebuild(); else if (!screen.hidden) render(); },
+        trackRemoved: filePath => redraw.batch(() => {
+            tracks.tried = null;
+            const [slot] = slotsOfFile(slots, filePath);
+            if (slot !== undefined) setSlot(slot, null, false); else if (!screen.hidden) render();
             // With 「トラックのみ」 on, the row leaves with its lane.
-            if (tracksOnly) rebuild();
-        },
+            if (chosen.tracksOnly) rebuild();
+        }),
         setRecipe,
         stepFailed,
         addDerived(row: DerivedRow): void {
-            derived = [...derived.filter(item => derivedKey(item) !== derivedKey(row)), row];
-            deps.saveDerived?.(derived);
-            rebuild();
+            setDerived([...derived.filter(item => derivedKey(item) !== derivedKey(row)), row]);
         },
         removeDerived: (parentPath: string, region: string, baseLabel?: string) => removeDerived(parentPath, region, baseLabel),
         show(next: (string | null)[]): void {
-            slots = next.map(path => (path ? slots.find(key => key && fileOfKey(key) === path) ?? path : null));
+            slots = slotsForFiles(next, slots);
             screen.hidden = false;
             setMaximized(true);
         },
@@ -1959,52 +1847,42 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (message.type.startsWith('compare-')) return holdSource.handle(message) || handleRemeasure(message as ComparePublication);
             if (!message.type.startsWith('entry-')) return false;
             if (message.type === 'entry-probe-result' || message.type === 'entry-probe-done') {
-                const header = message as EntryProbePublication;
-                if (!probing || header.requestId !== probing.requestId) return true;
-                if (header.type === 'entry-probe-done') { probing = null; rebuild(); return true; }
-                probing.done++;
-                if (header.durationS !== undefined) headerDurations.set(header.filePath, header.durationS);
-                if (header.channels) headerChannels.set(header.filePath, header.channels);
-                else if (header.error) headerErrors.set(header.filePath, header.error);
+                const taken = headers.take(message as EntryProbePublication);
+                if (taken === 'stale') return true;
+                if (taken === 'done') { rebuild(); return true; }
                 rowsDirty = true;
-                scheduleRebuild();
+                resultsRedraw.schedule();
                 return true;
             }
             const publication = message as EntryPublication;
             // A computation stopped with 中止 sends nothing more that counts.
             if (!requests.answering('scan', publication.requestId)) return true;
             if (publication.type === 'entry-conditions') {
-                if (publication.recipe) standardRecipe = publication.recipe;
+                if (publication.recipe) recipeState.standard = publication.recipe;
                 // At open the folder's session comes back with what is stored; from then on, changes are saved.
-                const loading = !sessionLoaded;
+                const loading = !session.loaded;
                 if (loading) {
                     applySession(publication.session, publication.csv);
                     // A CSV kept by the webview alone (before sessions) goes to the host's store with the next save.
-                    if (!publication.csv && csv) csvToSave = deps.loadCsv?.() ?? undefined;
+                    if (!publication.csv && attached.csv) session.keepCsv(deps.loadCsv?.() ?? undefined);
                 }
                 rebuild();
                 // What the table settled on at open is what is stored: only a change after it is saved.
-                if (loading) { savedSession = JSON.stringify(sessionOf()); sessionLoaded = true; }
+                if (loading) session.markLoaded();
             } else if (publication.type === 'entry-scan-result') {
                 noteResult(publication.filePath, publication.result);
                 resultKeys.set(publication.filePath, requests.find(publication.requestId)?.key ?? currentKey());
                 rowsDirty = true;
-                if (scanning) {
-                    scanCount++;
-                    scannedSeconds += durationOf(publication.filePath) ?? UNKNOWN_DURATION_S;
-                    const elapsed = window.performance.now() - scanStarted;
-                    if (scanCount >= 5 && scannedSeconds > 0) perAudioSecondMs = Math.max(1, (elapsed - PER_FILE_MS * scanCount) / scannedSeconds);
-                }
+                progress.fileDone(publication.filePath);
                 const { failedStep, reason } = publication.result;
                 if (failedStep) { stepFailed(failedStep, reason ?? ''); return true; }
-                if (csv && !match?.attributes.size) match = matchCsv(csv, filePaths, rootPath);
-                scheduleRebuild();
+                if (attached.csv && !attached.match?.attributes.size) attached.match = matchCsv(attached.csv, filePaths, rootPath);
+                resultsRedraw.schedule();
             } else if (publication.type === 'entry-scan-done') {
-                if (redrawTimer !== undefined) { window.clearTimeout(redrawTimer); redrawTimer = undefined; }
+                resultsRedraw.cancel();
                 requests.settle(publication.requestId);
                 // Only a computation the user started measures fixed differences again; reading what is stored does not.
-                const started = scanning;
-                scanning = false;
+                const started = progress.stop();
                 if (started) remeasureStale();
                 rebuild();
             }
@@ -2013,18 +1891,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         compareData: () => compareData(),
         slots: () => slotFiles(),
         trackRole(filePath) {
-            const slot = [1, 2, 3, 0].find(at => slots[at] && fileOfKey(slots[at]!) === filePath);
+            const slot = roleSlot(slots, filePath);
             return slot === undefined ? undefined : { slot, ch: channelOfRow(rowOf(slots[slot])) };
         },
         setTrackRole(filePath, slot) {
             // The row trackRole shows (compare slots first), so a chip moves the channel it names.
-            const own = [1, 2, 3, 0].map(at => slots[at]).find(key => key && fileOfKey(key) === filePath);
+            const own = roleKey(slots, filePath);
             if (slot === null) {
                 if (!own) return;
-                slots = slots.map(key => (key && fileOfKey(key) === filePath ? null : key));
-                deps.saveSlots(slots);
-                render();
-                if (!maximized) deps.compareChanged?.();
+                setSlots(withoutFile(slots, filePath));
                 return;
             }
             const key = own ?? rows.find(row => row.filePath === filePath)?.key ?? filePath;
@@ -2038,7 +1913,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         stageChannel: (path, comparePath, byGroup = false) => stageChannel(path, comparePath, byGroup),
         comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => comparisonOf(comparePath, byGroup, over, entryRegionBase),
         rowInfo: path => rowInfo(path),
-        cost: paths => ({ seconds: paths.reduce((sum, path) => sum + (durationOf(path) ?? UNKNOWN_DURATION_S), 0), ms: estimateMs(paths) }),
+        cost: paths => ({ seconds: progress.seconds(paths), ms: progress.estimateMs(paths) }),
         tableBaseBands: (comparePath, byGroup = false) => {
             const base = resolveBase(comparePath, byGroup);
             const levels = base.paths.flatMap(path => {
@@ -2048,39 +1923,41 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 return [result.thirdOctDb[0].map((_, band) => powerMeanOrNull(result.thirdOctDb!.map(channel => channel[band])))];
             });
             if (!levels.length) return null;
-            const values = levels[0].map((_, band) => median(levels.map(item => item[band]).filter((value): value is number => value !== null)));
+            const values = levels[0].map((_, band) => median(levels.map(item => item[band]).filter((level): level is number => level !== null)));
             return { centers: BAND_CENTERS_HZ.slice(0, values.length), values, count: levels.length };
         },
         selection: () => ({
-            value: valueLabel(value), group: group === 'none' ? strings.dsGroupNone : groupLabel(group),
-            filters: filters.map(filter => chipText(filter)), excluded: excluded.size,
+            value: valueLabel(chosen.value), group: chosen.group === 'none' ? strings.dsGroupNone : groupLabel(chosen.group),
+            filters: chosen.filters.map(filter => chipText(filter)), excluded: excluded.size,
         }),
         derivedRows: () => derived.slice(),
         openBatch: () => openBatch(),
         exportTable: () => actions['entry-export-csv'](screen),
         exportNotes: () => actions['entry-export-notes'](screen),
         showCompared() {
-            const compared = slots.slice(1).filter((key): key is string => !!key);
+            const compared = comparedKeys(slots);
             if (!compared.length) return;
             // The compared rows and their base: as a filter on the file column, which a chip shows and × takes off.
             const wanted = new Set(compared.map(fileOfKey).flatMap(file => [file, ...this.basePaths(file)]));
-            filters = [{ column: 'name', kind: 'values', values: [...new Set(rows.filter(row => wanted.has(row.filePath)).map(row => row.name))] }];
-            mode = 'all'; tracksOnly = false; tableWrap.scrollTop = 0; rebuild();
+            choose({ filters: [{ column: 'name', kind: 'values', values: [...new Set(rows.filter(row => wanted.has(row.filePath)).map(row => row.name))] }], mode: 'all', tracksOnly: false }, true);
         },
         recipes(channels) {
-            const recipe = editedRecipe ?? standardRecipe;
-            return recipe ? { recipe, runRecipe: runRecipe(channels), failed } : null;
+            const recipe = recipeState.edited ?? recipeState.standard;
+            return recipe ? { recipe, runRecipe: runRecipe(channels), failed: recipeState.failed } : null;
         },
-        snapshot: () => ({
-            open: !screen.hidden && maximized, docked: !screen.hidden && !maximized, cols: Number(screen.dataset.cols ?? 0), rows: rows.length, visible: shownRows.length,
-            scanned: [...results.values()].filter(result => result.ok).length, slots: slots.slice(), focused, value, group, filters: filters.map(filter => ({ ...filter })),
-            sort: { ...sort }, excluded: [...excluded], memo: Object.fromEntries(memo), mode, unmatched: unmatchedItems().length + unreadable().length,
-            csv: csv?.name ?? null, playing: deps.playing?.() ?? null, visibleKeys: shownRows.slice(0, 200).map(row => row.key), scanning,
-            dist: lastDistribution ? {
-                groups: lastDistribution.groups.map(item => ({ name: item.name, n: item.members.length, inRange: item.members.filter(member => member.inRange).length })),
-                missing: lastDistribution.missing, unit: lastDistribution.unit, low: lastDistribution.low, high: lastDistribution.high, range: valueRange(), base: baseGroupName(),
-                strip: !maximized,
-            } : null,
-        }),
+        snapshot: () => {
+            const last = distPane.last();
+            return {
+                open: !screen.hidden && maximized, docked: !screen.hidden && !maximized, cols: Number(screen.dataset.cols ?? 0), rows: rows.length, visible: shownRows.length,
+                scanned: [...results.values()].filter(result => result.ok).length, slots: slots.slice(), focused: focus.key, value: chosen.value, group: chosen.group, filters: chosen.filters.map(filter => ({ ...filter })),
+                sort: { ...chosen.sort }, excluded: [...excluded], memo: Object.fromEntries(memo), mode: chosen.mode, unmatched: unmatchedItems().length + unreadable().length,
+                csv: attached.csv?.name ?? null, playing: deps.playing?.() ?? null, visibleKeys: shownRows.slice(0, 200).map(row => row.key), scanning: progress.running,
+                dist: last ? {
+                    groups: last.groups.map(item => ({ name: item.name, n: item.members.length, inRange: item.members.filter(member => member.inRange).length })),
+                    missing: last.missing, unit: last.unit, low: last.low, high: last.high, range: valueRange(), base: baseGroupName(),
+                    strip: !maximized,
+                } : null,
+            };
+        },
     };
 }
