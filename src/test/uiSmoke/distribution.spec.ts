@@ -180,6 +180,13 @@ test('the base select picks a group whose median is the base: a dashed line on i
     await expect(page.locator('[data-dist-group="1500"] [data-dist-base]')).toHaveCount(1);
     await expect(page.locator('[data-entry-dist-legend]')).toContainText(STR.dsLegendBaseMedian.replace('{group}', '1500'));
     await expect(base).toHaveValue('group:1500');
+    // Filtered out, the chosen group is still the base and the select still says so.
+    await page.locator('th[data-column="csv:rpm"] [data-action="entry-fhead"]').click();
+    await page.locator('[data-entry-flow]').fill('900');
+    await page.locator('[data-entry-fhigh]').fill('1200');
+    await page.locator('[data-action="entry-fok"]').click();
+    await expect(base).toHaveValue('group:1500');
+    await page.locator('[data-action="entry-fchip-clear"]').first().click();
     // Another grouping: the chosen group means nothing there, so the base goes back to slot 1's group.
     await page.locator('[data-action="entry-group"]').selectOption('csv:line');
     await expect.poll(async () => (await dist(page))?.base).toBeNull();
