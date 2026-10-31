@@ -4,14 +4,9 @@
 
 ## Completion bar
 
-A change is only finished when `npm run verify` exits 0. That script runs:
+A change is only finished when `npm run verify` exits 0. `scripts/verify.mjs` lists its steps: `tsc` compile and Webview bundles, Webview pattern lint, generated protocol types, single-source check, `.claude/skills` copy check, GUI triggerability audit, `node:test`, `ruff check` / `ruff format --check`, and `pytest`.
 
-- `tsc` compile
-- `node:test` against `dist/test/`
-- `ruff check` and `ruff format --check` on `python-backend`
-- `pytest` on `python-backend`
-
-E2E (`npm run verify:e2e`) is a separate, slower job.
+`npm run test:ui` (Playwright) is also required for Webview runtime changes. E2E (`npm run verify:e2e`) is a separate, slower job.
 
 ## Worktree isolation
 
@@ -39,7 +34,7 @@ Never suggest edits to these directories — they are generated, vendored, or en
 
 ## Webview waveform pipeline
 
-`src/webview/waveform/waveformRenderer.ts` is the single source of truth for the comparison panel's waveform rendering. `scripts/build-webview.js` (run automatically by `npm run compile`) wraps its CJS output in an IIFE and emits `dist/webview/comparisonWaveform.js`, which the Webview loads via `<script src>`. Do not hand-edit the generated file.
+`src/webview/waveform/waveformRenderer.ts` is the single source of truth for the comparison panel's waveform rendering. `scripts/build-webview.js` (run automatically by `npm run compile`) bundles tsc's output with esbuild into an IIFE and emits `dist/webview/comparisonWaveform.js`, which the Webview loads via `<script src>`. Do not hand-edit the generated file.
 
 ## GUI completion
 

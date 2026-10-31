@@ -18,7 +18,7 @@ test('package.json defines publish and packaging scripts for VS Code releases', 
     const manifest = readJson<{ scripts?: Record<string, string> }>('package.json');
 
     assert.equal(manifest.scripts?.['vscode:prepublish'], 'npm run compile');
-    assert.equal(manifest.scripts?.['package:vsix'], 'vsce package --no-yarn --allow-missing-repository --skip-license');
+    assert.equal(manifest.scripts?.['package:vsix'], 'vsce package --no-yarn');
 });
 
 test('Marketplace icon stays within the Marketplace upload limit', () => {
@@ -29,12 +29,12 @@ test('Marketplace icon stays within the Marketplace upload limit', () => {
     assert.ok(fs.statSync(path.join(repoRoot, manifest.icon)).size <= 1024 * 1024);
 });
 
-test('package.json and verify.sh include the GUI triggerability audit', () => {
+test('package.json and verify.mjs include the GUI triggerability audit', () => {
     const manifest = readJson<{ scripts?: Record<string, string> }>('package.json');
-    const verifyScript = readText('scripts/verify.sh');
+    const verifyScript = readText('scripts/verify.mjs');
 
     assert.equal(manifest.scripts?.['lint:gui-triggerability'], 'node scripts/verify-gui-triggerability.js');
-    assert.match(verifyScript, /npm run lint:gui-triggerability/u);
+    assert.match(verifyScript, /npm\(\['run', 'lint:gui-triggerability'\]\)/u);
 });
 
 test('package manifest does not expose obsolete full-file spectrum settings', () => {

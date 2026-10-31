@@ -134,11 +134,11 @@ flowchart LR
 
 ### 1. Extension Host
 
-対象: [src/extension/index.ts](../src/extension/index.ts)
+対象: [src/extension/index.ts](../src/extension/index.ts)（`activate` で各部品を組み立てる）、コマンド登録は [src/extension/extensionContributions.ts](../src/extension/extensionContributions.ts)
 
 責務:
 
-- VS Code コマンド `audioWandasAnalyzer.analyzeFile` と `audioWandasAnalyzer.analyzeDebugFile` を登録する
+- `package.json` の VS Code コマンド（`analyzeFile`、`analyzeThisTarget`、`analyzeDebugFile`、`selectPythonEnvironment`、`runRecipe`、`configureCalibration`）を登録する
 - 対象の音声ファイルまたはディレクトリを選択または解決する
 - 受け取った対象を単一ファイル解析導線または比較ビュー導線へ振り分ける
 - Webview から `select-target`、`analyze-selected-files`、`request-waveform-range` を受け取る
@@ -374,7 +374,7 @@ sequenceDiagram
         P-->>E: request ID 付き NDJSON 応答
         E->>E: JSON.parse / AnalysisResultWithError[] へ追加
     end
-    E->>C: ComparisonPanel.showDirectorySelection(..., selectedFilePaths, results)
+    E->>C: ComparisonPanel.updateDirectoryResults(results, panel, selectedFilePaths)
     C-->>U: ツリーを残したまま比較トラックを更新
 ```
 
@@ -433,8 +433,22 @@ interface AnalysisResultWithError extends AnalysisResult {
 ```text
 src/
   extension/
-    index.ts                VS Code 拡張のエントリポイント
+    bootstrap.ts            package.json の main。index.ts を読み込む
+    index.ts                activate: 各部品の組み立て
+    extensionContributions.ts コマンド・エクスプローラーメニュー・Welcome ビューの登録
+    analysisOrchestrator.ts 解析要求の発行と進捗表示
+    panelController.ts      ComparisonPanel の表示・ディレクトリ選択・結果の再注入
+    panelSession.ts         パネルと Webview の間のポートと選択状態
+    targetDiscovery.ts      対象ファイル／ディレクトリの選択とツリー構築
+    exportFlows.ts          WAV / PNG / CSV の書き出し
+    recipeFlow.ts           Recipe の実行
+    calibrationStore.ts     校正プロファイルの保存と変更通知
+    calibrationPanelRuntime.ts 校正パネル（configureCalibration）
+    folderStore.ts          フォルダ単位のスキャン索引・セッションの保存
+    pythonEnvironment.ts    Python 実行環境の検出と依存パッケージの確認
     pythonBackendServer.ts  解析要求用の永続 Python 子プロセス
+    backendIpc.ts           NDJSON IPC の要求管理と診断
+    analysisRequestError.ts 解析要求の失敗の型
   shared/
     analysis/
       analysisTypes.ts      共有型定義
@@ -474,9 +488,7 @@ media/
     (複数 wav)              マルチトラックテスト用
 docs/
   architecture.md           本資料
-  superpowers/
-    specs/                  設計仕様書
-    plans/                  実装計画書
+  developer-guide(.ja).md   開発手順
 ```
 
 ## 依存関係

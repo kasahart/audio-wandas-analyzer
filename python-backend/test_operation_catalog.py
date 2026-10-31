@@ -4,7 +4,10 @@ import pytest
 from wandas.pipeline import default_recipe_registry
 
 from operation_catalog import TS_TARGET, catalog, frames, typescript, with_refusals
-from operation_probe import needs, probe, refusals, verdicts
+from operation_probe import _direct, needs, probe, refusals, verdicts
+
+# The probe runs every operation on every Frame (1-2 min): CI runs these with AWA_SLOW=1.
+slow = pytest.mark.slow
 
 
 def _by_id() -> dict[str, dict]:
@@ -21,6 +24,7 @@ def needed(runs: list) -> dict:
     return needs(runs)
 
 
+@slow
 def test_the_generated_typescript_is_current(runs: list, needed: dict) -> None:
     # Regenerate with `python python-backend/operation_catalog.py --write` after a wandas upgrade: it runs
     # every operation again, so what a new wandas can or cannot do shows here.
@@ -29,6 +33,7 @@ def test_the_generated_typescript_is_current(runs: list, needed: dict) -> None:
     )
 
 
+@slow
 def test_every_addable_operation_is_run_on_the_frames_it_is_declared_to_take(runs: list, needed: dict) -> None:
     table = verdicts(runs)
     # A spectrogram's cepstrum runs; a spectrum's 1/N octaves only at 48 kHz (MoSQITo), so it depends on the file.
@@ -52,6 +57,7 @@ def test_every_addable_operation_is_run_on_the_frames_it_is_declared_to_take(run
     }
 
 
+@slow
 def test_every_frame_an_added_step_gives_is_drawn_on_the_compare(runs: list) -> None:
     # What a step gives is shown as its plot() shows it; a Frame the comparison cannot draw fails here.
     undrawn = sorted({run["output"] for run in runs if run["ok"] and not run["drawn"]})
@@ -104,3 +110,9 @@ def test_frames_list_what_they_derive_from() -> None:
     assert by_name["CoherenceFrame"]["bases"] == ["PairwiseSpectralFrame", "PairwiseFrame"]
     assert by_name["SpectralFrame"]["charted"] is True
     assert by_name["CepstralFrame"]["charted"] is True
+
+
+def test_a_package_that_another_needed_package_brings_is_not_listed() -> None:
+    # librosa installs scikit-learn; whether blocking scikit-learn alone breaks HPSS depends on the versions.
+    assert _direct(["librosa", "scikit_learn"]) == ["librosa"]
+    assert _direct(["scikit_learn"]) == ["scikit_learn"]

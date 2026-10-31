@@ -23,6 +23,19 @@ function answerWithErrors(page: Page): Promise<void> {
     });
 }
 
+/** Resolves after the page has drawn two more frames, so what a change scheduled has run. */
+function nextFrames(page: Page): Promise<void> {
+    return page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
+/** Answers requests with errors `rounds` times, letting the page draw between rounds; it asks again after each error. */
+async function answerRounds(page: Page, rounds: number): Promise<void> {
+    for (let round = 0; round < rounds; round++) {
+        await answerWithErrors(page);
+        await nextFrames(page);
+    }
+}
+
 test('only the lanes near the track view are drawn and ask for their spectrogram; the rest do when scrolled to', async ({ page }) => {
     await page.setViewportSize({ width: 1000, height: 600 });
     await page.setContent(buildUiSmokeManyTracksHtml(40), { waitUntil: 'domcontentloaded' });
@@ -44,7 +57,7 @@ test('the PNG export draws every lane: it asks for the spectrograms of lanes out
     await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-png"]')?.click());
     await expect.poll(async () => (await detailRequests(page)).includes(39)).toBe(true);
     const downloads = () => page.evaluate(() => (window as unknown as { __uiSmokeDownloads: Array<{ download: string }> }).__uiSmokeDownloads.map((d) => d.download));
-    await page.waitForTimeout(300);
+    await nextFrames(page);
     expect(await downloads()).not.toContain('waveform-export.png');
     // The host answers every request (here with an error, which also settles it); cursor spectra are asked one at a time.
     await expect.poll(async () => {
@@ -65,10 +78,11 @@ test('a lane resized while out of view paints its spectrogram again when scrolle
     await expect.poll(painted).toBe(true);
     const wrapper = page.locator('#tracks-wrapper');
     await wrapper.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    await page.setViewportSize({ width: 800, height: 600 });
-    await page.waitForTimeout(300);
-    await page.setViewportSize({ width: 1000, height: 600 });
-    await page.waitForTimeout(300);
+    for (const width of [800, 1000]) {
+        await page.setViewportSize({ width, height: 600 });
+        await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width);
+        await nextFrames(page);
+    }
     await wrapper.evaluate((element) => { element.scrollTop = 0; });
     await expect.poll(painted).toBe(true);
 });
@@ -87,10 +101,7 @@ test('with the cursor-spectrum panel folded, only lanes near the view ask for th
     await page.setContent(buildUiSmokeManyTracksHtml(40).replace('<script', '<script>window.__uiSmokeViewState = {};</script><script'), { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#spectrum-section')).toHaveClass(/is-collapsed/);
     // Answer the queue for a while: it goes through every lane it wants (and asks again after an error).
-    for (let round = 0; round < 80; round++) {
-        await answerWithErrors(page);
-        await page.waitForTimeout(50);
-    }
+    await answerRounds(page, 80);
     expect(await sliceRequests(page)).toContain(0);
     expect(await sliceRequests(page)).not.toContain(39);
     await page.locator('#tracks-wrapper').evaluate((wrapper) => { wrapper.scrollTop = wrapper.scrollHeight; });
@@ -203,10 +214,7 @@ test('the PNG export keeps waiting for zoom detail asked again by a redraw', asy
     await page.mouse.click(canvas.x + canvas.width * 0.5, canvas.y + canvas.height / 2);
     await expect.poll(async () => (await rangeRequests()).length).toBeGreaterThan(asked);
     // Everything else the export waits for is answered.
-    for (let round = 0; round < 12; round++) {
-        await answerWithErrors(page);
-        await page.waitForTimeout(50);
-    }
+    await answerRounds(page, 12);
     expect(await downloads()).not.toContain('waveform-export.png');
     // Answering the latest one lets the image be saved.
     await page.evaluate((request) => {

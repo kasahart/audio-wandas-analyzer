@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -9,6 +10,33 @@ import wandas as wd
 from wandas.pipeline import RecipePlan
 
 RecipeFactory = Callable[..., dict[str, Any]]
+
+# Marker -> the environment variable that opts in to it (see pyproject.toml).
+OPT_IN = {"slow": "AWA_SLOW", "perf": "AWA_PERF"}
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    for marker, variable in OPT_IN.items():
+        if os.environ.get(variable) == "1":
+            continue
+        skip = pytest.mark.skip(reason=f"{marker}: set {variable}=1 to run")
+        for item in items:
+            if marker in item.keywords:
+                item.add_marker(skip)
+
+
+def pytest_terminal_summary(terminalreporter: Any) -> None:
+    timings = [
+        f"  {report.nodeid}: {value}"
+        for reports in terminalreporter.stats.values()
+        for report in reports
+        if getattr(report, "when", None) == "call"
+        for name, value in getattr(report, "user_properties", [])
+        if name == "timing"
+    ]
+    if timings:
+        terminalreporter.write_sep("-", "timings (budgets checked only with AWA_PERF=1)")
+        terminalreporter.write_line("\n".join(timings))
 
 
 @pytest.fixture
