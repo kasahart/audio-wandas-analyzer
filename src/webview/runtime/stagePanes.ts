@@ -542,7 +542,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const frame = { left, top, width: plotWidth, height: plotHeight };
     drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
     drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
-    if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, top + 12, 'right', pendingColors);
+    // Under the region's corner tag when there is one.
+    if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
 }
 
 /**
