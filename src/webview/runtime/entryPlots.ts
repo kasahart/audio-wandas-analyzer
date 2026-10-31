@@ -129,7 +129,7 @@ function paintOverviewCells(
             if (value === null) continue;
             if (value < low) low = value;
             if (value > high) high = value;
-            if (line >= 0 && !(loudest![line * bandCount + band] >= value)) loudest![line * bandCount + band] = value;
+            if (loudest && line >= 0 && !(loudest[line * bandCount + band] >= value)) loudest[line * bandCount + band] = value;
         }
     }
     if (!Number.isFinite(low)) return false;
