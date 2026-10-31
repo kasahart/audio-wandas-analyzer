@@ -6,7 +6,7 @@ import type { ScanResult, BackendCommand, BackendPayload, BackendResult } from '
 import type { BrowserLimits, StageDetail } from '../../shared/protocol/generated/backendProtocolSchema';
 import { createWorkerConnection } from './staticWorker';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
-import { hasPlayableAudio, isConfigureCalibrationMessage, isSupportedAudioFile } from '../../shared/utils/audioTarget';
+import { hasPlayableAudio, isSupportedAudioFile } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../../shared/session/comparisonSessionController';
@@ -433,10 +433,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         downloadFile: (content, name, mimeType): void => { downloads.text(content, name, mimeType); },
         releaseSource: (path): void => { void releaseSource(path); },
         onMessage: (listener): (() => void) => { inboundListeners.add(listener); return () => { inboundListeners.delete(listener); }; },
-        postMessage: (message: unknown): void => {
-            if (isConfigureCalibrationMessage(message)) { reportUnavailable(); return; }
-            void controller.dispatch(message);
-        },
+        postMessage: (message: unknown): void => { void controller.dispatch(message); },
         getState: () => persisted,
         setState: (state): void => {
             // Only the fields the runtime keeps are written: a key of an older page (a folder path) is not.

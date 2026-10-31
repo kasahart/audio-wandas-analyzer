@@ -57,6 +57,7 @@ test('parsePanelMessage returns discriminated messages for controller dispatch',
         },
         { type: 'run-recipe' },
         { type: 'show-info', message: 'done' },
+        { type: 'configure-calibration', trackIndex: 0, filePath: '/tmp/a.wav', channels: [{ channelIndex: 0, label: 'L' }] },
     ];
 
     assert.deepEqual(
@@ -82,6 +83,7 @@ test('parsePanelMessage rejects malformed and unknown messages', () => {
         type: 'comparison-panel-ready',
         calibrationRevisions: [{ filePath: '/tmp/a.wav', analysisRevision: -1 }],
     }), undefined);
+    assert.equal(parsePanelMessage({ type: 'configure-calibration', trackIndex: 0, filePath: '/tmp/a.wav', channels: [] }), undefined);
     assert.equal(parsePanelMessage({ type: 'unknown' }), undefined);
 });
 

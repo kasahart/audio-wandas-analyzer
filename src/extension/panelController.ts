@@ -156,7 +156,7 @@ const defaultHost: PanelControllerHost = {
 };
 
 /** The calibration revisions a panel's results are checked against, and their change events. */
-export type PanelCalibration = Pick<CalibrationStore, 'analysisRevision' | 'onDidChange'>;
+export type PanelCalibration = Pick<CalibrationStore, 'analysisRevision' | 'onDidChange' | 'configureTrack'>;
 
 export class PanelController implements vscode.Disposable {
     private readonly sessions = new Map<PanelHandle, PanelSession<PanelHandle>>();
@@ -398,6 +398,11 @@ export class PanelController implements vscode.Disposable {
             showError: (message) => this.host.showError(message),
             unsupported: () => undefined,
             selection: (message) => this.handleSelection(session, message),
+            // The channels come from the track the panel shows, not from the message.
+            configureCalibration: async (message) => {
+                const result = this.panelFactory.getResults(session.panel).find((candidate) => candidate.filePath === message.filePath);
+                if (result) { await this.calibration.configureTrack(result); }
+            },
             panelReady: (message) => this.handlePanelReady(session, message),
             selectPythonEnvironment: async () => { await this.host.executeCommand('audioWandasAnalyzer.selectPythonEnvironment'); },
             runRecipe: async () => { await this.host.executeCommand('audioWandasAnalyzer.runRecipe', session.getActiveFilePaths()); },

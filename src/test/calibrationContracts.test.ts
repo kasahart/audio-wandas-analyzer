@@ -122,7 +122,7 @@ test('calibration row helpers draw badges, peak text, requests and the overlay g
 test('calibration uses composition rather than global prototype or panel-method patches', () => {
     const source = readFileSync(path.resolve(process.cwd(), 'src/extension/calibrationPanelRuntime.ts'), 'utf8');
     assert.doesNotMatch(source, /prototype|ComparisonPanel\.show\s*=/u);
-    assert.match(source, /ComparisonPanel\.setShownListener\(installOnPanel\)/u);
+    assert.match(source, /ComparisonPanel\.setShownListener\(/u);
 });
 
 test('ComparisonPanel result ownership follows accepted in-place reanalysis', () => {
@@ -443,7 +443,7 @@ test('native injected calibration retry preserves cancellation token and request
     assert.equal(tokens.length, 3);
 });
 
-test('native calibration shown hook replaces listeners and follows live results and recreated panels', async () => {
+test('the calibration command follows the panel in front, its live results and recreated panels', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
     const originalLoad = NodeModule._load;
@@ -483,17 +483,21 @@ test('native calibration shown hook replaces listeners and follows live results 
     const store = { configureTrack: async (track: { filePath: string; channels: Array<{ label: string }> }) => {
         configured.push({ path: track.filePath, labels: track.channels.map(channel => channel.label) });
     } } as unknown as import('../extension/calibrationStore').CalibrationStore;
-    runtime.installCalibrationPanelRuntime({ subscriptions: [] } as unknown as import('vscode').ExtensionContext, store);
+    const panels = new runtime.CalibrationPanels(store);
     const first = panel(); results.set(first, [result('/a.wav', 'old')]);
     shown(first); shown(first);
-    assert.equal(first.messages.size, 1);
+    assert.equal(first.messages.size, 0, 'the panel button goes through PanelController, not a second listener');
     assert.equal(first.views.length, 1);
     assert.equal(first.disposals.length, 1);
     results.set(first, [result('/a.wav', 'updated')]);
-    await [...first.messages][0]({ type: 'configure-calibration', trackIndex: 0, filePath: '/a.wav', channels: [{ channelIndex: 0, label: 'ignored message metadata' }] });
+    await configureActive();
+    first.active = false;
+    first.views.forEach(view => view({ webviewPanel: first }));
+    await configureActive();
+    assert.equal(configured.length, 1, 'a panel that left the front is not configured');
     first.disposals.forEach(dispose => dispose());
-    assert.equal(first.messages.size, 0);
     const recreated = panel(); results.set(recreated, [result('/b.wav', 'new')]);
     shown(recreated); await configureActive();
     assert.deepEqual(configured, [{ path: '/a.wav', labels: ['updated'] }, { path: '/b.wav', labels: ['new'] }]);
+    panels.dispose();
 });

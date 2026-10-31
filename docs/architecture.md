@@ -34,7 +34,10 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   lazy request の明示 revision（0 を含む）は表示済み context として優先する。analyze は現 store の
   context を使い、一致した stale profile の破棄後だけ1回再試行する。取消 token は初回と再試行で共通。
   Web は policy なしで入力 context を使う。校正 UI/persistence を Web に追加したことにはならない。
-  Panel は表示 hook で校正 listener を登録し、prototype や show メソッドを書き換えない。
+  校正 store（revision・変更 listener・書込み順序）は activate（`bootstrap.ts`）が1つ作り、backend の policy、
+  `PanelController`、校正コマンドへ渡す。トラックの校正ボタン（`configure-calibration`）も `parsePanelMessage` を
+  通り、`PanelController` の port が表示中の結果で store を呼ぶ。校正コマンドは表示 hook で前面の Panel を追うだけで、
+  Panel に別の message listener を登録せず、prototype や show メソッドも書き換えない。
 - `ComparisonSessionController`（`src/shared/session/`）は panel message の解釈を一度だけ持つ。
   設定保存、再解析の start/update/end 包絡と世代ゲート、lazy 結果への変換と公開判定、
   WAV 区間・レポートの書き出し手順、未対応操作の通知経路はここにある。host は
@@ -440,7 +443,7 @@ interface AnalysisResultWithError extends AnalysisResult {
 ```text
 src/
   extension/
-    bootstrap.ts            package.json の main。index.ts を読み込む
+    bootstrap.ts            package.json の main。校正 store とコマンドを作り index.ts を呼ぶ
     index.ts                activate: 各部品の組み立て
     extensionContributions.ts コマンド・エクスプローラーメニュー・Welcome ビューの登録
     analysisOrchestrator.ts 解析要求の発行と進捗表示
@@ -449,8 +452,8 @@ src/
     targetDiscovery.ts      対象ファイル／ディレクトリの選択とツリー構築
     exportFlows.ts          WAV / PNG / CSV の書き出し
     recipeFlow.ts           Recipe の実行
-    calibrationStore.ts     校正プロファイルの保存と変更通知
-    calibrationPanelRuntime.ts 校正パネル（configureCalibration）
+    calibrationStore.ts     CalibrationStore: 校正プロファイルの保存・revision・変更通知
+    calibrationPanelRuntime.ts CalibrationPanels: 前面パネルへの校正コマンド（configureCalibration）
     folderStore.ts          フォルダ単位のスキャン索引・セッションの保存
     pythonEnvironment.ts    Python 実行環境の検出と依存パッケージの確認
     pythonBackendServer.ts  解析要求用の永続 Python 子プロセス

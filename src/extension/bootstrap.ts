@@ -1,11 +1,11 @@
 import type * as vscode from 'vscode';
-import { installCalibrationPanelRuntime } from './calibrationPanelRuntime';
+import { CalibrationPanels } from './calibrationPanelRuntime';
 import { CalibrationStore } from './calibrationStore';
 import { activate as activateExtension, deactivate as deactivateExtension } from './index';
 
 export function activate(context: vscode.ExtensionContext): void {
     const calibration = new CalibrationStore(context);
-    installCalibrationPanelRuntime(context, calibration);
+    context.subscriptions.push(new CalibrationPanels(calibration));
     activateExtension(context, calibration);
 }
 
