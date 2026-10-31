@@ -20,6 +20,8 @@ export interface TrackRecord {
     rangeCache: WaveformRangeCache | null;
     /** What the track asked the host for: its waveform range ('range'), spectrogram ('detail') and cursor spectrum ('slice'). */
     readonly requests: HostRequests<LazyRequestState | null>;
+    /** The host's answer when the spectrogram failed: shown in the lane, and asked again only after a pause. */
+    detailError: { settingsSignature: string; message: string; at: number } | null;
     readonly spectrumSliceCache: Map<number, SpectrumSlice>;
     readonly spectrumPainted: Map<number, boolean>;
 }
@@ -109,7 +111,13 @@ export class TrackStore {
         this.clearAsyncState(record);
         this.records.delete(id);
         this.displayOrder = this.displayOrder.filter((candidate) => candidate !== id);
+        // A track taken off frees what the host holds for it, which may be why another one failed.
+        this.clearDetailErrors();
         return true;
+    }
+
+    clearDetailErrors(): void {
+        this.activeIds().forEach((activeId) => { this.require(activeId).detailError = null; });
     }
 
     allowExplicitSelection(filePath: string): void {
@@ -214,6 +222,7 @@ export class TrackStore {
             waveformCoverage: null,
             rangeCache: null,
             requests: new HostRequests(),
+            detailError: null,
             spectrumSliceCache: new Map(),
             spectrumPainted: new Map(),
         };
@@ -231,6 +240,7 @@ export class TrackStore {
 
     private clearAsyncState(record: TrackRecord): void {
         record.requests.clear();
+        record.detailError = null;
         record.spectrumSliceCache.clear();
     }
 }

@@ -154,6 +154,25 @@ def test_analyze_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
     assert resp["channels"][0]["spectrogram"] is None
 
 
+def test_non_ascii_paths_survive_a_non_utf8_locale(tmp_path: Path) -> None:
+    wav = tmp_path / "録音テイク.wav"
+    _write_sine_wav(wav)
+    # PYTHONIOENCODING stands in for a Windows code page such as cp932: the stdio streams start out in it.
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "backend_server.py")],
+        input=(
+            json.dumps({"cmd": "analyze", "filePath": str(wav), "requestId": "r1"}, ensure_ascii=False) + "\n"
+        ).encode("utf-8"),
+        capture_output=True,
+        timeout=60,
+        env={**os.environ, "PYTHONIOENCODING": "latin-1", "AWA_PERF_LOG": "0"},
+    )
+    replies = [json.loads(line) for line in proc.stdout.decode("utf-8").splitlines()]
+    reply = next(message for message in replies if message.get("requestId") == "r1")
+    assert "error" not in reply, reply
+    assert reply["fileName"] == "録音テイク.wav"
+
+
 def test_analyze_round_trip_accepts_flac_from_supported_ui_formats(server: _ServerHandle, tmp_path: Path) -> None:
     flac = tmp_path / "tone.flac"
     _write_sine_flac(flac)
@@ -1047,6 +1066,40 @@ def test_lru_evicts_oldest_when_over_limit(tmp_path: Path, monkeypatch: pytest.M
 
     assert list(engine._files) == paths[-2:]
     assert engine.cache_bytes <= engine.cache_limit_bytes
+
+
+def test_a_file_larger_than_the_cache_is_read_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    wav = tmp_path / "long.wav"
+    _write_sine_wav(wav, seconds=2.0, sr=16000)
+    engine = AnalysisEngine(cache_limit_bytes=1024)
+    reads = 0
+    original_read = wd.read
+
+    def counted_read(path: Path, **kwargs: Any) -> wd.ChannelFrame:
+        nonlocal reads
+        reads += 1
+        return original_read(path, **kwargs)
+
+    monkeypatch.setattr(wd, "read", counted_read)
+    for _ in range(3):
+        engine.get_file(wav)
+    engine.get_spectrogram(wav, 256, 128, "hann")
+
+    assert reads == 1
+    assert engine.is_cached(wav)
+    assert engine.get_cached_spectrogram(wav, 256, 128, "hann") is None
+
+
+def test_a_new_file_evicts_the_oversized_one(tmp_path: Path) -> None:
+    first, second = tmp_path / "a.wav", tmp_path / "b.wav"
+    _write_sine_wav(first, seconds=2.0, sr=16000)
+    _write_sine_wav(second, seconds=2.0, sr=16000)
+    engine = AnalysisEngine(cache_limit_bytes=1024)
+    engine.get_file(first)
+    engine.get_file(second)
+
+    assert not engine.is_cached(first)
+    assert engine.is_cached(second)
 
 
 def test_engine_reuses_frames_and_stft_by_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

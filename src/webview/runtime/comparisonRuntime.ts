@@ -1,4 +1,5 @@
 import { OrderedSelection } from '../../shared/utils/directorySelection';
+import { middleEllipsis } from '../../shared/dataset/datasetTable';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
@@ -60,7 +61,7 @@ import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
-import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE } from './canvasOverlays';
+import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
@@ -153,6 +154,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
     }
     const TRACK_HEADER_W = 130;
+    // A failed spectrogram is not asked again for this long, so a lane that keeps failing does not loop.
+    const DETAIL_RETRY_MS = 10_000;
     const AXIS_W = 64;
     // A lane's plot height: the waveform and the spectrogram under it share it (TRACK_SPLIT_H apart).
     const TRACK_HEIGHT_DEFAULT = 160;
@@ -634,6 +637,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const settingsSignature = currentSettingsSignature();
+        const failure = record.detailError;
+        if (failure && failure.settingsSignature === settingsSignature && Date.now() - failure.at < DETAIL_RETRY_MS) {
+            return;
+        }
         const pending = record.requests.pending('detail')?.meta;
         if (pending && pending.settingsSignature === settingsSignature) {
             return;
@@ -881,8 +888,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         record.requests.settle(msg.requestId);
         if (msg.type === 'track-detail-error') {
+            record.detailError = { settingsSignature: pending.settingsSignature, message: msg.error, at: Date.now() };
+            scheduleRender();
+            // The cause may pass (a restarted backend, memory freed): the lane asks again after the pause.
+            setTimeout(scheduleRender, DETAIL_RETRY_MS);
             return;
         }
+        record.detailError = null;
         if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
             mergeDetailSpectrograms(state.results[i].channels, msg.channels);
             scheduleRender();
@@ -1890,7 +1902,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (shouldDrawCursor) {
             drawLoopRegionOnCanvas(ctx, W, H);
             drawAnalysisWindowOnCanvas(ctx, W, H, trackIndex, channelIndex);
-            drawCursorOnCanvas(ctx, W, H);
+            drawCursorOnCanvas(ctx, W, H, waveformCursorLineStyle(getComputedStyle(document.body).getPropertyValue('--text').trim()));
             drawHoverLineOnCanvas(ctx, W, H);
             drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
         }
@@ -1922,7 +1934,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ch = channelsForResult(result)[channelIndex];
         if (!ch || !ch.spectrogram) {
             requestTrackDetail(trackIndex);
-            drawCanvasMessage(ctx, W, H, STR.spectrogramLoading, '11px sans-serif', drawTheme().mutedColor);
+            const failure = trackRecordAtIndex(trackIndex)?.detailError;
+            const message = failure && failure.settingsSignature === currentSettingsSignature()
+                ? STR.spectrogramFailed.replace('{reason}', () => middleEllipsis(failure.message.split('\n')[0], 120))
+                : STR.spectrogramLoading;
+            drawCanvasMessage(ctx, W, H, message, '11px sans-serif', drawTheme().mutedColor);
             return;
         }
         const spec = ch.spectrogram;
@@ -1983,8 +1999,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             drawAnalysisWindowBand(ctx, band, waveformView.timeRange(), W, H);
         }
     }
-    function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
-        drawDashedTimeLine(ctx, cursorNorm, waveformView.timeRange(), W, H, CURSOR_LINE_STYLE);
+    function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, style = CURSOR_LINE_STYLE) {
+        drawDashedTimeLine(ctx, cursorNorm, waveformView.timeRange(), W, H, style);
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (hoverNorm !== null) {
@@ -3916,6 +3932,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             minFrequencyHz: display.minFrequencyHz !== undefined ? n(display.minFrequencyHz) : n(__spectrogramSettings.display.minFrequencyHz ?? null),
         };
         messaging.post({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+        // Touching the settings is the user's way to try a failed spectrogram again.
+        trackStore.clearDetailErrors();
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
         requestAnimationFrame(function () { publishTestSnapshot(); });

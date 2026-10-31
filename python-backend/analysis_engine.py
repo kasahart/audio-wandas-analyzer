@@ -253,11 +253,16 @@ class AnalysisEngine:
             return sum(entry.nbytes for entry in self._files.values())
 
     def _evict(self, protected_path: Path) -> None:
-        while self._files and self.cache_bytes > self.cache_limit_bytes:
-            oldest = next(iter(self._files))
-            if oldest == protected_path and len(self._files) > 1:
-                self._files.move_to_end(oldest)
-                oldest = next(iter(self._files))
-            self._files.pop(oldest)
-            if oldest == protected_path:
+        # Other files go first, then the file in use's spectrograms. Its frame stays even past the limit:
+        # dropping it would decode the whole file again on every zoom and cursor request.
+        while self.cache_bytes > self.cache_limit_bytes:
+            other = next((path for path in self._files if path != protected_path), None)
+            if other is not None:
+                self._files.pop(other)
+                continue
+            protected = self._files.get(protected_path)
+            if protected is None or not protected.spectrograms:
                 break
+            key = next(iter(protected.spectrograms))
+            del protected.spectrograms[key]
+            del protected.spectrogram_nbytes[key]

@@ -140,7 +140,7 @@ function isCompareScanMessage(value: unknown): value is CompareScanMessage {
         && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0);
 }
 
-const SAFE_NAME = /^[^\\/:*?"<>|\u0000-\u001f]+$/u;
+const SAFE_NAME = /^(?!\.{1,2}$)[^\\/:*?"<>|\u0000-\u001f]+$/u;
 
 function isSaveReportFolderMessage(value: unknown): value is SaveReportFolderMessage {
     if (!hasType(value, 'save-report-folder')) { return false; }
