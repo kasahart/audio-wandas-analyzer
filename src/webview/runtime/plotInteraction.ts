@@ -2,11 +2,11 @@
  * The pointer gestures of the track lanes, for any other plot: the comparison's panes use them so a plot answers
  * the same hand the same way everywhere. Hover shows the cursor line and readout; a press dragged past the
  * lanes' threshold draws a box and zooms into it (both axes); Ctrl+wheel zooms the horizontal axis around
- * the pointer and Shift+wheel pans it, by the lanes' steps; a double-click resets the zoom, or on an axis
+ * the pointer and Shift+wheel pans it, by the lanes' steps, and a sideways swipe pans it with the fingers; a double-click resets the zoom, or on an axis
  * opens its range. Built on the lanes' own listeners (attachTrackPointerListeners) and zoom arithmetic.
  */
 import { attachTrackPointerListeners } from './trackPointerEvents';
-import { exceedsDragThreshold, MIN_SELECTION_SPAN, panNormalizedRange, wheelZoomFactor, zoomRangeAroundPivot, type NormalizedRange } from './waveformInteraction';
+import { exceedsDragThreshold, MIN_SELECTION_SPAN, PAN_STEP_RATIO, panNormalizedRangeBy, wheelPanPixels, wheelStepDirection, wheelZoomFactor, zoomRangeAroundPivot, type NormalizedRange } from './waveformInteraction';
 
 /** A point on a plot: across (0 at the left) and up (0 at the bottom) the part on screen. */
 export interface PlotPoint {
@@ -37,9 +37,9 @@ export function wheelZoomWindow(window: PlotWindow, point: PlotPoint, deltaY: nu
     return { ...window, x: zoomRangeAroundPivot(window.x, within(window.x, point.fx), wheelZoomFactor(deltaY)) };
 }
 
-/** Shift+wheel: the horizontal axis panned by the lanes' step. */
-export function wheelPanWindow(window: PlotWindow, deltaY: number): PlotWindow {
-    return { ...window, x: panNormalizedRange(window.x, deltaY > 0 ? 1 : -1) };
+/** Shift+wheel or a sideways swipe: the horizontal axis panned by `fraction` of the visible span (positive: later). */
+export function wheelPanWindow(window: PlotWindow, fraction: number): PlotWindow {
+    return { ...window, x: panNormalizedRangeBy(window.x, fraction) };
 }
 
 /** The margins around a canvas's plot (its axes' numbers and names), in CSS pixels. */
@@ -137,9 +137,17 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             const hit = deps.locate(event.target, event.clientX, event.clientY);
             if (hit) deps.setWindow(hit.plot, wheelZoomWindow(deps.window(hit.plot), hit.point, event.deltaY));
         },
-        panWheel(event) {
+        panWheel(event, swipe) {
             const hit = deps.locate(event.target, event.clientX, event.clientY);
-            if (hit) deps.setWindow(hit.plot, wheelPanWindow(deps.window(hit.plot), event.deltaY));
+            if (!hit) return;
+            if (!swipe) {
+                deps.setWindow(hit.plot, wheelPanWindow(deps.window(hit.plot), wheelStepDirection(event) * PAN_STEP_RATIO));
+                return;
+            }
+            // The plot's width from two points across its middle, so the content follows the fingers.
+            const box = hit.plot.getBoundingClientRect(), middle = box.left + box.width / 2;
+            const perPixel = deps.pointOn(hit.plot, middle + 1, event.clientY).fx - deps.pointOn(hit.plot, middle, event.clientY).fx;
+            if (perPixel > 0) deps.setWindow(hit.plot, wheelPanWindow(deps.window(hit.plot), wheelPanPixels(event, 1 / perPixel) * perPixel));
         },
     }, { plot: plotSelector });
 }
