@@ -267,6 +267,8 @@ flowchart LR
 
 対象: [src/webview/runtime/stepBar.ts](../src/webview/runtime/stepBar.ts) / [src/shared/recipe/recipeSteps.ts](../src/shared/recipe/recipeSteps.ts)
 
+`stepBar.ts` は状態とイベントの配線だけを持ち、中身は同じフォルダのモジュールに分かれる: `stepBarModel.ts`（StepBarState・scan が走らせるレシピ・チェーンの並び）、`stepLabels.ts`（チップ名と走れない理由）、`stepChips.ts`（チップの行）、`stepMenu.ts`（＋のメニューと絞り込み。打つたびに描き直すのは一覧だけ）、`stepForm.ts`（⚙ のフォームとその検査）、`stepHistory.ts`（↶ ↷）、`stepGestures.ts`（タップ・長押し・ドラッグ）。トラック表示の「ステップ」モードも同様に `trackStageMode.ts` が配線、`trackStageModel.ts` が状態と scan の指定、`trackStagePainter.ts` が描画、`trackStageGestures.ts` がプロットの操作を持つ。
+
 入口と比較台の上に、scan のレシピをチップで並べる。入口は「entry-scan › … › 指標 v2」、比較台は「entry-scan › … › 区間 › 平均スペクトル」に畳み、「…」で全部を開く。レシピはホストが `entry-conditions` で送る固定レシピ（`recipes/entry-scan.recipe.json`）。⚙ で開くフォームの項目は `STEP_PARAMS`（HPF・LPF・BPF の cutoff と order、welch の n_fft と window）で、wandas 0.9.0 に `default_recipe_registry().describe()` が無いための仮の表（wandas の次のリリースで置き換える）。値は wandas の符号化（float は big-endian IEEE 754 の 16 進）でレシピに書き戻す。標本化周波数に対して無効な値（cutoff ≥ fs/2、2 の冪でない n_fft など）のチップは赤くなり、そのステップを抜いたレシピ（`runnableRecipe`）で入口を最初から scan し直す（保存済みの結果はレシピ鍵が違うので使わない）。編集したレシピは PersistedWebviewState に残り、読めなくなっていたら 1 行の警告を出して標準のレシピに戻す。比較台では区間チップが「≠ 入口」の点線になり、平均スペクトルのチップを押さえている間は、基準がスロット 0 の 1 件のときに限り、レーン表示が持つスペクトログラムで 3 段を描く。
 
 ### 7.5 報告の出口（PR 6）
