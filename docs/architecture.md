@@ -20,7 +20,11 @@
 Comparison UI と DSP は同じソースを使う。解析コマンドの型・応答検証は
 `src/shared/protocol/backendProtocol.ts`、UI から host への型・入力検証は
 `src/shared/protocol/panelMessages.ts` に置く。Worker の正常応答も native IPC と同じ
-validator を通す。Web の load/unload/export-plan は Worker 専用であり共通10コマンド（`command_dispatch.COMMANDS`）と混同しない。
+validator を通す。Web の load/unload/clear/export-plan/limits は Worker 専用であり共通10コマンド（`command_dispatch.COMMANDS`）と混同しない。
+その応答は `src/webview/runtime/workerProtocol.ts` が検証し、共通コマンドは `parseBackendResult` に渡す。
+Web host（`staticHost.ts`）は port 実装と組み立てを持ち、Worker の起動・再読込・再起動・予備 Worker への交代は
+`staticWorker.ts`、ソースの一覧・上限・フォルダ鍵は `staticSources.ts`、ダウンロードと ZIP は `staticDownloads.ts`、
+選択肢と Recipe 結果の枠は `staticDialogs.ts`、フッターの操作部と Python 表示は `staticFooter.ts` に置く。
 
 - `AnalysisClient` は analyze/detail/slice/range/export/recipe の要求を組み立てる。
   `executeLazyAnalysis` は detail/slice/range の UI 結果へ変換する。host は
