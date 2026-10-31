@@ -317,12 +317,17 @@ test('analysis does not start when the dependencies are not ready', async () => 
         const analyzing = harness.state.panelAnalysis!.analyzeFiles(['/audio/a.wav']);
         await settle();
         check.resolve(false);
-        await assert.rejects(analyzing, (error: Error) => error.constructor.name === 'CancellationError');
+        // Each file comes back as an error track that says why, not as a bare cancellation.
+        const notReady = await analyzing as Array<{ filePath: string; fileName: string; error?: string }>;
+        assert.deepEqual(notReady.map(result => [result.filePath, result.fileName]), [['/audio/a.wav', 'a.wav']]);
+        assert.match(notReady[0].error ?? '', /not ready for analysis/u);
         assert.deepEqual(harness.state.analyzedFiles, []);
         assert.equal(harness.state.backendWarmupCalls, 0);
 
         // A later analysis reuses the failed result instead of spawning a backend that cannot import wandas.
-        await assert.rejects(harness.state.panelAnalysis!.analyzeFiles(['/audio/b.wav']));
+        const later = await harness.state.panelAnalysis!.analyzeFiles(['/audio/b.wav']) as Array<{ error?: string }>;
+        assert.equal(later.length, 1);
+        assert.ok(later[0].error);
         assert.deepEqual(harness.state.analyzedFiles, []);
         assert.deepEqual(harness.state.dependencyChecks, ['python3']);
     } finally {
