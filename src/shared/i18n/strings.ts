@@ -657,6 +657,7 @@ export interface UiStrings {
     pyTooltipCheckFailed: string;
     pyTooltipImporting: string;
     pyTooltipBackendFailed: string;
+    pyTooltipBackendStopped: string;
     pyStatusImporting: string;
     pyPickPlaceholder: string;
     pyPickFromPythonExtension: string;
@@ -1351,6 +1352,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyTooltipCheckFailed: 'The Python environment check failed. Click to select another environment.',
         pyTooltipImporting: 'Importing the Python analysis modules in the background.',
         pyTooltipBackendFailed: 'The Python backend failed to start: {message}',
+        pyTooltipBackendStopped: 'The Python backend stopped: {message}. It restarts on the next request.',
         pyStatusImporting: 'Python: importing modules',
         pyPickPlaceholder: 'Select the Python environment for Audio Wandas Analyzer',
         pyPickFromPythonExtension: 'Selected in the Python extension',
@@ -2043,6 +2045,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyTooltipCheckFailed: 'Python 環境の確認に失敗しました。クリックして別の環境を選択します。',
         pyTooltipImporting: 'Python の解析モジュールをバックグラウンドで読み込んでいます。',
         pyTooltipBackendFailed: 'Python バックエンドを起動できませんでした: {message}',
+        pyTooltipBackendStopped: 'Python バックエンドが停止しました: {message}。次の要求で再起動します。',
         pyStatusImporting: 'Python: モジュール読み込み中',
         pyPickPlaceholder: 'Audio Wandas Analyzer で使う Python 環境を選択',
         pyPickFromPythonExtension: 'Python 拡張機能で選択中',

@@ -63,7 +63,7 @@ export function activate(context: vscode.ExtensionContext): void {
         crashed: error => {
             logChannel.error(error.message);
             if (deactivated) { return; }
-            setStatusBarWarning(pythonStatusBarItem, getPythonCommand(), fillTemplate(getStrings(vscode.env.language).pyTooltipBackendFailed, { message: error.message }));
+            setStatusBarWarning(pythonStatusBarItem, getPythonCommand(), fillTemplate(getStrings(vscode.env.language).pyTooltipBackendStopped, { message: error.message }));
         },
     });
     const analysis = new AnalysisOrchestrator(backend, logPerf);
