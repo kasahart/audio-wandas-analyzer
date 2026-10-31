@@ -54,6 +54,10 @@ export interface StaticHostDeps {
     restartAfterScans?: number;
 }
 
+function missingBootstrap(): never {
+    throw new Error('Comparison Webview bootstrap data is unavailable');
+}
+
 /** Builds the browser host on top of the given globals and installs it as `window.__AWA_HOST__`. */
 export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     // Shadow the globals so every browser access goes through deps.
@@ -83,7 +87,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const CSV_STATE_KEY = `${VIEW_STATE_KEY}.csv`;
     let persisted = sanitizePersistedState({ ...(readSaved(VIEW_STATE_KEY) as object | null), entryCsv: readSaved(CSV_STATE_KEY) });
     let savedCsv = persisted.entryCsv;
-    browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
+    // The page script sets the state before this bundle runs; the runtime reads and updates the same object.
+    const appState = browserWindow.__APP_STATE__ ?? missingBootstrap();
+    appState.spectrogramSettings = loadSpectrogramSettings(settingsContext);
     const sourceGeneration = new SessionRequests();
     const reanalysisGeneration = new SessionRequests();
     const sources = new SourceResults<Source>(new Map(), source => URL.revokeObjectURL(source.url));
@@ -177,8 +183,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         sources.clear();
     }
     function stft() {
-        const state = browserWindow.__APP_STATE__!;
-        return state.spectrogramSettings.auto ? {} : { stftOptions: state.spectrogramSettings.stft };
+        return appState.spectrogramSettings.auto ? {} : { stftOptions: appState.spectrogramSettings.stft };
     }
     const analysisClient = new class extends AnalysisClient {
         constructor(policy: AnalysisContextPolicy) {
@@ -281,7 +286,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         publish: emit,
         saveSettings(settings): void {
-            browserWindow.__APP_STATE__!.spectrogramSettings = settings;
+            appState.spectrogramSettings = settings;
             void saveSpectrogramSettings(settingsContext, settings);
         },
         stftOptions: () => stft().stftOptions,
@@ -378,7 +383,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 }
                 loading = true; pick.disabled = true;
                 announce(strings.browserPreparing);
-                await loadBatch(added.map(path => ({ file: tree.get(path)!, sourceId: path.slice('/sources/'.length) })), isLatest);
+                await loadBatch(added.flatMap(path => {
+                    const file = tree.get(path);
+                    return file ? [{ file, sourceId: path.slice('/sources/'.length) }] : [];
+                }), isLatest);
             });
         },
         showInformation: announce,
@@ -518,25 +526,28 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     dropTarget.style.cssText = 'display:none;position:fixed;inset:0;border:3px dashed #3b82f6;pointer-events:none;z-index:2147483647';
     bar.append(dropTarget);
     // Track reordering also drags inside the page, so only drags that carry OS files open sources.
-    const carriesFiles = (event: DragEvent): boolean => Array.from(event.dataTransfer?.types ?? []).includes('Files');
+    const carriedFiles = (event: DragEvent): DataTransfer | undefined => (
+        Array.from(event.dataTransfer?.types ?? []).includes('Files') ? event.dataTransfer ?? undefined : undefined);
     const showDropTarget = (active: boolean): void => { dropTarget.style.display = active ? 'block' : 'none'; };
     /** Drag events inside the recipe chart frame do not reach the top window, so the frame gets the same listeners. */
     function acceptDrops(target: Window): void {
         target.addEventListener('dragover', event => {
-            if (!carriesFiles(event)) return;
+            const transfer = carriedFiles(event);
+            if (!transfer) return;
             event.preventDefault();
-            event.dataTransfer!.dropEffect = loading ? 'none' : 'copy';
+            transfer.dropEffect = loading ? 'none' : 'copy';
             showDropTarget(!loading);
         });
         target.addEventListener('dragleave', event => { if (!event.relatedTarget) showDropTarget(false); });
         target.addEventListener('drop', event => {
-            if (!carriesFiles(event)) return;
+            const transfer = carriedFiles(event);
+            if (!transfer) return;
             event.preventDefault();
             showDropTarget(false);
             // The transfer is emptied once the handler returns, so folder entries and files are taken out first.
-            const folders = Array.from(event.dataTransfer!.items ?? []).map(item => item.webkitGetAsEntry?.())
+            const folders = Array.from(transfer.items ?? []).map(item => item.webkitGetAsEntry?.())
                 .filter((entry): entry is FileSystemDirectoryEntry => !!entry?.isDirectory);
-            const files = Array.from(event.dataTransfer!.files).filter(file => !folders.some(entry => entry.name === file.name));
+            const files = Array.from(transfer.files).filter(file => !folders.some(entry => entry.name === file.name));
             if (!folders.length) { openFiles(files); return; }
             const myList = listGeneration;
             void (async () => {
