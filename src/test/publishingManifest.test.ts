@@ -37,6 +37,23 @@ test('package.json and verify.mjs include the GUI triggerability audit', () => {
     assert.match(verifyScript, /npm\(\['run', 'lint:gui-triggerability'\]\)/u);
 });
 
+test('package manifest limits untrusted workspaces to user-level executable settings', () => {
+    const manifest = readJson<{
+        capabilities?: {
+            untrustedWorkspaces?: { supported?: unknown; restrictedConfigurations?: string[]; description?: string };
+            virtualWorkspaces?: unknown;
+        };
+    }>('package.json');
+    const untrusted = manifest.capabilities?.untrustedWorkspaces;
+    assert.equal(untrusted?.supported, 'limited');
+    assert.deepEqual([...(untrusted?.restrictedConfigurations ?? [])].sort(), [
+        'audioWandasAnalyzer.debugFilePath',
+        'audioWandasAnalyzer.pythonCommand',
+    ]);
+    assert.ok(untrusted?.description, 'limited support needs a description for the Restricted Mode view');
+    assert.equal(manifest.capabilities?.virtualWorkspaces, false, 'the extension reads audio through fsPath, Node fs and a child process');
+});
+
 test('package manifest does not expose obsolete full-file spectrum settings', () => {
     const manifest = readJson<{
         contributes?: { configuration?: { properties?: Record<string, { type?: string }> } };

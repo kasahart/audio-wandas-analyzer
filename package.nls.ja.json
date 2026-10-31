@@ -11,5 +11,6 @@
   "configuration.title": "Audio Wandas Analyzer",
   "configuration.pythonCommand.description": "解析バックエンドを起動する Python 環境フォルダ。既存の Python 実行ファイル指定も引き続き利用できます。",
   "configuration.debugFilePath.description": "Audio Analyzer: デバッグパスを解析 コマンドで開く既定パス。相対パスは最初のワークスペースフォルダから解決されます。",
-  "configuration.cacheMemoryMb.description": "Python バックエンドがメモリに保持するデコード済み音声の上限（MB）。"
+  "configuration.cacheMemoryMb.description": "Python バックエンドがメモリに保持するデコード済み音声の上限（MB）。",
+  "capabilities.untrustedWorkspaces.description": "制限モードでは、Python 環境とデバッグ用パスはユーザー設定の値だけを使い、ワークスペースの設定値は無視します。"
 }

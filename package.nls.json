@@ -11,5 +11,6 @@
   "configuration.title": "Audio Wandas Analyzer",
   "configuration.pythonCommand.description": "Python environment folder used to launch the analysis backend. Existing Python executable values are still accepted.",
   "configuration.debugFilePath.description": "Debug audio file or directory path used by the Analyze Debug Path command. Relative paths are resolved from the first workspace folder.",
-  "configuration.cacheMemoryMb.description": "Upper limit, in MB, of the decoded audio the Python backend keeps in memory."
+  "configuration.cacheMemoryMb.description": "Upper limit, in MB, of the decoded audio the Python backend keeps in memory.",
+  "capabilities.untrustedWorkspaces.description": "In Restricted Mode the Python environment and the debug path come from your user settings only; a workspace's own values for them are ignored."
 }

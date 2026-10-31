@@ -519,6 +519,10 @@ export interface UiStrings {
     exportWavComplete: string;
     exportWavPartial: string;
     noSupportedAudioFiles: string;
+    fileNotInSession: string;
+    directoryListingProgress: string;
+    directoryListingTruncated: string;
+    openTargetFailed: string;
     progressSyncCalibration: string;
     progressRecomputeSpectrogram: string;
     progressApplyCalibration: string;
@@ -1153,6 +1157,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         exportWavComplete: 'WAV export complete ({files}) → {folder}',
         exportWavPartial: 'WAV export: {succeeded} succeeded, {failed} failed — {errors}',
         noSupportedAudioFiles: 'No supported audio files were found in {path}',
+        fileNotInSession: 'Not a file this panel lists: {path}',
+        directoryListingProgress: 'Listing audio files in {path}',
+        directoryListingTruncated: 'Listed the first {count} entries of {path} only. Open a subfolder to see the rest.',
+        openTargetFailed: 'Could not open {path}: {reason}',
         progressSyncCalibration: 'Synchronizing calibration ({files})',
         progressRecomputeSpectrogram: 'Recomputing spectrogram ({files})',
         progressApplyCalibration: 'Applying calibration ({files})',
@@ -1785,6 +1793,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         exportWavComplete: 'WAV を書き出しました ({files}) → {folder}',
         exportWavPartial: 'WAV 書き出し: 成功 {succeeded} 件、失敗 {failed} 件 — {errors}',
         noSupportedAudioFiles: '{path} に対応する音声ファイルが見つかりませんでした',
+        fileNotInSession: 'このパネルの一覧にないファイルです: {path}',
+        directoryListingProgress: '{path} の音声ファイルを一覧にしています',
+        directoryListingTruncated: '{path} は最初の {count} 項目だけを一覧にしました。残りはサブフォルダを開いてください。',
+        openTargetFailed: '{path} を開けませんでした: {reason}',
         progressSyncCalibration: '校正を同期中 ({files})',
         progressRecomputeSpectrogram: 'スペクトログラムを再計算中 ({files})',
         progressApplyCalibration: '校正を適用中 ({files})',

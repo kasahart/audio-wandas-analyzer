@@ -80,6 +80,14 @@ export class PanelSession<P extends PanelPort = PanelPort> {
             : [...this.activeResultPaths];
     }
 
+    /** Whether a webview request may name this file: one the folder listed, added beside it, or shown. */
+    allowsFile(filePath: string): boolean {
+        return this.activeResultPaths.includes(filePath)
+            || (this.directorySelection !== null && (
+                this.directorySelection.allFilePaths.includes(filePath)
+                || this.directorySelection.selectedFilePaths.includes(filePath)));
+    }
+
     beginStateRequest(requestId?: string): number {
         return this.generation.begin(requestId);
     }
