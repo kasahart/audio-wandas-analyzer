@@ -42,11 +42,6 @@ function strings(): UiStrings {
     return getStrings(vscode.env.language);
 }
 
-let defaultInterpreter: string | undefined;
-const defaultInterpreterEmitter = new vscode.EventEmitter<void>();
-/** Fires when the interpreter used while `pythonCommand` is unset changes (Python extension selection). */
-export const onDidChangeDefaultInterpreter = defaultInterpreterEmitter.event;
-
 function hasExplicitPythonCommand(config: vscode.WorkspaceConfiguration): boolean {
     const inspected = config.inspect<string>('pythonCommand');
     // Restricted Mode ignores workspace values of this restricted setting, so only the user value is in effect.
@@ -68,18 +63,6 @@ function trustedCandidate(pythonCommand: string | undefined): string | undefined
     return pythonCommand && !vscode.workspace.isTrusted && isInsideWorkspace(pythonCommand) ? undefined : pythonCommand;
 }
 
-/**
- * The interpreter in use, before relative-path resolution: `audioWandasAnalyzer.pythonCommand` when the user set
- * it, otherwise the one found by `refreshDefaultInterpreter` (Python extension, then `VIRTUAL_ENV`), else python3.
- */
-export function getPythonCommand(): string {
-    const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-    if (hasExplicitPythonCommand(config)) {
-        return config.get<string>('pythonCommand', 'python3');
-    }
-    return defaultInterpreter ?? virtualEnvInterpreter() ?? config.get<string>('pythonCommand', 'python3');
-}
-
 function virtualEnvInterpreter(): string | undefined {
     const virtualEnv = process.env['VIRTUAL_ENV'];
     if (!virtualEnv) { return undefined; }
@@ -91,54 +74,6 @@ interface PythonExtensionApi {
         getActiveEnvironmentPath?(resource?: vscode.Uri): { path?: unknown } | undefined;
         onDidChangeActiveEnvironmentPath?: vscode.Event<unknown>;
     };
-}
-
-let pythonExtensionSubscribed = false;
-
-// The Python extension is optional: no extensionDependencies entry, and any failure falls back to VIRTUAL_ENV.
-async function pythonExtensionInterpreter(): Promise<string | undefined> {
-    const extension = vscode.extensions.getExtension<PythonExtensionApi>('ms-python.python');
-    if (!extension) { return undefined; }
-    try {
-        const api = extension.isActive
-            ? extension.exports
-            : await Promise.race([
-                Promise.resolve(extension.activate()),
-                new Promise<undefined>(resolve => { setTimeout(() => resolve(undefined), PYTHON_EXTENSION_TIMEOUT_MS); }),
-            ]);
-        const environments = api?.environments;
-        if (!pythonExtensionSubscribed && environments?.onDidChangeActiveEnvironmentPath) {
-            pythonExtensionSubscribed = true;
-            environments.onDidChangeActiveEnvironmentPath(() => {
-                void refreshDefaultInterpreter().then((changed) => {
-                    if (changed) { defaultInterpreterEmitter.fire(); }
-                });
-            });
-        }
-        const active = environments?.getActiveEnvironmentPath?.(vscode.workspace.workspaceFolders?.[0]?.uri);
-        return typeof active?.path === 'string' && active.path ? trustedCandidate(active.path) : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-/** Looks up the interpreter `getPythonCommand` falls back to; true when it changed. */
-export async function refreshDefaultInterpreter(): Promise<boolean> {
-    const previous = defaultInterpreter;
-    defaultInterpreter = await pythonExtensionInterpreter() ?? virtualEnvInterpreter();
-    return previous !== defaultInterpreter;
-}
-
-let setupLog: vscode.OutputChannel | undefined;
-
-function pythonSetupLog(): vscode.OutputChannel {
-    setupLog ??= vscode.window.createOutputChannel('Audio Wandas Analyzer (Python setup)');
-    return setupLog;
-}
-
-export function disposePythonSetupLog(): void {
-    setupLog?.dispose();
-    setupLog = undefined;
 }
 
 const DEPENDENCY_CHECK_SCRIPT = `
@@ -208,18 +143,6 @@ export interface PythonEnvironmentState {
     pythonCommand: string;
     status: 'normal' | 'warning';
     tooltip: string;
-}
-
-const pythonEnvironmentStateEmitter = new vscode.EventEmitter<PythonEnvironmentState>();
-let currentPythonEnvironmentState: PythonEnvironmentState | undefined;
-let latestDependencyCheckRequestId = 0;
-
-export const onDidChangePythonEnvironmentState = pythonEnvironmentStateEmitter.event;
-
-export function getCurrentPythonEnvironmentState(): PythonEnvironmentState {
-    return currentPythonEnvironmentState
-        ? { ...currentPythonEnvironmentState }
-        : { pythonCommand: getPythonCommand(), status: 'normal', tooltip: strings().pyTooltipSelect };
 }
 
 class PythonNotFoundError extends Error {
@@ -315,342 +238,17 @@ function canCreateWorkspaceVenv(): boolean {
     return root !== undefined && vscode.workspace.isTrusted && !fs.existsSync(path.join(root, '.venv'));
 }
 
-export function setStatusBarNormal(item: vscode.StatusBarItem, pythonCommand: string): void {
-    const tooltip = strings().pyTooltipSelect;
-    item.text = `Python: ${pythonCommand}`;
-    item.tooltip = tooltip;
-    item.backgroundColor = undefined;
-    currentPythonEnvironmentState = { pythonCommand, status: 'normal', tooltip };
-    pythonEnvironmentStateEmitter.fire(currentPythonEnvironmentState);
-}
-
 export function setStatusBarImporting(item: vscode.StatusBarItem, pythonCommand: string): void {
     item.text = `$(sync~spin) ${strings().pyStatusImporting}`;
     item.tooltip = `${strings().pyTooltipImporting}\n${pythonCommand}`;
     item.backgroundColor = undefined;
 }
 
-export function setStatusBarWarning(
-    item: vscode.StatusBarItem,
-    pythonCommand: string,
-    tooltip: string = strings().pyTooltipMissingDeps,
-): void {
-    item.text = `Python: ${pythonCommand} $(warning)`;
-    item.tooltip = tooltip;
-    item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-    item.show();
-    currentPythonEnvironmentState = { pythonCommand, status: 'warning', tooltip };
-    pythonEnvironmentStateEmitter.fire(currentPythonEnvironmentState);
-}
-
 function interpreterExists(pythonCommand: string, workspaceRoot: string | undefined): boolean {
     return fs.existsSync(resolvePythonCommand(pythonCommand, process.platform, workspaceRoot));
 }
 
-async function environmentChoices(): Promise<PythonQuickPickItem[]> {
-    const text = strings();
-    const root = getWorkspaceRoot();
-    const current = getPythonCommand();
-    const found: PythonQuickPickItem[] = [];
-    const seen = new Set<string>();
-    const add = (pythonCommand: string | undefined, description: string): void => {
-        if (!pythonCommand) { return; }
-        const resolved = resolvePythonCommand(pythonCommand, process.platform, root);
-        if (seen.has(resolved)) { return; }
-        seen.add(resolved);
-        found.push({
-            label: pythonCommand,
-            description: pythonCommand === current ? `${text.pyPickCurrent} · ${description}` : description,
-            pythonCommand,
-        });
-    };
-    add(await pythonExtensionInterpreter(), text.pyPickFromPythonExtension);
-    add(virtualEnvInterpreter(), text.pyPickFromVirtualEnv);
-    for (const name of vscode.workspace.isTrusted ? WORKSPACE_VENV_NAMES : []) {
-        if (root && interpreterExists(name, root)) { add(name, text.pyPickWorkspaceVenv); }
-    }
-    return [
-        ...found,
-        { label: text.pyPickOther, kind: vscode.QuickPickItemKind.Separator },
-        ...(canCreateWorkspaceVenv()
-            ? [{ label: text.pyPickCreateVenv, detail: text.pyPickCreateVenvDetail, action: 'create-venv' as const }]
-            : []),
-        { label: text.pyPickBrowse, action: 'browse' },
-    ];
-}
-
-const reselectedEmitter = new vscode.EventEmitter<string>();
-/**
- * Fires when the user chose the interpreter `pythonCommand` already holds, so no configuration event follows
- * and the listener has to check the environment again itself.
- */
-export const onDidReselectPythonCommand = reselectedEmitter.event;
-
-/** Lets the user pick an interpreter, or create a workspace `.venv`, and stores it in `pythonCommand`. */
-export async function selectPythonEnvironment(statusBarItem: vscode.StatusBarItem): Promise<void> {
-    const text = strings();
-    const selectedItem = await vscode.window.showQuickPick<PythonQuickPickItem>(await environmentChoices(), {
-        placeHolder: text.pyPickPlaceholder,
-    });
-
-    if (!selectedItem) {
-        return;
-    }
-    if (selectedItem.action === 'create-venv') {
-        await createWorkspaceVenvAndInstall(getPythonCommand(), statusBarItem);
-        return;
-    }
-
-    let chosen = selectedItem.pythonCommand;
-    if (selectedItem.action === 'browse') {
-        const selectedFolder = await vscode.window.showOpenDialog({
-            canSelectMany: false,
-            canSelectFiles: false,
-            canSelectFolders: true,
-            openLabel: text.pyPickBrowseOpenLabel,
-        });
-        chosen = selectedFolder?.[0]?.fsPath;
-    }
-
-    if (!chosen) {
-        return;
-    }
-    await storePythonCommand(chosen);
-}
-
-async function storePythonCommand(chosen: string): Promise<void> {
-    const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-    if (hasExplicitPythonCommand(config) && chosen === config.get<string>('pythonCommand', 'python3')) {
-        reselectedEmitter.fire(chosen);
-        return;
-    }
-    if (!vscode.workspace.workspaceFolders?.length) {
-        await config.update('pythonCommand', chosen, vscode.ConfigurationTarget.Global);
-        return;
-    }
-    if (vscode.workspace.isTrusted) {
-        await config.update('pythonCommand', chosen, vscode.ConfigurationTarget.Workspace);
-        return;
-    }
-    // Restricted Mode would ignore a workspace value of this restricted setting.
-    await config.update('pythonCommand', chosen, vscode.ConfigurationTarget.Global);
-    void vscode.window.showInformationMessage(fillTemplate(strings().pySavedToUserSettings, { command: chosen }));
-}
-
 type ProblemAction = 'select' | 'create-venv' | 'show-log';
-
-/** Shows a problem with buttons for the ways out of it and runs the chosen one. */
-async function showProblem(
-    severity: 'warning' | 'error',
-    message: string,
-    actions: ProblemAction[],
-    statusBarItem: vscode.StatusBarItem,
-): Promise<void> {
-    const text = strings();
-    const labels: Record<ProblemAction, string> = {
-        'select': text.pyBtnSelect,
-        'create-venv': text.pyBtnCreateVenv,
-        'show-log': text.pyBtnShowLog,
-    };
-    const offered = actions.filter(action => action !== 'create-venv' || canCreateWorkspaceVenv());
-    const buttons = offered.map(action => labels[action]);
-    const answer = severity === 'warning'
-        ? await vscode.window.showWarningMessage(message, ...buttons)
-        : await vscode.window.showErrorMessage(message, ...buttons);
-    const chosen = offered.find(action => labels[action] === answer);
-    if (chosen === 'select') {
-        await vscode.commands.executeCommand(SELECT_ENVIRONMENT_COMMAND);
-    } else if (chosen === 'create-venv') {
-        await createWorkspaceVenvAndInstall(currentPythonEnvironmentState?.pythonCommand ?? getPythonCommand(), statusBarItem);
-    } else if (chosen === 'show-log') {
-        pythonSetupLog().show(true);
-    }
-}
-
-export async function checkAndPromptInstallDependencies(
-    pythonCommand: string,
-    statusBarItem: vscode.StatusBarItem,
-): Promise<boolean> {
-    const requestId = ++latestDependencyCheckRequestId;
-    const isLatestRequest = () => requestId === latestDependencyCheckRequestId;
-    const text = strings();
-
-    try {
-        const { missingPackages, externallyManaged } = await checkMissingDependencies(pythonCommand);
-        if (!isLatestRequest()) {
-            return false;
-        }
-
-        if (missingPackages.length === 0) {
-            setStatusBarNormal(statusBarItem, pythonCommand);
-            return true;
-        }
-
-        setStatusBarWarning(statusBarItem, pythonCommand);
-        return await promptAndInstallDependencies(pythonCommand, missingPackages, externallyManaged, statusBarItem, isLatestRequest);
-    } catch (error) {
-        if (!isLatestRequest()) {
-            return false;
-        }
-
-        if (error instanceof PythonNotFoundError) {
-            setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipMissingInterpreter);
-            void showProblem('warning', error.message, ['select', 'show-log'], statusBarItem);
-            return false;
-        }
-        if (error instanceof UntrustedWorkspacePathError) {
-            setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipUntrustedWorkspacePath);
-            void showProblem('warning', error.message, ['select'], statusBarItem);
-            return false;
-        }
-
-        const message = error instanceof Error ? error.message : String(error);
-        pythonSetupLog().appendLine(`[check] ${pythonCommand}: ${message}`);
-        setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipCheckFailed);
-        void showProblem(
-            'error',
-            fillTemplate(text.pyCheckFailed, { command: pythonCommand }),
-            ['show-log', 'select'],
-            statusBarItem,
-        );
-        return false;
-    }
-}
-
-export async function checkMissingDependencies(
-    pythonCommand: string,
-): Promise<{ missingPackages: string[]; externallyManaged: boolean }> {
-    const resolvedPythonCommand = resolveConfiguredPythonCommand(pythonCommand);
-    return new Promise((resolve, reject) => {
-        const process = spawn(
-            resolvedPythonCommand,
-            ['-c', DEPENDENCY_CHECK_SCRIPT],
-            {
-                cwd: os.tmpdir(),
-                stdio: ['ignore', 'pipe', 'pipe'],
-            },
-        );
-
-        let stdout = '';
-        let stderr = '';
-
-        process.stdout.on('data', (chunk: Buffer | string) => {
-            stdout += chunk.toString();
-        });
-
-        process.stderr.on('data', (chunk: Buffer | string) => {
-            stderr += chunk.toString();
-        });
-
-        process.on('error', (error: NodeJS.ErrnoException) => {
-            if (error.code === 'ENOENT' || error.code === 'EACCES') {
-                pythonSetupLog().appendLine(`[check] ${resolvedPythonCommand}: ${error.message}`);
-                reject(new PythonNotFoundError(resolvedPythonCommand));
-                return;
-            }
-            reject(error);
-        });
-
-        process.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
-            const stderrTrimmed = stderr.trim();
-            if (signal) {
-                reject(new Error(`dependency check was terminated by signal ${signal}`));
-                return;
-            }
-
-            if (code !== 0) {
-                reject(new Error(stderrTrimmed || stdout.trim() || `dependency check exited with code ${code}`));
-                return;
-            }
-
-            try {
-                const parsed = JSON.parse(stdout.trim()) as { missing?: unknown; externallyManaged?: unknown } | null;
-                const missing = parsed?.missing;
-                if (!Array.isArray(missing) || !missing.every((entry) => typeof entry === 'string')) {
-                    reject(new Error('dependency check returned an invalid package list'));
-                    return;
-                }
-                resolve({ missingPackages: missing, externallyManaged: parsed?.externallyManaged === true });
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                reject(new Error(`Failed to parse dependency check output: ${message}`));
-            }
-        });
-    });
-}
-
-async function promptAndInstallDependencies(
-    pythonCommand: string,
-    missingPackages: string[],
-    externallyManaged: boolean,
-    statusBarItem: vscode.StatusBarItem,
-    isLatestRequest: () => boolean,
-): Promise<boolean> {
-    const text = strings();
-    const choices = [
-        ...(externallyManaged ? [] : [text.pyBtnInstall]),
-        ...(canCreateWorkspaceVenv() ? [text.pyBtnCreateVenv] : []),
-        text.pyBtnSelect,
-    ];
-    const message = externallyManaged
-        ? fillTemplate(text.pyExternallyManaged, { command: pythonCommand })
-        : fillTemplate(text.pyMissingPackages, { command: pythonCommand, packages: missingPackages.join(', ') });
-    const answer = await vscode.window.showWarningMessage(message, ...choices);
-
-    if (!isLatestRequest() || answer === undefined) {
-        return false;
-    }
-    if (answer === text.pyBtnSelect) {
-        await vscode.commands.executeCommand(SELECT_ENVIRONMENT_COMMAND);
-        return false;
-    }
-    if (answer === text.pyBtnCreateVenv) {
-        await createWorkspaceVenvAndInstall(pythonCommand, statusBarItem);
-        return false;
-    }
-
-    try {
-        await installPackages(pythonCommand, missingPackages);
-        if (!isLatestRequest()) {
-            return false;
-        }
-        setStatusBarNormal(statusBarItem, pythonCommand);
-        void vscode.window.showInformationMessage(text.pyInstallSucceeded);
-        return true;
-    } catch (error) {
-        if (isLatestRequest()) {
-            reportSetupFailure(error, pythonCommand, statusBarItem);
-        }
-        return false;
-    }
-}
-
-function reportSetupFailure(error: unknown, pythonCommand: string, statusBarItem: vscode.StatusBarItem): void {
-    const text = strings();
-    if (error instanceof SetupError && error.cancelled) {
-        void vscode.window.showInformationMessage(error.message);
-        return;
-    }
-    if (error instanceof PipNotAvailableError) {
-        setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipPipUnavailable);
-        void showProblem('warning', error.message, ['create-venv', 'select', 'show-log'], statusBarItem);
-        return;
-    }
-    if (error instanceof ExternallyManagedError) {
-        void showProblem('warning', error.message, ['create-venv', 'select', 'show-log'], statusBarItem);
-        return;
-    }
-    if (error instanceof PythonNotFoundError) {
-        setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipMissingInterpreter);
-        void showProblem('warning', error.message, ['select', 'show-log'], statusBarItem);
-        return;
-    }
-    const message = error instanceof SetupError ? error.message : text.pyInstallFailed;
-    if (!(error instanceof SetupError)) {
-        pythonSetupLog().appendLine(error instanceof Error ? error.message : String(error));
-    }
-    void showProblem('error', message, ['show-log', 'select'], statusBarItem);
-}
 
 interface LoggedRun {
     code: number | null;
@@ -662,13 +260,13 @@ interface LoggedRun {
 
 /** Runs a setup command with its output streamed to the setup log and the progress notification. */
 function runLogged(
+    log: vscode.OutputChannel,
     command: string,
     args: string[],
     timeoutMs: number,
     progress: vscode.Progress<{ message?: string }>,
     token: vscode.CancellationToken,
 ): Promise<LoggedRun> {
-    const log = pythonSetupLog();
     log.appendLine(`$ ${command} ${args.join(' ')}`);
     return new Promise((resolve, reject) => {
         const child = spawn(command, args, { cwd: os.tmpdir(), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -714,73 +312,485 @@ function interruptedError(run: LoggedRun, timeoutMs: number): SetupError | undef
     return undefined;
 }
 
-async function installPackages(pythonCommand: string, packages: string[]): Promise<void> {
-    const resolvedPythonCommand = resolveConfiguredPythonCommand(pythonCommand);
-    pythonSetupLog().show(true);
-    const run = await vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: fillTemplate(strings().pyInstallProgress, { command: pythonCommand }),
-            cancellable: true,
-        },
-        (progress, token) => runLogged(resolvedPythonCommand, ['-m', 'pip', 'install', ...packages], INSTALL_TIMEOUT_MS, progress, token),
-    );
-    const interrupted = interruptedError(run, INSTALL_TIMEOUT_MS);
-    if (interrupted) { throw interrupted; }
-    if (run.output.includes('No module named pip')) { throw new PipNotAvailableError(pythonCommand); }
-    if (run.output.includes('externally-managed-environment')) { throw new ExternallyManagedError(pythonCommand); }
-    if (run.code !== 0) { throw new SetupError(strings().pyInstallFailed); }
-}
-
 /** Every requirement the backend needs; the same list the README's pip install line quotes. */
 export function requiredPackageRequirements(): string[] {
     return [...new Set(REQUIRED_PACKAGES.map(item => item.requirement))];
 }
 
+
 /**
- * Creates `<workspace>/.venv` with `baseCommand`, installs every requirement into it and selects it, which
- * restarts the backend through the configuration listener.
+ * The interpreter selection, the status it reports and the setup log. `activate()` makes the one instance and hands
+ * it to the parts that read or change the environment.
  */
-async function createWorkspaceVenvAndInstall(baseCommand: string, statusBarItem: vscode.StatusBarItem): Promise<void> {
-    const text = strings();
-    const root = getWorkspaceRoot();
-    if (!root) { return; }
-    const venvPath = path.join(root, '.venv');
-    // Only a .venv this call made is ours to remove; a half-made one (no pip) would hide "Create .venv" for good.
-    const createdHere = !fs.existsSync(venvPath);
-    try {
-        pythonSetupLog().show(true);
+export class PythonEnvironment implements vscode.Disposable {
+    private defaultInterpreter: string | undefined;
+    private readonly defaultInterpreterEmitter = new vscode.EventEmitter<void>();
+    /** Fires when the interpreter used while `pythonCommand` is unset changes (Python extension selection). */
+    readonly onDidChangeDefaultInterpreter = this.defaultInterpreterEmitter.event;
+    private pythonExtensionSubscribed = false;
+    private setupLog: vscode.OutputChannel | undefined;
+    private readonly pythonEnvironmentStateEmitter = new vscode.EventEmitter<PythonEnvironmentState>();
+    private currentPythonEnvironmentState: PythonEnvironmentState | undefined;
+    private latestDependencyCheckRequestId = 0;
+    readonly onDidChangePythonEnvironmentState = this.pythonEnvironmentStateEmitter.event;
+    private readonly reselectedEmitter = new vscode.EventEmitter<string>();
+    /**
+     * Fires when the user chose the interpreter `pythonCommand` already holds, so no configuration event follows
+     * and the listener has to check the environment again itself.
+     */
+    readonly onDidReselectPythonCommand = this.reselectedEmitter.event;
+
+    /**
+     * The interpreter in use, before relative-path resolution: `audioWandasAnalyzer.pythonCommand` when the user set
+     * it, otherwise the one found by `refreshDefaultInterpreter` (Python extension, then `VIRTUAL_ENV`), else python3.
+     */
+    getPythonCommand(): string {
+        const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
+        if (hasExplicitPythonCommand(config)) {
+            return config.get<string>('pythonCommand', 'python3');
+        }
+        return this.defaultInterpreter ?? virtualEnvInterpreter() ?? config.get<string>('pythonCommand', 'python3');
+    }
+
+    // The Python extension is optional: no extensionDependencies entry, and any failure falls back to VIRTUAL_ENV.
+    private async pythonExtensionInterpreter(): Promise<string | undefined> {
+        const extension = vscode.extensions.getExtension<PythonExtensionApi>('ms-python.python');
+        if (!extension) { return undefined; }
+        try {
+            const api = extension.isActive
+                ? extension.exports
+                : await Promise.race([
+                    Promise.resolve(extension.activate()),
+                    new Promise<undefined>(resolve => { setTimeout(() => resolve(undefined), PYTHON_EXTENSION_TIMEOUT_MS); }),
+                ]);
+            const environments = api?.environments;
+            if (!this.pythonExtensionSubscribed && environments?.onDidChangeActiveEnvironmentPath) {
+                this.pythonExtensionSubscribed = true;
+                environments.onDidChangeActiveEnvironmentPath(() => {
+                    void this.refreshDefaultInterpreter().then((changed) => {
+                        if (changed) { this.defaultInterpreterEmitter.fire(); }
+                    });
+                });
+            }
+            const active = environments?.getActiveEnvironmentPath?.(vscode.workspace.workspaceFolders?.[0]?.uri);
+            return typeof active?.path === 'string' && active.path ? trustedCandidate(active.path) : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /** Looks up the interpreter `getPythonCommand` falls back to; true when it changed. */
+    async refreshDefaultInterpreter(): Promise<boolean> {
+        const previous = this.defaultInterpreter;
+        this.defaultInterpreter = await this.pythonExtensionInterpreter() ?? virtualEnvInterpreter();
+        return previous !== this.defaultInterpreter;
+    }
+
+    private pythonSetupLog(): vscode.OutputChannel {
+        this.setupLog ??= vscode.window.createOutputChannel('Audio Wandas Analyzer (Python setup)');
+        return this.setupLog;
+    }
+
+    dispose(): void {
+        this.setupLog?.dispose();
+        this.setupLog = undefined;
+    }
+
+    getCurrentPythonEnvironmentState(): PythonEnvironmentState {
+        return this.currentPythonEnvironmentState
+            ? { ...this.currentPythonEnvironmentState }
+            : { pythonCommand: this.getPythonCommand(), status: 'normal', tooltip: strings().pyTooltipSelect };
+    }
+
+    setStatusBarNormal(item: vscode.StatusBarItem, pythonCommand: string): void {
+        const tooltip = strings().pyTooltipSelect;
+        item.text = `Python: ${pythonCommand}`;
+        item.tooltip = tooltip;
+        item.backgroundColor = undefined;
+        this.currentPythonEnvironmentState = { pythonCommand, status: 'normal', tooltip };
+        this.pythonEnvironmentStateEmitter.fire(this.currentPythonEnvironmentState);
+    }
+
+    setStatusBarWarning(
+        item: vscode.StatusBarItem,
+        pythonCommand: string,
+        tooltip: string = strings().pyTooltipMissingDeps,
+    ): void {
+        item.text = `Python: ${pythonCommand} $(warning)`;
+        item.tooltip = tooltip;
+        item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+        item.show();
+        this.currentPythonEnvironmentState = { pythonCommand, status: 'warning', tooltip };
+        this.pythonEnvironmentStateEmitter.fire(this.currentPythonEnvironmentState);
+    }
+
+    private async environmentChoices(): Promise<PythonQuickPickItem[]> {
+        const text = strings();
+        const root = getWorkspaceRoot();
+        const current = this.getPythonCommand();
+        const found: PythonQuickPickItem[] = [];
+        const seen = new Set<string>();
+        const add = (pythonCommand: string | undefined, description: string): void => {
+            if (!pythonCommand) { return; }
+            const resolved = resolvePythonCommand(pythonCommand, process.platform, root);
+            if (seen.has(resolved)) { return; }
+            seen.add(resolved);
+            found.push({
+                label: pythonCommand,
+                description: pythonCommand === current ? `${text.pyPickCurrent} · ${description}` : description,
+                pythonCommand,
+            });
+        };
+        add(await this.pythonExtensionInterpreter(), text.pyPickFromPythonExtension);
+        add(virtualEnvInterpreter(), text.pyPickFromVirtualEnv);
+        for (const name of vscode.workspace.isTrusted ? WORKSPACE_VENV_NAMES : []) {
+            if (root && interpreterExists(name, root)) { add(name, text.pyPickWorkspaceVenv); }
+        }
+        return [
+            ...found,
+            { label: text.pyPickOther, kind: vscode.QuickPickItemKind.Separator },
+            ...(canCreateWorkspaceVenv()
+                ? [{ label: text.pyPickCreateVenv, detail: text.pyPickCreateVenvDetail, action: 'create-venv' as const }]
+                : []),
+            { label: text.pyPickBrowse, action: 'browse' },
+        ];
+    }
+
+    /** Lets the user pick an interpreter, or create a workspace `.venv`, and stores it in `pythonCommand`. */
+    async selectPythonEnvironment(statusBarItem: vscode.StatusBarItem): Promise<void> {
+        const text = strings();
+        const selectedItem = await vscode.window.showQuickPick<PythonQuickPickItem>(await this.environmentChoices(), {
+            placeHolder: text.pyPickPlaceholder,
+        });
+
+        if (!selectedItem) {
+            return;
+        }
+        if (selectedItem.action === 'create-venv') {
+            await this.createWorkspaceVenvAndInstall(this.getPythonCommand(), statusBarItem);
+            return;
+        }
+
+        let chosen = selectedItem.pythonCommand;
+        if (selectedItem.action === 'browse') {
+            const selectedFolder = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                canSelectFiles: false,
+                canSelectFolders: true,
+                openLabel: text.pyPickBrowseOpenLabel,
+            });
+            chosen = selectedFolder?.[0]?.fsPath;
+        }
+
+        if (!chosen) {
+            return;
+        }
+        await this.storePythonCommand(chosen);
+    }
+
+    private async storePythonCommand(chosen: string): Promise<void> {
+        const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
+        if (hasExplicitPythonCommand(config) && chosen === config.get<string>('pythonCommand', 'python3')) {
+            this.reselectedEmitter.fire(chosen);
+            return;
+        }
+        if (!vscode.workspace.workspaceFolders?.length) {
+            await config.update('pythonCommand', chosen, vscode.ConfigurationTarget.Global);
+            return;
+        }
+        if (vscode.workspace.isTrusted) {
+            await config.update('pythonCommand', chosen, vscode.ConfigurationTarget.Workspace);
+            return;
+        }
+        // Restricted Mode would ignore a workspace value of this restricted setting.
+        await config.update('pythonCommand', chosen, vscode.ConfigurationTarget.Global);
+        void vscode.window.showInformationMessage(fillTemplate(strings().pySavedToUserSettings, { command: chosen }));
+    }
+
+    /** Shows a problem with buttons for the ways out of it and runs the chosen one. */
+    private async showProblem(
+        severity: 'warning' | 'error',
+        message: string,
+        actions: ProblemAction[],
+        statusBarItem: vscode.StatusBarItem,
+    ): Promise<void> {
+        const text = strings();
+        const labels: Record<ProblemAction, string> = {
+            'select': text.pyBtnSelect,
+            'create-venv': text.pyBtnCreateVenv,
+            'show-log': text.pyBtnShowLog,
+        };
+        const offered = actions.filter(action => action !== 'create-venv' || canCreateWorkspaceVenv());
+        const buttons = offered.map(action => labels[action]);
+        const answer = severity === 'warning'
+            ? await vscode.window.showWarningMessage(message, ...buttons)
+            : await vscode.window.showErrorMessage(message, ...buttons);
+        const chosen = offered.find(action => labels[action] === answer);
+        if (chosen === 'select') {
+            await vscode.commands.executeCommand(SELECT_ENVIRONMENT_COMMAND);
+        } else if (chosen === 'create-venv') {
+            await this.createWorkspaceVenvAndInstall(
+                this.currentPythonEnvironmentState?.pythonCommand ?? this.getPythonCommand(),
+                statusBarItem,
+            );
+        } else if (chosen === 'show-log') {
+            this.pythonSetupLog().show(true);
+        }
+    }
+
+    async checkAndPromptInstallDependencies(
+        pythonCommand: string,
+        statusBarItem: vscode.StatusBarItem,
+    ): Promise<boolean> {
+        const requestId = ++this.latestDependencyCheckRequestId;
+        const isLatestRequest = () => requestId === this.latestDependencyCheckRequestId;
+        const text = strings();
+
+        try {
+            const { missingPackages, externallyManaged } = await this.checkMissingDependencies(pythonCommand);
+            if (!isLatestRequest()) {
+                return false;
+            }
+
+            if (missingPackages.length === 0) {
+                this.setStatusBarNormal(statusBarItem, pythonCommand);
+                return true;
+            }
+
+            this.setStatusBarWarning(statusBarItem, pythonCommand);
+            return await this.promptAndInstallDependencies(
+                pythonCommand, missingPackages, externallyManaged, statusBarItem, isLatestRequest,
+            );
+        } catch (error) {
+            if (!isLatestRequest()) {
+                return false;
+            }
+
+            if (error instanceof PythonNotFoundError) {
+                this.setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipMissingInterpreter);
+                void this.showProblem('warning', error.message, ['select', 'show-log'], statusBarItem);
+                return false;
+            }
+            if (error instanceof UntrustedWorkspacePathError) {
+                this.setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipUntrustedWorkspacePath);
+                void this.showProblem('warning', error.message, ['select'], statusBarItem);
+                return false;
+            }
+
+            const message = error instanceof Error ? error.message : String(error);
+            this.pythonSetupLog().appendLine(`[check] ${pythonCommand}: ${message}`);
+            this.setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipCheckFailed);
+            void this.showProblem(
+                'error',
+                fillTemplate(text.pyCheckFailed, { command: pythonCommand }),
+                ['show-log', 'select'],
+                statusBarItem,
+            );
+            return false;
+        }
+    }
+
+    checkMissingDependencies(
+        pythonCommand: string,
+    ): Promise<{ missingPackages: string[]; externallyManaged: boolean }> {
+        const resolvedPythonCommand = resolveConfiguredPythonCommand(pythonCommand);
+        return new Promise((resolve, reject) => {
+            const process = spawn(
+                resolvedPythonCommand,
+                ['-c', DEPENDENCY_CHECK_SCRIPT],
+                {
+                    cwd: os.tmpdir(),
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                },
+            );
+
+            let stdout = '';
+            let stderr = '';
+
+            process.stdout.on('data', (chunk: Buffer | string) => {
+                stdout += chunk.toString();
+            });
+
+            process.stderr.on('data', (chunk: Buffer | string) => {
+                stderr += chunk.toString();
+            });
+
+            process.on('error', (error: NodeJS.ErrnoException) => {
+                if (error.code === 'ENOENT' || error.code === 'EACCES') {
+                    this.pythonSetupLog().appendLine(`[check] ${resolvedPythonCommand}: ${error.message}`);
+                    reject(new PythonNotFoundError(resolvedPythonCommand));
+                    return;
+                }
+                reject(error);
+            });
+
+            process.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
+                const stderrTrimmed = stderr.trim();
+                if (signal) {
+                    reject(new Error(`dependency check was terminated by signal ${signal}`));
+                    return;
+                }
+
+                if (code !== 0) {
+                    reject(new Error(stderrTrimmed || stdout.trim() || `dependency check exited with code ${code}`));
+                    return;
+                }
+
+                try {
+                    const parsed = JSON.parse(stdout.trim()) as { missing?: unknown; externallyManaged?: unknown } | null;
+                    const missing = parsed?.missing;
+                    if (!Array.isArray(missing) || !missing.every((entry) => typeof entry === 'string')) {
+                        reject(new Error('dependency check returned an invalid package list'));
+                        return;
+                    }
+                    resolve({ missingPackages: missing, externallyManaged: parsed?.externallyManaged === true });
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    reject(new Error(`Failed to parse dependency check output: ${message}`));
+                }
+            });
+        });
+    }
+
+    private async promptAndInstallDependencies(
+        pythonCommand: string,
+        missingPackages: string[],
+        externallyManaged: boolean,
+        statusBarItem: vscode.StatusBarItem,
+        isLatestRequest: () => boolean,
+    ): Promise<boolean> {
+        const text = strings();
+        const choices = [
+            ...(externallyManaged ? [] : [text.pyBtnInstall]),
+            ...(canCreateWorkspaceVenv() ? [text.pyBtnCreateVenv] : []),
+            text.pyBtnSelect,
+        ];
+        const message = externallyManaged
+            ? fillTemplate(text.pyExternallyManaged, { command: pythonCommand })
+            : fillTemplate(text.pyMissingPackages, { command: pythonCommand, packages: missingPackages.join(', ') });
+        const answer = await vscode.window.showWarningMessage(message, ...choices);
+
+        if (!isLatestRequest() || answer === undefined) {
+            return false;
+        }
+        if (answer === text.pyBtnSelect) {
+            await vscode.commands.executeCommand(SELECT_ENVIRONMENT_COMMAND);
+            return false;
+        }
+        if (answer === text.pyBtnCreateVenv) {
+            await this.createWorkspaceVenvAndInstall(pythonCommand, statusBarItem);
+            return false;
+        }
+
+        try {
+            await this.installPackages(pythonCommand, missingPackages);
+            if (!isLatestRequest()) {
+                return false;
+            }
+            this.setStatusBarNormal(statusBarItem, pythonCommand);
+            void vscode.window.showInformationMessage(text.pyInstallSucceeded);
+            return true;
+        } catch (error) {
+            if (isLatestRequest()) {
+                this.reportSetupFailure(error, pythonCommand, statusBarItem);
+            }
+            return false;
+        }
+    }
+
+    private reportSetupFailure(error: unknown, pythonCommand: string, statusBarItem: vscode.StatusBarItem): void {
+        const text = strings();
+        if (error instanceof SetupError && error.cancelled) {
+            void vscode.window.showInformationMessage(error.message);
+            return;
+        }
+        if (error instanceof PipNotAvailableError) {
+            this.setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipPipUnavailable);
+            void this.showProblem('warning', error.message, ['create-venv', 'select', 'show-log'], statusBarItem);
+            return;
+        }
+        if (error instanceof ExternallyManagedError) {
+            void this.showProblem('warning', error.message, ['create-venv', 'select', 'show-log'], statusBarItem);
+            return;
+        }
+        if (error instanceof PythonNotFoundError) {
+            this.setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipMissingInterpreter);
+            void this.showProblem('warning', error.message, ['select', 'show-log'], statusBarItem);
+            return;
+        }
+        const message = error instanceof SetupError ? error.message : text.pyInstallFailed;
+        if (!(error instanceof SetupError)) {
+            this.pythonSetupLog().appendLine(error instanceof Error ? error.message : String(error));
+        }
+        void this.showProblem('error', message, ['show-log', 'select'], statusBarItem);
+    }
+
+    private async installPackages(pythonCommand: string, packages: string[]): Promise<void> {
+        const resolvedPythonCommand = resolveConfiguredPythonCommand(pythonCommand);
+        this.pythonSetupLog().show(true);
         const run = await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
-                title: fillTemplate(text.pyCreateVenvProgress, { path: venvPath }),
+                title: fillTemplate(strings().pyInstallProgress, { command: pythonCommand }),
                 cancellable: true,
             },
             (progress, token) => runLogged(
-                resolveConfiguredPythonCommand(baseCommand),
-                ['-m', 'venv', venvPath],
-                CREATE_VENV_TIMEOUT_MS,
-                progress,
-                token,
+                this.pythonSetupLog(), resolvedPythonCommand, ['-m', 'pip', 'install', ...packages], INSTALL_TIMEOUT_MS, progress, token,
             ),
         );
-        const interrupted = interruptedError(run, CREATE_VENV_TIMEOUT_MS);
+        const interrupted = interruptedError(run, INSTALL_TIMEOUT_MS);
         if (interrupted) { throw interrupted; }
-        if (run.code !== 0) {
-            throw new SetupError(fillTemplate(
-                run.output.includes('ensurepip') ? text.pyVenvNoEnsurepip : text.pyVenvFailed,
-                { path: venvPath },
-            ));
+        if (run.output.includes('No module named pip')) { throw new PipNotAvailableError(pythonCommand); }
+        if (run.output.includes('externally-managed-environment')) { throw new ExternallyManagedError(pythonCommand); }
+        if (run.code !== 0) { throw new SetupError(strings().pyInstallFailed); }
+    }
+
+    /**
+     * Creates `<workspace>/.venv` with `baseCommand`, installs every requirement into it and selects it, which
+     * restarts the backend through the configuration listener.
+     */
+    private async createWorkspaceVenvAndInstall(baseCommand: string, statusBarItem: vscode.StatusBarItem): Promise<void> {
+        const text = strings();
+        const root = getWorkspaceRoot();
+        if (!root) { return; }
+        const venvPath = path.join(root, '.venv');
+        // Only a .venv this call made is ours to remove; a half-made one (no pip) would hide "Create .venv" for good.
+        const createdHere = !fs.existsSync(venvPath);
+        try {
+            this.pythonSetupLog().show(true);
+            const run = await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: fillTemplate(text.pyCreateVenvProgress, { path: venvPath }),
+                    cancellable: true,
+                },
+                (progress, token) => runLogged(
+                    this.pythonSetupLog(),
+                    resolveConfiguredPythonCommand(baseCommand),
+                    ['-m', 'venv', venvPath],
+                    CREATE_VENV_TIMEOUT_MS,
+                    progress,
+                    token,
+                ),
+            );
+            const interrupted = interruptedError(run, CREATE_VENV_TIMEOUT_MS);
+            if (interrupted) { throw interrupted; }
+            if (run.code !== 0) {
+                throw new SetupError(fillTemplate(
+                    run.output.includes('ensurepip') ? text.pyVenvNoEnsurepip : text.pyVenvFailed,
+                    { path: venvPath },
+                ));
+            }
+            await this.installPackages(venvPath, requiredPackageRequirements());
+            void vscode.window.showInformationMessage(text.pyInstallSucceeded);
+            await this.storePythonCommand('.venv');
+        } catch (error) {
+            if (createdHere) {
+                await fs.promises.rm(venvPath, { recursive: true, force: true }).catch((removeError: unknown) => {
+                    this.pythonSetupLog().appendLine(`[venv] could not remove ${venvPath}: ${String(removeError)}`);
+                });
+            }
+            this.reportSetupFailure(error, baseCommand, statusBarItem);
         }
-        await installPackages(venvPath, requiredPackageRequirements());
-        void vscode.window.showInformationMessage(text.pyInstallSucceeded);
-        await storePythonCommand('.venv');
-    } catch (error) {
-        if (createdHere) {
-            await fs.promises.rm(venvPath, { recursive: true, force: true }).catch((removeError: unknown) => {
-                pythonSetupLog().appendLine(`[venv] could not remove ${venvPath}: ${String(removeError)}`);
-            });
-        }
-        reportSetupFailure(error, baseCommand, statusBarItem);
     }
 }
