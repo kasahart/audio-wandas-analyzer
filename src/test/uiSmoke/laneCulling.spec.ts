@@ -224,10 +224,10 @@ test('the PNG export keeps waiting for zoom detail asked again by a redraw', asy
     // Everything else the export waits for is answered.
     await answerRounds(page, 12);
     expect(await downloads()).not.toContain('waveform-export.png');
-    // Answering the latest one lets the image be saved.
+    // Answering the latest one with the detail it asked for lets the image be saved.
     await page.evaluate((request) => {
         const span = Number(request.endNorm) - Number(request.startNorm);
-        const points = 64;
+        const points = Number(request.points);
         const at = Array.from({ length: points }, (_, index) => Number(request.startNorm) + ((index + 0.5) / points) * span);
         const waveform = { min: at.map(() => -0.5), max: at.map(() => 0.5), minT: at, maxT: at, samples: at.map(() => 0), absolutePeak: 0.5 };
         window.postMessage({ type: 'waveform-range-result', requestId: request.requestId, trackIndex: request.trackIndex, startNorm: request.startNorm, endNorm: request.endNorm, channels: [waveform, waveform] }, '*');
