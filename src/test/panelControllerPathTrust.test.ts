@@ -36,11 +36,13 @@ const { buildDirectoryTree } = loadWithVscodeMock(() => require('../extension/ta
 const { openDroppedTargets, openTarget } = loadWithVscodeMock(() => require('../extension/extensionContributions') as typeof import('../extension/extensionContributions'));
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+// The vscode mock joins URIs with the platform separator; the listings below are keyed by POSIX paths.
+const posixPath = (fsPath: string) => fsPath.replace(/\\/gu, '/');
 
 function directoryFileSystem(listing: Record<string, Array<[string, number]>>): TargetFileSystem {
     return {
         stat: async () => ({ type: FileType.Directory, ctime: 0, mtime: 0, size: 0 }) as vscode.FileStat,
-        readDirectory: async (source) => (listing[source.fsPath] ?? []) as [string, vscode.FileType][],
+        readDirectory: async (source) => (listing[posixPath(source.fsPath)] ?? []) as [string, vscode.FileType][],
     };
 }
 
@@ -167,7 +169,7 @@ test('directory listing skips hidden folders, node_modules and linked folders', 
     const read: string[] = [];
     const fileSystem = directoryFileSystem(listing);
     const { tree, truncated } = await buildDirectoryTree(uri('/r') as vscode.Uri, {
-        ...fileSystem, readDirectory: (source) => { read.push(source.fsPath); return fileSystem.readDirectory(source); },
+        ...fileSystem, readDirectory: (source) => { read.push(posixPath(source.fsPath)); return fileSystem.readDirectory(source); },
     });
     assert.equal(truncated, false);
     assert.deepEqual(read.sort(), ['/r', '/r/sub']);
@@ -197,7 +199,7 @@ test('directory listing bounds reads in flight across nesting levels', async () 
             peak = Math.max(peak, ++inFlight);
             await tick();
             inFlight--;
-            return (listing[source.fsPath] ?? []) as [string, vscode.FileType][];
+            return (listing[posixPath(source.fsPath)] ?? []) as [string, vscode.FileType][];
         },
     };
     const { tree } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { concurrency: 3 });
