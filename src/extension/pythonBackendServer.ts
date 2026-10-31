@@ -56,6 +56,8 @@ export class PythonBackendServer extends AnalysisClient {
     private watchdogTimer: ReturnType<typeof setInterval> | null = null;
     /** Requests given up on whose reply may still be on its way; it is dropped rather than reported as an orphan. */
     private readonly abandoned = new Set<string>();
+    /** Arms a pending request's timeout once Python reports that a worker has begun it. */
+    private readonly armOnStart = new Map<string, () => void>();
     private readyAt = 0;
     private crashes = 0;
     private restartNotBefore = 0;
@@ -68,7 +70,7 @@ export class PythonBackendServer extends AnalysisClient {
     /** A backend that ran this long before dying starts the backoff over. */
     private static readonly STABLE_RUN_MS = 60_000;
 
-    /** How long each command may take before the backend is presumed stuck and restarted; 0 leaves it to the caller. */
+    /** How long each command may run, from Python's `started` notification, before the backend is presumed stuck and restarted; 0 leaves it to the caller. */
     protected requestTimeoutsMs: Record<BackendCommand, number> = {
         analyze: 600_000,
         range: 60_000,
@@ -184,9 +186,14 @@ export class PythonBackendServer extends AnalysisClient {
         const entry = this.pending.get(id);
         const ownsId = (): boolean => entry !== undefined && this.pending.get(id) === entry;
         const timeoutMs = this.requestTimeoutsMs[command];
-        const timer = timeoutMs > 0 && entry
-            ? setTimeout(() => { if (ownsId()) this.cancelRequest(id, new BackendRequestTimeoutError(command, timeoutMs)); }, timeoutMs)
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        // Python holds a request behind a barrier on its file (a scan, say); only the time it runs counts.
+        const arm = timeoutMs > 0 && entry
+            ? (): void => {
+                timer = setTimeout(() => { if (ownsId()) this.cancelRequest(id, new BackendRequestTimeoutError(command, timeoutMs)); }, timeoutMs);
+            }
             : undefined;
+        if (arm) this.armOnStart.set(id, arm);
         const subscription = entry && cancellation?.onCancellationRequested(() => {
             if (ownsId()) this.abandon(id, new BackendRequestCancelledError(command));
         });
@@ -199,6 +206,7 @@ export class PythonBackendServer extends AnalysisClient {
             throw error;
         } finally {
             clearTimeout(timer);
+            if (arm && this.armOnStart.get(id) === arm) this.armOnStart.delete(id);
             subscription?.dispose();
         }
     }
@@ -291,6 +299,7 @@ export class PythonBackendServer extends AnalysisClient {
                         processStdoutLine(line, this.pending, {
                             onNotification: (message) => {
                                 if (message.type === 'heartbeat') { this.onHeartbeat(); }
+                                if (message.type === 'started') { this.onStarted(message.requestId); }
                             },
                             onDiagnostic: (diagnostic) => { this.reportDiagnostic(diagnostic); },
                         });
@@ -418,6 +427,12 @@ export class PythonBackendServer extends AnalysisClient {
 
     private onHeartbeat(): void {
         this.lastHeartbeatAt = Date.now();
+    }
+
+    private onStarted(requestId: string): void {
+        const arm = this.armOnStart.get(requestId);
+        this.armOnStart.delete(requestId);
+        arm?.();
     }
 
     private reportDiagnostic(diagnostic: BackendDiagnostic): void {

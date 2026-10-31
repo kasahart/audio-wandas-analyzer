@@ -73,6 +73,13 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     // Δ on request, under the overlay.
     await page.locator('[data-action="stage-diff"]').click();
     await expect(page.locator('[data-stage-diff]')).toBeVisible();
+    // The overlay is drawn at the height Δ leaves it, not stretched from the height it had alone: the pointer's
+    // marks fall on its lines rather than beside them.
+    const drawnAtShownSize = (): Promise<boolean> => page.locator('[data-stage-canvas="overlay"]').evaluate(canvas => {
+        const element = canvas as HTMLCanvasElement;
+        return element.clientHeight > 0 && Math.abs(element.height - Math.round(element.clientHeight * devicePixelRatio)) <= 1;
+    });
+    expect(await drawnAtShownSize()).toBe(true);
     // A box dragged on the plot zooms in; once it settles, only the part on screen is asked for.
     const plot = page.locator('[data-stage-canvas="overlay"]');
     const box = (await plot.boundingBox())!;
