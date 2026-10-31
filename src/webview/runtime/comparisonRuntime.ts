@@ -21,6 +21,7 @@ import {
 import { createAudioFader } from './audioFade';
 import { PlaybackController } from './playbackController';
 import { SpectrumRequestScheduler } from './spectrumRequestScheduler';
+import { LaneViewState } from './laneViewState';
 import { positionPopover } from './settingsPopover';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
 import { clampHeight, createHeightResize, type HeightKind } from './heightResize';
@@ -204,8 +205,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         timeMapping: getTrackTimeMapping,
         globalNormAt: globalNormFromTrackTime,
         durationSeconds: idx => state.results[idx]?.durationSeconds || 0,
-        loopRegion: () => loopRegion,
-        cursorNorm: () => cursorNorm,
+        loopRegion: () => viewState.loop,
+        cursorNorm: () => viewState.cursor,
         moveCursor,
         centerOn: norm => waveformView.centerOn(norm),
         invalidateSpectrumRequests: invalidateDesiredSpectrumSliceRequests,
@@ -283,7 +284,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         refresh(advanceCursor) {
             updateUiSmokeSpectrumState();
             if (advanceCursor) {
-                spectrumCursorNorm = cursorNorm;
+                spectrumCursorNorm = viewState.cursor;
             }
             refreshSpectrumViews();
         },
@@ -320,7 +321,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (kind === 'playback') {
-            queuePlaybackSpectrumRequests(cursorNorm);
+            queuePlaybackSpectrumRequests(viewState.cursor);
             return;
         }
         spectrumRequests.scheduleFrame(kind !== 'hover', true);
@@ -433,17 +434,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let spectrumCollapsed = persistedWebviewState.spectrumCollapsed !== false;
     let spectrumMaximized = false;
     const waveformView = new WaveformView();
-    let cursorNorm = 0; // グローバルカーソル（常に number）
+    const viewState = new LaneViewState({
+        scheduleRender,
+        showTime: updateCursorDisplay,
+        loopChanged() {
+            updateLoopTimeDisplay();
+            updateZoomToSelectionBtn();
+        },
+    });
     /**
      * The cursor moved to `norm` (clamped to the tracks): its readouts follow, and spectra asked for at the old
      * place are stale, except while playing, whose own requests keep up with it.
      */
     function moveCursor(norm: number, playing = false): void {
         if (!playing) invalidateDesiredSpectrumSliceRequests();
-        cursorNorm = Math.max(0, Math.min(1, norm));
-        updateCursorDisplay(cursorNorm);
+        viewState.setCursor(norm);
     }
-    let hoverNorm: number | null = null; // ホバープレビュー位置（null = 非表示）
     const spectrumHover = new SpectrumHover();
     let trackHeight = TRACK_HEIGHT_DEFAULT;
     let spectrumOverlayHeight = SPECTRUM_HEIGHT_DEFAULT;
@@ -460,12 +466,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let waveformMode: 'loop' | 'rect-zoom' = 'loop';
     let rectZoomSelection: RectZoomSelection | null = null;
     let dragState: WaveformDragState | null = null;
-    let loopRegion: LoopRegion | null = null;
-    /** The loop region set or cleared: its time readout and the zoom-to-selection button follow. */
     function setLoopRegion(region: LoopRegion | null): void {
-        loopRegion = region;
-        updateLoopTimeDisplay();
-        updateZoomToSelectionBtn();
+        viewState.setLoop(region);
     }
     let nextDefaultTrackColorIndex = 0;
     function createTrackRuntime(): TrackRuntimeState {
@@ -541,11 +543,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
         },
         range() {
-            if (!loopRegion) {
+            if (!viewState.loop) {
                 return null;
             }
             const span = trackStore.globalSpan();
-            return { startSeconds: span.startSec + loopRegion.start * span.spanSec, endSeconds: span.startSec + loopRegion.end * span.spanSec };
+            return { startSeconds: span.startSec + viewState.loop.start * span.spanSec, endSeconds: span.startSec + viewState.loop.end * span.spanSec };
         },
         analysisId: () => analysisId,
         settingsSignature: currentSettingsSignature,
@@ -988,7 +990,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             },
             'set-cursor': p => {
                 moveCursor(Number(p.cursorNorm));
-                scheduleRender();
                 scheduleSpectrumRefresh('immediate');
             },
             // A listed file shown as a track or taken off, as the entry table's slots and ＋ do.
@@ -1010,7 +1011,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const region = loopRegionFromPayload(p);
                 if (region) {
                     setLoopRegion(region);
-                    scheduleRender();
                 }
             },
             'set-spectrogram-display': p => {
@@ -1314,8 +1314,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const start = region ? globalNormFromTrackTime(i, region.start) : null;
                 const end = region ? globalNormFromTrackTime(i, region.end) : null;
                 const next = start !== null && end !== null && end > start ? { start, end } : null;
-                if (next?.start !== loopRegion?.start || next?.end !== loopRegion?.end) {
-                    if (!selectionBeforeStage) selectionBeforeStage = { region: loopRegion };
+                if (next?.start !== viewState.loop?.start || next?.end !== viewState.loop?.end) {
+                    if (!selectionBeforeStage) selectionBeforeStage = { region: viewState.loop };
                     setLoopRegion(next);
                 }
             }
@@ -1465,7 +1465,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 amplitudeZoomMinNorm: waveformView.amplitudeMin,
                 amplitudeZoomMaxNorm: waveformView.amplitudeMax,
                 rectZoomSelection: rectZoomSelection ? Object.assign({}, rectZoomSelection) : null,
-                cursorNorm: cursorNorm,
+                cursorNorm: viewState.cursor,
                 visibleSpectrumTrackCount: visibleSpectrumTrackCount,
                 contentType: contentType,
                 spectrumBandsPerOctave: spectrumBandsPerOctave,
@@ -1503,7 +1503,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     ...domSnapshotBase(document),
                     zoomStart: waveformView.start,
                     zoomEnd: waveformView.end,
-                    cursorNorm: cursorNorm,
+                    cursorNorm: viewState.cursor,
                     visibleSpectrumTrackCount: 0,
                     contentType: contentType,
                     reanalyzeBusy: isReanalyzeBusy(),
@@ -1964,19 +1964,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, style = CURSOR_LINE_STYLE) {
-        drawDashedTimeLine(ctx, cursorNorm, waveformView.timeRange(), W, H, style);
+        drawDashedTimeLine(ctx, viewState.cursor, waveformView.timeRange(), W, H, style);
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
-        if (hoverNorm !== null) {
-            drawDashedTimeLine(ctx, hoverNorm, waveformView.timeRange(), W, H, HOVER_LINE_STYLE);
+        if (viewState.hover !== null) {
+            drawDashedTimeLine(ctx, viewState.hover, waveformView.timeRange(), W, H, HOVER_LINE_STYLE);
         }
     }
     function drawLoopRegionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
-        if (!loopRegion) {
+        if (!viewState.loop) {
             return;
         }
         if (typeof window.paintLoopRegion === 'function') {
-            window.paintLoopRegion(ctx, W, H, loopRegion.start, loopRegion.end, waveformView.start, waveformView.end);
+            window.paintLoopRegion(ctx, W, H, viewState.loop.start, viewState.loop.end, waveformView.start, waveformView.end);
         }
     }
     function drawRectZoomSelectionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number) {
@@ -2075,7 +2075,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!badge) {
             return;
         }
-        badge.style.display = (loopRegion && playback.isElementPlaying()) ? 'inline' : 'none';
+        badge.style.display = (viewState.loop && playback.isElementPlaying()) ? 'inline' : 'none';
         updateLoopTimeDisplay();
     }
     function updateLoopTimeDisplay() {
@@ -2083,11 +2083,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!el) {
             return;
         }
-        if (!loopRegion) {
+        if (!viewState.loop) {
             el.style.display = 'none';
             return;
         }
-        el.textContent = loopRegionClockText(loopRegion, trackStore.globalSpan());
+        el.textContent = loopRegionClockText(viewState.loop, trackStore.globalSpan());
         el.style.display = 'inline';
     }
     function attachAudioEvents() {
@@ -2154,13 +2154,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const loopTimeDisplayEl = document.getElementById('loop-time-display');
         if (loopTimeDisplayEl) {
             loopTimeDisplayEl.addEventListener('click', function () {
-                if (!loopRegion) {
+                if (!viewState.loop) {
                     return;
                 }
                 if (!navigator.clipboard || !navigator.clipboard.writeText) {
                     return;
                 }
-                navigator.clipboard.writeText(loopRegionClockText(loopRegion, trackStore.globalSpan())).catch(function () { });
+                navigator.clipboard.writeText(loopRegionClockText(viewState.loop, trackStore.globalSpan())).catch(function () { });
             });
         }
         attachTrackLaneActions(tracksWrapper, {
@@ -2346,8 +2346,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return;
                 }
                 const step = arrowCursorStep(shiftKey, trackStore.globalSpan().spanSec, waveformView.start, waveformView.end, (active as HTMLCanvasElement).width || 800);
-                moveCursor(cursorNorm + direction * step);
-                scheduleRender();
+                moveCursor(viewState.cursor + direction * step);
             },
             arrowReleased: () => scheduleSpectrumRefresh('immediate'),
         });
@@ -2650,8 +2649,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     ...[1, 2, 3].map(slot => shown(slotted[slot])),
                     ...trackStore.activeIds().map(id => trackStore.require(id)).filter(record => !record.runtime.hidden),
                 ].filter(<T,>(record: T | null): record is T => record !== null);
-                if (loopRegion && contentType !== 'stage') {
-                    const selection = loopRegion;
+                if (viewState.loop && contentType !== 'stage') {
+                    const selection = viewState.loop;
                     const range = candidates.map(record => {
                         const mapping = getTrackTimeMapping(trackIndexForId(record.id));
                         return mapping ? { start: trackTimeFromGlobalNorm(mapping, selection.start), end: trackTimeFromGlobalNorm(mapping, selection.end) } : null;
@@ -2771,16 +2770,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         playback.setFollow(false);
     }
     function zoomToSelection() {
-        if (loopRegion) {
+        if (viewState.loop) {
             disableFollowCursor();
-            waveformView.showRegion(loopRegion, 0.05);
+            waveformView.showRegion(viewState.loop, 0.05);
             scheduleRender();
         }
     }
     function updateZoomToSelectionBtn() {
         var btn = buttonById(document, 'btn-zoom-to-selection');
         if (btn) {
-            btn.disabled = !loopRegion;
+            btn.disabled = !viewState.loop;
         }
     }
     function syncWaveformModeButton() {
@@ -2861,11 +2860,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         // Like the PNG: lanes out of view ask for their cursor spectra first, and the file is written once those arrived.
-        spectrumCursorNorm = cursorNorm;
+        spectrumCursorNorm = viewState.cursor;
         requestEveryCursorSpectrum();
         announce(STR.announceExportCsvStarted || 'CSV export started');
         taskStatus(STR.exportCsvBusy, 'busy');
-        writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000, cursorNorm);
+        writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000, viewState.cursor);
     }
     /** Asks for the cursor spectrum of every shown track, whether or not its lane or its small spectrum is on screen. */
     function requestEveryCursorSpectrum() {
@@ -2875,17 +2874,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const record = trackStore.require(trackId);
                 if (record.runtime.hidden) return;
                 channelsForResult(record.result).forEach(function (_, channelIndex: number) {
-                    extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
+                    extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, viewState.cursor, channelIndex);
                 });
             });
         } finally { drawEveryLane = false; }
     }
     function writeCsvWhenDetailed(waitFor: Set<string>, deadline: number, exportCursorNorm: number) {
         // The cursor moved while waiting: every track is asked again at the new position, so the file holds one cursor.
-        if (cursorNorm !== exportCursorNorm) {
-            spectrumCursorNorm = cursorNorm;
+        if (viewState.cursor !== exportCursorNorm) {
+            spectrumCursorNorm = viewState.cursor;
             requestEveryCursorSpectrum();
-            writeCsvWhenDetailed(openDetailRequestIds(), deadline, cursorNorm);
+            writeCsvWhenDetailed(openDetailRequestIds(), deadline, viewState.cursor);
             return;
         }
         let missing = false;
@@ -2898,12 +2897,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, cursorNorm, channelIndex);
+                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, viewState.cursor, channelIndex);
                 // A lane out of view may still hold the spectrum of an earlier cursor position while this one is on its way.
                 const cached = record.spectrumSliceCache.get(channelIndex);
-                const stale = cached?.settingsSignature === currentSpectrumDataSignature() && isSpectrumSliceRequestPendingForCursor(i, cursorNorm);
+                const stale = cached?.settingsSignature === currentSpectrumDataSignature() && isSpectrumSliceRequestPendingForCursor(i, viewState.cursor);
                 if (stale || !slice || !slice.values || slice.values.length === 0) {
-                    missing = missing || stale || trackLocalCursorNorm(i, cursorNorm) !== null;
+                    missing = missing || stale || trackLocalCursorNorm(i, viewState.cursor) !== null;
                     return;
                 }
                 tracks.push({ name: (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex), slice: slice });
@@ -2947,7 +2946,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         messaging.post({ type: 'save-recipe', filePath: record.result.filePath, ...(spectrumBandsPerOctave ? { bandsPerOctave: spectrumBandsPerOctave } : {}) });
     }
     function exportWavLoop() {
-        if (!loopRegion) {
+        if (!viewState.loop) {
             messaging.post({ type: 'show-info', message: STR.exportWavNoLoop });
             return;
         }
@@ -2955,8 +2954,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const span = trackStore.globalSpan();
-        const startSec = span.startSec + loopRegion.start * span.spanSec;
-        const endSec = span.startSec + loopRegion.end * span.spanSec;
+        const startSec = span.startSec + viewState.loop.start * span.spanSec;
+        const endSec = span.startSec + viewState.loop.end * span.spanSec;
         const visibleTracks = trackStore.activeIds()
             .map(trackId => trackStore.require(trackId))
             .filter(record => !record.runtime.hidden)
@@ -2969,8 +2968,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             type: 'export-wav-loop',
             filePaths: fileRegions.map(region => region.filePath),
             fileRegions,
-            startNorm: loopRegion.start,
-            endNorm: loopRegion.end,
+            startNorm: viewState.loop.start,
+            endNorm: viewState.loop.end,
         });
     }
     // --- Report export (builders live in shared/report/analysisReport) ---
@@ -2983,9 +2982,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return _activeReportRecords().map(record => ({ result: record.result, offsetSeconds: record.runtime.offsetSeconds }));
     }
     function _reportLoopRegion(): ReportLoopRegion | undefined {
-        if (!loopRegion) return undefined;
+        if (!viewState.loop) return undefined;
         const gs = trackStore.globalSpan();
-        return { globalStartSec: gs.startSec + loopRegion.start * gs.spanSec, globalEndSec: gs.startSec + loopRegion.end * gs.spanSec };
+        return { globalStartSec: gs.startSec + viewState.loop.start * gs.spanSec, globalEndSec: gs.startSec + viewState.loop.end * gs.spanSec };
     }
     function exportReport() {
         const reportRecords = _activeReportRecords();
@@ -3256,11 +3255,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const norm = hit.norm;
         // Same precedence as handleCanvasMouseDown so the hint names the drag that will run.
         const rectZoom = rectZoomOn(canvas);
-        const gripType = rectZoom ? null : loopGripAt(loopRegion, norm, waveformView.span());
+        const gripType = rectZoom ? null : loopGripAt(viewState.loop, norm, waveformView.span());
         const action = gripType ? STR.tooltipLoopResize
             : e.shiftKey ? STR.tooltipLoopOrShift
             : rectZoom ? STR.hintRectZoomDrag
-            : loopRegion && norm >= loopRegion.start && norm <= loopRegion.end ? STR.tooltipLoopClear
+            : viewState.loop && norm >= viewState.loop.start && norm <= viewState.loop.end ? STR.tooltipLoopClear
             : STR.tooltipLoopOrShift;
         hintFooter.show(action + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
         renderWithHoverAt(norm);
@@ -3292,7 +3291,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const norm = hit.norm;
             const ampNorm = waveformView.canvasYToAmplitude(y, canvas.height);
             const rectZoom = rectZoomOn(canvas);
-            const gripType = rectZoom ? null : loopGripAt(loopRegion, norm, waveformView.span());
+            const gripType = rectZoom ? null : loopGripAt(viewState.loop, norm, waveformView.span());
             dragState = {
                 trackId: trackId,
                 canvasId: canvas.id,
@@ -3352,7 +3351,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     updateUiSmokeWaveformState();
                 }
                 else {
-                    const region = loopRegionForDrag(dragState.dragType, dragState.startNorm, loopRegion, norm);
+                    const region = loopRegionForDrag(dragState.dragType, dragState.startNorm, viewState.loop, norm);
                     if (region) setLoopRegion(region);
                 }
                 updateCursorDisplay(norm);
@@ -3371,7 +3370,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (hit) {
                     moveCursor(hit.norm);
                     setLoopRegion(null);
-                    scheduleRender();
                 }
             }
         }
@@ -3396,22 +3394,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const canvas = under instanceof HTMLCanvasElement && under.classList.contains('track-canvas') ? under : null;
             const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX) : null;
             if (hit) renderWithHoverAt(hit.norm);
-            else { clearHover(); updateCursorDisplay(cursorNorm); }
+            else { clearHover(); updateCursorDisplay(viewState.cursor); }
         }
     }
     function renderWithHoverAt(norm: number) {
-        hoverNorm = norm;
-        scheduleRender();
-        updateCursorDisplay(norm);
+        viewState.setHover(norm);
     }
     function clearHover() {
-        if (hoverNorm === null) {
-            return;
+        if (viewState.clearHover()) {
+            hintFooter.clear();
         }
-        hoverNorm = null;
-        hintFooter.clear();
-        scheduleRender();
-        updateCursorDisplay(cursorNorm);
     }
     function updateCursorDisplay(norm: number) {
         const gs = trackStore.globalSpan();
@@ -3462,14 +3454,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const trackIndex = record.protocolIndex;
             const result = record.result;
             const channelIndex = typeof spectrumHover.channelIndex === 'number' ? spectrumHover.channelIndex : 0;
-            const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
+            const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, viewState.cursor, channelIndex);
             const nextNorm = slice ? steppedTrackSpectrumHoverNorm(slice, spectrumHover.norm, spectrumView.freqStart, spectrumView.freqEnd, deltaIdx) : null;
             if (nextNorm !== null) {
                 spectrumHover.norm = nextNorm;
             }
             return;
         }
-        const slices = spectrumSeriesAt(cursorNorm).series;
+        const slices = spectrumSeriesAt(viewState.cursor).series;
         if (slices.length === 0) {
             return;
         }
@@ -3817,7 +3809,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     attachAudioEvents();
                 }
             }
-            updateCursorDisplay(hoverNorm ?? cursorNorm);
+            updateCursorDisplay(viewState.hover ?? viewState.cursor);
             updateLoopTimeDisplay();
             overlaySpectrumPainted = false;
             announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
