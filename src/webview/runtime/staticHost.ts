@@ -235,7 +235,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     // The footer row keeps the version at its right end, after the Web controls.
     const appVersion = document.getElementById('app-version');
     if (appVersion) appVersion.before(bar, pythonIndicator);
-    else document.body.append(bar, pythonIndicator);
+    else (document.getElementById('app-footer') ?? document.body).append(bar, pythonIndicator);
     // The toolbar text alone was easy to miss, so the boot also shows a centred card; it ignores pointer events because commands already wait for the boot.
     const pythonLoading = document.createElement('div');
     pythonLoading.setAttribute('data-python-loading', '');

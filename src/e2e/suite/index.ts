@@ -63,7 +63,7 @@ interface TestSnapshot {
             viewportHeight: number;
             tracksWrapper: VerticalExtent | null;
             spectrumSection: VerticalExtent | null;
-            hintFooter: VerticalExtent | null;
+            footer: VerticalExtent | null;
         };
         waveformRangePopover: { open: boolean; min: string | null; max: string | null } | null;
         audioContextState: string | null;
@@ -711,11 +711,11 @@ export async function run(): Promise<void> {
             run: async () => {
                 const snapshot = await analyzeSingleTrackInWaveformMode();
                 const layout = snapshot.renderedUi?.layout;
-                assert.ok(layout?.tracksWrapper && layout.spectrumSection && layout.hintFooter, `layout boxes missing: ${JSON.stringify(layout)}`);
+                assert.ok(layout?.tracksWrapper && layout.spectrumSection && layout.footer, `layout boxes missing: ${JSON.stringify(layout)}`);
                 const diag = JSON.stringify(layout);
                 assert.ok(layout.tracksWrapper.bottom <= layout.spectrumSection.top + 1, `tracks overlap the spectrum: ${diag}`);
-                assert.equal(Math.round(layout.spectrumSection.bottom), Math.round(layout.hintFooter.top), `spectrum is not docked on the footer: ${diag}`);
-                assert.ok(Math.abs(layout.hintFooter.bottom - layout.viewportHeight) <= 1, `footer is not at the bottom: ${diag}`);
+                assert.equal(Math.round(layout.spectrumSection.bottom), Math.round(layout.footer.top), `spectrum is not docked on the footer: ${diag}`);
+                assert.ok(Math.abs(layout.footer.bottom - layout.viewportHeight) <= 1, `footer is not at the bottom: ${diag}`);
             },
         },
         {

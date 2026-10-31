@@ -584,14 +584,14 @@ export function renderComparisonStyles(): string {
         .entry-keys .entry-key { min-height: 20px; font-size: 11px; border-radius: 3px; padding: 0 6px; }
         /* The bottom row: hints on the left, the version small at the right end. */
         #app-footer {
-            display: flex; align-items: center; flex-shrink: 0; height: 22px;
+            display: flex; align-items: center; flex-shrink: 0; height: 22px; overflow: hidden;
             font-size: 11px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line);
         }
         #hint-footer {
             flex: 1; align-self: stretch; min-width: 0; line-height: 21px; padding: 0 10px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        #app-version { flex: none; padding: 0 10px; font-family: var(--font-mono); font-size: 10px; opacity: 0.8; white-space: nowrap; }
+        #app-version { flex: none; padding: 0 10px; font-family: var(--font-mono); white-space: nowrap; }
         /* On the entry table and the comparison the footer is where symbols explain themselves, so it reads as text, not as a status line. */
         body:has(#entry-screen:not([hidden])) #hint-footer { color: var(--text); font-size: 12px; }
 

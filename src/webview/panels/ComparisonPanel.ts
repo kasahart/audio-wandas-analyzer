@@ -69,7 +69,7 @@ interface ComparisonPanelRenderedUi {
         viewportHeight: number;
         tracksWrapper: { top: number; bottom: number } | null;
         spectrumSection: { top: number; bottom: number } | null;
-        hintFooter: { top: number; bottom: number } | null;
+        footer: { top: number; bottom: number } | null;
     };
     waveformRangePopover: { open: boolean; min: string | null; max: string | null } | null;
     audioContextState: string | null;

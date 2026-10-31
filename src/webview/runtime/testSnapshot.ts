@@ -49,7 +49,7 @@ export function shellSnapshot(doc: Document, audioContextState: string | null) {
             viewportHeight: doc.documentElement.clientHeight,
             tracksWrapper: verticalExtent(doc, 'tracks-wrapper'),
             spectrumSection: verticalExtent(doc, 'spectrum-section'),
-            hintFooter: verticalExtent(doc, 'hint-footer'),
+            footer: verticalExtent(doc, 'app-footer'),
         },
         waveformRangePopover: popover ? {
             open: popover.style.display === 'block',
