@@ -16,13 +16,12 @@ import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
     globalNormFromTrackTime as mapGlobalNormFromTrackTime,
-    loopRestartTime,
-    passFadeSeconds,
-    playbackEndFade,
-    playbackStartTime,
     trackTimeFromGlobalNorm,
 } from './playback';
-import { createAudioFader, FADE_SECONDS } from './audioFade';
+import { createAudioFader } from './audioFade';
+import { PlaybackController } from './playbackController';
+import { SpectrumRequestScheduler } from './spectrumRequestScheduler';
+import { LaneViewState } from './laneViewState';
 import { positionPopover } from './settingsPopover';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
 import { clampHeight, createHeightResize, type HeightKind } from './heightResize';
@@ -32,14 +31,13 @@ import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
 import { arrowCursorStep, isTextEntryTag, type GlobalShortcutAction } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
-import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
+import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
 import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
-import { attachTrackAudioListeners } from './trackAudioEvents';
 import { attachOverlaySpectrumDoubleClick, attachOverlaySpectrumHints } from './overlaySpectrumEvents';
 import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
 import { keyRouterFor } from './keyRouter';
@@ -79,11 +77,12 @@ import {
 } from './spectrumRuntime';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
+import { RuntimeEventFeed } from './runtimeEvents';
 import { TrackStore } from './trackStore';
 import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
-import { createEntryScreen, type EntryScreenDeps } from './entryRuntime';
+import { createEntryScreen } from './entryRuntime';
 import { diffHeadline } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { channelResult } from '../../shared/recipe/channelSelection';
@@ -91,7 +90,7 @@ import { reportFiles } from './compareReport';
 import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
 import { ROLE_COLORS, useLightRoleColors } from '../../shared/gui/roleColors';
-import { createTrackStageMode, type StageTrack, type TrackStageDeps, type TrackStageMode } from './trackStageMode';
+import { createTrackStageMode, type StageTrack, type TrackStageMode } from './trackStageMode';
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
 import {
@@ -113,6 +112,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const state = normalizeRuntimeState(injectedState);
     const messaging = new HostMessenger(vscode, window);
     const testBridge = new ComparisonTestBridge(window, messaging);
+    const runtimeEvents = new RuntimeEventFeed();
+    testBridge.observe(runtimeEvents);
     const requestAnimationFrame = window.requestAnimationFrame.bind(window);
     const cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
     const setTimeout = (handler: TimerHandler, timeout?: number) => window.setTimeout(handler, timeout);
@@ -187,35 +188,41 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         el.textContent = '';
-        if (testBridge.state !== undefined) {
-            // test environment: set synchronously so Playwright can observe it
-            el.textContent = msg;
-        }
-        else {
-            requestAnimationFrame(function () { el.textContent = msg; });
-        }
+        requestAnimationFrame(function () { el.textContent = msg; });
     }
     // ── Runtime state ──
     let rafPending = false;
     const canvasWidthCache: Record<string, string> = {};
-    let playbackEl: HTMLAudioElement | null = null;
-    let playbackRafId: number | null = null;
     const audioFader = createAudioFader();
-    let endFadeTarget: number | null = null;
-    let lastPlayRejection: string | null = null;
-    let passFade = FADE_SECONDS;
-    // Queuing the end fade further ahead would let a media stall silence the track before it reaches the end.
-    const END_FADE_LOOKAHEAD_SECONDS = 0.25;
-    let playbackTrackId: TrackId | null = null;
+    const playback = new PlaybackController({
+        fader: audioFader,
+        audioFor: getTrackAudio,
+        indexOf: trackId => trackStore.protocolIndexForId(trackId),
+        requireIndex: trackIndexForId,
+        timeMapping: getTrackTimeMapping,
+        globalNormAt: globalNormFromTrackTime,
+        durationSeconds: idx => state.results[idx]?.durationSeconds || 0,
+        loopRegion: () => viewState.loop,
+        cursorNorm: () => viewState.cursor,
+        moveCursor,
+        centerOn: norm => waveformView.centerOn(norm),
+        invalidateSpectrumRequests: invalidateDesiredSpectrumSliceRequests,
+        scheduleRender,
+        refreshSpectrum: scheduleSpectrumRefresh,
+        showTime: seconds => updatePlaybackDisplay(seconds),
+        syncLoopBadge: updateLoopBadge,
+        requestAnimationFrame,
+        cancelAnimationFrame,
+    });
+    playback.onChange(function (change) {
+        if (change === 'playback') {
+            updatePlaybackButtons();
+            return;
+        }
+        buttonMatching(document, '[data-action="toggle-follow-cursor"]')?.classList.toggle('is-active', playback.follow);
+    });
     /** The file the entry table last drew as playing (its row's ■). */
     let entryPlaying: string | null = null;
-    let followCursor = false;
-    const SPECTRUM_PLAYBACK_TARGET_FRAME_MS = 1000 / 32;
-    let spectrumRafPending = false;
-    let spectrumTimerId: number | null = null;
-    let spectrumRequestTimerId: number | null = null;
-    let lastSpectrumRequestAt = -Infinity;
-    let spectrumAllowsSliceRequests = true;
     let spectrumCursorNorm = 0;
     const spectrogramRasterCache = new Map<string, SpectrogramRasterCacheEntry>();
     let attachRebuiltTrackEvents: () => void = () => undefined;
@@ -226,82 +233,94 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         rafPending = true;
         requestAnimationFrame(function () { rafPending = false; renderAll(); });
     }
-    function updateUiSmokeSpectrumState() {
-        const uiSmokeState = testBridge.state;
-        if (!uiSmokeState) {
-            return false;
-        }
-        uiSmokeState.spectrumZoom = {
-            specFreqStart: spectrumView.freqStart,
-            specFreqEnd: spectrumView.freqEnd,
-            trackHeight: trackHeight,
-            spectrumOverlayHeight: spectrumOverlayHeight,
-            specDbMin: spectrumView.dbMin,
-            specDbMax: spectrumView.dbMax,
-        };
-        return true;
+    function emitSpectrumZoom() {
+        runtimeEvents.emit(() => ({
+            type: 'spectrum-zoom',
+            snapshot: {
+                specFreqStart: spectrumView.freqStart,
+                specFreqEnd: spectrumView.freqEnd,
+                trackHeight: trackHeight,
+                spectrumOverlayHeight: spectrumOverlayHeight,
+                specDbMin: spectrumView.dbMin,
+                specDbMax: spectrumView.dbMax,
+            },
+        }));
     }
-    function updateUiSmokeWaveformState() {
-        const uiSmokeState = testBridge.state;
-        if (!uiSmokeState) {
-            return;
-        }
-        uiSmokeState.zoomStart = waveformView.start;
-        uiSmokeState.zoomEnd = waveformView.end;
-        uiSmokeState.amplitudeZoomMinNorm = waveformView.amplitudeMin;
-        uiSmokeState.amplitudeZoomMaxNorm = waveformView.amplitudeMax;
-        uiSmokeState.rectZoomSelection = rectZoomSelection ? Object.assign({}, rectZoomSelection) : null;
+    function emitWaveformZoom() {
+        runtimeEvents.emit(() => ({
+            type: 'waveform-zoom',
+            snapshot: {
+                zoomStart: waveformView.start,
+                zoomEnd: waveformView.end,
+                amplitudeZoomMinNorm: waveformView.amplitudeMin,
+                amplitudeZoomMaxNorm: waveformView.amplitudeMax,
+                rectZoomSelection: rectZoomSelection ? Object.assign({}, rectZoomSelection) : null,
+            },
+        }));
     }
     function spectrumNow() {
         return (typeof performance !== 'undefined' && performance && typeof performance.now === 'function')
             ? performance.now()
             : Date.now();
     }
-    function runSpectrumRefresh(allowSliceRequests: boolean, advanceCursor: boolean) {
-        updateUiSmokeSpectrumState();
-        if (advanceCursor !== false) {
-            spectrumCursorNorm = cursorNorm;
-        }
-        spectrumRafPending = false;
-        if (spectrumTimerId !== null) {
-            clearTimeout(spectrumTimerId);
-            spectrumTimerId = null;
-        }
-        const prevAllows = spectrumAllowsSliceRequests;
-        spectrumAllowsSliceRequests = allowSliceRequests !== false;
-        try {
+    interface DesiredSpectrumSliceRequest extends LazyRequestState {
+        trackIndex: number;
+        bandsPerOctave: SpectrumBandsSetting;
+        filePath: string;
+        generation: number;
+        cursorNorm: number;
+        globalCursorNorm: number;
+        requestedAt: number;
+    }
+    const spectrumRequests = new SpectrumRequestScheduler<DesiredSpectrumSliceRequest>({
+        now: spectrumNow,
+        setTimeout: (handler, ms) => window.setTimeout(handler, ms),
+        clearTimeout,
+        requestAnimationFrame,
+        refresh(advanceCursor) {
+            emitSpectrumZoom();
+            if (advanceCursor) {
+                spectrumCursorNorm = viewState.cursor;
+            }
             refreshSpectrumViews();
-        }
-        finally {
-            spectrumAllowsSliceRequests = prevAllows;
-        }
-    }
-    function scheduleSpectrumFrame(allowSliceRequests: boolean, advanceCursor: boolean) {
-        if (spectrumRafPending) {
-            return;
-        }
-        spectrumRafPending = true;
-        requestAnimationFrame(function () { runSpectrumRefresh(allowSliceRequests, advanceCursor); });
-    }
+        },
+        isCurrent(request) {
+            const record = trackStore.get(request.trackId);
+            const currentTrackIndex = record ? trackStore.protocolIndexForId(record.id) : null;
+            return !!record && currentTrackIndex !== null && currentTrackIndex === request.trackIndex
+                && request.analysisId === analysisId
+                && request.settingsSignature === currentSpectrumDataSignature()
+                && !record.runtime.hidden && !record.result.error;
+        },
+        send(request) {
+            trackStore.require(request.trackId).requests.ask('slice', request.requestId, String(request.cursorNorm), request);
+            messaging.post({
+                type: 'request-spectrum-slice',
+                requestId: request.requestId,
+                analysisId: request.analysisId,
+                settingsSignature: request.settingsSignature,
+                trackIndex: request.trackIndex,
+                filePath: request.filePath,
+                cursorNorm: request.cursorNorm,
+                ...(request.bandsPerOctave ? { bandsPerOctave: request.bandsPerOctave } : {}),
+            });
+        },
+    });
     function flushSpectrumRefresh() {
-        runSpectrumRefresh(true, true);
+        spectrumRequests.runFrame(true, true);
     }
     function scheduleSpectrumRefresh(mode: string) {
-        updateUiSmokeSpectrumState();
+        emitSpectrumZoom();
         const kind = mode || 'interactive';
         if (kind === 'immediate') {
             flushSpectrumRefresh();
             return;
         }
         if (kind === 'playback') {
-            queuePlaybackSpectrumRequests(cursorNorm);
+            queuePlaybackSpectrumRequests(viewState.cursor);
             return;
         }
-        if (spectrumTimerId !== null) {
-            clearTimeout(spectrumTimerId);
-            spectrumTimerId = null;
-        }
-        scheduleSpectrumFrame(kind !== 'hover', true);
+        spectrumRequests.scheduleFrame(kind !== 'hover', true);
     }
     // 'stage': every lane draws one step of the scan Recipe (trackStageMode.ts); it is not kept across sessions.
     /** The steps mode (created once the entry table it reads its Recipe from exists). */
@@ -411,17 +430,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let spectrumCollapsed = persistedWebviewState.spectrumCollapsed !== false;
     let spectrumMaximized = false;
     const waveformView = new WaveformView();
-    let cursorNorm = 0; // グローバルカーソル（常に number）
+    const viewState = new LaneViewState({
+        scheduleRender,
+        showTime: updateCursorDisplay,
+        loopChanged() {
+            updateLoopTimeDisplay();
+            updateZoomToSelectionBtn();
+        },
+    });
     /**
      * The cursor moved to `norm` (clamped to the tracks): its readouts follow, and spectra asked for at the old
      * place are stale, except while playing, whose own requests keep up with it.
      */
     function moveCursor(norm: number, playing = false): void {
         if (!playing) invalidateDesiredSpectrumSliceRequests();
-        cursorNorm = Math.max(0, Math.min(1, norm));
-        updateCursorDisplay(cursorNorm);
+        viewState.setCursor(norm);
     }
-    let hoverNorm: number | null = null; // ホバープレビュー位置（null = 非表示）
     const spectrumHover = new SpectrumHover();
     let trackHeight = TRACK_HEIGHT_DEFAULT;
     let spectrumOverlayHeight = SPECTRUM_HEIGHT_DEFAULT;
@@ -437,14 +461,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // ── 波形モード ────────────────────────────────────────
     let waveformMode: 'loop' | 'rect-zoom' = 'loop';
     let rectZoomSelection: RectZoomSelection | null = null;
-    let playbackStartNorm = 0; // 再生開始位置の記憶
     let dragState: WaveformDragState | null = null;
-    let loopRegion: LoopRegion | null = null;
-    /** The loop region set or cleared: its time readout and the zoom-to-selection button follow. */
     function setLoopRegion(region: LoopRegion | null): void {
-        loopRegion = region;
-        updateLoopTimeDisplay();
-        updateZoomToSelectionBtn();
+        viewState.setLoop(region);
     }
     let nextDefaultTrackColorIndex = 0;
     function createTrackRuntime(): TrackRuntimeState {
@@ -520,11 +539,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
         },
         range() {
-            if (!loopRegion) {
+            if (!viewState.loop) {
                 return null;
             }
             const span = trackStore.globalSpan();
-            return { startSeconds: span.startSec + loopRegion.start * span.spanSec, endSeconds: span.startSec + loopRegion.end * span.spanSec };
+            return { startSeconds: span.startSec + viewState.loop.start * span.spanSec, endSeconds: span.startSec + viewState.loop.end * span.spanSec };
         },
         analysisId: () => analysisId,
         settingsSignature: currentSettingsSignature,
@@ -571,18 +590,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         },
     }, STR);
     let overlaySpectrumPainted = false;
-    interface DesiredSpectrumSliceRequest extends LazyRequestState {
-        trackIndex: number;
-        bandsPerOctave: SpectrumBandsSetting;
-        filePath: string;
-        generation: number;
-        cursorNorm: number;
-        globalCursorNorm: number;
-        requestedAt: number;
-    }
-    let spectrumRequestGeneration = 0;
-    let activeSpectrumSliceRequest: DesiredSpectrumSliceRequest | null = null;
-    const desiredSpectrumSliceRequests = new Map<string, DesiredSpectrumSliceRequest>();
     function currentSettingsSignature() {
         try {
             const settings = __spectrogramSettings;
@@ -600,12 +607,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return trackId;
     }
     function invalidateDesiredSpectrumSliceRequests() {
-        spectrumRequestGeneration += 1;
-        desiredSpectrumSliceRequests.clear();
-        if (spectrumRequestTimerId !== null) {
-            clearTimeout(spectrumRequestTimerId);
-            spectrumRequestTimerId = null;
-        }
+        spectrumRequests.invalidate();
     }
     function spectrumReadoutTrackLabel(result: ComparisonTrackState, channelIndex: number) {
         const channels = channelsForResult(result);
@@ -679,7 +681,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
         }
         record.requests.drop('detail');
-        desiredSpectrumSliceRequests.delete(spectrumSliceRequestKey(record.id));
+        spectrumRequests.drop(spectrumSliceRequestKey(record.id));
         record.requests.drop('slice');
         record.spectrumSliceCache.clear();
         record.spectrumPainted.clear();
@@ -704,7 +706,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function isSpectrumSliceRequestPendingForCursor(i: number, cursorNormValue: number) {
         const record = trackRecordAtIndex(i);
         const pending = record
-            ? desiredSpectrumSliceRequests.get(spectrumSliceRequestKey(record.id))
+            ? spectrumRequests.desiredFor(spectrumSliceRequestKey(record.id))
                 || record.requests.pending('slice')?.meta
             : undefined;
         if (!pending) {
@@ -720,7 +722,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function requestSpectrumSlice(i: number, cursorNormValue: number) {
         // The folded cursor-spectrum panel leaves each lane's own small spectrum: only lanes near the view need theirs.
-        if (!spectrumAllowsSliceRequests || (spectrumCollapsed && !laneInView(i))) {
+        if (!spectrumRequests.allowsSliceRequests || (spectrumCollapsed && !laneInView(i))) {
             return;
         }
         const result = state.results[i];
@@ -738,12 +740,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const key = spectrumSliceRequestKey(record.id);
-        const pending = desiredSpectrumSliceRequests.get(key) || record.requests.pending('slice')?.meta;
+        const pending = spectrumRequests.desiredFor(key) || record.requests.pending('slice')?.meta;
         if (pending && pending.settingsSignature === settingsSignature && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
             return;
         }
         const requestId = nextRequestId('slice', i);
-        desiredSpectrumSliceRequests.set(key, {
+        spectrumRequests.want(key, {
             trackId: record.id,
             requestId: requestId,
             analysisId: analysisId,
@@ -753,10 +755,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             trackIndex: i,
             bandsPerOctave: spectrumBandsPerOctave,
             filePath: result.filePath,
-            generation: spectrumRequestGeneration,
+            generation: spectrumRequests.generation,
             requestedAt: spectrumNow(),
         });
-        pumpSpectrumSliceRequests();
     }
     function queuePlaybackSpectrumRequests(cursorNormValue: number) {
         trackStore.activeIds().forEach(function (trackId) {
@@ -765,54 +766,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 requestSpectrumSlice(index, cursorNormValue);
             }
         });
-    }
-    function pumpSpectrumSliceRequests() {
-        if (activeSpectrumSliceRequest) {
-            return;
-        }
-        if (desiredSpectrumSliceRequests.size > 0) {
-            const remainingMs = SPECTRUM_PLAYBACK_TARGET_FRAME_MS - (spectrumNow() - lastSpectrumRequestAt);
-            if (remainingMs > 1) {
-                if (spectrumRequestTimerId === null) {
-                    spectrumRequestTimerId = window.setTimeout(function () {
-                        spectrumRequestTimerId = null;
-                        pumpSpectrumSliceRequests();
-                    }, remainingMs);
-                }
-                return;
-            }
-        }
-        while (desiredSpectrumSliceRequests.size > 0) {
-            const entry = desiredSpectrumSliceRequests.entries().next().value as [string, DesiredSpectrumSliceRequest] | undefined;
-            if (!entry) {
-                return;
-            }
-            const [key, request] = entry;
-            desiredSpectrumSliceRequests.delete(key);
-            const record = trackStore.get(request.trackId);
-            const currentTrackIndex = record ? trackStore.protocolIndexForId(record.id) : null;
-            if (!record || currentTrackIndex === null || currentTrackIndex !== request.trackIndex
-                || request.generation !== spectrumRequestGeneration
-                || request.analysisId !== analysisId
-                || request.settingsSignature !== currentSpectrumDataSignature()
-                || record.runtime.hidden || record.result.error) {
-                continue;
-            }
-            activeSpectrumSliceRequest = request;
-            lastSpectrumRequestAt = spectrumNow();
-            record.requests.ask('slice', request.requestId, String(request.cursorNorm), request);
-            messaging.post({
-                type: 'request-spectrum-slice',
-                requestId: request.requestId,
-                analysisId: request.analysisId,
-                settingsSignature: request.settingsSignature,
-                trackIndex: request.trackIndex,
-                filePath: request.filePath,
-                cursorNorm: request.cursorNorm,
-                ...(request.bandsPerOctave ? { bandsPerOctave: request.bandsPerOctave } : {}),
-            });
-            return;
-        }
     }
     function applySpectrumDisplaySettings(slice: SpectrumSlice) {
         const displaySettings = __spectrogramSettings.display;
@@ -912,25 +865,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!msg || (msg.type !== 'spectrum-slice-result' && msg.type !== 'spectrum-slice-error')) {
             return;
         }
-        const active = activeSpectrumSliceRequest;
-        if (!active || active.requestId !== msg.requestId) {
+        const active = spectrumRequests.settle(msg.requestId);
+        if (!active) {
             return;
         }
-        activeSpectrumSliceRequest = null;
         const i = msg.trackIndex;
         const trackId = trackIdAtProtocolBoundary(i, msg.type);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
-            pumpSpectrumSliceRequests();
+            spectrumRequests.pump();
             return;
         }
         const pending = record.requests.answering('slice', msg.requestId)?.meta;
         if (!isResponseToLazyRequest(pending, trackId, msg)) {
-            pumpSpectrumSliceRequests();
+            spectrumRequests.pump();
             return;
         }
         record.requests.settle(msg.requestId);
-        const isCurrent = active.generation === spectrumRequestGeneration
+        const isCurrent = active.generation === spectrumRequests.generation
             && pending.analysisId === analysisId
             && pending.settingsSignature === currentSpectrumDataSignature();
         if (msg.type === 'spectrum-slice-result' && isCurrent) {
@@ -938,22 +890,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 record.spectrumSliceCache.set(slice.channelIndex, slice);
             });
             spectrumCursorNorm = active.globalCursorNorm;
-            if (testBridge.state) {
-                testBridge.state.spectrumPerformance = {
+            runtimeEvents.emit(() => ({
+                type: 'spectrum-slice-timing',
+                timing: {
                     requestId: msg.requestId,
                     cursorNorm: active.cursorNorm,
                     backendComputeMs: msg.computeMs,
                     cursorToResponseMs: Math.max(0, spectrumNow() - active.requestedAt),
                     responseAt: spectrumNow(),
                     inFlight: 0,
-                    desiredCount: desiredSpectrumSliceRequests.size,
-                };
-            }
+                    desiredCount: spectrumRequests.desiredCount,
+                },
+            }));
         }
-        scheduleSpectrumFrame(false, false);
+        spectrumRequests.scheduleFrame(false, false);
         scheduleRender();
         requestAnimationFrame(function () { publishTestSnapshot(); });
-        pumpSpectrumSliceRequests();
+        spectrumRequests.pump();
     });
     messaging.onMessage(function (msg) {
         if (msg && pairPanel.handleMessage(msg)) {
@@ -1034,7 +987,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             },
             'set-cursor': p => {
                 moveCursor(Number(p.cursorNorm));
-                scheduleRender();
                 scheduleSpectrumRefresh('immediate');
             },
             // A listed file shown as a track or taken off, as the entry table's slots and ＋ do.
@@ -1056,7 +1008,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const region = loopRegionFromPayload(p);
                 if (region) {
                     setLoopRegion(region);
-                    scheduleRender();
                 }
             },
             'set-spectrogram-display': p => {
@@ -1179,8 +1130,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function setFilesShown(filePaths: readonly string[], shown: boolean) {
         if (shown) {
             // A hidden track asked for again is shown again.
-            const unhidden = filePaths.map(trackRecordForPath).filter(record => record?.runtime.hidden);
-            unhidden.forEach(record => { record!.runtime.hidden = false; });
+            const unhidden = filePaths.map(trackRecordForPath).filter((record): record is NonNullable<typeof record> => !!record?.runtime.hidden);
+            unhidden.forEach(record => { record.runtime.hidden = false; });
             if (unhidden.length) {
                 updateVisibility();
                 scheduleRender();
@@ -1209,11 +1160,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const filePath = pendingPlay;
         pendingPlay = null;
         const trackId = trackStore.activeIds().find(id => trackStore.require(id).result.filePath === filePath);
-        if (trackId) togglePlayback(trackId);
+        if (trackId) playback.toggle(trackId);
     }
     const entryScreen = createEntryScreen({
         document,
-        window: window as unknown as EntryScreenDeps['window'],
+        window,
         strings: STR,
         dock: document.getElementById('entry-dock'),
         maximizedChanged(maximized) {
@@ -1235,7 +1186,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         setShownMany: (filePaths, shown) => setFilesShown(filePaths, shown),
         play(filePath) {
             const record = trackRecordForPath(filePath);
-            if (record && !record.runtime.hidden) { togglePlayback(record.id); return; }
+            if (record && !record.runtime.hidden) { playback.toggle(record.id); return; }
             // Not a track yet (or hidden): shown as one, it plays once analysed.
             pendingPlay = filePath;
             setFilesShown([filePath], true);
@@ -1248,7 +1199,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const record = trackRecordForPath(filePath);
             if (!record) return;
             record.runtime.hidden = hidden;
-            if (hidden && record.id === playbackTrackId) stopPlayback(record.id);
+            if (hidden && record.id === playback.trackId) playback.stop(record.id);
             updateVisibility();
             scheduleRender();
             scheduleSpectrumRefresh('immediate');
@@ -1280,7 +1231,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         saveFolder: (folder, files) => messaging.post({ type: 'save-report-folder', folder, files }),
         download(csv, fileName) {
             if (messaging.downloadFile(csv, fileName, 'text/csv;charset=utf-8')) return;
-            downloadEntryCsv(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), fileName);
+            downloadEntryCsv(document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), fileName);
         },
     });
     if (state.entry && allSelectableFilePaths.length) {
@@ -1291,7 +1242,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         .reduce<number | undefined>((fewest, record) => Math.min(fewest ?? Infinity, record.result.channelCount), undefined);
     stageMode = createTrackStageMode({
         document,
-        window: window as unknown as TrackStageDeps['window'],
+        window,
         strings: STR,
         post: message => messaging.post(message),
         // The steps the comparison runs are bounded by the tracks it compares, not every file of the table.
@@ -1360,12 +1311,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const start = region ? globalNormFromTrackTime(i, region.start) : null;
                 const end = region ? globalNormFromTrackTime(i, region.end) : null;
                 const next = start !== null && end !== null && end > start ? { start, end } : null;
-                if (next?.start !== loopRegion?.start || next?.end !== loopRegion?.end) {
-                    if (!selectionBeforeStage) selectionBeforeStage = { region: loopRegion };
+                if (next?.start !== viewState.loop?.start || next?.end !== viewState.loop?.end) {
+                    if (!selectionBeforeStage) selectionBeforeStage = { region: viewState.loop };
                     setLoopRegion(next);
                 }
             }
-            togglePlayback(record.id);
+            playback.toggle(record.id);
             scheduleRender();
         },
         playing: () => playingPath(),
@@ -1511,7 +1462,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 amplitudeZoomMinNorm: waveformView.amplitudeMin,
                 amplitudeZoomMaxNorm: waveformView.amplitudeMax,
                 rectZoomSelection: rectZoomSelection ? Object.assign({}, rectZoomSelection) : null,
-                cursorNorm: cursorNorm,
+                cursorNorm: viewState.cursor,
                 visibleSpectrumTrackCount: visibleSpectrumTrackCount,
                 contentType: contentType,
                 spectrumBandsPerOctave: spectrumBandsPerOctave,
@@ -1537,7 +1488,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 entry: entryScreen.snapshot(),
                 comparison: stageMode?.snapshot() ?? null,
                 ...shellSnapshot(document, audioFader.contextState()),
-                lastPlayRejection,
+                lastPlayRejection: playback.lastPlayRejection,
             }, actionId);
     }
     function publishTestSnapshotSafe(actionId?: string) {
@@ -1549,7 +1500,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     ...domSnapshotBase(document),
                     zoomStart: waveformView.start,
                     zoomEnd: waveformView.end,
-                    cursorNorm: cursorNorm,
+                    cursorNorm: viewState.cursor,
                     visibleSpectrumTrackCount: 0,
                     contentType: contentType,
                     reanalyzeBusy: isReanalyzeBusy(),
@@ -1604,10 +1555,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 el.textContent = text;
             }
         };
-        const folderButton = requiredElementById(document, 'selection-toolbar').querySelector<HTMLElement>('[data-action="open-folder"]')!;
-        const folder = selectionFolderButton(Boolean(rootLabel) || listedCount > 0, STR);
-        folderButton.textContent = folder.text;
-        setHint(folderButton, folder.hint);
+        const folderButton = requiredElementById(document, 'selection-toolbar').querySelector<HTMLElement>('[data-action="open-folder"]');
+        if (folderButton) {
+            const folder = selectionFolderButton(Boolean(rootLabel) || listedCount > 0, STR);
+            folderButton.textContent = folder.text;
+            setHint(folderButton, folder.hint);
+        }
         requiredElementById(document, 'directory-selection-layout').classList.toggle('is-empty', !listedCount);
         emptyMessage(selectionEmptyText());
         syncSelectionSummary();
@@ -1716,64 +1669,63 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function renderAll() {
         playWhenReady();
         pairPanel.sync();
-        updateUiSmokeSpectrumState();
+        emitSpectrumZoom();
         resizeAllCanvases();
         renderRuler();
         renderStackedTracks();
         syncRoleChips();
         updateVisibility();
         updateOffsetDisplays();
-        updateUiSmokeWaveformState();
+        emitWaveformZoom();
         if (contentType !== 'stage') {
             scheduleRangeRequests();
         }
     }
     function resizeAllCanvases() {
+        const lanes: { i: number; channelIndex: number; canvas: HTMLCanvasElement; wrap: HTMLElement }[] = [];
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
             channelsForResult(result).forEach(function (_, channelIndex: number) {
                 const canvas = canvasById(document, trackCanvasId(i, channelIndex));
-                if (!canvas) {
-                    return;
-                }
-                const wrap = document.getElementById(trackCanvasWrapId(i, channelIndex));
-                if (!wrap) {
-                    return;
-                }
-                const newW = wrap.clientWidth || 800;
-                const heights = laneHeights();
-                const cacheKey = newW + 'x' + heights.wave + 'x' + heights.spec + 'x' + channelIndex;
-                const cacheIdx = i + ':' + channelIndex;
-                if (canvasWidthCache[cacheIdx] === cacheKey) {
-                    return;
-                }
-                canvasWidthCache[cacheIdx] = cacheKey;
-                // Outside the steps view the waveform stops where the spectrogram's colour bar starts.
-                const waveW = contentType === 'stage' ? newW - AXIS_W : spectrogramPlotWidth(newW - AXIS_W);
-                syncCanvasSize(canvas, waveW, heights.wave);
-                const axisCanvas = canvasById(document, trackAxisCanvasId(i, channelIndex));
-                if (axisCanvas) {
-                    syncCanvasSize(axisCanvas, AXIS_W, heights.wave);
-                }
-                if (heights.spec > 0) {
-                    [trackSpecCanvasId(i, channelIndex), trackSpectrogramOverlayCanvasId(i, channelIndex)].forEach(function (id) {
-                        const c = canvasById(document, id);
-                        if (c) syncCanvasSize(c, newW - AXIS_W, heights.spec);
-                    });
-                    const specAxis = canvasById(document, trackSpecAxisCanvasId(i, channelIndex));
-                    if (specAxis) syncCanvasSize(specAxis, AXIS_W, heights.spec);
-                    // A resize clears the bitmap; a lane out of view is not repainted now, so its raster must not
-                    // look current when it is drawn again at the same size.
-                    const record = trackRecordAtIndex(i);
-                    if (record) spectrogramRasterCache.delete(record.id + ':' + channelIndex);
+                const wrap = canvas ? document.getElementById(trackCanvasWrapId(i, channelIndex)) : null;
+                if (canvas && wrap) {
+                    lanes.push({ i, channelIndex, canvas, wrap });
                 }
             });
         });
         const rulerCanvas = canvasById(document, 'ruler-canvas');
-        if (rulerCanvas) {
-            const row = document.getElementById('ruler-row');
-            if (row) {
-                syncCanvasSize(rulerCanvas, row.clientWidth - TRACK_HEADER_W - AXIS_W, 20);
+        const rulerRow = rulerCanvas ? document.getElementById('ruler-row') : null;
+        const rulerWidth = rulerRow ? rulerRow.clientWidth : null;
+        const heights = laneHeights();
+        // Every width is read before any canvas is resized, so the pass forces one layout rather than one per lane.
+        readThenWrite(lanes, lane => lane.wrap.clientWidth || 800, function ({ i, channelIndex, canvas }, newW) {
+            const cacheKey = newW + 'x' + heights.wave + 'x' + heights.spec + 'x' + channelIndex;
+            const cacheIdx = i + ':' + channelIndex;
+            if (canvasWidthCache[cacheIdx] === cacheKey) {
+                return;
             }
+            canvasWidthCache[cacheIdx] = cacheKey;
+            // Outside the steps view the waveform stops where the spectrogram's colour bar starts.
+            const waveW = contentType === 'stage' ? newW - AXIS_W : spectrogramPlotWidth(newW - AXIS_W);
+            syncCanvasSize(canvas, waveW, heights.wave);
+            const axisCanvas = canvasById(document, trackAxisCanvasId(i, channelIndex));
+            if (axisCanvas) {
+                syncCanvasSize(axisCanvas, AXIS_W, heights.wave);
+            }
+            if (heights.spec > 0) {
+                [trackSpecCanvasId(i, channelIndex), trackSpectrogramOverlayCanvasId(i, channelIndex)].forEach(function (id) {
+                    const c = canvasById(document, id);
+                    if (c) syncCanvasSize(c, newW - AXIS_W, heights.spec);
+                });
+                const specAxis = canvasById(document, trackSpecAxisCanvasId(i, channelIndex));
+                if (specAxis) syncCanvasSize(specAxis, AXIS_W, heights.spec);
+                // A resize clears the bitmap; a lane out of view is not repainted now, so its raster must not
+                // look current when it is drawn again at the same size.
+                const record = trackRecordAtIndex(i);
+                if (record) spectrogramRasterCache.delete(record.id + ':' + channelIndex);
+            }
+        });
+        if (rulerCanvas && rulerWidth !== null) {
+            syncCanvasSize(rulerCanvas, rulerWidth - TRACK_HEADER_W - AXIS_W, 20);
         }
     }
     function renderRuler() {
@@ -1955,7 +1907,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
         const { dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = spectrogramDisplayBounds(spec, __spectrogramSettings.display, spectrogramAutoBounds(spec));
         const plotW = spectrogramPlotWidth(W);
-        const cacheId = trackRecordAtIndex(trackIndex)!.id + ':' + channelIndex;
+        const record = trackRecordAtIndex(trackIndex);
+        if (!record) {
+            return;
+        }
+        const cacheId = record.id + ':' + channelIndex;
         spectrogramRasterCache.set(cacheId, paintTrackSpectrogram(ctx, W, H, spec, {
             zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
             durationSec: result.durationSeconds,
@@ -2001,7 +1957,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
     }
     function drawAnalysisWindowOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number, channelIndex: number) {
-        if (isPlaybackRunning()) {
+        if (playback.isRunning()) {
             return;
         }
         const band = analysisWindowBand(trackIndex, channelIndex);
@@ -2010,19 +1966,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, style = CURSOR_LINE_STYLE) {
-        drawDashedTimeLine(ctx, cursorNorm, waveformView.timeRange(), W, H, style);
+        drawDashedTimeLine(ctx, viewState.cursor, waveformView.timeRange(), W, H, style);
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
-        if (hoverNorm !== null) {
-            drawDashedTimeLine(ctx, hoverNorm, waveformView.timeRange(), W, H, HOVER_LINE_STYLE);
+        if (viewState.hover !== null) {
+            drawDashedTimeLine(ctx, viewState.hover, waveformView.timeRange(), W, H, HOVER_LINE_STYLE);
         }
     }
     function drawLoopRegionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
-        if (!loopRegion) {
+        if (!viewState.loop) {
             return;
         }
         if (typeof window.paintLoopRegion === 'function') {
-            window.paintLoopRegion(ctx, W, H, loopRegion.start, loopRegion.end, waveformView.start, waveformView.end);
+            window.paintLoopRegion(ctx, W, H, viewState.loop.start, viewState.loop.end, waveformView.start, waveformView.end);
         }
     }
     function drawRectZoomSelectionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number) {
@@ -2095,8 +2051,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             const playBtn = buttonMatching(document, '[data-action="toggle-playback"][data-track-id="' + trackId + '"]');
             const stopBtn = buttonMatching(document, '[data-action="stop-playback"][data-track-id="' + trackId + '"]');
-            const isActive = playbackTrackId === trackId && playbackEl !== null;
-            const isPlaying = isActive && isPlaybackRunning();
+            const isActive = playback.isActive(trackId);
+            const isPlaying = isActive && playback.isRunning();
             if (playBtn) {
                 playBtn.textContent = isPlaying ? '⏸' : '▶';
                 playBtn.classList.toggle('is-playing', !!isPlaying);
@@ -2113,15 +2069,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function playingPath(): string | null {
-        if (playbackTrackId === null || !playbackEl || !isPlaybackRunning()) return null;
-        return trackStore.require(playbackTrackId).result.filePath ?? null;
+        const trackId = playback.playingTrackId();
+        return trackId === null ? null : trackStore.require(trackId).result.filePath ?? null;
     }
     function updateLoopBadge() {
         const badge = document.getElementById('loop-badge');
         if (!badge) {
             return;
         }
-        badge.style.display = (loopRegion && playbackEl && !playbackEl.paused) ? 'inline' : 'none';
+        badge.style.display = (viewState.loop && playback.isElementPlaying()) ? 'inline' : 'none';
         updateLoopTimeDisplay();
     }
     function updateLoopTimeDisplay() {
@@ -2129,217 +2085,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!el) {
             return;
         }
-        if (!loopRegion) {
+        if (!viewState.loop) {
             el.style.display = 'none';
             return;
         }
-        el.textContent = loopRegionClockText(loopRegion, trackStore.globalSpan());
+        el.textContent = loopRegionClockText(viewState.loop, trackStore.globalSpan());
         el.style.display = 'inline';
-    }
-    function isPlaybackRunning(): boolean {
-        return playbackEl !== null && !playbackEl.paused && !audioFader.isPausing(playbackEl);
-    }
-    function clearPlaybackState() {
-        if (playbackEl) {
-            pauseSmoothly(playbackEl);
-        }
-        playbackEl = null;
-        playbackTrackId = null;
-        stopPlaybackLoop();
-        updatePlaybackButtons();
-        updateLoopBadge();
-        updatePlaybackDisplay(null);
-        scheduleRender();
-    }
-    function startPlaybackLoop() {
-        if (playbackRafId !== null) {
-            return;
-        }
-        function tick() {
-            const playbackTrackIndex = playbackTrackId ? trackStore.protocolIndexForId(playbackTrackId) : null;
-            if (playbackEl && playbackTrackIndex !== null && !playbackEl.paused && !audioFader.isPausing(playbackEl)) {
-                const mapping = getTrackTimeMapping(playbackTrackIndex);
-                const loopStartTime = loopRestartTime(mapping, playbackEl.currentTime, loopRegion);
-                if (loopStartTime !== null) {
-                    const fadeInSeconds = passFadeSeconds(mapping, loopStartTime, loopRegion, playbackDuration(playbackTrackIndex));
-                    passFade = fadeInSeconds;
-                    endFadeTarget = null;
-                    try {
-                        playbackEl.currentTime = loopStartTime;
-                        fadeInOnceSeeked(playbackEl, fadeInSeconds);
-                        invalidateDesiredSpectrumSliceRequests();
-                    }
-                    catch (_err) {
-                        audioFader.fadeTo(playbackEl, 1, fadeInSeconds);
-                    }
-                }
-                else {
-                    fadeBeforePlaybackEnd(playbackEl, playbackTrackIndex);
-                }
-                const nextCursor = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
-                if (nextCursor !== null) {
-                    if (followCursor) {
-                        waveformView.centerOn(nextCursor);
-                    }
-                    moveCursor(nextCursor, true);
-                    scheduleRender();
-                    scheduleSpectrumRefresh('playback');
-                }
-                updatePlaybackDisplay(playbackEl.currentTime);
-            }
-            else {
-                updatePlaybackDisplay(null);
-            }
-            updateLoopBadge();
-            playbackRafId = requestAnimationFrame(tick);
-        }
-        playbackRafId = requestAnimationFrame(tick);
-    }
-    function playbackDuration(idx: number): number {
-        return (playbackEl && playbackEl.duration) || state.results[idx]?.durationSeconds || 0;
-    }
-    function pauseSmoothly(audio: HTMLAudioElement, after?: () => void): void {
-        const idx = audio === playbackEl && playbackTrackId ? trackStore.protocolIndexForId(playbackTrackId) : null;
-        const fade = idx === null ? null : playbackEndFade(getTrackTimeMapping(idx), audio.currentTime, loopRegion, playbackDuration(idx));
-        // Never fade past the point where the track ends or the loop jumps back.
-        audioFader.pauseSmoothly(audio, after, fade ? Math.max(0, Math.min(FADE_SECONDS, fade.remaining)) : FADE_SECONDS);
-    }
-    function fadeInOnceSeeked(audio: HTMLAudioElement, seconds: number): void {
-        // The seek takes effect asynchronously; fading in before it lands would let the old position through.
-        audio.addEventListener('seeked', function () {
-            if (playbackEl === audio && !audioFader.isPausing(audio)) {
-                audioFader.fadeTo(audio, 1, seconds);
-                endFadeTarget = null;
-            }
-        }, { once: true });
-    }
-    function fadeBeforePlaybackEnd(audio: HTMLAudioElement, idx: number): void {
-        const fade = playbackEndFade(getTrackTimeMapping(idx), audio.currentTime, loopRegion, playbackDuration(idx));
-        if (!fade) {
-            return;
-        }
-        const endTime = audio.currentTime + fade.remaining;
-        if (endFadeTarget !== null && Math.abs(endFadeTarget - endTime) <= 1e-3) {
-            return;
-        }
-        const fadeSeconds = Math.min(fade.fadeSeconds, passFade);
-        if (endFadeTarget !== null && fade.remaining > fadeSeconds) {
-            audioFader.fadeTo(audio, 1, fadeSeconds);
-            endFadeTarget = null;
-        }
-        if (fade.remaining > fadeSeconds + END_FADE_LOOKAHEAD_SECONDS) {
-            return;
-        }
-        // Queued on the audio clock so a late animation frame cannot skip the fade.
-        audioFader.fadeTo(audio, 0, Math.max(0, Math.min(fadeSeconds, fade.remaining)), Math.max(0, fade.remaining - fadeSeconds));
-        endFadeTarget = endTime;
-    }
-    function stopPlaybackLoop() {
-        if (playbackRafId !== null) {
-            cancelAnimationFrame(playbackRafId);
-            playbackRafId = null;
-        }
-    }
-    function stopPlayback(trackId: TrackId | null, options: { keepCursor?: boolean } = {}): void {
-        const trackIndex = trackId ? trackStore.protocolIndexForId(trackId) : null;
-        const audio = trackIndex === null ? playbackEl : getTrackAudio(trackIndex);
-        if (audio) {
-            pauseSmoothly(audio, function () {
-                try {
-                    audio.currentTime = 0;
-                }
-                catch (_err) { }
-            });
-        }
-        if (trackId === playbackTrackId) {
-            if (!options || options.keepCursor !== true) moveCursor(playbackStartNorm);
-            invalidateDesiredSpectrumSliceRequests();
-            clearPlaybackState();
-            scheduleRender();
-            scheduleSpectrumRefresh('immediate');
-            return;
-        }
-        updatePlaybackButtons();
-    }
-    function togglePlayback(trackId: TrackId) {
-        const idx = trackIndexForId(trackId);
-        const audio = getTrackAudio(idx);
-        if (!audio) {
-            return;
-        }
-        if (playbackTrackId === trackId && playbackEl === audio && !audio.paused && !audioFader.isPausing(audio)) {
-            pauseSmoothly(audio, function () {
-                // Playback runs on through the fade-out, so resume from where it actually stopped.
-                const pausedCursor = playbackEl === audio && audio.paused ? globalNormFromTrackTime(idx, audio.currentTime) : null;
-                if (pausedCursor !== null) {
-                    moveCursor(pausedCursor);
-                    scheduleRender();
-                }
-            });
-            invalidateDesiredSpectrumSliceRequests();
-            updatePlaybackButtons();
-            stopPlaybackLoop();
-            scheduleSpectrumRefresh('immediate');
-            return;
-        }
-        if (playbackTrackId !== null && playbackTrackId !== trackId) {
-            // 再生開始位置にカーソルを戻してからトラックを切り替え
-            moveCursor(playbackStartNorm);
-            stopPlayback(playbackTrackId, { keepCursor: true });
-        }
-        if (playbackTrackId === trackId && playbackEl === audio && audioFader.isPausing(audio)) {
-            // Still playing through the pause fade-out: turn the fade around instead of seeking or zeroing the gain.
-            endFadeTarget = null;
-            audioFader.fadeTo(audio, 1, passFadeSeconds(getTrackTimeMapping(idx), audio.currentTime, loopRegion, playbackDuration(idx)));
-            invalidateDesiredSpectrumSliceRequests();
-            updatePlaybackButtons();
-            startPlaybackLoop();
-            scheduleSpectrumRefresh('immediate');
-            return;
-        }
-        playbackTrackId = trackId;
-        playbackEl = audio;
-        invalidateDesiredSpectrumSliceRequests();
-        const durationSeconds = audio.duration || state.results[idx].durationSeconds || 0;
-        const startNorm = loopRegion ? loopRegion.start : cursorNorm;
-        const startTime = playbackStartTime(getTrackTimeMapping(idx), startNorm, durationSeconds);
-        try {
-            audio.currentTime = startTime;
-        }
-        catch (_err) { }
-        playbackStartNorm = startNorm;
-        audioFader.prepare(audio);
-        audioFader.fadeTo(audio, 0, 0);
-        endFadeTarget = null;
-        const fadeInSeconds = passFadeSeconds(getTrackTimeMapping(idx), startTime, loopRegion, durationSeconds);
-        passFade = fadeInSeconds;
-        const fadeIn = function () {
-            if (playbackEl === audio && !audioFader.isPausing(audio)) {
-                audioFader.fadeTo(audio, 1, fadeInSeconds);
-                endFadeTarget = null;
-            }
-        };
-        const playPromise = audio.play();
-        if (playPromise && typeof playPromise.then === 'function') {
-            playPromise.then(fadeIn, function (err: unknown) {
-                lastPlayRejection = err instanceof Error ? err.name + ': ' + err.message : String(err);
-                clearPlaybackState();
-            });
-        }
-        else {
-            fadeIn();
-        }
-        const nextCursor = globalNormFromTrackTime(idx, audio.currentTime);
-        if (nextCursor !== null) moveCursor(nextCursor);
-        updatePlaybackButtons();
-        startPlaybackLoop();
-        scheduleRender();
-        scheduleSpectrumRefresh('immediate');
-    }
-    function finishPlaybackAtEnd(trackIndex: number, trackId: TrackId): void {
-        const endNorm = globalNormFromTrackTime(trackIndex, state.results[trackIndex].durationSeconds || 0);
-        if (endNorm !== null) moveCursor(endNorm);
-        stopPlayback(trackId, { keepCursor: true });
     }
     function attachAudioEvents() {
         state.results.forEach(function (_, i: number) {
@@ -2351,37 +2102,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!audio) {
                 return;
             }
-            audio.addEventListener('playing', function () {
-                // A stall lets the queued end fade run ahead of the media; restore the gain and queue it again.
-                if (playbackEl === audio && endFadeTarget !== null && !audioFader.isPausing(audio)) {
-                    audioFader.fadeTo(audio, 1, passFade);
-                    endFadeTarget = null;
-                }
-            });
-            attachTrackAudioListeners(audio, trackId, {
-                isCurrent: (id) => playbackTrackId === id,
-                onPlay(el, id) {
-                    playbackEl = el;
-                    playbackTrackId = id;
-                    updatePlaybackButtons();
-                    startPlaybackLoop();
-                },
-                onPause(id, ended) {
-                    invalidateDesiredSpectrumSliceRequests();
-                    updatePlaybackButtons();
-                    if (ended) {
-                        // 'pause' fires before 'ended' and this clears the current track, so onEnded never runs after it.
-                        finishPlaybackAtEnd(i, id);
-                    }
-                },
-                onEnded(id) {
-                    finishPlaybackAtEnd(i, id);
-                },
-                onError() {
-                    invalidateDesiredSpectrumSliceRequests();
-                    clearPlaybackState();
-                },
-            });
+            playback.attachAudio(audio, trackId, i);
         });
     }
     // ── Events ──
@@ -2435,32 +2156,31 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const loopTimeDisplayEl = document.getElementById('loop-time-display');
         if (loopTimeDisplayEl) {
             loopTimeDisplayEl.addEventListener('click', function () {
-                if (!loopRegion) {
+                if (!viewState.loop) {
                     return;
                 }
                 if (!navigator.clipboard || !navigator.clipboard.writeText) {
                     return;
                 }
-                navigator.clipboard.writeText(loopRegionClockText(loopRegion, trackStore.globalSpan())).catch(function () { });
+                navigator.clipboard.writeText(loopRegionClockText(viewState.loop, trackStore.globalSpan())).catch(function () { });
             });
         }
         attachTrackLaneActions(tracksWrapper, {
             trackIdFromElement,
             trackIndexForId: (trackId) => trackStore.protocolIndexForId(trackId),
         }, {
-            'toggle-playback': ({ trackId }) => togglePlayback(trackId),
+            'toggle-playback': ({ trackId }) => playback.toggle(trackId),
             'toggle-mute': ({ trackIndex, target }) => {
                 if (trackIndex === null) {
                     return;
                 }
                 const runtime = trackRuntimeAt(trackIndex);
                 runtime.muted = !runtime.muted;
-                const audio = getTrackAudio(trackIndex);
-                if (audio) audioFader.setMuted(audio, runtime.muted);
+                playback.setMuted(trackIndex, runtime.muted);
                 target.setAttribute('aria-pressed', String(runtime.muted));
                 target.textContent = runtime.muted ? '🔇' : '🔊';
             },
-            'stop-playback': ({ trackId }) => stopPlayback(trackId),
+            'stop-playback': ({ trackId }) => playback.stop(trackId),
             'remove-track': ({ trackId }) => removeTrack(trackId),
             'configure-calibration': ({ trackId, trackIndex, event }) => {
                 if (trackIndex === null) {
@@ -2618,9 +2338,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             togglePlayback(target, active) {
                 const trackId = target === 'focused-track'
                     ? active && trackIdFromElement(active)
-                    : playbackTrackId ?? trackStore.activeIds()[0];
+                    : playback.trackId ?? trackStore.activeIds()[0];
                 if (trackId) {
-                    togglePlayback(trackId);
+                    playback.toggle(trackId);
                 }
             },
             stepCursor(direction, shiftKey, active) {
@@ -2628,8 +2348,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return;
                 }
                 const step = arrowCursorStep(shiftKey, trackStore.globalSpan().spanSec, waveformView.start, waveformView.end, (active as HTMLCanvasElement).width || 800);
-                moveCursor(cursorNorm + direction * step);
-                scheduleRender();
+                moveCursor(viewState.cursor + direction * step);
             },
             arrowReleased: () => scheduleSpectrumRefresh('immediate'),
         });
@@ -2912,11 +2631,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function toggleFollowCursor() {
-        followCursor = !followCursor;
-        const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
-        if (btn) {
-            btn.classList.toggle('is-active', followCursor);
-        }
+        playback.setFollow(!playback.follow);
         scheduleRender();
     }
     function handleToolbarAction(action: string) {
@@ -2936,8 +2651,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     ...[1, 2, 3].map(slot => shown(slotted[slot])),
                     ...trackStore.activeIds().map(id => trackStore.require(id)).filter(record => !record.runtime.hidden),
                 ].filter(<T,>(record: T | null): record is T => record !== null);
-                if (loopRegion && contentType !== 'stage') {
-                    const selection = loopRegion;
+                if (viewState.loop && contentType !== 'stage') {
+                    const selection = viewState.loop;
                     const range = candidates.map(record => {
                         const mapping = getTrackTimeMapping(trackIndexForId(record.id));
                         return mapping ? { start: trackTimeFromGlobalNorm(mapping, selection.start), end: trackTimeFromGlobalNorm(mapping, selection.end) } : null;
@@ -3002,7 +2717,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         trackHeight = next;
-        updateUiSmokeSpectrumState();
+        emitSpectrumZoom();
         updatePlaybackButtons();
         Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
         scheduleRender();
@@ -3049,31 +2764,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         spectrumOverlayHeight = next;
-        updateUiSmokeSpectrumState();
+        emitSpectrumZoom();
         syncSpectrumCanvasCssHeight();
         scheduleSpectrumRefresh('immediate');
     }
     function disableFollowCursor() {
-        if (!followCursor) {
-            return;
-        }
-        followCursor = false;
-        const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
-        if (btn) {
-            btn.classList.remove('is-active');
-        }
+        playback.setFollow(false);
     }
     function zoomToSelection() {
-        if (loopRegion) {
+        if (viewState.loop) {
             disableFollowCursor();
-            waveformView.showRegion(loopRegion, 0.05);
+            waveformView.showRegion(viewState.loop, 0.05);
             scheduleRender();
         }
     }
     function updateZoomToSelectionBtn() {
         var btn = buttonById(document, 'btn-zoom-to-selection');
         if (btn) {
-            btn.disabled = !loopRegion;
+            btn.disabled = !viewState.loop;
         }
     }
     function syncWaveformModeButton() {
@@ -3102,8 +2810,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const range = requests?.pending('range');
             if (range) ids.add('range:' + i + ':' + range.key);
         });
-        desiredSpectrumSliceRequests.forEach(function (request) { ids.add(request.requestId); });
-        if (activeSpectrumSliceRequest) ids.add(activeSpectrumSliceRequest.requestId);
+        spectrumRequests.openRequestIds().forEach(function (id) { ids.add(id); });
         return ids;
     }
     /** Whether any of the requests an export waits for is still open (one asked again after an error is not waited for). */
@@ -3118,7 +2825,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // detail and cursor spectra they lack, and the image is composed once those have arrived (or after a while, as far as they got).
         renderEveryLane();
         const failed = STR.announceExportPngFailed || 'PNG export failed: no visible canvases';
-        if (visibleExportCanvases(document.getElementById('tracks-wrapper') as unknown as Element | null).length === 0) {
+        if (visibleExportCanvases(document.getElementById('tracks-wrapper')).length === 0) {
             messaging.post({ type: 'show-info', message: failed });
             taskStatus(failed, 'failed');
             return;
@@ -3134,18 +2841,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         renderEveryLane();
         const wrapper = document.getElementById('tracks-wrapper');
-        const canvases = visibleExportCanvases(wrapper as unknown as Element | null);
+        const canvases = visibleExportCanvases(wrapper);
         setTimeout(function () {
-            const composed = composeTrackCanvases(document as unknown as Document, canvases, function (canvas) {
+            const composed = composeTrackCanvases(document, canvases, function (canvas) {
                 const axisId = canvas.id ? canvas.id.replace(/^track-canvas-/, 'track-axis-canvas-').replace(/^track-spec-canvas-/, 'track-spec-axis-canvas-') : '';
-                return axisId && axisId !== canvas.id && wrapper ? wrapper.querySelector('#' + axisId) as unknown as Element | null : null;
+                return axisId && axisId !== canvas.id && wrapper ? wrapper.querySelector('#' + axisId) : null;
             }, AXIS_W);
             if (!composed) {
                 messaging.post({ type: 'show-info', message: failed });
                 taskStatus(failed, 'failed');
                 return;
             }
-            triggerAnchorDownload(document as unknown as Document, composed.toDataURL('image/png'), 'waveform-export.png');
+            triggerAnchorDownload(document, composed.toDataURL('image/png'), 'waveform-export.png');
             taskStatus(STR.exportPngDone.replace('{name}', 'waveform-export.png'), 'done');
         }, 0);
     }
@@ -3155,11 +2862,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         // Like the PNG: lanes out of view ask for their cursor spectra first, and the file is written once those arrived.
-        spectrumCursorNorm = cursorNorm;
+        spectrumCursorNorm = viewState.cursor;
         requestEveryCursorSpectrum();
         announce(STR.announceExportCsvStarted || 'CSV export started');
         taskStatus(STR.exportCsvBusy, 'busy');
-        writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000, cursorNorm);
+        writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000, viewState.cursor);
     }
     /** Asks for the cursor spectrum of every shown track, whether or not its lane or its small spectrum is on screen. */
     function requestEveryCursorSpectrum() {
@@ -3169,17 +2876,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const record = trackStore.require(trackId);
                 if (record.runtime.hidden) return;
                 channelsForResult(record.result).forEach(function (_, channelIndex: number) {
-                    extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
+                    extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, viewState.cursor, channelIndex);
                 });
             });
         } finally { drawEveryLane = false; }
     }
     function writeCsvWhenDetailed(waitFor: Set<string>, deadline: number, exportCursorNorm: number) {
         // The cursor moved while waiting: every track is asked again at the new position, so the file holds one cursor.
-        if (cursorNorm !== exportCursorNorm) {
-            spectrumCursorNorm = cursorNorm;
+        if (viewState.cursor !== exportCursorNorm) {
+            spectrumCursorNorm = viewState.cursor;
             requestEveryCursorSpectrum();
-            writeCsvWhenDetailed(openDetailRequestIds(), deadline, cursorNorm);
+            writeCsvWhenDetailed(openDetailRequestIds(), deadline, viewState.cursor);
             return;
         }
         let missing = false;
@@ -3192,12 +2899,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, cursorNorm, channelIndex);
+                const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, viewState.cursor, channelIndex);
                 // A lane out of view may still hold the spectrum of an earlier cursor position while this one is on its way.
                 const cached = record.spectrumSliceCache.get(channelIndex);
-                const stale = cached?.settingsSignature === currentSpectrumDataSignature() && isSpectrumSliceRequestPendingForCursor(i, cursorNorm);
+                const stale = cached?.settingsSignature === currentSpectrumDataSignature() && isSpectrumSliceRequestPendingForCursor(i, viewState.cursor);
                 if (stale || !slice || !slice.values || slice.values.length === 0) {
-                    missing = missing || stale || trackLocalCursorNorm(i, cursorNorm) !== null;
+                    missing = missing || stale || trackLocalCursorNorm(i, viewState.cursor) !== null;
                     return;
                 }
                 tracks.push({ name: (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex), slice: slice });
@@ -3216,7 +2923,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const csv = buildSpectrumCsv(tracks);
         taskStatus(STR.exportCsvDone.replace('{name}', 'spectrum-export.csv'), 'done');
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
-        triggerAnchorDownload(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
+        triggerAnchorDownload(document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
     }
     function saveRecipe() {
         // The bottom panel's analysis: the transfer functions while a reference is set, else the spectrum.
@@ -3241,7 +2948,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         messaging.post({ type: 'save-recipe', filePath: record.result.filePath, ...(spectrumBandsPerOctave ? { bandsPerOctave: spectrumBandsPerOctave } : {}) });
     }
     function exportWavLoop() {
-        if (!loopRegion) {
+        if (!viewState.loop) {
             messaging.post({ type: 'show-info', message: STR.exportWavNoLoop });
             return;
         }
@@ -3249,8 +2956,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const span = trackStore.globalSpan();
-        const startSec = span.startSec + loopRegion.start * span.spanSec;
-        const endSec = span.startSec + loopRegion.end * span.spanSec;
+        const startSec = span.startSec + viewState.loop.start * span.spanSec;
+        const endSec = span.startSec + viewState.loop.end * span.spanSec;
         const visibleTracks = trackStore.activeIds()
             .map(trackId => trackStore.require(trackId))
             .filter(record => !record.runtime.hidden)
@@ -3263,8 +2970,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             type: 'export-wav-loop',
             filePaths: fileRegions.map(region => region.filePath),
             fileRegions,
-            startNorm: loopRegion.start,
-            endNorm: loopRegion.end,
+            startNorm: viewState.loop.start,
+            endNorm: viewState.loop.end,
         });
     }
     // --- Report export (builders live in shared/report/analysisReport) ---
@@ -3277,9 +2984,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return _activeReportRecords().map(record => ({ result: record.result, offsetSeconds: record.runtime.offsetSeconds }));
     }
     function _reportLoopRegion(): ReportLoopRegion | undefined {
-        if (!loopRegion) return undefined;
+        if (!viewState.loop) return undefined;
         const gs = trackStore.globalSpan();
-        return { globalStartSec: gs.startSec + loopRegion.start * gs.spanSec, globalEndSec: gs.startSec + loopRegion.end * gs.spanSec };
+        return { globalStartSec: gs.startSec + viewState.loop.start * gs.spanSec, globalEndSec: gs.startSec + viewState.loop.end * gs.spanSec };
     }
     function exportReport() {
         const reportRecords = _activeReportRecords();
@@ -3550,11 +3257,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const norm = hit.norm;
         // Same precedence as handleCanvasMouseDown so the hint names the drag that will run.
         const rectZoom = rectZoomOn(canvas);
-        const gripType = rectZoom ? null : loopGripAt(loopRegion, norm, waveformView.span());
+        const gripType = rectZoom ? null : loopGripAt(viewState.loop, norm, waveformView.span());
         const action = gripType ? STR.tooltipLoopResize
             : e.shiftKey ? STR.tooltipLoopOrShift
             : rectZoom ? STR.hintRectZoomDrag
-            : loopRegion && norm >= loopRegion.start && norm <= loopRegion.end ? STR.tooltipLoopClear
+            : viewState.loop && norm >= viewState.loop.start && norm <= viewState.loop.end ? STR.tooltipLoopClear
             : STR.tooltipLoopOrShift;
         hintFooter.show(action + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
         renderWithHoverAt(norm);
@@ -3586,7 +3293,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const norm = hit.norm;
             const ampNorm = waveformView.canvasYToAmplitude(y, canvas.height);
             const rectZoom = rectZoomOn(canvas);
-            const gripType = rectZoom ? null : loopGripAt(loopRegion, norm, waveformView.span());
+            const gripType = rectZoom ? null : loopGripAt(viewState.loop, norm, waveformView.span());
             dragState = {
                 trackId: trackId,
                 canvasId: canvas.id,
@@ -3643,10 +3350,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         startAmpNorm: dragState.startAmpNorm,
                         endAmpNorm: waveformView.canvasYToAmplitude(y, dragState.canvasHeight),
                     };
-                    updateUiSmokeWaveformState();
+                    emitWaveformZoom();
                 }
                 else {
-                    const region = loopRegionForDrag(dragState.dragType, dragState.startNorm, loopRegion, norm);
+                    const region = loopRegionForDrag(dragState.dragType, dragState.startNorm, viewState.loop, norm);
                     if (region) setLoopRegion(region);
                 }
                 updateCursorDisplay(norm);
@@ -3665,7 +3372,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (hit) {
                     moveCursor(hit.norm);
                     setLoopRegion(null);
-                    scheduleRender();
                 }
             }
         }
@@ -3679,7 +3385,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 waveformView.applyRectZoom(target);
             }
             setLoopRegion(null);
-            updateUiSmokeWaveformState();
+            emitWaveformZoom();
             scheduleRender();
             return;
         }
@@ -3690,22 +3396,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const canvas = under instanceof HTMLCanvasElement && under.classList.contains('track-canvas') ? under : null;
             const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX) : null;
             if (hit) renderWithHoverAt(hit.norm);
-            else { clearHover(); updateCursorDisplay(cursorNorm); }
+            else { clearHover(); updateCursorDisplay(viewState.cursor); }
         }
     }
     function renderWithHoverAt(norm: number) {
-        hoverNorm = norm;
-        scheduleRender();
-        updateCursorDisplay(norm);
+        viewState.setHover(norm);
     }
     function clearHover() {
-        if (hoverNorm === null) {
-            return;
+        if (viewState.clearHover()) {
+            hintFooter.clear();
         }
-        hoverNorm = null;
-        hintFooter.clear();
-        scheduleRender();
-        updateCursorDisplay(cursorNorm);
     }
     function updateCursorDisplay(norm: number) {
         const gs = trackStore.globalSpan();
@@ -3756,14 +3456,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const trackIndex = record.protocolIndex;
             const result = record.result;
             const channelIndex = typeof spectrumHover.channelIndex === 'number' ? spectrumHover.channelIndex : 0;
-            const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
+            const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, viewState.cursor, channelIndex);
             const nextNorm = slice ? steppedTrackSpectrumHoverNorm(slice, spectrumHover.norm, spectrumView.freqStart, spectrumView.freqEnd, deltaIdx) : null;
             if (nextNorm !== null) {
                 spectrumHover.norm = nextNorm;
             }
             return;
         }
-        const slices = spectrumSeriesAt(cursorNorm).series;
+        const slices = spectrumSeriesAt(viewState.cursor).series;
         if (slices.length === 0) {
             return;
         }
@@ -3827,7 +3527,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const prevW = canvas.width;
                 const prevH = canvas.height;
                 syncCanvasSize(canvas, w, laneOuterHeight());
-                const paintedByChannel = trackStore.require(trackIdAtIndex(i)!).spectrumPainted;
+                const paintedByChannel = record.spectrumPainted;
                 if (canvas.width !== prevW || canvas.height !== prevH) {
                     paintedByChannel.set(channelIndex, false);
                 }
@@ -3869,7 +3569,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const visibleResults = trackStore.displayOrder.map(function (trackId) { return trackStore.require(trackId); })
             .filter(function (record) { return !record.runtime.hidden; })
             .map(function (record) { return record.result; });
-        applyOverlayCompatibility(document as unknown as Document, hasIncompatibleLevelReferences(visibleResults), STR.calibrationOverlayIncompatible);
+        applyOverlayCompatibility(document, hasIncompatibleLevelReferences(visibleResults), STR.calibrationOverlayIncompatible);
         const wrap = document.getElementById('spectrum-overlay-wrap');
         const wrapStyle = wrap && typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
             ? window.getComputedStyle(wrap)
@@ -3909,7 +3609,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         renderTrackSpectra();
         renderOverlaySpectrum();
         pairPanel.render();
-        updateUiSmokeSpectrumState();
+        emitSpectrumZoom();
         const el = document.getElementById('spectrum-cursor-time');
         if (el) {
             const gs = trackStore.globalSpan();
@@ -3939,8 +3639,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const idx = record.protocolIndex;
-        if (trackId === playbackTrackId) {
-            stopPlayback(trackId);
+        if (trackId === playback.trackId) {
+            playback.stop(trackId);
         }
         const row = document.getElementById('track-row-' + idx);
         if (row) {
@@ -4082,7 +3782,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             __setReanalyzeBusy(false);
             invalidateDesiredSpectrumSliceRequests();
             // A host drops a request whose source was cleared, so waiting for its answer would block every later cursor spectrum.
-            activeSpectrumSliceRequest = null;
+            spectrumRequests.abandonActive();
             const reconciliation = trackStore.reconcile(msg.results, function (nextResult, previousResult) {
                 return Object.assign({}, nextResult, { audioSource: previousResult?.audioSource || nextResult.audioSource || '' });
             });
@@ -4090,12 +3790,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             state.results = trackStore.activeIds().map(function (trackId) {
                 return trackStore.require(trackId).result;
             });
-            if (playbackTrackId && !trackStore.get(playbackTrackId)?.active) {
-                clearPlaybackState();
+            if (playback.trackId && !trackStore.get(playback.trackId)?.active) {
+                playback.clear();
             }
             rebuildResultsPane();
             if (reconciliation.protocolOrderChanged) {
-                clearPlaybackState();
+                playback.clear();
                 const audioHost = document.getElementById('audio-host');
                 if (audioHost) {
                     audioHost.querySelectorAll('audio').forEach(function (audio) {
@@ -4111,7 +3811,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     attachAudioEvents();
                 }
             }
-            updateCursorDisplay(hoverNorm ?? cursorNorm);
+            updateCursorDisplay(viewState.hover ?? viewState.cursor);
             updateLoopTimeDisplay();
             overlaySpectrumPainted = false;
             announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
@@ -4140,5 +3840,5 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
     }
     __updateSpecGearVisibility();
-    ensureCalibrationStyles(document as unknown as Document);
+    ensureCalibrationStyles(document);
 }

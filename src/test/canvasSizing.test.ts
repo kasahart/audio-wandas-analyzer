@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { contentBoxWidth, syncCanvasSize, type SizableCanvas } from '../webview/runtime/canvasSizing';
+import { contentBoxWidth, readThenWrite, syncCanvasSize, type SizableCanvas } from '../webview/runtime/canvasSizing';
 
 function trackedCanvas(width: number, height: number, styleWidth = '', styleHeight = '') {
     const writes: string[] = [];
@@ -54,4 +54,10 @@ test('contentBoxWidth falls back when the element is missing or not laid out', (
     assert.equal(contentBoxWidth(null, 800, null), 800);
     assert.equal(contentBoxWidth({ clientWidth: 0 }, 800, { paddingLeft: '4px', paddingRight: '4px' }), 800);
     assert.equal(contentBoxWidth({ clientWidth: 4 }, 800, { paddingLeft: '4px', paddingRight: '4px' }), 1);
+});
+
+test('readThenWrite measures every item before writing any', () => {
+    const log: string[] = [];
+    readThenWrite(['a', 'b', 'c'], item => { log.push('read ' + item); return item.toUpperCase(); }, (item, measured) => { log.push('write ' + item + '=' + measured); });
+    assert.deepEqual(log, ['read a', 'read b', 'read c', 'write a=A', 'write b=B', 'write c=C']);
 });
