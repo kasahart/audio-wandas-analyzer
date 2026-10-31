@@ -331,8 +331,8 @@ export interface StageLayer {
  */
 export interface StagePlot {
     frame: { left: number; top: number; width: number; height: number };
-    xAt(value: number): number;
-    yAt(value: number): number;
+    xAt: (value: number) => number;
+    yAt: (value: number) => number;
     /** A band's half width as a ratio of its centre, for steps. */
     ratioStep: number;
     lines: StageLayer[];
