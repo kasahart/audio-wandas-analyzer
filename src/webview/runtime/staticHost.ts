@@ -12,8 +12,6 @@ import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/a
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../../shared/session/comparisonSessionController';
 import { RecipeFlow, recipeBaseName, type RecipeCatalogEntry } from '../../shared/recipe/recipeFlow';
 import { describeInputs, isRecipeDocument, type RecipeDocument } from '../../shared/recipe/recipeSelection';
-import type { ChartSpec } from '../../shared/chartSpec';
-import { chartSpecGlobals, renderChartSpecStyles } from '../panels/chartSpecDocument';
 import { setHint } from './hintFooter';
 import { createRecipeMenus } from './recipePicker';
 import { zipStore } from './zipStore';
@@ -24,6 +22,7 @@ import { sanitizePersistedState } from './stateStore';
 import type { AnalysisResult, AnalysisResultWithError } from '../../shared/analysis/analysisTypes';
 import type { ScanReference } from '../../shared/analysis/entryScan';
 import { keyRouterFor } from './keyRouter';
+import { choose, showRecipeCharts } from './staticDialogs';
 
 interface Source {
     path: string;
@@ -184,49 +183,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (overflow > 0) aboutPanel.style.right = `${-overflow}px`;
     };
     about.ontoggle = clampAbout;
-    /** A small in-page choice (the page's language and look, not the browser's prompt); Esc or a press outside cancels. */
-    function choose<T extends string>(title: string, options: ReadonlyArray<readonly [T, string]>): Promise<T | undefined> {
-        return new Promise(resolve => {
-            const box = document.createElement('div');
-            box.setAttribute('role', 'dialog');
-            box.setAttribute('aria-label', title);
-            box.setAttribute('data-web-choice', '');
-            box.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);z-index:80;display:grid;gap:6px;min-width:240px;padding:12px 14px;'
-                + 'background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.35);font-size:13px';
-            const heading = document.createElement('div');
-            heading.textContent = title;
-            heading.style.cssText = 'color:var(--muted);margin-bottom:2px';
-            box.append(heading);
-            const close = (value: T | undefined): void => {
-                box.remove();
-                document.removeEventListener('pointerdown', outside, true);
-                removeKeys();
-                resolve(value);
-            };
-            const outside = (event: Event): void => { if (!box.contains(event.target as Node)) close(undefined); };
-            let removeKeys = (): void => undefined;
-            for (const [value, label] of options) {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'tb-btn';
-                button.textContent = label;
-                button.addEventListener('click', () => close(value));
-                box.append(button);
-            }
-            document.body.append(box);
-            document.addEventListener('pointerdown', outside, true);
-            removeKeys = keyRouterFor(window).add({
-                layer: 'popover',
-                keydown(event) {
-                    if (event.key !== 'Escape') return false;
-                    event.preventDefault();
-                    close(undefined);
-                    return true;
-                },
-            });
-            box.querySelector('button')?.focus();
-        });
-    }
     const status = document.createElement('span');
     status.setAttribute('role', 'status');
     status.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
@@ -607,39 +563,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }
     // A recipe opened from disk is run by its file name, so the backend titles its charts after the file.
     const localRecipes = new Map<string, File>();
-    // Recipe charts render in a same-origin frame: the bundled ChartSpec renderer arrives as ./chartSpecRuntime.js under the page CSP,
-    // and a fresh document per run keeps the renderer's one-shot range popup and listeners isolated.
-    function showRecipeCharts(title: string, charts: ChartSpec[], caption: string): void {
-        document.querySelector('[data-recipe-result]')?.remove();
-        const panel = document.createElement('section');
-        panel.setAttribute('data-recipe-result', title);
-        panel.style.cssText = 'margin:8px;border:1px solid #444;border-radius:4px;background:#1e1e1e;color:#ddd';
-        const header = document.createElement('div');
-        header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid #444';
-        const heading = document.createElement('div');
-        const name = document.createElement('strong'); name.textContent = title;
-        const inputs = document.createElement('span'); inputs.textContent = caption;
-        inputs.style.cssText = 'margin-left:8px;font-size:11px;color:#999';
-        heading.append(name, inputs);
-        const close = document.createElement('button');
-        close.setAttribute('data-action', 'browser-recipe-close');
-        close.textContent = strings.btnCloseRecipeResult;
-        close.onclick = (): void => { panel.remove(); };
-        header.append(heading, close);
-        const frame = document.createElement('iframe');
-        frame.setAttribute('title', title);
-        frame.style.cssText = 'display:block;width:100%;height:60vh;border:0;background:#1e1e1e';
-        panel.append(header, frame);
-        document.body.prepend(panel);
-        const target = frame.contentDocument!;
-        const style = target.createElement('style'); style.textContent = renderChartSpecStyles();
-        const chartsHost = target.createElement('div'); chartsHost.id = 'charts';
-        target.head.append(style); target.body.append(chartsHost);
-        Object.assign(frame.contentWindow as unknown as Record<string, unknown>, chartSpecGlobals(charts, strings));
-        acceptDrops(frame.contentWindow!);
-        const script = target.createElement('script'); script.src = './chartSpecRuntime.js';
-        target.body.append(script);
-    }
     const recipeFlow = new RecipeFlow({
         listRecipes: async (): Promise<RecipeCatalogEntry[]> => {
             const manifest = await fetchJson('./recipes/manifest.json');
@@ -670,7 +593,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             return analysisClient.runRecipe(recipe, inputs, { recipePath: location });
         },
         showCharts: (title, charts, inputs) => {
-            showRecipeCharts(title, charts, describeInputs(inputs, trackLabels(sources.snapshot(source => source.path))));
+            showRecipeCharts(document, strings, title, charts, describeInputs(inputs, trackLabels(sources.snapshot(source => source.path))), acceptDrops);
             announce(strings.browserRecipeDone + title);
         },
         showError: announce,
@@ -738,7 +661,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             };
         },
         pickReportFormat() {
-            return choose<'markdown' | 'notebook'>(strings.reportFormatPlaceholder, [['markdown', strings.reportFormatMarkdown], ['notebook', strings.reportFormatNotebook]]);
+            return choose<'markdown' | 'notebook'>(document, window, strings.reportFormatPlaceholder, [['markdown', strings.reportFormatMarkdown], ['notebook', strings.reportFormatNotebook]]);
         },
         async saveReport(artifact) {
             download(new TextEncoder().encode(artifact.content), artifact.name, artifact.type);
