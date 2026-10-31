@@ -763,6 +763,25 @@ test('the cursor readout is labelled and follows a loop drag to where it was rel
     await expect(readout).toHaveText(dragged ?? '');
 });
 
+test('after a box zoom the cursor readout is the time under the pointer in the zoomed view', async ({ page }) => {
+    await loadUi(page);
+    await page.locator('#tb-more-menu > summary').click();
+    await page.locator('#toolbar [data-action="wave-mode-rect-zoom"]').click();
+    const wave = (await page.locator('#track-canvas-0').boundingBox())!;
+    const y = wave.y + wave.height / 2;
+    const readout = page.locator('#cursor-display');
+    await page.mouse.move(wave.x + wave.width * 0.2, y - 20);
+    await page.mouse.down();
+    await page.mouse.move(wave.x + wave.width * 0.6, y + 20, { steps: 6 });
+    const dragged = await readout.textContent();
+    await page.mouse.up();
+    await expect(readout).not.toHaveText(dragged ?? '');
+    const released = await readout.textContent();
+    await page.mouse.move(0, 0);
+    await page.mouse.move(wave.x + wave.width * 0.6, y + 20);
+    await expect(readout).toHaveText(released ?? '');
+});
+
 test('the track\'s … menu stays open through repeated ±10 ms nudges', async ({ page }) => {
     await loadUi(page);
     const menu = page.locator('#track-row-0 details.track-more');
