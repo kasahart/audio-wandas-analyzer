@@ -14,8 +14,8 @@ Every command except ``run-recipe`` is in ``COMMANDS``. ``run-recipe`` keeps its
 validators in ``command_dispatch`` and ``backendProtocol.ts``: its payload embeds a wandas Recipe
 document and its result is a list of ChartSpecs, and both have schemas of their own
 (``chart_spec.py`` needs ``oneOf``, which this subset leaves out).
-The error envelope, the backend notifications and the browser Worker's ``limits`` reply are
-definitions without a command.
+The error envelope, the backend notifications, the native ``cancel`` control and the browser Worker's
+``limits`` reply are definitions without a command.
 """
 
 from __future__ import annotations
@@ -630,6 +630,15 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["type", "ts"],
         "properties": {"type": {"type": "string", "const": "heartbeat"}, "ts": _NUMBER},
+    },
+    # Native host → backend: drop these queued requests and send no reply for the running ones. No reply of its own.
+    "BackendCancelControl": {
+        "type": "object",
+        "required": ["cmd", "requestIds"],
+        "properties": {
+            "cmd": {"type": "string", "const": "cancel"},
+            "requestIds": {"type": "array", "items": {"type": "string"}},
+        },
     },
     # browser_service.browser_limits(); bounded so a skewed Worker cannot disable the host's pre-checks.
     "BrowserLimits": {

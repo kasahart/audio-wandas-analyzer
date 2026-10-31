@@ -85,6 +85,8 @@ Choose the virtual environment folder, for example `/path/to/your/.venv`. You ca
 
 When you open a folder, its audio files are listed in a table beside the tracks. Click ○ at the start of a row to show that file as a track and click ● to remove it; the ○/◐/● in the column head shows or removes every listed row at once (more than 30 asks first), and **Tracks only** narrows the table to the rows on a track.
 
+Folder listing skips hidden folders (such as `.git` or `.venv`), `node_modules` and symbolic links to folders, and stops after 50,000 entries with a message; open a subfolder to see the rest. A notification shows the listing's progress and can cancel it.
+
 ## Working In The Panel
 
 - **Compare:** view tracks on one shared timeline, each row showing its waveform over its spectrogram (drag the line between them to share the height)
@@ -121,6 +123,10 @@ A recipe (`*.recipe.json`) is a saved analysis workflow. **Run recipe** applies 
 | --- | --- | --- |
 | `audioWandasAnalyzer.pythonCommand` | `python3` | Python environment folder or executable used for the backend |
 | `audioWandasAnalyzer.cacheMemoryMb` | `1024` | Maximum memory (MB) used to cache loaded audio |
+
+### Restricted Mode
+
+In a workspace you have not trusted, the extension runs in limited mode: analysis works, but `audioWandasAnalyzer.pythonCommand` and `audioWandasAnalyzer.debugFilePath` are read from your user settings only, so a folder's `.vscode/settings.json` cannot choose the program the extension starts. Trust the workspace to use its own values. Virtual workspaces (such as a GitHub repository opened in the browser) are not supported, because audio is read from the local file system.
 
 ## Troubleshooting
 

@@ -227,3 +227,43 @@ def test_a_pairwise_frame_draws_one_named_pair_of_two_channels_never_a_channel_w
     mono = wd.from_numpy(noise[:1], sampling_rate=48_000)
     for frame in (mono.coherence(n_fft=1024), mono.transfer_function(n_fft=1024), mono.csd(n_fft=1024)):
         assert _checked(frame)["kind"] == "none"
+
+
+def test_power_mean_db_is_the_power_average_every_view_used() -> None:
+    from analyzer import _mean_power_db
+    from stage_view import _power_mean, power_mean_db
+
+    rng = np.random.default_rng(7)
+    levels = rng.uniform(-300.0, 120.0, size=(6, 50))
+    levels[0, :] = -np.inf  # silence
+    levels[1, 3] = np.nan
+    levels[2, :] = rng.uniform(-200.0, -130.0, size=50)  # below the display floor
+    with np.errstate(divide="ignore", invalid="ignore"):
+        for axis in (0, 1):
+            expected = 10.0 * np.log10(np.mean(10.0 ** (levels / 10.0), axis=axis))
+            np.testing.assert_array_equal(power_mean_db(levels, axis), expected)
+            floored = 10.0 * np.log10(np.maximum(np.mean(np.power(10.0, levels / 10.0), axis=axis), 1e-12))
+            np.testing.assert_array_equal(_mean_power_db(levels, axis), floored)
+    np.testing.assert_array_equal(_power_mean(levels), power_mean_db(levels, 0))
+
+
+@pytest.mark.parametrize("size", [1, 7, 64, 65, 1000, 4097])
+def test_cepstrum_and_lag_peaks_keep_each_blocks_largest_magnitude(size: int) -> None:
+    from stage_view import _peak_points, _signed_peaks
+
+    values = np.random.default_rng(size).normal(size=(2, size))
+    for count in (1, 8, 64, 5000):
+        peaks, starts = _signed_peaks(values, count)
+        edges = np.linspace(0, size, min(count, size) + 1).astype(int)
+        for row in range(2):
+            blocks = zip(edges[:-1], edges[1:], strict=True)
+            expected = [values[row, a + np.argmax(np.abs(values[row, a:b]))] for a, b in blocks]
+            np.testing.assert_array_equal(peaks[row], expected)
+        np.testing.assert_array_equal(starts, edges[:-1])
+        line, at = _peak_points(values[0], count)
+        if size <= count:
+            np.testing.assert_array_equal(line, values[0])
+            np.testing.assert_array_equal(at, np.arange(size))
+        else:
+            np.testing.assert_array_equal(line, peaks[0])
+            np.testing.assert_array_equal(at, (edges[:-1] + edges[1:] - 1) // 2)

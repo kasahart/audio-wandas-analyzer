@@ -538,14 +538,24 @@ for (const fails of [false, true]) {
 }
 
 
-function recipeRestartHarness(preflight: boolean, failRestart = false, startup?: (child: { exit(code: number | null, signal: string | null, lateStderr?: string): void }) => void) {
+interface HarnessOptions {
+    events?: import('../extension/pythonBackendServer').BackendServerEvents;
+    timeoutsMs?: Partial<Record<BackendCommand, number>>;
+}
+
+function recipeRestartHarness(
+    preflight: boolean,
+    failRestart = false,
+    startup?: (child: { exit(code: number | null, signal: string | null, lateStderr?: string): void }) => void,
+    options: HarnessOptions = {},
+) {
     const fixtures = loadValidResponseFixtures();
     const children: ControlledChild[] = [];
     class ControlledChild extends EventEmitter {
         killed = false;
         stdout = new PassThrough();
         stderr = new PassThrough();
-        commands: Array<{ cmd: BackendCommand; requestId: string; filePath?: string }> = [];
+        commands: Array<{ cmd: BackendCommand; requestId: string; filePath?: string; requestIds?: string[] }> = [];
         stdin = new Writable({ write: (chunk, _encoding, done) => {
             this.commands.push(JSON.parse(String(chunk))); done();
         } });
@@ -579,7 +589,10 @@ function recipeRestartHarness(preflight: boolean, failRestart = false, startup?:
                 });
                 return child;
             } };
-            if (name === 'vscode') return { workspace: { getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }) } };
+            if (name === 'vscode') return {
+                workspace: { getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }) },
+                CancellationError: class CancellationError extends Error { constructor() { super('Canceled'); this.name = 'Canceled'; } },
+            };
             if (name === './pythonEnvironment') return { getPythonCommand: () => 'python3', resolveConfiguredPythonCommand: (command: string) => command };
             return localRequire(name);
         },
@@ -592,7 +605,8 @@ function recipeRestartHarness(preflight: boolean, failRestart = false, startup?:
             super('unused', undefined, undefined, preflight ? {
                 current: () => ({ calibrationProfile: { schemaVersion: 1, channels: [] } }),
                 discardStale: async () => false,
-            } : undefined);
+            } : undefined, options.events);
+            this.requestTimeoutsMs = { ...this.requestTimeoutsMs, ...options.timeoutsMs };
         }
     }();
     return { server, children };
@@ -676,4 +690,121 @@ test('disposing during Recipe interruption prevents replay from restarting a clo
 test('startup error keeps an unterminated stderr line written after the process exits', async () => {
     const { server } = recipeRestartHarness(false, false, child => child.exit(1, null, 'Traceback: late failure'));
     await assert.rejects(server.warmup(), /Traceback: late failure/);
+});
+
+function tokenSource() {
+    let listener: (() => void) | undefined;
+    let cancelled = false;
+    return {
+        token: {
+            get isCancellationRequested() { return cancelled; },
+            onCancellationRequested: (callback: () => void) => {
+                listener = callback; return { dispose: () => { listener = undefined; } };
+            },
+        },
+        cancel: () => { cancelled = true; listener?.(); },
+        listening: () => listener !== undefined,
+    };
+}
+
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test('cancelling a running analysis asks Python to drop it without restarting the backend', async () => {
+    const logged: string[] = [];
+    const { server, children } = recipeRestartHarness(false, false, undefined, { events: { log: line => { logged.push(line); } } });
+    try {
+        await server.warmup();
+        const source = tokenSource();
+        const analysis = server.analyze('/long.wav', {}, source.token as never);
+        const other = server.requestRange('/other.wav', 0, 1, 4, 'other-range');
+        await settle();
+        const backend = children[0];
+        const analyze = backend.commands.find(command => command.cmd === 'analyze')!;
+        source.cancel();
+        await assert.rejects(analysis, (error: Error) => error.name === 'Canceled');
+        assert.deepEqual(backend.commands.at(-1), { cmd: 'cancel', requestIds: [analyze.requestId] });
+        assert.equal(source.listening(), false);
+        // A reply already on its way is dropped quietly; the other request is untouched.
+        backend.reply(analyze);
+        backend.reply(backend.commands.find(command => command.cmd === 'range')!);
+        await other;
+        assert.equal(backend.killed, false);
+        assert.equal(children.length, 1);
+        assert.deepEqual(logged.filter(line => line.includes('orphan')), []);
+    } finally { server.dispose(); }
+});
+
+test('a lazy request cancelled by a newer one is dropped by Python too', async () => {
+    const { server, children } = recipeRestartHarness(false);
+    try {
+        await server.warmup();
+        const older = tokenSource();
+        const range = server.requestRange('/a.wav', 0, 0.5, 4, 'range-old', {}, older.token);
+        await settle();
+        older.cancel();
+        await assert.rejects(range, /cancelled/);
+        assert.deepEqual(children[0].commands.at(-1), { cmd: 'cancel', requestIds: ['range-old'] });
+    } finally { server.dispose(); }
+});
+
+test('a request that outlives its command timeout restarts the backend and replays the others', async () => {
+    const { server, children } = recipeRestartHarness(false, false, undefined, { timeoutsMs: { scan: 20 } });
+    try {
+        await server.warmup();
+        const scan = server.scan({ filePath: '/stuck.wav', recipe: {} });
+        const range = server.requestRange('/panel.wav', 0, 1, 4, 'panel-range');
+        await assert.rejects(scan, /scan request timed out/);
+        await settle();
+        assert.equal(children[0].killed, true);
+        assert.equal(children.length, 2);
+        const fresh = children[1];
+        assert.deepEqual(fresh.commands.map(command => command.requestId), ['panel-range']);
+        fresh.reply(fresh.commands[0]);
+        await range;
+    } finally { server.dispose(); }
+});
+
+test('a backend crash after ready reports its stderr, logs it and holds off the restart', async () => {
+    const logged: string[] = [];
+    const crashes: Error[] = [];
+    const { server, children } = recipeRestartHarness(false, false, undefined, {
+        events: { log: line => { logged.push(line); }, crashed: error => { crashes.push(error); } },
+    });
+    try {
+        await server.warmup();
+        const analysis = server.analyze('/a.wav', {});
+        await settle();
+        children[0].stderr.write('RuntimeWarning: overflow\n[perf] phase=x ms=1\n');
+        children[0].exit(1, null, 'Traceback (most recent call last):\nMemoryError');
+        await assert.rejects(analysis, /exited unexpectedly \(code 1\):\nRuntimeWarning: overflow\nTraceback \(most recent call last\):\nMemoryError/);
+        assert.equal(crashes.length, 1);
+        assert.match(crashes[0].message, /MemoryError/);
+        assert.deepEqual(logged.filter(line => !line.startsWith('[ts]')), ['RuntimeWarning: overflow', 'Traceback (most recent call last):', 'MemoryError']);
+        const restarted = server.warmup();
+        await settle();
+        assert.equal(children.length, 1, 'the restart waits out the backoff');
+        server.dispose();
+        await assert.rejects(restarted, /disposed/);
+        await server.warmup();
+        assert.equal(children.length, 2, 'a disposed server starts over without the backoff');
+    } finally { server.dispose(); }
+});
+
+test('a write error on a dying backend stdin is logged instead of thrown', async () => {
+    const logged: string[] = [];
+    const { server, children } = recipeRestartHarness(false, false, undefined, { events: { log: line => { logged.push(line); } } });
+    try {
+        await server.warmup();
+        children[0].stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+        assert.deepEqual(logged.filter(line => line.includes('EPIPE')), ['[ts] backend stdin error: write EPIPE']);
+    } finally { server.dispose(); }
+});
+
+test('a request to a backend that vanished fails instead of throwing a null dereference', async () => {
+    const { server, children } = recipeRestartHarness(false);
+    try {
+        await server.warmup();
+        children[0].stdin.destroy();
+        await assert.rejects(server.requestRange('/a.wav', 0, 1, 4, 'r'), /Python backend is not running/);
+    } finally { server.dispose(); }
 });

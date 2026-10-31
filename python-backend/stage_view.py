@@ -121,8 +121,7 @@ def band_levels(levels_db: np.ndarray, freqs: np.ndarray, edges: np.ndarray) -> 
         upper = freqs < edges[index + 1] if index < edges.size - 2 else freqs <= edges[index + 1]
         inside = (freqs >= edges[index]) & upper
         if inside.any():
-            with np.errstate(divide="ignore"):
-                out[:, index] = 10.0 * np.log10(np.mean(10.0 ** (levels_db[:, inside] / 10.0), axis=1))
+            out[:, index] = power_mean_db(levels_db[:, inside], axis=1)
         else:
             out[:, index] = [np.interp(centres[index], freqs, row) for row in levels_db]
     return out
@@ -132,10 +131,15 @@ def _json(values: np.ndarray) -> list[float | None]:
     return [float(value) if np.isfinite(value) else None for value in np.asarray(values, dtype=np.float64).tolist()]
 
 
+def power_mean_db(levels_db: np.ndarray, axis: int) -> np.ndarray:
+    """Levels power-averaged along ``axis``; silence (zero mean power) is -inf, for the caller to floor."""
+    with np.errstate(divide="ignore"):
+        return 10.0 * np.log10(np.mean(10.0 ** (levels_db / 10.0), axis=axis))
+
+
 def _power_mean(levels_db: np.ndarray) -> np.ndarray:
     """Channels (axis 0) power-averaged."""
-    with np.errstate(divide="ignore"):
-        return 10.0 * np.log10(np.mean(10.0 ** (levels_db / 10.0), axis=0))
+    return power_mean_db(levels_db, axis=0)
 
 
 def _rows(values: Any, channels: int) -> np.ndarray:
@@ -363,17 +367,23 @@ def _roughness_view(frame: RoughnessFrame) -> StageView:
     }
 
 
-def _signed_peaks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
-    """`values` (last axis) in at most `count` blocks, each the value of largest magnitude, with its first index.
-
-    A cepstrum's peaks are single bins: an average over a block would wash them out.
-    """
+def _block_peaks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
+    """`values` (last axis) in at most `count` blocks, each the value of largest magnitude, and the block edges."""
     edges = np.linspace(0, values.shape[-1], min(count, values.shape[-1]) + 1).astype(int)
     picked = [
         np.take_along_axis(block, np.argmax(np.abs(block), axis=-1)[..., np.newaxis], axis=-1)[..., 0]
         for block in (values[..., start:end] for start, end in zip(edges[:-1], edges[1:], strict=True))
     ]
-    return np.stack(picked, axis=-1), edges[:-1]
+    return np.stack(picked, axis=-1), edges
+
+
+def _signed_peaks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
+    """`values` (last axis) in at most `count` blocks, each the value of largest magnitude, with its first index.
+
+    A cepstrum's peaks are single bins: an average over a block would wash them out.
+    """
+    peaks, edges = _block_peaks(values, count)
+    return peaks, edges[:-1]
 
 
 def _peak_points(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
@@ -384,13 +394,7 @@ def _peak_points(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray
     """
     if values.size <= count:
         return values, np.arange(values.size)
-    edges = np.linspace(0, values.size, count + 1).astype(int)
-    peaks = np.array(
-        [
-            values[start + int(np.argmax(np.abs(values[start:end])))]
-            for start, end in zip(edges[:-1], edges[1:], strict=True)
-        ]
-    )
+    peaks, edges = _block_peaks(values, count)
     return peaks, (edges[:-1] + edges[1:] - 1) // 2
 
 
@@ -461,6 +465,10 @@ def _envelope(xs: np.ndarray, values: np.ndarray, points: int) -> tuple[np.ndarr
 
     Fewer values than points are all kept. A bucket's two points sit at its first and last x, so every
     file's buckets fall at the same places and a group's pictures still have a median point by point.
+
+    Not ``decimator.decimated_waveform`` (where a NaN wins its bucket, the points sit at the extremes' own
+    samples and the buckets are sized by ``divmod``) nor ``wandas_to_chart._min_max_envelope`` (which keeps
+    each gap's first sample): a comparison needs fixed bucket positions and ignores non-finite values.
     """
     n = xs.size
     if n <= points:

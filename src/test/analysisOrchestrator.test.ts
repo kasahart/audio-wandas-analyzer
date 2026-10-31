@@ -151,3 +151,45 @@ test('AnalysisOrchestrator does not retry a shared backend startup failure for e
         { fileName: 'three.wav', error: 'startup timed out', analysisRevision: 8 },
     ]);
 });
+
+test('AnalysisOrchestrator progress title counts files in the display language and the bar advances past 100 files', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AnalysisOrchestrator } = require('../extension/analysisOrchestrator') as typeof import('../extension/analysisOrchestrator');
+    let language = 'en';
+    const titles: string[] = [];
+    const increments: number[] = [];
+    const host: AnalysisHost = {
+        language: () => language,
+        withProgress: async <T>(
+            options: vscode.ProgressOptions,
+            task: (
+                progress: vscode.Progress<{ message?: string; increment?: number }>,
+                token: vscode.CancellationToken,
+            ) => Thenable<T>,
+        ): Promise<T> => {
+            titles.push(options.title ?? '');
+            return task(
+                { report: (value) => { if (value.increment !== undefined) increments.push(value.increment); } },
+                { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => undefined }) },
+            );
+        },
+    };
+    const backend = {
+        warmup: async () => undefined,
+        analyze: async (filePath: string) => ({
+            filePath, fileName: 'a.wav', sampleRateHz: 48_000, durationSeconds: 1, channelCount: 0, sampleCount: 48_000, channels: [],
+        }),
+    };
+    const orchestrator = new AnalysisOrchestrator(backend, () => undefined, host);
+
+    await orchestrator.analyzeFiles(['/tmp/a.wav']);
+    const many = Array.from({ length: 150 }, (_, index) => `/tmp/${index}.wav`);
+    await orchestrator.analyzeFiles(many);
+    language = 'ja';
+    await orchestrator.analyzeFiles(['/tmp/a.wav', '/tmp/b.wav']);
+
+    assert.deepEqual(titles, ['Analyzing 1 file with wandas', 'Analyzing 150 files with wandas', 'wandas で 2 ファイル を解析しています']);
+    const manyIncrements = increments.slice(1, 151);
+    assert.ok(manyIncrements.every(increment => increment > 0));
+    assert.ok(Math.abs(manyIncrements.reduce((sum, increment) => sum + increment, 0) - 100) < 1e-9);
+});

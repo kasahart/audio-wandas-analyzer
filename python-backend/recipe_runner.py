@@ -66,4 +66,13 @@ def evaluate_recipe(plan: RecipePlan, frames: Mapping[str, Any], *, title: str) 
             charts.append(adapt(result, title=f"{title} (phase)", value="phase"))
     except (RecipeExecutionError, RecipeValidationError, ValueError) as error:
         raise RecipeError(str(error)) from error
+    except (TypeError, KeyError, IndexError) as error:
+        # wandas names the operation when one fails as it is applied; a lazy one that rejects its input fails
+        # while the chart computes the output, with no node attached, so name the output's operation.
+        raise RecipeError(f"{_output_operation(plan)} failed: {type(error).__name__}: {error}") from error
     return charts
+
+
+def _output_operation(plan: RecipePlan) -> str:
+    operation = next((node.operation for node in plan.nodes if node.id == plan.output), None)
+    return f"operation {operation!r}" if operation is not None else "the recipe"

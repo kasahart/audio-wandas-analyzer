@@ -18,7 +18,7 @@ import {
 } from '../shared/utils/directorySelection';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import { fileCountLabel, fillTemplate, getStrings, type UiStrings } from '../shared/i18n/strings';
-import type { AnalysisOrchestrator } from './analysisOrchestrator';
+import type { AnalysisHost, AnalysisOrchestrator } from './analysisOrchestrator';
 import type { AnalysisClient } from '../shared/analysis/analysisClient';
 import type { CalibrationRequestContext } from '../shared/protocol/backendProtocol';
 import {
@@ -49,8 +49,10 @@ import {
 } from '../shared/analysis/savedSpectrogramSettings';
 import {
     buildDirectoryTree,
+    MAX_DIRECTORY_ENTRIES,
     pickAudioFiles,
     pickAudioTarget,
+    type DirectoryListing,
     type OpenDialog,
     type TargetFileSystem,
 } from './targetDiscovery';
@@ -109,6 +111,7 @@ export interface PanelControllerHost {
     getPythonEnvironment(): PythonEnvironmentState;
     onPythonEnvironmentChange(listener: (state: PythonEnvironmentState) => void): vscode.Disposable;
     language(): string;
+    withProgress: AnalysisHost['withProgress'];
 }
 
 const defaultPanelFactory: PanelFactory = {
@@ -154,6 +157,7 @@ const defaultHost: PanelControllerHost = {
     getPythonEnvironment: getCurrentPythonEnvironmentState,
     onPythonEnvironmentChange: onDidChangePythonEnvironmentState,
     language: () => vscode.env.language,
+    withProgress: (options, task) => vscode.window.withProgress(options, task),
 };
 
 export class PanelController implements vscode.Disposable {
@@ -194,8 +198,20 @@ export class PanelController implements vscode.Disposable {
         if (existingSession && revision !== undefined && !existingSession.isCurrent(revision)) { return; }
 
         if ((targetStat.type & vscode.FileType.Directory) !== 0) {
-            const tree = await buildDirectoryTree(targetUri, targetUri, this.host.fileSystem);
+            let listing: DirectoryListing;
+            try {
+                listing = await this.listDirectory(targetUri);
+            } catch (error) {
+                if (error instanceof vscode.CancellationError) { return; }
+                throw error;
+            }
             if (existingSession && revision !== undefined && !existingSession.isCurrent(revision)) { return; }
+            const { tree } = listing;
+            if (listing.truncated) {
+                this.host.showInformation(fillTemplate(this.strings().directoryListingTruncated, {
+                    count: MAX_DIRECTORY_ENTRIES, path: targetUri.fsPath,
+                }));
+            }
             const filePaths = collectAudioFilePaths(tree);
             if (filePaths.length === 0) {
                 throw new Error(fillTemplate(this.strings().noSupportedAudioFiles, { path: targetUri.fsPath }));
@@ -311,6 +327,20 @@ export class PanelController implements vscode.Disposable {
         }
     }
 
+    private listDirectory(targetUri: vscode.Uri): Thenable<DirectoryListing> {
+        return this.host.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: fillTemplate(this.strings().directoryListingProgress, { path: path.basename(targetUri.fsPath) || targetUri.fsPath }),
+                cancellable: true,
+            },
+            (progress, token) => buildDirectoryTree(targetUri, this.host.fileSystem, {
+                isCancelled: () => token.isCancellationRequested,
+                onProgress: (entries) => progress.report({ message: String(entries) }),
+            }),
+        );
+    }
+
     private strings(): UiStrings {
         return getStrings(this.host.language());
     }
@@ -361,7 +391,10 @@ export class PanelController implements vscode.Disposable {
             releaseTrackDetail: (filePath) => { void this.backend.releaseTrackDetail(filePath); },
             activeFilePaths: () => session.getActiveFilePaths(),
             reanalyze: (stftOptions, scope) => this.reanalyze(session, stftOptions, scope),
-            wavExport: (message) => this.exports.wavExport(message),
+            wavExport: (message) => {
+                const filePaths = message.filePaths.filter((filePath) => session.allowsFile(filePath));
+                return filePaths.length > 0 ? this.exports.wavExport({ ...message, filePaths }) : Promise.resolve(undefined);
+            },
             pickReportFormat: () => this.exports.pickReportFormat(),
             saveReport: (artifact, format, message) => this.exports.saveReport(artifact, format, message),
             saveRecipe: (file) => this.exports.saveRecipe(file),
@@ -385,6 +418,7 @@ export class PanelController implements vscode.Disposable {
             entry: {
                 // Path, size and mtime: the same file unchanged gets its stored metrics back without a scan.
                 identity: async (filePath) => {
+                    this.assertListed(session, filePath);
                     try {
                         const real = await fs.realpath(filePath);
                         const stat = await fs.stat(real, { bigint: true });
@@ -394,10 +428,14 @@ export class PanelController implements vscode.Disposable {
                     }
                 },
                 calibration: (filePath) => JSON.stringify(this.backend.calibrationFor(filePath) ?? null),
-                scan: async (filePath, region, recipe, stage, detail, reference) => this.backend.scan({ filePath, recipe: recipe ?? await this.entryRecipe(), ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}), ...(reference ? { reference } : {}) }),
+                scan: async (filePath, region, recipe, stage, detail, reference) => {
+                    this.assertListed(session, filePath);
+                    if (reference) { this.assertListed(session, reference.filePath); }
+                    return this.backend.scan({ filePath, recipe: recipe ?? await this.entryRecipe(), ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}), ...(reference ? { reference } : {}) });
+                },
                 recipe: () => this.entryRecipe(),
-                readFile: async (filePath) => new Uint8Array(await fs.readFile(filePath)),
                 readHead: async (filePath, length) => {
+                    this.assertListed(session, filePath);
                     const handle = await fs.open(filePath, 'r');
                     try {
                         const buffer = new Uint8Array(length);
@@ -412,6 +450,13 @@ export class PanelController implements vscode.Disposable {
                 write: (key, value) => (this.folderStore && isFolderKey(key) ? this.folderStore.write(key, value) : this.context.workspaceState.update(key, value)),
             },
         };
+    }
+
+    /** The webview names files by path; only the ones this panel listed or shows may reach the disk or the backend. */
+    private assertListed(session: PanelSession<PanelHandle>, filePath: string): void {
+        if (!session.allowsFile(filePath)) {
+            throw new Error(fillTemplate(this.strings().fileNotInSession, { path: filePath }));
+        }
     }
 
     private entryRecipeFile?: Promise<RecipeDocument>;

@@ -110,3 +110,18 @@ def test_outputs_keep_the_recordings_path_and_extension_so_no_two_share_one() ->
     names = [module._output_name(path, "") for path in ("rec.wav", "rec.flac", "L1/a.wav", "L1__a.wav")]
     assert names == ["rec.wav.wdf", "rec.flac.wdf", "L1/a.wav.wdf", "L1__a.wav.wdf"]
     assert module._output_name("two.wav", "2") == "two.wav.ch2.wdf"
+
+
+def test_the_bundles_wandas_range_is_the_analyzers() -> None:
+    import re
+    import tomllib
+
+    spec = importlib.util.spec_from_file_location("run_recipe", REPO / "python-backend" / "batch" / "run_recipe.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    dependencies = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
+    wandas = next(item for item in dependencies if item.startswith("wandas"))
+    low, high = (tuple(int(part) for part in version.split(".")) for version in re.findall(r"[<>]=?([\d.]+)", wandas))
+    assert module.REQUIRES_WANDAS[: len(low)] == low
+    assert module.BEFORE_WANDAS[: len(high)] == high

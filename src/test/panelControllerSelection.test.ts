@@ -16,7 +16,8 @@ test('directory selection uses live result updates with resource URIs, cache reu
         // (path.join would yield '\\retention\\sub' on Windows and the '/sub' fixture below would recurse forever).
         if (request === 'vscode') return {
             Uri: { file: uri, joinPath: (base: { fsPath: string }, ...parts: string[]) => uri(path.posix.join(base.fsPath, ...parts)) },
-            FileType: { File: 1, Directory: 2 }, ViewColumn: { One: 1 },
+            FileType: { File: 1, Directory: 2, SymbolicLink: 64 }, ViewColumn: { One: 1 }, ProgressLocation: { Notification: 15 },
+            CancellationError: class extends Error {},
             EventEmitter: class { readonly event = () => ({ dispose() {} }); fire() {} dispose() {} },
             commands: { executeCommand: async () => undefined }, workspace: { fs: {} },
             window: { showErrorMessage() {}, showInformationMessage() {}, showOpenDialog() {} },
@@ -72,6 +73,7 @@ test('directory selection uses live result updates with resource URIs, cache reu
         getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
         onPythonEnvironmentChange: () => ({ dispose() {} }),
         language: () => 'ja',
+        withProgress: (_options, task) => task({ report() {} }, { isCancellationRequested: false } as vscode.CancellationToken),
     };
     const progressTitles: string[] = [];
     let analysisGate: Promise<void> | undefined;

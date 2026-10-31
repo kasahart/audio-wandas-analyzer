@@ -5,11 +5,13 @@ import { createInterface } from 'node:readline';
 import * as vscode from 'vscode';
 import {
     backendStartupError,
+    BackendRequestCancelledError,
     BackendStartupError,
     BackendStartupCancelledError,
     formatPythonImportTiming,
     processStdoutLine,
     StderrLineSplitter,
+    StderrTail,
     waitForBackendStartup,
     type BackendDiagnostic,
 } from './backendIpc';
@@ -22,12 +24,28 @@ import {
     type BackendPayload,
     type BackendResult,
 } from '../shared/protocol/backendProtocol';
+import type { BackendCancelControl } from '../shared/protocol/generated/backendProtocolSchema';
 import { getPythonCommand, resolveConfiguredPythonCommand } from './pythonEnvironment';
 import { AnalysisRequestError } from './analysisRequestError';
 
 export { AnalysisRequestError };
 
-class RecipeBackendRestartError extends Error {}
+/** The backend was killed to stop one request; the others it held are sent again to its successor. */
+class BackendRestartReplayError extends Error {}
+
+export class BackendRequestTimeoutError extends Error {
+    constructor(command: BackendCommand, ms: number) {
+        super(`Python backend ${command} request timed out after ${ms / 1000} seconds`);
+        this.name = 'BackendRequestTimeoutError';
+    }
+}
+
+export interface BackendServerEvents {
+    /** Python's stderr (other than `[perf]` lines) and the host's own diagnostics about the backend. */
+    log?(line: string): void;
+    /** The backend died after it was ready; `error` carries the end of its stderr. */
+    crashed?(error: Error): void;
+}
 
 export class PythonBackendServer extends AnalysisClient {
     private proc: ChildProcess | null = null;
@@ -36,15 +54,41 @@ export class PythonBackendServer extends AnalysisClient {
     private disposalGeneration = 0;
     private lastHeartbeatAt = 0;
     private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+    /** Requests given up on whose reply may still be on its way; it is dropped rather than reported as an orphan. */
+    private readonly abandoned = new Set<string>();
+    private readyAt = 0;
+    private crashes = 0;
+    private restartNotBefore = 0;
     private static readonly HEARTBEAT_TIMEOUT_MS = 15_000;
     private static readonly WATCHDOG_INTERVAL_MS = 5_000;
     private static readonly STARTUP_TIMEOUT_MS = 120_000;
+    private static readonly ABANDONED_LIMIT = 256;
+    private static readonly RESTART_BACKOFF_MS = 1_000;
+    private static readonly RESTART_BACKOFF_MAX_MS = 30_000;
+    /** A backend that ran this long before dying starts the backoff over. */
+    private static readonly STABLE_RUN_MS = 60_000;
+
+    /** How long each command may take before the backend is presumed stuck and restarted; 0 leaves it to the caller. */
+    protected requestTimeoutsMs: Record<BackendCommand, number> = {
+        analyze: 600_000,
+        range: 60_000,
+        'track-detail': 300_000,
+        'release-track-detail': 60_000,
+        'spectrum-slice': 60_000,
+        'pair-spectrum': 300_000,
+        'export-wav-loop': 300_000,
+        // AnalysisClient.runRecipe times the Recipe out itself.
+        'run-recipe': 0,
+        'build-recipe': 120_000,
+        scan: 300_000,
+    };
 
     constructor(
         private readonly extensionPath: string,
         private readonly onPerfLine: (line: string) => void = () => { /* no-op */ },
         private readonly onReady: () => void = () => { /* no-op */ },
         contextPolicy?: AnalysisContextPolicy,
+        private readonly events: BackendServerEvents = {},
     ) { super(contextPolicy); }
 
     warmup(): Promise<void> {
@@ -60,7 +104,7 @@ export class PythonBackendServer extends AnalysisClient {
             try {
                 return await this.request('analyze', analysisPayload(filePath, resolved), undefined, cancellation);
             } catch (error) {
-                if (error instanceof BackendStartupCancelledError) {
+                if (error instanceof BackendStartupCancelledError || error instanceof BackendRequestCancelledError) {
                     throw new vscode.CancellationError();
                 }
                 throw new AnalysisRequestError(
@@ -79,9 +123,12 @@ export class PythonBackendServer extends AnalysisClient {
         this.proc?.kill();
         this.proc = null;
         this.startPromise = null;
+        this.crashes = 0;
+        this.restartNotBefore = 0;
         this.rejectAll(new Error('PythonBackendServer disposed'));
     }
 
+    /** Stops a request Python may be stuck in: kills the backend and sends its other requests to a fresh one. */
     protected override cancelRequest(requestId: string, reason: Error): void {
         const cancelled = this.pending.get(requestId);
         if (!cancelled) return;
@@ -91,8 +138,31 @@ export class PythonBackendServer extends AnalysisClient {
         this.proc = null;
         this.startPromise = null;
         cancelled.reject(reason);
-        this.rejectAll(new RecipeBackendRestartError('Python backend restarting after Recipe interruption'));
+        this.rejectAll(new BackendRestartReplayError('Python backend restarting after an interrupted request'));
         child?.kill();
+    }
+
+    /** Gives up on a request without a restart: Python drops it if queued and sends no reply if running. */
+    private abandon(requestId: string, reason: Error): void {
+        const abandoned = this.pending.get(requestId);
+        if (!abandoned) return;
+        this.pending.delete(requestId);
+        abandoned.reject(reason);
+        this.abandoned.add(requestId);
+        if (this.abandoned.size > PythonBackendServer.ABANDONED_LIMIT) {
+            this.abandoned.delete(this.abandoned.values().next().value!);
+        }
+        const control: BackendCancelControl = { cmd: 'cancel', requestIds: [requestId] };
+        // Without a backend there is nothing left to stop.
+        if (this.proc?.stdin?.writable) { this.writeLine(control); }
+    }
+
+    private writeLine(message: object): void {
+        const stdin = this.proc?.stdin;
+        if (!stdin || !stdin.writable) {
+            throw new Error('Python backend is not running');
+        }
+        stdin.write(JSON.stringify(message) + '\n');
     }
 
     protected async request<K extends BackendCommand>(
@@ -107,14 +177,29 @@ export class PythonBackendServer extends AnalysisClient {
             throw new BackendStartupCancelledError();
         }
         const id = requestId ?? this.pending.nextId();
-        return this.pending.dispatch(command, id, response => parseBackendResult(command, response), () => {
-            this.proc!.stdin!.write(JSON.stringify({ cmd: command, requestId: id, ...payload }) + '\n');
-        }).catch(error => {
-            if (error instanceof RecipeBackendRestartError && generation === this.disposalGeneration) {
+        const reply = this.pending.dispatch(command, id, response => parseBackendResult(command, response), () => {
+            this.writeLine({ cmd: command, requestId: id, ...payload });
+        });
+        const entry = this.pending.get(id);
+        const ownsId = (): boolean => entry !== undefined && this.pending.get(id) === entry;
+        const timeoutMs = this.requestTimeoutsMs[command];
+        const timer = timeoutMs > 0 && entry
+            ? setTimeout(() => { if (ownsId()) this.cancelRequest(id, new BackendRequestTimeoutError(command, timeoutMs)); }, timeoutMs)
+            : undefined;
+        const subscription = entry && cancellation?.onCancellationRequested(() => {
+            if (ownsId()) this.abandon(id, new BackendRequestCancelledError(command));
+        });
+        try {
+            return await reply;
+        } catch (error) {
+            if (error instanceof BackendRestartReplayError && generation === this.disposalGeneration) {
                 return this.request(command, payload, requestId, cancellation);
             }
             throw error;
-        });
+        } finally {
+            clearTimeout(timer);
+            subscription?.dispose();
+        }
     }
 
     private ensureRunning(): Promise<void> {
@@ -124,8 +209,29 @@ export class PythonBackendServer extends AnalysisClient {
         if (this.proc && !this.proc.killed) {
             return Promise.resolve();
         }
-        this.startPromise = this.startServer();
+        const backoff = this.restartNotBefore - Date.now();
+        this.startPromise = backoff > 0 ? this.startAfter(backoff) : this.startServer();
         return this.startPromise;
+    }
+
+    private async startAfter(delayMs: number): Promise<void> {
+        const generation = this.disposalGeneration;
+        this.events.log?.(`[ts] backend restart in ${delayMs} ms after ${this.crashes} crash(es)`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        if (generation !== this.disposalGeneration) {
+            throw new Error('PythonBackendServer disposed');
+        }
+        return this.startServer();
+    }
+
+    /** Spaces out restarts of a backend that keeps dying, so a crash loop does not spin the CPU. */
+    private noteCrash(): void {
+        if (Date.now() - this.readyAt > PythonBackendServer.STABLE_RUN_MS) { this.crashes = 0; }
+        this.crashes++;
+        this.restartNotBefore = Date.now() + Math.min(
+            PythonBackendServer.RESTART_BACKOFF_MAX_MS,
+            PythonBackendServer.RESTART_BACKOFF_MS * 2 ** (this.crashes - 1),
+        );
     }
 
     private startServer(): Promise<void> {
@@ -149,9 +255,13 @@ export class PythonBackendServer extends AnalysisClient {
                 },
             });
             this.proc = child;
+            this.abandoned.clear();
+            // EPIPE when the process dies with a write in flight; 'close' reports the exit itself.
+            child.stdin!.on('error', (err) => { this.events.log?.(`[ts] backend stdin error: ${err.message}`); });
 
             let startupFinished = false;
             let startupStderr = '';
+            const stderrTail = new StderrTail();
             const failStartup = (error: Error): void => {
                 if (startupFinished) { return; }
                 startupFinished = true;
@@ -211,6 +321,7 @@ export class PythonBackendServer extends AnalysisClient {
                 startupFinished = true;
                 clearTimeout(timeout);
                 this.startPromise = null;
+                this.readyAt = Date.now();
                 this.startWatchdog();
                 this.onPerfLine(`[ts] backend ready total_ms=${Date.now() - startupStartedAt}`);
                 this.onReady();
@@ -220,9 +331,14 @@ export class PythonBackendServer extends AnalysisClient {
                 if (!startupFinished) { startupStderr += line + '\n'; }
                 if (line.startsWith('[perf]')) {
                     this.onPerfLine(line);
-                } else if (importTimingEnabled) {
-                    const importTiming = formatPythonImportTiming(line);
-                    if (importTiming) { this.onPerfLine(importTiming); }
+                    return;
+                }
+                const importTiming = importTimingEnabled ? formatPythonImportTiming(line) : null;
+                if (importTiming) {
+                    this.onPerfLine(importTiming);
+                } else if (!importTimingEnabled || !line.startsWith('import time:')) {
+                    stderrTail.push(line);
+                    this.events.log?.(line);
                 }
             };
             const stderrLines = new StderrLineSplitter();
@@ -251,8 +367,10 @@ export class PythonBackendServer extends AnalysisClient {
                 flushStderr();
                 const wasCurrent = this.proc === child;
                 const suffix = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
+                const crashed = startupFinished && wasCurrent;
+                const tail = stderrTail.text();
                 const error = startupFinished
-                    ? new Error(`PythonBackendServer exited unexpectedly (${suffix})`)
+                    ? new Error(`PythonBackendServer exited unexpectedly (${suffix})${tail ? `:\n${tail}` : ''}`)
                     : backendStartupError(`Python backend exited before ready (${suffix})`, startupStderr);
                 failStartup(error);
                 if (wasCurrent) {
@@ -260,6 +378,10 @@ export class PythonBackendServer extends AnalysisClient {
                     this.proc = null;
                     this.startPromise = null;
                     this.rejectAll(error);
+                }
+                if (crashed) {
+                    this.noteCrash();
+                    this.events.crashed?.(error);
                 }
             });
         });
@@ -271,9 +393,11 @@ export class PythonBackendServer extends AnalysisClient {
         this.watchdogTimer = setInterval(() => {
             const elapsed = Date.now() - this.lastHeartbeatAt;
             if (elapsed > PythonBackendServer.HEARTBEAT_TIMEOUT_MS) {
-                this.onPerfLine('[watchdog] heartbeat timeout — restarting backend');
+                this.events.log?.('[watchdog] heartbeat timeout — restarting backend');
                 const child = this.proc;
                 const error = new Error('Python backend heartbeat timed out');
+                this.noteCrash();
+                this.events.crashed?.(error);
                 this.stopWatchdog();
                 this.proc = null;
                 this.startPromise = null;
@@ -296,8 +420,11 @@ export class PythonBackendServer extends AnalysisClient {
     }
 
     private reportDiagnostic(diagnostic: BackendDiagnostic): void {
+        if (diagnostic.kind === 'orphan-response' && diagnostic.requestId && this.abandoned.delete(diagnostic.requestId)) {
+            return;
+        }
         const request = diagnostic.requestId ? ` requestId=${diagnostic.requestId}` : '';
-        this.onPerfLine(`[protocol:${diagnostic.kind}]${request} ${diagnostic.message}`);
+        this.events.log?.(`[protocol:${diagnostic.kind}]${request} ${diagnostic.message}`);
     }
 
     private rejectAll(err: Error): void {

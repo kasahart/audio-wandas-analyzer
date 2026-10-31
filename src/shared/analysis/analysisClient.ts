@@ -18,6 +18,25 @@ export interface AnalysisCancellationSignal {
     onCancellationRequested(listener: () => void): { dispose(): void };
 }
 
+/** A signal its owner fires once, e.g. when a newer request for the same track supersedes this one. */
+export class RequestCancellation implements AnalysisCancellationSignal {
+    private cancelled = false;
+    private readonly listeners = new Set<() => void>();
+
+    get isCancellationRequested(): boolean { return this.cancelled; }
+
+    onCancellationRequested(listener: () => void): { dispose(): void } {
+        this.listeners.add(listener);
+        return { dispose: () => { this.listeners.delete(listener); } };
+    }
+
+    cancel(): void {
+        if (this.cancelled) return;
+        this.cancelled = true;
+        this.listeners.forEach(listener => listener());
+    }
+}
+
 export interface RecipeExecutionOptions {
     recipePath?: string;
     cancellation?: AnalysisCancellationSignal;
@@ -66,11 +85,13 @@ export abstract class AnalysisClient {
         points: number,
         requestId?: string,
         calibration: CalibrationRequestContext = {},
+        cancellation?: AnalysisCancellationSignal,
     ): Promise<RangeResult> {
         return this.request(
             'range',
             { filePath, startNorm, endNorm, points, ...this.calibrationPayload(this.requestContext(filePath, calibration)) },
             requestId,
+            cancellation,
         );
     }
 
@@ -78,6 +99,7 @@ export abstract class AnalysisClient {
         filePath: string,
         payload: Omit<TrackDetailPayload, 'filePath'>,
         requestId: string,
+        cancellation?: AnalysisCancellationSignal,
     ): Promise<TrackDetailResult> {
         return this.request(
             'track-detail',
@@ -90,6 +112,7 @@ export abstract class AnalysisClient {
                 ...this.calibrationPayload(this.requestContext(filePath, payload)),
             },
             requestId,
+            cancellation,
         );
     }
 
@@ -101,6 +124,7 @@ export abstract class AnalysisClient {
         filePath: string,
         payload: Omit<SpectrumSlicePayload, 'filePath'>,
         requestId: string,
+        cancellation?: AnalysisCancellationSignal,
     ): Promise<SpectrumSliceResult> {
         return this.request(
             'spectrum-slice',
@@ -115,6 +139,7 @@ export abstract class AnalysisClient {
                 ...this.calibrationPayload(this.requestContext(filePath, payload)),
             },
             requestId,
+            cancellation,
         );
     }
 
@@ -171,8 +196,9 @@ export abstract class AnalysisClient {
             const interrupt = (error: Error): void => {
                 cancelled = true;
                 reject(error);
-                cancellationListeners.forEach(listener => listener());
+                // A Recipe may be stuck in Python, so the host stops it the hard way before a request's own listener could only abandon it.
                 this.cancelRequest(requestId, error);
+                cancellationListeners.forEach(listener => listener());
             };
             timer = setTimeout(() => interrupt(new Error(`Recipe execution timed out after ${this.recipeTimeoutMs} ms`)), this.recipeTimeoutMs);
             if (cancellation) {
@@ -243,18 +269,19 @@ export async function executeLazyAnalysis(
     backend: LazyAnalysisBackend,
     message: LazyAnalysisRequest,
     context: CalibrationRequestContext & { stftOptions?: StftOptions },
+    cancellation?: AnalysisCancellationSignal,
 ) {
     if (message.type === 'request-waveform-range') {
-        const result = await backend.requestRange(message.filePath, message.startNorm, message.endNorm, message.points, message.requestId, context);
+        const result = await backend.requestRange(message.filePath, message.startNorm, message.endNorm, message.points, message.requestId, context, cancellation);
         return { type: 'waveform-range-result' as const, analysisRevision: result.analysisRevision, requestId: message.requestId,
             trackIndex: message.trackIndex, startNorm: message.startNorm, endNorm: message.endNorm, channels: result.channels };
     }
     const payload = { trackIndex: message.trackIndex, analysisId: message.analysisId,
         settingsSignature: message.settingsSignature, ...context };
     const result = message.type === 'request-track-detail'
-        ? await backend.requestTrackDetail(message.filePath, payload, message.requestId)
+        ? await backend.requestTrackDetail(message.filePath, payload, message.requestId, cancellation)
         : await backend.requestSpectrumSlice(message.filePath,
-            { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}) }, message.requestId);
+            { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}) }, message.requestId, cancellation);
     const identity = { requestId: message.requestId, analysisId: message.analysisId,
         settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath };
     if ('frequencyBins' in result) {

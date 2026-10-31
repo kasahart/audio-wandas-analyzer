@@ -519,6 +519,10 @@ export interface UiStrings {
     exportWavComplete: string;
     exportWavPartial: string;
     noSupportedAudioFiles: string;
+    fileNotInSession: string;
+    directoryListingProgress: string;
+    directoryListingTruncated: string;
+    openTargetFailed: string;
     progressSyncCalibration: string;
     progressRecomputeSpectrogram: string;
     progressApplyCalibration: string;
@@ -646,6 +650,67 @@ export interface UiStrings {
     hintPairDivider: string;
     hintOctaveDisabledByPair: string;
     hintPairPlot: string;
+    pyTooltipSelect: string;
+    pyTooltipMissingDeps: string;
+    pyTooltipMissingInterpreter: string;
+    pyTooltipPipUnavailable: string;
+    pyTooltipCheckFailed: string;
+    pyTooltipImporting: string;
+    pyTooltipBackendFailed: string;
+    analysisPythonNotReady: string;
+    pyTooltipBackendStopped: string;
+    pyStatusImporting: string;
+    pyPickPlaceholder: string;
+    pyPickFromPythonExtension: string;
+    pyPickFromVirtualEnv: string;
+    pyPickWorkspaceVenv: string;
+    pyPickCurrent: string;
+    pyPickOther: string;
+    pyPickCreateVenv: string;
+    pyPickCreateVenvDetail: string;
+    pyPickBrowse: string;
+    pyPickBrowseOpenLabel: string;
+    pyInterpreterNotFound: string;
+    pyPipUnavailable: string;
+    pyCheckFailed: string;
+    pyMissingPackages: string;
+    pyExternallyManaged: string;
+    pyBtnInstall: string;
+    pyBtnCreateVenv: string;
+    pyBtnSelect: string;
+    pyBtnShowLog: string;
+    pyInstallProgress: string;
+    pyCreateVenvProgress: string;
+    pyInstallSucceeded: string;
+    pyInstallFailed: string;
+    pyInstallTimedOut: string;
+    pyInstallCancelled: string;
+    pyVenvFailed: string;
+    pyVenvNoEnsurepip: string;
+    pySavedToUserSettings: string;
+    pyUntrustedWorkspacePath: string;
+    pyTooltipUntrustedWorkspacePath: string;
+    welcomeDropLabel: string;
+    welcomeDropDescription: string;
+    welcomeDropCommand: string;
+    debugPathNotConfigured: string;
+    debugPathNotFound: string;
+    analysisProgressTitle: string;
+    recipePickPlaceholder: string;
+    recipeBrowseLabel: string;
+    recipeBrowseDescription: string;
+    recipeFileFilter: string;
+    recipeOpenLabel: string;
+    recipeInputsOpenLabel: string;
+    recipeInputPlaceholder: string;
+    recipeNotDocument: string;
+    recipeReadFailed: string;
+    recipeRunFailed: string;
+    recipeRunning: string;
+    calibrationNoPanel: string;
+    calibrationNoChannels: string;
+    calibrationPickTrack: string;
+    calibrationChannelFallback: string;
 }
 
 const STRINGS: Record<SupportedLocale, UiStrings> = {
@@ -1153,6 +1218,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         exportWavComplete: 'WAV export complete ({files}) → {folder}',
         exportWavPartial: 'WAV export: {succeeded} succeeded, {failed} failed — {errors}',
         noSupportedAudioFiles: 'No supported audio files were found in {path}',
+        fileNotInSession: 'Not a file this panel lists: {path}',
+        directoryListingProgress: 'Listing audio files in {path}',
+        directoryListingTruncated: 'Listed the first {count} entries of {path} only. Open a subfolder to see the rest.',
+        openTargetFailed: 'Could not open {path}: {reason}',
         progressSyncCalibration: 'Synchronizing calibration ({files})',
         progressRecomputeSpectrogram: 'Recomputing spectrogram ({files})',
         progressApplyCalibration: 'Applying calibration ({files})',
@@ -1280,6 +1349,67 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintPairDivider: 'Drag to change the split',
         hintOctaveDisabledByPair: 'Octave bands are off while a reference is set',
         hintPairPlot: 'Averaged over the loop region, or the whole overlap without one',
+        pyTooltipSelect: 'Click to select the Python environment',
+        pyTooltipMissingDeps: 'Python packages are missing or incompatible. Click to select an environment or install them.',
+        pyTooltipMissingInterpreter: 'The Python interpreter was not found. Click to select another environment.',
+        pyTooltipPipUnavailable: 'pip is not available in this environment. Click to select another environment.',
+        pyTooltipCheckFailed: 'The Python environment check failed. Click to select another environment.',
+        pyTooltipImporting: 'Importing the Python analysis modules in the background.',
+        pyTooltipBackendFailed: 'The Python backend failed to start: {message}',
+        analysisPythonNotReady: 'The Python environment is not ready for analysis. Install the packages or select another environment from the Python item in the status bar.',
+        pyTooltipBackendStopped: 'The Python backend stopped: {message}. It restarts on the next request.',
+        pyStatusImporting: 'Python: importing modules',
+        pyPickPlaceholder: 'Select the Python environment for Audio Wandas Analyzer',
+        pyPickFromPythonExtension: 'Selected in the Python extension',
+        pyPickFromVirtualEnv: 'Active virtual environment (VIRTUAL_ENV)',
+        pyPickWorkspaceVenv: 'Virtual environment in this workspace',
+        pyPickCurrent: 'Current',
+        pyPickOther: 'Other',
+        pyPickCreateVenv: '$(add) Create .venv and install packages',
+        pyPickCreateVenvDetail: 'Runs python -m venv .venv in the workspace and installs the required packages',
+        pyPickBrowse: '$(folder) Browse...',
+        pyPickBrowseOpenLabel: 'Select Python environment',
+        pyInterpreterNotFound: 'Python interpreter not found: {command}',
+        pyPipUnavailable: 'pip is not available in {command}. Select another environment or create a .venv.',
+        pyCheckFailed: 'Could not check the Python packages in {command}. See the log for details.',
+        pyMissingPackages: 'Audio Wandas Analyzer needs compatible Python packages in {command}: {packages}',
+        pyExternallyManaged: '{command} is managed by the operating system (PEP 668), so packages cannot be installed into it. Create a .venv or select another environment.',
+        pyBtnInstall: 'Install',
+        pyBtnCreateVenv: 'Create .venv and Install',
+        pyBtnSelect: 'Select Environment',
+        pyBtnShowLog: 'Show Log',
+        pyInstallProgress: 'Installing Python packages into {command}',
+        pyCreateVenvProgress: 'Creating {path}',
+        pyInstallSucceeded: 'Python packages installed.',
+        pyInstallFailed: 'Installing the Python packages failed. See the log for details.',
+        pyInstallTimedOut: 'Installing the Python packages took longer than {minutes} minutes and was stopped.',
+        pyInstallCancelled: 'Installing the Python packages was cancelled.',
+        pyVenvFailed: 'Creating {path} failed. See the log for details.',
+        pyVenvNoEnsurepip: 'Creating {path} failed because the venv module is unavailable (on Debian or Ubuntu, install python3-venv).',
+        pySavedToUserSettings: 'This workspace is in Restricted Mode, so {command} was saved to your user settings.',
+        pyUntrustedWorkspacePath: '{command} is a path inside this workspace, and Restricted Mode does not start programs from an untrusted workspace. Trust the workspace or select an interpreter by its full path.',
+        pyTooltipUntrustedWorkspacePath: 'Restricted Mode: the interpreter path points into this workspace. Click to select another environment.',
+        welcomeDropLabel: 'Drop audio files or folders here',
+        welcomeDropDescription: 'Click to choose a file or folder',
+        welcomeDropCommand: 'Analyze File or Folder',
+        debugPathNotConfigured: 'Debug audio path is not configured. Set audioWandasAnalyzer.debugFilePath to an audio file or directory.',
+        debugPathNotFound: 'Debug audio path was not found: {path}. Update audioWandasAnalyzer.debugFilePath or add the file or directory.',
+        analysisProgressTitle: 'Analyzing {files} with wandas',
+        recipePickPlaceholder: 'Select a wandas recipe',
+        recipeBrowseLabel: '$(folder-opened) Browse...',
+        recipeBrowseDescription: 'Pick a recipe JSON from disk',
+        recipeFileFilter: 'Recipe JSON',
+        recipeOpenLabel: 'Use recipe',
+        recipeInputsOpenLabel: 'Use as recipe input',
+        recipeInputPlaceholder: 'Recipe input "{name}" ({index}/{total})',
+        recipeNotDocument: '{path} is not a recipe document',
+        recipeReadFailed: 'Could not read recipes: {message}',
+        recipeRunFailed: 'Recipe execution failed: {message}',
+        recipeRunning: 'Running recipe {title}…',
+        calibrationNoPanel: 'Open an audio analysis panel before configuring calibration.',
+        calibrationNoChannels: 'The active analysis panel has no calibratable audio channels.',
+        calibrationPickTrack: 'Select a track to calibrate',
+        calibrationChannelFallback: 'Channel {n}',
     },
     ja: {
         panelTitle: 'Audio Wandas Analyzer',
@@ -1785,6 +1915,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         exportWavComplete: 'WAV を書き出しました ({files}) → {folder}',
         exportWavPartial: 'WAV 書き出し: 成功 {succeeded} 件、失敗 {failed} 件 — {errors}',
         noSupportedAudioFiles: '{path} に対応する音声ファイルが見つかりませんでした',
+        fileNotInSession: 'このパネルの一覧にないファイルです: {path}',
+        directoryListingProgress: '{path} の音声ファイルを一覧にしています',
+        directoryListingTruncated: '{path} は最初の {count} 項目だけを一覧にしました。残りはサブフォルダを開いてください。',
+        openTargetFailed: '{path} を開けませんでした: {reason}',
         progressSyncCalibration: '校正を同期中 ({files})',
         progressRecomputeSpectrogram: 'スペクトログラムを再計算中 ({files})',
         progressApplyCalibration: '校正を適用中 ({files})',
@@ -1912,6 +2046,67 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintPairDivider: 'ドラッグで分割位置を変更',
         hintOctaveDisabledByPair: '基準の設定中はオクターブバンドを使えません',
         hintPairPlot: 'ループ範囲で平均。ループがなければ重なり全体で平均',
+        pyTooltipSelect: 'クリックして Python 環境を選択',
+        pyTooltipMissingDeps: 'Python パッケージが不足しているか互換性がありません。クリックして環境を選択するかインストールします。',
+        pyTooltipMissingInterpreter: 'Python インタープリターが見つかりません。クリックして別の環境を選択します。',
+        pyTooltipPipUnavailable: 'この環境では pip を使えません。クリックして別の環境を選択します。',
+        pyTooltipCheckFailed: 'Python 環境の確認に失敗しました。クリックして別の環境を選択します。',
+        pyTooltipImporting: 'Python の解析モジュールをバックグラウンドで読み込んでいます。',
+        pyTooltipBackendFailed: 'Python バックエンドを起動できませんでした: {message}',
+        analysisPythonNotReady: 'Python 環境の準備ができていないため解析できません。ステータスバーの Python からパッケージをインストールするか、別の環境を選択してください。',
+        pyTooltipBackendStopped: 'Python バックエンドが停止しました: {message}。次の要求で再起動します。',
+        pyStatusImporting: 'Python: モジュール読み込み中',
+        pyPickPlaceholder: 'Audio Wandas Analyzer で使う Python 環境を選択',
+        pyPickFromPythonExtension: 'Python 拡張機能で選択中',
+        pyPickFromVirtualEnv: '有効な仮想環境 (VIRTUAL_ENV)',
+        pyPickWorkspaceVenv: 'このワークスペースの仮想環境',
+        pyPickCurrent: '現在の設定',
+        pyPickOther: 'その他',
+        pyPickCreateVenv: '$(add) .venv を作成してパッケージをインストール',
+        pyPickCreateVenvDetail: 'ワークスペースで python -m venv .venv を実行し、必要なパッケージをインストールします',
+        pyPickBrowse: '$(folder) 参照...',
+        pyPickBrowseOpenLabel: 'Python 環境を選択',
+        pyInterpreterNotFound: 'Python インタープリターが見つかりません: {command}',
+        pyPipUnavailable: '{command} では pip を使えません。別の環境を選択するか .venv を作成してください。',
+        pyCheckFailed: '{command} の Python パッケージを確認できませんでした。詳細はログを参照してください。',
+        pyMissingPackages: 'Audio Wandas Analyzer には {command} に互換性のある Python パッケージが必要です: {packages}',
+        pyExternallyManaged: '{command} は OS が管理している環境 (PEP 668) のため、パッケージをインストールできません。.venv を作成するか別の環境を選択してください。',
+        pyBtnInstall: 'インストール',
+        pyBtnCreateVenv: '.venv を作成してインストール',
+        pyBtnSelect: '環境を選択',
+        pyBtnShowLog: 'ログを表示',
+        pyInstallProgress: '{command} に Python パッケージをインストールしています',
+        pyCreateVenvProgress: '{path} を作成しています',
+        pyInstallSucceeded: 'Python パッケージをインストールしました。',
+        pyInstallFailed: 'Python パッケージのインストールに失敗しました。詳細はログを参照してください。',
+        pyInstallTimedOut: 'Python パッケージのインストールが {minutes} 分を超えたため中止しました。',
+        pyInstallCancelled: 'Python パッケージのインストールを取り消しました。',
+        pyVenvFailed: '{path} を作成できませんでした。詳細はログを参照してください。',
+        pyVenvNoEnsurepip: 'venv モジュールを使えないため {path} を作成できませんでした (Debian や Ubuntu では python3-venv をインストールしてください)。',
+        pySavedToUserSettings: 'このワークスペースは制限モードのため、{command} をユーザー設定に保存しました。',
+        pyUntrustedWorkspacePath: '{command} はこのワークスペース内のパスです。制限モードでは信頼されていないワークスペースのプログラムを起動しません。ワークスペースを信頼するか、インタープリターをフルパスで選択してください。',
+        pyTooltipUntrustedWorkspacePath: '制限モード: インタープリターのパスがこのワークスペース内を指しています。クリックして別の環境を選択します。',
+        welcomeDropLabel: 'ここに音声ファイルやフォルダをドロップ',
+        welcomeDropDescription: 'クリックしてファイルまたはフォルダを選択',
+        welcomeDropCommand: 'ファイルまたはフォルダを解析',
+        debugPathNotConfigured: 'デバッグ用の音声パスが設定されていません。audioWandasAnalyzer.debugFilePath に音声ファイルかフォルダを指定してください。',
+        debugPathNotFound: 'デバッグ用の音声パスが見つかりません: {path}。audioWandasAnalyzer.debugFilePath を直すか、ファイルまたはフォルダを追加してください。',
+        analysisProgressTitle: 'wandas で {files} を解析しています',
+        recipePickPlaceholder: 'wandas レシピを選択',
+        recipeBrowseLabel: '$(folder-opened) 参照...',
+        recipeBrowseDescription: 'ディスクからレシピ JSON を選択',
+        recipeFileFilter: 'レシピ JSON',
+        recipeOpenLabel: 'このレシピを使う',
+        recipeInputsOpenLabel: 'レシピの入力にする',
+        recipeInputPlaceholder: 'レシピの入力「{name}」({index}/{total})',
+        recipeNotDocument: '{path} はレシピではありません',
+        recipeReadFailed: 'レシピを読み込めませんでした: {message}',
+        recipeRunFailed: 'レシピを実行できませんでした: {message}',
+        recipeRunning: 'レシピ {title} を実行しています…',
+        calibrationNoPanel: '校正を設定する前に音声解析パネルを開いてください。',
+        calibrationNoChannels: 'アクティブな解析パネルに校正できる音声チャンネルがありません。',
+        calibrationPickTrack: '校正するトラックを選択',
+        calibrationChannelFallback: 'チャンネル {n}',
     },
 };
 

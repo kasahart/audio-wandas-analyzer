@@ -5,6 +5,8 @@ import { getStrings } from '../shared/i18n/strings';
 import { isSupportedAudioFile, SUPPORTED_AUDIO_DIALOG_EXTENSIONS, type SelectionTargetKind } from '../shared/utils/audioTarget';
 
 const DIRECTORY_READ_CONCURRENCY = 8;
+/** Files and folders looked at before the listing stops; a folder this large is better opened a subfolder at a time. */
+export const MAX_DIRECTORY_ENTRIES = 50_000;
 
 export interface TargetFileSystem {
     stat(uri: vscode.Uri): Thenable<vscode.FileStat>;
@@ -13,55 +15,93 @@ export interface TargetFileSystem {
 
 export type OpenDialog = (options: vscode.OpenDialogOptions) => Thenable<vscode.Uri[] | undefined>;
 
-async function mapWithConcurrency<T>(
-    tasks: Array<() => Promise<T>>,
-    concurrency: number,
-): Promise<T[]> {
-    const results: T[] = new Array(tasks.length);
-    let nextIndex = 0;
-
-    async function worker(): Promise<void> {
-        while (nextIndex < tasks.length) {
-            const index = nextIndex++;
-            results[index] = await tasks[index]();
-        }
-    }
-
-    const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker());
-    await Promise.all(workers);
-    return results;
+export interface DirectoryListingOptions {
+    maxEntries?: number;
+    /** Read requests in flight at once, across every level of the folder. */
+    concurrency?: number;
+    isCancelled?(): boolean;
+    /** Entries looked at so far. */
+    onProgress?(entries: number): void;
 }
 
+export interface DirectoryListing {
+    tree: DirectoryTreeNode[];
+    /** True when the listing stopped at `maxEntries`. */
+    truncated: boolean;
+}
+
+// Hidden folders (.git, .venv) and node_modules hold no recordings worth listing and can hold a great many files.
+function isSkippedDirectory(name: string): boolean {
+    return name.startsWith('.') || name === 'node_modules';
+}
+
+function limiter(concurrency: number): <T>(task: () => Thenable<T>) => Promise<T> {
+    let running = 0;
+    const waiting: Array<() => void> = [];
+    return async (task) => {
+        if (running >= concurrency) { await new Promise<void>(resolve => waiting.push(resolve)); }
+        running++;
+        try {
+            return await task();
+        } finally {
+            running--;
+            waiting.shift()?.();
+        }
+    };
+}
+
+/**
+ * The supported audio files under `rootUri`, folders first. Symbolic links to folders are not followed (a link
+ * back up would never end), and the listing stops at `maxEntries`. Cancelling throws `vscode.CancellationError`.
+ */
 export async function buildDirectoryTree(
     rootUri: vscode.Uri,
-    currentUri: vscode.Uri,
     fileSystem: TargetFileSystem = vscode.workspace.fs,
-): Promise<DirectoryTreeNode[]> {
-    const entries = await fileSystem.readDirectory(currentUri);
-    const sortedEntries = [...entries].sort(([leftName, leftType], [rightName, rightType]) => {
-        const leftIsDirectory = (leftType & vscode.FileType.Directory) !== 0;
-        const rightIsDirectory = (rightType & vscode.FileType.Directory) !== 0;
-        if (leftIsDirectory !== rightIsDirectory) { return leftIsDirectory ? -1 : 1; }
-        return leftName.localeCompare(rightName);
-    });
+    options: DirectoryListingOptions = {},
+): Promise<DirectoryListing> {
+    const maxEntries = options.maxEntries ?? MAX_DIRECTORY_ENTRIES;
+    const read = limiter(options.concurrency ?? DIRECTORY_READ_CONCURRENCY);
+    let seen = 0;
+    let truncated = false;
 
-    const tasks = sortedEntries.map(([name, type]) => async () => {
-        const entryUri = vscode.Uri.joinPath(currentUri, name);
-        const relativePath = path.relative(rootUri.fsPath, entryUri.fsPath).split(path.sep).join('/');
-        if ((type & vscode.FileType.Directory) !== 0) {
-            const children = await buildDirectoryTree(rootUri, entryUri, fileSystem);
-            return children.length > 0
-                ? { type: 'directory' as const, name, relativePath, children }
-                : null;
-        }
-        if ((type & vscode.FileType.File) !== 0 && isSupportedAudioFile(name)) {
-            return { type: 'file' as const, name, relativePath, filePath: entryUri.fsPath };
-        }
-        return null;
-    });
+    async function list(currentUri: vscode.Uri): Promise<DirectoryTreeNode[]> {
+        if (options.isCancelled?.()) { throw new vscode.CancellationError(); }
+        if (truncated) { return []; }
+        // Checked again once a slot opens, so reads queued before a cancel are skipped rather than run.
+        const entries = await read(() => {
+            if (options.isCancelled?.() || truncated) { return Promise.resolve<[string, vscode.FileType][]>([]); }
+            return Promise.resolve(fileSystem.readDirectory(currentUri));
+        });
+        if (options.isCancelled?.()) { throw new vscode.CancellationError(); }
+        const room = Math.max(0, maxEntries - seen);
+        if (entries.length > room) { truncated = true; }
+        seen += Math.min(entries.length, room);
+        options.onProgress?.(seen);
+        const sortedEntries = [...entries].sort(([leftName, leftType], [rightName, rightType]) => {
+            const leftIsDirectory = (leftType & vscode.FileType.Directory) !== 0;
+            const rightIsDirectory = (rightType & vscode.FileType.Directory) !== 0;
+            if (leftIsDirectory !== rightIsDirectory) { return leftIsDirectory ? -1 : 1; }
+            return leftName.localeCompare(rightName);
+        }).slice(0, room);
 
-    const results = await mapWithConcurrency(tasks, DIRECTORY_READ_CONCURRENCY);
-    return results.filter((node): node is NonNullable<typeof node> => node !== null);
+        const nodes = await Promise.all(sortedEntries.map(async ([name, type]): Promise<DirectoryTreeNode | null> => {
+            const entryUri = vscode.Uri.joinPath(currentUri, name);
+            const relativePath = path.relative(rootUri.fsPath, entryUri.fsPath).split(path.sep).join('/');
+            if ((type & vscode.FileType.Directory) !== 0) {
+                if ((type & vscode.FileType.SymbolicLink) !== 0 || isSkippedDirectory(name)) { return null; }
+                const children = await list(entryUri);
+                return children.length > 0 ? { type: 'directory', name, relativePath, children } : null;
+            }
+            if ((type & vscode.FileType.File) !== 0 && isSupportedAudioFile(name)) {
+                return { type: 'file', name, relativePath, filePath: entryUri.fsPath };
+            }
+            return null;
+        }));
+        return nodes.filter((node): node is DirectoryTreeNode => node !== null);
+    }
+
+    const tree = await list(rootUri);
+    return { tree, truncated };
 }
 
 export async function pickAudioTarget(

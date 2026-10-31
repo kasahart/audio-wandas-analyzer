@@ -148,3 +148,22 @@ def test_chart_spec_typed_dicts_match_schema() -> None:
 
     for typed_dict, schema in zip(get_args(ChartSpec), dump_schema()["oneOf"], strict=True):
         check(typed_dict, schema)
+
+
+@pytest.mark.parametrize(
+    "failure", [TypeError("bad operand"), KeyError("freqs"), IndexError("index 9 is out of bounds")]
+)
+def test_a_lazy_operation_failure_is_a_recipe_error_naming_the_operation(
+    make_recipe, monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    import recipe_runner
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise failure
+
+    monkeypatch.setattr(recipe_runner, "adapt", fail)
+    recipe = make_recipe(lambda signal: signal.low_pass_filter(cutoff=1000))
+    frame = wd.from_numpy(np.zeros((1, 16000)), sampling_rate=16000)
+
+    with pytest.raises(RecipeError, match=rf"operation 'wandas.audio.lowpass_filter' failed: {type(failure).__name__}"):
+        _run(recipe, {"signal": frame})

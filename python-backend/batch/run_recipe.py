@@ -20,7 +20,9 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-REQUIRES_WANDAS = (0, 10, 0)
+# The Recipe is written by the Analyzer's wandas: the same range as its own dependency (pyproject.toml).
+REQUIRES_WANDAS = (0, 12, 0)
+BEFORE_WANDAS = (0, 13, 0)
 HERE = Path(__file__).resolve().parent
 
 
@@ -32,14 +34,18 @@ def _check_wandas() -> None:
     import wandas
 
     wanted = ".".join(map(str, REQUIRES_WANDAS))
-    if _version(wandas.__version__) < REQUIRES_WANDAS:
+    before = ".".join(map(str, BEFORE_WANDAS))
+    if not REQUIRES_WANDAS <= _version(wandas.__version__) < BEFORE_WANDAS:
         found = wandas.__version__
-        sys.exit(f'wandas {wanted} or later is needed (found {found}): pip install -U "wandas[io]>={wanted}"')
+        sys.exit(
+            f"wandas {wanted} or later, before {before}, is needed (found {found}): "
+            f'pip install -U "wandas[io]>={wanted},<{before}"'
+        )
     # Outputs are saved as WDF, which needs wandas' optional io dependencies.
     try:
         import h5netcdf  # noqa: F401
     except ImportError:
-        sys.exit(f'Saving WDF needs wandas[io]: pip install -U "wandas[io]>={wanted}"')
+        sys.exit(f'Saving WDF needs wandas[io]: pip install -U "wandas[io]>={wanted},<{before}"')
 
 
 def _output_name(relative: str, channel: str) -> str:

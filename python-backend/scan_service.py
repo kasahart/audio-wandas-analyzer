@@ -14,6 +14,7 @@ envelope every host checks replies for.)
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import math
@@ -28,6 +29,8 @@ from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 import dask
 import dask.array as da
+import dask.local
+import dask.threaded
 import numpy as np
 import soundfile as sf
 import wandas as wd
@@ -710,31 +713,36 @@ def _first_line(error: BaseException) -> str:
     return line if isinstance(error, (InputError, OSError)) else f"{type(error).__name__}: {line}"
 
 
-_synchronous_lock = threading.Lock()
-_synchronous_users = 0
-_synchronous_setting: Any = None
+_synchronous = contextvars.ContextVar("synchronous_dask", default=False)
+
+
+def _per_thread_scheduler(dsk: Any, keys: Any, **kwargs: Any) -> Any:
+    """dask's default threaded scheduler, except for computes on a thread that is running a scan."""
+    if _synchronous.get():
+        return dask.local.get_sync(dsk, keys, **kwargs)
+    return dask.threaded.get(dsk, keys, **kwargs)
+
+
+_scheduler_lock = threading.Lock()
 
 
 @contextmanager
 def _synchronous_dask() -> Iterator[None]:
-    """Run dask synchronously while any scan is running.
+    """Run this thread's dask computes synchronously, leaving other threads' computes threaded.
 
-    dask's config is process-wide, so scans that overlap on backend workers share one setting:
-    the first to start sets it and the last to end restores what was there before.
+    Wandas computes inside ``cache()`` and array conversions, where no ``scheduler=`` can be passed, so the
+    choice is made per compute by a scheduler installed once. dask's config is process-wide and ``config.set``
+    is not thread-safe, so it is written only when no scheduler is configured yet: a configured one (the
+    browser's synchronous scheduler, or the user's) is left as it is.
     """
-    global _synchronous_users, _synchronous_setting
-    with _synchronous_lock:
-        if _synchronous_users == 0:
-            _synchronous_setting = dask.config.set(scheduler="synchronous")
-        _synchronous_users += 1
+    with _scheduler_lock:
+        if dask.config.get("scheduler", None) is None:
+            dask.config.set(scheduler=_per_thread_scheduler)
+    token = _synchronous.set(True)
     try:
         yield
     finally:
-        with _synchronous_lock:
-            _synchronous_users -= 1
-            if _synchronous_users == 0:
-                _synchronous_setting.__exit__(None, None, None)
-                _synchronous_setting = None
+        _synchronous.reset(token)
 
 
 def scan(

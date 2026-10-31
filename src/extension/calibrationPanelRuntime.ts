@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type {
     AnalysisResultWithError,
 } from '../shared/analysis/analysisTypes';
+import { fillTemplate, getStrings } from '../shared/i18n/strings';
 import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import {
@@ -17,7 +18,7 @@ let activePanel: vscode.WebviewPanel | undefined;
 function channelDescriptors(result: AnalysisResultWithError): CalibrationChannelDescriptor[] {
     return (result.channels ?? []).map((channel, channelIndex) => ({
         channelIndex,
-        label: channel.label || `Channel ${channelIndex + 1}`,
+        label: channel.label || fillTemplate(getStrings(vscode.env.language).calibrationChannelFallback, { n: channelIndex + 1 }),
         measurement: channel.measurement,
         rawPeakFullScale: channel.rawPeakFullScale,
     }));
@@ -43,21 +44,22 @@ async function configureResult(
 }
 
 async function configureActivePanel(extensionContext: vscode.ExtensionContext): Promise<void> {
+    const strings = getStrings(vscode.env.language);
     const panel = activePanel;
     if (!panel) {
-        void vscode.window.showInformationMessage('Open an audio analysis panel before configuring calibration.');
+        void vscode.window.showInformationMessage(strings.calibrationNoPanel);
         return;
     }
     const available = ComparisonPanel.getResults(panel).filter((result) => !result.error && result.channels.length > 0);
     if (available.length === 0) {
-        void vscode.window.showInformationMessage('The active analysis panel has no calibratable audio channels.');
+        void vscode.window.showInformationMessage(strings.calibrationNoChannels);
         return;
     }
     let selected = available[0];
     if (available.length > 1) {
         const picked = await vscode.window.showQuickPick(
             available.map((result) => ({ label: result.fileName, description: result.filePath, result })),
-            { placeHolder: 'Select a track to calibrate', matchOnDescription: true },
+            { placeHolder: strings.calibrationPickTrack, matchOnDescription: true },
         );
         if (!picked) {
             return;

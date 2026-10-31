@@ -1,4 +1,6 @@
+import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { fillTemplate, getStrings } from '../shared/i18n/strings';
 import { getDebugStartupBehavior } from '../shared/utils/startupDebug';
 import { AnalysisOrchestrator } from './analysisOrchestrator';
 import { ExportFlows } from './exportFlows';
@@ -6,7 +8,13 @@ import { autoOpenDebugTarget, registerExtensionContributions } from './extension
 import { PanelController } from './panelController';
 import {
     checkAndPromptInstallDependencies,
+    disposePythonSetupLog,
+    getCurrentPythonEnvironmentState,
     getPythonCommand,
+    onDidChangeDefaultInterpreter,
+    onDidChangePythonEnvironmentState,
+    onDidReselectPythonCommand,
+    refreshDefaultInterpreter,
     setStatusBarImporting,
     setStatusBarNormal,
     setStatusBarWarning,
@@ -15,12 +23,29 @@ import { PythonBackendServer } from './pythonBackendServer';
 import { RecipeFlow } from './recipeFlow';
 import { getCalibrationProfile, getAnalysisRevision, discardStaleCalibrationProfile } from './calibrationStore';
 
+const ANALYZER_VIEW_TYPE_PREFIX = 'audioWandasAnalyzer.';
+
+/** True while any of the extension's webview panels (comparison or recipe charts) is open. */
+function hasAnalyzerPanel(): boolean {
+    return vscode.window.tabGroups.all.some(group => group.tabs.some(tab => (
+        tab.input instanceof vscode.TabInputWebview && tab.input.viewType.includes(ANALYZER_VIEW_TYPE_PREFIX)
+    )));
+}
+
 export function activate(context: vscode.ExtensionContext): void {
     let deactivated = false;
     const perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
     const logPerf = (line: string): void => { perfChannel.appendLine(line); };
+    const logChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer', { log: true });
     const pythonStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
     pythonStatusBarItem.command = 'audioWandasAnalyzer.selectPythonEnvironment';
+    const updateStatusBarVisibility = (): void => {
+        if (hasAnalyzerPanel() || getCurrentPythonEnvironmentState().status === 'warning') {
+            pythonStatusBarItem.show();
+        } else {
+            pythonStatusBarItem.hide();
+        }
+    };
     const backend = new PythonBackendServer(context.extensionPath, (line) => {
         if (line.startsWith('[ts]')) {
             logPerf(line);
@@ -34,36 +59,106 @@ export function activate(context: vscode.ExtensionContext): void {
     }, {
         current: filePath => ({ calibrationProfile: getCalibrationProfile(context, filePath), analysisRevision: getAnalysisRevision(filePath) }),
         discardStale: (filePath, error, attempted) => discardStaleCalibrationProfile(context, filePath, error, attempted.calibrationProfile!),
+    }, {
+        log: line => { logChannel.warn(line); },
+        crashed: error => {
+            logChannel.error(error.message);
+            if (deactivated) { return; }
+            setStatusBarWarning(pythonStatusBarItem, getPythonCommand(), fillTemplate(getStrings(vscode.env.language).pyTooltipBackendStopped, { message: error.message }));
+        },
     });
     const analysis = new AnalysisOrchestrator(backend, logPerf);
     const exports = new ExportFlows(backend);
     const recipeFlow = new RecipeFlow(context.extensionPath, context.extensionUri, backend);
-    const panelController = new PanelController(context, backend, analysis, exports);
 
-    const warmPythonBackend = (pythonCommand: string): void => {
-        void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem).then(async (dependenciesReady) => {
-            const currentPythonCommand = getPythonCommand();
-            if (!dependenciesReady || deactivated || currentPythonCommand !== pythonCommand) { return; }
-            setStatusBarImporting(pythonStatusBarItem, pythonCommand);
-            try {
-                await backend.warmup();
-                if (deactivated) { return; }
-                if (getPythonCommand() === pythonCommand) {
-                    setStatusBarNormal(pythonStatusBarItem, pythonCommand);
-                }
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                logPerf(`[ts] backend warmup failed error=${message}`);
-                if (getPythonCommand() === pythonCommand) {
-                    setStatusBarWarning(
-                        pythonStatusBarItem,
-                        pythonCommand,
-                        `Python backend failed to start: ${message}`,
-                    );
-                }
+    // Nothing touches Python until the user does something that needs it, so opening a window stays free.
+    type PythonPreparation = 'idle' | 'checking' | 'ready' | 'failed';
+    let preparation: PythonPreparation = 'idle';
+    let preparedCommand: string | undefined;
+    let defaultInterpreterLookup: Promise<unknown> | undefined;
+    // The check→install→warmup run for `preparedCommand`; resolves to whether its dependencies are importable.
+    let preparationTask: Promise<boolean> = Promise.resolve(true);
+
+    const runPythonPreparation = async (pythonCommand: string): Promise<boolean> => {
+        const dependenciesReady = await checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
+        if (deactivated) { return dependenciesReady; }
+        // The prompt switched interpreters (Create .venv and Install, Select Environment): what a waiting
+        // analysis needs is the new interpreter's preparation, not this one's answer.
+        if (getPythonCommand() !== pythonCommand) { return preparePython(false); }
+        if (!dependenciesReady) {
+            preparation = 'failed';
+            return false;
+        }
+        setStatusBarImporting(pythonStatusBarItem, pythonCommand);
+        try {
+            await backend.warmup();
+            if (deactivated) { return true; }
+            if (getPythonCommand() === pythonCommand) {
+                preparation = 'ready';
+                setStatusBarNormal(pythonStatusBarItem, pythonCommand);
             }
-        });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logPerf(`[ts] backend warmup failed error=${message}`);
+            if (getPythonCommand() === pythonCommand) {
+                preparation = 'failed';
+                setStatusBarWarning(
+                    pythonStatusBarItem,
+                    pythonCommand,
+                    fillTemplate(getStrings(vscode.env.language).pyTooltipBackendFailed, { message }),
+                );
+            }
+        }
+        // The packages are there; a failed warmup is reported by the analysis that respawns the backend.
+        return true;
     };
+    const warmPythonBackend = (pythonCommand: string): Promise<boolean> => {
+        preparation = 'checking';
+        preparedCommand = pythonCommand;
+        preparationTask = runPythonPreparation(pythonCommand);
+        return preparationTask;
+    };
+
+    /**
+     * Checks the environment and starts the backend once per interpreter. `retryFailed` is set for explicit user
+     * commands, so a fixed environment (e.g. packages installed in a terminal) is picked up without a restart.
+     */
+    const preparePython = async (retryFailed: boolean): Promise<boolean> => {
+        defaultInterpreterLookup ??= refreshDefaultInterpreter();
+        await defaultInterpreterLookup;
+        if (deactivated) { return false; }
+        const pythonCommand = getPythonCommand();
+        if (preparedCommand === pythonCommand) {
+            if (preparation === 'ready') { analysis.warmup(); }
+            if (preparation !== 'failed' || !retryFailed) { return preparationTask; }
+        }
+        return warmPythonBackend(pythonCommand);
+    };
+    const restartPython = (): void => {
+        backend.dispose();
+        const pythonCommand = getPythonCommand();
+        setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+        if (preparation === 'idle') { return; }
+        void warmPythonBackend(pythonCommand);
+    };
+
+    const panelController = new PanelController(context, backend, {
+        analyzeFiles: async (...args) => {
+            // Wait for the check (and any install the user accepts) so the backend never spawns without wandas.
+            // When the environment is not usable, the check has already shown its Install/Select prompt; each
+            // file becomes an error track saying so, as a backend that failed to start would. The track carries the
+            // file's current revision, or the panel would take it as stale and ask again without end.
+            if (!await preparePython(false)) {
+                const message = getStrings(vscode.env.language).analysisPythonNotReady;
+                return args[0].map(filePath => ({
+                    filePath, fileName: path.basename(filePath), sampleRateHz: 0, durationSeconds: 0, channelCount: 0,
+                    sampleCount: 0, channels: [], analysisRevision: getAnalysisRevision(filePath), error: message,
+                }));
+            }
+            return analysis.analyzeFiles(...args);
+        },
+        warmup: () => { void preparePython(false); },
+    }, exports);
 
     context.subscriptions.push(
         pythonStatusBarItem,
@@ -73,12 +168,31 @@ export function activate(context: vscode.ExtensionContext): void {
             backend.dispose();
         } },
         perfChannel,
+        logChannel,
+        { dispose: disposePythonSetupLog },
+        vscode.window.tabGroups.onDidChangeTabs(updateStatusBarVisibility),
+        onDidChangePythonEnvironmentState(updateStatusBarVisibility),
+        onDidReselectPythonCommand(() => {
+            backend.dispose();
+            void warmPythonBackend(getPythonCommand());
+        }),
+        onDidChangeDefaultInterpreter(() => {
+            if (preparedCommand !== getPythonCommand()) { restartPython(); }
+        }),
+        // Trust makes the workspace's pythonCommand value and its interpreters usable, so look again.
+        vscode.workspace.onDidGrantWorkspaceTrust(() => {
+            defaultInterpreterLookup = refreshDefaultInterpreter();
+            void defaultInterpreterLookup.then(() => {
+                if (!deactivated) { restartPython(); }
+            });
+        }),
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration('audioWandasAnalyzer.pythonCommand')) {
+                restartPython();
+            } else if (event.affectsConfiguration('audioWandasAnalyzer.cacheMemoryMb')) {
+                // The cache budget is read when the backend spawns, so only a restart applies it.
                 backend.dispose();
-                const pythonCommand = getPythonCommand();
-                setStatusBarNormal(pythonStatusBarItem, pythonCommand);
-                warmPythonBackend(pythonCommand);
+                if (preparation === 'ready') { analysis.warmup(); }
             }
         }),
     );
@@ -87,7 +201,7 @@ export function activate(context: vscode.ExtensionContext): void {
         pythonStatusBarItem,
         panelController,
         recipeFlow,
-        warmPythonBackend,
+        (reason) => preparePython(reason === 'command'),
     );
 
     try {
@@ -110,9 +224,8 @@ export function activate(context: vscode.ExtensionContext): void {
         );
     }
 
-    const pythonCommand = getPythonCommand();
-    setStatusBarNormal(pythonStatusBarItem, pythonCommand);
-    warmPythonBackend(pythonCommand);
+    setStatusBarNormal(pythonStatusBarItem, getPythonCommand());
+    updateStatusBarVisibility();
 }
 
 export function deactivate(): void {}

@@ -43,6 +43,29 @@ export class BackendStartupCancelledError extends Error {
     }
 }
 
+export class BackendRequestCancelledError extends Error {
+    constructor(command: string) {
+        super(`Python backend ${command} request cancelled`);
+        this.name = 'BackendRequestCancelledError';
+    }
+}
+
+/** The last stderr lines of a backend, kept so a crash can say what Python printed before it died. */
+export class StderrTail {
+    private readonly lines: string[] = [];
+
+    constructor(private readonly limit = 40) {}
+
+    push(line: string): void {
+        this.lines.push(line);
+        if (this.lines.length > this.limit) this.lines.shift();
+    }
+
+    text(): string {
+        return this.lines.join('\n');
+    }
+}
+
 export async function waitForBackendStartup(
     startup: Promise<void>,
     cancellation?: CancellationSignal,

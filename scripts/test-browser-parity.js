@@ -56,7 +56,8 @@ sys.path.insert(0,'python-backend')
 from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from backend_server import dispatch
-from browser_service import service
+from browser_service import _service
+service=_service()
 packet=json.loads(sys.stdin.read())
 payload=open(packet['fixture'],'rb').read()
 service.engine.load('selected.wav',payload)
