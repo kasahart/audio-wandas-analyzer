@@ -77,6 +77,7 @@ import {
 } from './spectrumRuntime';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
+import { RuntimeEventFeed } from './runtimeEvents';
 import { TrackStore } from './trackStore';
 import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
@@ -111,6 +112,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const state = normalizeRuntimeState(injectedState);
     const messaging = new HostMessenger(vscode, window);
     const testBridge = new ComparisonTestBridge(window, messaging);
+    const runtimeEvents = new RuntimeEventFeed();
+    testBridge.observe(runtimeEvents);
     const requestAnimationFrame = window.requestAnimationFrame.bind(window);
     const cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
     const setTimeout = (handler: TimerHandler, timeout?: number) => window.setTimeout(handler, timeout);
@@ -185,13 +188,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         el.textContent = '';
-        if (testBridge.state !== undefined) {
-            // test environment: set synchronously so Playwright can observe it
-            el.textContent = msg;
-        }
-        else {
-            requestAnimationFrame(function () { el.textContent = msg; });
-        }
+        requestAnimationFrame(function () { el.textContent = msg; });
     }
     // ── Runtime state ──
     let rafPending = false;
@@ -236,31 +233,30 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         rafPending = true;
         requestAnimationFrame(function () { rafPending = false; renderAll(); });
     }
-    function updateUiSmokeSpectrumState() {
-        const uiSmokeState = testBridge.state;
-        if (!uiSmokeState) {
-            return false;
-        }
-        uiSmokeState.spectrumZoom = {
-            specFreqStart: spectrumView.freqStart,
-            specFreqEnd: spectrumView.freqEnd,
-            trackHeight: trackHeight,
-            spectrumOverlayHeight: spectrumOverlayHeight,
-            specDbMin: spectrumView.dbMin,
-            specDbMax: spectrumView.dbMax,
-        };
-        return true;
+    function emitSpectrumZoom() {
+        runtimeEvents.emit(() => ({
+            type: 'spectrum-zoom',
+            snapshot: {
+                specFreqStart: spectrumView.freqStart,
+                specFreqEnd: spectrumView.freqEnd,
+                trackHeight: trackHeight,
+                spectrumOverlayHeight: spectrumOverlayHeight,
+                specDbMin: spectrumView.dbMin,
+                specDbMax: spectrumView.dbMax,
+            },
+        }));
     }
-    function updateUiSmokeWaveformState() {
-        const uiSmokeState = testBridge.state;
-        if (!uiSmokeState) {
-            return;
-        }
-        uiSmokeState.zoomStart = waveformView.start;
-        uiSmokeState.zoomEnd = waveformView.end;
-        uiSmokeState.amplitudeZoomMinNorm = waveformView.amplitudeMin;
-        uiSmokeState.amplitudeZoomMaxNorm = waveformView.amplitudeMax;
-        uiSmokeState.rectZoomSelection = rectZoomSelection ? Object.assign({}, rectZoomSelection) : null;
+    function emitWaveformZoom() {
+        runtimeEvents.emit(() => ({
+            type: 'waveform-zoom',
+            snapshot: {
+                zoomStart: waveformView.start,
+                zoomEnd: waveformView.end,
+                amplitudeZoomMinNorm: waveformView.amplitudeMin,
+                amplitudeZoomMaxNorm: waveformView.amplitudeMax,
+                rectZoomSelection: rectZoomSelection ? Object.assign({}, rectZoomSelection) : null,
+            },
+        }));
     }
     function spectrumNow() {
         return (typeof performance !== 'undefined' && performance && typeof performance.now === 'function')
@@ -282,7 +278,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         clearTimeout,
         requestAnimationFrame,
         refresh(advanceCursor) {
-            updateUiSmokeSpectrumState();
+            emitSpectrumZoom();
             if (advanceCursor) {
                 spectrumCursorNorm = viewState.cursor;
             }
@@ -314,7 +310,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumRequests.runFrame(true, true);
     }
     function scheduleSpectrumRefresh(mode: string) {
-        updateUiSmokeSpectrumState();
+        emitSpectrumZoom();
         const kind = mode || 'interactive';
         if (kind === 'immediate') {
             flushSpectrumRefresh();
@@ -894,8 +890,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 record.spectrumSliceCache.set(slice.channelIndex, slice);
             });
             spectrumCursorNorm = active.globalCursorNorm;
-            if (testBridge.state) {
-                testBridge.state.spectrumPerformance = {
+            runtimeEvents.emit(() => ({
+                type: 'spectrum-slice-timing',
+                timing: {
                     requestId: msg.requestId,
                     cursorNorm: active.cursorNorm,
                     backendComputeMs: msg.computeMs,
@@ -903,8 +900,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     responseAt: spectrumNow(),
                     inFlight: 0,
                     desiredCount: spectrumRequests.desiredCount,
-                };
-            }
+                },
+            }));
         }
         spectrumRequests.scheduleFrame(false, false);
         scheduleRender();
@@ -1672,14 +1669,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function renderAll() {
         playWhenReady();
         pairPanel.sync();
-        updateUiSmokeSpectrumState();
+        emitSpectrumZoom();
         resizeAllCanvases();
         renderRuler();
         renderStackedTracks();
         syncRoleChips();
         updateVisibility();
         updateOffsetDisplays();
-        updateUiSmokeWaveformState();
+        emitWaveformZoom();
         if (contentType !== 'stage') {
             scheduleRangeRequests();
         }
@@ -2721,7 +2718,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         trackHeight = next;
-        updateUiSmokeSpectrumState();
+        emitSpectrumZoom();
         updatePlaybackButtons();
         Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
         scheduleRender();
@@ -2768,7 +2765,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         spectrumOverlayHeight = next;
-        updateUiSmokeSpectrumState();
+        emitSpectrumZoom();
         syncSpectrumCanvasCssHeight();
         scheduleSpectrumRefresh('immediate');
     }
@@ -3354,7 +3351,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         startAmpNorm: dragState.startAmpNorm,
                         endAmpNorm: waveformView.canvasYToAmplitude(y, dragState.canvasHeight),
                     };
-                    updateUiSmokeWaveformState();
+                    emitWaveformZoom();
                 }
                 else {
                     const region = loopRegionForDrag(dragState.dragType, dragState.startNorm, viewState.loop, norm);
@@ -3389,7 +3386,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 waveformView.applyRectZoom(target);
             }
             setLoopRegion(null);
-            updateUiSmokeWaveformState();
+            emitWaveformZoom();
             scheduleRender();
             return;
         }
@@ -3613,7 +3610,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         renderTrackSpectra();
         renderOverlaySpectrum();
         pairPanel.render();
-        updateUiSmokeSpectrumState();
+        emitSpectrumZoom();
         const el = document.getElementById('spectrum-cursor-time');
         if (el) {
             const gs = trackStore.globalSpan();
