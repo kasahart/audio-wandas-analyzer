@@ -81,7 +81,7 @@ class ChannelSummary(TypedDict):
 class AnalysisResult(TypedDict):
     filePath: str
     fileName: str
-    sampleRateHz: int
+    sampleRateHz: float
     durationSeconds: float
     channelCount: int
     sampleCount: int
@@ -174,8 +174,9 @@ def build_waveform_envelope(
 
 def _pick_window_size(sample_count: int) -> int:
     if sample_count <= 512:
-        # Odd FFT sizes are rejected everywhere else, so a short file rounds down to an even size.
-        return max(32, sample_count - sample_count % 2)
+        # Odd FFT sizes are rejected everywhere else, so a short file rounds down to an even size, and the
+        # smallest window any STFT accepts is 64.
+        return max(64, sample_count - sample_count % 2)
 
     target = min(2048, sample_count)
     window_size = 256
@@ -335,7 +336,7 @@ def resolve_stft_params(
 ) -> tuple[int, int, str]:
     normalized = normalize_stft_options(stft_options)
     if normalized is None:
-        window_size = max(64, _pick_window_size(sample_count))
+        window_size = _pick_window_size(sample_count)
         hop_size = max(1, int(np.ceil(max(1, sample_count - window_size) / max(1, SPECTROGRAM_TIME_BIN_LIMIT - 1))))
         return window_size, hop_size, "hann"
 

@@ -172,8 +172,6 @@ class BrowserEngine(AnalysisEngine):
     def get_spectrogram(self, file_path, n_fft, hop_length, window, calibration_profile=None):
         cached = self.get_file(file_path)
         length, channels = cached.frame.n_samples, cached.frame.n_channels
-        if length < n_fft // 2:
-            raise InputError("WAV is too short for this STFT window; choose a smaller window")
         key = (n_fft, hop_length, window)
         if any(old[1:] != key for old in cached.spectrograms):
             self.discard_spectrograms(file_path)

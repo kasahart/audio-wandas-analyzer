@@ -4,9 +4,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 from analysis_engine import AnalysisEngine
+from backend_errors import InputError
 
 
 def _write_tone(path: Path, seconds: float = 0.25, rate: int = 16000) -> Path:
@@ -49,3 +51,23 @@ def test_file_load_locks_are_released_after_each_read(tmp_path: Path) -> None:
         list(executor.map(engine.get_file, paths * 3))
 
     assert engine._loading == {}
+
+
+def test_track_detail_of_a_file_shorter_than_half_a_window_is_an_input_error(tmp_path: Path) -> None:
+    from analysis_service import AnalysisService
+    from command_dispatch import dispatch, validate_request
+
+    wav = tmp_path / "short.wav"
+    sf.write(wav, np.zeros(20, dtype=np.float32), 16000)
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
+    command = {
+        "cmd": "track-detail",
+        "requestId": "r",
+        "filePath": str(wav),
+        "trackIndex": -1,
+        "analysisId": "a1",
+        "settingsSignature": "s1",
+    }
+
+    with pytest.raises(InputError, match="too short for this STFT window"):
+        dispatch(validate_request(command), service)

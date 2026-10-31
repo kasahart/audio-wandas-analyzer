@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import wandas as wd
 
+from backend_errors import InputError
 from calibration_profile import ResolvedCalibrationProfile, finite_source_channel_peaks, resolve_calibration_profile
 
 StftKey = tuple[str, int, int, str]
@@ -141,6 +142,9 @@ class AnalysisEngine:
         calibration_profile: object = None,
     ) -> wd.SpectrogramFrame:
         cached, analysis_frame, resolved = self.get_analysis(file_path, calibration_profile)
+        if analysis_frame.n_samples < n_fft // 2:
+            # SciPy's padded STFT needs at least half a window of samples.
+            raise InputError("Audio is too short for this STFT window; choose a smaller window")
         key = (resolved.signature, n_fft, hop_length, window)
         spectrogram = cached.spectrograms.get(key)
         if spectrogram is None:
