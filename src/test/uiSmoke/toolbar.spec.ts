@@ -6,6 +6,7 @@ import { renderComparisonDocument } from '../../webview/panels/comparisonDocumen
 import { DEFAULT_SPECTROGRAM_SETTINGS } from '../../shared/analysis/analysisTypes';
 import { buildUiSmokeHtml } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
+import { LIGHT_ROLE_COLORS } from '../../shared/gui/roleColors';
 
 // The Worker posts `{requestId, result}`; the fixture lines carry `requestId` beside the result fields.
 function workerFixture(entry: { command: string; response: Record<string, unknown> }) {
@@ -782,6 +783,32 @@ test('a theme switched while open repaints the lanes: the colour bar\'s strip ta
     await expect.poll(async () => (await strip())[0]).toBeLessThan(60);
     await page.evaluate(() => document.body.setAttribute('data-theme-kind', 'light'));
     await expect.poll(async () => (await strip())[0]).toBeGreaterThan(200);
+});
+
+test('the runtime\'s own body classes do not repaint the lanes or redraw the role chips; a theme change does', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml().replace(/<body([^>]*)>/, '<body$1 data-theme-kind="dark">'), { waitUntil: 'domcontentloaded' });
+    const face = page.locator('.track-header .role-chip-face').first();
+    await expect(face).toBeVisible();
+    // A marker on the chip's element: a redraw replaces the element, and the marker goes with it.
+    await face.evaluate(el => el.setAttribute('data-test-marker', '1'));
+    await page.evaluate(() => document.body.classList.add('is-height-resizing', 'is-stage-view'));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(face).toHaveAttribute('data-test-marker', '1');
+    await page.evaluate(() => document.body.classList.remove('is-height-resizing', 'is-stage-view'));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(face).toHaveAttribute('data-test-marker', '1');
+    await page.evaluate(() => document.body.setAttribute('data-theme-kind', 'light'));
+    await expect(face).not.toHaveAttribute('data-test-marker', '1');
+});
+
+test('High Contrast Light gives the entry table\'s role colours the light set the canvases use', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml().replace(/<body([^>]*)>/, '<body$1 class="vscode-high-contrast vscode-high-contrast-light">'), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#track-spec-canvas-0')).toBeVisible();
+    const vars = await page.evaluate(() => {
+        const style = getComputedStyle(document.body);
+        return ['--entry-base', '--entry-compare', '--entry-slot-2', '--entry-slot-3'].map(name => style.getPropertyValue(name).trim());
+    });
+    expect(vars).toEqual([0, 1, 2, 3].map(slot => LIGHT_ROLE_COLORS[slot]));
 });
 
 test('a track without decoded audio shows ▶ ■ 🔊 as unavailable and says why', async ({ page }) => {
