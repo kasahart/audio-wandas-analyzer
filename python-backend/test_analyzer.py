@@ -423,7 +423,5 @@ def test_sparse_stft_matches_dense_frames_for_odd_and_even_windows(n_fft: int) -
     count = min(sparse.n_frames, (dense.n_frames + 3) // 4)
     values = np.asarray(sparse.data)
     assert values.dtype == np.complex64
-    np.testing.assert_allclose(
-        values[..., :count], np.asarray(dense.data)[..., ::4][..., :count], rtol=1e-5, atol=1e-7
-    )
+    np.testing.assert_allclose(values[..., :count], np.asarray(dense.data)[..., ::4][..., :count], rtol=1e-5, atol=1e-7)
     np.testing.assert_allclose(sparse.frame_center_times, dense.frame_center_times[:, ::4][:, :count])

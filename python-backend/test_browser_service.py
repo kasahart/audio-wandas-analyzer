@@ -181,6 +181,7 @@ def test_browser_unexpected_load_failure_is_not_hidden(monkeypatch) -> None:
     def fail(*args):
         raise RuntimeError("unexpected internal failure")
 
+    monkeypatch.setattr(browser_service, "service", create_service())
     monkeypatch.setattr(browser_service.service.engine, "load", fail)
     reply = json.loads(browser_service.load_source("selected.wav", FIXTURE.read_bytes()))
     assert reply == {"error": {"code": "internal-error", "message": "unexpected internal failure"}}
@@ -202,6 +203,7 @@ def test_browser_internal_errors_log_the_traceback(monkeypatch, capsys) -> None:
     def fail(*args):
         raise RuntimeError("unexpected internal failure")
 
+    monkeypatch.setattr(browser_service, "service", create_service())
     monkeypatch.setattr(browser_service.service.engine, "load", fail)
     browser_service.load_source("selected.wav", FIXTURE.read_bytes())
     assert "Traceback" in capsys.readouterr().err

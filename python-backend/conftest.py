@@ -1,14 +1,26 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+import copy
+from collections.abc import Callable, Iterator
 from typing import Any
 
+import dask
 import numpy as np
 import pytest
 import wandas as wd
 from wandas.pipeline import RecipePlan
 
 RecipeFactory = Callable[..., dict[str, Any]]
+
+
+@pytest.fixture(autouse=True)
+def _restore_dask_config() -> Iterator[None]:
+    """dask's config is process-wide: a test that sets a scheduler (as the browser service does) must not
+    run the rest of the suite on it, or the native threaded path is never exercised."""
+    saved = copy.deepcopy(dask.config.config)
+    yield
+    dask.config.config.clear()
+    dask.config.config.update(saved)
 
 
 @pytest.fixture

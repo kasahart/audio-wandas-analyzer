@@ -139,9 +139,7 @@ class BrowserEngine(AnalysisEngine):
 
     def estimated_bytes(self, working_bytes: int) -> int:
         """Estimate peak Worker memory for an operation that needs ``working_bytes`` on top of the session."""
-        return (
-            PYODIDE_BASELINE_BYTES + DISPLAY_EXPORT_RESERVE + self.input_bytes + self.cache_bytes * 2 + working_bytes
-        )
+        return PYODIDE_BASELINE_BYTES + DISPLAY_EXPORT_RESERVE + self.input_bytes + self.cache_bytes * 2 + working_bytes
 
     def discard_all_spectrograms(self) -> None:
         for path in list(self._files):
@@ -245,11 +243,20 @@ class BrowserService(AnalysisService):
 
 
 def create_service() -> AnalysisService:
-    dask.config.set(scheduler="synchronous")
     return BrowserService(BrowserEngine())
 
 
-service = create_service()
+# Built on first use, so importing this module (as the native tests do) leaves dask's scheduler alone.
+service: AnalysisService | None = None
+
+
+def _service() -> AnalysisService:
+    global service
+    if service is None:
+        # Pyodide has no threads; the Worker is this process's only user of dask.
+        dask.config.set(scheduler="synchronous")
+        service = create_service()
+    return service
 
 
 def _json_reply(function: Callable[..., str]) -> Callable[..., str]:
@@ -271,7 +278,7 @@ def _json_reply(function: Callable[..., str]) -> Callable[..., str]:
 @_json_reply
 def load_source(source_id: str, payload: object) -> str:
     try:
-        return json.dumps(service.engine.load(source_id, bytes(payload)))
+        return json.dumps(_service().engine.load(source_id, bytes(payload)))
     except sf.LibsndfileError as error:
         raise InputError("Unable to read audio: invalid or unsupported data") from error
 
@@ -283,13 +290,13 @@ def browser_limits_json() -> str:
 
 @_json_reply
 def release_source(file_path: str) -> str:
-    service.engine.discard(file_path)
+    _service().engine.discard(file_path)
     return "{}"
 
 
 @_json_reply
 def release_all_sources() -> str:
-    service.engine.clear()
+    _service().engine.clear()
     return "{}"
 
 
@@ -303,7 +310,7 @@ def prepare_export_json(raw: str) -> str:
     commands = [validate_request({**command, "requestId": f"export-{index}"}) for index, command in enumerate(commands)]
     if any(command["cmd"] != "export-wav-loop" for command in commands):
         raise InputError("Invalid export plan")
-    engine = service.engine
+    engine = _service().engine
     engine.discard_all_spectrograms()
     sizes = []
     for command in commands:
@@ -321,5 +328,5 @@ def dispatch_json(raw: str) -> str:
     command = validate_request(json.loads(raw))
     # Resolve settings at the boundary before expensive allocation.
     if "filePath" in command:
-        resolve_stft_params(service.engine.get_file(command["filePath"]).frame.n_samples, command.get("stftOptions"))
-    return json.dumps(dispatch(command, service), allow_nan=False)
+        resolve_stft_params(_service().engine.get_file(command["filePath"]).frame.n_samples, command.get("stftOptions"))
+    return json.dumps(dispatch(command, _service()), allow_nan=False)

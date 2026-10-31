@@ -576,7 +576,8 @@ def test_overlapping_scans_leave_the_dask_scheduler_as_it_was() -> None:
         with scan_service._synchronous_dask():
             b_in.set()
             a_out.wait(5)
-            seen.append(dask.config.get("scheduler", None))
+            # Scan A's end must not turn scan B's computes threaded.
+            seen.append(scan_service._synchronous.get())
 
     threads = [threading.Thread(target=scan_a), threading.Thread(target=scan_b)]
     for thread in threads:
@@ -584,5 +585,57 @@ def test_overlapping_scans_leave_the_dask_scheduler_as_it_was() -> None:
     for thread in threads:
         thread.join(10)
 
-    assert seen == ["synchronous"]
-    assert dask.config.get("scheduler", None) == before
+    assert seen == [True]
+    assert dask.config.get("scheduler", None) in (before, scan_service._per_thread_scheduler)
+
+
+def test_a_running_scan_leaves_other_threads_dask_computes_threaded() -> None:
+    import threading
+
+    import dask.array as da
+
+    from scan_service import _synchronous_dask
+
+    def compute_thread() -> int:
+        # A one-chunk array's single task runs on the computing thread only under the synchronous scheduler.
+        array = da.from_array(np.zeros(4), chunks=4).map_blocks(
+            lambda block: np.full(block.shape, threading.get_ident())
+        )
+        return int(array.compute()[0])
+
+    in_scan = threading.Event()
+    scan_done = threading.Event()
+    seen: dict[str, tuple[int, int]] = {}
+
+    def scanning() -> None:
+        with _synchronous_dask():
+            in_scan.set()
+            seen["scan"] = (threading.get_ident(), compute_thread())
+            scan_done.wait(5)
+
+    def other() -> None:
+        in_scan.wait(5)
+        seen["other"] = (threading.get_ident(), compute_thread())
+        scan_done.set()
+
+    threads = [threading.Thread(target=scanning), threading.Thread(target=other)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    scan_thread, scan_task = seen["scan"]
+    other_thread, other_task = seen["other"]
+    assert scan_task == scan_thread
+    assert other_task != other_thread
+
+
+def test_importing_and_creating_the_browser_service_leaves_the_dask_scheduler_alone() -> None:
+    import subprocess
+    import sys
+
+    code = "import dask, browser_service; browser_service.create_service(); print(dask.config.get('scheduler', None))"
+    output = subprocess.run(
+        [sys.executable, "-c", code], cwd=Path(__file__).parent, capture_output=True, text=True, check=True
+    ).stdout
+    assert output.strip() == "None"
