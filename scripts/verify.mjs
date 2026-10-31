@@ -53,7 +53,8 @@ run('generated protocol types (python-backend/protocol_schema.py)', ...node('scr
 run('single-source consistency (dependency pins, browser limits)', ...node('scripts/check-single-sources.mjs'));
 run('agent skills copy (.claude/skills from .agents/skills)', ...node('scripts/sync-skills.mjs', '--check'));
 run('gui triggerability audit', ...npm(['run', 'lint:gui-triggerability']));
-run('node:test', ...node('--test', 'dist/test/**/*.test.js'));
+// spec (not the non-TTY TAP default) repeats every failure at the end, so it survives a truncated CI log tail.
+run('node:test', ...node('--test', '--test-reporter=spec', 'dist/test/**/*.test.js'));
 run('ruff check', python, ['-m', 'ruff', 'check', 'python-backend']);
 run('ruff format --check', python, ['-m', 'ruff', 'format', '--check', 'python-backend']);
 run('pytest', python, ['-m', 'pytest', 'python-backend']);

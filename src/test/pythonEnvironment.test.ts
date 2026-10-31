@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
@@ -53,6 +53,8 @@ function loadPythonEnvironmentModule(options: {
     currentPythonCommand?: string;
     pythonExtensionPath?: string;
     cancelProgress?: boolean;
+    /** Runs after a warning's buttons are chosen and before it is answered. */
+    onWarning?: () => void;
     spawnImpl?: (...args: unknown[]) => FakeProcess;
 }) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -107,6 +109,7 @@ function loadPythonEnvironmentModule(options: {
             showWarningMessage: async (message: string, ...buttons: string[]) => {
                 warningMessages.push(message);
                 warningButtons.push(buttons);
+                options.onWarning?.();
                 return warningAnswers.shift();
             },
             showInformationMessage: async (message: string) => {
@@ -635,7 +638,9 @@ test('checkAndPromptInstallDependencies warns when interpreter is missing and of
         await settle();
         assert.equal(item.text, 'Python: missing-python $(warning)');
         assert.equal(item.tooltip, 'The Python interpreter was not found. Click to select another environment.');
-        assert.deepEqual(warningMessages, ['Python interpreter not found: missing-python/bin/python']);
+        // The interpreter path follows the host venv layout (bin/python on POSIX, Scripts\\python.exe on Windows).
+        const expectedInterpreter = pythonEnvironment.resolvePythonCommand('missing-python');
+        assert.deepEqual(warningMessages, [`Python interpreter not found: ${expectedInterpreter}`]);
         assert.deepEqual(warningButtons, [['Select Environment', 'Show Log']]);
         assert.deepEqual(executedCommands, ['audioWandasAnalyzer.selectPythonEnvironment']);
     } finally {
@@ -876,6 +881,69 @@ test('a venv creation failure for a missing venv module names the package to ins
     }
 });
 
+/** A `python -m venv` stand-in that leaves a half-made venv (an interpreter, no pip) and then ends as `finish` says. */
+function partialVenvSpawn(finish: 'fail' | 'hang') {
+    return (...spawnArgs: unknown[]) => {
+        const args = spawnArgs[1] as string[];
+        return fakeProcess((proc) => {
+            if (args[0] === '-c') {
+                proc.stdout.emit('data', Buffer.from(checkOutput(['numpy>=2.0.2'], true)));
+                proc.emit('close', 0);
+                return;
+            }
+            if (args[1] === 'venv') {
+                mkdirSync(path.join(args[2], 'bin'), { recursive: true });
+                writeFileSync(path.join(args[2], 'bin', 'python'), '');
+            }
+            if (finish === 'fail') { proc.emit('close', 1); }
+        });
+    };
+}
+
+for (const [label, finish] of [['fails', 'fail'], ['is cancelled', 'hang']] as const) {
+    test(`a .venv this call created is removed when creating it ${label}`, async () => {
+        const root = makeWorkspace();
+        const { pythonEnvironment, updates, restore } = loadPythonEnvironmentModule({
+            workspaceFolderRoot: root,
+            warningAnswers: ['Create .venv and Install'],
+            cancelProgress: finish === 'hang',
+            spawnImpl: partialVenvSpawn(finish),
+        });
+
+        try {
+            await pythonEnvironment.checkAndPromptInstallDependencies('python3', statusItem() as never);
+            assert.equal(existsSync(path.join(root, '.venv')), false, 'a half-made .venv would hide "Create .venv" for good');
+            assert.deepEqual(updates, []);
+        } finally {
+            restore();
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+}
+
+test('a .venv that existed before the create call is never removed', async () => {
+    const root = makeWorkspace();
+    const marker = path.join(root, '.venv', 'keep.txt');
+    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({
+        workspaceFolderRoot: root,
+        warningAnswers: ['Create .venv and Install'],
+        // The user's own .venv appears after "Create .venv" was offered but before it runs.
+        onWarning: () => {
+            mkdirSync(path.dirname(marker), { recursive: true });
+            writeFileSync(marker, 'mine');
+        },
+        spawnImpl: partialVenvSpawn('fail'),
+    });
+
+    try {
+        await pythonEnvironment.checkAndPromptInstallDependencies('python3', statusItem() as never);
+        assert.equal(readFileSync(marker, 'utf8'), 'mine');
+    } finally {
+        restore();
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test('checkAndPromptInstallDependencies treats unexpected dependency check exit as check failure', async () => {
     const { pythonEnvironment, errorMessages, log, restore } = loadPythonEnvironmentModule({
         spawnImpl: () => fakeProcess((proc) => {
@@ -901,9 +969,9 @@ test('checkAndPromptInstallDependencies ignores stale results from older request
     const { pythonEnvironment, warningMessages, restore } = loadPythonEnvironmentModule({
         spawnImpl: (pythonCommand?: unknown) => {
             const proc = fakeProcess();
-            if (pythonCommand === 'old-env/bin/python') {
+            if (pythonCommand === pythonEnvironment.resolvePythonCommand('old-env')) {
                 oldProc = proc;
-            } else if (pythonCommand === 'new-env/bin/python') {
+            } else if (pythonCommand === pythonEnvironment.resolvePythonCommand('new-env')) {
                 newProc = proc;
             }
             return proc;
