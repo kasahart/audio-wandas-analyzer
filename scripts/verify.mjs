@@ -59,8 +59,10 @@ run('gui triggerability audit', ...npm(['run', 'lint:gui-triggerability']));
 run('node:test', ...node('--test', 'dist/test/**/*.test.js'));
 run('ruff check', python, ['-m', 'ruff', 'check', 'python-backend']);
 run('ruff format --check', python, ['-m', 'ruff', 'format', '--check', 'python-backend']);
-// Configured in pyproject.toml ([tool.pyright]); --pythonpath points it at the interpreter verify runs.
-run('pyright', python, ['-m', 'pyright', '--pythonpath', python]);
+// Configured in pyproject.toml ([tool.pyright]); --pythonpath points it at the interpreter verify runs. pyright
+// needs that interpreter's absolute path: given a bare `python3` (CI has no .venv) it finds no site-packages.
+const pythonExecutable = spawnSync(python, ['-c', 'import sys; print(sys.executable)'], { env, encoding: 'utf8' }).stdout.trim();
+run('pyright', python, ['-m', 'pyright', '--pythonpath', pythonExecutable]);
 run('pytest', python, ['-m', 'pytest', 'python-backend']);
 
 if (process.env.AWA_VERIFY_BROWSER === '1') {
