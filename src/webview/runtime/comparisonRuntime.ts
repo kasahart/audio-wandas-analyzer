@@ -1,3 +1,4 @@
+import { middleEllipsis } from '../../shared/dataset/datasetTable';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
@@ -152,6 +153,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
     }
     const TRACK_HEADER_W = 130;
+    // A failed spectrogram is not asked again for this long, so a lane that keeps failing does not loop.
+    const DETAIL_RETRY_MS = 10_000;
     const AXIS_W = 64;
     // The waveform and the spectrogram under it are TRACK_SPLIT_H apart.
     const TRACK_SPLIT_H = 5;
@@ -623,7 +626,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const settingsSignature = currentSettingsSignature();
-        if (record.detailError?.settingsSignature === settingsSignature) {
+        const failure = record.detailError;
+        if (failure && failure.settingsSignature === settingsSignature && Date.now() - failure.at < DETAIL_RETRY_MS) {
             return;
         }
         const pending = record.requests.pending('detail')?.meta;
@@ -824,8 +828,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         record.requests.settle(msg.requestId);
         if (msg.type === 'track-detail-error') {
-            record.detailError = { settingsSignature: pending.settingsSignature, message: msg.error };
+            record.detailError = { settingsSignature: pending.settingsSignature, message: msg.error, at: Date.now() };
             scheduleRender();
+            // The cause may pass (a restarted backend, memory freed): the lane asks again after the pause.
+            setTimeout(scheduleRender, DETAIL_RETRY_MS);
             return;
         }
         record.detailError = null;
@@ -1841,7 +1847,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!ch || !ch.spectrogram) {
             requestTrackDetail(trackIndex);
             const failure = trackRecordAtIndex(trackIndex)?.detailError;
-            const message = failure && failure.settingsSignature === currentSettingsSignature() ? STR.spectrogramFailed.replace('{reason}', failure.message) : STR.spectrogramLoading;
+            const message = failure && failure.settingsSignature === currentSettingsSignature()
+                ? STR.spectrogramFailed.replace('{reason}', () => middleEllipsis(failure.message.split('\n')[0], 120))
+                : STR.spectrogramLoading;
             drawCanvasMessage(ctx, W, H, message, '11px sans-serif', drawTheme().mutedColor);
             return;
         }
@@ -3626,7 +3634,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrogramSettings.setDisplay(display);
         messaging.post({ type: 'update-spectrogram-settings', settings: spectrogramSettings.settings });
         // Touching the settings is the user's way to try a failed spectrogram again.
-        trackStore.activeIds().forEach(function (id) { trackStore.require(id).detailError = null; });
+        trackStore.clearDetailErrors();
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
         requestAnimationFrame(function () { publishTestSnapshot(); });
