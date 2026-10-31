@@ -1098,8 +1098,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return; // the range on its way already covers it
             }
             const requestId = nextRequestId('range', record.id);
-            if (pending) rangeAskedAt.delete(pending.requestId);
+            // Superseded requests keep their time until answered (an answer may still land); the host cancels most, so
+            // the oldest are dropped once many are kept.
             rangeAskedAt.set(requestId, performance.now());
+            if (rangeAskedAt.size > 256) {
+                const oldest = rangeAskedAt.keys().next().value;
+                if (oldest !== undefined) rangeAskedAt.delete(oldest);
+            }
             record.requests.ask('range', requestId, `${reqStart}|${reqEnd}|${pts}`, null);
             messaging.post({
                 type: 'request-waveform-range',
