@@ -17,7 +17,7 @@ import wandas as wd
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
 from analysis_service import AnalysisService, PairSpectrumResult, RecipeRunResult, pair_overlap, pair_stft_params
 from analyzer import resolve_stft_params, sample_range
-from backend_errors import INTERNAL_ERROR, InputError, error_payload
+from backend_errors import INTERNAL_ERROR, InputError, MemoryBudgetError, UnreadableFileError, error_payload
 from calibration_profile import finite_source_channel_peaks
 from command_dispatch import dispatch, validate_request
 
@@ -74,24 +74,24 @@ class BrowserEngine(AnalysisEngine):
             raise InputError(f"Select a non-empty file up to {_mib(MAX_INPUT_BYTES)}")
         suffix = Path(source_id).suffix.lower()
         if suffix not in wd.supported_formats():
-            raise InputError(f"Unsupported file type: {suffix or source_id}")
+            raise UnreadableFileError(f"Unsupported file type: {suffix or source_id}")
         frame: wd.ChannelFrame | None = None
         if suffix == ".csv":
             # wd.inspect reads audio headers only, so a CSV is bounded before parsing: every value
             # takes at least two bytes, which caps its decoded frame at half the payload's byte count.
             worst_frame_bytes = len(payload) // 2 * AUDIO_CACHE_DTYPE.itemsize
             if self.estimated_bytes(len(payload) * 2 + worst_frame_bytes * 8) > MAX_ESTIMATED_BYTES:
-                raise InputError(self._load_budget_message())
+                raise MemoryBudgetError(self._load_budget_message())
             try:
                 frame = wd.read(payload, file_type=suffix, source_name=source_id, dtype=AUDIO_CACHE_DTYPE).cache()
             except ValueError as error:
-                raise InputError(f"Unable to read CSV: {str(error).splitlines()[0]}") from error
+                raise UnreadableFileError(f"Unable to read CSV: {str(error).splitlines()[0]}") from error
             length, channels, rate = frame.n_samples, frame.n_channels, float(frame.sampling_rate)
         else:
             try:
                 header = wd.inspect(payload, file_type=suffix)
             except sf.LibsndfileError as error:
-                raise InputError("Unable to read audio: invalid or unsupported data") from error
+                raise UnreadableFileError("Unable to read audio: invalid or unsupported data") from error
             length, channels, rate = (int(header[key]) for key in ("frames", "channels", "samplerate"))
         if (
             not length >= 32
@@ -116,9 +116,9 @@ class BrowserEngine(AnalysisEngine):
                 f"Browser session limit: up to {MAX_SOURCES} files / {_mib(MAX_TOTAL_INPUT_BYTES)} total input"
             )
         if decoded_bytes > MAX_TOTAL_DECODED_BYTES:
-            raise InputError(f"Browser session exceeds {_mib(MAX_TOTAL_DECODED_BYTES)} decoded audio budget")
+            raise MemoryBudgetError(f"Browser session exceeds {_mib(MAX_TOTAL_DECODED_BYTES)} decoded audio budget")
         if self.estimated_bytes(len(payload) * 2 + frame_bytes * 8) > MAX_ESTIMATED_BYTES:
-            raise InputError(self._load_budget_message())
+            raise MemoryBudgetError(self._load_budget_message())
         if frame is None:
             frame = wd.read(payload, file_type=suffix, source_name=source_id, dtype=AUDIO_CACHE_DTYPE).cache()
         source_peaks = finite_source_channel_peaks(frame)
@@ -193,7 +193,7 @@ class BrowserEngine(AnalysisEngine):
         if existing is not None:
             return existing
         if self.estimated_bytes(stft_working_bytes(length, channels, n_fft, hop_length)) > MAX_ESTIMATED_BYTES:
-            raise InputError("STFT exceeds prototype estimated memory budget; lower the overlap")
+            raise MemoryBudgetError("STFT exceeds prototype estimated memory budget; lower the overlap")
         return super().get_spectrogram(file_path, n_fft, hop_length, window, calibration_profile)
 
 
@@ -230,7 +230,7 @@ class BrowserService(AnalysisService):
         length = max(0, int(seconds * x.frame.sampling_rate))
         working = ((length // hop_length) + 5) * 2 * (n_fft // 2 + 1) * 64
         if self.engine.estimated_bytes(working) > MAX_ESTIMATED_BYTES:
-            raise InputError(
+            raise MemoryBudgetError(
                 "Pair spectrum exceeds browser estimated memory budget; shorten the range or lower the overlap"
             )
         return super().pair_spectrum(
@@ -296,7 +296,7 @@ def load_source(source_id: str, payload: bytes | bytearray | memoryview) -> str:
     try:
         return json.dumps(_service().engine.load(source_id, bytes(payload)))
     except sf.LibsndfileError as error:
-        raise InputError("Unable to read audio: invalid or unsupported data") from error
+        raise UnreadableFileError("Unable to read audio: invalid or unsupported data") from error
 
 
 @_json_reply
@@ -335,7 +335,7 @@ def prepare_export_json(raw: str) -> str:
         sizes.append(max(0, end - start) * cached.frame.n_channels * 2 + 44)
     estimated = engine.estimated_bytes(sum(sizes) * 4 + max(sizes) * 6)
     if estimated > MAX_ESTIMATED_BYTES or sum(sizes) > MAX_EXPORT_BYTES:
-        raise InputError("Export exceeds browser memory budget; choose a smaller region or fewer tracks")
+        raise MemoryBudgetError("Export exceeds browser memory budget; choose a smaller region or fewer tracks")
     return "{}"
 
 

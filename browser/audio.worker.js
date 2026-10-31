@@ -126,7 +126,7 @@ self.onmessage = ({ data }) => {
                 self.postMessage({ requestId: data.requestId, result });
             }
         } catch (error) {
-            self.postMessage({ requestId: data.requestId, error: { code: 'internal-error', message: String(error).slice(-1200) } });
+            self.postMessage({ requestId: data.requestId, error: { code: 'internal-error', kind: 'analysis-failed', message: String(error).slice(-1200) } });
         }
     });
 };

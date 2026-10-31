@@ -739,6 +739,188 @@ def test_error_codes_match_the_shared_protocol_fixture() -> None:
     assert codes == set(DEFINITIONS["BackendErrorPayload"]["properties"]["code"]["enum"])
 
 
+def test_error_kinds_match_the_shared_protocol_schema() -> None:
+    kinds = {
+        backend_errors.ANALYSIS_SETTINGS,
+        backend_errors.UNREADABLE_FILE,
+        backend_errors.OUT_OF_MEMORY,
+        backend_errors.INVALID_INPUT,
+        backend_errors.ANALYSIS_FAILED,
+    }
+    assert kinds == set(PROTOCOL_FIXTURES["errorKinds"])
+    assert kinds == set(DEFINITIONS["BackendErrorPayload"]["properties"]["kind"]["enum"])
+
+
+def _write_samples(path: Path, count: int, rate: int = 8000) -> None:
+    sf.write(path, np.sin(np.arange(count) / 3.0) * 0.1, rate)
+
+
+def _error_reply(command: dict) -> dict[str, str]:
+    with pytest.raises(Exception) as raised:
+        _dispatch(command)
+    return backend_errors.error_payload(raised.value)
+
+
+def test_a_recipe_stft_longer_than_the_file_is_an_analysis_settings_error(tmp_path: Path, make_recipe) -> None:
+    short = tmp_path / "short.wav"
+    _write_samples(short, 40)
+    recipe = make_recipe(lambda signal: signal.stft(n_fft=128, hop_length=32))
+
+    error = _error_reply({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": str(short)}})
+
+    assert error["kind"] == "analysis-settings", error
+    assert "Parameter n must be >= ceil(m_num/2)" in error["message"], "the library's text stays as the detail"
+    assert first_violation(DEFINITIONS["BackendErrorPayload"], error) is None
+
+
+def test_a_spectrogram_window_longer_than_the_file_is_an_analysis_settings_error(tmp_path: Path) -> None:
+    short = tmp_path / "short.wav"
+    _write_samples(short, 1000)
+
+    error = _error_reply(
+        {
+            "cmd": "track-detail",
+            "requestId": "d",
+            "trackIndex": 0,
+            "analysisId": "a1",
+            "settingsSignature": "sig1",
+            "filePath": str(short),
+            "stftOptions": {"nFft": 4096, "overlapPercent": 50, "window": "hann"},
+        }
+    )
+
+    assert error == {
+        "code": "input-error",
+        "kind": "analysis-settings",
+        "message": "Audio is too short for this STFT window; choose a smaller window",
+    }
+
+
+def test_missing_and_undecodable_files_are_unreadable_file_errors(tmp_path: Path) -> None:
+    corrupt = tmp_path / "corrupt.wav"
+    corrupt.write_text("not audio", encoding="utf-8")
+
+    missing = _error_reply({"cmd": "analyze", "requestId": "m", "filePath": str(tmp_path / "missing.wav")})
+    undecodable = _error_reply({"cmd": "analyze", "requestId": "c", "filePath": str(corrupt)})
+
+    assert missing["kind"] == "unreadable-file" and missing["code"] == "input-error"
+    assert missing["message"].startswith("Audio file not found")
+    assert undecodable["kind"] == "unreadable-file", undecodable
+    assert "Format not recognised" in undecodable["message"]
+
+
+def test_a_failed_wav_write_of_a_readable_file_is_not_an_unreadable_file_error(tmp_path: Path) -> None:
+    wide = tmp_path / "wide.csv"
+    rows = [",".join(["time", *(f"c{index}" for index in range(1100))])]
+    rows += [",".join([f"{row / 8000:.6f}", *(["0.1"] * 1100)]) for row in range(200)]
+    wide.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=64 * 1024 * 1024))
+    assert "error" not in _dispatch({"cmd": "analyze", "requestId": "a", "filePath": str(wide)}, service)
+
+    with pytest.raises(Exception) as raised:
+        _dispatch(
+            {"cmd": "export-wav-loop", "requestId": "e", "filePath": str(wide), "startNorm": 0, "endNorm": 1}, service
+        )
+
+    assert backend_errors.error_payload(raised.value)["kind"] == "analysis-failed", raised.value
+    with pytest.raises(OverflowError) as overflow:
+        sf.write(io.BytesIO(), np.zeros((10, 2)), 3_000_000_000, format="WAV")
+    assert backend_errors.error_payload(overflow.value)["kind"] == "analysis-failed"
+
+
+def _short_recording(tmp_path: Path, name: str, channels: int = 1) -> Path:
+    path = tmp_path / name
+    sf.write(path, np.random.default_rng(0).normal(size=(1000, channels)) * 0.1, 48000)
+    return path
+
+
+def test_the_apps_spectrum_and_transfer_recipes_on_a_file_shorter_than_their_window_are_settings_errors(
+    tmp_path: Path,
+) -> None:
+    from recipe_builder import RecipeSource, spectrum_recipe, transfer_recipe
+
+    mono = _short_recording(tmp_path, "mono.wav")
+    stereo = _short_recording(tmp_path, "stereo.wav", channels=2)
+    spectrum = spectrum_recipe(RecipeSource(1, 48000.0), n_fft=4096, hop_length=1024, window="hann")
+    transfer = transfer_recipe([RecipeSource(2, 48000.0)], 0, [(0, 1)], n_fft=4096, hop_length=1024, window="hann")
+
+    for recipe, inputs in ((spectrum, {"signal": str(mono)}), (transfer, {"reference": str(stereo)})):
+        error = _error_reply({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": inputs})
+        assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
+        assert "noverlap" in error["message"]
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param(lambda frame: frame.welch(n_fft=4096, hop_length=1024), id="welch"),
+        pytest.param(lambda frame: frame.csd(n_fft=4096, hop_length=1024), id="csd"),
+        pytest.param(lambda frame: frame.coherence(n_fft=4096, hop_length=1024), id="coherence"),
+        pytest.param(lambda frame: frame[:, :8].low_pass_filter(cutoff=1000), id="filter-shorter-than-padlen"),
+        pytest.param(lambda frame: frame.stft(n_fft=256, hop_length=64, window="nope"), id="unknown-window"),
+    ],
+)
+def test_scipy_parameter_checks_on_a_short_signal_are_settings_errors(operation) -> None:
+    frame = wd.from_numpy(np.random.default_rng(0).normal(size=(2, 1000)), sampling_rate=48000)
+
+    with pytest.raises(ValueError) as raised:
+        np.asarray(operation(frame).data)
+
+    assert backend_errors.error_payload(raised.value)["kind"] == "analysis-settings", raised.value
+
+
+def test_a_recipe_filter_cutoff_above_the_files_nyquist_is_an_analysis_settings_error(tmp_path: Path) -> None:
+    low_rate = tmp_path / "16k.wav"
+    _write_samples(low_rate, 16000, rate=16000)
+    stand_in = wd.from_numpy(np.zeros((1, 48000)), sampling_rate=48000, ch_labels=["signal0"])
+    recipe = wd.pipeline.RecipePlan.from_frame(
+        stand_in.low_pass_filter(cutoff=20000), input_names=("signal",)
+    ).to_dict()
+
+    error = _error_reply({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": str(low_rate)}})
+
+    assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
+    assert "Cutoff frequency" in error["message"]
+
+
+@pytest.mark.parametrize(
+    ("error", "code", "kind"),
+    [
+        (MemoryError(), "internal-error", "out-of-memory"),
+        (backend_errors.MemoryBudgetError("over budget"), "input-error", "out-of-memory"),
+        (backend_errors.InputError("bandsPerOctave must be 1 or 3"), "input-error", "invalid-input"),
+        (backend_errors.StaleCalibrationError("label mismatch"), "stale-calibration", "invalid-input"),
+        (ValueError("Out of range float values"), "internal-error", "analysis-failed"),
+        (KeyError("file"), "internal-error", "analysis-failed"),
+    ],
+)
+def test_error_payload_kinds(error: BaseException, code: str, kind: str) -> None:
+    payload = backend_errors.error_payload(error)
+
+    assert (payload["code"], payload["kind"]) == (code, kind)
+
+
+def test_a_wrapped_library_error_keeps_its_kind_through_the_raise_from_chain() -> None:
+    frame = wd.from_numpy(np.zeros((1, 40)), sampling_rate=8000)
+    with pytest.raises(ValueError) as raised:
+        frame.stft(n_fft=128, hop_length=32)
+    try:
+        try:
+            raise RuntimeError(str(raised.value)) from raised.value
+        except RuntimeError as wrapped:
+            raise backend_errors.InputError(f"recipe error: {wrapped}") from wrapped
+    except backend_errors.InputError as outer:
+        assert backend_errors.error_payload(outer)["kind"] == "analysis-settings"
+    # An InputError the code wrote itself is not reclassified by an unrelated error it was raised while handling.
+    try:
+        try:
+            raise MemoryError
+        except MemoryError:
+            raise backend_errors.InputError("invalid request field 'cmd'") from None
+    except backend_errors.InputError as unrelated:
+        assert backend_errors.error_payload(unrelated)["kind"] == "invalid-input"
+
+
 def test_unknown_cmd_returns_error(server: _ServerHandle) -> None:
     resp = server.request({"cmd": "nope"})
     assert resp["error"]["code"] == "input-error"

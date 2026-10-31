@@ -73,7 +73,7 @@ test('replies settle through the result validators, and a reply with extra outer
     await assert.rejects(audio.request({ cmd: 'load', sourceId: 'a.wav' }), /Invalid load success response/);
     FakeWorker.answer = () => ({ result: { filePath: '/sources/a.wav' }, debug: 1 });
     await assert.rejects(audio.request({ cmd: 'load', sourceId: 'a.wav' }), /Invalid load response envelope/);
-    FakeWorker.answer = () => ({ error: { code: 'input-error', message: 'Unable to read audio' } });
+    FakeWorker.answer = () => ({ error: { code: 'input-error', kind: 'invalid-input', message: 'Unable to read audio' } });
     await assert.rejects(audio.request({ cmd: 'load', sourceId: 'a.wav' }), /Unable to read audio/);
     FakeWorker.answer = defaultAnswer;
 });
@@ -129,7 +129,7 @@ test('Clear releases sources in an idle Worker, restarts a busy one, and replace
     assert.equal(FakeWorker.all[0].terminated, true);
     assert.equal(audio.running, false);
 
-    FakeWorker.answer = command => (command.cmd === 'clear' ? { error: { code: 'input-error', message: 'Unknown command' } } : { result: LIMITS });
+    FakeWorker.answer = command => (command.cmd === 'clear' ? { error: { code: 'input-error', kind: 'invalid-input', message: 'Unknown command' } } : { result: LIMITS });
     await audio.request({ cmd: 'limits' });
     audio.clear();
     await flush();

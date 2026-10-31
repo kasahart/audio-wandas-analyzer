@@ -714,8 +714,6 @@ def _stage_result(described: ScanInput, view: StageView) -> ScanResult:
 def _first_line(error: BaseException) -> str:
     text = str(error).strip()
     line = text.splitlines()[0] if text else type(error).__name__
-    if isinstance(error, sf.LibsndfileError):
-        return f"Unable to read audio: {error.error_string}"
     return line if isinstance(error, (InputError, OSError)) else f"{type(error).__name__}: {line}"
 
 

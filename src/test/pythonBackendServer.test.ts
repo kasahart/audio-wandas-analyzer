@@ -329,7 +329,7 @@ test('feedStdoutChunk rejects an error response and removes the pending request'
     const rejected: Error[] = [];
     pending.set('r1', makePending('analyze', resolved, rejected));
 
-    feedStdoutChunk({}, '{"requestId":"r1","error":{"code":"stale-calibration","message":"boom"}}\n', pending);
+    feedStdoutChunk({}, '{"requestId":"r1","error":{"code":"stale-calibration","kind":"invalid-input","message":"boom"}}\n', pending);
 
     assert.equal(resolved.length, 0);
     assert.ok(rejected[0] instanceof BackendRequestError);
@@ -488,7 +488,7 @@ test('error replies with fields beside the error are protocol errors', () => {
     const rejected: Error[] = [];
     const diagnostics: BackendDiagnostic[] = [];
     const pending = new Map<string, PendingRequest>([['r1', makePending('analyze', [], rejected)]]);
-    processStdoutLine('{"requestId":"r1","error":{"code":"input-error","message":"m"},"unexpected":1}', pending, { onDiagnostic: diagnostic => { diagnostics.push(diagnostic); } });
+    processStdoutLine('{"requestId":"r1","error":{"code":"input-error","kind":"invalid-input","message":"m"},"unexpected":1}', pending, { onDiagnostic: diagnostic => { diagnostics.push(diagnostic); } });
     assert.deepEqual(diagnostics.map(diagnostic => diagnostic.kind), ['protocol-validation-error']);
     assert.match(rejected[0]?.message ?? '', /Invalid error response for analyze/);
 });
@@ -515,7 +515,7 @@ test('readline preserves split UTF-8, CRLF and a final response without newline'
         ['r2', makePending('analyze', [], rejected)],
     ]);
     reader.on('line', line => { processStdoutLine(line, pending); });
-    const bytes = Buffer.from('{"requestId":"r1","error":{"code":"input-error","message":"校正"}}\r\n{"requestId":"r2","error":{"code":"input-error","message":"終了"}}');
+    const bytes = Buffer.from('{"requestId":"r1","error":{"code":"input-error","kind":"invalid-input","message":"校正"}}\r\n{"requestId":"r2","error":{"code":"input-error","kind":"invalid-input","message":"終了"}}');
     for (const byte of bytes) { input.write(Buffer.from([byte])); }
     input.end();
     await closed;

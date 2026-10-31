@@ -1,6 +1,5 @@
-import { middleEllipsis } from '../../shared/dataset/datasetTable';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
-import { linkedSpectrogramBounds, spectrogramDisplayBounds } from './spectrogramRaster';
+import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { trackTimelinePlacement } from './waveformCoverage';
 import { attachOffsetEditing } from './offsetInlineEditor';
@@ -1764,6 +1763,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     const msg = document.createElement('span');
                     msg.style.cssText = 'color:#e8637a;font-size:11px;text-align:center;white-space:pre-wrap;word-break:break-all;max-height:3em;overflow:hidden';
                     msg.textContent = STR.analysisFailed + result.error;
+                    msg.title = result.error;
                     overlay.appendChild(msg);
                     if (isPythonEnvError(result.error)) {
                         const btn = document.createElement('button');
@@ -1886,7 +1886,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             requestTrackDetail(trackIndex);
             const failure = trackRecordAtIndex(trackIndex)?.detailError;
             const message = failure && failure.settingsSignature === currentSettingsSignature()
-                ? STR.spectrogramFailed.replace('{reason}', () => middleEllipsis(failure.message.split('\n')[0], 120))
+                ? spectrogramFailureText(STR, failure.message)
                 : STR.spectrogramLoading;
             drawCanvasMessage(ctx, W, H, message, '11px sans-serif', drawTheme().mutedColor);
             return;

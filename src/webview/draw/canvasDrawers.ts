@@ -340,12 +340,14 @@ export function strokeSpectrumSeries(
     ctx.restore();
 }
 
-export function drawCanvasMessage(ctx: CanvasDrawCtx, W: number, H: number, text: string, font: string, color: string): void {
+/** Centred text; each `\n`-separated line is drawn `lineHeight` px below the one before. */
+export function drawCanvasMessage(ctx: CanvasDrawCtx, W: number, H: number, text: string, font: string, color: string, lineHeight = 14): void {
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = color;
     ctx.font = font;
     ctx.textAlign = 'center';
-    ctx.fillText(text, W / 2, H / 2);
+    const lines = text.split('\n');
+    lines.forEach((line, index) => { ctx.fillText(line, W / 2, H / 2 + (index - (lines.length - 1) / 2) * lineHeight); });
 }
 
 export function drawSpectrumSelectionBox(

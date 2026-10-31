@@ -294,11 +294,11 @@ export async function executeLazyAnalysis(
     return { ...identity, analysisRevision: result.analysisRevision, type: 'track-detail-result' as const, channels: result.channels };
 }
 
-export function lazyAnalysisError(message: TrackDetailRequest | SpectrumSliceRequest, error: unknown) {
+export function lazyAnalysisError(message: TrackDetailRequest | SpectrumSliceRequest, reason: string) {
     return { requestId: message.requestId, analysisId: message.analysisId,
         settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath,
         type: message.type === 'request-track-detail' ? 'track-detail-error' as const : 'spectrum-slice-error' as const,
-        error: error instanceof Error ? error.message : String(error) };
+        error: reason };
 }
 
 export function analysisPayload(filePath: string, options: AnalyzeOptions): AnalyzePayload {

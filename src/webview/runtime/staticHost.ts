@@ -2,7 +2,7 @@ import { createIdbStore } from './idbStore';
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal, type AnalysisContextPolicy } from '../../shared/analysis/analysisClient';
-import type { ScanResult, BackendCommand, BackendPayload, BackendResult } from '../../shared/protocol/backendProtocol';
+import { userErrorText, type ScanResult, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { BrowserLimits, StageDetail } from '../../shared/protocol/generated/backendProtocolSchema';
 import { createWorkerConnection } from './staticWorker';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
@@ -65,7 +65,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const browserWindow = window as unknown as ComparisonWindow;
     const strings = getStrings(window.navigator?.language ?? 'en');
     /** A Worker's or the browser's own error text inside a sentence in the UI's language. */
-    const failedWith = (sentence: string, error: unknown): string => sentence.replace('{error}', error instanceof Error ? error.message : String(error));
+    const failedWith = (sentence: string, error: unknown): string => sentence.replace('{error}', () => userErrorText(error, strings));
     browserWindow.__APP_STRINGS__ = strings;
     const locale = pickLocale(window.navigator?.language ?? 'en');
     browserWindow.__APP_LOCALE__ = locale;
@@ -279,6 +279,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }, strings);
     // Browser host: owned sources, Worker transport, localStorage and downloads behind the shared session contract.
     const ports: ComparisonSessionPorts = {
+        strings,
         scope(message: PanelMessage): SessionScope {
             const myGeneration = sourceGeneration.current;
             const myReanalysis = message.type === 'request-reanalyze' ? reanalysisGeneration.advance() : undefined;
