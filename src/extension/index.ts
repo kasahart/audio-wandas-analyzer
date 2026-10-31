@@ -57,7 +57,8 @@ export function activate(context: vscode.ExtensionContext): void {
         setStatusBarNormal(pythonStatusBarItem, pythonCommand);
     }, {
         current: filePath => ({ calibrationProfile: getCalibrationProfile(context, filePath), analysisRevision: getAnalysisRevision(filePath) }),
-        discardStale: (filePath, error, attempted) => discardStaleCalibrationProfile(context, filePath, error, attempted.calibrationProfile!),
+        discardStale: async (filePath, error, attempted) => attempted.calibrationProfile !== undefined
+            && discardStaleCalibrationProfile(context, filePath, error, attempted.calibrationProfile),
     }, {
         log: line => { logChannel.warn(line); },
         crashed: error => {

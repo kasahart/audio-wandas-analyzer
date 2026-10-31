@@ -8,8 +8,6 @@ import tseslint from 'typescript-eslint';
 // Burn-down list for @typescript-eslint/no-non-null-assertion, which is an error everywhere else.
 // A file leaves this list once its `!` assertions are gone; none may be added. Kept alphabetised.
 const NON_NULL_ASSERTION_BURN_DOWN = [
-    'src/extension/index.ts',
-    'src/extension/pythonBackendServer.ts',
     'src/shared/analysis/entryMetadata.ts',
     'src/shared/analysis/entryScan.ts',
     'src/shared/dataset/datasetTable.ts',
