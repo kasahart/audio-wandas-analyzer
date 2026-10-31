@@ -4,7 +4,7 @@
  * pipeline (computeViewRange → decimateBuckets → paintDecimatedPoints). The comparison's ChannelFrame panes use it.
  */
 import type { StageView } from '../../shared/protocol/backendProtocol';
-import { computeViewRange, decimateBuckets, makeCoordTransform, paintDecimatedPoints, type CanvasCtx, type WaveformEnv } from '../waveform/waveformRenderer';
+import { computeViewRange, decimateBuckets, makeCoordTransform, paintDecimatedPoints, type WaveformEnv } from '../waveform/waveformRenderer';
 
 export type StageWaveform = NonNullable<StageView['waveform']>;
 
@@ -45,7 +45,7 @@ export function paintWaveformLayer(
     context.save();
     context.beginPath(); context.rect(plot.left, plot.top, plot.width, plot.height); context.clip();
     context.translate(plot.left, plot.top);
-    paintDecimatedPoints(context as unknown as CanvasCtx, points, transform, color, lineWidth);
+    paintDecimatedPoints(context, points, transform, color, lineWidth);
     context.restore();
 }
 

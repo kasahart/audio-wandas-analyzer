@@ -374,6 +374,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
      */
     const redraw = createRedraw([['paint', () => paint()], ['compare', () => deps.compareChanged?.()]] as const);
     const render = (): void => redraw.request('paint');
+    /** A change from the track view (a lane shown, taken off) redraws the table only while it is on screen. */
+    const renderIfOpen = (): void => { if (!screen.hidden) render(); };
     /** The comparison follows the table's data only while the table is in the side panel beside it. */
     const tellCompare = (): void => { if (!maximized) redraw.request('compare'); };
     /** What the user chose to see changed: the rows are listed again (from the top for a new order or filter). */
@@ -850,6 +852,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The files shown as tracks now (a hidden track is not). */
     const shownFiles = (): Set<string> => new Set([...deps.shownTracks?.() ?? []].filter(([, hidden]) => !hidden).map(([filePath]) => filePath));
     const focusHeadMark = (): void => { head.querySelector<HTMLElement>('[data-action="entry-tracks-all"]')?.focus(); };
+    /** Opens the question about showing many files as tracks (`adding`), or closes it (null); the focus follows. */
+    function askTracks(adding: string[] | null): void {
+        tracks.pending = adding;
+        render();
+        redraw.after(adding ? () => screen.querySelector<HTMLElement>('[data-action="entry-tracks-all-go"]')?.focus() : focusHeadMark);
+    }
     function toggleTrack(key: string): void {
         tracks.tried = null;
         const filePath = fileOfKey(key);
@@ -869,9 +877,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         tracks.pending = null;
         tracks.tried = null;
         if (adding.length > LARGE_BASE) {
-            tracks.pending = adding;
-            render();
-            redraw.after(() => screen.querySelector<HTMLElement>('[data-action="entry-tracks-all-go"]')?.focus());
+            askTracks(adding);
             return;
         }
         if (adding.length) { showAll(listed, adding); return; }
@@ -932,8 +938,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** Moves the focus to a row and brings it on screen (the rows are drawn only where they are seen). */
     function focusRow(key: string | null, center = false): void {
         if (!key) return;
-        focus.key = key;
-        focus.picked = true;
         // Its line in the table: fixed differences under rows above it take lines too.
         const index = tableLines(datasetView()).findIndex(line => 'key' in line && line.key === key && !('baseLabel' in line));
         if (index >= 0) {
@@ -942,7 +946,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             else if (top < tableWrap.scrollTop) tableWrap.scrollTop = top;
             else if (bottom > tableWrap.scrollTop + view) tableWrap.scrollTop = bottom - view;
         }
-        render();
+        focusOn(key);
     }
     /** A file picked elsewhere (a point on the scatter, the strip): its first row, filters off if they hide it. */
     function focusFile(filePath: string): void {
@@ -1128,14 +1132,17 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     function closePopovers(): boolean {
         if (!filterPop.draft() && !popovers.slotMenu && !popovers.memoKey && !popovers.batch) return false;
-        const hadMemo = !!popovers.memoKey;
-        if (popovers.memoKey) saveMemo();
-        filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.batch = null;
-        renderPopovers();
-        // A memo kept shows on its row (✎ lit, its text as the hint).
-        if (hadMemo) render();
+        filterPop.close(); popovers.slotMenu = null; popovers.batch = null;
+        if (popovers.memoKey) closeMemo(); else renderPopovers();
         redraw.after(() => (body.querySelector<HTMLElement>('.is-focused') ?? table).focus?.());
         return true;
+    }
+    /** The memo popover closes with its text kept, which shows on its row (✎ lit, its text as the hint). */
+    function closeMemo(): void {
+        saveMemo();
+        popovers.memoKey = null;
+        renderPopovers();
+        render();
     }
     function saveMemo(): void {
         if (!popovers.memoKey) return;
@@ -1182,13 +1189,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-row-track': withKey(key => { focusOn(key); toggleTrack(key); }),
         'entry-tracks-all': () => { if (chosen.mode === 'all') toggleAllTracks(); },
         // The rows listed now: a filter changed while the question was open counts.
-        'entry-tracks-all-go': () => { tracks.pending = null; const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); render(); redraw.after(focusHeadMark); },
-        'entry-tracks-all-cancel': () => { tracks.pending = null; render(); redraw.after(focusHeadMark); },
+        'entry-tracks-all-go': () => { askTracks(null); const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); },
+        'entry-tracks-all-cancel': () => askTracks(null),
         'entry-tracks-only': () => choose({ tracksOnly: !chosen.tracksOnly }, true),
         'entry-row-slotmenu': withKey(key => { filterPop.close(); popovers.memoKey = null; popovers.slotMenu = popovers.slotMenu === key ? null : key; focusOn(key); redraw.after(renderPopovers); }),
         'entry-row-slot': withKey((key, target) => { popovers.slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); }),
         'entry-row-memo': withKey(openMemo),
-        'entry-memo-close': () => { saveMemo(); popovers.memoKey = null; renderPopovers(); render(); },
+        'entry-memo-close': closeMemo,
         'entry-row-exclude': withKey(key => { excluded.add(key); rebuild(); }),
         'entry-row-restore': withKey(key => { excluded.delete(key); if (!excluded.size) chosen.mode = 'all'; rebuild(); }),
         'entry-batch': () => openBatch(),
@@ -1316,7 +1323,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 // Esc closes the innermost thing: a popover, the step bar's form, the unmatched or excluded list;
                 // then the maximized table shrinks into the side panel, and the side panel hands the keys back.
                 if (closePopovers()) return true;
-                if (tracks.pending) { tracks.pending = null; render(); redraw.after(focusHeadMark); return true; }
+                if (tracks.pending) { askTracks(null); return true; }
                 if (closeExportMenu()) return true;
                 if (stepBar.close()) return true;
                 if (chosen.mode !== 'all') { choose({ mode: 'all' }); return true; }
@@ -1408,11 +1415,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             rebuild();
         },
         // With "tracks only" on, the rows follow the tracks.
-        tracksChanged: () => { if (chosen.tracksOnly) rebuild(); else if (!screen.hidden) render(); },
+        tracksChanged: () => { if (chosen.tracksOnly) rebuild(); else renderIfOpen(); },
         trackRemoved: filePath => redraw.batch(() => {
             tracks.tried = null;
             const [slot] = slotsOfFile(slots, filePath);
-            if (slot !== undefined) setSlot(slot, null, false); else if (!screen.hidden) render();
+            if (slot !== undefined) setSlot(slot, null, false); else renderIfOpen();
             // With 「トラックのみ」 on, the row leaves with its lane.
             if (chosen.tracksOnly) rebuild();
         }),

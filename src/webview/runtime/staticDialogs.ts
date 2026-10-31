@@ -85,7 +85,7 @@ export function showRecipeCharts(
     const style = target.createElement('style'); style.textContent = renderChartSpecStyles();
     const chartsHost = target.createElement('div'); chartsHost.id = 'charts';
     target.head.append(style); target.body.append(chartsHost);
-    Object.assign(frameWindow as unknown as Record<string, unknown>, chartSpecGlobals(charts, strings));
+    Object.assign(frameWindow, chartSpecGlobals(charts, strings));
     prepareFrame(frameWindow);
     const script = target.createElement('script'); script.src = './chartSpecRuntime.js';
     target.body.append(script);

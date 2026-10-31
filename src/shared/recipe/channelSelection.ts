@@ -46,13 +46,13 @@ export function channelResult(result: ScanResult | undefined, ch: number): ScanR
     const index = ch - 1;
     const count = (result.leqDbA ?? []).length;
     if (index >= count) return { ok: false, reason: `no channel ${ch} (${count} ch)` };
-    const picked: Record<string, unknown> = { ...result };
+    const picked: ScanResult = { ...result };
     for (const key of PER_CHANNEL) {
-        const values = (result as unknown as Record<string, unknown[] | undefined>)[key];
-        if (Array.isArray(values)) picked[key] = [values[index]];
+        const values = result[key];
+        if (Array.isArray(values)) Object.assign(picked, { [key]: [values[index]] });
     }
     if (result.input) picked.input = { ...result.input, channels: [result.input.channels[index] ?? index] };
-    return picked as unknown as ScanResult;
+    return picked;
 }
 
 export const BASE_INPUT = 'input-base';

@@ -68,7 +68,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const failedWith = (sentence: string, error: unknown): string => sentence.replace('{error}', () => userErrorText(error, strings));
     browserWindow.__APP_STRINGS__ = strings;
     const locale = pickLocale(window.navigator?.language ?? 'en');
-    (browserWindow as unknown as { __APP_LOCALE__: string }).__APP_LOCALE__ = locale;
+    browserWindow.__APP_LOCALE__ = locale;
     if (document.documentElement) document.documentElement.lang = locale;
     document.title = strings.panelTitle;
     const VIEW_STATE_KEY = 'audioWandasAnalyzer.viewState';
@@ -78,7 +78,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function save(key: string, value: unknown): void {
         try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage may be denied or full; keep working in memory. */ }
     }
-    const folderStore = createIdbStore((window as unknown as { indexedDB?: IDBFactory }).indexedDB, { read: readSaved, write: save });
+    const folderStore = createIdbStore(window.indexedDB, { read: readSaved, write: save });
     const settingsContext = { workspaceState: {
         get: readSaved,
         update: async (key: string, value: unknown): Promise<void> => { save(key, value); },
@@ -140,7 +140,14 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function exclusive<T>(task: () => Promise<T>): Promise<T> {
         return new Promise<T>((resolve, reject) => { enqueueBatch(() => task().then(resolve, reject)); });
     }
-    let entryRecipe: Promise<Record<string, unknown>> | undefined;
+    let entryRecipe: Promise<RecipeDocument> | undefined;
+    function loadEntryRecipe(): Promise<RecipeDocument> {
+        const location = './recipes/entry-scan.recipe.json';
+        return entryRecipe ??= fetchJson(location).then(recipe => {
+            if (!isRecipeDocument(recipe)) throw new Error(`${location} is not a recipe document`);
+            return recipe;
+        });
+    }
     /**
      * One entry-table file: loaded into the Worker only for its scan unless it is already a selected
      * track, so a folder of any size never holds more than one extra file in Pyodide.
@@ -153,8 +160,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         if (tooLarge) return { ok: false, reason: tooLarge };
         const pairedFile = reference ? folder.get(reference.filePath) : undefined;
         if (reference && !pairedFile) return { ok: false, reason: strings.entrySourceGone };
-        entryRecipe ??= fetchJson('./recipes/entry-scan.recipe.json') as Promise<Record<string, unknown>>;
-        const recipe = override ?? await entryRecipe;
+        const recipe = override ?? await loadEntryRecipe();
         return exclusive(async () => {
             // A file that is not a selected track is loaded into the Worker for this scan only (the reference too).
             const loaded: string[] = [];
@@ -405,10 +411,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         entry: {
             identity: async path => folderKeys.identity(path),
             scan: (path, region, recipe, stage, detail, reference) => scanEntryFile(path, region, recipe, stage, detail, reference),
-            recipe: async () => {
-                entryRecipe ??= fetchJson('./recipes/entry-scan.recipe.json') as Promise<Record<string, unknown>>;
-                return await entryRecipe as unknown as RecipeDocument;
-            },
+            recipe: loadEntryRecipe,
             // The picked folder's CSV/TSV files are listed beside its recordings; the browser cannot reach the folder above.
             readFile: async path => {
                 const file = folder.get(path);
@@ -581,7 +584,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
      * File System Access picker, which asks to view them instead, is preferred where it exists.
      */
     function pickFolder(): void {
-        const showDirectoryPicker = (window as unknown as { showDirectoryPicker?: ShowDirectoryPicker }).showDirectoryPicker;
+        const showDirectoryPicker = 'showDirectoryPicker' in window ? window.showDirectoryPicker as ShowDirectoryPicker : undefined;
         if (!showDirectoryPicker) { folderPick.click(); return; }
         void (async () => {
             const files: FoundFile[] = [];

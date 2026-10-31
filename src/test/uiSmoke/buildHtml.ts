@@ -11,6 +11,7 @@ window.__uiSmokePostedMessages = [];
 window.__uiSmokeDownloads = [];
 window.__uiSmokeClipboardWrites = [];
 window.__uiSmokeState = {};
+window.__AWA_TEST_HOOKS__ = true;
 // Smoke pages open with the cursor spectrum unfolded (a fresh panel folds it); a test sets __uiSmokeViewState for a fresh one.
 window.acquireVsCodeApi = function() {
     return {
@@ -48,6 +49,7 @@ function buildExtensionHostApiStub(nonce: string, responseDelayMs: number): stri
     return `<script nonce="${nonce}">
 window.__uiSmokePostedMessages = [];
 window.__uiSmokeState = {};
+window.__AWA_TEST_HOOKS__ = true;
 window.__uiSmokeHostMetrics = {
     requests: [],
     responses: [],

@@ -4,11 +4,29 @@ import type { RuntimeWindow, UiSmokeState } from './types';
 
 export type TestActionMessage = Extract<HostInboundMessage, { type: 'comparison-panel-test-action' }>;
 
+/** The rendered UI a test reads; `fallback` stands in when building it throws (a test action left it half-drawn). */
+export interface TestSnapshotSource {
+    build(): Record<string, unknown>;
+    fallback(error: unknown): Record<string, unknown>;
+}
+
 export class ComparisonTestBridge {
+    private source: TestSnapshotSource | undefined;
+
     constructor(
         private readonly browserWindow: RuntimeWindow,
         private readonly messenger: HostMessenger,
     ) {}
+
+    /** Only a page the tests open sets `__AWA_TEST_HOOKS__` (the VS Code host in its test mode, the smoke pages). */
+    get enabled(): boolean {
+        return this.browserWindow.__AWA_TEST_HOOKS__ === true;
+    }
+
+    /** What a snapshot holds, built only when a test page publishes one. */
+    provide(source: TestSnapshotSource): void {
+        this.source = source;
+    }
 
     get state(): UiSmokeState | undefined {
         return this.browserWindow.__uiSmokeState;
@@ -41,7 +59,31 @@ export class ComparisonTestBridge {
         });
     }
 
-    publish(renderedUi: Record<string, unknown>, actionId?: string): void {
+    publish(actionId?: string): void {
+        if (!this.enabled || !this.source) return;
+        this.post(this.source.build(), actionId);
+    }
+
+    /** As `publish`, after the next frame has drawn what the change asked for. */
+    publishAfterFrame(): void {
+        if (!this.enabled) return;
+        this.browserWindow.requestAnimationFrame(() => { this.publish(); });
+    }
+
+    /** The answer to a test action: published even when building it throws, so the test sees the error. */
+    publishFor(actionId?: string): void {
+        if (!this.enabled || !this.source) return;
+        let renderedUi: Record<string, unknown>;
+        try {
+            renderedUi = this.source.build();
+        }
+        catch (error) {
+            renderedUi = this.source.fallback(error);
+        }
+        this.post(renderedUi, actionId);
+    }
+
+    private post(renderedUi: Record<string, unknown>, actionId?: string): void {
         this.messenger.post({ type: 'comparison-panel-test-snapshot', actionId, renderedUi });
     }
 }

@@ -73,7 +73,10 @@ export function createStepBar(deps: {
     let menu: StepMenuState | null = null;
     const limits = (): StepLimits => stepLimits(state);
     /** The optional packages the runtime cannot import, where its host says (the Web version). */
-    const lacks = (): ReadonlySet<string> => new Set((document.defaultView as unknown as { __AWA_RUNTIME_LACKS__?: readonly string[] } | null)?.__AWA_RUNTIME_LACKS__ ?? []);
+    const lacks = (): ReadonlySet<string> => {
+        const view = document.defaultView;
+        return new Set(view && '__AWA_RUNTIME_LACKS__' in view ? view.__AWA_RUNTIME_LACKS__ as readonly string[] | undefined : undefined);
+    };
     const footer = (text: string): void => { document.getElementById('hint-footer')?.replaceChildren(text); };
 
     // ---- undo / redo: every edit from the bar keeps what was there before (the Recipe and the region).

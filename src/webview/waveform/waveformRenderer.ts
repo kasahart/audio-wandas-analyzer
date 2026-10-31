@@ -87,7 +87,7 @@ export function computeAnchorX(
 
 export interface CanvasCtx {
     lineWidth: number;
-    strokeStyle: string;
+    strokeStyle: string | CanvasGradient | CanvasPattern;
     beginPath(): void;
     moveTo(x: number, y: number): void;
     lineTo(x: number, y: number): void;

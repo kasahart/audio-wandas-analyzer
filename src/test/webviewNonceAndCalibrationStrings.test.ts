@@ -30,6 +30,13 @@ test('comparison document issues a fresh random nonce per render', () => {
     assert.equal(Buffer.from(first, 'base64').length, 16);
 });
 
+test('comparison document turns the runtime test hooks on only when asked', () => {
+    const assets = { waveformScriptUri: 'w.js', runtimeScriptUri: 'r.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0' };
+    const state: ComparisonState = { mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS };
+    assert.doesNotMatch(renderComparisonDocument(state, assets), /__AWA_TEST_HOOKS__/);
+    assert.match(renderComparisonDocument(state, { ...assets, testHooks: true }), /window\.__AWA_TEST_HOOKS__ = true;/);
+});
+
 test('calibration button uses localized label, title and aria-label', () => {
     const ja = getStrings('ja');
     const html = calibrationButtonHtml('track-1', ja);

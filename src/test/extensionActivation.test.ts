@@ -51,6 +51,7 @@ function loadActivation(options: {
     }
     const vscodeStub = {
         env: { language: 'en' },
+        ExtensionMode: { Production: 1, Development: 2, Test: 3 },
         commands: {
             registerCommand: (commandId: string, handler: (...args: unknown[]) => unknown) => {
                 state.registeredCommandIds.push(commandId);

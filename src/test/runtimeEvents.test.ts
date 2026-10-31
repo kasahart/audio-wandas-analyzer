@@ -55,3 +55,33 @@ test('outside the smoke tests the bridge does not listen, so no event is built',
     feed.emit(() => { built += 1; return waveformZoom; });
     assert.equal(built, 0);
 });
+
+test('the test bridge builds and posts a snapshot only on a page with test hooks', () => {
+    for (const hooks of [false, true]) {
+        const posted: unknown[] = [];
+        const frames: Array<() => void> = [];
+        const bridge = new ComparisonTestBridge(
+            { __AWA_TEST_HOOKS__: hooks, requestAnimationFrame: (callback: () => void) => frames.push(callback) } as unknown as RuntimeWindow,
+            { post: (message: unknown) => { posted.push(message); } } as unknown as HostMessenger,
+        );
+        let built = 0;
+        bridge.provide({
+            build: () => { built += 1; if (built === 3) throw new Error('half drawn'); return { built }; },
+            fallback: error => ({ failed: (error as Error).message }),
+        });
+        bridge.publish();
+        bridge.publishAfterFrame();
+        frames.forEach(frame => frame());
+        bridge.publishFor('a1');
+        if (!hooks) {
+            assert.equal(built, 0);
+            assert.deepEqual(posted, []);
+            continue;
+        }
+        assert.deepEqual(posted, [
+            { type: 'comparison-panel-test-snapshot', actionId: undefined, renderedUi: { built: 1 } },
+            { type: 'comparison-panel-test-snapshot', actionId: undefined, renderedUi: { built: 2 } },
+            { type: 'comparison-panel-test-snapshot', actionId: 'a1', renderedUi: { failed: 'half drawn' } },
+        ]);
+    }
+});
