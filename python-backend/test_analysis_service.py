@@ -525,9 +525,12 @@ def test_pair_spectrum_labels_transfer_levels_between_units(tmp_path: Path) -> N
     assert "Pa" in response["axisLabel"]
 
 
-def test_browser_pair_spectrum_refuses_work_beyond_the_memory_budget(tmp_path: Path) -> None:
+def test_browser_pair_spectrum_refuses_work_beyond_the_memory_budget(tmp_path: Path, monkeypatch) -> None:
+    import browser_service
     from browser_service import create_service
 
+    # Thirty seconds at 96 kHz fits the full budget, so the guard is shown against a smaller one.
+    monkeypatch.setattr(browser_service, "MAX_ESTIMATED_BYTES", 512 * 1024 * 1024)
     browser = create_service()
     sources = []
     for rate, name in [(96000, "fine.wav"), (48000, "reference.wav"), (48000, "response.wav")]:

@@ -13,6 +13,7 @@ import { median } from '../../shared/dataset/distribution';
 import { PANE_LEFT, paneAxes, type PaneRange } from './comparePanes';
 import type { NormalizedRange } from './waveformInteraction';
 import { plotPointIn, type PlotMargins } from './plotInteraction';
+import { nearestLine } from './plotHover';
 import { paintWaveformLayer, waveformRange } from '../plot/waveformLayer';
 import { drawValueAxis, fittedAxisTitle, readoutText, type AxisTick } from '../../shared/gui-core/index';
 import { niceTicks } from '../../shared/utils/ticks';
@@ -320,6 +321,22 @@ export interface StageLayer {
     alpha?: number;
     /** Bars filled down to the axis (a picture on its own); overlaid bars are drawn as steps. */
     filled?: boolean;
+    /** What the readout calls it while the pointer is on it (the legend's name). */
+    label?: string;
+}
+
+/**
+ * Where a pane put its lines, for the pointer (plotHover.ts): the plot's frame on the canvas (CSS pixels), the
+ * axes' values to pixels, and the pictures drawn as lines or steps (not a signal drawn as itself, nor an image).
+ */
+export interface StagePlot {
+    frame: { left: number; top: number; width: number; height: number };
+    xAt: (value: number) => number;
+    yAt: (value: number) => number;
+    /** A band's half width as a ratio of its centre, for steps. */
+    ratioStep: number;
+    lines: StageLayer[];
+    diff: boolean;
 }
 
 /** Several pictures of one Frame type on one set of axes, as solid lines (or steps) told apart by colour. */
@@ -369,22 +386,23 @@ export interface StagePaintOptions {
 }
 
 /** One picture on its own: the base, the compared file or their difference. */
-export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, range: PaneRange, color: string, axes: StageAxes, options: StagePaintOptions = {}): void {
-    paintOverlay(canvas, { layers: view ? [{ view, color, filled: true }] : [] }, range, axes, options);
+export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, range: PaneRange, color: string, axes: StageAxes, options: StagePaintOptions = {}): StagePlot | null {
+    return paintOverlay(canvas, { layers: view ? [{ view, color, filled: true }] : [] }, range, axes, options);
 }
 
 /**
  * Draws one pane: the overlay's pictures within `range` (the level axis, or a heatmap's colours), with tick
  * numbers on both axes and the axes' names. `diff` draws a zero line and colours a heatmap green (compare
- * louder) and grey (quieter). Without a picture it says `empty` in the middle of the pane.
+ * louder) and grey (quieter). Without a picture it says `empty` in the middle of the pane. Returns where its lines
+ * are, for the pointer (null when nothing is drawn).
  */
-export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, range: PaneRange, axes: StageAxes, options: StagePaintOptions = {}): void {
+export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, range: PaneRange, axes: StageAxes, options: StagePaintOptions = {}): StagePlot | null {
     const ratio = options.size ? 1 : canvas.ownerDocument.defaultView?.devicePixelRatio ?? 1;
     const width = options.size?.width ?? (canvas.clientWidth || 600), height = options.size?.height ?? (canvas.clientHeight || 120);
     canvas.width = Math.round(width * ratio);
     canvas.height = Math.round(height * ratio);
     const context = canvas.getContext('2d');
-    if (!context) return;
+    if (!context) return null;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
     const style = canvas.ownerDocument.defaultView?.getComputedStyle(canvas);
@@ -420,7 +438,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             context.fillText(options.empty, left + plotWidth / 2, top + plotHeight / 2);
             context.textAlign = 'start';
         }
-        return;
+        return null;
     }
     const xWindow = options.window?.x ?? FULL_WINDOW;
     const whole = options.axisView ?? view;
@@ -432,6 +450,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const yAt = (value: number): number => top + (1 - (Math.max(range.min, Math.min(range.max, value)) - range.min) / (range.max - range.min)) * plotHeight;
 
     let levelTicks: AxisTick[] = [];
+    const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, ratioStep: 1.12, lines: [], diff: !!options.diff };
     if (heatmap && yAxis && view.matrix) {
         const image = context.createImageData(Math.round(plotWidth * ratio), Math.round(plotHeight * ratio));
         const extentAbs = Math.max(Math.abs(range.min), Math.abs(range.max), 1e-9);
@@ -486,6 +505,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         }
         const bars = view.kind === 'bar';
         const ratioStep = bars && view.xs!.length > 1 ? Math.sqrt(view.xs![1] / view.xs![0]) : 1.12;
+        plot.ratioStep = ratioStep;
         context.save();
         context.beginPath(); context.rect(left, top, plotWidth, plotHeight); context.clip();
         if (options.bandSteps) paintBandSteps(context, options.bandSteps, xAt, yAt);
@@ -500,35 +520,21 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
                 paintWaveformLayer(context, { left, top, width: plotWidth, height: plotHeight }, layer.view.waveform, wholeAxis, xWindow, range, layer.color, layer.width ?? 1.5);
                 continue;
             }
+            plot.lines.push(layer);
             context.save();
-            context.strokeStyle = layer.color;
             context.fillStyle = layer.color;
             context.globalAlpha = layer.alpha ?? 1;
-            if (layer.view.kind === 'bar') {
-                context.lineWidth = layer.width ?? (layer.filled ? 1 : 2);
+            if (layer.view.kind === 'bar' && layer.filled) {
+                const floor = options.diff ? yAt(0) : yAt(range.min);
+                context.globalAlpha = 0.3 * (layer.alpha ?? 1);
                 values.forEach((value, index) => {
                     if (value === null) return;
                     const x0 = xAt(layer.view.xs![index] / ratioStep), x1 = xAt(layer.view.xs![index] * ratioStep);
-                    if (layer.filled) {
-                        const floor = options.diff ? yAt(0) : yAt(range.min);
-                        context.globalAlpha = 0.3 * (layer.alpha ?? 1);
-                        context.fillRect(x0, Math.min(floor, yAt(value)), Math.max(1, x1 - x0 - 1), Math.abs(floor - yAt(value)));
-                        context.globalAlpha = layer.alpha ?? 1;
-                    }
-                    context.beginPath(); context.moveTo(x0, yAt(value)); context.lineTo(x1 - 1, yAt(value)); context.stroke();
+                    context.fillRect(x0, Math.min(floor, yAt(value)), Math.max(1, x1 - x0 - 1), Math.abs(floor - yAt(value)));
                 });
-            } else {
-                context.lineWidth = layer.width ?? 1.5;
-                context.beginPath();
-                let drawing = false;
-                values.forEach((value, index) => {
-                    if (value === null || value <= -250) { drawing = false; return; }
-                    const x = xAt(layer.view.xs![index]), y = yAt(value);
-                    if (drawing) context.lineTo(x, y); else context.moveTo(x, y);
-                    drawing = true;
-                });
-                context.stroke();
+                context.globalAlpha = layer.alpha ?? 1;
             }
+            strokeStageLine(context, plot, layer, layer.width ?? (layer.view.kind !== 'bar' ? 1.5 : layer.filled ? 1 : 2));
             context.restore();
         }
         context.restore();
@@ -555,6 +561,72 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
     // Under the region's corner tag when there is one.
     if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
+    return plot;
+}
+
+/** One picture of a pane as its line (or its bands as steps), `width` wide, clipped to the plot. */
+export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePlot, layer: StageLayer, width: number): void {
+    const { xAt, yAt, ratioStep, frame } = plot;
+    const values = layer.view.values ?? [];
+    context.save();
+    context.beginPath(); context.rect(frame.left, frame.top, frame.width, frame.height); context.clip();
+    context.strokeStyle = layer.color;
+    context.globalAlpha = layer.alpha ?? 1;
+    context.lineWidth = width;
+    if (layer.view.kind === 'bar') {
+        values.forEach((value, index) => {
+            if (value === null) return;
+            const x0 = xAt(layer.view.xs![index] / ratioStep), x1 = xAt(layer.view.xs![index] * ratioStep);
+            context.beginPath(); context.moveTo(x0, yAt(value)); context.lineTo(x1 - 1, yAt(value)); context.stroke();
+        });
+    } else {
+        context.beginPath();
+        let drawing = false;
+        values.forEach((value, index) => {
+            if (value === null || value <= -250) { drawing = false; return; }
+            const x = xAt(layer.view.xs![index]), y = yAt(value);
+            if (drawing) context.lineTo(x, y); else context.moveTo(x, y);
+            drawing = true;
+        });
+        context.stroke();
+    }
+    context.restore();
+}
+
+/** A line's point nearest across to `x` (canvas CSS pixels): its index and where it is drawn; null where it has no value. */
+function linePointAt(plot: StagePlot, layer: StageLayer, x: number): { index: number; x: number; y: number; value: number } | null {
+    const xs = layer.view.xs ?? [], values = layer.view.values ?? [];
+    if (!xs.length) return null;
+    let low = 0, high = xs.length - 1;
+    while (high - low > 1) {
+        const middle = (low + high) >> 1;
+        if (plot.xAt(xs[middle]) <= x) low = middle; else high = middle;
+    }
+    // A band is the one whose step the pointer is over (its centre may be off the plot, zoomed into part of it).
+    const inBand = (index: number): boolean => x >= plot.xAt(xs[index] / plot.ratioStep) && x <= plot.xAt(xs[index] * plot.ratioStep);
+    // Past a line's ends, or beside the bands, the pointer is over no point of it.
+    if (layer.view.kind === 'bar' ? !inBand(low) && !inBand(high) : x < plot.xAt(xs[0]) || x > plot.xAt(xs[xs.length - 1])) return null;
+    const index = layer.view.kind === 'bar' ? (inBand(high) ? high : low)
+        : Math.abs(plot.xAt(xs[high]) - x) < Math.abs(plot.xAt(xs[low]) - x) ? high : low;
+    const value = values[index];
+    if (value === null || value === undefined || value <= -250) return null;
+    // A point off the plot (zoomed between two points) keeps its cursor at the plot's edge.
+    const at = Math.max(plot.frame.left, Math.min(plot.frame.left + plot.frame.width, plot.xAt(xs[index])));
+    return { index, x: at, y: plot.yAt(value), value };
+}
+
+/**
+ * The line of a pane nearest the pointer at (`x`, `y`) on its canvas, as the spectrum overlay picks it
+ * (plotHover.ts): that line, its point and the readout (its name, where, its value).
+ */
+export function stageHover(plot: StagePlot, x: number, y: number): { layer: StageLayer; x: number; y: number; text: string } | null {
+    const hit = nearestLine(plot.lines, layer => linePointAt(plot, layer, x), y);
+    if (!hit) return null;
+    const view = hit.s.view;
+    const amount = plot.diff ? signed(hit.point.value, isDb(view))
+        // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
+        : (isDb(view) ? `${hit.point.value.toFixed(1)} dB` : Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−');
+    return { layer: hit.s, x: hit.point.x, y: hit.point.y, text: readoutText([...(hit.s.label ? [hit.s.label] : plot.diff ? ['Δ'] : []), atText(view, hit.point.index), amount]) };
 }
 
 /**
