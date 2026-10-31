@@ -466,6 +466,7 @@ test('native calibration shown hook replaces listeners and follows live results 
     let configureActive!: () => Promise<void>;
     NodeModule._load = function(request, parent, isMain): unknown {
         if (request === 'vscode') return {
+            env: { language: 'en' },
             commands: { registerCommand: (_name: string, action: () => Promise<void>) => { configureActive = action; return { dispose() {} }; } },
             window: { showInformationMessage() {}, showQuickPick: async (items: unknown[]) => items[0] },
         };

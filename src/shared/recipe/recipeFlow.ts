@@ -1,4 +1,5 @@
 import type { ChartSpec } from '../chartSpec';
+import { fillTemplate, getStrings, type UiStrings } from '../i18n/strings';
 import { bindSelection, needsAssignment, type RecipeDocument } from './recipeSelection';
 
 export interface RecipeCatalogEntry {
@@ -55,7 +56,10 @@ export function recipeTitle(location: string): string {
  * selection to the Recipe inputs and shows the resulting charts.
  */
 export class RecipeFlow {
-    constructor(private readonly ports: RecipeFlowPorts) {}
+    constructor(
+        private readonly ports: RecipeFlowPorts,
+        private readonly strings: Pick<UiStrings, 'recipeReadFailed' | 'recipeRunFailed' | 'recipeRunning'> = getStrings('en'),
+    ) {}
 
     async run(selectionFilePaths?: string[], isCurrent: () => boolean = () => true): Promise<void> {
         if (!isCurrent()) return;
@@ -63,7 +67,7 @@ export class RecipeFlow {
         try {
             entries = await this.ports.listRecipes();
         } catch (error) {
-            if (isCurrent()) this.ports.showError(`Could not read recipes: ${error instanceof Error ? error.message : String(error)}`);
+            if (isCurrent()) this.ports.showError(fillTemplate(this.strings.recipeReadFailed, { message: error instanceof Error ? error.message : String(error) }));
             return;
         }
         if (!isCurrent()) return;
@@ -77,7 +81,7 @@ export class RecipeFlow {
 
         const title = recipeTitle(location);
         const failed = (error: unknown): void => {
-            if (isCurrent()) this.ports.showError(`Recipe execution failed: ${error instanceof Error ? error.message : String(error)}`);
+            if (isCurrent()) this.ports.showError(fillTemplate(this.strings.recipeRunFailed, { message: error instanceof Error ? error.message : String(error) }));
         };
         let document: RecipeDocument;
         let inputs: Record<string, string> | undefined;
@@ -94,7 +98,7 @@ export class RecipeFlow {
         }
         if (!isCurrent() || !inputs) return;
         const chosen = inputs;
-        await this.ports.runWithProgress(`Running recipe ${title}…`, async () => {
+        await this.ports.runWithProgress(fillTemplate(this.strings.recipeRunning, { title }), async () => {
             if (!isCurrent()) return;
             try {
                 const result = await this.ports.execute(document, chosen, location);

@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { RecipeRunnerResult } from '../shared/chartSpec';
+import { fillTemplate, getStrings } from '../shared/i18n/strings';
 import { RecipeFlow as SharedRecipeFlow, type RecipeCatalogEntry, type RecipeFlowPorts, type RecipePickItem } from '../shared/recipe/recipeFlow';
 import { describeInputs, isRecipeDocument, type RecipeDocument } from '../shared/recipe/recipeSelection';
 import { SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../shared/utils/audioTarget';
@@ -18,19 +19,20 @@ export interface RecipeFlowHost {
     showError(message: string): void;
 }
 
-const BROWSE_RECIPE_LABEL = '$(folder-opened) Browse...';
+const strings = () => getStrings(vscode.env.language);
 
 const defaultHost: RecipeFlowHost = {
     readDirectory: (uri) => vscode.workspace.fs.readDirectory(uri),
     readFile: (uri) => vscode.workspace.fs.readFile(uri),
     async pickRecipe(items) {
-        const picked = await vscode.window.showQuickPick(items, { placeHolder: 'Select a wandas recipe' });
+        const text = strings();
+        const picked = await vscode.window.showQuickPick(items, { placeHolder: text.recipePickPlaceholder });
         if (!picked) { return undefined; }
-        if (picked.label !== BROWSE_RECIPE_LABEL) { return picked.description; }
+        if (picked.label !== text.recipeBrowseLabel) { return picked.description; }
         const uris = await vscode.window.showOpenDialog({
             canSelectMany: false,
-            filters: { 'Recipe JSON': ['json'] },
-            openLabel: 'Use recipe',
+            filters: { [text.recipeFileFilter]: ['json'] },
+            openLabel: text.recipeOpenLabel,
         });
         return uris?.[0]?.fsPath;
     },
@@ -38,7 +40,7 @@ const defaultHost: RecipeFlowHost = {
         const uris = await vscode.window.showOpenDialog({
             canSelectMany: true,
             filters: { Audio: SUPPORTED_AUDIO_DIALOG_EXTENSIONS },
-            openLabel: 'Use as recipe input',
+            openLabel: strings().recipeInputsOpenLabel,
         });
         return uris?.map((uri) => uri.fsPath);
     },
@@ -49,7 +51,7 @@ const defaultHost: RecipeFlowHost = {
             const ordered = [proposed[name], ...files.filter(file => file !== proposed[name])];
             const picked = await vscode.window.showQuickPick(
                 ordered.map(file => ({ label: path.basename(file), description: file })),
-                { placeHolder: `Recipe input "${name}" (${index + 1}/${names.length})` },
+                { placeHolder: fillTemplate(strings().recipeInputPlaceholder, { name, index: index + 1, total: names.length }) },
             );
             if (!picked) { return undefined; }
             assigned.push([name, picked.description]);
@@ -77,7 +79,7 @@ export class RecipeFlow {
     ) {}
 
     run(filePathsFromCaller?: string[]): Promise<void> {
-        return new SharedRecipeFlow(this.ports()).run(filePathsFromCaller);
+        return new SharedRecipeFlow(this.ports(), strings()).run(filePathsFromCaller);
     }
 
     private ports(): RecipeFlowPorts {
@@ -98,11 +100,11 @@ export class RecipeFlow {
                     .map(name => ({ name, location: path.join(recipesDirectory, name) }));
             },
             pickRecipe: (items) => this.host.pickRecipe([
-                ...items, { label: BROWSE_RECIPE_LABEL, description: 'Pick a recipe JSON from disk' },
+                ...items, { label: strings().recipeBrowseLabel, description: strings().recipeBrowseDescription },
             ]),
             readRecipe: async (location): Promise<RecipeDocument> => {
                 const parsed: unknown = JSON.parse(Buffer.from(await this.host.readFile(vscode.Uri.file(location))).toString('utf-8'));
-                if (!isRecipeDocument(parsed)) { throw new Error(`${location} is not a recipe document`); }
+                if (!isRecipeDocument(parsed)) { throw new Error(fillTemplate(strings().recipeNotDocument, { path: location })); }
                 return parsed;
             },
             pickInputFiles: () => this.host.pickInputFiles(),
